@@ -2,10 +2,34 @@
 <html lang="fr">
 	<head>
 		<meta charset="utf-8" />
-		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover"
+		/>
 		<meta name="text-scale" content="scale" />
 		<meta name="theme-color" content="#1DB954" />
+		<!-- PWA : installable, plein écran, comme une app native -->
+		<meta name="mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+		<meta name="apple-mobile-web-app-title" content="G-Flux" />
+		<link rel="manifest" href="/manifest.webmanifest" />
+		<link rel="apple-touch-icon" href="/logo.png" />
 		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<script>
+			// Empêche le pincement / double-tap de zoomer : comportement d'app native.
+			// user-scalable=no suffit en mode installé ; ce JS couvre aussi Safari normal.
+			(function () {
+				function block(e) {
+					if (e.type === 'touchmove' && e.touches.length < 2) return;
+					e.preventDefault();
+				}
+				document.addEventListener('gesturestart', block, { passive: false });
+				document.addEventListener('gesturechange', block, { passive: false });
+				document.addEventListener('gestureend', block, { passive: false });
+				document.addEventListener('touchmove', block, { passive: false });
+			})();
+		</script>
 		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 		<link
 			href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Lato:wght@300;400;700&display=swap"

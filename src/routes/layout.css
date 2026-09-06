@@ -44,8 +44,40 @@ body {
 	min-height: 100vh;
 	-webkit-font-smoothing: antialiased;
 	text-rendering: optimizeLegibility;
+	/* App native : pas de zoom, pas de délai double-tap, pas de menu long-press */
+	touch-action: manipulation;
+	-webkit-text-size-adjust: 100%;
+	text-size-adjust: 100%;
+	-webkit-touch-callout: none;
+	-webkit-user-select: none;
+	user-select: none;
+	overflow-x: hidden;
+}
+
+/* La saisie reste sélectionnable (inputs, textareas) */
+input,
+textarea,
+[contenteditable] {
+	-webkit-user-select: text;
+	user-select: text;
+	-webkit-touch-callout: default;
 }
 
 ::selection {
 	background-color: #c7d2fe;
+}
+
+/* Conteneurs scrollables : garder le geste natif fluide */
+.scrollable {
+	touch-action: pan-y;
+}
+
+/* Ajustements pour la zone des encoches/barres iOS en mode installé */
+@supports (padding: env(safe-area-inset-bottom)) {
+	.safe-bottom {
+		padding-bottom: max(env(safe-area-inset-bottom), 0px);
+	}
+	.safe-top {
+		padding-top: max(env(safe-area-inset-top), 0px);
+	}
 }
