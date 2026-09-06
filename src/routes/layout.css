@@ -1,0 +1,51 @@
+@import 'tailwindcss';
+
+/* ─── Palette G-Flux (extraite du formulaire d'origine) ─────────────── */
+@theme {
+	--color-cream: #f7f5f0;
+	--color-ink: #111110;
+	--color-brand: #1db954;
+	--color-brand-dark: #17a349;
+	--color-brand-light: #e8fef0;
+	--color-mist: #999990;
+	--color-card: #ffffff;
+	--color-line: #e5e3dc;
+	--color-danger: #ff4444;
+	--color-danger-light: #fff0f0;
+	--color-warn: #ff9500;
+	--color-warn-light: #fff8f0;
+	--font-sans: 'Lato', ui-sans-serif, system-ui, sans-serif;
+	--font-display: 'Oswald', ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+	--bg: #f7f5f0;
+	--text: #111110;
+	--accent: #1db954;
+	--accent-dark: #17a349;
+	--accent-light: #e8fef0;
+	--muted: #999990;
+	--card: #ffffff;
+	--border: #e5e3dc;
+	--red: #ff4444;
+	--red-l: #fff0f0;
+	--orange: #ff9500;
+	--orange-l: #fff8f0;
+}
+
+html,
+body {
+	background: var(--bg);
+}
+
+body {
+	color: var(--text);
+	font-family: 'Lato', sans-serif;
+	min-height: 100vh;
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
+}
+
+::selection {
+	background-color: #c7d2fe;
+}

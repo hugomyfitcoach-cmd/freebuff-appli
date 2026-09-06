@@ -1,0 +1,5 @@
+# Déploiement Netlify — SvelteKit (adapter-netlify)
+# La fonction SSR (.netlify/functions-internal) est détectée automatiquement.
+[build]
+  command = "npm run build"
+  publish = "build"

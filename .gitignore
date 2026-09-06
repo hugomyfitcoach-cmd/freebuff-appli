@@ -1,0 +1,32 @@
+node_modules
+
+# Output
+.output
+.vercel
+.netlify
+.wrangler
+/.svelte-kit
+/build
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.*
+!.env.example
+!.env.test
+
+# Convex (état local de la base — machine-specific, non committé)
+.convex
+
+# Toolchain Node embarquée dans le projet (installée par setup)
+.tools
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Outils internes de dev (contiennent des identifiants, logs, scripts locaux)
+.freebuff

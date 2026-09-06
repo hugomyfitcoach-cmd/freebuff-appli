@@ -1,0 +1,901 @@
+
+.guide-root{
+    --bg:        #0d0f0e;
+    --bg2:       #131614;
+    --bg3:       #181c1a;
+    --card:      #1a1e1c;
+    --border:    #252a27;
+    --border2:   #2e3530;
+    --green:     #4ade80;
+    --green-dim: rgba(74,222,128,0.08);
+    --green-mid: rgba(74,222,128,0.18);
+    --white:     #f0f4f1;
+    --gray:      #8a9490;
+    --gray2:     #5a6460;
+    --red:       #f87171;
+    --amber:     #fbbf24;
+  }
+
+.guide-root *{ margin:0; padding:0; box-sizing:border-box; }
+
+.guide-root{
+    background: var(--bg);
+    color: var(--white);
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* TOPBAR */
+.guide-root .topbar{
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    padding: 0 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 56px;
+    position: sticky;
+    top: 0;
+    z-index: 200;
+  }
+
+.guide-root .logo{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 17px;
+    color: var(--white);
+    letter-spacing: 0.01em;
+  }
+
+.guide-root .logo-dot{
+    width: 8px; height: 8px;
+    background: var(--green);
+    border-radius: 50%;
+    box-shadow: 0 0 8px var(--green);
+  }
+
+.guide-root .logo span{ color: var(--green); }
+
+.guide-root .topbar-right{
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--gray);
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+.guide-root .badge-count{
+    background: var(--green-dim);
+    border: 1px solid rgba(74,222,128,0.25);
+    color: var(--green);
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  /* HERO STRIP */
+.guide-root .hero-strip{
+    background: linear-gradient(135deg, #0d1410 0%, #111a14 50%, #0d0f0e 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 40px 32px 36px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+  }
+
+.guide-root .hero-left h1{
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--white);
+    letter-spacing: -0.01em;
+    margin-bottom: 6px;
+  }
+
+.guide-root .hero-left p{
+    font-size: 13px;
+    color: var(--gray);
+    max-width: 420px;
+    line-height: 1.7;
+  }
+
+.guide-root .hero-stats{
+    display: flex;
+    gap: 28px;
+    flex-shrink: 0;
+  }
+
+.guide-root .hstat{
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+
+.guide-root .hstat-num{
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--green);
+    line-height: 1;
+  }
+
+.guide-root .hstat-label{
+    font-size: 10px;
+    color: var(--gray2);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 500;
+  }
+
+  /* NAV TABS */
+.guide-root .nav-tabs{
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    padding: 0 32px;
+    display: flex;
+    gap: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+    position: sticky;
+    top: 56px;
+    z-index: 100;
+  }
+.guide-root .nav-tabs::-webkit-scrollbar{ display: none; }
+
+.guide-root .tab{
+    padding: 14px 20px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--gray2);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+.guide-root .tab:hover{ color: var(--gray); }
+
+.guide-root .tab.active{
+    color: var(--green);
+    border-bottom-color: var(--green);
+  }
+
+.guide-root .tab-count{
+    background: var(--green-dim);
+    color: var(--green);
+    border-radius: 10px;
+    padding: 1px 7px;
+    font-size: 10px;
+    font-weight: 700;
+  }
+
+.guide-root .tab.active .tab-count{
+    background: var(--green-mid);
+  }
+
+  /* MAIN */
+.guide-root .main{ padding: 28px 32px 60px; max-width: 1400px; }
+
+  /* SECTION */
+.guide-root .section{ display: none; }
+.guide-root .section.active{ display: block; animation: fadeUp 0.25s ease; }
+
+  @keyframes fadeUp {
+    from { opacity:0; transform:translateY(6px); }
+    to   { opacity:1; transform:translateY(0); }
+  }
+
+.guide-root .section-title{
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--gray);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+.guide-root .section-title::before{
+    content: '';
+    width: 3px; height: 14px;
+    background: var(--green);
+    border-radius: 2px;
+  }
+
+  /* RECIPE GRID */
+.guide-root .recipe-grid{
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 12px;
+  }
+
+  /* RECIPE CARD */
+.guide-root .recipe-card{
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+
+.guide-root .recipe-card:hover{
+    border-color: var(--border2);
+    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+  }
+
+.guide-root .recipe-card.open{
+    border-color: rgba(74,222,128,0.3);
+  }
+
+.guide-root .card-header{
+    padding: 18px 20px 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+.guide-root .card-header-left{ flex: 1; }
+
+.guide-root .card-index{
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--green);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+    font-family: 'Space Grotesk', sans-serif;
+  }
+
+.guide-root .card-name{
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--white);
+    line-height: 1.35;
+    margin-bottom: 12px;
+  }
+
+.guide-root .card-macros{
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+.guide-root .macro-pill{
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: 'Space Grotesk', sans-serif;
+    white-space: nowrap;
+  }
+
+.guide-root .macro-pill .val{ color: var(--white); }
+.guide-root .macro-pill .lbl{ color: var(--gray2); font-weight: 400; }
+.guide-root .macro-pill.kcal .val{ color: var(--amber); }
+.guide-root .macro-pill.prot .val{ color: var(--green); }
+
+.guide-root .chevron{
+    color: var(--gray2);
+    font-size: 16px;
+    flex-shrink: 0;
+    margin-top: 2px;
+    transition: transform 0.2s;
+  }
+
+.guide-root .recipe-card.open .chevron{ transform: rotate(180deg); color: var(--green); }
+
+  /* RECIPE DETAIL */
+.guide-root .card-detail{
+    display: none;
+    border-top: 1px solid var(--border);
+    padding: 20px;
+    background: var(--bg3);
+  }
+
+.guide-root .recipe-card.open .card-detail{ display: block; }
+
+.guide-root .detail-section{
+    margin-bottom: 20px;
+  }
+
+.guide-root .detail-section:last-child{ margin-bottom: 0; }
+
+.guide-root .detail-label{
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--gray2);
+    margin-bottom: 10px;
+    font-family: 'Space Grotesk', sans-serif;
+  }
+
+  /* INGREDIENTS */
+.guide-root .ingredients-list{
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+.guide-root .ingredient-row{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    background: var(--card);
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    font-size: 12px;
+  }
+
+.guide-root .ingredient-dot{
+    width: 5px; height: 5px;
+    background: var(--green);
+    border-radius: 50%;
+    flex-shrink: 0;
+    opacity: 0.7;
+  }
+
+.guide-root .ingredient-name{ color: var(--white); flex: 1; }
+.guide-root .ingredient-qty{
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 600;
+    color: var(--green);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  /* STEPS */
+.guide-root .steps-list{
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+.guide-root .step-row{
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+
+.guide-root .step-num{
+    width: 22px; height: 22px;
+    background: var(--green-dim);
+    border: 1px solid rgba(74,222,128,0.25);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--green);
+    font-family: 'Space Grotesk', sans-serif;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+.guide-root .step-text{
+    font-size: 12.5px;
+    color: var(--gray);
+    line-height: 1.6;
+    flex: 1;
+  }
+
+  /* TIME BADGE */
+.guide-root .time-badge{
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--green-dim);
+    border: 1px solid rgba(74,222,128,0.2);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--green);
+    font-family: 'Space Grotesk', sans-serif;
+    margin-bottom: 12px;
+  }
+
+  /* DESSERT CARD - wider */
+.guide-root .dessert-grid{
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+    gap: 12px;
+  }
+
+  /* FOOTER */
+.guide-root .footer{
+    background: var(--bg2);
+    border-top: 1px solid var(--border);
+    padding: 20px 32px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 60px;
+  }
+
+.guide-root .footer-brand{
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--gray2);
+  }
+
+.guide-root .footer-brand span{ color: var(--green); }
+
+.guide-root .footer-copy{
+    font-size: 11px;
+    color: var(--gray2);
+    letter-spacing: 0.03em;
+  }
+
+  /* RESPONSIVE */
+
+
+  /* HOME SCREEN */
+.guide-root .home-screen{
+    position: relative;
+    background: var(--bg);
+    padding: 56px 24px 60px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 85vh;
+  }
+
+.guide-root .home-screen.hidden{ display: none; }
+
+.guide-root .home-logo{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: "Space Grotesk", sans-serif;
+    font-weight: 700;
+    font-size: 20px;
+    color: var(--white);
+    margin-bottom: 28px;
+    letter-spacing: 0.05em;
+  }
+
+.guide-root .home-title{
+    font-family: "Space Grotesk", sans-serif;
+    font-size: clamp(28px, 6vw, 48px);
+    font-weight: 700;
+    color: var(--white);
+    text-align: center;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    margin-bottom: 10px;
+  }
+
+.guide-root .home-sub{
+    font-size: 13px;
+    color: var(--gray2);
+    margin-bottom: 40px;
+    text-align: center;
+    letter-spacing: 0.05em;
+  }
+
+.guide-root .home-nav{
+    width: 100%;
+    max-width: 700px;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+  }
+
+.guide-root .home-group{}
+
+.guide-root .home-group-label{
+    font-family: "Space Grotesk", sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--gray2);
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+.guide-root .home-items{
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+.guide-root .home-btn{
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: left;
+    width: 100%;
+  }
+
+.guide-root .home-btn:hover{
+    background: #1e2420;
+    border-color: var(--green);
+    transform: translateX(3px);
+  }
+
+.guide-root .home-btn-icon{
+    font-size: 20px;
+    flex-shrink: 0;
+    width: 28px;
+    text-align: center;
+  }
+
+.guide-root .home-btn-text{
+    font-family: "Space Grotesk", sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--white);
+    flex: 1;
+  }
+
+.guide-root .home-btn-count{
+    font-family: "Space Grotesk", sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--green);
+    background: var(--green-dim);
+    border: 1px solid rgba(74,222,128,0.2);
+    border-radius: 20px;
+    padding: 3px 10px;
+    white-space: nowrap;
+  }
+
+.guide-root .home-footer{
+    margin-top: 40px;
+    font-size: 11px;
+    color: var(--gray2);
+    letter-spacing: 0.08em;
+    text-align: center;
+  }
+
+  /* BOUTON RETOUR */
+.guide-root .home-back-btn{
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--gray);
+    font-family: "Space Grotesk", sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 5px 12px;
+    cursor: pointer;
+    margin-right: 12px;
+    transition: all 0.15s;
+    letter-spacing: 0.04em;
+  }
+.guide-root .home-back-btn:hover{
+    border-color: var(--green);
+    color: var(--green);
+  }
+
+  /* TABLES PROTÉINES */
+.guide-root .prot-table-wrap{
+    overflow-x: auto;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    margin-bottom: 8px;
+  }
+
+.guide-root .prot-table{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+    min-width: 500px;
+  }
+
+.guide-root .prot-table thead tr{
+    background: #111614;
+  }
+
+.guide-root .prot-table th{
+    padding: 10px 16px;
+    text-align: left;
+    font-family: "Space Grotesk", sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--gray);
+    border-bottom: 1px solid var(--border2);
+    white-space: nowrap;
+    background: #111614;
+  }
+
+.guide-root .prot-table td{
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    color: var(--gray);
+    line-height: 1.5;
+    vertical-align: top;
+    background: var(--bg);
+  }
+
+.guide-root .prot-table td:first-child{
+    color: var(--white);
+    font-weight: 500;
+    background: var(--bg);
+  }
+
+.guide-root .prot-table td:nth-child(2){
+    color: var(--green);
+    font-family: "Space Grotesk", sans-serif;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+.guide-root .prot-table td:nth-child(3){
+    color: var(--amber);
+    font-family: "Space Grotesk", sans-serif;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+.guide-root .prot-table tbody tr:last-child td{ border-bottom: none; }
+.guide-root .prot-table tbody tr:hover td{ background: #111614; }
+
+.guide-root .prot-note{
+    font-size: 11.5px;
+    color: var(--gray2);
+    font-style: italic;
+    padding: 8px 4px;
+    line-height: 1.6;
+  }
+.guide-root .prot-note strong{ color: var(--amber); font-style: normal; }
+
+  /* MÉMO */
+.guide-root .memo-intro{
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--amber);
+    border-radius: 8px;
+    padding: 16px 20px;
+    font-size: 13px;
+    color: var(--gray);
+    line-height: 1.7;
+    margin-bottom: 28px;
+  }
+.guide-root .memo-intro strong{ color: var(--white); }
+
+.guide-root .memo-group{
+    margin-bottom: 32px;
+  }
+
+.guide-root .memo-group-title{
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--amber);
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+.guide-root .memo-grid{
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 8px;
+  }
+
+.guide-root .memo-card{
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    transition: border-color 0.15s;
+  }
+.guide-root .memo-card:hover{ border-color: var(--border2); }
+.guide-root .memo-card.highlight{ border-left: 2px solid var(--green); }
+.guide-root .memo-card.alert{ border-left: 2px solid var(--amber); }
+
+.guide-root .memo-item{
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--white);
+    margin-bottom: 4px;
+    font-family: 'Space Grotesk', sans-serif;
+  }
+
+.guide-root .memo-val{
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--green);
+    margin-bottom: 4px;
+    line-height: 1.2;
+  }
+.guide-root .memo-card.alert .memo-val{ color: var(--amber); }
+
+.guide-root .memo-sub{
+    font-size: 11px;
+    color: var(--gray2);
+    line-height: 1.5;
+  }
+
+.guide-root .memo-rules{
+    background: linear-gradient(135deg, #111a14 0%, #0d1410 100%);
+    border: 1px solid rgba(74,222,128,0.2);
+    border-radius: 10px;
+    padding: 24px;
+    margin-top: 8px;
+  }
+
+.guide-root .memo-rule-title{
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--green);
+    margin-bottom: 16px;
+  }
+
+.guide-root .memo-rules-grid{
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+.guide-root .memo-rule{
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    font-size: 13px;
+    color: var(--gray);
+    line-height: 1.6;
+  }
+
+.guide-root .memo-rule strong{ color: var(--white); }
+
+.guide-root .rule-num{
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--green);
+    background: var(--green-dim);
+    border: 1px solid rgba(74,222,128,0.2);
+    border-radius: 4px;
+    padding: 2px 7px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  @media (max-width: 720px) {
+.guide-root .memo-grid{ grid-template-columns: 1fr; }
+  }
+
+  @media (max-width: 720px) {
+.guide-root .topbar{ padding: 0 16px; }
+.guide-root .hero-strip{ padding: 28px 16px; flex-direction: column; align-items: flex-start; }
+.guide-root .nav-tabs{ padding: 0 16px; top: 56px; }
+.guide-root .main{ padding: 20px 16px 60px; }
+.guide-root .recipe-grid{ grid-template-columns: 1fr; }
+.guide-root .dessert-grid{ grid-template-columns: 1fr; }
+.guide-root .hero-stats{ gap: 20px; }
+.guide-root .footer{ padding: 16px; flex-direction: column; gap: 8px; text-align: center; }
+  }
+
+/* Adaptations app (scopées guide) */
+.guide-root .main { margin: 0 auto; width: 100%; }
+.guide-root .topbar { position: sticky; top: 0; z-index: 150; }
+.guide-root .nav-tabs { position: sticky; top: 56px; z-index: 140; }
+
+/* ─── Mode clair : palette cream/brand G-Flux ─────────────────────── */
+.guide-root.theme-light {
+    --bg:        #f7f5f0;
+    --bg2:       #ffffff;
+    --bg3:       #f1efe7;
+    --card:      #ffffff;
+    --border:    #e5e3dc;
+    --border2:   #d6d2c7;
+    --green:     #1db954;
+    --green-dim: rgba(29,185,84,0.08);
+    --green-mid: rgba(29,185,84,0.16);
+    --white:     #111110;
+    --gray:      #6f6d65;
+    --gray2:     #99948a;
+    --red:       #dc2626;
+    --amber:     #b45309;
+}
+
+/* Déclinaisons des rares couleurs codées en dur pour le sombre */
+.guide-root.theme-light .hero-strip {
+    background: linear-gradient(135deg, #eaf6ee 0%, #f7f5f0 60%, #fdfdfa 100%);
+}
+.guide-root.theme-light .recipe-card:hover {
+    box-shadow: 0 4px 24px rgba(17, 17, 16, 0.08);
+}
+.guide-root.theme-light .home-btn:hover {
+    background: #e8fef0;
+}
+.guide-root.theme-light .prot-table thead tr,
+.guide-root.theme-light .prot-table th {
+    background: #eef7f0;
+}
+.guide-root.theme-light .prot-table tbody tr:hover td {
+    background: #f0fdf4;
+}
+.guide-root.theme-light .memo-rules {
+    background: linear-gradient(135deg, #f0fdf4 0%, #f7f5f0 100%);
+}
+
+/* ─── Bouton de bascule de thème ──────────────────────────────────── */
+.guide-root .theme-toggle {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 300;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-radius: 999px;
+    background: var(--card);
+    border: 1px solid var(--border2);
+    color: var(--white);
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+    transition: background 0.2s, border-color 0.2s, transform 0.15s;
+}
+.guide-root .theme-toggle:hover {
+    border-color: var(--green);
+    transform: translateY(-1px);
+}
+@media (max-width: 720px) {
+    .guide-root .theme-toggle { right: 12px; bottom: 12px; padding: 8px 12px; font-size: 12px; }
+}
