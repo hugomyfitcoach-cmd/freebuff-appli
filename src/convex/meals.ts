@@ -42,7 +42,8 @@ const round1 = (n: number) => Math.round(n * 10) / 10;
 /* ─────────────────────────── Repas personnalisés ─────────────────────────── */
 
 const ingredientInput = v.object({
-	foodId: v.id("foods"),
+	foodId: v.optional(v.id("foods")),
+	customFoodId: v.optional(v.id("customFoods")),
 	qtyGrams: v.number(),
 });
 
@@ -81,11 +82,26 @@ export const createMeal = mutation({
 			if (!isFinite(ing.qtyGrams) || ing.qtyGrams <= 0 || ing.qtyGrams > 5000) {
 				throw new ConvexError("Quantité d'ingrédient invalide (entre 1 et 5000 g).");
 			}
-			const food = await ctx.db.get(ing.foodId);
-			if (!food) throw new ConvexError("Un ingrédient n'existe plus dans la base. Retire-le et réessaie.");
+			if (!ing.foodId && !ing.customFoodId) {
+				throw new ConvexError("Un ingrédient est invalide : aliment introuvable.");
+			}
+			let food: { name: string; brand?: string; imageUrl?: string; kcal100: number; carbs100: number; protein100: number; fat100: number } | null = null;
+			if (ing.foodId) {
+				const f = await ctx.db.get(ing.foodId);
+				if (!f) throw new ConvexError("Un ingrédient n'existe plus dans la base. Retire-le et réessaie.");
+				food = f;
+			} else if (ing.customFoodId) {
+				const f = await ctx.db.get(ing.customFoodId);
+				if (!f || f.userId !== user._id) {
+					throw new ConvexError("Un ingrédient personnel n'existe plus. Retire-le et réessaie.");
+				}
+				food = f;
+			}
+			if (!food) throw new ConvexError("Ingrédient invalide : aliment introuvable.");
 			const k = ing.qtyGrams / 100;
 			const row = {
-				foodId: food._id,
+				foodId: ing.foodId ?? undefined,
+				customFoodId: ing.customFoodId ?? undefined,
 				name: food.name,
 				brand: food.brand,
 				imageUrl: food.imageUrl,
@@ -116,6 +132,66 @@ export const createMeal = mutation({
 			createdAt: Date.now(),
 		});
 		return { ok: true, mealId };
+	},
+});
+
+/**
+ * Ajoute une recette interne G-FLUX aux « Mes repas » du client.
+ *
+ * La recette devient un repas réutilisable : 1 portion = 100 (unité arbitraire
+ * qui sert de base au moteur `addMealEntry` — portionGrams = portions × 100).
+ * Les valeurs nutritionnelles de LA recette (1 portion) sont copiées telles
+ * quelles ; l'origine est conservée (sourceType + sourceRecipeId) pour
+ * distinguer un repas créé à la main d'une recette G-FLUX. Aucun doublon :
+ * si la recette est déjà dans « Mes repas », on renvoie le repas existant.
+ */
+export const addGFluxRecipe = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		/** Index de la recette dans le guide (ex. « DJ-04 »). */
+		recipeIndex: v.string(),
+		name: v.string(),
+		/** Valeurs pour 1 portion (issues du guide G-FLUX). */
+		kcal: v.number(),
+		carbs: v.number(),
+		protein: v.number(),
+		fat: v.number(),
+	},
+	handler: async (ctx, { sessionToken, recipeIndex, name, kcal, carbs, protein, fat }) => {
+		const user = await requireClient(ctx, sessionToken);
+		const clean = name.trim();
+		if (clean.length < 2 || clean.length > 80) {
+			throw new ConvexError("Nom de recette invalide.");
+		}
+		if (!isFinite(kcal) || kcal < 0 || kcal > 3000) throw new ConvexError("Calories de la recette invalides.");
+		if (!isFinite(carbs) || carbs < 0 || carbs > 300) throw new ConvexError("Glucides de la recette invalides.");
+		if (!isFinite(protein) || protein < 0 || protein > 300) throw new ConvexError("Protéines de la recette invalides.");
+		if (!isFinite(fat) || fat < 0 || fat > 300) throw new ConvexError("Lipides de la recette invalides.");
+
+		// Anti-doublon : une seule copie par recette dans « Mes repas ».
+		const existing = await ctx.db
+			.query("meals")
+			.withIndex("by_user", (q) => q.eq("userId", user._id))
+			.collect();
+		const dup = existing.find((m) => m.sourceType === "gflux_recipe" && m.sourceRecipeId === recipeIndex);
+		if (dup) return { ok: true, alreadyExists: true, mealId: dup._id };
+
+		// totalWeight = 100 : le moteur existant calcule portionGrams / 100,
+		// donc « 1 portion = 100 g » et « 2 portions = 200 g » → macros × 2.
+		const mealId = await ctx.db.insert("meals", {
+			userId: user._id,
+			name: clean,
+			totalWeight: 100,
+			kcal: Math.round(kcal),
+			carbs: round1(carbs),
+			protein: round1(protein),
+			fat: round1(fat),
+			ingredients: [],
+			sourceType: "gflux_recipe",
+			sourceRecipeId: recipeIndex,
+			createdAt: Date.now(),
+		});
+		return { ok: true, alreadyExists: false, mealId };
 	},
 });
 
@@ -153,8 +229,10 @@ export const addMealEntry = mutation({
 		meal: v.string(),
 		mealId: v.id("meals"),
 		portionGrams: v.number(),
+		/** Nombre de portions consommées (recette G-FLUX) — optionnel, pour l'affichage. */
+		portions: v.optional(v.number()),
 	},
-	handler: async (ctx, { sessionToken, date, meal, mealId, portionGrams }) => {
+	handler: async (ctx, { sessionToken, date, meal, mealId, portionGrams, portions }) => {
 		const user = await requireClient(ctx, sessionToken);
 		if (!isValidDateISO(date)) throw new ConvexError("Date invalide.");
 		if (!isMeal(meal)) throw new ConvexError("Repas invalide.");
@@ -174,6 +252,7 @@ export const addMealEntry = mutation({
 			name: rec.name,
 			imageUrl: rec.ingredients[0]?.imageUrl,
 			qtyGrams: portionGrams,
+			portions: portions !== undefined && portions !== null ? round1(portions) : undefined,
 			kcal: Math.round(rec.kcal * ratio),
 			carbs: round1(rec.carbs * ratio),
 			protein: round1(rec.protein * ratio),

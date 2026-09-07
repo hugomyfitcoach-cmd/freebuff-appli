@@ -11,24 +11,26 @@
 		user,
 		contentWidth = 'std',
 		showFooter = false,
+		badges = {},
 	}: {
 		children: Snippet;
 		role: Role;
 		user: SessionUser;
 		contentWidth?: 'std' | 'wide' | 'full';
 		showFooter?: boolean;
+		badges?: { bilans?: number; progression?: number };
 	} = $props();
 
 	const path = $derived(page.url.pathname);
 
-	type Link = { href: string; label: string; icon?: string; accent?: boolean };
+	type Link = { href: string; label: string; icon?: string; accent?: boolean; badge?: number };
 	const links = $derived<Link[]>(
 		role === 'client'
 			? [
-					{ href: '/espace', label: 'Mon suivi', icon: '📊' },
+					{ href: '/espace', label: 'Accueil', icon: '🏠' },
 					{ href: '/espace/journal', label: 'Journal', icon: '📔' },
-					{ href: '/espace/progression', label: 'Progression', icon: '📈' },
-					{ href: '/espace/historique', label: 'Mes bilans', icon: '🗂️' },
+					{ href: '/espace/progression', label: 'Progression', icon: '📈', badge: badges.progression ?? 0 },
+					{ href: '/espace/historique', label: 'Bilans', icon: '🗂️', badge: badges.bilans ?? 0 },
 					{ href: '/recettes', label: 'Recettes & nutrition', icon: '🍳' },
 					{ href: '/outils', label: 'Outils & calibrage', icon: '🧰' },
 				]
@@ -40,7 +42,8 @@
 	);
 
 	function isActive(link: Link): boolean {
-		if (link.href === '/espace') return path === '/espace' || path.startsWith('/espace/');
+		// Accueil = uniquement la page d'accueil ; chaque onglet met en avant sa propre section.
+		if (link.href === '/espace') return path === '/espace';
 		if (link.href === '/admin') return path === '/admin' || path.startsWith('/admin/');
 		return path === link.href || path.startsWith(link.href + '/');
 	}
@@ -74,7 +77,10 @@
 						{isActive(link) ? 'bg-ink text-white' : 'text-ink hover:bg-line/60'}"
 				>
 					{#if link.icon}<span class="text-base leading-none">{link.icon}</span>{/if}
-					<span>{link.label}</span>
+					<span class="flex-1">{link.label}</span>
+					{#if link.badge && link.badge > 0}
+						<span class="grid h-5 min-w-5 place-items-center rounded-full bg-warn px-1 text-[11px] font-bold text-white">{link.badge}</span>
+					{/if}
 				</a>
 			{/each}
 
@@ -128,9 +134,14 @@
 				{#each links as link (link.href)}
 					<a
 						href={link.href}
-						class="whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold transition
-							{isActive(link) ? 'bg-ink text-white' : 'bg-line/50 text-ink'}"
-					>{link.icon} {link.label}</a>
+					class="whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold transition
+						{isActive(link) ? 'bg-ink text-white' : 'bg-line/50 text-ink'}"
+				>
+					<span>{link.icon} {link.label}</span>
+					{#if link.badge && link.badge > 0}
+						<span class="ml-1 inline-grid h-4 min-w-4 place-items-center rounded-full bg-warn px-1 text-[10px] font-bold text-white">{link.badge}</span>
+					{/if}
+				</a>
 				{/each}
 			</nav>
 		</header>

@@ -135,6 +135,93 @@ export function formatWeekLabel(weekStartISO: string): string {
 	return `S${getWeekNumber(dateUtc)} - ${label}`;
 }
 
+/* ── Dates locales (mêmes conventions que le reste de l'app : "yyyy-mm-dd") ── */
+
+const ISO_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** Date du jour au format "yyyy-mm-dd" (fuseau du serveur). */
+export function localTodayISO(now: Date = new Date()): string {
+	const y = now.getFullYear();
+	const m = String(now.getMonth() + 1).padStart(2, "0");
+	const d = String(now.getDate()).padStart(2, "0");
+	return `${y}-${m}-${d}`;
+}
+
+/** Ajoute n jours à une date ISO (arithmétique UTC, insensible à l'heure d'été). */
+export function addDaysISO(iso: string, days: number): string {
+	const m = ISO_RE.exec(iso);
+	if (!m) return iso;
+	const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + days));
+	return d.toISOString().slice(0, 10);
+}
+
+/** Ajoute n mois à une date ISO (jour plafonné au dernier jour du mois cible). */
+export function addMonthsISO(iso: string, months: number): string {
+	const m = ISO_RE.exec(iso);
+	if (!m) return iso;
+	const day = Number(m[3]);
+	const first = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1 + months, 1));
+	const lastDay = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+	first.setUTCDate(Math.min(day, lastDay));
+	return first.toISOString().slice(0, 10);
+}
+
+/** Lundi de la semaine d'une date ISO (mêmes règles que week.ts côté client). */
+export function mondayISOof(iso: string): string {
+	const m = ISO_RE.exec(iso);
+	if (!m) return iso;
+	const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+	const day = d.getUTCDay();
+	d.setUTCDate(d.getUTCDate() + (day === 0 ? -6 : 1 - day));
+	return d.toISOString().slice(0, 10);
+}
+
+/** Nombre de jours entre deux dates ISO (a - b ; négatif si a < b). */
+export function daysBetweenISO(a: string, b: string): number {
+	const ma = ISO_RE.exec(a);
+	const mb = ISO_RE.exec(b);
+	if (!ma || !mb) return 0;
+	const da = new Date(Date.UTC(Number(ma[1]), Number(ma[2]) - 1, Number(ma[3])));
+	const db = new Date(Date.UTC(Number(mb[1]), Number(mb[2]) - 1, Number(mb[3])));
+	return Math.round((da.getTime() - db.getTime()) / 86400000);
+}
+
+/** Mois entiers écoulés entre b (début) et a (aujourd'hui), plancher à 0. */
+export function monthsBetweenISO(a: string, b: string): number {
+	const ma = ISO_RE.exec(a);
+	const mb = ISO_RE.exec(b);
+	if (!ma || !mb) return 0;
+	let months = (Number(ma[1]) - Number(mb[1])) * 12 + (Number(ma[2]) - Number(mb[2]));
+	if (Number(ma[3]) < Number(mb[3])) months -= 1;
+	return Math.max(0, months);
+}
+
+/** Fenêtre du bilan hebdo : vendredi ≥ 9h → dimanche < 12h (heure locale serveur). */
+export function isBilanWindowOpen(now: Date = new Date()): boolean {
+	const day = now.getDay();
+	const hours = now.getHours();
+	if (day === 5 && hours >= 9) return true; // vendredi dès 9h
+	if (day === 6) return true; // samedi toute la journée
+	if (day === 0 && hours < 12) return true; // dimanche avant 12h
+	return false;
+}
+
+/**
+ * Lundi de la semaine du dernier bilan hebdo dont la fenêtre est fermée
+ * (dimanche passé à ≥ 12h). Sert de référence pour détecter les bilans
+ * manquants sans stocker d'état : la règle est purement dérivée des dates.
+ */
+export function lastClosedBilanWeekStart(now: Date = new Date()): string {
+	const today = localTodayISO(now);
+	const curMonday = mondayISOof(today);
+	const sunday = addDaysISO(curMonday, 6);
+	const [y, m, d] = sunday.split("-").map(Number);
+	const closedAt = Date.UTC(y, m - 1, d, 12, 0, 0);
+	// Si l'on est passé après dimanche 12h (heure locale serveur), la semaine
+	// courante est fermée ; sinon la dernière fermée est la précédente.
+	return now.getTime() >= closedAt ? curMonday : addDaysISO(curMonday, -7);
+}
+
 /** Vérifie qu'une chaîne est un lundi ISO valide ("yyyy-mm-dd"). */
 export function isMondayISO(s: string): boolean {
 	const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);

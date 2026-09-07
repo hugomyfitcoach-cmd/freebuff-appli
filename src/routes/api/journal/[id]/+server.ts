@@ -5,7 +5,7 @@ import { api } from '../../../../convex/_generated/api.js';
 import { SESSION_COOKIE, requireRole } from '$lib/server/session';
 import { errMsg } from '$lib/errors.js';
 
-/** Met à jour la quantité d'une entrée. */
+/** Met à jour la quantité (et éventuellement le repas) d'une entrée. */
 export const PATCH: RequestHandler = async (event) => {
 	await requireRole(event, 'client', { next: '/espace/journal' });
 	const token = event.cookies.get(SESSION_COOKIE);
@@ -15,6 +15,7 @@ export const PATCH: RequestHandler = async (event) => {
 			sessionToken: token,
 			entryId: event.params.id as never,
 			qtyGrams: Number(body.qtyGrams),
+			...(body.meal ? { meal: String(body.meal) } : {}),
 		});
 		return json(res);
 	} catch (e) {

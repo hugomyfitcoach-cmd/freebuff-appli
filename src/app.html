@@ -4,7 +4,7 @@
 		<meta charset="utf-8" />
 		<meta
 			name="viewport"
-			content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover"
+			content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content"
 		/>
 		<meta name="text-scale" content="scale" />
 		<meta name="theme-color" content="#1DB954" />
@@ -14,7 +14,11 @@
 		<meta name="apple-mobile-web-app-status-bar-style" content="default" />
 		<meta name="apple-mobile-web-app-title" content="G-Flux" />
 		<link rel="manifest" href="/manifest.webmanifest" />
-		<link rel="apple-touch-icon" href="/logo.png" />
+		<!-- Icônes PWA : iOS utilise apple-touch-icon (180×180, fond plein) ;
+		     Android/Chrome lisent le manifest (192/512 + 512 maskable). -->
+		<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png" />
+		<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+		<link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
 		<link rel="preconnect" href="https://fonts.googleapis.com" />
 		<script>
 			// Empêche le pincement / double-tap de zoomer : comportement d'app native.

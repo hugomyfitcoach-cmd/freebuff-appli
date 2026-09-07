@@ -32,6 +32,7 @@ export const POST: RequestHandler = async (event) => {
 			date: String(body.date ?? ''),
 			meal: String(body.meal ?? ''),
 			foodId: body.foodId as never,
+			customFoodId: body.customFoodId as never,
 			qtyGrams: Number(body.qtyGrams),
 		});
 		return json(res);

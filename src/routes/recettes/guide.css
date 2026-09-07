@@ -871,6 +871,80 @@
     background: linear-gradient(135deg, #f0fdf4 0%, #f7f5f0 100%);
 }
 
+/* ─── Ajouter une recette à « Mes repas » ─────────────────────────── */
+.guide-root .gflux-add-btn {
+    display: block;
+    width: 100%;
+    margin-bottom: 14px;
+    padding: 9px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--green);
+    background: var(--green-dim);
+    color: var(--green);
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s, opacity 0.2s;
+}
+.guide-root .gflux-add-btn:hover:not(:disabled) {
+    background: var(--green);
+    color: #ffffff;
+}
+.guide-root .gflux-add-btn:disabled {
+    cursor: default;
+    opacity: 0.85;
+}
+.guide-root .gflux-add-btn.added {
+    border-color: rgba(74, 222, 128, 0.45);
+    background: rgba(74, 222, 128, 0.10);
+    color: var(--green);
+    opacity: 0.95;
+}
+
+/* ─── Toast « Ajouté à Mes repas » ────────────────────────────────── */
+.guide-root .gflux-recipe-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 84px;
+    transform: translateX(-50%);
+    z-index: 400;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: calc(100vw - 32px);
+    padding: 10px 16px;
+    border-radius: 10px;
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+    animation: gflux-toast-in 0.25s ease;
+}
+.guide-root .gflux-recipe-toast.ok {
+    background: var(--green-dim);
+    border: 1px solid rgba(74, 222, 128, 0.4);
+    color: var(--green);
+}
+.guide-root .gflux-recipe-toast.err {
+    background: rgba(248, 113, 113, 0.14);
+    border: 1px solid rgba(248, 113, 113, 0.4);
+    color: #f87171;
+}
+.guide-root .gflux-recipe-toast-close {
+    background: none;
+    border: none;
+    color: inherit;
+    font-size: 14px;
+    cursor: pointer;
+    opacity: 0.7;
+}
+.guide-root .gflux-recipe-toast-close:hover { opacity: 1; }
+@keyframes gflux-toast-in {
+    from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
 /* ─── Bouton de bascule de thème ──────────────────────────────────── */
 .guide-root .theme-toggle {
     position: fixed;

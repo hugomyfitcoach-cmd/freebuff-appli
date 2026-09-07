@@ -5,6 +5,6 @@
 </script>
 
 <svelte:head>
-	<link rel="icon" href="/logo.png" type="image/png" />
+	<link rel="icon" href="/icons/icon-192.png" type="image/png" />
 </svelte:head>
 {@render children()}

@@ -1,11 +1,14 @@
 <script lang="ts">
 	import { answerLines } from '../labels.js';
 	import type { Doc } from '../../convex/_generated/dataModel.js';
+	import CoachMedia from './CoachMedia.svelte';
+	import type { CoachMediaItem } from '../media.js';
 
-	let { checkin, clientName, clientId } = $props<{
+	let { checkin, clientName, clientId, media = [] } = $props<{
 		checkin: Doc<'checkins'>;
 		clientName: string;
 		clientId: string;
+		media?: CoachMediaItem[];
 	}>();
 
 	const lines = $derived(answerLines(checkin));
@@ -30,6 +33,10 @@
 			? new Date(checkin.feedbackAt).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 			: null
 	);
+	// « Publié » = visible côté cliente. « Brouillon » = texte enregistré mais
+	// jamais publié → la cliente ne voit rien (RecapBilan masque les non publiés).
+	const published = $derived(checkin.status === 'retour_envoye');
+	const draft = $derived(!published && (checkin.feedback ?? '').trim().length > 0);
 
 	let copyFlash = $state(false);
 
@@ -50,13 +57,15 @@
 		<div>
 			<div class="flex items-center gap-2">
 				<h3 class="font-display text-base font-semibold text-ink">{checkin.weekLabel}</h3>
-				{#if checkin.status === 'nouveau'}
-					<span class="rounded-full bg-warn-light px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-warn">À traiter</span>
-				{:else}
+				{#if published}
 					<span class="rounded-full bg-brand-light px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-brand-dark">Retour envoyé</span>
+				{:else if draft}
+					<span class="rounded-full bg-line/70 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-mist">📝 Brouillon</span>
+				{:else}
+					<span class="rounded-full bg-warn-light px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-warn">À traiter</span>
 				{/if}
 			</div>
-			<p class="mt-0.5 text-xs text-mist">Reçu {submittedAt}{feedbackSentAt ? ` · retour envoyé le ${feedbackSentAt}` : ''}</p>
+			<p class="mt-0.5 text-xs text-mist">Reçu {submittedAt}{feedbackSentAt ? ` · publié le ${feedbackSentAt}` : ''}</p>
 		</div>
 		<button
 			type="button"
@@ -78,33 +87,51 @@
 		{/if}
 	</div>
 
-	<!-- Éditeur du retour coach (POST vers /admin?/setFeedback) -->
+	<!-- Rédaction du retour coach (POST vers /admin?/setFeedback) -->
 	<form method="POST" action="/admin?/setFeedback" class="border-t border-line bg-cream/50 px-5 py-4">
 		<input type="hidden" name="checkinId" value={checkin._id} />
 		<input type="hidden" name="clientId" value={clientId} />
 		<div class="mb-2 flex flex-wrap items-center justify-between gap-2">
 			<span class="text-sm font-semibold text-ink">Ton retour (visible par la cliente dans son historique)</span>
-			<div class="flex overflow-hidden rounded-lg border-2 border-line text-sm" role="radiogroup" aria-label="Statut du retour">
-				<label class="cursor-pointer">
-					<input type="radio" name="status" value="nouveau" checked={checkin.status === 'nouveau'} class="peer sr-only" />
-					<span class="block bg-card px-3 py-1.5 text-ink transition peer-checked:bg-ink peer-checked:text-white">À traiter</span>
-				</label>
-				<label class="cursor-pointer">
-					<input type="radio" name="status" value="retour_envoye" checked={checkin.status === 'retour_envoye'} class="peer sr-only" />
-					<span class="block bg-card px-3 py-1.5 text-ink transition peer-checked:bg-brand peer-checked:text-white">Retour envoyé</span>
-				</label>
-			</div>
 		</div>
 		<textarea
 			name="feedback"
-			placeholder="Rédige ici ton retour pour cette semaine — le client le verra dans « Mes bilans »…"
+			placeholder="Rédige ici ton retour pour cette semaine — la cliente ne le verra qu'après publication…"
 			class="min-h-24 w-full rounded-xl border-2 border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/15"
 		>{checkin.feedback ?? ''}</textarea>
-		<div class="mt-2 flex items-center gap-3">
-			<button type="submit" class="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark">
-				Enregistrer le retour
-			</button>
-			<span class="text-xs text-mist">Passer à « Retour envoyé » verrouille le bilan pour cette semaine.</span>
+		<!-- Retour audio + pièces jointes : en brouillon tant que le retour n'est pas publié -->
+		<div class="mt-3 rounded-xl border border-dashed border-line bg-white/40 p-3">
+			<p class="text-[11px] font-bold uppercase tracking-wide text-mist">🎙️ Retour audio & 📎 pièces jointes (optionnels)</p>
+			<CoachMedia
+				mode="feedback"
+				userId={clientId}
+				checkinId={checkin._id}
+				existing={media}
+				allowAudio
+				allowAttachments
+			/>
 		</div>
+		<div class="mt-3 flex flex-wrap items-center gap-2">
+			<button
+				type="submit"
+				name="status"
+				value="nouveau"
+				class="rounded-xl border-2 border-line bg-card px-4 py-2 text-sm font-semibold text-ink transition hover:border-warn hover:text-warn"
+			>
+				{published ? '↩️ Repasser en brouillon' : '💾 Sauvegarder le brouillon'}
+			</button>
+			<button
+				type="submit"
+				name="status"
+				value="retour_envoye"
+				class="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark"
+			>
+				{published ? '🚀 Republier le retour' : '🚀 Publier le retour'}
+			</button>
+		</div>
+		<p class="mt-2 text-xs text-mist">
+			💾 Un brouillon reste invisible pour la cliente. « Publier le retour » le lui envoie et affiche son
+			badge jusqu'à ce qu'elle l'ait réellement ouvert.
+		</p>
 	</form>
 </article>

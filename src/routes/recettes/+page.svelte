@@ -5,6 +5,66 @@
 	import { recipes, newRecipes } from '$lib/data/recettes';
 	import { MEMO_HTML, PROTEINES_HTML } from '$lib/data/guides-html';
 
+	let { data } = $props();
+	/** Client connecté (les recettes sont aussi visibles par la coach, sans « Mes repas »). */
+	const isClient = $derived(data.user.role === 'client');
+
+	/* ————— Ajouter une recette à « Mes repas » (journal) ————— */
+	let savedRecipes = $state<Set<string>>(new Set());
+	let savingRecipe = $state<string | null>(null);
+	let recipeMsg = $state('');
+	let recipeMsgOk = $state(false);
+
+	onMount(async () => {
+		if (!browser || !isClient) return;
+		try {
+			const r = await fetch('/api/meals');
+			const j = await r.json();
+			if (!j.error) {
+				const ids = (j as { sourceRecipeId?: string }[])
+					.filter((m) => m.sourceRecipeId)
+					.map((m) => m.sourceRecipeId as string);
+				if (ids.length) savedRecipes = new Set(ids);
+			}
+		} catch {
+			// silencieux : le bouton reste disponible, l'erreur s'affichera à l'ajout
+		}
+	});
+
+	async function addRecipeToMeals(index: string) {
+		if (savingRecipe) return;
+		savingRecipe = index;
+		recipeMsg = '';
+		try {
+			const r = await fetch('/api/meals/recipe', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ recipeIndex: index }),
+			});
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			const next = new Set(savedRecipes);
+			next.add(index);
+			savedRecipes = next;
+			recipeMsgOk = true;
+			recipeMsg = j.alreadyExists
+				? 'Cette recette est déjà dans « Mes repas ».'
+				: '✓ Recette ajoutée à « Mes repas » — retrouve-la dans ton journal.';
+		} catch (e) {
+			recipeMsgOk = false;
+			recipeMsg = e instanceof Error ? e.message : String(e);
+		} finally {
+			savingRecipe = null;
+		}
+	}
+
+	$effect(() => {
+		if (recipeMsg) {
+			const t = setTimeout(() => (recipeMsg = ''), 4000);
+			return () => clearTimeout(t);
+		}
+	});
+
 	type Ingredient = { name: string; qty: string };
 	type Recipe = {
 		index: string;
@@ -89,13 +149,6 @@
 	let theme = $state<'dark' | 'light'>('dark');
 
 	const logo = $derived(theme === 'light' ? '/logo-header.jpg' : '/logo-guide.png');
-
-	onMount(() => {
-		if (browser) {
-			const saved = window.localStorage.getItem('gflux_guide_theme');
-			if (saved === 'light' || saved === 'dark') theme = saved;
-		}
-	});
 
 	$effect(() => {
 		if (browser) window.localStorage.setItem('gflux_guide_theme', theme);
@@ -237,11 +290,25 @@
 										</div>
 									</div>
 									<div class="chevron">▾</div>
-								</div>
-								<div class="card-detail">
-									<div class="time-badge">⏱ {r.temps}</div>
-									<div class="detail-section">
-										<div class="detail-label">Ingrédients · 1 portion</div>
+								</div>									<div class="card-detail">
+										<div class="time-badge">⏱ {r.temps}</div>
+										{#if isClient}
+											<button
+												type="button"
+												class="gflux-add-btn"
+												class:added={savedRecipes.has(r.index)}
+												disabled={savingRecipe === r.index || savedRecipes.has(r.index)}
+												onclick={() => addRecipeToMeals(r.index)}
+											>
+												{savedRecipes.has(r.index)
+													? '✓ Dans Mes repas'
+													: savingRecipe === r.index
+														? 'Ajout…'
+														: '＋ Ajouter à mes repas'}
+											</button>
+										{/if}
+										<div class="detail-section">
+											<div class="detail-label">Ingrédients · 1 portion</div>
 										<div class="ingredients-list">
 											{#each r.ingredients as ing (ing.name)}
 												<div class="ingredient-row">
@@ -285,6 +352,13 @@
 				Coaching
 			</div>
 			<div class="footer-copy">GH Online Fit Trainer Ltd · myfit-coach.fr</div>
+		</div>
+	{/if}
+
+	{#if recipeMsg}
+		<div class="gflux-recipe-toast {recipeMsgOk ? 'ok' : 'err'}" role="status">
+			{recipeMsg}
+			<button type="button" class="gflux-recipe-toast-close" aria-label="Fermer" onclick={() => (recipeMsg = '')}>✕</button>
 		</div>
 	{/if}
 

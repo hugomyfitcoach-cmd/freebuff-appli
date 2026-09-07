@@ -3,6 +3,7 @@
 
 	let { data } = $props();
 	const checkins = $derived(data.checkins ?? []);
+	const media = $derived((data.media ?? {}) as Record<string, unknown[]>);
 	const done = $derived(checkins.filter((c: { status: string }) => c.status === 'retour_envoye').length);
 </script>
 
@@ -27,7 +28,7 @@
 {:else}
 	<div class="space-y-4">
 		{#each checkins as checkin (checkin._id)}
-			<RecapBilan {checkin} />
+			<RecapBilan {checkin} media={(media[checkin._id] ?? []) as never} />
 		{/each}
 	</div>
 {/if}

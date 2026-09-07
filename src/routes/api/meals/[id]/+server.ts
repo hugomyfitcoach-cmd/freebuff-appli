@@ -26,12 +26,14 @@ export const POST: RequestHandler = async (event) => {
 	const token = event.cookies.get(SESSION_COOKIE);
 	try {
 		const body = await event.request.json();
+		const portions = body.portions !== undefined && body.portions !== null && body.portions !== '' ? Number(body.portions) : undefined;
 		const res = await convex.mutation(api.meals.addMealEntry, {
 			sessionToken: token,
 			date: String(body.date ?? ''),
 			meal: String(body.meal ?? ''),
 			mealId: event.params.id as never,
 			portionGrams: Number(body.portionGrams),
+			portions,
 		});
 		return json(res);
 	} catch (e) {

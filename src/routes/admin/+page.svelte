@@ -1,15 +1,48 @@
 <script lang="ts">
+	import { invalidateAll } from '$app/navigation';
+	import { page } from '$app/state';
+	import { untrack } from 'svelte';
 	import BilanCard from '../../lib/components/BilanCard.svelte';
+	import CoachMedia from '../../lib/components/CoachMedia.svelte';
+	import Sparkline from '../../lib/components/Sparkline.svelte';
+	import { labelFor } from '../../lib/labels.js';
+	import { ONBOARDING_SECTIONS, readableAnswer } from '../../lib/onboarding.js';
 
 	let { data, form } = $props();
 
 	const clients = $derived(data.clients ?? []);
 	const selectedId = $derived(data.selectedId ?? null);
+	const view = $derived(data.view ?? null);
 	const checkins = $derived(data.checkins ?? []);
+	const photos = $derived(data.photos ?? []);
+	const mediaAll = $derived(data.media ?? []);
+	// Onboarding de démarrage : formulaire initial + statuts des deux étapes.
+	const onboardingView = $derived(data.onboardingView ?? null);
+	// Médias coach → cliente : ceux du message du jour + filtrage par bilan.
+	const messageAudio = $derived(mediaAll.filter((m: { source: string }) => m.source === 'coach_message_audio'));
+	const mediaFor = (checkinId: string) =>
+		mediaAll.filter((m: { checkinId: string | null }) => m.checkinId === checkinId);
+	let msgAudioDraft = $state('');
 	const selected = $derived(clients.find((c: { user: { _id: string } }) => c.user._id === selectedId) ?? null);
 
-	const totalBilans = $derived(clients.reduce((s: number, c: { count: number }) => s + c.count, 0));
+	/* ── File globale des bilans (vue CRM dérivée de bilansBoard) ── */
+	const board = $derived(
+		data.bilansBoard ?? { toTreat: [], feedbackSent: [], done: [], missing: [], missingWeek: null }
+	);
+	const pendingCount = $derived(board.toTreat.length + board.missing.length + board.feedbackSent.length);
+	const openBilan = (userId: string) => `/admin?client=${encodeURIComponent(userId)}&section=bilans`;
+	function reçuLe(ts?: number): string {
+		if (!ts) return '';
+		return new Date(ts).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
+	}
+
 	const totalWaiting = $derived(clients.reduce((s: number, c: { waiting: number }) => s + c.waiting, 0));
+	const activeToday = $derived(
+		clients.filter((c: { user: { lastSeenAt: number | null } }) => {
+			const ts = c.user.lastSeenAt;
+			return ts && Date.now() - ts < 24 * 3600 * 1000;
+		}).length
+	);
 
 	let query = $state('');
 
@@ -21,9 +54,670 @@
 			: clients
 	);
 
-	const alert = $derived(form && 'action' in form ? (form as { action: string; error?: string; ok?: string }) : null);
+	const alert = $derived(form && 'action' in form ? (form as { action: string; error?: string; ok?: string; clientId?: string }) : null);
 	const initial = (name: string) => name.trim().charAt(0).toUpperCase() || '?';
+
+	/* ── Formatage ─────────────────────────────────────────────── */
+	function fmtLastSeen(ts: number | null): string {
+		if (!ts) return 'jamais connecté·e';
+		const diff = Date.now() - ts;
+		const min = Math.floor(diff / 60000);
+		if (min < 1) return 'à l’instant';
+		if (min < 60) return `il y a ${min} min`;
+		const h = Math.floor(min / 60);
+		if (h < 24) return `il y a ${h} h`;
+		const d = Math.floor(h / 24);
+		if (d === 1) return 'hier';
+		if (d < 7) return `il y a ${d} j`;
+		return new Date(ts).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
+	}
+
+	function fmtDateShort(iso: string): string {
+		return new Date(iso + 'T12:00:00').toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
+	}
+
+	function fmtTs(ts: number | null | undefined): string {
+		if (!ts) return '';
+		return new Date(ts).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
+	}
+
+	/* ── Onboarding (état dérivé du formulaire initial + données réelles) ── */
+	const obAnswers = $derived<Record<string, unknown>>(
+		(onboardingView?.intake?.answers as Record<string, unknown> | undefined) ?? {}
+	);
+	type ObSection = (typeof ONBOARDING_SECTIONS)[number];
+	const obAnswered = $derived.by(() => {
+		const out: { section: ObSection; items: { q: ObSection['questions'][number]; v: string }[] }[] = [];
+		for (const s of ONBOARDING_SECTIONS) {
+			const items: { q: ObSection['questions'][number]; v: string }[] = [];
+			for (const q of s.questions) {
+				const raw = obAnswers[q.id];
+				if (raw == null || String(raw).trim() === '') continue;
+				if (q.showWhen && obAnswers[q.showWhen.field] !== q.showWhen.value) continue;
+				items.push({ q, v: readableAnswer(q.id, raw) });
+			}
+			if (items.length) out.push({ section: s, items });
+		}
+		return out;
+	});
+
+	function dayLabel(iso: string): string {
+		return new Date(iso + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'short' });
+	}
+
+	function todayISO(): string {
+		const d = new Date();
+		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+	}
+
+	/* ── Vue 360° ──────────────────────────────────────────────── */
+	const weightDelta = $derived(
+		view && view.lastWeight != null && view.firstWeight != null ? Math.round((view.lastWeight - view.firstWeight) * 10) / 10 : null
+	);
+	const latestMetric = $derived(view?.latestMetric ?? null);
+	const goalKcal = $derived(view?.goals?.kcal ?? 2000);
+	const weekAvg = $derived(view ? Math.round(view.weekAvgKcal) : 0);
+	const kcalTrend = $derived(view && weekAvg > 0 ? Math.round(((weekAvg - goalKcal) / goalKcal) * 100) : 0);
+	const loggedDays = $derived(view?.week?.filter((d: { count: number }) => d.count > 0).length ?? 0);
+
+	const chart = $derived.by(() => {
+		if (!view) return null;
+		const days = view.week ?? [];
+		const maxVal = Math.max(goalKcal, ...days.map((d: { kcal: number }) => d.kcal), 100);
+		const W = 700, H = 190, top = 12, bottom = 26;
+		const innerH = H - top - bottom;
+		const bars = days.map((d: { date: string; kcal: number; count: number }, i: number) => {
+			const h = Math.max(4, (d.kcal / maxVal) * innerH);
+			return {
+				x: i * 100 + 22,
+				y: H - bottom - h,
+				h,
+				kcal: d.kcal,
+				count: d.count,
+				label: dayLabel(d.date),
+				full: fmtDateShort(d.date),
+				isToday: i === days.length - 1,
+			};
+		});
+		const goalY = H - bottom - (goalKcal / maxVal) * innerH;
+		const avgY = weekAvg > 0 ? H - bottom - (weekAvg / maxVal) * innerH : null;
+		return { bars, goalY, avgY, maxVal };
+	});
+
+	const weightPoints = $derived.by(() => {
+		if (!view || (view.weightTrend ?? []).length < 1) return null;
+		const pts = view.weightTrend as { date: string; weightKg: number }[];
+		const W = 700, H = 170, top = 14, bottom = 26;
+		const innerH = H - top - bottom;
+		let min = Infinity, max = -Infinity;
+		for (const p of pts) {
+			if (p.weightKg < min) min = p.weightKg;
+			if (p.weightKg > max) max = p.weightKg;
+		}
+		const span = Math.max(max - min, 2);
+		min = min - span * 0.25;
+		max = max + span * 0.25;
+		const n = pts.length;
+		const coords = pts.map((p, i) => {
+			const x = n === 1 ? W / 2 : (i / (n - 1)) * (W - 60) + 30;
+			const y = top + innerH - ((p.weightKg - min) / (max - min)) * innerH;
+			return { x, y, date: p.date, weightKg: p.weightKg };
+		});
+		return { coords, min: Math.round(min * 10) / 10, max: Math.round(max * 10) / 10 };
+	});
+
+	const isOnline = (ts: number | null) => !!ts && Date.now() - ts < 5 * 60 * 1000;
+
+	/* ── Objectifs journaliers : deux modes de saisie ────────────── */
+	/*
+	 * Mode « répartition » : on entre un total calorique + des pourcentages
+	 * (glucides/protéines/lipides) qui doivent faire 100 % ; les grammes en
+	 * sont déduits (1 g glucides/protéines = 4 kcal, 1 g lipides = 9 kcal).
+	 * Mode « macros » : on entre les grammes, et le total calorique se calcule
+	 * automatiquement (4·g + 4·g + 9·g). Le stockage reste identique (grammes).
+	 */
+	type GoalsMode = 'pct' | 'grams';
+	let goalsMode = $state<GoalsMode>('pct');
+	let pctKcal = $state(2000);
+	let pctCarbs = $state(40);
+	let pctProtein = $state(30);
+	let pctFat = $state(30);
+	let gCarbs = $state(250);
+	let gProtein = $state(90);
+	let gFat = $state(65);
+	/** Maintenance calorique (filet de sécurité) — saisie manuelle, optionnelle. */
+	let maintenanceKcal = $state('');
+	/** Maintenance déjà enregistrée en base (le fallback DEFAULT_GOALS n'a pas le champ). */
+	const savedMaintenance = $derived(
+		view && view.goals && 'maintenanceKcal' in view.goals && typeof view.goals.maintenanceKcal === 'number'
+			? view.goals.maintenanceKcal
+			: null
+	);
+	/** Objectif quotidien de pas — saisi manuellement par la coach, optionnel. */
+	let stepGoal = $state('');
+	/** Objectif de pas déjà enregistré en base (le fallback DEFAULT_GOALS n'a pas le champ). */
+	const savedStepGoal = $derived(
+		view && view.goals && 'stepGoal' in view.goals && typeof view.goals.stepGoal === 'number'
+			? view.goals.stepGoal
+			: null
+	);
+
+	const goalsValues = $derived.by(() => {
+		if (goalsMode === 'pct') {
+			const kcal = Math.max(0, Math.round(pctKcal) || 0);
+			const carbs = Math.round(((kcal * (pctCarbs || 0)) / 100) / 4);
+			const protein = Math.round(((kcal * (pctProtein || 0)) / 100) / 4);
+			const fat = Math.round(((kcal * (pctFat || 0)) / 100) / 9);
+			return { kcal, carbs, protein, fat };
+		}
+		const carbs = Math.max(0, Math.round(gCarbs) || 0);
+		const protein = Math.max(0, Math.round(gProtein) || 0);
+		const fat = Math.max(0, Math.round(gFat) || 0);
+		return { kcal: 4 * carbs + 4 * protein + 9 * fat, carbs, protein, fat };
+	});
+	const pctSum = $derived((pctCarbs || 0) + (pctProtein || 0) + (pctFat || 0));
+	const pctOk = $derived(Math.abs(pctSum - 100) <= 0.5);
+	const goalsError = $derived.by(() => {
+		if (goalsMode === 'pct' && !pctOk) {
+			return `La répartition doit faire 100 % (actuellement ${pctSum} %).`;
+		}
+		const { kcal, carbs, protein, fat } = goalsValues;
+		if (kcal < 800 || kcal > 6000) return 'Calories hors plage (800 à 6000 kcal).';
+		if (carbs < 0 || carbs > 1000) return 'Glucides hors plage (0 à 1000 g).';
+		if (protein < 0 || protein > 400) return 'Protéines hors plage (0 à 400 g).';
+		if (fat < 0 || fat > 300) return 'Lipides hors plage (0 à 300 g).';
+		return '';
+	});
+
+	function switchGoalsMode(m: GoalsMode) {
+		if (m === goalsMode) return;
+		const { kcal, carbs, protein, fat } = goalsValues;
+		if (m === 'pct') {
+			pctKcal = kcal;
+			if (kcal > 0) {
+				pctCarbs = Math.round(((carbs * 4) / kcal) * 100);
+				pctProtein = Math.round(((protein * 4) / kcal) * 100);
+				pctFat = Math.max(0, 100 - pctCarbs - pctProtein);
+			} else {
+				pctCarbs = 40;
+				pctProtein = 30;
+				pctFat = 30;
+			}
+		} else {
+			gCarbs = carbs;
+			gProtein = protein;
+			gFat = fat;
+		}
+		goalsMode = m;
+	}
+
+	/*
+	 * Initialise les champs depuis les objectifs enregistrés (grammes), UNIQUEMENT
+	 * quand on change de client : `untrack` évite que l'effet se relance à chaque
+	 * frappe (ce qui écraserait la saisie de la coach).
+	 */
+	$effect(() => {
+		const id = selectedId;
+		if (!id) return;
+		const g = untrack(() => view?.goals);
+		if (!g) return;
+		const kcal = g.kcal ?? 2000;
+		const carbs = g.carbs ?? 250;
+		const protein = g.protein ?? 90;
+		const fat = g.fat ?? 65;
+		pctKcal = kcal;
+		gCarbs = carbs;
+		gProtein = protein;
+		gFat = fat;
+		maintenanceKcal = 'maintenanceKcal' in g && g.maintenanceKcal ? String(g.maintenanceKcal) : '';
+		stepGoal = 'stepGoal' in g && g.stepGoal ? String(g.stepGoal) : '';
+		if (kcal > 0) {
+			// Attention : ne JAMAIS relire pctCarbs/pctProtein ici — ils deviendraient
+			// des dépendances de l'effet et chaque frappe dans Glucides/Protéines
+			// relancerait l'initialisation, écrasant la saisie de la coach.
+			const c = Math.round(((carbs * 4) / kcal) * 100);
+			const p = Math.round(((protein * 4) / kcal) * 100);
+			pctCarbs = c;
+			pctProtein = p;
+			pctFat = Math.max(0, 100 - c - p);
+		} else {
+			pctCarbs = 40;
+			pctProtein = 30;
+			pctFat = 30;
+		}
+	});
+
+	/* ── Journal alimentaire (la coach agit « en doublon ») ────── */
+	const MEALS = [
+		{ id: 'petit-dej', label: 'Petit-déjeuner' },
+		{ id: 'dejeuner', label: 'Déjeuner' },
+		{ id: 'diner', label: 'Dîner' },
+		{ id: 'collation', label: 'Collations' },
+	];
+	const MEAL_LABEL: Record<string, string> = Object.fromEntries(MEALS.map((m) => [m.id, m.label]));
+
+	type Entry = {
+		_id: string;
+		meal: string;
+		name: string;
+		brand?: string;
+		imageUrl?: string;
+		qtyGrams: number;
+		kcal: number;
+		carbs: number;
+		protein: number;
+		fat: number;
+	};
+	type DayData = {
+		date: string;
+		goals: { kcal: number; carbs: number; protein: number; fat: number };
+		entries: Entry[];
+		totals: { kcal: number; carbs: number; protein: number; fat: number };
+	};
+	type FoodHit = {
+		_id: string;
+		name: string;
+		brand?: string;
+		kcal100: number;
+		carbs100: number;
+		protein100: number;
+		fat100: number;
+		imageUrl?: string;
+	};
+
+	let journalDate = $state(todayISO());
+	let day = $state<DayData | null>(null);
+	let journalBusy = $state(false);
+	let journalMsg = $state('');
+
+	let searchOpen = $state(false);
+	let searchQ = $state('');
+	let searchBusy = $state(false);
+	let searchHits = $state<FoodHit[]>([]);
+	let addMeal = $state('petit-dej');
+	let addQty = $state('100');
+
+	/*
+	 * Garde-fou anti-course : si la coach change la date plusieurs fois vite
+	 * (roue iOS / double-clic), seule la réponse de la DERNIÈRE date demandée
+	 * est appliquée — sinon un jour déjà quitté peut réapparaître.
+	 */
+	let journalReq = 0;
+	async function loadDay() {
+		if (!selectedId) return;
+		const req = ++journalReq;
+		journalBusy = true;
+		journalMsg = '';
+		try {
+			const res = await fetch(`/api/coach/journal?userId=${selectedId}&date=${journalDate}`);
+			const data = await res.json();
+			if (req !== journalReq) return;
+			if (!res.ok) throw new Error(data.error ?? 'Chargement impossible.');
+			day = data;
+		} catch (e) {
+			if (req !== journalReq) return;
+			journalMsg = e instanceof Error ? e.message : 'Chargement impossible.';
+		} finally {
+			if (req === journalReq) journalBusy = false;
+		}
+	}
+
+	async function doSearch() {
+		if (searchQ.trim().length < 2) return;
+		searchBusy = true;
+		try {
+			const res = await fetch(`/api/coach/search?q=${encodeURIComponent(searchQ.trim())}`);
+			const data = await res.json();
+			if (!res.ok) throw new Error(data.error ?? 'Recherche impossible.');
+			searchHits = data;
+		} catch (e) {
+			journalMsg = e instanceof Error ? e.message : 'Recherche impossible.';
+		} finally {
+			searchBusy = false;
+		}
+	}
+
+	async function addFood(hit: FoodHit) {
+		if (!selectedId) return;
+		try {
+			const res = await fetch('/api/coach/journal', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					userId: selectedId,
+					date: journalDate,
+					meal: addMeal,
+					foodId: hit._id,
+					qtyGrams: Number(addQty) || 100,
+				}),
+			});
+			const data = await res.json();
+			if (!res.ok) throw new Error(data.error ?? 'Ajout impossible.');
+			searchOpen = false;
+			searchHits = [];
+			searchQ = '';
+			await loadDay();
+		} catch (e) {
+			journalMsg = e instanceof Error ? e.message : 'Ajout impossible.';
+		}
+	}
+
+	async function setQty(entry: Entry, qtyGrams: number) {
+		if (!selectedId) return;
+		try {
+			const res = await fetch(`/api/coach/journal/${entry._id}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ userId: selectedId, qtyGrams }),
+			});
+			const data = await res.json();
+			if (!res.ok) throw new Error(data.error ?? 'Mise à jour impossible.');
+			await loadDay();
+		} catch (e) {
+			journalMsg = e instanceof Error ? e.message : 'Mise à jour impossible.';
+		}
+	}
+
+	async function removeEntry(entry: Entry) {
+		if (!selectedId) return;
+		try {
+			const res = await fetch(`/api/coach/journal/${entry._id}?userId=${selectedId}`, { method: 'DELETE' });
+			const data = await res.json();
+			if (!res.ok) throw new Error(data.error ?? 'Suppression impossible.');
+			await loadDay();
+		} catch (e) {
+			journalMsg = e instanceof Error ? e.message : 'Suppression impossible.';
+		}
+	}
+
+	/* ── Mensurations / poids (la coach corrige) ─────────────────
+	   Chaque métrique possède SON PROPRE historique : une prise n'écrit que
+	   SON champ sur la ligne de la date (upsert), une modification ne touche
+	   que la métrique ciblée (updateOne), une suppression ne retire que cette
+	   valeur. Le % de masse grasse est dérivé côté Convex (même source que
+	   l'espace cliente) — jamais saisi à la main. */
+	type Measurement = {
+		_id: string;
+		date: string;
+		weightKg?: number;
+		neckCm?: number;
+		waistCm?: number;
+		hipCm?: number;
+		heightCm?: number;
+	};
+	type BodyMetricKey = 'weightKg' | 'waistCm' | 'hipCm' | 'neckCm';
+	const BODY_METRICS: { key: BodyMetricKey; label: string; unit: string; icon: string; color: string; min: number; max: number }[] = [
+		{ key: 'weightKg', label: 'Poids', unit: 'kg', icon: '⚖️', color: '#1db954', min: 30, max: 350 },
+		{ key: 'waistCm', label: 'Tour de taille', unit: 'cm', icon: '📏', color: '#f97316', min: 40, max: 250 },
+		{ key: 'hipCm', label: 'Fessiers', unit: 'cm', icon: '📐', color: '#ec4899', min: 50, max: 300 },
+		{ key: 'neckCm', label: 'Tour de cou', unit: 'cm', icon: '🪢', color: '#3b82f6', min: 20, max: 80 },
+	];
+
+	let measurements = $state<Measurement[]>([]);
+	let heightCm = $state<number | null>(null);
+	let bodyFat = $state<{ date: string; value: number }[]>([]);
+	// un brouillon (date + valeur) par métrique + un pour la taille
+	// (bind:value sur <input type="number"> renvoie un nombre en Svelte 5)
+	let bmDraft = $state<Record<string, { date: string; value: string | number }>>({});
+	let bmEdit = $state<{ key: string; date: string } | null>(null);
+	let bmBusy = $state(false);
+	let bmMsg = $state('');
+	let hDraft = $state({ date: todayISO(), value: '' });
+	let hBusy = $state(false);
+
+	async function loadMeasurements() {
+		if (!selectedId) return;
+		try {
+			const res = await fetch(`/api/coach/metrics?userId=${selectedId}`);
+			const data = await res.json();
+			if (res.ok && Array.isArray(data.measurements)) {
+				measurements = data.measurements;
+				heightCm = data.heightCm ?? null;
+				bodyFat = data.bodyFat ?? [];
+			}
+		} catch {
+			/* silencieux */
+		}
+	}
+
+	function initBodyDrafts() {
+		const t = todayISO();
+		bmDraft = {
+			weightKg: { date: t, value: '' },
+			waistCm: { date: t, value: '' },
+			hipCm: { date: t, value: '' },
+			neckCm: { date: t, value: '' },
+		};
+		bmEdit = null;
+		hDraft = { date: t, value: heightCm != null ? String(heightCm).replace('.', ',') : '' };
+	}
+
+	/** Série datée d'une métrique — indépendante des autres. */
+	function bmSeries(key: BodyMetricKey): { date: string; value: number }[] {
+		return measurements
+			.filter((m) => m[key] !== undefined && m[key] !== null)
+			.map((m) => ({ date: m.date, value: m[key] as number }))
+			.sort((a, b) => a.date.localeCompare(b.date));
+	}
+
+	/** Évolution depuis la première valeur enregistrée (dernière − première), ou null si < 2 valeurs. */
+	function metricDelta(rows: { value: number }[]): number | null {
+		if (rows.length < 2) return null;
+		return Math.round((rows[rows.length - 1].value - rows[0].value) * 10) / 10;
+	}
+	/** « +1,2 » / « -3,8 » — signe explicite, virgule française. */
+	function fmtSigned(n: number): string {
+		return `${n > 0 ? '+' : ''}${String(n).replace('.', ',')}`;
+	}
+	const heightSeries = $derived(
+		measurements
+			.filter((m) => m.heightCm !== undefined && m.heightCm !== null)
+			.map((m) => ({ date: m.date, value: m.heightCm as number }))
+			.sort((a, b) => a.date.localeCompare(b.date))
+	);
+	const bfPoints = $derived(bodyFat);
+	const bfLast = $derived(bfPoints.length ? bfPoints[bfPoints.length - 1].value : null);
+	const bfDelta = $derived(
+		bfPoints.length > 1 && bfLast !== null ? Math.round((bfLast - bfPoints[0].value) * 10) / 10 : null
+	);
+
+	/** Ajoute UNE mesure : n'écrit que son champ sur la ligne de la date. */
+	async function addBodyMetric(key: BodyMetricKey) {
+		if (!selectedId) return;
+		const d = bmDraft[key];
+		const raw = String(d?.value ?? '');
+		if (!d || !d.date || raw.trim() === '') {
+			bmMsg = 'Renseigne la date et la valeur.';
+			return;
+		}
+		const value = Number(raw.replace(',', '.'));
+		if (!isFinite(value)) {
+			bmMsg = 'Valeur invalide.';
+			return;
+		}
+		bmBusy = true;
+		bmMsg = '';
+		try {
+			const res = await fetch('/api/coach/metrics', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ userId: selectedId, date: d.date, [key]: value }),
+			});
+			const data = await res.json();
+			if (!res.ok) throw new Error(data.error ?? 'Enregistrement impossible.');
+			bmMsg = '✓ Valeur ajoutée.';
+			bmDraft[key] = { date: d.date, value: '' };
+			await loadMeasurements();
+			await invalidateAll();
+		} catch (e) {
+			bmMsg = e instanceof Error ? e.message : 'Enregistrement impossible.';
+		} finally {
+			bmBusy = false;
+		}
+	}
+
+	/** Modifie UNIQUEMENT la valeur de cette métrique pour cette date. */
+	async function editBodyMetric(key: BodyMetricKey) {
+		if (!selectedId || !bmEdit) return;
+		const d = bmDraft[key];
+		const raw = String(d?.value ?? '');
+		if (!d || !d.date || raw.trim() === '') {
+			bmMsg = 'Renseigne la date et la valeur.';
+			return;
+		}
+		const value = Number(raw.replace(',', '.'));
+		if (!isFinite(value)) {
+			bmMsg = 'Valeur invalide.';
+			return;
+		}
+		bmBusy = true;
+		bmMsg = '';
+		try {
+			const res = await fetch('/api/coach/metrics', {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ userId: selectedId, date: d.date, metric: key, value }),
+			});
+			const data = await res.json();
+			if (!res.ok) throw new Error(data.error ?? 'Modification impossible.');
+			bmMsg = '✓ Valeur modifiée.';
+			bmDraft[key] = { date: d.date, value: '' };
+			bmEdit = null;
+			await loadMeasurements();
+			await invalidateAll();
+		} catch (e) {
+			bmMsg = e instanceof Error ? e.message : 'Modification impossible.';
+		} finally {
+			bmBusy = false;
+		}
+	}
+
+	function startBmEdit(key: BodyMetricKey, date: string, value: number) {
+		bmEdit = { key, date };
+		bmDraft[key] = { date, value };
+		bmMsg = '';
+		document.getElementById(`bm-form-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+	}
+
+	async function deleteMetric(date: string, metric: string) {
+		if (!selectedId) return;
+		try {
+			const res = await fetch(`/api/coach/metrics?userId=${selectedId}&date=${date}&metric=${metric}`, { method: 'DELETE' });
+			const data = await res.json();
+			if (!res.ok) throw new Error(data.error ?? 'Suppression impossible.');
+			await loadMeasurements();
+			await invalidateAll();
+		} catch (e) {
+			bmMsg = e instanceof Error ? e.message : 'Suppression impossible.';
+		}
+	}
+
+	async function saveHeightCrm() {
+		if (!selectedId) return;
+		const h = Number(hDraft.value.replace(',', '.'));
+		if (!isFinite(h) || hDraft.value.trim() === '') {
+			bmMsg = 'Renseigne une taille valide (80 à 250 cm).';
+			return;
+		}
+		hBusy = true;
+		bmMsg = '';
+		try {
+			const res = await fetch('/api/coach/metrics', {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ userId: selectedId, heightCm: h }),
+			});
+			const data = await res.json();
+			if (!res.ok) throw new Error(data.error ?? 'Enregistrement impossible.');
+			bmMsg = '✓ Taille enregistrée.';
+			hDraft = { date: todayISO(), value: '' };
+			await loadMeasurements();
+			await invalidateAll();
+		} catch (e) {
+			bmMsg = e instanceof Error ? e.message : 'Enregistrement impossible.';
+		} finally {
+			hBusy = false;
+		}
+	}
+
+	/* ── Photos ────────────────────────────────────────────────── */
+	const PHOTO_STEP_LABELS: Record<string, string> = {
+		demarrage: 'Démarrage',
+		mois1: 'Mois 1',
+		mois2: 'Mois 2',
+		mois3: 'Mois 3',
+		mois4: 'Mois 4',
+		mois5: 'Mois 5',
+		mois6: 'Mois 6',
+	};
+	const totalPhotos = $derived(photos.reduce((s: number, g: { photos: unknown[] }) => s + g.photos.length, 0));
+
+	/* ── Cockpit hebdo de l'onglet Bilans (calculé côté Convex, même période que le bilan) ── */
+	const cockpit = $derived(view?.cockpit ?? null);
+	const weekPhotos = $derived.by(() => {
+		if (!cockpit) return null;
+		const groups = (photos ?? []).filter(
+			(g: { date: string }) => g.date >= cockpit.weekStart && g.date <= cockpit.weekEnd
+		);
+		const n = groups.reduce((s: number, g: { photos: unknown[] }) => s + g.photos.length, 0);
+		return n > 0 ? { count: n } : null;
+	});
+	const cockpitPill = $derived.by(() => {
+		const b = cockpit?.bilan ?? null;
+		if (!b) return null;
+		if (b.status === 'retour_envoye') return { label: 'Retour envoyé', cls: 'bg-brand-light text-brand-dark' };
+		if (b.draft) return { label: '📝 Brouillon', cls: 'bg-line/70 text-mist' };
+		return { label: 'À traiter', cls: 'bg-warn-light text-warn' };
+	});
+	function fmtVal(n: number): string {
+		return String(Math.round(n * 10) / 10).replace('.', ',');
+	}
+	function fmtRangeShort(iso: string): string {
+		return new Date(iso + 'T12:00:00').toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
+	}
+	function fmtDaysAgo(n: number): string {
+		if (n <= 0) return "aujourd'hui";
+		if (n === 1) return 'hier';
+		return `il y a ${n} jours`;
+	}
+	function fmtDateTime(ts: number): string {
+		return new Date(ts).toLocaleString('fr-FR', { weekday: 'long', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+	}
+
+	/* Quand on ouvre le tiroir 360°, on précharge le journal + les mesures. */
+	$effect(() => {
+		const id = selectedId;
+		if (id) {
+			journalDate = todayISO();
+			initBodyDrafts();
+			loadDay();
+			loadMeasurements();
+		}
+	});
+
+	/* ── Sections du tiroir 360° ───────────────────────────────── */
+	let section = $state('apercu');
+
+	const sectionTabs = $derived([
+		{ id: 'apercu', label: 'Aperçu' },
+		{ id: 'journal', label: 'Journal' },
+		{ id: 'corps', label: 'Poids & mesures' },
+		{ id: 'photos', label: `Photos (${totalPhotos})` },
+		{ id: 'bilans', label: 'Bilans' },
+		{ id: 'demarrage', label: 'Démarrage' },
+	]);
+
+	// Deep-link : un lien de la file des bilans ouvre le 360° directement sur
+	// l'onglet Bilans (?section=bilans). Un simple clic d'onglet reste libre.
+	$effect(() => {
+		const fromUrl = page.url.searchParams.get('section');
+		if (fromUrl && sectionTabs.some((t) => t.id === fromUrl)) {
+			section = fromUrl;
+		}
+	});
 </script>
+
+<svelte:head><title>CRM — G-Flux</title></svelte:head>
 
 <!-- Statistiques -->
 <section class="grid gap-3 sm:grid-cols-3">
@@ -32,8 +726,8 @@
 		<div class="text-xs font-semibold uppercase tracking-wide text-mist">Client·e·s</div>
 	</div>
 	<div class="rounded-2xl border border-line bg-card p-4">
-		<div class="font-display text-3xl font-semibold text-ink">{totalBilans}</div>
-		<div class="text-xs font-semibold uppercase tracking-wide text-mist">Bilans reçus</div>
+		<div class="font-display text-3xl font-semibold text-brand">{activeToday}</div>
+		<div class="text-xs font-semibold uppercase tracking-wide text-mist">Actif·ve·s aujourd’hui</div>
 	</div>
 	<div class="rounded-2xl border border-line bg-card p-4">
 		<div class="font-display text-3xl font-semibold text-warn">{totalWaiting}</div>
@@ -51,176 +745,1251 @@
 	</div>
 {/if}
 
-<div class="mt-6 grid items-start gap-6 lg:grid-cols-[320px_1fr]">
-	<!-- Colonne gauche : comptes clients -->
-	<aside class="space-y-4">
-		<details class="group rounded-2xl border border-line bg-card shadow-sm" open={false}>
-			<summary class="cursor-pointer list-none px-5 py-4 font-display font-semibold text-ink transition hover:text-brand">
-				<span class="group-open:hidden">＋ Créer un compte client</span>
-				<span class="hidden group-open:inline">－ Masquer</span>
-			</summary>
-			<form method="POST" action="?/createClient" class="border-t border-line px-5 py-4">
-				<label class="mb-1 block text-xs font-bold uppercase tracking-wide text-mist" for="nc-prenom">Prénom</label>
-				<input id="nc-prenom" name="prenom" required placeholder="Ex. Julie" class="mb-3 w-full rounded-xl border-2 border-line bg-white px-3 py-2 text-sm outline-none focus:border-brand" />
-				<label class="mb-1 block text-xs font-bold uppercase tracking-wide text-mist" for="nc-email">Email (identifiant de connexion)</label>
-				<input id="nc-email" name="email" type="email" required placeholder="julie@exemple.fr" class="mb-3 w-full rounded-xl border-2 border-line bg-white px-3 py-2 text-sm outline-none focus:border-brand" />
-				<label class="mb-1 block text-xs font-bold uppercase tracking-wide text-mist" for="nc-pass">Mot de passe (8 caractères min.)</label>
-				<input id="nc-pass" name="password" type="text" required minlength="8" placeholder="Choisi avec la cliente…" class="mb-4 w-full rounded-xl border-2 border-line bg-white px-3 py-2 text-sm outline-none focus:border-brand" />
-				<button type="submit" class="w-full rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-dark">
-					Créer le compte
-				</button>
-			</form>
-		</details>
+<!-- ═══ File globale des bilans (À traiter / Retour envoyé / Manquants / Terminés) ═══ -->
+{#if clients.length > 0 && pendingCount > 0}
+	<div class="mt-6 rounded-2xl border border-line bg-card shadow-sm">
+		<div class="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
+			<div class="flex flex-wrap items-center gap-2">
+				<h2 class="font-display text-lg font-semibold text-ink">📋 File des bilans</h2>
+				{#if board.toTreat.length > 0}
+					<span class="rounded-full bg-warn px-2 py-0.5 text-[11px] font-bold text-white">À traiter {board.toTreat.length}</span>
+				{/if}
+				{#if board.feedbackSent.length > 0}
+					<span class="rounded-full bg-brand px-2 py-0.5 text-[11px] font-bold text-white">Retour envoyé {board.feedbackSent.length}</span>
+				{/if}
+				{#if board.missing.length > 0}
+					<span class="rounded-full bg-danger px-2 py-0.5 text-[11px] font-bold text-white">Manquants {board.missing.length}</span>
+				{/if}
+			</div>
+			<span class="text-xs text-mist">Fenêtre : vendredi 9h → dimanche 12h · cliquer ouvre la fiche sur l'onglet Bilans</span>
+		</div>
+		<div class="grid gap-4 p-4 md:grid-cols-2 xl:grid-cols-4">
+			<!-- À traiter : bilan reçu, retour pas encore envoyé -->
+			<div class="rounded-xl border border-line bg-cream/40 p-3">
+				<div class="mb-2 flex items-center justify-between gap-2">
+					<div class="text-[11px] font-bold uppercase tracking-wider text-warn">● À traiter</div>
+					<span class="rounded-full bg-warn-light px-2 py-0.5 text-[11px] font-bold text-warn">{board.toTreat.length}</span>
+				</div>
+				<div class="space-y-1.5">
+					{#each board.toTreat as r (r.userId + r.weekStart)}
+						<a
+							href={openBilan(r.userId)}
+							class="flex items-center gap-2 rounded-lg border border-line/70 bg-white px-2.5 py-2 transition hover:border-warn/60 hover:bg-warn-light/30"
+						>
+							<div class="min-w-0 flex-1">
+								<div class="truncate text-sm font-semibold text-ink">{r.prenom}</div>
+								<div class="truncate text-[11px] text-mist">{r.weekLabel} · reçu le {reçuLe(r.checkin?._creationTime)}</div>
+							</div>
+							<span class="shrink-0 text-xs font-bold text-warn">→</span>
+						</a>
+					{/each}
+					{#if board.toTreat.length === 0}
+						<p class="px-1 py-2 text-xs italic text-mist">Rien à traiter ✓</p>
+					{/if}
+				</div>
+			</div>
+			<!-- Retour envoyé : publié, pas encore consulté par la cliente -->
+			<div class="rounded-xl border border-line bg-cream/40 p-3">
+				<div class="mb-2 flex items-center justify-between gap-2">
+					<div class="text-[11px] font-bold uppercase tracking-wider text-brand-dark">● Retour envoyé</div>
+					<span class="rounded-full bg-brand-light px-2 py-0.5 text-[11px] font-bold text-brand-dark">{board.feedbackSent.length}</span>
+				</div>
+				<div class="space-y-1.5">
+					{#each board.feedbackSent as r (r.userId + r.weekStart)}
+						<a
+							href={openBilan(r.userId)}
+							class="flex items-center gap-2 rounded-lg border border-line/70 bg-white px-2.5 py-2 transition hover:border-brand/60 hover:bg-brand-light/30"
+						>
+							<div class="min-w-0 flex-1">
+								<div class="truncate text-sm font-semibold text-ink">{r.prenom}</div>
+								<div class="truncate text-[11px] text-mist">{r.weekLabel}</div>
+							</div>
+							<span class="shrink-0 rounded-full bg-brand-light px-1.5 py-0.5 text-[10px] font-bold uppercase text-brand-dark">non lu</span>
+							<span class="shrink-0 text-xs font-bold text-brand-dark">→</span>
+						</a>
+					{/each}
+					{#if board.feedbackSent.length === 0}
+						<p class="px-1 py-2 text-xs italic text-mist">Aucun retour en attente de lecture</p>
+					{/if}
+				</div>
+			</div>
+			<!-- Bilans manquants : éligibles sans bilan pour la dernière semaine fermée -->
+			<div class="rounded-xl border border-line bg-cream/40 p-3">
+				<div class="mb-2 flex items-center justify-between gap-2">
+					<div class="text-[11px] font-bold uppercase tracking-wider text-danger">● Bilans manquants</div>
+					<span class="rounded-full bg-danger-light px-2 py-0.5 text-[11px] font-bold text-danger">{board.missing.length}</span>
+				</div>
+				{#if board.missingWeek}
+					<p class="mb-2 text-[11px] text-mist">Semaine fermée : {board.missingWeek.weekLabel}</p>
+				{/if}
+				<div class="space-y-1.5">
+					{#each board.missing as r (r.userId)}
+						<a
+							href={openBilan(r.userId)}
+							class="flex items-center gap-2 rounded-lg border border-line/70 bg-white px-2.5 py-2 transition hover:border-danger/60 hover:bg-danger-light/30"
+						>
+							<div class="min-w-0 flex-1">
+								<div class="truncate text-sm font-semibold text-ink">{r.prenom}</div>
+								<div class="truncate text-[11px] text-mist">Bilan non reçu</div>
+							</div>
+							<span class="shrink-0 text-xs font-bold text-danger">→</span>
+						</a>
+					{/each}
+					{#if board.missing.length === 0}
+						<p class="px-1 py-2 text-xs italic text-mist">Tout le monde a répondu ✓</p>
+					{/if}
+				</div>
+			</div>
+			<!-- Terminés : retour publié et consulté (récent) -->
+			<div class="rounded-xl border border-line bg-cream/40 p-3">
+				<div class="mb-2 flex items-center justify-between gap-2">
+					<div class="text-[11px] font-bold uppercase tracking-wider text-mist">● Terminés</div>
+					<span class="rounded-full bg-line px-2 py-0.5 text-[11px] font-bold text-mist">{board.done.length}</span>
+				</div>
+				<div class="space-y-1.5">
+					{#each board.done as r (r.userId + r.weekStart)}
+						<a
+							href={openBilan(r.userId)}
+							class="flex items-center gap-2 rounded-lg border border-line/70 bg-white px-2.5 py-2 transition hover:bg-cream"
+						>
+							<div class="min-w-0 flex-1">
+								<div class="truncate text-sm font-semibold text-ink">{r.prenom}</div>
+								<div class="truncate text-[11px] text-mist">{r.weekLabel} · retour consulté</div>
+							</div>
+							<span class="shrink-0 text-xs font-bold text-mist">→</span>
+						</a>
+					{/each}
+					{#if board.done.length === 0}
+						<p class="px-1 py-2 text-xs italic text-mist">Aucun bilan clos récemment</p>
+					{/if}
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
 
-		<div class="rounded-2xl border border-line bg-card p-3 shadow-sm">
+<!-- ═══ Tableau unique des clients ═══ -->
+<div class="mt-6 rounded-2xl border border-line bg-card shadow-sm">
+	<div class="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
+		<div class="flex items-center gap-3">
+			<h2 class="font-display text-lg font-semibold text-ink">Clients</h2>
+			<span class="rounded-full bg-line/60 px-2 py-0.5 text-xs font-semibold text-mist">{filtered.length}</span>
+		</div>
+		<div class="flex flex-wrap items-center gap-2">
 			<input
 				type="search"
 				bind:value={query}
 				placeholder="Rechercher (nom, email)…"
-				class="w-full rounded-xl border-2 border-line bg-white px-3 py-2 text-sm outline-none transition focus:border-brand"
+				class="rounded-xl border-2 border-line bg-white px-3 py-2 text-sm outline-none transition focus:border-brand"
 			/>
-			<nav class="mt-3 max-h-[62vh] space-y-1.5 overflow-y-auto pr-1" aria-label="Clients">
-				{#if filtered.length === 0}
-					<p class="rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm text-mist">
-						Aucun compte client{query.trim() ? ' trouvé' : ' pour l’instant'}.<br />Crée le premier avec le bouton ci-dessus ☝️
-					</p>
-				{:else}
+			<details class="group relative">
+				<summary class="cursor-pointer list-none rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark">
+					＋ Créer un client
+				</summary>
+				<form method="POST" action="?/createClient" class="absolute right-0 top-11 z-20 w-80 rounded-2xl border border-line bg-white p-4 shadow-xl">
+					<label class="mb-1 block text-xs font-bold uppercase tracking-wide text-mist" for="nc-prenom">Prénom</label>
+					<input id="nc-prenom" name="prenom" required placeholder="Ex. Julie" class="mb-3 w-full rounded-xl border-2 border-line px-3 py-2 text-sm outline-none focus:border-brand" />
+					<label class="mb-1 block text-xs font-bold uppercase tracking-wide text-mist" for="nc-email">Email (identifiant de connexion)</label>
+					<input id="nc-email" name="email" type="email" required placeholder="julie@exemple.fr" class="mb-3 w-full rounded-xl border-2 border-line px-3 py-2 text-sm outline-none focus:border-brand" />
+					<label class="mb-1 block text-xs font-bold uppercase tracking-wide text-mist" for="nc-pass">Mot de passe (8 caractères min.)</label>
+					<input id="nc-pass" name="password" type="text" required minlength="8" placeholder="Choisi avec la cliente…" class="mb-4 w-full rounded-xl border-2 border-line px-3 py-2 text-sm outline-none focus:border-brand" />
+					<button type="submit" class="w-full rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-dark">Créer le compte</button>
+				</form>
+			</details>
+		</div>
+	</div>
+
+	{#if filtered.length === 0}
+		<p class="px-6 py-14 text-center text-sm text-mist">
+			Aucun compte client{query.trim() ? ' trouvé' : ' pour l’instant'}.<br />Crée le premier avec « ＋ Créer un client ».
+		</p>
+	{:else}
+		<div class="overflow-x-auto">
+			<table class="w-full min-w-[760px] text-left">
+				<thead>
+					<tr class="border-b border-line text-[11px] font-bold uppercase tracking-wider text-mist">
+						<th class="px-5 py-3">Client</th>
+						<th class="px-3 py-3">Dernière connexion</th>
+						<th class="px-3 py-3">Bilans</th>
+						<th class="px-3 py-3">Retours</th>
+						<th class="px-3 py-3">Dernier bilan</th>
+						<th class="px-5 py-3 text-right">360°</th>
+					</tr>
+				</thead>
+				<tbody>
 					{#each filtered as client (client.user._id)}
-						<a
-							href={`/admin?client=${client.user._id}`}
-							class="block w-full rounded-xl border-2 px-3 py-2.5 transition
-								{selectedId === client.user._id ? 'border-brand bg-brand-light' : 'border-transparent bg-white hover:border-line'}"
-						>
-							<div class="flex items-center justify-between gap-2">
-								<span class="truncate text-sm font-semibold text-ink">{client.user.prenom}</span>
+						<tr class="border-b border-line/60 transition hover:bg-cream/60">
+							<td class="px-5 py-3">
+								<div class="flex items-center gap-3">
+									<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand/15 font-display text-sm font-semibold text-brand-dark">
+										{initial(client.user.prenom)}
+									</div>
+									<div class="min-w-0">
+										<div class="flex items-center gap-2">
+											<span class="truncate font-semibold text-ink">{client.user.prenom}</span>
+											<span class="h-2 w-2 shrink-0 rounded-full {isOnline(client.user.lastSeenAt) ? 'bg-brand' : 'bg-line'}" title={isOnline(client.user.lastSeenAt) ? 'En ligne' : 'Hors ligne'}></span>
+										</div>
+										<div class="truncate text-[11px] text-mist">{client.user.email}</div>
+									</div>
+								</div>
+							</td>
+							<td class="whitespace-nowrap px-3 py-3 text-sm text-mist">{fmtLastSeen(client.user.lastSeenAt)}</td>
+							<td class="px-3 py-3 text-sm text-ink">{client.count}</td>
+							<td class="px-3 py-3">
 								{#if client.waiting > 0}
-									<span class="shrink-0 rounded-full bg-warn px-2 py-0.5 text-[10px] font-bold text-white">{client.waiting}</span>
+									<span class="rounded-full bg-warn px-2 py-0.5 text-[11px] font-bold text-white">{client.waiting}</span>
+								{:else}
+									<span class="text-sm text-mist">—</span>
+								{/if}
+							</td>
+							<td class="whitespace-nowrap px-3 py-3 text-sm text-mist">{client.latest?.weekLabel ?? '—'}</td>
+							<td class="px-5 py-3 text-right">
+								<a
+									href={`/admin?client=${client.user._id}`}
+									class="inline-flex items-center gap-1 rounded-lg bg-ink px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand"
+								>360° →</a>
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+	{/if}
+</div>
+
+<!-- ═══ Tiroir 360° ═══ -->
+{#if selected && view}
+	<button type="button" class="fixed inset-0 z-50 cursor-pointer bg-ink/50" aria-label="Fermer la vue 360°" onclick={() => (window.location.href = '/admin')}></button>
+	<aside class="fixed inset-y-0 right-0 z-50 flex w-full max-w-4xl flex-col border-l border-line bg-cream shadow-2xl">
+		<!-- En-tête du tiroir -->
+		<div class="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-card px-5 py-3">
+			<div class="flex items-center gap-3">
+				<div class="flex h-10 w-10 items-center justify-center rounded-full bg-brand font-display text-lg font-semibold text-white">
+					{initial(selected.user.prenom)}
+				</div>
+				<div>
+					<h2 class="font-display text-lg font-semibold text-ink">{selected.user.prenom}</h2>
+					<p class="text-[11px] text-mist">
+						{selected.user.email}
+						{selected.user.birthDate ? ` · 🎂 ${fmtDateShort(selected.user.birthDate)}` : ''}
+						{selected.user.heightCm ? ` · 📏 ${selected.user.heightCm} cm` : ''}
+						· 🕒 {fmtLastSeen(selected.user.lastSeenAt)}
+					</p>
+				</div>
+			</div>
+			<div class="flex flex-wrap items-center gap-2">
+				<details class="group relative">
+					<summary class="cursor-pointer list-none rounded-lg border-2 border-line px-3 py-1.5 text-sm text-ink transition hover:border-brand hover:text-brand">⚙️ Fiche</summary>
+					<form method="POST" action="?/updateFiche" class="absolute right-0 top-10 z-20 w-80 rounded-xl border border-line bg-white p-4 shadow-xl">
+						<input type="hidden" name="userId" value={selected.user._id} />
+						<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-prenom">Prénom</label>
+						<input id="f-prenom" name="prenom" required value={selected.user.prenom} class="mb-3 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
+						<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-email">Email (identifiant)</label>
+						<input id="f-email" name="email" type="email" required value={selected.user.email} class="mb-3 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
+						<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-birth">Date de naissance</label>
+						<input id="f-birth" name="birthDate" type="date" value={selected.user.birthDate ?? ''} class="mb-3 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
+						<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-start">Date de démarrage du suivi</label>
+						<input id="f-start" name="startDate" type="date" value={selected.user.startDate ?? ''} class="mb-3 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
+						<p class="-mt-1 mb-3 text-[10px] text-mist">Ancre les échéances : mensurations tous les 15 jours, photos tous les mois.</p>
+						<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-height">Taille (cm)</label>
+						<input id="f-height" name="heightCm" type="number" min="80" max="250" step="0.5" value={selected.user.heightCm ?? ''} placeholder="Ex. 168" class="mb-3 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
+						<div class="mb-3 rounded-lg border-2 border-dashed border-line bg-cream/50 px-3 py-2.5">
+							<label class="flex cursor-pointer items-start gap-2 text-sm text-ink">
+								<input type="checkbox" name="onboardingEnabled" value="1" checked={selected.user.onboardingEnabled} class="accent-brand" />
+								<span>
+									<span class="block text-[10px] font-bold uppercase tracking-wider text-mist">Onboarding de démarrage requis</span>
+									<span class="mt-0.5 block text-[11px] leading-snug text-mist">Affiche le parcours 2 étapes (formulaire + mensurations/photos) côté cliente tant qu'il n'est pas terminé. Les réponses déjà envoyées sont conservées si tu désactives.</span>
+								</span>
+							</label>
+							<input type="hidden" name="onboardingEnabled" value="0" />
+						</div>
+						<button type="submit" class="w-full rounded-lg bg-brand px-3 py-2 text-sm font-semibold text-white hover:bg-brand-dark">Enregistrer la fiche</button>
+					</form>
+				</details>
+				<details class="group relative">
+					<summary class="cursor-pointer list-none rounded-lg border-2 border-line px-3 py-1.5 text-sm text-ink transition hover:border-warn hover:text-warn">Mot de passe</summary>
+					<form method="POST" action="?/resetPassword" class="absolute right-0 top-10 z-20 w-72 rounded-xl border border-line bg-white p-3 shadow-xl">
+						<input type="hidden" name="userId" value={selected.user._id} />
+						<input name="newPassword" type="text" required minlength="8" placeholder="Nouveau mot de passe (8+ car.)" class="mb-2 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-warn" />
+						<button type="submit" class="w-full rounded-lg bg-warn px-3 py-1.5 text-sm font-semibold text-white hover:brightness-95">Réinitialiser</button>
+					</form>
+				</details>
+				<details class="group relative">
+					<summary class="cursor-pointer list-none rounded-lg border-2 border-line px-3 py-1.5 text-sm text-danger transition hover:border-danger hover:bg-danger-light">Supprimer</summary>
+					<form method="POST" action="?/removeClient" class="absolute right-0 top-10 z-20 w-80 rounded-xl border border-danger/40 bg-white p-3 shadow-xl">
+						<input type="hidden" name="userId" value={selected.user._id} />
+						<p class="text-xs leading-relaxed text-ink">Supprimer <strong>{selected.user.prenom}</strong> et toutes ses données ? Action irréversible.</p>
+						<label class="mt-2 flex items-start gap-2 text-xs text-ink">
+							<input type="checkbox" name="confirm" required class="mt-0.5" />
+							<span>Je confirme la suppression définitive.</span>
+						</label>
+						<button type="submit" class="mt-2 w-full rounded-lg bg-danger px-3 py-1.5 text-sm font-semibold text-white hover:brightness-95">Supprimer le compte</button>
+					</form>
+				</details>
+				<a href="/admin" class="rounded-lg bg-ink px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-brand">✕ Fermer</a>
+			</div>
+		</div>
+
+		<!-- Onglets du 360° -->
+		<div class="flex gap-1 overflow-x-auto border-b border-line bg-card px-5 pt-2">
+			{#each sectionTabs as t}
+				<button
+					onclick={() => (section = t.id)}
+					class="whitespace-nowrap rounded-t-lg px-3 py-2 text-sm font-semibold transition
+						{section === t.id ? 'border-b-2 border-brand text-brand' : 'text-mist hover:text-ink'}"
+				>{t.label}</button>
+			{/each}
+		</div>
+
+		<div class="flex-1 space-y-5 overflow-y-auto px-5 py-5">
+			<!-- ═══ Aperçu : message du coach + dernières données + diagramme calories ═══ -->
+			{#if section === 'apercu'}
+				<!-- Raccourci formulaire de démarrage (onboarding, discret) -->
+				<div class="rounded-2xl border border-line bg-card p-4 shadow-sm">
+					<div class="flex flex-wrap items-center justify-between gap-3">
+						<div class="flex items-center gap-2.5">
+							<span class="grid h-8 w-8 place-items-center rounded-full bg-brand-light text-base">🚀</span>
+							<div class="min-w-0">
+								<p class="text-[11px] font-bold uppercase tracking-wider text-mist">Onboarding de démarrage</p>
+								<p class="mt-0.5 text-xs text-mist">
+									{#if onboardingView?.enabled}
+										Actif — {onboardingView.step1.done ? 'formulaire ✓' : 'formulaire à faire'}
+										·
+										{onboardingView.step2.done ? 'mensurations & photos ✓' : 'mensurations & photos à compléter'}
+									{:else}
+										Non activé pour cette cliente (⚙️ Fiche pour l'activer)
+									{/if}
+								</p>
+							</div>
+						</div>
+						<button
+							type="button"
+							onclick={() => (section = 'demarrage')}
+							class="shrink-0 rounded-lg border-2 border-line px-3 py-1.5 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand"
+						>
+							Voir le formulaire de démarrage →
+						</button>
+					</div>
+				</div>
+
+				<!-- Message du coach du jour (champ dédié, visible par la cliente sur son dashboard) -->
+				<div class="rounded-2xl border border-line bg-card p-4 shadow-sm">
+					<div class="flex items-center justify-between gap-2">
+						<div class="text-[11px] font-bold uppercase tracking-wider text-mist">💬 Message du coach du jour</div>
+						{#if selected.user.coachMessage && selected.user.coachMessageDate}
+							<span class="rounded-full bg-brand-light px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand-dark">Publié · {fmtDateShort(selected.user.coachMessageDate)}</span>
+						{/if}
+					</div>
+					<p class="mt-1 text-xs text-mist">Apparaît tout en haut du dashboard de la cliente pour aujourd’hui seulement. Une note interne n’est jamais affichée automatiquement.</p>
+					<form method="POST" action="/admin?/setCoachMessage" class="mt-2">
+						<input type="hidden" name="userId" value={selected.user._id} />
+						<input type="hidden" name="audioId" value={msgAudioDraft} />
+						<div class="flex flex-col gap-2 sm:flex-row">
+							<textarea
+								name="message"
+								rows="2"
+								placeholder="Ex. Belle régularité cette semaine, continue comme ça 💪"
+								class="min-h-14 flex-1 rounded-xl border-2 border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-brand"
+							>{selected.user.coachMessage ?? ''}</textarea>
+							<div class="flex shrink-0 gap-2">
+								<button type="submit" name="publish" value="1" class="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark">
+									Publier
+								</button>
+								<button type="submit" name="clear" value="1" class="rounded-xl border-2 border-line px-4 py-2 text-sm font-semibold text-mist transition hover:border-danger hover:text-danger">
+									Effacer
+								</button>
+							</div>
+						</div>
+						<!-- Audio du message : enregistrement possible + état actuel (brouillon jamais publié tant qu'on n'envoie pas). -->
+						<div class="mt-2 rounded-xl border border-line bg-card/60 p-3">
+							<p class="text-[11px] font-bold uppercase tracking-wide text-mist">🎙️ Avec un message audio (optionnel)</p>
+							<CoachMedia
+								mode="message"
+								userId={selected.user._id}
+								existing={messageAudio}
+								bind:stagedAudioId={msgAudioDraft}
+							/>
+						</div>
+					</form>
+				</div>
+
+				<div class="grid gap-3 sm:grid-cols-3">
+					<div class="rounded-2xl border border-line bg-card p-4">
+						<div class="text-[11px] font-bold uppercase tracking-wider text-mist">⚖️ Poids actuel</div>
+						<div class="mt-1 flex items-baseline gap-2">
+							<span class="font-display text-3xl font-semibold text-ink">{view.lastWeight != null ? `${String(view.lastWeight).replace('.', ',')} kg` : '—'}</span>
+							{#if weightDelta != null}
+								<span class="text-sm font-bold {weightDelta <= 0 ? 'text-brand' : 'text-warn'}">{weightDelta <= 0 ? '↓' : '↑'} {String(Math.abs(weightDelta)).replace('.', ',')} kg</span>
+							{/if}
+						</div>
+						<div class="mt-1 text-[11px] text-mist">{latestMetric?.weightKg != null ? `dernière prise ${fmtDateShort(latestMetric.date)}` : 'aucune prise'}</div>
+					</div>
+					<div class="rounded-2xl border border-line bg-card p-4">
+						<div class="text-[11px] font-bold uppercase tracking-wider text-mist">📐 Mensurations</div>
+						<div class="mt-1 grid grid-cols-3 gap-2 text-center">
+							<div>
+								<div class="font-display text-lg font-semibold text-ink">{latestMetric?.waistCm != null ? String(latestMetric.waistCm).replace('.', ',') : '—'}</div>
+								<div class="text-[10px] text-mist">taille</div>
+							</div>
+							<div>
+								<div class="font-display text-lg font-semibold text-ink">{latestMetric?.hipCm != null ? String(latestMetric.hipCm).replace('.', ',') : '—'}</div>
+								<div class="text-[10px] text-mist">fessiers</div>
+							</div>
+							<div>
+								<div class="font-display text-lg font-semibold text-ink">{latestMetric?.neckCm != null ? String(latestMetric.neckCm).replace('.', ',') : '—'}</div>
+								<div class="text-[10px] text-mist">cou</div>
+							</div>
+						</div>
+						<div class="mt-1 text-[11px] text-mist">en cm {latestMetric ? `· ${fmtDateShort(latestMetric.date)}` : '· aucune prise'}</div>
+					</div>
+					<div class="rounded-2xl border border-line bg-card p-4">
+						<div class="text-[11px] font-bold uppercase tracking-wider text-mist">🔥 Calories / jour</div>
+						<div class="mt-1 flex items-baseline gap-2">
+							<span class="font-display text-3xl font-semibold text-ink">{weekAvg || '—'}</span>
+							{#if view && weekAvg > 0}
+								<span class="text-sm font-bold {kcalTrend <= 5 ? 'text-brand' : 'text-warn'}">{kcalTrend > 0 ? '+' : ''}{kcalTrend} %</span>
+							{/if}
+						</div>
+						<div class="mt-1 text-[11px] text-mist">moyenne constatée · {loggedDays} jour(s) renseigné(s) sur 7 · objectif {goalKcal}</div>
+					</div>
+				</div>
+
+				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
+					<div class="flex flex-wrap items-center justify-between gap-2">
+						<h3 class="font-display text-base font-semibold text-ink">📊 Calories — tendance des 7 derniers jours</h3>
+						<span class="text-[11px] text-mist">barres : kcal consommées · ligne pointillée : objectif · ligne verte : moyenne</span>
+					</div>
+					{#if chart}
+						<div class="mt-3 overflow-x-auto">
+							<svg viewBox="0 0 700 220" class="h-auto w-full min-w-[560px]" role="img" aria-label="Calories de la semaine">
+								{#each chart.bars as bar, i}
+									<g>
+										<rect x={bar.x} y={chart.goalY - 3} width="56" height="6" rx="3" fill="none" stroke="#999990" stroke-width="1" stroke-dasharray="3 3" class="chart-goal-tick" />
+										<rect x={bar.x} y={bar.y} width="56" height={bar.h} rx="6" fill={bar.isToday ? '#1db954' : '#7ce0a5'} class="chart-bar" style={`animation-delay: ${i * 70}ms`}>
+											<title>{bar.full} : {bar.kcal} kcal ({bar.count} entrée{bar.count > 1 ? 's' : ''})</title>
+										</rect>
+										<text x={bar.x + 28} y={bar.y - 6} text-anchor="middle" class="chart-value" font-size="13" font-weight="600" fill="#111110">{bar.kcal > 0 ? bar.kcal : ''}</text>
+										<text x={bar.x + 28} y="214" text-anchor="middle" font-size="12" fill="#999990" font-weight="600">{bar.label}</text>
+									</g>
+								{/each}
+								<line x1="0" y1={chart.goalY} x2="700" y2={chart.goalY} stroke="#111110" stroke-width="1.5" stroke-dasharray="6 5" />
+								<text x="704" y={chart.goalY - 4} font-size="12" fill="#111110" font-weight="600">🎯</text>
+								{#if chart.avgY != null}
+									<line x1="0" y1={chart.avgY} x2="700" y2={chart.avgY} stroke="#1db954" stroke-width="2.5" stroke-dasharray="10 6" />
+									<text x="704" y={chart.avgY - 4} font-size="12" fill="#1db954" font-weight="700">moy {weekAvg}</text>
+								{/if}
+							</svg>
+						</div>
+						<div class="mt-2 rounded-xl bg-brand-light px-4 py-2.5 text-xs text-ink">
+							📐 <strong>Moyenne constatée : {weekAvg} kcal/jour</strong> sur {loggedDays} jour(s) renseigné(s) — calcul : somme des calories des jours saisis ÷ nombre de jours saisis (objectif : {goalKcal} kcal).
+						</div>
+					{:else}
+						<p class="mt-3 rounded-xl border border-dashed border-line px-4 py-8 text-center text-sm text-mist">Aucune donnée de journal sur les 7 derniers jours.</p>
+					{/if}
+				</div>
+
+				{#if weightPoints && weightPoints.coords.length > 0}
+					<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
+						<div class="flex flex-wrap items-center justify-between gap-2">
+							<h3 class="font-display text-base font-semibold text-ink">📉 Tendance du poids</h3>
+							<span class="text-[11px] text-mist">{weightPoints.coords.length} prise(s) · {String(weightPoints.min).replace('.', ',')} → {String(weightPoints.max).replace('.', ',')} kg</span>
+						</div>
+						<div class="mt-3 overflow-x-auto">
+							<svg viewBox="0 0 700 180" class="h-auto w-full min-w-[520px]" role="img" aria-label="Courbe du poids">
+								<defs>
+									<linearGradient id="wgrad" x1="0" y1="0" x2="0" y2="1">
+										<stop offset="0%" stop-color="#1db954" stop-opacity="0.25" />
+										<stop offset="100%" stop-color="#1db954" stop-opacity="0" />
+									</linearGradient>
+								</defs>
+								{#if weightPoints.coords.length > 1}
+									<polygon
+										points={`${weightPoints.coords.map((p) => `${p.x},${p.y}`).join(' ')} ${weightPoints.coords[weightPoints.coords.length - 1].x},168 ${weightPoints.coords[0].x},168`}
+										fill="url(#wgrad)"
+										class="chart-fade"
+									/>
+									<polyline points={weightPoints.coords.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#1db954" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="chart-line" />
+								{/if}
+								{#each weightPoints.coords as p}
+									<circle cx={p.x} cy={p.y} r="5" fill="#1db954" stroke="#fff" stroke-width="2" class="chart-dot">
+										<title>{fmtDateShort(p.date)} : {String(p.weightKg).replace('.', ',')} kg</title>
+									</circle>
+									<text x={p.x} y={p.y - 11} text-anchor="middle" font-size="11.5" font-weight="600" fill="#111110">{String(p.weightKg).replace('.', ',')}</text>
+									<text x={p.x} y="176" text-anchor="middle" font-size="10.5" fill="#999990">{fmtDateShort(p.date)}</text>
+								{/each}
+							</svg>
+						</div>
+					</div>
+				{/if}
+
+				<!-- Objectifs journaliers -->
+				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
+					<div class="flex flex-wrap items-center justify-between gap-2">
+						<h3 class="font-display text-base font-semibold text-ink">🎯 Objectifs journaliers</h3>
+						<span class="text-[11px] text-mist">Affichés dans le Journal de {selected.user.prenom}</span>
+					</div>
+					{#key selected.user._id}
+						<form method="POST" action="?/setGoals" class="mt-3">
+							<input type="hidden" name="userId" value={selected.user._id} />
+
+							<!-- Choix du mode de saisie -->
+							<div class="mb-3 flex overflow-hidden rounded-lg border-2 border-line text-xs font-semibold sm:text-sm" role="radiogroup" aria-label="Mode de saisie des objectifs">
+								<button
+									type="button"
+									class="flex-1 px-3 py-2 transition {goalsMode === 'pct' ? 'bg-brand text-white' : 'text-ink hover:bg-line/40'}"
+									onclick={() => switchGoalsMode('pct')}
+								>🎯 Calories + répartition %</button>
+								<button
+									type="button"
+									class="flex-1 px-3 py-2 transition {goalsMode === 'grams' ? 'bg-brand text-white' : 'text-ink hover:bg-line/40'}"
+									onclick={() => switchGoalsMode('grams')}
+								>🥩 Méthode macros (g)</button>
+							</div>
+
+							{#if goalsMode === 'pct'}
+								<div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+									<label class="block">
+										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Calories / jour</span>
+										<input type="number" name="kcal" required min="800" max="6000" bind:value={pctKcal} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
+									</label>
+									<label class="block">
+										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Glucides (%)</span>
+										<input type="number" min="0" max="100" step="1" bind:value={pctCarbs} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
+										<span class="mt-0.5 block text-[11px] text-mist">≈ {goalsValues.carbs} g</span>
+									</label>
+									<label class="block">
+										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Protéines (%)</span>
+										<input type="number" min="0" max="100" step="1" bind:value={pctProtein} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
+										<span class="mt-0.5 block text-[11px] text-mist">≈ {goalsValues.protein} g</span>
+									</label>
+									<label class="block">
+										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Lipides (%)</span>
+										<input type="number" min="0" max="100" step="1" bind:value={pctFat} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
+										<span class="mt-0.5 block text-[11px] text-mist">≈ {goalsValues.fat} g</span>
+									</label>
+								</div>
+								<p class="mt-2 text-xs font-semibold {pctOk ? 'text-brand' : 'text-danger'}">
+									Répartition : {pctSum} %{pctOk ? ' ✓' : ' — doit faire 100 %'}
+								</p>
+								<input type="hidden" name="carbs" value={goalsValues.carbs} />
+								<input type="hidden" name="protein" value={goalsValues.protein} />
+								<input type="hidden" name="fat" value={goalsValues.fat} />
+							{:else}
+								<div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+									<div class="rounded-lg border-2 border-brand/40 bg-brand-light px-2 py-2">
+										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-brand">Calories calculées</span>
+										<span class="font-display text-lg font-semibold text-brand-dark">{goalsValues.kcal} <span class="text-xs font-semibold text-mist">kcal</span></span>
+									</div>
+									<label class="block">
+										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Glucides (g)</span>										<input type="number" name="carbs" required min="0" max="1000" bind:value={gCarbs} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
+											</label>
+											<label class="block">
+												<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Protéines (g)</span>
+												<input type="number" name="protein" required min="0" max="400" bind:value={gProtein} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
+											</label>
+											<label class="block">
+												<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Lipides (g)</span>
+												<input type="number" name="fat" required min="0" max="300" bind:value={gFat} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
+									</label>
+								</div>
+								<p class="mt-2 text-xs text-mist">1 g glucides = 4 kcal · 1 g protéines = 4 kcal · 1 g lipides = 9 kcal</p>
+								<input type="hidden" name="kcal" value={goalsValues.kcal} />
+							{/if}
+
+							{#if goalsError}
+								<p class="mt-2 rounded-lg bg-danger-light px-3 py-2 text-xs font-semibold text-danger">{goalsError}</p>
+							{/if}
+
+							<!-- Filet de sécurité : maintenance calorique (repère secondaire, jamais une 2ᵉ cible) -->
+							<div class="mt-3 rounded-xl border-2 border-dashed border-brand/30 bg-brand-light/50 px-3 py-2.5">
+								<label class="flex items-center justify-between gap-3">
+									<span class="min-w-0">
+										<span class="block text-[10px] font-bold uppercase tracking-wider text-brand-dark">🛟 Maintenance calorique (optionnel)</span>
+										<span class="mt-0.5 block text-[11px] leading-snug text-mist">Filet de sécurité : repère discret côté cliente si elle dépasse légèrement son objectif. Doit rester &gt; l'objectif. Laisse vide pour désactiver.</span>
+									</span>
+									<input
+										type="number"
+										name="maintenanceKcal"
+										min="800"
+										max="10000"
+										step="50"
+										placeholder="Ex. 2350"
+										bind:value={maintenanceKcal}
+										class="w-32 rounded-lg border-2 border-line px-2 py-2 text-right text-sm font-semibold outline-none focus:border-brand"
+									/>
+								</label>
+								{#if !maintenanceKcal && savedMaintenance}
+									<label class="mt-2 flex cursor-pointer items-center gap-1.5 text-[11px] text-mist">
+										<input type="checkbox" name="clearMaintenance" value="1" class="accent-brand" />
+										Retirer le filet de sécurité enregistré ({savedMaintenance} kcal)
+									</label>
 								{/if}
 							</div>
-							<div class="mt-0.5 truncate text-[11px] text-mist">{client.user.email}</div>
-							<div class="mt-0.5 flex justify-between gap-2 text-[11px] text-mist">
-								<span>{client.count} bilan{client.count > 1 ? 's' : ''}</span>
-								<span>{client.latest?.weekLabel ?? 'aucun bilan'}</span>
-							</div>
-						</a>
-					{/each}
-				{/if}
-			</nav>
-		</div>
-	</aside>
 
-	<!-- Détail client -->
-	<section>
-		{#if selected}
-			<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
-				<div class="flex flex-wrap items-start justify-between gap-3">
-					<div class="flex items-center gap-3">
-						<div class="flex h-12 w-12 items-center justify-center rounded-full bg-brand font-display text-xl font-semibold text-white">
-							{initial(selected.user.prenom)}
-						</div>
+							<!-- Objectif quotidien de pas (saisi manuellement, propre à chaque cliente) -->
+							<div class="mt-3 rounded-xl border-2 border-dashed border-line bg-cream/50 px-3 py-2.5">
+								<label class="flex items-center justify-between gap-3">
+									<span class="min-w-0">
+										<span class="block text-[10px] font-bold uppercase tracking-wider text-mist">👟 Objectif quotidien de pas (optionnel)</span>
+										<span class="mt-0.5 block text-[11px] leading-snug text-mist">Visible côté cliente sur son Accueil (« Pas aujourd'hui ») et utilisé dans le récap hebdo et le cockpit Bilans. Laisse vide pour ne pas afficher d'objectif.</span>
+									</span>
+									<input
+										type="number"
+										name="stepGoal"
+										min="500"
+										max="100000"
+										step="500"
+										placeholder="Ex. 10000"
+										bind:value={stepGoal}
+										class="w-32 rounded-lg border-2 border-line px-2 py-2 text-right text-sm font-semibold outline-none focus:border-brand"
+									/>
+								</label>
+								{#if !stepGoal && savedStepGoal}
+									<label class="mt-2 flex cursor-pointer items-center gap-1.5 text-[11px] text-mist">
+										<input type="checkbox" name="clearStepGoal" value="1" class="accent-brand" />
+										Retirer l'objectif de pas enregistré ({savedStepGoal.toLocaleString('fr-FR')} pas)
+									</label>
+								{/if}
+							</div>
+
+							<button type="submit" disabled={!!goalsError} class="mt-3 w-full rounded-lg bg-brand px-3 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark disabled:opacity-60">
+								Enregistrer les objectifs
+							</button>
+						</form>
+					{/key}
+				</div>
+
+			<!-- ═══ Démarrage : formulaire initial + statuts de l'onboarding ═══ -->
+			{:else if section === 'demarrage'}
+				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
+					<div class="flex flex-wrap items-center justify-between gap-3">
 						<div>
-							<h2 class="font-display text-xl font-semibold text-ink">{selected.user.prenom}</h2>
-							<p class="text-xs text-mist">
-								{selected.user.email} · {selected.count} bilan{selected.count > 1 ? 's' : ''} · {selected.waiting} retour{selected.waiting > 1 ? 's' : ''} à envoyer
-								{selected.latest ? ` · dernier : ${selected.latest.weekLabel}` : ''}
+							<h3 class="font-display text-base font-semibold text-ink">🚀 Onboarding de démarrage</h3>
+							<p class="mt-0.5 text-xs leading-relaxed text-mist">
+								Le formulaire initial sert de point de départ à l'accompagnement. Les étapes sont
+								validées automatiquement côté cliente — aucune saisie manuelle ici.
 							</p>
 						</div>
+						<form method="POST" action="?/setOnboarding" class="shrink-0">
+							<input type="hidden" name="userId" value={selected.user._id} />
+							<input type="hidden" name="enabled" value={onboardingView?.enabled ? '0' : '1'} />
+							<button
+								type="submit"
+								class="rounded-lg px-3 py-1.5 text-sm font-semibold transition {onboardingView?.enabled
+									? 'bg-line text-ink hover:bg-line/70'
+									: 'bg-brand text-white hover:bg-brand-dark'}"
+							>
+								{onboardingView?.enabled ? "Désactiver l'onboarding" : "Activer l'onboarding"}
+							</button>
+						</form>
 					</div>
 
-					<div class="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
-						<details class="group relative">
-							<summary class="cursor-pointer list-none rounded-lg border-2 border-line px-3 py-1.5 text-sm text-ink transition hover:border-brand hover:text-brand">Renommer</summary>
-							<form method="POST" action="?/rename" class="absolute right-0 top-9 z-10 w-60 rounded-xl border border-line bg-white p-3 shadow-lg">
-								<input type="hidden" name="userId" value={selected.user._id} />
-								<input name="prenom" required value={selected.user.prenom} class="mb-2 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
-								<button type="submit" class="w-full rounded-lg bg-brand px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-dark">Enregistrer</button>
-							</form>
-						</details>
-
-						<details class="group relative">
-							<summary class="cursor-pointer list-none rounded-lg border-2 border-line px-3 py-1.5 text-sm text-ink transition hover:border-brand hover:text-brand">Email</summary>
-							<form method="POST" action="?/updateEmail" class="absolute right-0 top-9 z-10 w-72 rounded-xl border border-line bg-white p-3 shadow-lg">
-								<input type="hidden" name="userId" value={selected.user._id} />
-								<input name="email" type="email" required value={selected.user.email} class="mb-2 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
-								<button type="submit" class="w-full rounded-lg bg-brand px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-dark">Changer l'email</button>
-							</form>
-						</details>
-
-						<details class="group relative">
-							<summary class="cursor-pointer list-none rounded-lg border-2 border-line px-3 py-1.5 text-sm text-ink transition hover:border-warn hover:text-warn">Mot de passe</summary>
-							<form method="POST" action="?/resetPassword" class="absolute right-0 top-9 z-10 w-72 rounded-xl border border-line bg-white p-3 shadow-lg">
-								<input type="hidden" name="userId" value={selected.user._id} />
-								<input name="newPassword" type="text" required minlength="8" placeholder="Nouveau mot de passe (8+ car.)" class="mb-2 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-warn" />
-								<button type="submit" class="w-full rounded-lg bg-warn px-3 py-1.5 text-sm font-semibold text-white hover:brightness-95">Réinitialiser</button>
-							</form>
-						</details>
-
-						<details class="group relative">
-							<summary class="cursor-pointer list-none rounded-lg border-2 border-line px-3 py-1.5 text-sm text-danger transition hover:border-danger hover:bg-danger-light">Supprimer</summary>
-							<form method="POST" action="?/removeClient" class="absolute right-0 top-9 z-10 w-80 rounded-xl border border-danger/40 bg-white p-3 shadow-lg">
-								<input type="hidden" name="userId" value={selected.user._id} />
-								<p class="text-xs leading-relaxed text-ink">
-									Supprimer <strong>{selected.user.prenom}</strong> et ses {selected.count} bilan{selected.count > 1 ? 's' : ''} ? Action irréversible.
-								</p>
-								<label class="mt-2 flex items-start gap-2 text-xs text-ink">
-									<input type="checkbox" name="confirm" required class="mt-0.5" />
-									<span>Je confirme la suppression définitive.</span>
-								</label>
-								<button type="submit" class="mt-2 w-full rounded-lg bg-danger px-3 py-1.5 text-sm font-semibold text-white hover:brightness-95">Supprimer le compte</button>
-							</form>
-						</details>
+					<!-- Statut global + deux étapes (dérivés des données réelles) -->
+					<div class="mt-3 grid gap-2 sm:grid-cols-4">
+						<div class="rounded-xl bg-line/40 px-3 py-2 text-center">
+							<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Statut global</div>
+							<div class="mt-0.5 text-sm font-bold {onboardingView?.done ? 'text-brand' : onboardingView?.enabled ? 'text-warn' : 'text-mist'}">
+								{onboardingView ? (onboardingView.done ? 'Terminé ✓' : onboardingView.enabled ? 'En cours' : 'Inactif') : '—'}
+							</div>
+						</div>
+						<div class="rounded-xl bg-line/40 px-3 py-2 text-center">
+							<div class="text-[10px] font-bold uppercase tracking-wider text-mist">📝 Formulaire</div>
+							<div class="mt-0.5 text-sm font-bold {onboardingView?.step1.done ? 'text-brand' : 'text-mist'}">
+								{onboardingView?.step1.done ? '✓ Complété' : '○ En attente'}
+							</div>
+						</div>
+						<div class="rounded-xl bg-line/40 px-3 py-2 text-center">
+							<div class="text-[10px] font-bold uppercase tracking-wider text-mist">📏 Mensurations</div>
+							<div class="mt-0.5 text-sm font-bold {onboardingView?.step2.measurements ? 'text-brand' : 'text-mist'}">
+								{onboardingView?.step2.measurements ? '✓ Complétées' : '○ En attente'}
+							</div>
+						</div>
+						<div class="rounded-xl bg-line/40 px-3 py-2 text-center">
+							<div class="text-[10px] font-bold uppercase tracking-wider text-mist">📸 Photos</div>
+							<div class="mt-0.5 text-sm font-bold {onboardingView?.step2.photos ? 'text-brand' : 'text-mist'}">
+								{onboardingView?.step2.photos ? '✓ Déposées' : '○ En attente'}
+							</div>
+						</div>
 					</div>
 				</div>
-			</div>
 
-			<!-- Objectifs journaliers (Journal alimentaire) -->
-			<div class="mt-4 rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
-				<div class="flex flex-wrap items-center justify-between gap-2">
-					<h3 class="font-display text-base font-semibold text-ink">🎯 Objectifs journaliers</h3>
-					<span class="text-[11px] text-mist">Objectifs calories & macros affichés dans le Journal de {selected.user.prenom}</span>
-				</div>
-				{#key selected.user._id}
-					<form method="POST" action="?/setGoals" class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-						<input type="hidden" name="userId" value={selected.user._id} />
-						<label class="block">
-							<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Calories / jour</span>
-							<input type="number" name="kcal" required min="800" max="6000" step="50" value={data.goals?.kcal ?? 2000} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
-						</label>
-						<label class="block">
-							<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Glucides (g)</span>
-							<input type="number" name="carbs" required min="0" max="1000" step="5" value={data.goals?.carbs ?? 250} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
-						</label>
-						<label class="block">
-							<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Protéines (g)</span>
-							<input type="number" name="protein" required min="0" max="400" step="5" value={data.goals?.protein ?? 90} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
-						</label>
-						<label class="block">
-							<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Lipides (g)</span>
-							<input type="number" name="fat" required min="0" max="300" step="5" value={data.goals?.fat ?? 65} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
-						</label>
-						<button type="submit" class="col-span-2 mt-2 rounded-lg bg-brand px-3 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark sm:col-span-4">Enregistrer les objectifs</button>
-					</form>
-				{/key}
-			</div>
-
-			<div class="mt-4 space-y-4">
-				{#if checkins.length === 0}
-					<div class="rounded-2xl border border-dashed border-line bg-card px-6 py-12 text-center">
-						<p class="text-2xl">🗓️</p>
-						<p class="mt-2 text-sm text-ink">Aucun bilan pour {selected.user.prenom} pour l'instant.</p>
-						<p class="mt-1 text-xs text-mist">Transmets son identifiant de connexion (email + mot de passe) pour qu'elle commence son suivi.</p>
+				<!-- Formulaire lu seul : questions + réponses de la cliente, groupées -->
+				{#if onboardingView?.intake}
+					<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
+						<div class="flex flex-wrap items-center justify-between gap-2">
+							<h3 class="font-display text-base font-semibold text-ink">📋 Formulaire de démarrage</h3>
+							<div class="text-right text-[11px] text-mist">
+								{#if onboardingView.intake.status === 'submitted'}
+									<p class="font-semibold text-brand">Soumis{onboardingView.intake.submittedAt ? ` le ${fmtTs(onboardingView.intake.submittedAt)}` : ''}</p>
+								{:else}
+									<p class="font-semibold text-warn">Brouillon en cours — non soumis</p>
+								{/if}
+								<p>Modifié le {fmtTs(onboardingView.intake.updatedAt)}</p>
+							</div>
+						</div>
+						<div class="mt-4 space-y-4">
+							{#each obAnswered as block (block.section.id)}
+								<div>
+									<h4 class="border-b border-line pb-1 text-[11px] font-bold uppercase tracking-widest text-mist">
+										{block.section.emoji} {block.section.title}
+									</h4>
+									<div class="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2">
+										{#each block.items as item (item.q.id)}
+											<div>
+												<div class="text-[11px] font-semibold text-mist">{item.q.label}</div>
+												<div class="text-sm font-medium text-ink">{item.v}</div>
+											</div>
+										{/each}
+									</div>
+								</div>
+							{/each}
+						</div>
 					</div>
 				{:else}
-					{#each checkins as checkin (checkin._id)}
-						<BilanCard checkin={checkin} clientName={selected.user.prenom} clientId={selected.user._id} />
-					{/each}
+					<div class="rounded-2xl border border-dashed border-line bg-card px-5 py-8 text-center">
+						<p class="text-3xl">📭</p>
+						<p class="mt-2 text-sm font-semibold text-ink">Aucun formulaire pour l'instant</p>
+						<p class="mx-auto mt-1 max-w-sm text-xs leading-relaxed text-mist">
+							Quand {selected.user.prenom} commencera son formulaire de démarrage (brouillon ou soumission),
+							tes réponses apparaîtront ici en temps réel.
+						</p>
+					</div>
 				{/if}
-			</div>
-		{:else}
-			<div class="rounded-2xl border border-dashed border-line bg-card px-6 py-14 text-center">
-				<p class="text-3xl">👋</p>
-				<p class="mt-3 text-sm text-ink">Crée un compte client pour démarrer le suivi.</p>
-			</div>
-		{/if}
-	</section>
-</div>
+
+			<!-- ═══ Journal alimentaire : la coach agit en doublon ═══ -->
+			{:else if section === 'journal'}
+				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
+					<div class="flex flex-wrap items-center justify-between gap-3">
+						<h3 class="font-display text-base font-semibold text-ink">📔 Journal alimentaire de {selected.user.prenom}</h3>
+						<div class="flex items-center gap-2">
+							<!-- Changer la date recharge la journée immédiatement (comme côté cliente). -->
+							<input
+								type="date"
+								value={journalDate}
+								onchange={(e) => {
+									const v = (e.currentTarget as HTMLInputElement).value;
+									if (!v) return;
+									journalDate = v;
+									loadDay();
+								}}
+								class="rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand"
+							/>
+							<button onclick={loadDay} disabled={journalBusy} class="rounded-lg bg-ink px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-brand disabled:opacity-60">
+								{journalBusy ? 'Chargement…' : 'Charger'}
+							</button>
+						</div>
+					</div>
+					<p class="mt-1 text-[11px] text-mist">Tu peux consulter et compléter le journal de ta cliente — « en doublon » avec elle. Le changement de date charge la journée automatiquement.</p>
+
+					{#if journalMsg}
+						<p class="mt-3 rounded-lg bg-danger-light px-3 py-2 text-xs font-semibold text-danger">{journalMsg}</p>
+					{/if}
+
+					{#if day}
+						<div class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+							<div class="rounded-xl bg-line/40 px-3 py-2 text-center">
+								<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Calories</div>
+								<div class="font-display text-lg font-semibold text-ink">{Math.round(day.totals.kcal)} <span class="text-xs text-mist">/ {day.goals.kcal}</span></div>
+							</div>
+							<div class="rounded-xl bg-line/40 px-3 py-2 text-center">
+								<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Glucides</div>
+								<div class="font-display text-lg font-semibold text-ink">{Math.round(day.totals.carbs)} g</div>
+							</div>
+							<div class="rounded-xl bg-line/40 px-3 py-2 text-center">
+								<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Protéines</div>
+								<div class="font-display text-lg font-semibold text-ink">{Math.round(day.totals.protein)} g</div>
+							</div>
+							<div class="rounded-xl bg-line/40 px-3 py-2 text-center">
+								<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Lipides</div>
+								<div class="font-display text-lg font-semibold text-ink">{Math.round(day.totals.fat)} g</div>
+							</div>
+						</div>
+
+						{#each MEALS as meal}
+							<div class="mt-4">
+								<div class="flex items-center justify-between border-b border-line pb-1.5">
+									<h4 class="font-display text-sm font-semibold text-ink">{meal.label}</h4>
+									<button
+										onclick={() => {
+											addMeal = meal.id;
+											searchOpen = true;
+										}}
+										class="rounded-lg border-2 border-line px-2 py-1 text-xs font-semibold text-ink transition hover:border-brand hover:text-brand"
+									>＋ Ajouter</button>
+								</div>
+								{#if (day.entries ?? []).filter((e) => e.meal === meal.id).length === 0}
+									<p class="py-2 text-xs italic text-mist">Rien pour ce repas.</p>
+								{:else}
+									<ul class="divide-y divide-line/60">
+										{#each day.entries.filter((e) => e.meal === meal.id) as entry (entry._id)}
+											<li class="flex items-center gap-3 py-2">
+												{#if entry.imageUrl}
+													<img src={entry.imageUrl} alt="" class="h-9 w-9 shrink-0 rounded-lg object-cover" />
+												{:else}
+													<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-line/60 text-sm">🍽️</div>
+												{/if}
+												<div class="min-w-0 flex-1">
+													<div class="truncate text-sm font-semibold text-ink">{entry.name}</div>
+													<div class="text-[11px] text-mist">{entry.kcal} kcal · G {entry.carbs} · P {entry.protein} · L {entry.fat}</div>
+												</div>
+												<div class="flex items-center gap-1">
+													<button onclick={() => setQty(entry, Math.max(1, entry.qtyGrams - 10))} class="h-7 w-7 rounded-lg border-2 border-line text-sm font-bold text-ink hover:border-brand">−</button>
+													<span class="w-16 text-center text-sm font-semibold text-ink">{entry.qtyGrams} g</span>
+													<button onclick={() => setQty(entry, entry.qtyGrams + 10)} class="h-7 w-7 rounded-lg border-2 border-line text-sm font-bold text-ink hover:border-brand">＋</button>
+													<button onclick={() => removeEntry(entry)} class="ml-1 rounded-lg border-2 border-line px-2 py-1 text-xs text-danger hover:border-danger" title="Supprimer">🗑</button>
+												</div>
+											</li>
+										{/each}
+									</ul>
+								{/if}
+							</div>
+						{/each}
+					{:else if !journalBusy}
+						<p class="mt-4 rounded-xl border border-dashed border-line px-4 py-8 text-center text-sm text-mist">Clique sur « Charger » pour afficher la journée.</p>
+					{/if}
+				</div>
+
+				{#if searchOpen}
+					<button type="button" class="fixed inset-0 z-[60] cursor-pointer bg-ink/50" aria-label="Fermer la recherche" onclick={() => (searchOpen = false)}></button>
+					<div class="fixed inset-x-0 bottom-0 z-[60] mx-auto w-full max-w-2xl rounded-t-3xl border-t border-line bg-card p-5 shadow-2xl sm:inset-y-0 sm:right-0 sm:left-auto sm:w-96 sm:rounded-l-3xl sm:rounded-tr-none sm:rounded-br-none sm:border-l">
+						<div class="flex items-center justify-between">
+							<h4 class="font-display text-base font-semibold text-ink">＋ Ajouter un aliment</h4>
+							<button onclick={() => (searchOpen = false)} class="rounded-lg px-2 py-1 text-lg text-mist hover:text-ink">✕</button>
+						</div>
+						<div class="mt-3 flex gap-2">
+							<input
+								type="search"
+								bind:value={searchQ}
+								placeholder="Rechercher un aliment (ex. riz)…"
+								class="flex-1 rounded-xl border-2 border-line px-3 py-2 text-sm outline-none focus:border-brand"
+								onkeydown={(e) => e.key === 'Enter' && doSearch()}
+							/>
+							<button onclick={doSearch} disabled={searchBusy} class="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-50">{searchBusy ? '…' : 'Chercher'}</button>
+						</div>
+						<div class="mt-3 flex items-center gap-3">
+							<label class="block">
+								<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Repas</span>
+								<select bind:value={addMeal} class="rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand">
+									{#each MEALS as m}
+										<option value={m.id}>{m.label}</option>
+									{/each}
+								</select>
+							</label>
+							<label class="block">
+								<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Quantité (g)</span>
+								<input type="number" bind:value={addQty} min="1" max="5000" class="w-24 rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
+							</label>
+						</div>
+						<div class="mt-3 max-h-[50vh] space-y-1 overflow-y-auto">
+							{#if searchHits.length === 0}
+								<p class="py-6 text-center text-xs text-mist">Tape au moins 2 lettres pour chercher dans la base.</p>
+							{:else}
+								{#each searchHits as hit (hit._id)}
+									<button
+										onclick={() => addFood(hit)}
+										class="flex w-full items-center gap-3 rounded-xl border border-line bg-white px-3 py-2 text-left transition hover:border-brand"
+									>
+										{#if hit.imageUrl}
+											<img src={hit.imageUrl} alt="" class="h-9 w-9 shrink-0 rounded-lg object-cover" />
+										{:else}
+											<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-line/60 text-sm">🍎</div>
+										{/if}
+										<div class="min-w-0 flex-1">
+											<div class="truncate text-sm font-semibold text-ink">{hit.name}</div>
+											<div class="text-[11px] text-mist">{hit.kcal100} kcal/100 g{hit.brand ? ` · ${hit.brand}` : ''}</div>
+										</div>
+										<span class="text-brand">＋</span>
+									</button>
+								{/each}
+							{/if}
+						</div>
+					</div>
+				{/if}
+
+			<!-- ═══ Poids & mensurations ═══ -->
+			{:else if section === 'corps'}
+				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
+					<div class="flex flex-wrap items-center justify-between gap-2">
+						<h3 class="font-display text-base font-semibold text-ink">📏 Poids & mensurations de {selected.user.prenom}</h3>
+						<span class="text-[11px] text-mist">Chaque métrique a son propre historique — tout est visible côté cliente.</span>
+					</div>
+
+					{#if bmMsg}
+						<p class="mt-3 rounded-lg bg-brand-light px-3 py-2 text-xs font-semibold text-ink">{bmMsg}</p>
+					{/if}
+
+					<!-- Historiques indépendants par métrique (ajout, modification, suppression) -->
+					{#each BODY_METRICS as meta (meta.key)}
+						{@const rows = bmSeries(meta.key)}
+						{@const editing = bmEdit?.key === meta.key}
+						{@const draft = bmDraft[meta.key] ?? { date: todayISO(), value: '' }}
+						<div id={`bm-form-${meta.key}`} class="mt-4 rounded-xl border border-line p-3">
+							<div class="flex flex-wrap items-center justify-between gap-2">
+								<h5 class="text-sm font-bold text-ink">{meta.icon} {meta.label} <span class="font-normal text-mist">({meta.unit})</span></h5>
+								<span class="text-[11px] text-mist">{rows.length} entrée(s)</span>
+							</div>
+							{#if rows.length > 0}
+								{@const last = rows[rows.length - 1]}
+								{@const delta = metricDelta(rows)}
+								<div class="mt-2 flex items-center justify-between gap-3 rounded-lg bg-line/40 px-3 py-2">
+									<div class="min-w-0">
+										<div class="font-display text-xl font-semibold text-ink">{String(last.value).replace('.', ',')} {meta.unit}</div>
+										{#if delta !== null}
+											<div class="text-[11px] font-medium text-mist">{fmtSigned(delta)} {meta.unit} depuis le démarrage</div>
+										{/if}
+									</div>
+									{#if rows.length >= 2}
+										<Sparkline points={rows} color={meta.color} />
+									{/if}
+								</div>
+							{/if}
+							<div class="mt-2 flex flex-wrap items-center gap-2">
+								<input type="date" bind:value={draft.date} class="rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" aria-label={`Date — ${meta.label}`} />
+								<input type="number" inputmode="decimal" min={meta.min} max={meta.max} step="0.1" bind:value={draft.value} placeholder={`Ex. ${meta.min}`} class="w-24 rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" aria-label={`Valeur — ${meta.label}`} />
+								{#if editing}
+									<button onclick={() => editBodyMetric(meta.key)} disabled={bmBusy} class="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-dark disabled:opacity-50">
+										{bmBusy ? '…' : 'Enregistrer la modification'}
+									</button>
+									<button onclick={() => { bmEdit = null; bmDraft[meta.key] = { date: todayISO(), value: '' }; }} class="rounded-lg border-2 border-line px-3 py-1.5 text-xs font-semibold text-mist transition hover:border-ink hover:text-ink">Annuler</button>
+								{:else}
+									<button onclick={() => addBodyMetric(meta.key)} disabled={bmBusy} class="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-dark disabled:opacity-50">
+										{bmBusy ? '…' : 'Ajouter une mesure'}
+									</button>
+								{/if}
+							</div>
+							{#if rows.length === 0}
+								<p class="mt-2 text-xs italic text-mist">Aucune entrée pour l'instant.</p>
+							{:else}
+								<ul class="mt-2 divide-y divide-line/60">
+									{#each [...rows].reverse() as r (r.date)}
+										<li class="flex items-center gap-2 py-1.5">
+											<span class="min-w-0 flex-1 text-sm text-ink">
+												<strong class="font-bold">{String(r.value).replace('.', ',')} {meta.unit}</strong>
+												<span class="text-mist"> · {fmtDateShort(r.date)}</span>
+											</span>
+											<button onclick={() => startBmEdit(meta.key, r.date, r.value)} class="rounded-lg px-2 py-1 text-xs text-mist transition hover:bg-line/60 hover:text-ink" title="Modifier cette valeur" aria-label={`Modifier ${meta.label} du ${fmtDateShort(r.date)}`}>✎</button>
+											<button onclick={() => deleteMetric(r.date, meta.key)} class="rounded-lg px-2 py-1 text-xs text-danger/70 transition hover:bg-danger-light hover:text-danger" title="Supprimer cette valeur" aria-label={`Supprimer ${meta.label} du ${fmtDateShort(r.date)}`}>🗑</button>
+										</li>
+									{/each}
+								</ul>
+							{/if}
+						</div>
+					{/each}
+
+					<!-- Taille (hauteur) : profil + historique daté -->
+					<div id="bm-form-heightCm" class="mt-4 rounded-xl border border-line p-3">
+						<div class="flex flex-wrap items-center justify-between gap-2">
+							<h5 class="text-sm font-bold text-ink">📏 Taille <span class="font-normal text-mist">(cm)</span></h5>
+							<span class="text-[11px] text-mist">{heightCm != null ? `valeur actuelle : ${String(heightCm).replace('.', ',')} cm` : 'non renseignée'}</span>
+						</div>
+						{#if heightSeries.length > 0}
+							{@const hLast = heightSeries[heightSeries.length - 1]}
+							{@const hDelta = metricDelta(heightSeries)}
+							<div class="mt-2 flex items-center justify-between gap-3 rounded-lg bg-line/40 px-3 py-2">
+								<div class="min-w-0">
+									<div class="font-display text-xl font-semibold text-ink">{String(hLast.value).replace('.', ',')} cm</div>
+									{#if hDelta !== null}
+										<div class="text-[11px] font-medium text-mist">{fmtSigned(hDelta)} cm depuis le démarrage</div>
+									{/if}
+								</div>
+								{#if heightSeries.length >= 2}
+									<Sparkline points={heightSeries} color="#a855f7" />
+								{/if}
+							</div>
+						{/if}
+						<div class="mt-2 flex flex-wrap items-center gap-2">
+							<input type="date" bind:value={hDraft.date} class="rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" aria-label="Date — Taille" />
+							<input type="number" inputmode="decimal" min="80" max="250" step="0.1" bind:value={hDraft.value} placeholder="Ex. 165" class="w-24 rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" aria-label="Valeur — Taille" />
+							<button onclick={saveHeightCrm} disabled={hBusy} class="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-dark disabled:opacity-50">
+								{hBusy ? '…' : heightCm != null ? 'Modifier la taille' : 'Ajouter la taille'}
+							</button>
+						</div>
+						{#if heightSeries.length === 0}
+							<p class="mt-2 text-xs italic text-mist">Aucun historique pour l'instant — la taille actuelle est affichée ci-dessus.</p>
+						{:else}
+							<ul class="mt-2 divide-y divide-line/60">
+								{#each [...heightSeries].reverse() as r (r.date)}
+									<li class="flex items-center gap-2 py-1.5">
+										<span class="min-w-0 flex-1 text-sm text-ink"><strong class="font-bold">{String(r.value).replace('.', ',')} cm</strong><span class="text-mist"> · {fmtDateShort(r.date)}</span></span>
+									</li>
+								{/each}
+							</ul>
+						{/if}
+					</div>
+
+					<!-- Masse grasse estimée : dérivée côté Convex, lecture seule -->
+					<div class="mt-4 rounded-xl border border-line p-3">
+						<div class="flex flex-wrap items-center justify-between gap-2">
+							<h5 class="text-sm font-bold text-ink">🎯 Masse grasse estimée</h5>
+							<span class="text-[11px] text-mist">US Navy — automatique, non modifiable</span>
+						</div>
+						{#if bfPoints.length > 0}
+							<div class="mt-2 flex items-center justify-between gap-3 rounded-lg bg-line/40 px-3 py-2">
+								<div class="min-w-0">
+									<div class="font-display text-xl font-semibold text-ink">{String(bfLast).replace('.', ',')} %</div>
+									{#if bfDelta !== null}
+										<div class="text-[11px] font-medium text-mist">{fmtSigned(bfDelta)} point{Math.abs(bfDelta) > 1 ? 's' : ''} depuis le démarrage</div>
+									{/if}
+								</div>
+								{#if bfPoints.length >= 2}
+									<Sparkline points={bfPoints} color="#a855f7" />
+								{/if}
+							</div>
+							<ul class="mt-1 divide-y divide-line/60">
+								{#each [...bfPoints].reverse() as r (r.date)}
+									<li class="flex items-center gap-2 py-1.5">
+										<span class="min-w-0 flex-1 text-sm text-ink"><strong class="font-bold">{String(r.value).replace('.', ',')} %</strong><span class="text-mist"> · {fmtDateShort(r.date)}</span></span>
+									</li>
+								{/each}
+							</ul>
+							<p class="mt-1 text-[11px] text-mist">Calculée depuis tour de taille + fessiers + tour de cou (même date) et la taille du profil — même valeur que dans l'espace cliente.</p>
+						{:else}
+							<p class="mt-2 text-xs italic text-mist">Renseigne tour de taille + fessiers + tour de cou (même date) et la taille pour obtenir une estimation.</p>
+						{/if}
+					</div>
+				</div>
+
+			<!-- ═══ Photos de suivi ═══ -->
+			{:else if section === 'photos'}
+				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
+					<div class="flex flex-wrap items-center justify-between gap-2">
+						<h3 class="font-display text-base font-semibold text-ink">📸 Photos de suivi de {selected.user.prenom}</h3>
+						<span class="text-[11px] text-mist">{photos.length} série(s) · {totalPhotos} photo(s) — conservées définitivement</span>
+					</div>
+					{#if photos.length === 0}
+						<p class="mt-3 rounded-xl border border-dashed border-line px-4 py-10 text-center text-sm text-mist">
+							Aucune photo reçue pour l’instant. Quand {selected.user.prenom} envoie une série, elle apparaît ici.
+						</p>
+					{:else}
+						{#each photos as group (group._id)}
+							<div class="mt-4">
+								<div class="flex flex-wrap items-center gap-2">
+									<span class="rounded-full bg-brand-light px-3 py-1 text-xs font-bold text-brand-dark">{PHOTO_STEP_LABELS[group.step] ?? group.step}</span>
+									<span class="text-xs text-mist">reçue le {fmtDateShort(group.date)}</span>
+								</div>
+								<div class="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3">
+									{#each group.photos as photo}
+										<figure class="overflow-hidden rounded-xl border border-line bg-white">
+											{#if photo.url}
+												<a href={photo.url} target="_blank" rel="noreferrer">
+													<img src={photo.url} alt={photo.label} class="h-44 w-full object-cover transition hover:scale-105" loading="lazy" />
+												</a>
+											{:else}
+												<div class="flex h-44 items-center justify-center bg-line/40 text-sm text-mist">Image indisponible</div>
+											{/if}
+											<figcaption class="truncate px-2 py-1 text-[11px] text-mist">{photo.label}</figcaption>
+										</figure>
+									{/each}
+								</div>
+							</div>
+						{/each}
+					{/if}
+				</div>
+
+			<!-- ═══ Bilans : cockpit hebdo + historique des échanges ═══ -->
+			{:else if section === 'bilans'}
+				<div class="space-y-4">
+					{#if checkins.length === 0}
+						<div class="rounded-2xl border border-dashed border-line bg-card px-6 py-10 text-center">
+							<p class="text-2xl">🗓️</p>
+							<p class="mt-2 text-sm text-ink">Aucun bilan reçu pour {selected.user.prenom} pour l’instant.</p>
+							<p class="mt-1 text-xs text-mist">Transmets ses identifiants (email + mot de passe) pour qu’elle commence son suivi.</p>
+						</div>
+					{:else if cockpit}
+						<!-- Synthèse de la semaine concernée par le bilan le plus récent -->
+						<div class="rounded-2xl border border-line bg-card shadow-sm">
+							<div class="flex flex-wrap items-center justify-between gap-2 border-b border-line px-5 py-4">
+								<div>
+									<div class="text-[11px] font-bold uppercase tracking-wider text-mist">
+										Semaine du {fmtRangeShort(cockpit.weekStart)} au {fmtRangeShort(cockpit.weekEnd)}
+									</div>
+									<div class="mt-0.5 flex items-center gap-2">
+										<h3 class="font-display text-base font-semibold text-ink">{cockpit.weekLabel}</h3>
+										{#if cockpitPill}
+											<span class="rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide {cockpitPill.cls}">{cockpitPill.label}</span>
+										{/if}
+									</div>
+								</div>
+								<span class="text-xs text-mist">Bilan reçu {fmtDateTime(cockpit.bilan.receivedAt)}</span>
+							</div>
+
+							<div class="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
+								<!-- POIDS -->
+								<div class="rounded-xl border border-line bg-cream/40 p-3">
+									<div class="text-[11px] font-bold uppercase tracking-wider text-mist">⚖️ Poids</div>
+									{#if cockpit.weight.avg !== null}
+										<div class="mt-1 font-display text-2xl font-semibold text-ink">{fmtVal(cockpit.weight.avg)} kg</div>
+										<p class="text-[11px] text-mist">Moyenne de la semaine</p>
+										{#if cockpit.weight.delta !== null}
+											<p class="mt-1 text-sm font-semibold text-ink">{fmtSigned(cockpit.weight.delta)} kg vs semaine précédente</p>
+										{:else}
+											<p class="mt-1 text-xs italic text-mist">Pas de semaine précédente à comparer</p>
+										{/if}
+									{:else}
+										<p class="mt-1 text-sm italic text-mist">Aucune pesée cette semaine</p>
+									{/if}
+									<p class="mt-1 text-[11px] text-mist">
+										{cockpit.weight.count} pesée{cockpit.weight.count > 1 ? 's' : ''} enregistrée{cockpit.weight.count > 1 ? 's' : ''} cette semaine
+									</p>
+								</div>
+
+								<!-- CALORIES -->
+								<div class="rounded-xl border border-line bg-cream/40 p-3">
+									<div class="text-[11px] font-bold uppercase tracking-wider text-mist">🔥 Calories</div>
+									{#if cockpit.calories.avg !== null}
+										<div class="mt-1 font-display text-2xl font-semibold text-ink">{cockpit.calories.avg.toLocaleString('fr-FR')} kcal</div>
+										<p class="text-[11px] text-mist">en moyenne / jour suivi</p>
+									{:else}
+										<p class="mt-1 text-sm italic text-mist">Aucun jour suivi cette semaine</p>
+									{/if}
+									<p class="mt-1 text-xs text-ink">Objectif : {cockpit.calories.goal.toLocaleString('fr-FR')} kcal</p>
+									<p class="text-[11px] text-mist">{cockpit.calories.trackedDays} / 7 jours suivis</p>
+								</div>
+
+								<!-- PAS : moyenne réelle des jours renseignés (sinon déclaration au bilan) -->
+								{#if cockpit.steps.avg !== null || cockpit.steps.declared}
+									<div class="rounded-xl border border-line bg-cream/40 p-3">
+										<div class="text-[11px] font-bold uppercase tracking-wider text-mist">👣 Pas</div>
+										{#if cockpit.steps.avg !== null}
+											<div class="mt-1 font-display text-2xl font-semibold text-ink">
+												{cockpit.steps.avg.toLocaleString('fr-FR')} <span class="text-xs font-semibold text-mist">/ jour</span>
+											</div>
+											<p class="text-[11px] text-mist">en moyenne sur les jours renseignés</p>
+											{#if cockpit.steps.goal !== null}
+												<p class="mt-1 text-xs font-semibold text-ink">Objectif : {cockpit.steps.goal.toLocaleString('fr-FR')} pas</p>
+											{/if}
+											<p class="text-[11px] text-mist">{cockpit.steps.trackedDays} / 7 jours renseignés</p>
+											{#if cockpit.steps.declared}
+												<p class="mt-1 text-[11px] italic text-mist">Déclaré au bilan : {labelFor('pas', cockpit.steps.declared)} pas/jour</p>
+											{/if}
+										{:else}
+											<div class="mt-1 text-sm font-semibold text-ink">{labelFor('pas', cockpit.steps.declared ?? '')} pas / jour</div>
+											<p class="mt-1 text-[11px] text-mist">Déclaré par la cliente dans son bilan — pas de saisie quotidienne cette semaine</p>
+										{/if}
+									</div>
+								{/if}
+
+								<!-- MENSURATIONS -->
+								<div class="rounded-xl border border-line bg-cream/40 p-3">
+									<div class="text-[11px] font-bold uppercase tracking-wider text-mist">📏 Mensurations</div>
+									{#if cockpit.measurements.fresh && cockpit.measurements.date}
+										<p class="mt-1 text-sm font-semibold text-ink">Mises à jour {fmtDaysAgo(cockpit.measurements.daysAgo ?? 0)}</p>
+										{#if cockpit.measurements.deltas.waistCm !== null}
+											<p class="mt-0.5 text-xs text-ink">Tour de taille : {fmtSigned(cockpit.measurements.deltas.waistCm)} cm</p>
+										{/if}
+										{#if cockpit.measurements.deltas.hipCm !== null}
+											<p class="mt-0.5 text-xs text-ink">Fessiers : {fmtSigned(cockpit.measurements.deltas.hipCm)} cm</p>
+										{/if}
+										{#if cockpit.measurements.deltas.neckCm !== null}
+											<p class="mt-0.5 text-xs text-ink">Tour de cou : {fmtSigned(cockpit.measurements.deltas.neckCm)} cm</p>
+										{/if}
+										{#if cockpit.measurements.deltas.waistCm === null && cockpit.measurements.deltas.hipCm === null && cockpit.measurements.deltas.neckCm === null}
+											<p class="mt-0.5 text-xs text-mist">Nouveau relevé enregistré</p>
+										{/if}
+										<p class="mt-1 text-[11px] text-mist">Relevé du {fmtDateShort(cockpit.measurements.date)}</p>
+										<button
+											type="button"
+											onclick={() => (section = 'corps')}
+											class="mt-2 rounded-lg bg-ink px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand"
+										>Voir les mensurations →</button>
+									{:else}
+										<p class="mt-1 text-sm italic text-mist">Pas de nouvelles mensurations cette semaine</p>
+										{#if cockpit.measurements.date}
+											<p class="mt-1 text-[11px] text-mist">Dernier relevé : le {fmtDateShort(cockpit.measurements.date)}</p>
+										{:else}
+											<p class="mt-1 text-[11px] text-mist">Aucune mensuration enregistrée pour l’instant</p>
+										{/if}
+									{/if}
+								</div>
+
+								<!-- PHOTOS de la semaine -->
+								<div class="rounded-xl border border-line bg-cream/40 p-3">
+									<div class="text-[11px] font-bold uppercase tracking-wider text-mist">📸 Photos</div>
+									{#if weekPhotos}
+										<p class="mt-1 text-sm font-semibold text-ink">{weekPhotos.count} nouvelle{weekPhotos.count > 1 ? 's' : ''} photo{weekPhotos.count > 1 ? 's' : ''} cette semaine</p>
+										<button
+											type="button"
+											onclick={() => (section = 'photos')}
+											class="mt-2 rounded-lg bg-ink px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand"
+										>Voir les photos →</button>
+									{:else}
+										<p class="mt-1 text-sm italic text-mist">Aucune nouvelle photo cette semaine</p>
+									{/if}
+								</div>
+							</div>
+						</div>
+
+						<!-- Historique semaine par semaine (bilan + réponses + retour coach) -->
+						{#each checkins as checkin (checkin._id)}
+							<BilanCard checkin={checkin} clientName={selected.user.prenom} clientId={selected.user._id} media={mediaFor(checkin._id)} />
+						{/each}
+					{:else}
+						{#each checkins as checkin (checkin._id)}
+							<BilanCard checkin={checkin} clientName={selected.user.prenom} clientId={selected.user._id} media={mediaFor(checkin._id)} />
+						{/each}
+					{/if}
+				</div>
+			{/if}
+		</div>
+	</aside>
+{:else if clients.length === 0}
+	<div class="mt-6 rounded-2xl border border-dashed border-line bg-card px-6 py-14 text-center">
+		<p class="text-3xl">👋</p>
+		<p class="mt-3 text-sm text-ink">Crée un compte client pour démarrer le suivi.</p>
+	</div>
+{/if}
+
+<style>
+	.chart-bar {
+		transform-origin: bottom;
+		animation: barGrow 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+	}
+	@keyframes barGrow {
+		from {
+			transform: scaleY(0);
+			opacity: 0;
+		}
+		to {
+			transform: scaleY(1);
+			opacity: 1;
+		}
+	}
+	.chart-line {
+		stroke-dasharray: 1400;
+		stroke-dashoffset: 1400;
+		animation: lineDraw 1.2s ease forwards;
+	}
+	@keyframes lineDraw {
+		to {
+			stroke-dashoffset: 0;
+		}
+	}
+	.chart-fade {
+		opacity: 0;
+		animation: fadeIn 0.9s 0.5s ease forwards;
+	}
+	.chart-dot {
+		opacity: 0;
+		animation: dotPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) 0.9s forwards;
+	}
+	@keyframes dotPop {
+		from {
+			opacity: 0;
+			transform: scale(0);
+			transform-box: fill-box;
+			transform-origin: center;
+		}
+		to {
+			opacity: 1;
+			transform: scale(1);
+		}
+	}
+	@keyframes fadeIn {
+		to {
+			opacity: 1;
+		}
+	}
+	.chart-goal-tick {
+		opacity: 0.55;
+	}
+</style>
