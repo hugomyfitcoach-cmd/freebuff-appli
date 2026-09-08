@@ -4,6 +4,7 @@
 	import { browser } from '$app/environment';
 	import { recipes, newRecipes } from '$lib/data/recettes';
 	import { MEMO_HTML, PROTEINES_HTML } from '$lib/data/guides-html';
+	import Icon from '$lib/components/Icon.svelte';
 
 	let { data } = $props();
 	/** Client connecté (les recettes sont aussi visibles par la coach, sans « Mes repas »). */
@@ -83,7 +84,7 @@
 
 	const HOME_GROUPS = [
 		{
-			label: '🍳 Recettes',
+			label: 'Recettes',
 			items: [
 				{ id: 'petitdej', icon: '☀️', label: 'Petit-déjeuner', count: '20' },
 				{ id: 'dejeuner', icon: '🥗', label: 'Déjeuner', count: '30' },
@@ -93,14 +94,14 @@
 			],
 		},
 		{
-			label: '🥦 Accompagnements',
+			label: 'Accompagnements',
 			items: [
 				{ id: 'feculents', icon: '🍚', label: 'Féculents', count: '15' },
 				{ id: 'legumes', icon: '🫑', label: 'Légumes & épices', count: '15' },
 			],
 		},
 		{
-			label: '⚡ Guides spéciaux',
+			label: 'Guides spéciaux',
 			items: [
 				{ id: 'volume', icon: '🥣', label: 'Repas volume', count: '10' },
 				{ id: 'keto', icon: '🥑', label: 'Kéto', count: '15' },
@@ -108,7 +109,7 @@
 			],
 		},
 		{
-			label: '📋 Références',
+			label: 'Références',
 			items: [
 				{ id: 'proteines', icon: '💪', label: 'Aliments protéines dominantes', count: 'Guide' },
 				{ id: 'memo', icon: '🎯', label: 'Repères mémo tracking', count: 'Guide' },
@@ -136,8 +137,8 @@
 		{ id: 'volume', label: 'Repas volume', count: '10', title: 'Repas volume · 10 recettes · Satiété maximale · 1 portion', gridClass: 'recipe-grid' },
 		{ id: 'keto', label: 'Kéto', count: '15', title: 'Kéto · 15 recettes · Bas en glucides · 1 portion', gridClass: 'recipe-grid' },
 		{ id: 'sansgl', label: 'Sans lactose & gluten', count: '25', title: 'Sans lactose & gluten · 25 recettes · Protéinées · 1 portion', gridClass: 'recipe-grid' },
-		{ id: 'memo', label: '📋 Repères Mémo', count: 'Guide', chipStyle: 'background:rgba(251,191,36,0.15);color:#fbbf24;border-color:rgba(251,191,36,0.3)' },
-		{ id: 'proteines', label: '💪 Protéines dominantes', count: 'Guide', chipStyle: 'background:rgba(248,113,113,0.12);color:#f87171;border-color:rgba(248,113,113,0.3)' },
+		{ id: 'memo', label: 'Repères Mémo', count: 'Guide', chipStyle: 'background:rgba(251,191,36,0.15);color:#fbbf24;border-color:rgba(251,191,36,0.3)' },
+		{ id: 'proteines', label: 'Protéines dominantes', count: 'Guide', chipStyle: 'background:rgba(248,113,113,0.12);color:#f87171;border-color:rgba(248,113,113,0.3)' },
 	];
 
 	const RECIPE_TABS = $derived(TABS.filter((t) => t.gridClass));
@@ -291,7 +292,7 @@
 									</div>
 									<div class="chevron">▾</div>
 								</div>									<div class="card-detail">
-										<div class="time-badge">⏱ {r.temps}</div>
+										<div class="time-badge"><Icon name="clock" size={13} /> {r.temps}</div>
 										{#if isClient}
 											<button
 												type="button"
@@ -370,6 +371,10 @@
 		onclick={toggleTheme}
 		title={theme === 'dark' ? 'Passer en mode clair' : 'Passer en mode sombre'}
 	>
-		{theme === 'dark' ? '☀️ Mode clair' : '🌙 Mode sombre'}
+		{#if theme === 'dark'}
+			<Icon name="sun" size={16} /> Mode clair
+		{:else}
+			<Icon name="moon" size={16} /> Mode sombre
+		{/if}
 	</button>
 </div>

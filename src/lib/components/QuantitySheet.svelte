@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Icon from './Icon.svelte';
+
 	/* Feuille de quantité partagée AJOUT / MODIFICATION d'un aliment.
 	   Une seule source de vérité : la quantité finale en grammes (qtyGrams),
 	   envoyée à l'API à la sauvegarde. Le mode « Portion » (quand une portion
@@ -134,10 +136,10 @@
 			{#if showFav}
 				<button
 					type="button"
-					class="grid h-9 w-9 shrink-0 place-items-center rounded-full text-lg transition {favActive ? 'text-brand' : 'text-mist hover:text-brand'}"
+					class="grid h-9 w-9 shrink-0 place-items-center rounded-full transition {favActive ? 'text-brand' : 'text-mist hover:text-brand'}"
 					aria-label="Favori"
 					onclick={onToggleFav}
-				>{favActive ? '♥' : '♡'}</button>
+				><Icon name="heart" size={18} /></button>
 			{/if}
 		</div>
 

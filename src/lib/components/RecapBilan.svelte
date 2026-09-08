@@ -2,6 +2,7 @@
 	import { answerLines } from '../labels.js';
 	import type { Doc } from '../../convex/_generated/dataModel.js';
 	import AudioPlayer from './AudioPlayer.svelte';
+	import Icon from './Icon.svelte';
 	import { fmtMs, fmtSize, type CoachMediaItem } from '../media.js';
 
 	let {
@@ -93,7 +94,7 @@
 					{#each audios as a (a._id)}
 						<div class="mt-3 rounded-xl border border-line bg-white p-3">
 							<div class="mb-1.5 flex items-center justify-between">
-								<span class="text-xs font-bold text-ink">🎙️ Retour audio de ton coach · {fmtMs(a.durationMs)}</span>
+								<span class="inline-flex items-center gap-1.5 text-xs font-bold text-ink"><Icon name="mic" size={13} /> Retour audio de ton coach · {fmtMs(a.durationMs)}</span>
 								{#if a.expired || a.status === 'expired' || !a.url}
 									<span class="rounded-full bg-line/70 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-mist">expiré</span>
 								{/if}

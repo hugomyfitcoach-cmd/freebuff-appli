@@ -172,14 +172,15 @@ export const getDashboard = query({
 		const stepsTodayRow = stepsRows.find((s) => s.date === day) ?? null;
 		const stepGoal = goalsRow?.stepGoal ?? null;
 
-		/* ── Récap hebdo : dimanche ≥ 18h → lundi inclus (sinon rien) ── */
-		// La semaine du récap est celle qui vient de se terminer : la semaine
-		// courante le dimanche soir, la précédente le lundi.
+		/* ── Récap hebdo : samedi + dimanche de la semaine courante (sinon rien) ── */
+		// La carte « Ta semaine en un coup d'œil » n'apparaît que samedi et
+		// dimanche ; dès le lundi 00:00 elle disparaît (aucun résumé d'une
+		// semaine déjà terminée). Les moyennes n'utilisent que les jours
+		// réellement renseignés (absence de donnée ≠ zéro).
 		const dow = new Date(ts).getDay();
-		const hour = new Date(ts).getHours();
 		let recap = null;
-		if ((dow === 0 && hour >= 18) || dow === 1) {
-			const recapWeekStart = dow === 1 ? addDaysISO(weekStart, -7) : weekStart;
+		if (dow === 6 || dow === 0) {
+			const recapWeekStart = weekStart;
 			const recapWeekEnd = addDaysISO(recapWeekStart, 6);
 
 			// Calories de la semaine : uniquement les jours ayant des entrées.
@@ -207,17 +208,6 @@ export const getDashboard = query({
 			// Bilan : soumis ou non pour la semaine du récap.
 			const bilanSent = checkins.some((c) => c.weekStart === recapWeekStart);
 
-			// Mensurations / photos : seulement si l'échéance tombait DANS cette
-			// semaine (sinon elles n'influencent ni l'affichage ni le message).
-			const msrDue = dueWindowIn(recapWeekStart, recapWeekEnd, startDate, 15, "days");
-			const msrDone = msrDue
-				? metrics.some((m) => hasMensuration(m) && m.date >= msrDue.windowStart)
-				: false;
-			const photoDue = dueWindowIn(recapWeekStart, recapWeekEnd, startDate, 1, "months");
-			const photoDone = photoDue
-				? photos.some((p) => p.date >= photoDue.windowStart)
-				: false;
-
 			recap = {
 				weekStart: recapWeekStart,
 				weekEnd: recapWeekEnd,
@@ -225,20 +215,6 @@ export const getDashboard = query({
 				steps: { avg: stepsAvg, goal: stepGoal, trackedDays: stepsTracked },
 				weighins: { count: weighins, goal: 3 },
 				bilan: { sent: bilanSent },
-				due: {
-					measurements: msrDue ? { due: true, done: msrDone } : null,
-					photos: photoDue ? { due: true, done: photoDone } : null,
-				},
-				message: weekMessage({
-					kcalTracked,
-					stepsTracked,
-					weighins,
-					bilanSent,
-					msrDue: !!msrDue,
-					msrDone,
-					photoDue: !!photoDue,
-					photoDone,
-				}),
 			};
 		}
 
@@ -247,7 +223,15 @@ export const getDashboard = query({
 			coachMessage,
 			onboarding,
 			tracking: { kcal, kcalGoal, maintenanceKcal },
-			steps: { today: stepsTodayRow?.count ?? null, goal: stepGoal },
+			steps: {
+				today: stepsTodayRow?.count ?? null,
+				goal: stepGoal,
+				// Série de la semaine courante (lundi → dimanche) pour le mini-graphique :
+				// uniquement les jours réellement renseignés, jamais de zéro inventé.
+				week: stepsRows
+					.filter((s) => s.date >= weekStart && s.date < nextMonday)
+					.map((s) => ({ date: s.date, count: s.count })),
+			},
 			progression: {
 				lastWeightKg: last?.weightKg ?? null,
 				lastWeightDate: last?.date ?? null,
@@ -255,6 +239,8 @@ export const getDashboard = query({
 				measurementsDue,
 				photosDue,
 				startDate,
+				// Dernières 10 pesées pour la tendance — même source que Progression/CRM.
+				weightTrend: weightRows.slice(-10).map((m) => ({ date: m.date, weightKg: m.weightKg as number })),
 			},
 			bilan: { due: bilanDue, windowOpen },
 			feedback: {
@@ -272,74 +258,6 @@ export const getDashboard = query({
 	},
 });
 
-/**
- * Échéance (mensurations / photos) tombant dans une semaine donnée.
- * `kind: "days"` → cadence tous les 15 jours ; `"months"` → tous les mois.
- * Retourne null si aucune échéance de la cadence ne tombe dans la semaine.
- */
-function dueWindowIn(
-	weekStart: string,
-	weekEnd: string,
-	startDate: string,
-	step: number,
-	kind: "days" | "months"
-): { windowStart: string } | null {
-	const span = daysBetweenISO(weekEnd, startDate);
-	const maxIdx =
-		kind === "days" ? Math.floor(span / step) : monthsBetweenISO(weekEnd, startDate);
-	for (let n = 0; n <= maxIdx + 1; n++) {
-		const due = kind === "days" ? addDaysISO(startDate, n * step) : addMonthsISO(startDate, n);
-		if (due < weekStart) continue;
-		if (due > weekEnd) break;
-		return { windowStart: due };
-	}
-	return null;
-}
-
-/**
- * Moteur de message de fin de semaine — déterministe, jamais culpabilisant.
- * Le score reste interne (jamais affiché) et ne mesure QUE l'adhésion à la
- * collecte de données : aucun jugement sur le poids ou le respect exact des
- * calories. Mensurations/photos ne comptent que les semaines où l'échéance
- * tombait réellement dans la semaine.
- */
-function weekMessage(args: {
-	kcalTracked: number;
-	stepsTracked: number;
-	weighins: number;
-	bilanSent: boolean;
-	msrDue: boolean;
-	msrDone: boolean;
-	photoDue: boolean;
-	photoDone: boolean;
-}): string {
-	const { kcalTracked, stepsTracked, weighins, bilanSent, msrDue, msrDone, photoDue, photoDone } = args;
-	const total =
-		7 + 7 + 3 + 1 + (msrDue ? 1 : 0) + (photoDue ? 1 : 0);
-	const achieved =
-		Math.min(kcalTracked, 7) +
-		Math.min(stepsTracked, 7) +
-		Math.min(weighins, 3) +
-		(bilanSent ? 1 : 0) +
-		(msrDue && msrDone ? 1 : 0) +
-		(photoDue && photoDone ? 1 : 0);
-	const ratio = total > 0 ? achieved / total : 0;
-
-	if (ratio >= 0.8) {
-		// Deux variantes : la régularité data avant tout, jamais un jugement sur
-		// le résultat physique ou le fait d'avoir dépassé légèrement ses calories.
-		return kcalTracked >= 6 && stepsTracked >= 5
-			? "Suivi très régulier cette semaine. Tes données donnent une base claire pour ajuster la suite 💪"
-			: "Belle régularité cette semaine. Tu as été présente sur l'essentiel 👏";
-	}
-	if (ratio >= 0.55) {
-		return "Une semaine globalement bien suivie. Quelques points restent à consolider pour avoir une vision encore plus précise.";
-	}
-	if (ratio >= 0.3) {
-		return "Cette semaine a été plus irrégulière. L'objectif maintenant : retrouver un rythme simple sur les fondamentaux.";
-	}
-	return "Pas assez de données cette semaine pour dégager une vraie tendance. On repart sur une semaine plus régulière pour y voir plus clair.";
-}
 
 /**
  * Marque un retour coach comme lu : appelé quand la cliente ouvre réellement

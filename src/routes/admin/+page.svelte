@@ -4,6 +4,7 @@
 	import { untrack } from 'svelte';
 	import BilanCard from '../../lib/components/BilanCard.svelte';
 	import CoachMedia from '../../lib/components/CoachMedia.svelte';
+	import Icon from '../../lib/components/Icon.svelte';
 	import Sparkline from '../../lib/components/Sparkline.svelte';
 	import { labelFor } from '../../lib/labels.js';
 	import { ONBOARDING_SECTIONS, readableAnswer } from '../../lib/onboarding.js';
@@ -447,10 +448,10 @@
 	};
 	type BodyMetricKey = 'weightKg' | 'waistCm' | 'hipCm' | 'neckCm';
 	const BODY_METRICS: { key: BodyMetricKey; label: string; unit: string; icon: string; color: string; min: number; max: number }[] = [
-		{ key: 'weightKg', label: 'Poids', unit: 'kg', icon: '⚖️', color: '#1db954', min: 30, max: 350 },
-		{ key: 'waistCm', label: 'Tour de taille', unit: 'cm', icon: '📏', color: '#f97316', min: 40, max: 250 },
-		{ key: 'hipCm', label: 'Fessiers', unit: 'cm', icon: '📐', color: '#ec4899', min: 50, max: 300 },
-		{ key: 'neckCm', label: 'Tour de cou', unit: 'cm', icon: '🪢', color: '#3b82f6', min: 20, max: 80 },
+		{ key: 'weightKg', label: 'Poids', unit: 'kg', icon: 'scale', color: '#1db954', min: 30, max: 350 },
+		{ key: 'waistCm', label: 'Tour de taille', unit: 'cm', icon: 'ruler', color: '#f97316', min: 40, max: 250 },
+		{ key: 'hipCm', label: 'Fessiers', unit: 'cm', icon: 'ruler', color: '#ec4899', min: 50, max: 300 },
+		{ key: 'neckCm', label: 'Tour de cou', unit: 'cm', icon: 'ruler', color: '#3b82f6', min: 20, max: 80 },
 	];
 
 	let measurements = $state<Measurement[]>([]);
@@ -972,7 +973,7 @@
 					<p class="text-[11px] text-mist">
 						{selected.user.email}
 						{selected.user.birthDate ? ` · 🎂 ${fmtDateShort(selected.user.birthDate)}` : ''}
-						{selected.user.heightCm ? ` · 📏 ${selected.user.heightCm} cm` : ''}
+						{selected.user.heightCm ? ` · <Icon name="ruler" size={12} class="inline -mt-0.5" /> ${selected.user.heightCm} cm` : ''}
 						· 🕒 {fmtLastSeen(selected.user.lastSeenAt)}
 					</p>
 				</div>
@@ -1102,7 +1103,7 @@
 						</div>
 						<!-- Audio du message : enregistrement possible + état actuel (brouillon jamais publié tant qu'on n'envoie pas). -->
 						<div class="mt-2 rounded-xl border border-line bg-card/60 p-3">
-							<p class="text-[11px] font-bold uppercase tracking-wide text-mist">🎙️ Avec un message audio (optionnel)</p>
+							<p class="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-mist"><Icon name="mic" size={12} /> Avec un message audio (optionnel)</p>
 							<CoachMedia
 								mode="message"
 								userId={selected.user._id}
@@ -1115,7 +1116,7 @@
 
 				<div class="grid gap-3 sm:grid-cols-3">
 					<div class="rounded-2xl border border-line bg-card p-4">
-						<div class="text-[11px] font-bold uppercase tracking-wider text-mist">⚖️ Poids actuel</div>
+						<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="scale" size={12} /> Poids actuel</div>
 						<div class="mt-1 flex items-baseline gap-2">
 							<span class="font-display text-3xl font-semibold text-ink">{view.lastWeight != null ? `${String(view.lastWeight).replace('.', ',')} kg` : '—'}</span>
 							{#if weightDelta != null}
@@ -1125,7 +1126,7 @@
 						<div class="mt-1 text-[11px] text-mist">{latestMetric?.weightKg != null ? `dernière prise ${fmtDateShort(latestMetric.date)}` : 'aucune prise'}</div>
 					</div>
 					<div class="rounded-2xl border border-line bg-card p-4">
-						<div class="text-[11px] font-bold uppercase tracking-wider text-mist">📐 Mensurations</div>
+						<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="ruler" size={12} /> Mensurations</div>
 						<div class="mt-1 grid grid-cols-3 gap-2 text-center">
 							<div>
 								<div class="font-display text-lg font-semibold text-ink">{latestMetric?.waistCm != null ? String(latestMetric.waistCm).replace('.', ',') : '—'}</div>
@@ -1143,7 +1144,7 @@
 						<div class="mt-1 text-[11px] text-mist">en cm {latestMetric ? `· ${fmtDateShort(latestMetric.date)}` : '· aucune prise'}</div>
 					</div>
 					<div class="rounded-2xl border border-line bg-card p-4">
-						<div class="text-[11px] font-bold uppercase tracking-wider text-mist">🔥 Calories / jour</div>
+						<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="flame" size={12} /> Calories / jour</div>
 						<div class="mt-1 flex items-baseline gap-2">
 							<span class="font-display text-3xl font-semibold text-ink">{weekAvg || '—'}</span>
 							{#if view && weekAvg > 0}
@@ -1181,7 +1182,7 @@
 							</svg>
 						</div>
 						<div class="mt-2 rounded-xl bg-brand-light px-4 py-2.5 text-xs text-ink">
-							📐 <strong>Moyenne constatée : {weekAvg} kcal/jour</strong> sur {loggedDays} jour(s) renseigné(s) — calcul : somme des calories des jours saisis ÷ nombre de jours saisis (objectif : {goalKcal} kcal).
+							<Icon name="ruler" size={13} class="inline -mt-0.5" /> <strong>Moyenne constatée : {weekAvg} kcal/jour</strong> sur {loggedDays} jour(s) renseigné(s) — calcul : somme des calories des jours saisis ÷ nombre de jours saisis (objectif : {goalKcal} kcal).
 						</div>
 					{:else}
 						<p class="mt-3 rounded-xl border border-dashed border-line px-4 py-8 text-center text-sm text-mist">Aucune donnée de journal sur les 7 derniers jours.</p>
@@ -1399,13 +1400,13 @@
 							</div>
 						</div>
 						<div class="rounded-xl bg-line/40 px-3 py-2 text-center">
-							<div class="text-[10px] font-bold uppercase tracking-wider text-mist">📏 Mensurations</div>
+							<div class="flex items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-wider text-mist"><Icon name="ruler" size={11} /> Mensurations</div>
 							<div class="mt-0.5 text-sm font-bold {onboardingView?.step2.measurements ? 'text-brand' : 'text-mist'}">
 								{onboardingView?.step2.measurements ? '✓ Complétées' : '○ En attente'}
 							</div>
 						</div>
 						<div class="rounded-xl bg-line/40 px-3 py-2 text-center">
-							<div class="text-[10px] font-bold uppercase tracking-wider text-mist">📸 Photos</div>
+							<div class="flex items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-wider text-mist"><Icon name="camera" size={11} /> Photos</div>
 							<div class="mt-0.5 text-sm font-bold {onboardingView?.step2.photos ? 'text-brand' : 'text-mist'}">
 								{onboardingView?.step2.photos ? '✓ Déposées' : '○ En attente'}
 							</div>
@@ -1429,10 +1430,9 @@
 						</div>
 						<div class="mt-4 space-y-4">
 							{#each obAnswered as block (block.section.id)}
-								<div>
-									<h4 class="border-b border-line pb-1 text-[11px] font-bold uppercase tracking-widest text-mist">
-										{block.section.emoji} {block.section.title}
-									</h4>
+								<div>										<h4 class="flex items-center gap-1.5 border-b border-line pb-1 text-[11px] font-bold uppercase tracking-widest text-mist">
+											<Icon name={block.section.icon} size={14} class="shrink-0 text-brand" /> {block.section.title}
+										</h4>
 									<div class="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2">
 										{#each block.items as item (item.q.id)}
 											<div>
@@ -1460,7 +1460,7 @@
 			{:else if section === 'journal'}
 				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
 					<div class="flex flex-wrap items-center justify-between gap-3">
-						<h3 class="font-display text-base font-semibold text-ink">📔 Journal alimentaire de {selected.user.prenom}</h3>
+						<h3 class="flex items-center gap-1.5 font-display text-base font-semibold text-ink"><Icon name="notebook" size={17} class="shrink-0 text-brand" /> Journal alimentaire de {selected.user.prenom}</h3>
 						<div class="flex items-center gap-2">
 							<!-- Changer la date recharge la journée immédiatement (comme côté cliente). -->
 							<input
@@ -1526,7 +1526,7 @@
 												{#if entry.imageUrl}
 													<img src={entry.imageUrl} alt="" class="h-9 w-9 shrink-0 rounded-lg object-cover" />
 												{:else}
-													<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-line/60 text-sm">🍽️</div>
+													<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-line/60"><Icon name="utensils" size={16} class="text-mist" /></div>
 												{/if}
 												<div class="min-w-0 flex-1">
 													<div class="truncate text-sm font-semibold text-ink">{entry.name}</div>
@@ -1592,7 +1592,7 @@
 										{#if hit.imageUrl}
 											<img src={hit.imageUrl} alt="" class="h-9 w-9 shrink-0 rounded-lg object-cover" />
 										{:else}
-											<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-line/60 text-sm">🍎</div>
+											<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-line/60"><Icon name="apple" size={16} class="text-mist" /></div>
 										{/if}
 										<div class="min-w-0 flex-1">
 											<div class="truncate text-sm font-semibold text-ink">{hit.name}</div>
@@ -1610,7 +1610,7 @@
 			{:else if section === 'corps'}
 				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
 					<div class="flex flex-wrap items-center justify-between gap-2">
-						<h3 class="font-display text-base font-semibold text-ink">📏 Poids & mensurations de {selected.user.prenom}</h3>
+						<h3 class="flex items-center gap-1.5 font-display text-base font-semibold text-ink"><Icon name="scale" size={17} class="shrink-0 text-brand" /> Poids & mensurations de {selected.user.prenom}</h3>
 						<span class="text-[11px] text-mist">Chaque métrique a son propre historique — tout est visible côté cliente.</span>
 					</div>
 
@@ -1625,7 +1625,7 @@
 						{@const draft = bmDraft[meta.key] ?? { date: todayISO(), value: '' }}
 						<div id={`bm-form-${meta.key}`} class="mt-4 rounded-xl border border-line p-3">
 							<div class="flex flex-wrap items-center justify-between gap-2">
-								<h5 class="text-sm font-bold text-ink">{meta.icon} {meta.label} <span class="font-normal text-mist">({meta.unit})</span></h5>
+								<h5 class="flex items-center gap-1.5 text-sm font-bold text-ink"><Icon name={meta.icon} size={15} class="shrink-0" /> {meta.label} <span class="font-normal text-mist">({meta.unit})</span></h5>
 								<span class="text-[11px] text-mist">{rows.length} entrée(s)</span>
 							</div>
 							{#if rows.length > 0}
@@ -1678,8 +1678,7 @@
 
 					<!-- Taille (hauteur) : profil + historique daté -->
 					<div id="bm-form-heightCm" class="mt-4 rounded-xl border border-line p-3">
-						<div class="flex flex-wrap items-center justify-between gap-2">
-							<h5 class="text-sm font-bold text-ink">📏 Taille <span class="font-normal text-mist">(cm)</span></h5>
+						<div class="flex flex-wrap items-center justify-between gap-2">								<h5 class="flex items-center gap-1.5 text-sm font-bold text-ink"><Icon name="ruler" size={14} class="shrink-0 text-brand" /> Taille <span class="font-normal text-mist">(cm)</span></h5>
 							<span class="text-[11px] text-mist">{heightCm != null ? `valeur actuelle : ${String(heightCm).replace('.', ',')} cm` : 'non renseignée'}</span>
 						</div>
 						{#if heightSeries.length > 0}
@@ -1753,7 +1752,7 @@
 			{:else if section === 'photos'}
 				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
 					<div class="flex flex-wrap items-center justify-between gap-2">
-						<h3 class="font-display text-base font-semibold text-ink">📸 Photos de suivi de {selected.user.prenom}</h3>
+						<h3 class="flex items-center gap-1.5 font-display text-base font-semibold text-ink"><Icon name="camera" size={17} class="shrink-0 text-brand" /> Photos de suivi de {selected.user.prenom}</h3>
 						<span class="text-[11px] text-mist">{photos.length} série(s) · {totalPhotos} photo(s) — conservées définitivement</span>
 					</div>
 					{#if photos.length === 0}
@@ -1816,7 +1815,7 @@
 							<div class="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
 								<!-- POIDS -->
 								<div class="rounded-xl border border-line bg-cream/40 p-3">
-									<div class="text-[11px] font-bold uppercase tracking-wider text-mist">⚖️ Poids</div>
+									<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="scale" size={12} /> Poids</div>
 									{#if cockpit.weight.avg !== null}
 										<div class="mt-1 font-display text-2xl font-semibold text-ink">{fmtVal(cockpit.weight.avg)} kg</div>
 										<p class="text-[11px] text-mist">Moyenne de la semaine</p>
@@ -1835,7 +1834,7 @@
 
 								<!-- CALORIES -->
 								<div class="rounded-xl border border-line bg-cream/40 p-3">
-									<div class="text-[11px] font-bold uppercase tracking-wider text-mist">🔥 Calories</div>
+									<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="flame" size={12} /> Calories</div>
 									{#if cockpit.calories.avg !== null}
 										<div class="mt-1 font-display text-2xl font-semibold text-ink">{cockpit.calories.avg.toLocaleString('fr-FR')} kcal</div>
 										<p class="text-[11px] text-mist">en moyenne / jour suivi</p>
@@ -1871,7 +1870,7 @@
 
 								<!-- MENSURATIONS -->
 								<div class="rounded-xl border border-line bg-cream/40 p-3">
-									<div class="text-[11px] font-bold uppercase tracking-wider text-mist">📏 Mensurations</div>
+									<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="ruler" size={12} /> Mensurations</div>
 									{#if cockpit.measurements.fresh && cockpit.measurements.date}
 										<p class="mt-1 text-sm font-semibold text-ink">Mises à jour {fmtDaysAgo(cockpit.measurements.daysAgo ?? 0)}</p>
 										{#if cockpit.measurements.deltas.waistCm !== null}
@@ -1904,7 +1903,7 @@
 
 								<!-- PHOTOS de la semaine -->
 								<div class="rounded-xl border border-line bg-cream/40 p-3">
-									<div class="text-[11px] font-bold uppercase tracking-wider text-mist">📸 Photos</div>
+									<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="camera" size={12} /> Photos</div>
 									{#if weekPhotos}
 										<p class="mt-1 text-sm font-semibold text-ink">{weekPhotos.count} nouvelle{weekPhotos.count > 1 ? 's' : ''} photo{weekPhotos.count > 1 ? 's' : ''} cette semaine</p>
 										<button

@@ -15,11 +15,6 @@
 		steps: { avg: number | null; goal: number | null; trackedDays: number };
 		weighins: { count: number; goal: number };
 		bilan: { sent: boolean };
-		due: {
-			measurements: { due: boolean; done: boolean } | null;
-			photos: { due: boolean; done: boolean } | null;
-		};
-		message: string;
 	};
 
 	type Onboarding = {
@@ -39,7 +34,7 @@
 			audio: { mediaId: string; durationMs: number | null; url: string } | null;
 		} | null;
 		tracking: { kcal: number; kcalGoal: number; maintenanceKcal: number | null };
-		steps: { today: number | null; goal: number | null };
+		steps: { today: number | null; goal: number | null; week: { date: string; count: number }[] };
 		progression: {
 			lastWeightKg: number | null;
 			lastWeightDate: string | null;
@@ -47,6 +42,7 @@
 			measurementsDue: boolean;
 			photosDue: boolean;
 			startDate: string | null;
+			weightTrend: { date: string; weightKg: number }[];
 		};
 		bilan: { due: boolean; windowOpen: boolean };
 		feedback: {
@@ -62,6 +58,8 @@
 	import { invalidateAll } from '$app/navigation';
 	import { getGreeting } from '$lib/greetings';
 	import AudioPlayer from '$lib/components/AudioPlayer.svelte';
+	import Icon from '$lib/components/Icon.svelte';
+	import Sparkline from '$lib/components/Sparkline.svelte';
 	import { fmtMs } from '$lib/media';
 
 	/** Première écoute réelle d'un audio (message du coach) — déclenche la rétention 72 h. */
@@ -182,7 +180,25 @@
 		}
 	}
 
-	/* ————— Récap hebdo (dimanche soir → lundi) ————— */
+	/* ————— Mini-graphiques : pas (semaine courante) & poids (dernières pesées) ————— */
+	const stepsWeekPts = $derived((dash?.steps.week ?? []).map((s) => ({ date: s.date, value: s.count })));
+	const weightTrendPts = $derived(
+		(dash?.progression.weightTrend ?? []).map((m) => ({ date: m.date, value: m.weightKg }))
+	);
+	// Tendance du poids : delta entre la première et la dernière pesée de la fenêtre.
+	const weightDelta = $derived.by(() => {
+		const w = dash?.progression.weightTrend ?? [];
+		if (w.length < 2) return null;
+		return w[w.length - 1].weightKg - w[0].weightKg;
+	});
+	function weightDeltaLabel(delta: number): string {
+		const abs = Math.abs(delta).toFixed(1).replace('.', ',');
+		if (delta < -0.05) return `↓ ${abs} kg`;
+		if (delta > 0.05) return `↑ ${abs} kg`;
+		return '→ stable';
+	}
+
+	/* ————— Récap hebdo (samedi + dimanche de la semaine courante) ————— */
 	const recap = $derived(dash?.recap ?? null);
 	function recapRangeLabel(): string {
 		const fmt = (iso: string) =>
@@ -267,13 +283,13 @@
 				{#if !ob.step2.done}
 					<div class="mt-3 flex flex-wrap gap-2">
 						{#if !ob.step2.measurements}
-							<a href="/espace/progression?action=mensurations" class="rounded-xl border-2 border-brand/50 bg-brand-light px-3.5 py-2 text-xs font-bold text-brand-dark transition hover:bg-brand/20">
-								📏 Faire mes mensurations
+							<a href="/espace/progression?action=mensurations" class="inline-flex items-center gap-1.5 rounded-xl border-2 border-brand/50 bg-brand-light px-3.5 py-2 text-xs font-bold text-brand-dark transition hover:bg-brand/20">
+								<Icon name="ruler" size={14} /> Faire mes mensurations
 							</a>
 						{/if}
 						{#if !ob.step2.photos}
-							<a href="/espace/photos" class="rounded-xl border-2 border-brand/50 bg-brand-light px-3.5 py-2 text-xs font-bold text-brand-dark transition hover:bg-brand/20">
-								📸 Ajouter mes photos
+							<a href="/espace/photos" class="inline-flex items-center gap-1.5 rounded-xl border-2 border-brand/50 bg-brand-light px-3.5 py-2 text-xs font-bold text-brand-dark transition hover:bg-brand/20">
+								<Icon name="camera" size={14} /> Ajouter mes photos
 							</a>
 						{/if}
 					</div>
@@ -294,7 +310,7 @@
 		{#if dash.coachMessage.audio}
 			{@const a = dash.coachMessage.audio}
 			<div class="mt-2 rounded-xl bg-white/70 p-3">
-				<p class="mb-1.5 text-xs font-semibold text-brand-dark">🎙️ Message audio · {fmtMs(a.durationMs)}</p>
+				<p class="mb-1.5 inline-flex items-center gap-1.5 text-xs font-semibold text-brand-dark"><Icon name="mic" size={13} /> Message audio · {fmtMs(a.durationMs)}</p>
 				<AudioPlayer src={a.url} durationMs={a.durationMs} onFirstPlay={() => listen(a.mediaId)} />
 			</div>
 		{/if}
@@ -324,7 +340,7 @@
 	</section>
 {/if}
 
-<!-- ═══════════ Ta semaine en un coup d'œil (dimanche soir → lundi) ═══════════ -->
+<!-- ═══════════ Ta semaine en un coup d'œil (samedi + dimanche uniquement) ═══════════ -->
 {#if recap}
 	<section class="recap-card mt-6 rounded-2xl border border-brand/30 bg-brand-light p-5 shadow-sm">
 		<div class="flex flex-wrap items-center justify-between gap-2">
@@ -334,14 +350,14 @@
 		<div class="mt-4 space-y-4">
 			<div class="grid grid-cols-2 gap-3">
 				<div>
-					<p class="text-[10px] font-bold uppercase tracking-wider text-mist">🔥 Calories moyennes</p>
+					<p class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-mist"><Icon name="flame" size={12} class="shrink-0" /> Calories moyennes</p>
 					<p class="mt-0.5 font-display text-2xl font-semibold text-ink">
 						{recap.calories.avg !== null ? `${fmt(recap.calories.avg)} kcal` : '—'}<span class="text-xs font-semibold text-mist"> / jour</span>
 					</p>
 					<p class="text-[11px] text-mist">Objectif : {fmt(recap.calories.goal)} · {recap.calories.trackedDays} / 7 jours suivis</p>
 				</div>
 				<div>
-					<p class="text-[10px] font-bold uppercase tracking-wider text-mist">👟 Pas moyens</p>
+					<p class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-mist"><Icon name="footprints" size={12} class="shrink-0" /> Pas moyens</p>
 					<p class="mt-0.5 font-display text-2xl font-semibold text-ink">
 						{recap.steps.avg !== null ? fmt(recap.steps.avg) : '—'}<span class="text-xs font-semibold text-mist"> / jour</span>
 					</p>
@@ -351,19 +367,9 @@
 				</div>
 			</div>
 			<div class="flex flex-wrap gap-x-5 gap-y-1 text-sm text-ink">
-				<span>⚖️ Pesées : <strong>{recap.weighins.count} / {recap.weighins.goal}</strong>{recap.weighins.count >= recap.weighins.goal ? ' ✓' : ''}</span>
-				<span>📋 Bilan : <strong>{recap.bilan.sent ? 'Envoyé ✓' : 'Non envoyé'}</strong></span>
-				{#if recap.due.measurements}
-					<span>📏 Mensurations : <strong>{recap.due.measurements.done ? 'Fait ✓' : 'À faire'}</strong></span>
-				{/if}
-				{#if recap.due.photos}
-					<span>📸 Photos : <strong>{recap.due.photos.done ? 'Fait ✓' : 'À faire'}</strong></span>
-				{/if}
+				<span class="inline-flex items-center gap-1"><Icon name="scale" size={14} class="shrink-0" /> Pesées : <strong>{recap.weighins.count} / {recap.weighins.goal}</strong>{recap.weighins.count >= recap.weighins.goal ? ' ✓' : ''}</span>
+				<span class="inline-flex items-center gap-1"><Icon name="clipboardList" size={14} class="shrink-0" /> Bilan : <strong>{recap.bilan.sent ? 'Envoyé ✓' : 'Non envoyé'}</strong></span>
 			</div>
-		</div>
-		<div class="mt-4 rounded-xl border border-brand/20 bg-white/60 px-4 py-3">
-			<p class="text-[11px] font-bold uppercase tracking-wider text-mist">Message de la semaine</p>
-			<p class="mt-1 text-sm leading-relaxed text-ink">{recap.message}</p>
 		</div>
 	</section>
 {/if}
@@ -412,23 +418,36 @@
 			{/if}
 		</div>
 
-		{#if todaySteps !== null}
-			<p class="mt-2 font-display text-3xl font-semibold text-ink">
-				{fmt(todaySteps)}
-				{#if stepGoal !== null}<span class="text-base font-semibold text-mist"> / {fmt(stepGoal)}</span>{/if}
-			</p>
-			{#if stepGoal !== null && todaySteps >= stepGoal}
-				<p class="mt-1 text-xs font-semibold text-brand-dark">Objectif atteint ✓</p>
-			{:else}
-				<p class="mt-1 text-xs text-mist">Bien noté — tu peux corriger à tout moment.</p>
+		<div class="mt-2 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+			<div class="min-w-0">
+				{#if todaySteps !== null}
+					<p class="font-display text-3xl font-semibold text-ink">
+						{fmt(todaySteps)}
+						{#if stepGoal !== null}<span class="text-base font-semibold text-mist"> / {fmt(stepGoal)}</span>{/if}
+					</p>
+					{#if stepGoal !== null && todaySteps >= stepGoal}
+						<p class="mt-1 text-xs font-semibold text-brand-dark">Objectif atteint ✓</p>
+					{:else}
+						<p class="mt-1 text-xs text-mist">Bien noté — tu peux corriger à tout moment.</p>
+					{/if}
+				{:else}
+					{#if isEvening}
+						<p class="text-sm text-ink">Combien de pas aujourd'hui ?</p>
+					{:else}
+						<p class="text-sm text-mist">Pas encore renseignés aujourd'hui.</p>
+					{/if}
+				{/if}
+			</div>
+
+			{#if stepsWeekPts.length > 0}
+				<div class="shrink-0 sm:w-44">
+					<Sparkline points={stepsWeekPts} color="#1db954" goal={stepGoal} width={176} height={54} />
+					{#if stepGoal !== null}
+						<p class="mt-1 text-center text-[10px] font-semibold text-mist">Objectif : {fmt(stepGoal)}</p>
+					{/if}
+				</div>
 			{/if}
-		{:else}
-			{#if isEvening}
-				<p class="mt-2 text-sm text-ink">Combien de pas aujourd'hui ?</p>
-			{:else}
-				<p class="mt-2 text-sm text-mist">Pas encore renseignés aujourd'hui.</p>
-			{/if}
-		{/if}
+		</div>
 
 		{#if !stepsOpen}
 			<button
@@ -483,17 +502,34 @@
 >
 	<div class="flex items-center justify-between gap-3">
 		<h2 class="text-[11px] font-bold uppercase tracking-widest text-mist">Ma progression</h2>
-		<span class="text-lg" aria-hidden="true">📈</span>
+		<Icon name="trendingUp" size={20} class="text-brand" />
 	</div>
-	<div class="mt-2 flex items-baseline gap-3">
-		<p class="font-display text-4xl font-semibold text-ink">{dash ? fmtWeight(dash.progression.lastWeightKg) : '—'}</p>
-		{#if dash?.progression.lastWeightDate}
-			<span class="text-xs text-mist">dernier poids</span>
+	<div class="mt-2 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+		<div class="min-w-0">
+			<div class="flex items-baseline gap-3">
+				<p class="font-display text-4xl font-semibold text-ink">{dash ? fmtWeight(dash.progression.lastWeightKg) : '—'}</p>
+				{#if dash?.progression.lastWeightDate}
+					<span class="text-xs text-mist">dernier poids</span>
+				{/if}
+			</div>
+			{#if weightDelta !== null}
+				<p class="mt-1 text-xs font-semibold {weightDelta <= 0.05 ? 'text-brand-dark' : 'text-mist'}">{weightDeltaLabel(weightDelta)}</p>
+			{/if}
+			<p class="mt-2 text-sm text-mist">
+				Pesées cette semaine : <strong class="font-bold text-ink">{peseesLabel}</strong>
+			</p>
+		</div>
+
+		{#if weightTrendPts.length >= 2}
+			<div class="shrink-0 sm:w-44">
+				<Sparkline points={weightTrendPts} color="#1db954" width={176} height={54} />
+			</div>
+		{:else if weightTrendPts.length === 1}
+			<div class="shrink-0 sm:w-44">
+				<p class="rounded-xl border border-dashed border-line px-3 py-4 text-center text-[11px] leading-snug text-mist">Tendance bientôt disponible</p>
+			</div>
 		{/if}
 	</div>
-	<p class="mt-2 text-sm text-mist">
-		Pesées cette semaine : <strong class="font-bold text-ink">{peseesLabel}</strong>
-	</p>
 	<p class="mt-3 flex items-center justify-between rounded-xl border-2 border-line px-4 py-2.5 text-sm font-bold text-ink transition group-hover:border-brand">
 		<span>Voir ma progression</span>
 		<span>→</span>

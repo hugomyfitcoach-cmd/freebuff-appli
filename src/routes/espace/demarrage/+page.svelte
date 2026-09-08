@@ -7,6 +7,7 @@
 		visibleQuestions,
 		type Question,
 	} from '$lib/onboarding';
+	import Icon from '$lib/components/Icon.svelte';
 
 	/**
 	 * Formulaire de démarrage G-FLUX (étape 1 de l'onboarding).
@@ -193,7 +194,7 @@
 
 		{#key section.id}
 			<div class="rounded-2xl border border-line bg-card p-5 shadow-sm">
-				<h2 class="font-display text-lg font-semibold text-ink">{section.emoji} {section.title}</h2>
+				<h2 class="flex items-center gap-2 font-display text-lg font-semibold text-ink"><Icon name={section.icon} size={20} class="shrink-0 text-brand" /> {section.title}</h2>
 				{#if section.subtitle}<p class="mt-1 text-sm text-mist">{section.subtitle}</p>{/if}
 
 				<div class="mt-4 space-y-5">
@@ -292,11 +293,11 @@
 				Il te reste une dernière étape : tes mensurations & photos de départ.
 			</p>
 			<div class="mt-5 flex flex-col justify-center gap-2 sm:flex-row">
-				<a href="/espace/progression?action=mensurations" class="rounded-xl border-2 border-line px-4 py-2.5 text-sm font-bold text-ink transition hover:border-brand hover:text-brand">
-					📏 Faire mes mensurations
+				<a href="/espace/progression?action=mensurations" class="inline-flex items-center gap-1.5 rounded-xl border-2 border-line px-4 py-2.5 text-sm font-bold text-ink transition hover:border-brand hover:text-brand">
+					<Icon name="ruler" size={15} /> Faire mes mensurations
 				</a>
-				<a href="/espace/photos" class="rounded-xl border-2 border-line px-4 py-2.5 text-sm font-bold text-ink transition hover:border-brand hover:text-brand">
-					📸 Ajouter mes photos
+				<a href="/espace/photos" class="inline-flex items-center gap-1.5 rounded-xl border-2 border-line px-4 py-2.5 text-sm font-bold text-ink transition hover:border-brand hover:text-brand">
+					<Icon name="camera" size={15} /> Ajouter mes photos
 				</a>
 			</div>
 			<button type="button" onclick={goHome} class="mt-4 inline-block rounded-xl bg-brand px-5 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark">

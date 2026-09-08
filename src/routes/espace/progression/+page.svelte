@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import MetricChart from '../../../lib/components/MetricChart.svelte';
+	import Icon from '../../../lib/components/Icon.svelte';
 
 	type Measurement = {
 		_id: string;
@@ -15,10 +16,10 @@
 	type Group = 'weight' | 'mensurations';
 
 	const METRIC_META: { key: Metric; label: string; sub: string; unit: string; icon: string; color: string; group: Group }[] = [
-		{ key: 'weightKg', label: 'POIDS', sub: 'Poids', unit: 'kg', icon: '⚖️', color: '#1db954', group: 'weight' },
-		{ key: 'waistCm', label: 'TOUR DE TAILLE', sub: 'Partie la plus fine', unit: 'cm', icon: '📏', color: '#f97316', group: 'mensurations' },
-		{ key: 'hipCm', label: 'FESSIERS', sub: 'Circonférence', unit: 'cm', icon: '📐', color: '#ec4899', group: 'mensurations' },
-		{ key: 'neckCm', label: 'TOUR DE COU', sub: 'Circonférence', unit: 'cm', icon: '🪢', color: '#3b82f6', group: 'mensurations' },
+		{ key: 'weightKg', label: 'POIDS', sub: 'Poids', unit: 'kg', icon: 'scale', color: '#1db954', group: 'weight' },
+		{ key: 'waistCm', label: 'TOUR DE TAILLE', sub: 'Partie la plus fine', unit: 'cm', icon: 'ruler', color: '#f97316', group: 'mensurations' },
+		{ key: 'hipCm', label: 'FESSIERS', sub: 'Circonférence', unit: 'cm', icon: 'ruler', color: '#ec4899', group: 'mensurations' },
+		{ key: 'neckCm', label: 'TOUR DE COU', sub: 'Circonférence', unit: 'cm', icon: 'ruler', color: '#3b82f6', group: 'mensurations' },
 	];
 
 	let heightCm = $state<number | null>(null);
@@ -358,7 +359,7 @@
 	{:else}
 	<!-- ═══════════ Vue principale ═══════════ -->
 	<div class="mx-auto w-full max-w-xl px-4 pb-28 pt-4 sm:px-6">
-		<h1 class="font-display text-2xl font-semibold text-ink">Ma progression 📈</h1>
+		<h1 class="font-display text-2xl font-semibold text-ink">Ma progression <Icon name="trendingUp" size={22} class="inline -mt-1 text-brand" /></h1>
 		<p class="mt-1 text-sm text-mist">Poids, mensurations et masse grasse estimée — touche une courbe pour la détailler.</p>
 
 		{#if error}
@@ -369,7 +370,7 @@
 		<section class="mt-5 rounded-2xl border border-line bg-card p-4 shadow-sm">
 			<div class="flex items-center justify-between gap-3">
 				<div class="flex items-center gap-3">
-					<div class="grid h-11 w-11 place-items-center rounded-xl bg-brand-light text-xl">📏</div>
+					<div class="grid h-11 w-11 place-items-center rounded-xl bg-brand-light"><Icon name="ruler" size={22} class="text-brand" /></div>
 					<div>
 						<p class="text-[11px] font-bold uppercase tracking-wide text-mist">Taille</p>
 						<p class="font-display text-xl font-semibold text-ink">{heightCm !== null ? `${fmt(heightCm)} cm` : 'Non renseignée'}</p>
@@ -403,7 +404,7 @@
 							</div>
 							<p class="mt-1 text-xs text-mist">{meta.sub}</p>
 						</div>
-						<span class="text-2xl" aria-hidden="true">{meta.icon}</span>
+						<Icon name={meta.icon} size={28} class="shrink-0 text-mist" />
 					</div>
 				</div>
 				<button type="button" class="block w-full px-3 pt-2 text-left" aria-label={`Voir la courbe ${meta.sub}`} onclick={() => openDetail(meta.key)}>
@@ -466,7 +467,7 @@
 		<section class="mt-4 rounded-2xl border border-line bg-card p-4 shadow-sm">
 			<a href="/espace/photos" class="flex items-center justify-between gap-3">
 				<div class="flex items-center gap-3">
-					<div class="grid h-11 w-11 place-items-center rounded-xl bg-brand-light text-xl">📸</div>
+					<div class="grid h-11 w-11 place-items-center rounded-xl bg-brand-light"><Icon name="camera" size={22} class="text-brand" /></div>
 					<div>
 						<p class="text-[11px] font-bold uppercase tracking-wide text-mist">Photos de progression</p>
 						<p class="font-display text-lg font-semibold text-ink">Ajouter mes photos</p>
@@ -495,7 +496,7 @@
 
 			<div class="mt-4 rounded-xl border-2 border-brand bg-brand-light/30 p-3">
 				<div class="flex items-center gap-2">
-					<span class="text-base" aria-hidden="true">⚖️</span>
+					<Icon name="scale" size={18} class="shrink-0 text-brand" />
 					<span class="min-w-0 flex-1 text-sm font-semibold text-ink">Poids</span>
 					<div class="w-28 text-center">
 						<input type="text" inputmode="decimal" class="w-full bg-transparent text-center font-display text-2xl font-semibold text-ink outline-none" placeholder="—" bind:value={wWeight} />
@@ -532,7 +533,7 @@
 			<div class="mt-4 flex flex-col gap-3">
 				<label class="rounded-xl border-2 border-line bg-white p-3">
 					<div class="flex items-center gap-2">
-						<span class="text-base" aria-hidden="true">📏</span>
+						<Icon name="ruler" size={18} class="shrink-0 text-brand" />
 						<span class="min-w-0 flex-1 text-sm font-semibold text-ink">Tour de taille</span>
 						<div class="w-24 text-center">
 							<input type="text" inputmode="decimal" class="w-full bg-transparent text-center font-display text-xl font-semibold text-ink outline-none" placeholder="—" bind:value={mWaist} />
@@ -542,7 +543,7 @@
 				</label>
 				<label class="rounded-xl border-2 border-line bg-white p-3">
 					<div class="flex items-center gap-2">
-						<span class="text-base" aria-hidden="true">📐</span>
+						<Icon name="ruler" size={18} class="shrink-0 text-brand" />
 						<span class="min-w-0 flex-1 text-sm font-semibold text-ink">Fessiers</span>
 						<div class="w-24 text-center">
 							<input type="text" inputmode="decimal" class="w-full bg-transparent text-center font-display text-xl font-semibold text-ink outline-none" placeholder="—" bind:value={mHip} />
@@ -552,7 +553,7 @@
 				</label>
 				<label class="rounded-xl border-2 border-line bg-white p-3">
 					<div class="flex items-center gap-2">
-						<span class="text-base" aria-hidden="true">🪢</span>
+						<Icon name="ruler" size={18} class="shrink-0 text-brand" />
 						<span class="min-w-0 flex-1 text-sm font-semibold text-ink">Tour de cou</span>
 						<div class="w-24 text-center">
 							<input type="text" inputmode="decimal" class="w-full bg-transparent text-center font-display text-xl font-semibold text-ink outline-none" placeholder="—" bind:value={mNeck} />
@@ -589,7 +590,7 @@
 
 			<div class="mt-4 rounded-xl border-2 border-brand bg-brand-light/30 p-3">
 				<div class="flex items-center gap-2">
-					<span class="text-base" aria-hidden="true">{editMeta.icon}</span>
+					<Icon name={editMeta.icon} size={18} class="shrink-0 text-brand" />
 					<span class="min-w-0 flex-1 text-sm font-semibold text-ink">{editMeta.label}</span>
 					<div class="w-28 text-center">
 						<input type="text" inputmode="decimal" class="w-full bg-transparent text-center font-display text-2xl font-semibold text-ink outline-none" bind:value={editValue} />

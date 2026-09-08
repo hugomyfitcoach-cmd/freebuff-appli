@@ -72,7 +72,7 @@
 </script>
 
 {#if values.length === 0}
-	<p class="py-8 text-center text-sm italic text-mist">Pas encore de données — enregistre ta première prise 📏</p>
+	<p class="py-8 text-center text-sm italic text-mist">Pas encore de données — enregistre ta première prise.</p>
 {:else}
 	<svg viewBox="0 0 {W} {height}" class="w-full" role="img" aria-label="Évolution de ta mesure dans le temps">
 		<defs>

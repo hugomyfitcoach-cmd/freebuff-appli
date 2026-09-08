@@ -32,7 +32,7 @@ export type Section = {
 	id: string;
 	step: number;
 	title: string;
-	emoji: string;
+	icon: string;
 	subtitle?: string;
 	questions: Question[];
 };
@@ -42,7 +42,7 @@ export const ONBOARDING_SECTIONS: Section[] = [
 		id: 'profil',
 		step: 1,
 		title: 'Ton profil de base',
-		emoji: '🧐',
+		icon: 'clipboardList',
 		subtitle: 'Quelques infos pour bien démarrer.',
 		questions: [
 			{ id: 'age', kind: 'number', label: 'Âge', required: true, placeholder: 'Ex. 28' },
@@ -55,7 +55,7 @@ export const ONBOARDING_SECTIONS: Section[] = [
 		id: 'composition',
 		step: 2,
 		title: 'Composition corporelle',
-		emoji: '💪',
+		icon: 'activity',
 		subtitle: 'Situe-toi dans la grille ci-dessous — au plus proche de ta réalité actuelle.',
 		questions: [
 			{
@@ -81,9 +81,9 @@ export const ONBOARDING_SECTIONS: Section[] = [
 				label: 'Objectif principal',
 				required: true,
 				options: [
-					{ value: 'perte_rapide', label: '🔥 Perte de gras rapide', hint: 'Plus agressif, court terme' },
+					{ value: 'perte_rapide', label: 'Perte de gras rapide', hint: 'Plus agressif, court terme' },
 					{ value: 'perte_douce', label: '⏳ Perte de gras douce et progressive', hint: 'Rythme tenable dans la durée' },
-					{ value: 'recomp', label: '💪 Recomposition corporelle', hint: 'Moins de gras + plus de muscle' },
+					{ value: 'recomp', label: 'Recomposition corporelle', hint: 'Moins de gras + plus de muscle' },
 				],
 			},
 		],
@@ -92,7 +92,7 @@ export const ONBOARDING_SECTIONS: Section[] = [
 		id: 'metabolique',
 		step: 3,
 		title: 'Historique métabolique',
-		emoji: '🔬',
+		icon: 'search',
 		subtitle: 'Ces 3 questions sont clés pour calibrer ton plan dès le départ.',
 		questions: [
 			{
@@ -137,7 +137,7 @@ export const ONBOARDING_SECTIONS: Section[] = [
 		id: 'approche',
 		step: 4,
 		title: 'Approche nutritionnelle',
-		emoji: '🍎',
+		icon: 'apple',
 		subtitle: 'Quelle approche te parle le plus ? On ajustera ensemble selon ton évolution.',
 		questions: [
 			{
@@ -146,7 +146,7 @@ export const ONBOARDING_SECTIONS: Section[] = [
 				label: 'Quelle approche te parle le plus ?',
 				required: true,
 				options: [
-					{ value: 'compter', label: '📊 Compter les calories et les macros', hint: 'Flexible, précis. On adapte ensemble selon tes préférences.' },
+					{ value: 'compter', label: 'Compter les calories et les macros', hint: 'Flexible, précis. On adapte ensemble selon tes préférences.' },
 					{ value: 'instinctif', label: '🥗 Sans compter les calories', hint: 'Plus instinctif. Demande plus de rigueur sur la qualité et les quantités.' },
 					{ value: 'plan', label: '📋 Plan alimentaire structuré', hint: 'Cadre clair et précis. Tu suis, on ajuste.' },
 				],
@@ -157,7 +157,7 @@ export const ONBOARDING_SECTIONS: Section[] = [
 		id: 'sommeil',
 		step: 5,
 		title: 'Sommeil & rythme de vie',
-		emoji: '💤',
+		icon: 'moon',
 		questions: [
 			{
 				id: 'sleepHours',
@@ -178,7 +178,7 @@ export const ONBOARDING_SECTIONS: Section[] = [
 		id: 'sante',
 		step: 6,
 		title: 'Santé & traitements',
-		emoji: '🏥',
+		icon: 'heartPulse',
 		questions: [
 			{
 				id: 'healthIssues',
@@ -208,7 +208,7 @@ export const ONBOARDING_SECTIONS: Section[] = [
 		id: 'alimentation',
 		step: 7,
 		title: 'Alimentation',
-		emoji: '🍽️',
+		icon: 'utensils',
 		questions: [
 			{
 				id: 'mealsPerDay',
@@ -255,7 +255,7 @@ export const ONBOARDING_SECTIONS: Section[] = [
 		id: 'hydratation',
 		step: 8,
 		title: 'Hydratation & boissons',
-		emoji: '💧',
+		icon: 'droplet',
 		questions: [
 			{
 				id: 'waterLiters',
@@ -286,7 +286,7 @@ export const ONBOARDING_SECTIONS: Section[] = [
 		id: 'sport',
 		step: 9,
 		title: 'Sport & activité physique',
-		emoji: '🏋️',
+		icon: 'dumbbell',
 		questions: [
 			{
 				id: 'sport',
@@ -355,7 +355,7 @@ export const ONBOARDING_SECTIONS: Section[] = [
 		id: 'stress',
 		step: 10,
 		title: 'Stress, émotions & dernières infos',
-		emoji: '🤯',
+		icon: 'brain',
 		questions: [
 			{
 				id: 'stressLevel',

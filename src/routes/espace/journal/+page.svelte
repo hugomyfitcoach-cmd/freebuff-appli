@@ -2,6 +2,7 @@
 	import { onMount, tick, untrack } from 'svelte';
 	import { startBarcodeScanner, type BarcodeScannerHandle } from '$lib/barcodeScanner';
 	import QuantitySheet from '$lib/components/QuantitySheet.svelte';
+	import Icon from '$lib/components/Icon.svelte';
 
 	type Goals = { kcal: number; carbs: number; protein: number; fat: number; maintenanceKcal?: number };
 	type Entry = {
@@ -71,10 +72,10 @@
 	let { data } = $props();
 
 	const MEAL_DEFS = [
-		{ id: 'petit-dej', label: 'Petit-déjeuner', icon: '🌅' },
-		{ id: 'dejeuner', label: 'Déjeuner', icon: '🍽️' },
-		{ id: 'diner', label: 'Dîner', icon: '🌙' },
-		{ id: 'collation', label: 'Collations', icon: '🍎' },
+		{ id: 'petit-dej', label: 'Petit-déjeuner', icon: 'sunrise' },
+		{ id: 'dejeuner', label: 'Déjeuner', icon: 'utensils' },
+		{ id: 'diner', label: 'Dîner', icon: 'moon' },
+		{ id: 'collation', label: 'Collations', icon: 'apple' },
 	] as const;
 
 	/* ————— État ————— */
@@ -150,6 +151,15 @@
 	const overMaintenance = $derived(!!maintenanceKcal && totals.kcal > maintenanceKcal);
 	/** Position du marqueur « Objectif » sur la barre (en % de l'échelle). */
 	const goalMarkPct = $derived(barScale > 0 ? (day.goals.kcal / barScale) * 100 : 0);
+	/** Teinte contextuelle des calories (filet de sécurité compris). */
+	const kcalTone = $derived(overMaintenance ? '#ef4444' : overGoal ? '#f59e0b' : '#1db954');
+
+	/* ————— Mini-barre sticky (HUD nutritionnel) ————— */
+	let stickyBar = $state(false);
+	let calCard: HTMLElement | undefined;
+	let pageWrap: HTMLElement | undefined;
+	/** Position/portée de la mini-barre : calée sur le conteneur du Journal. */
+	let barStyle = $state({ left: 0, width: 0 });
 
 	function mealEntries(meal: string) {
 		return day.entries.filter((e) => e.meal === meal);
@@ -164,9 +174,9 @@
 		return n.toLocaleString('fr-FR');
 	}
 	const rings = $derived([
-		{ label: 'Glucides', icon: '🌾', color: '#ec4899', eaten: totals.carbs, goal: day.goals.carbs },
-		{ label: 'Protéines', icon: '💧', color: '#3b82f6', eaten: totals.protein, goal: day.goals.protein },
-		{ label: 'Lipides', icon: '🫒', color: '#f97316', eaten: totals.fat, goal: day.goals.fat },
+		{ label: 'Glucides', icon: 'wheat', color: '#ec4899', eaten: totals.carbs, goal: day.goals.carbs },
+		{ label: 'Protéines', icon: 'drumstick', color: '#3b82f6', eaten: totals.protein, goal: day.goals.protein },
+		{ label: 'Lipides', icon: 'droplet', color: '#f97316', eaten: totals.fat, goal: day.goals.fat },
 	]);
 
 	/* ————— Swipe gauche/droite ————— */
@@ -787,6 +797,32 @@
 			vv.addEventListener('scroll', setKb);
 			setKb();
 		}
+
+		/* Mini-barre sticky : dès que la carte nutritionnelle complète sort du
+		   viewport, on affiche le HUD compact ; il disparaît au retour en haut. */
+		if (calCard && 'IntersectionObserver' in window) {
+			const io = new IntersectionObserver((entries) => {
+				for (const e of entries) stickyBar = !e.isIntersecting;
+			}, { threshold: 0 });
+			io.observe(calCard);
+		}
+
+		/* Barre sticky : alignée sur le conteneur du Journal (largeur max centrée),
+		   indépendamment de la sidebar desktop ou des marges du viewport. */
+		const setBarPos = () => {
+			if (!pageWrap) return;
+			const r = pageWrap.getBoundingClientRect();
+			barStyle.left = r.left;
+			barStyle.width = r.width;
+		};
+		setBarPos();
+		window.addEventListener('resize', setBarPos);
+	});
+
+	/* Verrouille le scroll du fond quand un panneau plein écran est ouvert. */
+	$effect(() => {
+		const locked = logOpen || !!qtyFood || !!editEntry || !!qtyMealSel;
+		document.body.style.overflow = locked ? 'hidden' : '';
 	});
 </script>
 
@@ -794,26 +830,26 @@
 
 <svelte:window ontouchstart={onTouchStart} ontouchend={onTouchEnd} />
 
-<div class="mx-auto w-full max-w-2xl px-3 pb-28 pt-4 sm:px-6">
+<div bind:this={pageWrap} class="mx-auto w-full max-w-2xl px-3 pb-28 pt-4 sm:px-6">
 	<!-- En-tête : date + navigation -->
-	<header class="mb-4 flex items-center justify-between gap-2">
+	<header class="mb-3 flex items-center justify-between gap-2">
 		<button
 			type="button"
-			class="grid h-10 w-10 place-items-center rounded-full border-2 border-line bg-card text-xl font-bold text-ink transition hover:border-brand"
+			class="grid h-9 w-9 place-items-center rounded-full border-2 border-line bg-card text-lg font-bold text-ink transition hover:border-brand"
 			aria-label="Jour précédent"
 			onclick={() => shiftDay(-1)}
 		>‹</button>
 		<button
 			type="button"
-			class="rounded-full px-4 py-2 text-center font-display text-base font-semibold capitalize text-ink transition hover:bg-line/50"
+			class="rounded-full px-3 py-1.5 text-center font-display text-sm font-semibold capitalize text-ink transition hover:bg-line/50"
 			onclick={openDatePicker}
 			title="Choisir une date"
 		>
-			{dateLabel} <span class="ml-1 text-xs text-mist">▾</span>
+			{dateLabel} <span class="ml-1 text-[11px] text-mist">▾</span>
 		</button>
 		<button
 			type="button"
-			class="grid h-10 w-10 place-items-center rounded-full border-2 border-line bg-card text-xl font-bold text-ink transition hover:border-brand"
+			class="grid h-9 w-9 place-items-center rounded-full border-2 border-line bg-card text-lg font-bold text-ink transition hover:border-brand"
 			aria-label="Jour suivant"
 			onclick={() => shiftDay(1)}
 		>›</button>
@@ -836,23 +872,23 @@
 
 	<div class="transition-opacity" class:opacity-40={loadingDay}>
 		<!-- Carte calories -->
-		<section class="mb-3 rounded-2xl border border-line bg-card p-5 shadow-sm">
+		<section bind:this={calCard} class="mb-2.5 rounded-2xl border border-line bg-card p-4">
 			<div class="flex items-start justify-between gap-3">
 				<p class="text-sm text-ink">
 					{overGoal ? (overMaintenance ? 'Maintenance dépassée de' : 'Objectif dépassé de') : 'Il te reste'}
-					<span class="block text-4xl font-bold leading-tight text-ink">
+					<span class="block text-3xl font-bold leading-tight text-ink">
 						{overGoal ? (overMaintenance ? fmt(totals.kcal - (maintenanceKcal ?? day.goals.kcal)) : fmt(totals.kcal - day.goals.kcal)) : fmt(remaining)}<span class="ml-1 text-base font-semibold text-mist">kcal</span>
 					</span>
 				</p>
-				<span class="text-3xl" aria-hidden="true">🔥</span>
+				<Icon name="flame" size={26} class="mt-0.5 text-brand" />
 			</div>
 			{#if inSafetyNet}
-				<p class="mt-1 text-xs font-semibold text-warn">🛟 Dans ton filet de sécurité — tu restes sous ta maintenance</p>
+				<p class="mt-0.5 text-xs font-semibold text-warn">🛟 Dans ton filet de sécurité</p>
 			{/if}
 			{#if overMaintenance}
-				<p class="mt-1 text-xs font-semibold text-danger/80">Ta journée reste dans le cadre sur la durée — on ajuste ensemble si besoin.</p>
+				<p class="mt-0.5 text-xs font-semibold text-danger/80">Ta journée reste dans le cadre sur la durée — on ajuste ensemble si besoin.</p>
 			{/if}
-			<div class="relative mt-4 h-2.5 w-full overflow-hidden rounded-full bg-line/70">
+			<div class="relative mt-3 h-2 w-full overflow-hidden rounded-full bg-line/70">
 				{#if maintenanceKcal}
 					<!-- Zone « filet de sécurité » entre l'objectif et la maintenance -->
 					<div class="absolute inset-y-0 rounded-full bg-warn-light" style="left: {goalMarkPct}%; right: 0"></div>
@@ -866,7 +902,7 @@
 					<div class="absolute inset-y-[-3px] w-[2px] rounded bg-ink/60" style="left: {goalMarkPct}%" title="Objectif : {fmt(day.goals.kcal)} kcal"></div>
 				{/if}
 			</div>
-			<div class="mt-2 flex items-baseline justify-between gap-2 text-xs">
+			<div class="mt-1.5 flex items-baseline justify-between gap-2 text-xs">
 				<span class="font-semibold {overMaintenance ? 'text-danger' : overGoal ? 'text-warn' : 'text-brand'}">{fmt(Math.round(totals.kcal))} kcal consommées</span>
 				<span class="text-right">
 					<span class="font-semibold text-ink">Objectif : {fmt(day.goals.kcal)}</span>
@@ -875,42 +911,42 @@
 					{/if}
 				</span>
 			</div>
-			<div class="mt-3 inline-flex items-center gap-1.5 rounded-full bg-danger-light px-3 py-1.5 text-xs font-semibold text-danger">
-				<span aria-hidden="true">⏱</span> 0 kcal brûlées
-			</div>
+				<div class="mt-2 inline-flex items-center gap-1.5 rounded-full bg-danger-light px-2.5 py-1 text-[11px] font-semibold text-danger">
+					<Icon name="clock" size={12} /> 0 kcal brûlées
+				</div>
 		</section>
 
 		<!-- Macros -->
-		<section class="mb-3 grid grid-cols-3 gap-3">
+		<section class="mb-2.5 grid grid-cols-3 gap-2">
 			{#each rings as ring (ring.label)}
 				{@const pct = macroPct(ring.eaten, ring.goal)}
-				{@const circ = 2 * Math.PI * 26}
-				<div class="rounded-2xl border border-line bg-card p-3 text-center shadow-sm">
+				{@const circ = 2 * Math.PI * 22}
+				<div class="rounded-2xl border border-line bg-card px-2 pb-2 pt-2.5 text-center">
 					<div class="mb-1 flex items-center justify-between">
-						<span class="text-[11px] font-bold text-ink">{ring.label}</span>
-						<span class="text-sm" aria-hidden="true">{ring.icon}</span>
+						<span class="text-[10px] font-bold text-ink">{ring.label}</span>
+						<Icon name={ring.icon} size={14} class="shrink-0" style="color:{ring.color}" />
 					</div>
-					<div class="relative mx-auto h-16 w-16">
-						<svg viewBox="0 0 64 64" class="h-16 w-16 -rotate-90">
-							<circle cx="32" cy="32" r="26" fill="none" stroke="#eef0ec" stroke-width="7" />
+					<div class="relative mx-auto h-[76px] w-[76px] md:h-[84px] md:w-[84px]">
+						<svg viewBox="0 0 64 64" class="h-[76px] w-[76px] -rotate-90 md:h-[84px] md:w-[84px]">
+							<circle cx="32" cy="32" r="22" fill="none" stroke="#eef0ec" stroke-width="8" />
 							<circle
 								cx="32"
 								cy="32"
-								r="26"
+								r="22"
 								fill="none"
 								stroke={ring.color}
-								stroke-width="7"
+								stroke-width="8"
 								stroke-linecap="round"
 								stroke-dasharray={circ}
 								stroke-dashoffset={circ * (1 - pct / 100)}
 								style="transition: stroke-dashoffset .5s"
 							/>
 						</svg>
-						<span class="absolute inset-0 grid place-items-center text-sm font-bold" style:color={ring.color}>
-							{Math.round(pct)}%
+						<span class="absolute inset-0 grid place-items-center font-bold leading-none" style:color={ring.color}>
+							<span class="text-[15px] md:text-[17px]">{Math.round(pct)}%</span>
 						</span>
 					</div>
-					<p class="mt-2 text-xs text-ink">
+					<p class="mt-2 text-[11px] text-ink">
 						<strong class="font-bold">{fmt(Math.round(ring.eaten))}</strong><span class="text-mist">/{fmt(ring.goal)}g</span>
 					</p>
 				</div>
@@ -919,9 +955,9 @@
 
 		<!-- Astuce du jour -->
 		{#if !tipDismissed}
-			<section class="mb-3 rounded-2xl border-2 border-dashed border-brand/40 bg-brand-light/50 p-4">
+			<section class="mb-2.5 rounded-2xl border border-dashed border-brand/40 bg-brand-light/40 px-3.5 py-2.5">
 				<div class="flex items-center justify-between">
-					<span class="text-[11px] font-bold uppercase tracking-widest text-brand">Astuce du jour</span>
+					<span class="text-[10px] font-bold uppercase tracking-widest text-brand">Astuce du jour</span>
 					<button
 						type="button"
 						class="grid h-6 w-6 place-items-center rounded-full bg-line/60 text-xs text-mist hover:bg-line"
@@ -929,78 +965,128 @@
 						onclick={() => (tipDismissed = true)}
 					>✕</button>
 				</div>
-				<p class="mt-1 text-sm leading-relaxed text-ink">{tip}</p>
+				<p class="mt-1 text-[13px] leading-snug text-ink">{tip}</p>
 			</section>
 		{/if}
 
 		<!-- Repas -->
 		{#each MEAL_DEFS as meal (meal.id)}
 			{@const entries = mealEntries(meal.id)}
-			<section class="mb-3 rounded-2xl border border-line bg-card shadow-sm">
-				<header class="flex items-center justify-between px-4 pt-4">
-					<h2 class="font-display text-base font-semibold text-ink">
-						<span class="mr-1.5" aria-hidden="true">{meal.icon}</span>{meal.label}
+			<section class="mb-2.5 overflow-hidden rounded-2xl border border-line bg-card">
+				<header class="flex items-center justify-between gap-2 px-3.5 pt-2.5">
+					<h2 class="flex min-w-0 items-center font-display text-[15px] font-semibold text-ink">
+						<Icon name={meal.icon} size={15} class="mr-1.5 shrink-0 text-brand" />{meal.label}
+						{#if mealKcal(meal.id) > 0}
+							<span class="ml-2 text-xs font-semibold text-brand">{fmt(mealKcal(meal.id))} kcal</span>
+						{/if}
 					</h2>
 					<button
 						type="button"
-						class="grid h-7 w-7 place-items-center rounded-lg bg-brand text-base font-bold text-white transition hover:bg-brand-dark"
+						class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-brand text-base font-bold text-white transition hover:bg-brand-dark"
 						aria-label={`Ajouter au ${meal.label}`}
 						onclick={() => { qtyMeal = meal.id; openLog(meal.id); }}
 					>+</button>
 				</header>
-				{#if mealKcal(meal.id) > 0}
-					<p class="px-4 pt-1 text-xs font-semibold text-brand">{fmt(mealKcal(meal.id))} kcal</p>
-				{/if}
-				<div class="p-2">
+				<div class="mt-1.5 px-1 pb-1">
 					{#if entries.length === 0}
-						<p class="px-2 py-3 text-center text-xs text-mist">Rien pour l'instant — ajoute un aliment avec « + ».</p>
+						<p class="px-2.5 py-2 text-center text-xs text-mist">Rien pour l'instant — ajoute un aliment avec « + ».</p>
 					{:else}
-						{#each entries as e (e._id)}
-							<button
-								type="button"
-								class="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition hover:bg-line/40"
-								onclick={() => openEdit(e)}
-							>
-								{#if e.imageUrl}
-									<img src={e.imageUrl} alt="" class="h-10 w-10 shrink-0 rounded-lg object-cover" loading="lazy" />
-								{:else}
-									<div class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-light text-lg">🍴</div>
-								{/if}
-								<span class="min-w-0 flex-1">
-									<span class="block truncate text-sm font-semibold text-ink">{e.name}</span>
-									<span class="block text-xs text-mist">
-										<strong class="font-bold text-brand">{fmt(e.kcal)} kcal</strong>
-										{#if e.portions}
-											· {String(e.portions).replace('.', ',')} {e.portions === 1 ? 'portion' : 'portions'}
-										{:else}
-											· {fmt(e.qtyGrams)} g
-										{/if}
+						<div class="divide-y divide-line/60">
+							{#each entries as e (e._id)}
+								<button
+									type="button"
+									class="flex w-full items-center gap-2.5 px-2 py-1.5 text-left transition hover:bg-line/40"
+									onclick={() => openEdit(e)}
+								>
+									{#if e.imageUrl}
+										<img src={e.imageUrl} alt="" class="h-9 w-9 shrink-0 rounded-lg object-cover" loading="lazy" />
+									{:else}
+										<div class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={16} class="text-brand" /></div>
+									{/if}
+									<span class="min-w-0 flex-1">
+										<span class="block truncate text-sm font-semibold text-ink">{e.name}</span>
+										<span class="block text-[11px] text-mist">
+											<strong class="font-bold text-brand">{fmt(e.kcal)} kcal</strong>
+											{#if e.portions}
+												· {String(e.portions).replace('.', ',')} {e.portions === 1 ? 'portion' : 'portions'}
+											{:else}
+												· {fmt(e.qtyGrams)} g
+											{/if}
+										</span>
 									</span>
-								</span>
-							</button>
-						{/each}
+								</button>
+							{/each}
+						</div>
 					{/if}
 				</div>
 			</section>
 		{/each}
 
-		<p class="mt-6 text-center text-xs text-mist">
+		<p class="mt-4 text-center text-xs text-mist">
 			Glisse le journal à gauche/droite (ou utilise les chevrons) pour changer de jour.
 		</p>
 	</div>
 </div>
 
+<!-- Mini-barre sticky : HUD nutritionnel compact (apparaît quand la zone complète sort du viewport) -->
+{#snippet miniRing(pct: number, color: string, size: number)}
+	{@const r = size / 2 - 2.5}
+	{@const c = 2 * Math.PI * r}
+	<svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} class="-rotate-90 shrink-0">
+		<circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#eef0ec" stroke-width={Math.max(2, size / 9)} />
+		<circle
+			cx={size / 2}
+			cy={size / 2}
+			r={r}
+			fill="none"
+			stroke={color}
+			stroke-width={Math.max(2, size / 9)}
+			stroke-linecap="round"
+			stroke-dasharray={c}
+			stroke-dashoffset={c * (1 - Math.min(100, pct) / 100)}
+		/>
+	</svg>
+{/snippet}
+
+{#if stickyBar && !logOpen}
+	<div
+		class="pointer-events-none fixed z-30 top-[49px] transition-opacity duration-200 md:top-4"
+		style:left="{barStyle.left}px"
+		style:width="{barStyle.width}px"
+	>
+		<div class="pointer-events-auto flex w-full items-center justify-between gap-2 rounded-2xl border border-line bg-white/95 px-3 py-1.5 shadow-md shadow-ink/5 backdrop-blur">
+				<div class="flex min-w-0 items-center gap-1.5">
+					{@render miniRing(kcalPct, kcalTone, 26)}
+					<div class="min-w-0 leading-tight">
+						<div class="flex items-baseline gap-0.5 text-[15px] font-bold text-ink">{fmt(Math.round(totals.kcal))}<span class="text-[10px] font-semibold text-mist">/{fmt(day.goals.kcal)}</span></div>
+						<div class="flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wide text-mist"><Icon name="flame" size={9} /> kcal</div>
+					</div>
+				</div>
+				{#each rings as ring (ring.label)}
+					{@const pct = macroPct(ring.eaten, ring.goal)}
+					<div class="hidden min-w-0 items-center gap-1.5 min-[320px]:flex">
+						{@render miniRing(pct, ring.color, 22)}
+						<div class="hidden min-w-0 leading-tight sm:block">
+							<div class="flex items-baseline gap-0.5 text-[12px] font-bold text-ink">{fmt(Math.round(ring.eaten))}<span class="text-[9px] font-semibold text-mist">/{fmt(ring.goal)}g</span></div>
+							<div class="truncate text-[8px] font-bold uppercase tracking-wide text-mist">{ring.label === 'Glucides' ? 'gluc.' : ring.label === 'Protéines' ? 'prot.' : 'lipides'}</div>
+						</div>
+					</div>
+				{/each}
+			</div>
+		</div>
+{/if}
+
 <!-- Bouton flottant + -->
 <button
 	type="button"
-	class="fixed bottom-6 right-6 z-40 grid h-16 w-16 place-items-center rounded-full bg-brand text-3xl font-bold text-white shadow-lg shadow-brand/30 transition hover:scale-105 hover:bg-brand-dark active:scale-95"
+	class="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-4 z-40 grid h-14 w-14 place-items-center rounded-full bg-brand text-2xl font-bold text-white shadow-lg shadow-brand/30 transition hover:scale-105 hover:bg-brand-dark active:scale-95 md:bottom-6 md:right-6 md:h-16 md:w-16"
 	aria-label="Ajouter un aliment"
 	onclick={() => openLog()}
 >+</button>
 
 <!-- ═══════════ Modale « Ajouter un aliment » ═══════════ -->
 {#if logOpen}
-	<div role="presentation" class="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-0 backdrop-blur-sm sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget) closeLog(); }} onkeydown={(e) => { if (e.key === 'Escape') closeLog(); }}>
+	<div role="presentation" class="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-0 sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget) closeLog(); }} onkeydown={(e) => { if (e.key === 'Escape') closeLog(); }}>
 		<div class="flex h-[calc(100dvh-var(--kb,0px))] w-full max-w-lg flex-col overflow-hidden bg-white shadow-2xl sm:h-auto sm:max-h-[92dvh] sm:rounded-3xl">
 			<!-- En-tête -->
 			<div class="flex items-center justify-between border-b border-line px-4 py-3">
@@ -1012,8 +1098,7 @@
 			{#if logMode === 'search'}
 				<!-- Recherche + onglets -->
 				<div class="border-b border-line p-3">
-					<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2.5 focus-within:border-brand">
-						<span class="text-mist" aria-hidden="true">🔍</span>
+					<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2.5 focus-within:border-brand">										<Icon name="search" size={18} class="shrink-0 text-mist" />
 						<!-- svelte-ignore a11y_autofocus -->
 						<input
 							type="search"
@@ -1031,7 +1116,9 @@
 							title={favOnly ? 'Voir tous les produits' : 'Voir mes favoris'}
 							aria-label="Voir mes favoris"
 							onclick={() => (favOnly = !favOnly)}
-						>{favOnly ? '♥' : '♡'}</button>
+						>
+							<Icon name="heart" size={16} class={favOnly ? 'text-white' : 'text-mist'} />
+						</button>
 						<button type="button" class="shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition {searchTab === 'produits' ? 'bg-brand text-white' : 'bg-line/50 text-mist'}" onclick={() => { searchTab = 'produits'; favOnly = false; }}>Tous les produits</button>
 						<button type="button" class="shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition {searchTab === 'repas' ? 'bg-brand text-white' : 'bg-line/50 text-mist'}" onclick={() => (searchTab = 'repas')}>Repas</button>
 						<button type="button" class="shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition {searchTab === 'crees' ? 'bg-brand text-white' : 'bg-line/50 text-mist'}" onclick={() => (searchTab = 'crees')}>Créés par moi</button>
@@ -1060,23 +1147,19 @@
 
 							<!-- Totaux live -->
 							<div class="mt-3 grid grid-cols-4 gap-2">
-								<div class="rounded-xl border border-line bg-white p-2 text-center">
-									<span class="block text-sm" aria-hidden="true">🔥</span>
+								<div class="rounded-xl border border-line bg-white p-2 text-center">											<Icon name="flame" size={16} class="mx-auto block text-brand" />
 									<span class="block text-xs font-bold text-ink">{fmt(mealTotals.kcal)}</span>
 									<span class="block text-[10px] text-mist">kcal</span>
 								</div>
-								<div class="rounded-xl border border-line bg-white p-2 text-center">
-									<span class="block text-sm" aria-hidden="true">🌾</span>
+								<div class="rounded-xl border border-line bg-white p-2 text-center">											<Icon name="wheat" size={16} class="mx-auto block" style="color:#ec4899" />
 									<span class="block text-xs font-bold text-ink">{fmt(mealTotals.carbs)} g</span>
 									<span class="block text-[10px] text-mist">glucides</span>
 								</div>
-								<div class="rounded-xl border border-line bg-white p-2 text-center">
-									<span class="block text-sm" aria-hidden="true">💧</span>
+								<div class="rounded-xl border border-line bg-white p-2 text-center">											<Icon name="drumstick" size={16} class="mx-auto block" style="color:#3b82f6" />
 									<span class="block text-xs font-bold text-ink">{fmt(mealTotals.protein)} g</span>
 									<span class="block text-[10px] text-mist">protéines</span>
 								</div>
-								<div class="rounded-xl border border-line bg-white p-2 text-center">
-									<span class="block text-sm" aria-hidden="true">🫒</span>
+								<div class="rounded-xl border border-line bg-white p-2 text-center">											<Icon name="droplet" size={16} class="mx-auto block" style="color:#f97316" />
 									<span class="block text-xs font-bold text-ink">{fmt(mealTotals.fat)} g</span>
 									<span class="block text-[10px] text-mist">lipides</span>
 								</div>
@@ -1161,8 +1244,7 @@
 						{#if mealsError}
 							<p class="rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{mealsError}</p>
 						{:else if meals.length === 0}
-							<div class="py-10 text-center">
-								<div class="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-brand-light text-2xl">🍽️</div>
+							<div class="py-10 text-center">													<div class="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-brand-light"><Icon name="utensils" size={26} class="text-brand" /></div>
 								<p class="text-sm font-semibold text-ink">Aucun repas pour l'instant</p>
 								<p class="mx-auto mt-1 max-w-xs text-xs text-mist">Crée tes recettes (ingrédients + quantités) : les macros de chaque portion se calculent toutes seules.</p>
 							</div>
@@ -1270,10 +1352,8 @@
 					{:else if favOnly}
 						<!-- ═══════ Favoris ═══════ -->
 						{#if favorites.length === 0}
-							<div class="py-10 text-center">
-								<div class="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-brand-light text-2xl">♥</div>
-								<p class="text-sm font-semibold text-ink">Aucun favori</p>
-								<p class="mx-auto mt-1 max-w-xs text-xs text-mist">Touche le cœur ♡ d'un produit pour le retrouver ici en un geste.</p>
+							<div class="py-10 text-center">												<div class="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-brand-light"><Icon name="heart" size={26} class="text-brand" /></div>
+								<p class="text-sm font-semibold text-ink">Aucun favori</p>											<p class="mx-auto mt-1 max-w-xs text-xs text-mist">Touche le cœur <Icon name="heart" size={13} class="inline -mt-0.5 text-brand" /> d'un produit pour le retrouver ici en un geste.</p>
 							</div>
 						{:else}
 							<ul class="flex flex-col gap-2">
@@ -1289,8 +1369,7 @@
 												<span class="block truncate text-sm font-semibold text-ink">{food.name}</span>
 												<span class="block text-xs text-mist"><strong class="font-bold text-brand">{fmt(food.kcal100)} kcal</strong> · 100 g</span>
 											</span>
-										</button>
-										<button type="button" class="grid h-9 w-9 shrink-0 place-items-center rounded-full text-lg text-brand transition hover:bg-brand-light" aria-label={`Retirer ${food.name} des favoris`} onclick={() => toggleFav(food)}>♥</button>
+										</button>												<button type="button" class="grid h-9 w-9 shrink-0 place-items-center rounded-full text-brand transition hover:bg-brand-light" aria-label={`Retirer ${food.name} des favoris`} onclick={() => toggleFav(food)}><Icon name="heart" size={18} /></button>
 									</li>
 								{/each}
 							</ul>
@@ -1324,8 +1403,7 @@
 											</span>
 										</span>
 									</button>
-									{#if !food.custom}
-										<button type="button" class="grid h-9 w-9 shrink-0 place-items-center rounded-full text-lg transition {fav ? 'text-brand' : 'text-mist hover:text-brand'}" aria-label={fav ? `Retirer ${food.name} des favoris` : `Ajouter ${food.name} aux favoris`} onclick={() => toggleFav(food)}>{fav ? '♥' : '♡'}</button>
+									{#if !food.custom}													<button type="button" class="grid h-9 w-9 shrink-0 place-items-center rounded-full transition {fav ? 'text-brand' : 'text-mist hover:text-brand'}" aria-label={fav ? `Retirer ${food.name} des favoris` : `Ajouter ${food.name} aux favoris`} onclick={() => toggleFav(food)}><Icon name="heart" size={18} /></button>
 									{/if}
 								</li>
 							{/each}
@@ -1339,8 +1417,7 @@
 					<div id="bc-reader" class="relative mx-auto w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink/5 transition-colors {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}"></div>
 
 					<div class="mx-auto mt-3 w-full max-w-sm">
-						<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2.5 focus-within:border-brand">
-							<span class="text-mist" aria-hidden="true">🔢</span>
+						<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2.5 focus-within:border-brand">														<Icon name="barcode" size={18} class="shrink-0 text-mist" />
 							<input
 								type="text"
 								inputmode="numeric"
@@ -1361,18 +1438,24 @@
 						<p class="mt-3 text-center text-xs text-mist">Caméra active — présente le code-barres à plat devant l'objectif, même à distance : dès qu'il est lu, l'encadré passe au vert.</p>
 					{/if}
 				</div>
-			{/if}
-
-			<!-- Barre flottante : Recherche ⇄ Code-barres -->
-			<div class="px-3 py-3">
-				<div class="mx-auto flex max-w-[280px] items-center gap-1 rounded-full bg-ink/95 p-1 shadow-lg shadow-ink/20">
-					<button type="button" class="flex-1 rounded-full py-2 text-center text-xs font-semibold transition {logMode === 'search' ? 'bg-white/90 text-ink' : 'text-white/70 hover:text-white'}" onclick={() => switchMode('search')}>
-						<span class="block text-base leading-none" aria-hidden="true">🔍</span>
-						<span class="mt-0.5 block">Recherche</span>
+			{/if}			<!-- Segmented control : Recherche ⇄ Code-barres -->
+			<div class="px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3">
+				<div class="mx-auto flex max-w-[300px] items-center gap-1 rounded-2xl bg-ink p-1 shadow-md shadow-ink/20">
+					<button
+						type="button"
+						class="flex flex-1 flex-col items-center justify-center gap-1 rounded-xl py-2 text-xs font-semibold transition {logMode === 'search' ? 'bg-white text-ink shadow-sm' : 'text-white/80 hover:text-white'}"
+						onclick={() => switchMode('search')}
+					>
+						<Icon name="search" size={20} />
+						<span>Recherche</span>
 					</button>
-					<button type="button" class="flex-1 rounded-full py-2 text-center text-xs font-semibold transition {logMode === 'barcode' ? 'bg-white/90 text-ink' : 'text-white/70 hover:text-white'}" onclick={() => switchMode('barcode')}>
-						<span class="block text-base leading-none" aria-hidden="true">📷</span>
-						<span class="mt-0.5 block">Code-barres</span>
+					<button
+						type="button"
+						class="flex flex-1 flex-col items-center justify-center gap-1 rounded-xl py-2 text-xs font-semibold transition {logMode === 'barcode' ? 'bg-white text-ink shadow-sm' : 'text-white/80 hover:text-white'}"
+						onclick={() => switchMode('barcode')}
+					>
+						<Icon name="barcode" size={20} />
+						<span>Code-barres</span>
 					</button>
 				</div>
 			</div>

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import RecorderControl from './RecorderControl.svelte';
+	import Icon from './Icon.svelte';
 	import AudioPlayer from './AudioPlayer.svelte';
 	import { fmtMs, fmtSize, optimizeImageFile, type CoachMediaItem } from '../media.js';
 
@@ -183,7 +184,7 @@
 			<li class="rounded-xl border border-line bg-white p-2.5">
 				{#if item.kind === 'audio'}
 					<div class="mb-1.5 flex flex-wrap items-center justify-between gap-1">
-						<span class="text-xs font-bold text-ink">🎙️ {item.name} · {fmtMs(item.durationMs)}</span>
+						<span class="inline-flex items-center gap-1.5 text-xs font-bold text-ink"><Icon name="mic" size={13} /> {item.name} · {fmtMs(item.durationMs)}</span>
 						<span class="flex items-center gap-1">
 							{#if item.status === 'published'}
 								<span class="rounded-full bg-brand-light px-1.5 py-px text-[10px] font-bold uppercase text-brand-dark">publié</span>

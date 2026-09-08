@@ -6,20 +6,31 @@
 		color?: string;
 		width?: number;
 		height?: number;
+		/** Valeur de référence (ex. objectif quotidien) affichée en pointillés. */
+		goal?: number | null;
+		/** Couleur de la ligne de référence. */
+		goalColor?: string;
 	};
 
-	let { points, color = '#1db954', width = 100, height = 34 }: Props = $props();
+	let { points, color = '#1db954', width = 100, height = 34, goal = null, goalColor = '#9aa3ad' }: Props = $props();
 
 	let seq = 0; // compteur module : id unique par instance
 	let id = $state(String(++seq));
 
-	const pts = $derived(points.length >= 2 ? points : []);
+	const pts = $derived(points);
+	const hasTrend = $derived(pts.length >= 2);
 
 	const tMin = $derived(pts.length ? Date.parse(pts[0].date + 'T12:00:00') : 0);
 	const tMax = $derived(pts.length ? Date.parse(pts[pts.length - 1].date + 'T12:00:00') : 1);
 	const tSpan = $derived(Math.max(tMax - tMin, 1));
-	const vMin = $derived(pts.length ? Math.min(...pts.map((p) => p.value)) : 0);
-	const vMax = $derived(pts.length ? Math.max(...pts.map((p) => p.value)) : 0);
+	// L'objectif participe à la mise à l'échelle verticale pour que sa ligne de
+	// référence reste toujours visible (même si toutes les valeurs sont < ou >).
+	const vMin = $derived(
+		pts.length ? Math.min(...pts.map((p) => p.value), goal != null ? goal : Infinity) : goal != null ? goal : 0
+	);
+	const vMax = $derived(
+		pts.length ? Math.max(...pts.map((p) => p.value), goal != null ? goal : -Infinity) : goal != null ? goal : 1
+	);
 	const vSpan = $derived(Math.max(vMax - vMin, 1e-6));
 
 	const PAD_X = 3;
@@ -44,7 +55,7 @@
 	const last = $derived(pts.length ? pts[pts.length - 1] : null);
 </script>
 
-{#if pts.length >= 2}
+{#if pts.length >= 1}
 	<svg
 		width={width}
 		height={height}
@@ -59,10 +70,22 @@
 				<stop offset="100%" stop-color={color} stop-opacity="0" />
 			</linearGradient>
 		</defs>
-		{#if area}
+		{#if goal != null}
+			<line
+				x1={PAD_X}
+				y1={yAt(goal)}
+				x2={width - PAD_X}
+				y2={yAt(goal)}
+				stroke={goalColor}
+				stroke-width="1"
+				stroke-dasharray="4 3"
+				stroke-linecap="round"
+			/>
+		{/if}
+		{#if hasTrend && area}
 			<path d={area} fill={`url(#spark-grad-${id})`} />
 		{/if}
-		{#if line}
+		{#if hasTrend && line}
 			<path d={line} fill="none" stroke={color} stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
 		{/if}
 		{#if last}

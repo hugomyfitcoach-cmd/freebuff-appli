@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import type { Snippet } from 'svelte';
+	import Icon from './Icon.svelte';
 
 	type Role = 'client' | 'coach';
 	type SessionUser = { prenom: string; email: string; role: Role };
@@ -27,17 +28,17 @@
 	const links = $derived<Link[]>(
 		role === 'client'
 			? [
-					{ href: '/espace', label: 'Accueil', icon: '🏠' },
-					{ href: '/espace/journal', label: 'Journal', icon: '📔' },
-					{ href: '/espace/progression', label: 'Progression', icon: '📈', badge: badges.progression ?? 0 },
-					{ href: '/espace/historique', label: 'Bilans', icon: '🗂️', badge: badges.bilans ?? 0 },
-					{ href: '/recettes', label: 'Recettes & nutrition', icon: '🍳' },
-					{ href: '/outils', label: 'Outils & calibrage', icon: '🧰' },
+					{ href: '/espace', label: 'Accueil', icon: 'home' },
+					{ href: '/espace/journal', label: 'Journal', icon: 'notebook' },
+					{ href: '/espace/progression', label: 'Progression', icon: 'trendingUp', badge: badges.progression ?? 0 },
+					{ href: '/espace/historique', label: 'Bilans', icon: 'clipboardCheck', badge: badges.bilans ?? 0 },
+					{ href: '/recettes', label: 'Recettes & nutrition', icon: 'chefHat' },
+					{ href: '/outils', label: 'Outils & calibrage', icon: 'wrench' },
 				]
 			: [
 					{ href: '/admin', label: 'Tableau de bord', icon: '📋' },
-					{ href: '/recettes', label: 'Guide nutrition & recettes', icon: '🍳' },
-					{ href: '/outils', label: 'Outils & calibrage', icon: '🧰' },
+					{ href: '/recettes', label: 'Guide nutrition & recettes', icon: 'chefHat' },
+					{ href: '/outils', label: 'Outils & calibrage', icon: 'wrench' },
 				]
 	);
 
@@ -47,6 +48,18 @@
 		if (link.href === '/admin') return path === '/admin' || path.startsWith('/admin/');
 		return path === link.href || path.startsWith(link.href + '/');
 	}
+
+	/** Onglets permanents de la barre mobile en bas (cliente).
+	 *  Bilans & retours restent accessibles depuis l'Accueil quand ils sont pertinents. */
+	const primaryLinks = $derived(
+		role === 'client'
+			? ([
+					{ href: '/espace', label: 'Accueil', icon: 'home' },
+					{ href: '/espace/journal', label: 'Journal', icon: 'notebook' },
+					{ href: '/espace/progression', label: 'Progression', icon: 'trendingUp', badge: badges.progression ?? 0 },
+				] as Link[])
+			: []
+	);
 
 	const mainClass = $derived(
 		contentWidth === 'full'
@@ -76,7 +89,7 @@
 					class="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition
 						{isActive(link) ? 'bg-ink text-white' : 'text-ink hover:bg-line/60'}"
 				>
-					{#if link.icon}<span class="text-base leading-none">{link.icon}</span>{/if}
+					{#if link.icon}<Icon name={link.icon} size={18} class="shrink-0" />{/if}
 					<span class="flex-1">{link.label}</span>
 					{#if link.badge && link.badge > 0}
 						<span class="grid h-5 min-w-5 place-items-center rounded-full bg-warn px-1 text-[11px] font-bold text-white">{link.badge}</span>
@@ -114,8 +127,7 @@
 			<div class="flex items-center justify-between gap-2 px-4 py-2.5">
 				<a href={role === 'coach' ? '/admin' : '/espace'} class="flex items-center gap-2">
 					<img src="/logo-header.jpg" alt="G-Flux" class="h-7 w-auto" />
-				</a>
-				<div class="flex items-center gap-2">
+				</a>				<div class="flex items-center gap-2">
 					{#if role === 'client'}
 						<a
 							href="/bilan"
@@ -130,20 +142,6 @@
 					</form>
 				</div>
 			</div>
-			<nav class="flex gap-1 overflow-x-auto px-3 pb-2" aria-label="Navigation mobile">
-				{#each links as link (link.href)}
-					<a
-						href={link.href}
-					class="whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold transition
-						{isActive(link) ? 'bg-ink text-white' : 'bg-line/50 text-ink'}"
-				>
-					<span>{link.icon} {link.label}</span>
-					{#if link.badge && link.badge > 0}
-						<span class="ml-1 inline-grid h-4 min-w-4 place-items-center rounded-full bg-warn px-1 text-[10px] font-bold text-white">{link.badge}</span>
-					{/if}
-				</a>
-				{/each}
-			</nav>
 		</header>
 
 		<main class={mainClass}>
@@ -155,5 +153,34 @@
 				Suivi coaching <strong class="text-ink">G-Flux</strong> — pense à remplir ton bilan chaque fin de semaine 💪
 			</footer>
 		{/if}
+
+		<!-- Espace pour la barre de navigation mobile fixe (cliente) -->
+		{#if role === 'client'}
+			<div class="h-[calc(4rem+env(safe-area-inset-bottom))] shrink-0 md:hidden" aria-hidden="true"></div>
+		{/if}
 	</div>
+
+	<!-- Barre de navigation mobile fixe en bas (Accueil · Journal · Progression) -->
+	{#if role === 'client' && primaryLinks.length > 0}
+		<nav
+			class="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-white/95 backdrop-blur md:hidden"
+			aria-label="Navigation mobile"
+			style="padding-bottom:env(safe-area-inset-bottom)"
+		>
+			<div class="mx-auto grid w-full max-w-md grid-cols-3">
+				{#each primaryLinks as link (link.href)}
+					<a
+						href={link.href}
+						class="relative flex flex-col items-center gap-0.5 px-2 py-2 text-[11px] font-semibold transition {isActive(link) ? 'text-brand' : 'text-mist hover:text-ink'}"
+					>
+						<Icon name={link.icon ?? 'home'} size={23} strokeWidth={isActive(link) ? 2.3 : 2} />
+						{link.label}
+						{#if link.badge && link.badge > 0}
+							<span class="absolute right-1/2 top-1 ml-3 grid h-4 min-w-4 translate-x-1/2 place-items-center rounded-full bg-warn px-1 text-[10px] font-bold text-white">{link.badge}</span>
+						{/if}
+					</a>
+				{/each}
+			</div>
+		</nav>
+	{/if}
 </div>

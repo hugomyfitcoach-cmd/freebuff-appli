@@ -2,6 +2,7 @@
 	import { answerLines } from '../labels.js';
 	import type { Doc } from '../../convex/_generated/dataModel.js';
 	import CoachMedia from './CoachMedia.svelte';
+	import Icon from './Icon.svelte';
 	import type { CoachMediaItem } from '../media.js';
 
 	let { checkin, clientName, clientId, media = [] } = $props<{
@@ -101,7 +102,7 @@
 		>{checkin.feedback ?? ''}</textarea>
 		<!-- Retour audio + pièces jointes : en brouillon tant que le retour n'est pas publié -->
 		<div class="mt-3 rounded-xl border border-dashed border-line bg-white/40 p-3">
-			<p class="text-[11px] font-bold uppercase tracking-wide text-mist">🎙️ Retour audio & 📎 pièces jointes (optionnels)</p>
+			<p class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-mist"><Icon name="mic" size={12} /> Retour audio & <Icon name="paperclip" size={12} /> pièces jointes (optionnels)</p>
 			<CoachMedia
 				mode="feedback"
 				userId={clientId}

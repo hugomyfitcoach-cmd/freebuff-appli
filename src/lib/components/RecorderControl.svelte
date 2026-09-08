@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { pickAudioMime, fmtSec } from '../media.js';
+	import Icon from './Icon.svelte';
 
 	/**
 	 * Enregistreur vocal du coach (navigateur, MediaRecorder).
@@ -113,8 +114,7 @@
 			onclick={start}
 			disabled={busy}
 			class="flex items-center gap-2 rounded-xl bg-brand-light px-3 py-2 text-sm font-bold text-brand-dark transition hover:bg-brand/20 disabled:opacity-60"
-		>
-			<span class="text-base">🎙️</span> Enregistrer un audio
+		>							<Icon name="mic" size={16} /> Enregistrer un audio
 		</button>
 	{:else if phase === 'rec'}
 		<div class="flex items-center gap-3">
