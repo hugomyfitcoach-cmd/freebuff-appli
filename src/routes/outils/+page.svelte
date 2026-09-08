@@ -2,6 +2,18 @@
 	import './tools.css';
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
+	import Icon from '$lib/components/Icon.svelte';
+
+	/* Icônes Lucide injectées dans les blocs HTML construits en chaîne ({@html}).
+	   Même famille, même stroke que le composant <Icon /> — jamais d'emoji UI. */
+	const NOTE_IC_PATHS = {
+		lightbulb: ['M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5', 'M9 18h6', 'M10 22h4'],
+		check: ['m16 9-5.5 5.5L8 12'],
+		alert: ['m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3', 'M12 9v4', 'M12 17h.01'],
+		refresh: ['M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8', 'M21 3v5h-5', 'M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16', 'M8 16H3v5'],
+	} as const;
+	const svgIc = (name: keyof typeof NOTE_IC_PATHS, cls = '') =>
+		`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="note-ic ${cls}" aria-hidden="true">${NOTE_IC_PATHS[name].map((d) => `<path d="${d}" />`).join('')}</svg>`;
 
 	/* ═══════════════════ OUTILS « CALIBRAGE G-FLUX » ═══════════════════
 	   Port fidèle du fichier HTML fourni — thème clair (palette cream).
@@ -221,7 +233,7 @@
 		let html = '';
 		let dayP = 0;
 		if (warnMatin) {
-			html += '<div class="note">💡<div>Aucun aliment "petit-déjeuner" dans ta sélection (œufs, skyr, fromage blanc, whey…) : l’outil a utilisé tes autres sources. Ajoutes-en une si tu préfères un petit-déj classique.</div></div>';
+			html += '<div class="note">' + svgIc('lightbulb', 'ic-amber') + '<div>Aucun aliment "petit-déjeuner" dans ta sélection (œufs, skyr, fromage blanc, whey…) : l’outil a utilisé tes autres sources. Ajoutes-en une si tu préfères un petit-déj classique.</div></div>';
 		}
 		mealState.forEach((m, mi) => {
 			const built = buildMeal(m.pool, m.idx, m.target);
@@ -230,21 +242,21 @@
 				+ built.lines.map((l) => `<li><span>${l.n}</span><span class="q">${l.q}</span></li>`).join('')
 				+ `</ul><div class="sum"><span>Protéines : <b>${built.p} g</b></span><span>≈ ${built.k} kcal (sources protéinées)</span></div>`
 				+ (built.short ? '<div class="sum" style="border:none;padding-top:4px;color:var(--amber)">Sélection limitée pour atteindre la cible : ajoute un aliment à l’étape 1.</div>' : '')
-				+ (m.pool.length > 1 ? `<button class="swap" data-mi="${mi}">↻ Une autre option</button>` : '')
+				+ (m.pool.length > 1 ? `<button class="swap" data-mi="${mi}">${svgIc('refresh')}<span>Une autre option</span></button>` : '')
 				+ '</div>';
 		});
-		html += `<div class="note" style="margin-top:14px">✅<div><b>Total journée ≈ ${dayP} g de protéines.</b> Viandes et poissons en <b>poids cru</b>. Complète chaque repas avec tes féculents et légumes selon ton plan.</div></div>`;
+		html += `<div class="note" style="margin-top:14px">${svgIc('check', 'ic-green')}<div><b>Total journée ≈ ${dayP} g de protéines.</b> Viandes et poissons en <b>poids cru</b>. Complète chaque repas avec tes féculents et légumes selon ton plan.</div></div>`;
 		prOutHtml = html;
 	}
 	function prGo() {
 		const target = parseFloat(prTarget);
 		const selected = [...prSelected];
 		if (selected.length < 3) {
-			prOutHtml = '<div class="note">⚠️<div>Sélectionne au moins <b>3 aliments</b> que tu manges au quotidien (étape 1) pour construire une journée variée.</div></div>';
+			prOutHtml = '<div class="note">' + svgIc('alert') + '<div>Sélectionne au moins <b>3 aliments</b> que tu manges au quotidien (étape 1) pour construire une journée variée.</div></div>';
 			return;
 		}
 		if (!target || target < 40 || target > 220) {
-			prOutHtml = '<div class="note">⚠️<div>Entre un objectif entre <b>40</b> et <b>220</b> g (celui que Hugo t’a donné).</div></div>';
+			prOutHtml = '<div class="note">' + svgIc('alert') + '<div>Entre un objectif entre <b>40</b> et <b>220</b> g (celui que Hugo t’a donné).</div></div>';
 			return;
 		}
 		let slots: MealSlot[] = [];
@@ -887,7 +899,7 @@
 		<!-- ═══════ PANEL 1 : CRU / CUIT ═══════ -->
 		<section class="panel" class:active={panel === 'p1'}>
 			<div class="note">
-				⚠️<div><b>L'erreur n°1 du tracking :</b> peser cuit mais entrer le poids dans l'app comme si c'était cru (ou l'inverse). Sur le riz, ça peut fausser ta journée de 200&nbsp;kcal.</div>
+				<Icon name="triangleAlert" size={16} class="note-ic ic-amber" /><div><b>L'erreur n°1 du tracking :</b> peser cuit mais entrer le poids dans l'app comme si c'était cru (ou l'inverse). Sur le riz, ça peut fausser ta journée de 200&nbsp;kcal.</div>
 			</div>
 			<div class="card">
 				<h2>Convertisseur cru ⇄ cuit</h2>
@@ -926,7 +938,7 @@
 		<!-- ═══════ PANEL 2 : CALORIES INVISIBLES ═══════ -->
 		<section class="panel" class:active={panel === 'p2'}>
 			<div class="note">
-				⚠️<div><b>Ce qui n'est pas pesé existe quand même.</b> Coche ce que tu ajoutes dans une journée normale sans le tracker, et regarde le total en bas.</div>
+				<Icon name="triangleAlert" size={16} class="note-ic ic-amber" /><div><b>Ce qui n'est pas pesé existe quand même.</b> Coche ce que tu ajoutes dans une journée normale sans le tracker, et regarde le total en bas.</div>
 			</div>
 			<div class="card">
 				<h2>Compteur de calories invisibles</h2>
@@ -984,7 +996,7 @@
 		<!-- ═══════ PANEL 4 : MA SEMAINE ═══════ -->
 		<section class="panel" class:active={panel === 'p4'}>
 			<div class="note">
-				💡<div><b>Une journée haute n'annule rien.</b> Ton déficit se calcule sur la semaine, pas sur la journée. Cet outil te dit comment moduler les jours restants — sans jamais descendre trop bas.</div>
+				<Icon name="lightbulb" size={16} class="note-ic ic-amber" /><div><b>Une journée haute n'annule rien.</b> Ton déficit se calcule sur la semaine, pas sur la journée. Cet outil te dit comment moduler les jours restants — sans jamais descendre trop bas.</div>
 			</div>
 			<div class="card">
 				<h2>1 · Mes repères — définis avec Hugo</h2>
@@ -997,7 +1009,7 @@
 				<input id="wkSteps" type="number" bind:value={wkSteps} inputmode="numeric" placeholder="ex. 8000" min="2000" max="30000" oninput={wkCompute} />
 				<div class="glabel">Adaptation métabolique</div>
 				<div class="checks">
-					<button type="button" class="chk" class:on={wkAdapt} onclick={() => { wkAdapt = !wkAdapt; wkCompute(); }}>⚙️ Appliquer ~12% d'adaptation — uniquement si validé avec Hugo</button>
+					<button type="button" class="chk" class:on={wkAdapt} onclick={() => { wkAdapt = !wkAdapt; wkCompute(); }}><Icon name="settings" size={16} class="shrink-0" /> Appliquer ~12% d'adaptation — uniquement si validé avec Hugo</button>
 				</div>
 				{#if wkPlanVisible}
 					<div class="result">
@@ -1031,7 +1043,7 @@
 		<!-- ═══════ PANEL 5 : CYCLE ═══════ -->
 		<section class="panel" class:active={panel === 'p5'}>
 			<div class="note">
-				💡<div><b>Le cycle donne du contexte à tes sensations.</b> Il ne dicte pas ce que tu dois faire — fie-toi d'abord à ton ressenti, pas au calendrier.</div>
+				<Icon name="lightbulb" size={16} class="note-ic ic-amber" /><div><b>Le cycle donne du contexte à tes sensations.</b> Il ne dicte pas ce que tu dois faire — fie-toi d'abord à ton ressenti, pas au calendrier.</div>
 			</div>
 			<div class="card">
 				<h2>Où en es-tu dans ton cycle ?</h2>
@@ -1136,7 +1148,7 @@
 							<p class="why-text">{whyText}</p>
 
 							{#if warnVisible}
-								<div class="note" style="display:flex">⚠️<div>{warnText}</div></div>
+								<div class="note" style="display:flex"><Icon name="triangleAlert" size={16} class="note-ic ic-amber" /><div>{warnText}</div></div>
 							{/if}
 
 							<p class="microhint" style="margin-top:16px">Estimation basée sur ton cycle déclaré. Le jour d'ovulation réel peut varier — considère ceci comme un repère, pas une certitude.</p>
@@ -1200,7 +1212,7 @@
 				</div>
 
 				{#if cyclageErr}
-					<div class="note">⚠️<div>{cyclageErr}</div></div>
+					<div class="note"><Icon name="triangleAlert" size={16} class="note-ic ic-amber" /><div>{cyclageErr}</div></div>
 				{/if}
 
 				<button type="button" class="cta" onclick={generer}>Générer la planification</button>
@@ -1224,7 +1236,7 @@
 						<p class="cadence-line">{@html outRefeedLine}</p>
 						<p class="cadence-line">{@html outBreakLine}</p>
 						{#if outOfGridWarn}
-							<div class="note" style="display:flex">⚠️<div>Disponibilité énergétique en dessous de 20 kcal/kg de masse maigre — hors de la grille de référence. Ne pas extrapoler une cadence automatique : à valider manuellement, cas par cas.</div></div>
+							<div class="note" style="display:flex"><Icon name="triangleAlert" size={16} class="note-ic ic-amber" /><div>Disponibilité énergétique en dessous de 20 kcal/kg de masse maigre — hors de la grille de référence. Ne pas extrapoler une cadence automatique : à valider manuellement, cas par cas.</div></div>
 						{/if}
 					</div>
 

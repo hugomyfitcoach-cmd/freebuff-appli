@@ -2,61 +2,64 @@ import type { Doc } from '../convex/_generated/dataModel.js';
 
 type Checkin = Doc<'checkins'>;
 
-/** Libellés lisibles des options (avec l'emoji du formulaire d'origine). */
+/**
+ * Libellés lisibles des options — texte brut (aucun emoji ni pictogramme dans
+ * les données). Les indicateurs de couleur / icônes sont rendus par l'UI.
+ */
 export const OPTION_LABELS: Record<string, Record<string, string>> = {
 	adherence: {
-		oui: '🟢 Oui, de façon régulière',
-		partiel: '🟠 Partiellement (écarts / repas non maîtrisés)',
-		non: '🔴 Non, pas du tout',
+		oui: 'Oui, de façon régulière',
+		partiel: 'Partiellement (écarts / repas non maîtrisés)',
+		non: 'Non, pas du tout',
 	},
 	deficit_annule: {
-		non: '🟢 Non, restée en déficit',
-		'peut-etre': '🟠 Peut-être, je ne sais pas trop',
-		oui: '🔴 Oui, déficit probablement annulé',
+		non: 'Non, restée en déficit',
+		'peut-etre': 'Peut-être, je ne sais pas trop',
+		oui: 'Oui, déficit probablement annulé',
 	},
-	faim: { oui: '🔴 Oui', non: '🟢 Non' },
+	faim: { oui: 'Oui', non: 'Non' },
 	hydratation: {
-		suffisante: '🟢 Suffisante et régulière',
-		variable: '🟠 Variable / irrégulière',
-		insuffisante: '🔴 Insuffisante',
+		suffisante: 'Suffisante et régulière',
+		variable: 'Variable / irrégulière',
+		insuffisante: 'Insuffisante',
 	},
 	digestion: {
-		ok: '🟢 OK',
-		perturbee: '🟠 Un peu perturbée',
-		ballonnements: '🔴 Ballonnements / inconfort fréquents',
+		ok: 'OK',
+		perturbee: 'Un peu perturbée',
+		ballonnements: 'Ballonnements / inconfort fréquents',
 	},
 	pas: {
-		moins5000: '🔴 Moins de 5 000',
-		'5000-8000': '🟠 5 000 – 8 000',
-		'8000-10000': '🟢 8 000 – 10 000',
-		plus10000: '🟢 10 000+',
+		moins5000: 'Moins de 5 000',
+		'5000-8000': '5 000 – 8 000',
+		'8000-10000': '8 000 – 10 000',
+		plus10000: '10 000+',
 	},
 	cycle: {
-		regles: '🔴 Règles (J1 à J4–5)',
-		folliculaire: '🟢 Phase folliculaire (J5 à J14)',
-		ovulation: '🟠 Ovulation (J14–J16)',
-		luteale: '🔵 Phase lutéale (J15 à J28)',
-		menopause: '🟣 Ménopause / péri-ménopause',
-		pilule: '🔷 Pilule / contraception hormonale',
-		'sais-pas': '⚪ Je ne sais pas / peu de repères',
+		regles: 'Règles (J1 à J4–5)',
+		folliculaire: 'Phase folliculaire (J5 à J14)',
+		ovulation: 'Ovulation (J14–J16)',
+		luteale: 'Phase lutéale (J15 à J28)',
+		menopause: 'Ménopause / péri-ménopause',
+		pilule: 'Pilule / contraception hormonale',
+		'sais-pas': 'Je ne sais pas / peu de repères',
 	},
 	evolution: {
-		baisse: '🟢 En baisse / amélioration',
-		stable: '⚪ Stable',
-		hausse: '🔴 En hausse / sensation de stagnation',
+		baisse: 'En baisse / amélioration',
+		stable: 'Stable',
+		hausse: 'En hausse / sensation de stagnation',
 	},
-	mensurations: { oui: '🟢 Oui', non: '⚪ Non' },
-	photos: { oui: '🟢 Oui', non: '⚪ Non' },
+	mensurations: { oui: 'Oui', non: 'Non' },
+	photos: { oui: 'Oui', non: 'Non' },
 	besoin_retour: {
-		rien: '💪 Rien, tout va bien',
-		ecrit: '✍️ Un retour écrit / vidéo',
-		appel: '📞 Réserver un appel',
+		rien: 'Rien, tout va bien',
+		ecrit: 'Un retour écrit / vidéo',
+		appel: 'Réserver un appel',
 	},
 	categorie_retour: {
-		alimentation: '🍽️ Alimentation',
-		sport: '🏃 Sport',
-		motivation: '🧠 Motivation',
-		autre: '✏️ Autre',
+		alimentation: 'Alimentation',
+		sport: 'Sport',
+		motivation: 'Motivation',
+		autre: 'Autre',
 	},
 };
 
@@ -123,7 +126,7 @@ export function answerLines(checkin: Checkin): Array<{ key: FieldKey; header: st
 
 /** Récap prêt à coller sur WhatsApp. */
 export function buildRecap(checkin: Checkin, clientName: string): string {
-	const lines: string[] = [`📋 Bilan ${checkin.weekLabel} — ${clientName}`, ''];
+	const lines: string[] = [`Bilan ${checkin.weekLabel} — ${clientName}`, ''];
 	for (const { header, text } of answerLines(checkin)) {
 		lines.push(`• ${header} : ${text}`);
 	}

@@ -135,11 +135,11 @@
 				<audio controls src={blobUrl} preload="metadata" class="w-full" style="height:36px"></audio>
 			{/if}
 			<div class="flex flex-wrap gap-2">
-				<button type="button" onclick={start} disabled={busy} class="rounded-xl border-2 border-line px-3 py-1.5 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand disabled:opacity-60">
-					🔁 Recommencer
+				<button type="button" onclick={start} disabled={busy} class="inline-flex items-center gap-1.5 rounded-xl border-2 border-line px-3 py-1.5 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand disabled:opacity-60">
+					<Icon name="refreshCw" size={16} /> Recommencer
 				</button>
-				<button type="button" onclick={reset} class="rounded-xl border-2 border-danger/40 px-3 py-1.5 text-sm font-semibold text-danger transition hover:bg-danger/10">
-					🗑 Supprimer
+				<button type="button" onclick={reset} class="inline-flex items-center gap-1.5 rounded-xl border-2 border-danger/40 px-3 py-1.5 text-sm font-semibold text-danger transition hover:bg-danger/10">
+					<Icon name="trash" size={16} /> Supprimer
 				</button>
 				{#if busy}
 					<span class="text-xs font-semibold text-mist">Envoi…</span>

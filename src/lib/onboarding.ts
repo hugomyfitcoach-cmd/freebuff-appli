@@ -147,8 +147,8 @@ export const ONBOARDING_SECTIONS: Section[] = [
 				required: true,
 				options: [
 					{ value: 'compter', label: 'Compter les calories et les macros', hint: 'Flexible, précis. On adapte ensemble selon tes préférences.' },
-					{ value: 'instinctif', label: '🥗 Sans compter les calories', hint: 'Plus instinctif. Demande plus de rigueur sur la qualité et les quantités.' },
-					{ value: 'plan', label: '📋 Plan alimentaire structuré', hint: 'Cadre clair et précis. Tu suis, on ajuste.' },
+					{ value: 'instinctif', label: 'Sans compter les calories', hint: 'Plus instinctif. Demande plus de rigueur sur la qualité et les quantités.' },
+					{ value: 'plan', label: 'Plan alimentaire structuré', hint: 'Cadre clair et précis. Tu suis, on ajuste.' },
 				],
 			},
 		],

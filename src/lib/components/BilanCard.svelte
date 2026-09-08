@@ -15,7 +15,7 @@
 	const lines = $derived(answerLines(checkin));
 	const recap = $derived(
 		[
-			`📋 Bilan ${checkin.weekLabel} — ${clientName}`,
+			`Bilan ${checkin.weekLabel} — ${clientName}`,
 			'',
 			...lines.map((l) => `• ${l.header} : ${l.text}`),
 		].join('\n')
@@ -61,7 +61,7 @@
 				{#if published}
 					<span class="rounded-full bg-brand-light px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-brand-dark">Retour envoyé</span>
 				{:else if draft}
-					<span class="rounded-full bg-line/70 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-mist">📝 Brouillon</span>
+					<span class="inline-flex items-center gap-1 rounded-full bg-line/70 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-mist"><Icon name="pencil" size={11} /> Brouillon</span>
 				{:else}
 					<span class="rounded-full bg-warn-light px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-warn">À traiter</span>
 				{/if}
@@ -119,7 +119,7 @@
 				value="nouveau"
 				class="rounded-xl border-2 border-line bg-card px-4 py-2 text-sm font-semibold text-ink transition hover:border-warn hover:text-warn"
 			>
-				{published ? '↩️ Repasser en brouillon' : '💾 Sauvegarder le brouillon'}
+				<span class="inline-flex items-center gap-1.5"><Icon name={published ? 'undo2' : 'save'} size={15} />{published ? 'Repasser en brouillon' : 'Sauvegarder le brouillon'}</span>
 			</button>
 			<button
 				type="submit"
@@ -127,11 +127,11 @@
 				value="retour_envoye"
 				class="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark"
 			>
-				{published ? '🚀 Republier le retour' : '🚀 Publier le retour'}
+				<span class="inline-flex items-center gap-1.5"><Icon name="rocket" size={15} />{published ? 'Republier le retour' : 'Publier le retour'}</span>
 			</button>
 		</div>
 		<p class="mt-2 text-xs text-mist">
-			💾 Un brouillon reste invisible pour la cliente. « Publier le retour » le lui envoie et affiche son
+			Un brouillon reste invisible pour la cliente. « Publier le retour » le lui envoie et affiche son
 			badge jusqu'à ce qu'elle l'ait réellement ouvert.
 		</p>
 	</form>

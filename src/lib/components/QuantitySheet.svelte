@@ -125,7 +125,7 @@
 			{#if food.imageUrl}
 				<img src={food.imageUrl} alt="" class="h-14 w-14 shrink-0 rounded-xl object-cover" />
 			{:else}
-				<div class="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-brand-light text-2xl">🍴</div>
+				<div class="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name="utensils" size={22} class="text-brand" /></div>
 			{/if}
 			<div class="min-w-0 flex-1">
 				<p class="truncate font-semibold text-ink">{food.name}</p>
@@ -238,10 +238,11 @@
 			{#each mealDefs as m (m.id)}
 				<button
 					type="button"
-					class="rounded-xl px-2 py-2 text-[11px] font-semibold transition {meal === m.id ? 'bg-brand text-white' : 'bg-line/50 text-mist'}"
+					class="flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-semibold transition {meal === m.id ? 'bg-brand text-white' : 'bg-line/50 text-mist'}"
 					onclick={() => (meal = m.id)}
 				>
-					{m.icon}<br />{m.label.split(' ')[0]}
+					<Icon name={m.icon} size={16} class="shrink-0" />
+					{m.label.split(' ')[0]}
 				</button>
 			{/each}
 		</div>

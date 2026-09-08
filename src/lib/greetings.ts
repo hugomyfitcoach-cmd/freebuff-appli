@@ -15,7 +15,7 @@
  */
 
 export type Greeting = {
-	/** Titre principal, ex. « Bonjour Alexandra 👋 » */
+	/** Titre principal, ex. « Bonjour Alexandra » */
 	title: string;
 	/** Ligne complémentaire selon le jour (ex. lundi), ou null. */
 	dayLine: string | null;
@@ -25,17 +25,17 @@ type Period = 'matin' | 'apresmidi' | 'soir';
 
 const GREETINGS: Record<Period, string[]> = {
 	matin: [
-		'Bonjour {prenom} 👋',
+		'Bonjour {prenom}',
 		'Belle matinée {prenom}',
 		'Ravie de te retrouver {prenom}',
 	],
 	apresmidi: [
-		'Bon après-midi {prenom} 👋',
-		'{prenom} est de retour 👋',
+		'Bon après-midi {prenom}',
+		'{prenom} est de retour',
 		'Contente de te revoir {prenom}',
 	],
 	soir: [
-		'Bonsoir {prenom} 👋',
+		'Bonsoir {prenom}',
 		'Bonsoir {prenom}, belle soirée',
 		'Ta journée touche bientôt à sa fin {prenom}',
 	],
@@ -43,8 +43,8 @@ const GREETINGS: Record<Period, string[]> = {
 
 /** Variantes liées au jour de la semaine (getDay : 0 = dimanche … 6 = samedi). */
 const DAY_LINES: Partial<Record<number, string[]>> = {
-	1: ['C’est parti pour une nouvelle semaine 💪', 'Nouvelle semaine, on repart tranquillement'],
-	5: ['La semaine touche bientôt à sa fin', 'Bientôt le week-end 👋'],
+	1: ['C’est parti pour une nouvelle semaine', 'Nouvelle semaine, on repart tranquillement'],
+	5: ['La semaine touche bientôt à sa fin', 'Bientôt le week-end'],
 	0: ['Un dimanche tout en douceur', 'Prends le temps de souffler aujourd’hui'],
 };
 

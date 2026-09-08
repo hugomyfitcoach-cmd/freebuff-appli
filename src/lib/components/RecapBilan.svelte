@@ -80,7 +80,7 @@
 	<div class="border-t border-line bg-cream/50 px-5 py-4">
 		{#if published}
 			<div class="flex items-start gap-3">
-				<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-light text-lg">💬</div>
+				<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-light"><Icon name="messageCircle" size={17} class="text-brand" /></div>
 				<div class="min-w-0 flex-1">
 					<div class="text-xs font-bold uppercase tracking-wide text-mist">Retour de ta coach</div>
 					{#if checkin.feedback}
@@ -103,7 +103,7 @@
 								<AudioPlayer src={a.url} durationMs={a.durationMs} onFirstPlay={() => listen(a._id)} />
 								<p class="mt-1.5 text-[11px] italic text-mist">Ce fichier sera supprimé automatiquement 72 h après ta première écoute (14 j maximum).</p>
 							{:else}
-								<p class="text-xs italic text-mist">🔇 Retour audio expiré — il a été supprimé automatiquement, mais ton bilan et ce texte restent disponibles.</p>
+								<p class="flex items-center gap-1.5 text-xs italic text-mist"><Icon name="volumeX" size={14} class="shrink-0" /> Retour audio expiré — il a été supprimé automatiquement, mais ton bilan et ce texte restent disponibles.</p>
 							{/if}
 						</div>
 					{/each}
@@ -122,11 +122,11 @@
 										<img src={att.url} alt={att.name} class="h-16 w-16 rounded-lg border border-line object-cover" loading="lazy" />
 									</a>
 								{:else}
-									<span class="grid h-16 w-16 shrink-0 place-items-center rounded-lg bg-brand-light text-2xl">📄</span>
+									<span class="grid h-16 w-16 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="fileText" size={26} class="text-brand" /></span>
 								{/if}
 								<div class="min-w-0 flex-1">
 									<p class="truncate text-xs font-semibold text-ink">{att.name}</p>
-									<p class="text-[11px] text-mist">{att.kind === 'image' ? '🖼️ Image' : '📄 PDF'} · {fmtSize(att.size)}</p>
+									<p class="inline-flex items-center gap-1 text-[11px] text-mist">{#if att.kind === 'image'}<Icon name="image" size={12} /> Image{:else}<Icon name="fileText" size={12} /> PDF{/if} · {fmtSize(att.size)}</p>
 								</div>
 								{#if att.url}
 									<a href={att.url} target="_blank" rel="noopener" class="shrink-0 rounded-lg border-2 border-line px-2.5 py-1.5 text-xs font-bold text-ink transition hover:border-brand hover:text-brand">
@@ -139,7 +139,7 @@
 				</div>
 			{/if}
 		{:else}
-			<p class="text-sm italic text-mist">💬 Le retour de ta coach arrivera en fin de semaine.</p>
+			<p class="flex items-center gap-1.5 text-sm italic text-mist"><Icon name="messageCircle" size={15} class="shrink-0" /> Le retour de ta coach arrivera en fin de semaine.</p>
 		{/if}
 	</div>
 </article>

@@ -75,7 +75,7 @@
 		{ id: 'petit-dej', label: 'Petit-déjeuner', icon: 'sunrise' },
 		{ id: 'dejeuner', label: 'Déjeuner', icon: 'utensils' },
 		{ id: 'diner', label: 'Dîner', icon: 'moon' },
-		{ id: 'collation', label: 'Collations', icon: 'apple' },
+		{ id: 'collation', label: 'Collations', icon: 'cookie' },
 	] as const;
 
 	/* ————— État ————— */
@@ -883,7 +883,7 @@
 				<Icon name="flame" size={26} class="mt-0.5 text-brand" />
 			</div>
 			{#if inSafetyNet}
-				<p class="mt-0.5 text-xs font-semibold text-warn">🛟 Dans ton filet de sécurité</p>
+				<p class="mt-0.5 flex items-center gap-1 text-xs font-semibold text-warn"><Icon name="lifeBuoy" size={13} class="shrink-0" /> Dans ton filet de sécurité</p>
 			{/if}
 			{#if overMaintenance}
 				<p class="mt-0.5 text-xs font-semibold text-danger/80">Ta journée reste dans le cadre sur la durée — on ajuste ensemble si besoin.</p>
@@ -1177,7 +1177,7 @@
 											{#if it.food.imageUrl}
 												<img src={it.food.imageUrl} alt="" class="h-10 w-10 shrink-0 rounded-lg object-cover" loading="lazy" />
 											{:else}
-												<div class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-light text-lg">🍴</div>
+												<div class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={18} class="text-brand" /></div>
 											{/if}
 											<span class="min-w-0 flex-1">
 												<span class="block truncate text-xs font-semibold text-ink">{it.food.name}</span>
@@ -1214,7 +1214,7 @@
 												{#if food.imageUrl}
 													<img src={food.imageUrl} alt="" class="h-9 w-9 shrink-0 rounded-lg object-cover" loading="lazy" />
 												{:else}
-													<div class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-light text-base">🍴</div>
+													<div class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={16} class="text-brand" /></div>
 												{/if}
 												<span class="min-w-0 flex-1">
 													<span class="block truncate text-xs font-semibold text-ink">{food.name}</span>
@@ -1257,7 +1257,7 @@
 											{#if meal.ingredients[0]?.imageUrl}
 												<img src={meal.ingredients[0].imageUrl} alt="" class="h-11 w-11 shrink-0 rounded-xl object-cover" loading="lazy" />
 											{:else}
-												<div class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-light text-xl">🍲</div>
+												<div class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name="soup" size={20} class="text-brand" /></div>
 											{/if}
 											<span class="min-w-0 flex-1">
 												<span class="block truncate text-sm font-semibold text-ink">{meal.name}</span>
@@ -1271,7 +1271,7 @@
 												</span>
 											</span>
 										</button>
-										<button type="button" class="shrink-0 grid h-8 w-8 place-items-center rounded-lg text-sm text-mist transition hover:bg-danger-light hover:text-danger" aria-label={`Supprimer ${meal.name}`} onclick={() => deleteMeal(meal)}>🗑</button>
+										<button type="button" class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-mist transition hover:bg-danger-light hover:text-danger" aria-label={`Supprimer ${meal.name}`} onclick={() => deleteMeal(meal)}><Icon name="trash" size={15} /></button>
 									</li>
 								{/each}
 							</ul>
@@ -1327,7 +1327,7 @@
 								<p class="rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{customFoodsError}</p>
 							{:else if customFoods.length === 0}
 								<div class="py-10 text-center">
-									<div class="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-brand-light text-2xl">🍲</div>
+									<div class="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-brand-light"><Icon name="soup" size={26} class="text-brand" /></div>
 									<p class="text-sm font-semibold text-ink">Aucun aliment créé</p>
 									<p class="mx-auto mt-1 max-w-xs text-xs text-mist">Un produit absent de la base ? Crée-le ici avec son étiquette nutritionnelle (calories, protéines, lipides…).</p>
 								</div>
@@ -1336,13 +1336,13 @@
 									{#each customFoods as food (food._id)}
 										<li class="flex items-center gap-2">
 											<button type="button" class="flex min-w-0 flex-1 items-center gap-3 rounded-2xl border border-line bg-white p-2.5 text-left shadow-sm transition hover:border-brand" onclick={() => openQty(food)}>
-												<div class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-light text-xl">🍲</div>
+												<div class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name="soup" size={20} class="text-brand" /></div>
 												<span class="min-w-0 flex-1">
 													<span class="block truncate text-sm font-semibold text-ink">{food.name}</span>
 													<span class="block text-xs text-mist"><strong class="font-bold text-brand">{fmt(food.kcal100)} kcal</strong> · 100 g{#if food.brand} · {food.brand}{/if}</span>
 												</span>
 											</button>
-											<button type="button" class="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-sm text-mist transition hover:bg-danger-light hover:text-danger" aria-label={`Supprimer ${food.name}`} onclick={() => deleteCustomFood(food)}>🗑</button>
+											<button type="button" class="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-mist transition hover:bg-danger-light hover:text-danger" aria-label={`Supprimer ${food.name}`} onclick={() => deleteCustomFood(food)}><Icon name="trash" size={16} /></button>
 										</li>
 									{/each}
 								</ul>
@@ -1363,7 +1363,7 @@
 											{#if food.imageUrl}
 												<img src={food.imageUrl} alt="" class="h-11 w-11 shrink-0 rounded-xl object-cover" loading="lazy" />
 											{:else}
-												<div class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-light text-xl">🍴</div>
+												<div class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name="utensils" size={20} class="text-brand" /></div>
 											{/if}
 											<span class="min-w-0 flex-1">
 												<span class="block truncate text-sm font-semibold text-ink">{food.name}</span>
@@ -1391,7 +1391,7 @@
 										{#if food.imageUrl}
 											<img src={food.imageUrl} alt="" class="h-12 w-12 shrink-0 rounded-xl object-cover" loading="lazy" />
 										{:else}
-											<div class="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-brand-light text-xl">🍴</div>
+											<div class="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name="utensils" size={20} class="text-brand" /></div>
 										{/if}
 										<span class="min-w-0 flex-1">
 											<span class="flex items-center gap-1">
@@ -1488,7 +1488,7 @@
 				{#if qtyMealSel.ingredients[0]?.imageUrl}
 					<img src={qtyMealSel.ingredients[0].imageUrl} alt="" class="h-14 w-14 rounded-xl object-cover" />
 				{:else}
-					<div class="grid h-14 w-14 place-items-center rounded-xl bg-brand-light text-2xl">🍲</div>
+					<div class="grid h-14 w-14 place-items-center rounded-xl bg-brand-light"><Icon name="soup" size={26} class="text-brand" /></div>
 				{/if}
 				<div class="min-w-0 flex-1">
 					<p class="truncate font-semibold text-ink">{qtyMealSel.name}</p>
@@ -1536,10 +1536,10 @@
 				<span class="text-mist"> · {fmt(portionMacros?.carbs ?? 0)} g glucides · {fmt(portionMacros?.protein ?? 0)} g protéines · {fmt(portionMacros?.fat ?? 0)} g lipides</span>
 			</p>
 
-			<div class="mt-3 grid grid-cols-4 gap-1.5">
-				{#each MEAL_DEFS as meal (meal.id)}
-					<button type="button" class="rounded-xl px-2 py-2 text-[11px] font-semibold transition {qtyMeal === meal.id ? 'bg-brand text-white' : 'bg-line/50 text-mist'}" onclick={() => (qtyMeal = meal.id)}>
-						{meal.icon}<br />{meal.label.split(' ')[0]}
+			<div class="mt-3 grid grid-cols-4 gap-1.5">				{#each MEAL_DEFS as meal (meal.id)}
+					<button type="button" class="flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-semibold transition {qtyMeal === meal.id ? 'bg-brand text-white' : 'bg-line/50 text-mist'}" onclick={() => (qtyMeal = meal.id)}>
+						<Icon name={meal.icon} size={16} class="shrink-0" />
+						{meal.label.split(' ')[0]}
 					</button>
 				{/each}
 			</div>

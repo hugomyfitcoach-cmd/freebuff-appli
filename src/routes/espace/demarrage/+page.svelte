@@ -8,6 +8,7 @@
 		type Question,
 	} from '$lib/onboarding';
 	import Icon from '$lib/components/Icon.svelte';
+	import BackToHome from '$lib/components/BackToHome.svelte';
 
 	/**
 	 * Formulaire de démarrage G-FLUX (étape 1 de l'onboarding).
@@ -142,10 +143,12 @@
 <svelte:head><title>Formulaire de démarrage — G-Flux</title></svelte:head>
 
 <div class="mx-auto max-w-2xl">
+	<BackToHome label="Formulaire de démarrage" />
+
 	<!-- En-tête -->
 	<div class="mb-5">
 		<p class="text-[11px] font-bold uppercase tracking-widest text-mist">Étape 1 · Formulaire de démarrage</p>
-		<h1 class="font-display text-2xl font-semibold text-ink">Ton profil pour démarrer 🚀</h1>
+		<h1 class="flex items-center gap-2 font-display text-2xl font-semibold text-ink"><Icon name="rocket" size={22} class="shrink-0 text-brand" /> Ton profil pour démarrer</h1>
 		<p class="mt-1 text-sm text-mist">
 			Réponds naturellement — c'est notre point de départ pour préparer ton accompagnement.
 		</p>
@@ -154,7 +157,7 @@
 	{#if alreadySubmitted}
 		<!-- Formulaire déjà soumis : on ne redemande rien, on affiche un récap simple -->
 		<div class="rounded-2xl border border-line bg-card p-6 text-center shadow-sm">
-			<p class="text-4xl">🙌</p>
+			<p class="grid place-items-center"><Icon name="partyPopper" size={34} class="text-brand" /></p>
 			<h2 class="mt-2 font-display text-xl font-semibold text-ink">Formulaire déjà envoyé</h2>
 			<p class="mt-1 text-sm text-mist">
 				Tes réponses de démarrage sont bien arrivées
@@ -277,7 +280,7 @@
 						</button>
 					{:else}
 						<button type="button" onclick={next} class="rounded-xl bg-brand px-6 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark">
-							Envoyer 🚀
+							<span class="inline-flex items-center gap-1.5"><Icon name="rocket" size={15} /> Envoyer</span>
 						</button>
 					{/if}
 				</div>
@@ -286,7 +289,7 @@
 	{:else}
 		<!-- Soumission réussie -->
 		<div class="rounded-2xl border border-line bg-card p-8 text-center shadow-sm">
-			<p class="text-5xl">🙌</p>
+			<p class="grid place-items-center"><Icon name="partyPopper" size={40} class="text-brand" /></p>
 			<h2 class="mt-3 font-display text-2xl font-semibold text-ink">Merci pour tes réponses !</h2>
 			<p class="mx-auto mt-2 max-w-md text-sm leading-relaxed text-mist">
 				C'est tout bon — ton coach prépare ton plan en se basant sur tout ce que tu viens de partager.

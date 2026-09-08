@@ -264,7 +264,11 @@
 {#if detailKey !== null && detailMeta}
 	<!-- ═══════════ Vue détail d'une métrique ═══════════ -->
 	<div class="mx-auto w-full max-w-xl px-4 pb-28 pt-4 sm:px-6">
-		<button type="button" class="mb-3 flex items-center gap-1 text-sm font-semibold text-mist hover:text-ink" onclick={() => (detailKey = null)}>‹ Retour</button>
+		<div class="mb-3 flex items-center gap-1 text-sm font-semibold text-mist">
+			<button type="button" class="flex min-h-9 items-center gap-1 rounded-lg pr-2 transition hover:text-ink" onclick={() => (detailKey = null)}><Icon name="chevronLeft" size={16} /> Retour</button>
+			<span class="text-mist/50" aria-hidden="true">·</span>
+			<a href="/espace" class="flex min-h-9 items-center gap-1 rounded-lg px-1 transition hover:text-ink"><Icon name="arrowLeft" size={16} /> Accueil</a>
+		</div>
 		<h1 class="font-display text-2xl font-semibold text-ink">{detailMeta.sub}</h1>
 		<p class="mt-1 text-sm text-mist">Touche une date pour corriger ou supprimer une valeur.</p>
 
@@ -315,7 +319,11 @@
 	</div>	{:else if bfDetail}
 	<!-- ═══════════ Vue détail : masse grasse estimée (lecture seule) ═══════════ -->
 	<div class="mx-auto w-full max-w-xl px-4 pb-28 pt-4 sm:px-6">
-		<button type="button" class="mb-3 flex items-center gap-1 text-sm font-semibold text-mist hover:text-ink" onclick={() => (bfDetail = false)}>‹ Retour</button>
+		<div class="mb-3 flex items-center gap-1 text-sm font-semibold text-mist">
+			<button type="button" class="flex min-h-9 items-center gap-1 rounded-lg pr-2 transition hover:text-ink" onclick={() => (bfDetail = false)}><Icon name="chevronLeft" size={16} /> Retour</button>
+			<span class="text-mist/50" aria-hidden="true">·</span>
+			<a href="/espace" class="flex min-h-9 items-center gap-1 rounded-lg px-1 transition hover:text-ink"><Icon name="arrowLeft" size={16} /> Accueil</a>
+		</div>
 		<h1 class="font-display text-2xl font-semibold text-ink">Masse grasse estimée</h1>
 		<p class="mt-1 text-sm text-mist">Estimation indicative calculée avec la méthode US Navy — elle n'est pas modifiable.</p>
 
@@ -441,26 +449,25 @@
 						</div>
 						<p class="mt-1 text-xs text-mist">Estimation indicative — méthode US Navy</p>
 					</div>
-					<span class="text-2xl" aria-hidden="true">🎯</span>
+					<span class="grid place-items-center"><Icon name="target" size={22} class="text-brand" /></span>
 				</div>
 			</div>
 			{#if bfRows.length > 0}
 				<button type="button" class="block w-full px-3 pt-2 text-left" aria-label="Voir l'historique de la masse grasse estimée" onclick={() => (bfDetail = true)}>
 					<MetricChart values={bfRows.map((r) => r.value)} labels={[shortDate(bfRows[0].date), shortDate(bfRows[bfRows.length - 1].date)]} color={BF_COLOR} height={150} />
 				</button>
-				<p class="border-t border-line px-4 py-3 text-xs text-mist">💡 Calcul automatique depuis tes mensurations — impossible à modifier. Touche la courbe pour voir l'historique.</p>
+				<p class="flex items-start gap-1.5 border-t border-line px-4 py-3 text-xs text-mist"><Icon name="lightbulb" size={13} class="mt-0.5 shrink-0" /> <span>Calcul automatique depuis tes mensurations — impossible à modifier. Touche la courbe pour voir l'historique.</span></p>
 			{:else}
 				<div class="px-3 pt-2">
 					<div class="rounded-xl border-2 border-dashed border-line px-4 py-8 text-center">
 						<p class="text-sm text-mist">Renseigne ta taille et tes mensurations (tour de taille, fessiers, tour de cou) pour obtenir ton estimation.</p>
 					</div>
 				</div>
-				<p class="mt-2 border-t border-line px-4 py-3 text-xs text-mist">💡 Estimation indicative — méthode US Navy, calculée automatiquement.</p>
+				<p class="mt-2 flex items-start gap-1.5 border-t border-line px-4 py-3 text-xs text-mist"><Icon name="lightbulb" size={13} class="mt-0.5 shrink-0" /> <span>Estimation indicative — méthode US Navy, calculée automatiquement.</span></p>
 			{/if}
 		</section>
 
-		<div class="mt-4 rounded-xl bg-warn-light px-4 py-3 text-xs leading-relaxed text-ink">
-			💡 <strong>Le conseil :</strong> pèse-toi le matin, à jeun, dans les mêmes conditions. La tendance compte plus qu'un chiffre isolé.
+		<div class="mt-4 rounded-xl bg-warn-light px-4 py-3 text-xs leading-relaxed text-ink">				<span class="inline-flex items-start gap-1.5"><Icon name="lightbulb" size={13} class="mt-0.5 shrink-0" /><span><strong>Le conseil :</strong> pèse-toi le matin, à jeun, dans les mêmes conditions. La tendance compte plus qu'un chiffre isolé.</span></span>
 		</div>
 
 		<!-- Photos de progression (tout en bas) -->
@@ -475,7 +482,7 @@
 				</div>
 				<span class="text-lg text-mist">›</span>
 			</a>
-			<p class="mt-2 text-xs text-mist">Une série de photos par mois, pour voir les changements invisibles sur la balance. Retrouve aussi tes séries envoyées sur cette page.</p>
+			<p class="mt-2 text-xs text-mist">Une série de photos par mois, pour voir les changements invisibles sur la balance. Une fois tes photos envoyées à chaque évolution, ton coach t'enverra la comparaison avant-après.</p>
 		</section>
 	</div>
 {/if}
@@ -604,7 +611,7 @@
 			{/if}
 
 			<div class="mt-4 flex gap-2">
-				<button type="button" class="grid h-12 w-12 place-items-center rounded-full border-2 border-danger text-lg text-danger transition hover:bg-danger-light disabled:opacity-60" disabled={editSaving} aria-label="Supprimer cette valeur" title="Supprimer cette valeur" onclick={deleteEdit}>🗑</button>
+				<button type="button" class="grid h-12 w-12 place-items-center rounded-full border-2 border-danger text-danger transition hover:bg-danger-light disabled:opacity-60" disabled={editSaving} aria-label="Supprimer cette valeur" title="Supprimer cette valeur" onclick={deleteEdit}><Icon name="trash" size={20} /></button>
 				<button type="button" class="flex-1 rounded-full bg-ink py-3.5 text-sm font-bold text-white transition hover:bg-ink/90 disabled:opacity-60" disabled={editSaving} onclick={saveEdit}>
 					{editSaving ? 'Enregistrement…' : 'Enregistrer la modification'}
 				</button>

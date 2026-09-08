@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { MOTIVATION_COLOR, type SeriePoint } from '../stats.js';
+	import Icon from './Icon.svelte';
 
 	type Point = { i: number; x: SeriePoint; v: number | null };
 	type Props = { points: SeriePoint[]; height?: number };
@@ -28,7 +29,7 @@
 </script>
 
 {#if !hasData}
-	<p class="py-6 text-center text-sm italic text-mist">Pas encore assez de données — complète ton premier bilan 📊</p>
+	<p class="flex items-center justify-center gap-1.5 py-6 text-center text-sm italic text-mist">Pas encore assez de données — complète ton premier bilan <Icon name="chartColumn" size={14} class="shrink-0" /></p>
 {:else}
 	<svg viewBox="0 0 {W} {H}" class="w-full" role="img" aria-label="Évolution de ta motivation semaine par semaine">
 		<!-- lignes de repère 1..5 -->

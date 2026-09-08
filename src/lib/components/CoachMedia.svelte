@@ -194,14 +194,14 @@
 								<span class="rounded-full bg-warn-light px-1.5 py-px text-[10px] font-bold uppercase text-warn">brouillon</span>
 							{/if}
 							{#if item.status !== 'expired' && (item.status === 'draft' || mode === 'message')}
-								<button type="button" onclick={() => deleteExisting(item._id)} class="text-xs text-danger hover:underline" aria-label="Supprimer">🗑</button>
+								<button type="button" onclick={() => deleteExisting(item._id)} class="inline-flex items-center text-xs text-danger hover:underline" aria-label="Supprimer"><Icon name="trash" size={14} /></button>
 							{/if}
 						</span>
 					</div>
 					{#if item.url && !item.expired}
 						<AudioPlayer src={item.url} durationMs={item.durationMs} />
 					{:else}
-						<p class="text-xs italic text-mist">🔇 {audioLabel} expiré — le fichier a été supprimé automatiquement.</p>
+						<p class="flex items-center gap-1.5 text-xs italic text-mist"><Icon name="volumeX" size={14} class="shrink-0" /> {audioLabel} expiré — le fichier a été supprimé automatiquement.</p>
 					{/if}
 				{:else}
 					<div class="flex items-center gap-3">
@@ -210,11 +210,11 @@
 								<img src={item.url} alt={item.name} class="h-14 w-14 rounded-lg border border-line object-cover" />
 							</a>
 						{:else}
-							<span class="grid h-14 w-14 shrink-0 place-items-center rounded-lg bg-brand-light text-xl">📄</span>
+							<span class="grid h-14 w-14 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="fileText" size={24} class="text-brand" /></span>
 						{/if}
 						<div class="min-w-0 flex-1">
 							<p class="truncate text-xs font-semibold text-ink">{item.name}</p>
-							<p class="text-[11px] text-mist">{item.kind === 'image' ? '🖼️ Image' : '📄 PDF'} · {fmtSize(item.size)}</p>
+							<p class="inline-flex items-center gap-1 text-[11px] text-mist">{#if item.kind === 'image'}<Icon name="image" size={12} /> Image{:else}<Icon name="fileText" size={12} /> PDF{/if} · {fmtSize(item.size)}</p>
 						</div>
 						<div class="flex shrink-0 items-center gap-1.5">
 							{#if item.status === 'published'}
@@ -228,7 +228,7 @@
 								</a>
 							{/if}
 							{#if item.status === 'draft'}
-								<button type="button" onclick={() => deleteExisting(item._id)} class="text-xs text-danger hover:underline" aria-label="Supprimer">🗑</button>
+								<button type="button" onclick={() => deleteExisting(item._id)} class="inline-flex items-center text-xs text-danger hover:underline" aria-label="Supprimer"><Icon name="trash" size={14} /></button>
 							{/if}
 						</div>
 					</div>
@@ -251,7 +251,7 @@
 		<label
 			class="inline-flex cursor-pointer items-center gap-2 rounded-xl border-2 border-dashed border-line px-3 py-2 text-sm font-semibold text-mist transition hover:border-brand hover:text-brand {busy ? 'pointer-events-none opacity-60' : ''}"
 		>
-			<span>📎</span> Ajouter une pièce jointe
+			<Icon name="paperclip" size={16} class="shrink-0" /> Ajouter une pièce jointe
 			<input bind:this={inputEl} type="file" accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf" multiple class="hidden" onchange={(e) => onAttach((e.currentTarget as HTMLInputElement).files)} />
 		</label>
 	{/if}

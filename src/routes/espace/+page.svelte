@@ -230,7 +230,7 @@
 {#if dash?.onboarding && !dash.onboarding.done}
 	{@const ob = dash.onboarding}
 	<section class="mb-6 rounded-2xl border border-brand/40 bg-gradient-to-br from-brand-light via-brand-light/60 to-white p-5 shadow-sm">
-		<h2 class="font-display text-lg font-semibold text-ink">Bienvenue dans G-FLUX 👋</h2>
+		<h2 class="font-display text-lg font-semibold text-ink">Bienvenue dans G-FLUX</h2>
 		<p class="mt-1 text-sm leading-relaxed text-mist">
 			Avant de commencer, complète ces deux étapes pour que ton coach puisse préparer ton accompagnement.
 		</p>
@@ -240,51 +240,54 @@
 			<div class="rounded-xl border-2 border-line bg-white p-4 transition {ob.formDone ? 'border-brand/50' : ''}">
 				<div class="flex items-center gap-3">
 					<span class="grid h-7 w-7 shrink-0 place-items-center rounded-full {ob.formDone ? 'bg-brand text-white' : 'border-2 border-mist/50 text-mist'}">
-						{#if ob.formDone}✓{:else}<span class="text-xs font-bold">1</span>{/if}
+						{#if ob.formDone}<Icon name="check" size={15} strokeWidth={2.5} />{:else}<span class="text-xs font-bold">1</span>{/if}
 					</span>
 					<div class="min-w-0 flex-1">
 						<p class="text-sm font-bold text-ink">Formulaire de démarrage</p>
-						<p class="text-xs text-mist">{ob.formDone ? 'Reçu par ton coach ✓' : 'Ton profil, tes habitudes, ton historique…'}</p>
+						<p class="text-xs text-mist">{ob.formDone ? 'Reçu par ton coach' : 'Ton profil, tes habitudes, ton historique…'}</p>
 					</div>
 					{#if !ob.formDone}
 						<a href="/espace/demarrage" class="shrink-0 rounded-xl bg-brand px-4 py-2 text-sm font-bold text-white transition hover:bg-brand-dark">
 							Commencer →
 						</a>
-					{:else}
-						<a href="/espace/demarrage" class="shrink-0 text-sm font-bold text-brand-dark">Revoir →</a>
 					{/if}
 				</div>
+				{#if ob.formDone}
+					<a href="/espace/demarrage" class="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border-2 border-brand/50 bg-white px-4 py-2.5 text-sm font-bold text-brand-dark transition hover:bg-brand-light">
+						<Icon name="eye" size={16} /> Voir le formulaire envoyé
+					</a>
+				{/if}
 			</div>
 
 			<!-- Étape 2 : mensurations & photos -->
 			<div class="rounded-xl border-2 border-line bg-white p-4 transition {ob.step2.done ? 'border-brand/50' : ''}">
 				<div class="flex items-center gap-3">
-					<span class="grid h-7 w-7 shrink-0 place-items-center rounded-full {ob.step2.done ? 'bg-brand text-white' : 'border-2 border-mist/50 text-mist'}">
-						{#if ob.step2.done}✓{:else}<span class="text-xs font-bold">2</span>{/if}
-					</span>
-					<div class="min-w-0 flex-1">
-						<p class="text-sm font-bold text-ink">Mensurations & photos</p>
-						<p class="text-xs text-mist">
-							{#if ob.step2.done}
-								C'est fait ✓
+				<span class="grid h-7 w-7 shrink-0 place-items-center rounded-full {ob.step2.done ? 'bg-brand text-white' : 'border-2 border-mist/50 text-mist'}">
+					{#if ob.step2.done}<Icon name="check" size={15} strokeWidth={2.5} />{:else}<span class="text-xs font-bold">2</span>{/if}
+				</span>
+				<div class="min-w-0 flex-1">
+					<p class="text-sm font-bold text-ink">Mensurations & photos</p>
+					<p class="text-xs text-mist">
+						{#if ob.step2.done}
+							C'est fait — tes données de départ sont enregistrées.
+						{:else}
+							Tes données de départ pour suivre ta progression.
+							{#if ob.step2.measurements}
+								<span class="inline-flex items-center gap-1 font-semibold text-brand-dark"><Icon name="check" size={12} /> Mensurations</span> — photos encore à ajouter.
+							{:else if ob.step2.photos}
+								<span class="inline-flex items-center gap-1 font-semibold text-brand-dark"><Icon name="check" size={12} /> Photos</span> — mensurations encore à ajouter.
 							{:else}
-								Tes données de départ pour suivre ta progression.
-								{#if !ob.step2.measurements && !ob.step2.photos}
-									 Mensurations et photos à ajouter.
-								{:else if ob.step2.measurements}
-									 Photos encore à ajouter.
-								{:else}
-									 Mensurations encore à ajouter.
-								{/if}
+								Mensurations et photos à ajouter.
 							{/if}
-						</p>
-					</div>
+						{/if}
+					</p>
+				</div>
 				</div>
 				{#if !ob.step2.done}
 					<div class="mt-3 flex flex-wrap gap-2">
 						{#if !ob.step2.measurements}
 							<a href="/espace/progression?action=mensurations" class="inline-flex items-center gap-1.5 rounded-xl border-2 border-brand/50 bg-brand-light px-3.5 py-2 text-xs font-bold text-brand-dark transition hover:bg-brand/20">
-								<Icon name="ruler" size={14} /> Faire mes mensurations
+								<Icon name="ruler" size={14} /> Ajouter mes mensurations
 							</a>
 						{/if}
 						{#if !ob.step2.photos}
@@ -384,8 +387,7 @@
 		{dash ? fmt(dash.tracking.kcal) : '—'}
 		<span class="text-base font-semibold text-mist"> / {dash ? fmt(dash.tracking.kcalGoal) : '—'} kcal</span>
 	</p>
-	{#if dash && maintenanceKcal && dash.tracking.kcal > dash.tracking.kcalGoal && dash.tracking.kcal <= maintenanceKcal}
-		<p class="mt-1 text-xs font-semibold text-warn">🛟 Dans ton filet de sécurité — sous ta maintenance</p>
+	{#if dash && maintenanceKcal && dash.tracking.kcal > dash.tracking.kcalGoal && dash.tracking.kcal <= maintenanceKcal}			<p class="mt-1 flex items-center gap-1 text-xs font-semibold text-warn"><Icon name="lifeBuoy" size={13} class="shrink-0" /> Dans ton filet de sécurité — sous ta maintenance</p>
 	{/if}
 	<div class="relative mt-3 h-2 overflow-hidden rounded-full bg-line">
 		{#if maintenanceKcal}

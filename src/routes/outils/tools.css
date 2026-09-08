@@ -252,6 +252,16 @@
 .tools-root .note b {
 	color: var(--amber);
 }
+.tools-root .note .note-ic {
+	flex-shrink: 0;
+	margin-top: 1px;
+}
+.tools-root .note .ic-amber {
+	color: var(--amber);
+}
+.tools-root .note .ic-green {
+	color: var(--green);
+}
 
 /* Tab 2 : calories invisibles */
 .tools-root .items {
@@ -439,6 +449,10 @@
 	color: var(--green);
 }
 .tools-root .swap {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
 	margin-top: 12px;
 	width: 100%;
 	background: transparent;

@@ -66,9 +66,8 @@ export function trackingWeeks(checkins: Checkin[]) {
 export const MOTIVATION_COLOR = (v: number) =>
 	v <= 2 ? '#ff4444' : v === 3 ? '#f0c000' : '#1db954';
 
-/** Libellés courts de légende. */
-export const ADHERENCE_LABEL: Record<string, string> = {
-	oui: '🟢 Oui',
-	partiel: '🟠 Partiel',
-	non: '🔴 Non',
-};
+/** Libellés courts de légende. */	export const ADHERENCE_LABEL: Record<string, string> = {
+		oui: 'Oui',
+		partiel: 'Partiel',
+		non: 'Non',
+	};

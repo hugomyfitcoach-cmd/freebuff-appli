@@ -36,7 +36,7 @@
 					{ href: '/outils', label: 'Outils & calibrage', icon: 'wrench' },
 				]
 			: [
-					{ href: '/admin', label: 'Tableau de bord', icon: '📋' },
+					{ href: '/admin', label: 'Tableau de bord', icon: 'chartBar' },
 					{ href: '/recettes', label: 'Guide nutrition & recettes', icon: 'chefHat' },
 					{ href: '/outils', label: 'Outils & calibrage', icon: 'wrench' },
 				]
@@ -150,7 +150,7 @@
 
 		{#if showFooter}
 			<footer class="border-t border-line py-6 text-center text-xs text-mist">
-				Suivi coaching <strong class="text-ink">G-Flux</strong> — pense à remplir ton bilan chaque fin de semaine 💪
+				Suivi coaching <strong class="text-ink">G-Flux</strong> — pense à remplir ton bilan chaque fin de semaine
 			</footer>
 		{/if}
 

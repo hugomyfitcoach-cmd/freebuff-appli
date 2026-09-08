@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import Icon from '$lib/components/Icon.svelte';
 	import { isFormOpen } from '$lib/week.js';
 
 	let { data, form: action } = $props();
@@ -181,9 +182,9 @@
 	<!-- FERMÉ / MERCI / FORMULAIRE (route réservée aux clients connectés) -->
 	{#if !formOpen}
 		<div class="closed-page">
-			<div class="icon">🔒</div>
+			<div class="icon"><Icon name="lock" size={44} /></div>
 			<h2>Bilan fermé</h2>
-			<p>Le formulaire est fermé jusqu'à vendredi.<br />Rendez-vous vendredi pour ton prochain bilan 💪</p>
+			<p>Le formulaire est fermé jusqu'à vendredi.<br />Rendez-vous vendredi pour ton prochain bilan.</p>
 		</div>
 	{:else if merci}
 		{#if merci === 'rien'}
@@ -196,8 +197,8 @@
 					</div>
 				</div>
 				<h2>Parfait {user.prenom} !</h2>
-				<p>Bilan bien reçu. Tant que ça avance, pas de question à se poser ni de changement à faire : on garde exactement la même dynamique 💪</p>
-				<div class="info-msg">📲 Je t'enverrai un message de bonne réception sur WhatsApp.<br />Une question dans la semaine ? Je suis dispo.</div>
+				<p>Bilan bien reçu. Tant que ça avance, pas de question à se poser ni de changement à faire : on garde exactement la même dynamique.</p>
+				<div class="info-msg"><Icon name="smartphone" size={17} class="info-msg-icon" /> <span>Je t'enverrai un message de bonne réception sur WhatsApp.<br />Une question dans la semaine ? Je suis dispo.</span></div>
 			</div>
 		{:else if merci === 'ecrit'}
 			<div class="thank-you">
@@ -210,7 +211,7 @@
 				</div>
 				<h2>Bilan reçu {user.prenom} !</h2>
 				<p>Je vais analyser tes données et préparer ton retour.</p>
-				<div class="info-msg green">📲 Ton retour arrive sur WhatsApp dimanche.</div>
+				<div class="info-msg green"><Icon name="smartphone" size={17} class="info-msg-icon" /> <span>Ton retour arrive sur WhatsApp dimanche.</span></div>
 			</div>
 		{:else}
 			<div class="thank-you">
@@ -223,7 +224,7 @@
 				</div>
 				<h2>Merci {user.prenom} !</h2>
 				<p>Ta demande d'appel est bien reçue.</p>
-				<div class="info-msg">📞 Je te propose un appel pour la semaine prochaine directement sur WhatsApp.</div>
+				<div class="info-msg"><Icon name="phone" size={17} class="info-msg-icon" /> <span>Je te propose un appel pour la semaine prochaine directement sur WhatsApp.</span></div>
 			</div>
 		{/if}
 	{:else}
@@ -231,7 +232,7 @@
 		{#if step === 1}
 			<div class="page active slide-in" class:slide-in-back={direction === 'back'}>
 				<div class="step-indicator">Étape 1 sur 8</div>
-				<div class="step-title">Ton suivi hebdo 🧬</div>
+				<div class="step-title"><Icon name="activity" size={22} class="step-title-icon" /> Ton suivi hebdo</div>
 				<div class="step-subtitle">Ça prend 2 minutes — tes données me permettent d'analyser ton flux et d'intervenir si nécessaire.</div>
 				<div style="margin-top:28px">
 					<div class="info-box">
@@ -251,7 +252,7 @@
 		{#if step === 2}
 			<div class="page active slide-in" class:slide-in-back={direction === 'back'}>
 				<div class="step-indicator">Étape 2 sur 8</div>
-				<div class="step-title">Ta motivation 🧠</div>
+				<div class="step-title"><Icon name="brain" size={22} class="step-title-icon" /> Ta motivation</div>
 				<div style="margin-top:28px">
 					<div class="field">
 						<div class="field-label">Comment évalues-tu ta motivation cette semaine ?</div>
@@ -271,7 +272,7 @@
 								style:background={form.motivation ? motivationColors[form.motivation - 1] : undefined}
 							></div>
 						</div>
-						<div class="motivation-labels"><span>😞 Pas motivée</span><span>🔥 Ultra motivée</span></div>
+						<div class="motivation-labels"><span><Icon name="frown" size={14} class="motivation-icon" /> Pas motivée</span><span><Icon name="flame" size={14} class="motivation-icon" /> Ultra motivée</span></div>
 					</div>
 				</div>
 				<div class="nav">
@@ -285,19 +286,19 @@
 		{#if step === 3}
 			<div class="page active slide-in" class:slide-in-back={direction === 'back'}>
 				<div class="step-indicator">Étape 3 sur 8</div>
-				<div class="step-title">Adhérence au plan 📋</div>
+				<div class="step-title"><Icon name="clipboardList" size={22} class="step-title-icon" /> Adhérence au plan</div>
 				<div style="margin-top:28px">
 					<div class="field">
 						<div class="field-label">Sur la semaine, penses-tu avoir été globalement alignée avec ton plan calorique ?</div>
 						<div class="choices">
 							<button class="choice" class:selected={form.adherence === 'oui'} onclick={() => pick('adherence', 'oui')}>
-								<span class="choice-letter">A</span> 🟢 Oui, de façon régulière
+								<span class="choice-letter">A</span> <span class="tone-dot" style="background:#22c55e"></span>Oui, de façon régulière
 							</button>
 							<button class="choice" class:selected={form.adherence === 'partiel'} onclick={() => pick('adherence', 'partiel')}>
-								<span class="choice-letter">B</span> 🟠 Partiellement (écarts / repas non maîtrisés)
+								<span class="choice-letter">B</span> <span class="tone-dot" style="background:#f59e0b"></span>Partiellement (écarts / repas non maîtrisés)
 							</button>
 							<button class="choice" class:selected={form.adherence === 'non'} onclick={() => pick('adherence', 'non')}>
-								<span class="choice-letter">C</span> 🔴 Non, pas du tout
+								<span class="choice-letter">C</span> <span class="tone-dot" style="background:#ef4444"></span>Non, pas du tout
 							</button>
 						</div>
 					</div>
@@ -307,13 +308,13 @@
 								<div class="field-label">Penses-tu que ces écarts ont annulé ton déficit de la semaine ?</div>
 								<div class="choices">
 									<button class="choice" class:selected={form.deficit_annule === 'non'} onclick={() => pick('deficit_annule', 'non')}>
-										<span class="choice-letter">A</span> 🟢 Non, je pense être restée en déficit
+										<span class="choice-letter">A</span> <span class="tone-dot" style="background:#22c55e"></span>Non, je pense être restée en déficit
 									</button>
 									<button class="choice" class:selected={form.deficit_annule === 'peut-etre'} onclick={() => pick('deficit_annule', 'peut-etre')}>
-										<span class="choice-letter">B</span> 🟠 Peut-être, je ne sais pas trop
+										<span class="choice-letter">B</span> <span class="tone-dot" style="background:#f59e0b"></span>Peut-être, je ne sais pas trop
 									</button>
 									<button class="choice" class:selected={form.deficit_annule === 'oui'} onclick={() => pick('deficit_annule', 'oui')}>
-										<span class="choice-letter">C</span> 🔴 Oui, j'ai probablement annulé mon déficit
+										<span class="choice-letter">C</span> <span class="tone-dot" style="background:#ef4444"></span>Oui, j'ai probablement annulé mon déficit
 									</button>
 								</div>
 							</div>
@@ -323,10 +324,10 @@
 						<div class="field-label">As-tu ressenti une faim marquée ou des envies alimentaires difficiles à gérer ?</div>
 						<div class="choices">
 							<button class="choice" class:selected={form.faim === 'oui'} onclick={() => pick('faim', 'oui')}>
-								<span class="choice-letter">A</span> 🔴 Oui
+								<span class="choice-letter">A</span> <span class="tone-dot" style="background:#ef4444"></span>Oui
 							</button>
 							<button class="choice" class:selected={form.faim === 'non'} onclick={() => pick('faim', 'non')}>
-								<span class="choice-letter">B</span> 🟢 Non
+								<span class="choice-letter">B</span> <span class="tone-dot" style="background:#22c55e"></span>Non
 							</button>
 						</div>
 					</div>
@@ -342,19 +343,19 @@
 		{#if step === 4}
 			<div class="page active slide-in" class:slide-in-back={direction === 'back'}>
 				<div class="step-indicator">Étape 4 sur 8</div>
-				<div class="step-title">Hydratation & digestion 💧🍏</div>
+				<div class="step-title"><Icon name="droplet" size={22} class="step-title-icon" /> Hydratation & digestion</div>
 				<div style="margin-top:28px">
 					<div class="field">
 						<div class="field-label">Comment a été ton hydratation sur la semaine ?</div>
 						<div class="choices">
 							<button class="choice" class:selected={form.hydratation === 'suffisante'} onclick={() => pick('hydratation', 'suffisante')}>
-								<span class="choice-letter">A</span> 🟢 Suffisante et régulière
+								<span class="choice-letter">A</span> <span class="tone-dot" style="background:#22c55e"></span>Suffisante et régulière
 							</button>
 							<button class="choice" class:selected={form.hydratation === 'variable'} onclick={() => pick('hydratation', 'variable')}>
-								<span class="choice-letter">B</span> 🟠 Variable / irrégulière
+								<span class="choice-letter">B</span> <span class="tone-dot" style="background:#f59e0b"></span>Variable / irrégulière
 							</button>
 							<button class="choice" class:selected={form.hydratation === 'insuffisante'} onclick={() => pick('hydratation', 'insuffisante')}>
-								<span class="choice-letter">C</span> 🔴 Insuffisante
+								<span class="choice-letter">C</span> <span class="tone-dot" style="background:#ef4444"></span>Insuffisante
 							</button>
 						</div>
 					</div>
@@ -362,13 +363,13 @@
 						<div class="field-label">Comment a été ta digestion cette semaine ?</div>
 						<div class="choices">
 							<button class="choice" class:selected={form.digestion === 'ok'} onclick={() => pick('digestion', 'ok')}>
-								<span class="choice-letter">A</span> 🟢 OK
+								<span class="choice-letter">A</span> <span class="tone-dot" style="background:#22c55e"></span>OK
 							</button>
 							<button class="choice" class:selected={form.digestion === 'perturbee'} onclick={() => pick('digestion', 'perturbee')}>
-								<span class="choice-letter">B</span> 🟠 Un peu perturbée
+								<span class="choice-letter">B</span> <span class="tone-dot" style="background:#f59e0b"></span>Un peu perturbée
 							</button>
 							<button class="choice" class:selected={form.digestion === 'ballonnements'} onclick={() => pick('digestion', 'ballonnements')}>
-								<span class="choice-letter">C</span> 🔴 Ballonnements / inconfort fréquents
+								<span class="choice-letter">C</span> <span class="tone-dot" style="background:#ef4444"></span>Ballonnements / inconfort fréquents
 							</button>
 						</div>
 					</div>
@@ -384,22 +385,22 @@
 		{#if step === 5}
 			<div class="page active slide-in" class:slide-in-back={direction === 'back'}>
 				<div class="step-indicator">Étape 5 sur 8</div>
-				<div class="step-title">Activité & cycle 🚶‍♀️</div>
+				<div class="step-title"><Icon name="footprints" size={22} class="step-title-icon" /> Activité & cycle</div>
 				<div style="margin-top:28px">
 					<div class="field">
 						<div class="field-label">Nombre de pas moyen par jour (7 derniers jours) :</div>
 						<div class="choices">
 							<button class="choice" class:selected={form.pas === 'moins5000'} onclick={() => pick('pas', 'moins5000')}>
-								<span class="choice-letter">A</span> 🔴 Moins de 5 000 pas
+								<span class="choice-letter">A</span> <span class="tone-dot" style="background:#ef4444"></span>Moins de 5 000 pas
 							</button>
 							<button class="choice" class:selected={form.pas === '5000-8000'} onclick={() => pick('pas', '5000-8000')}>
-								<span class="choice-letter">B</span> 🟠 5 000 – 8 000
+								<span class="choice-letter">B</span> <span class="tone-dot" style="background:#f59e0b"></span>5 000 – 8 000
 							</button>
 							<button class="choice" class:selected={form.pas === '8000-10000'} onclick={() => pick('pas', '8000-10000')}>
-								<span class="choice-letter">C</span> 🟢 8 000 – 10 000
+								<span class="choice-letter">C</span> <span class="tone-dot" style="background:#22c55e"></span>8 000 – 10 000
 							</button>
 							<button class="choice" class:selected={form.pas === 'plus10000'} onclick={() => pick('pas', 'plus10000')}>
-								<span class="choice-letter">D</span> 🟢 10 000+ 🏃‍♀️
+								<span class="choice-letter">D</span> <span class="tone-dot" style="background:#22c55e"></span>10 000+ <Icon name="footprints" size={15} class="choice-icon" />
 							</button>
 						</div>
 					</div>
@@ -409,25 +410,25 @@
 						</div>
 						<div class="choices">
 							<button class="choice" class:selected={form.cycle === 'regles'} onclick={() => pick('cycle', 'regles')}>
-								<span class="choice-letter">A</span> 🔴 Règles (J1 à J4–5)
+								<span class="choice-letter">A</span> <span class="tone-dot" style="background:#ef4444"></span>Règles (J1 à J4–5)
 							</button>
 							<button class="choice" class:selected={form.cycle === 'folliculaire'} onclick={() => pick('cycle', 'folliculaire')}>
-								<span class="choice-letter">B</span> 🟢 Phase folliculaire (J5 à J14)
+								<span class="choice-letter">B</span> <span class="tone-dot" style="background:#22c55e"></span>Phase folliculaire (J5 à J14)
 							</button>
 							<button class="choice" class:selected={form.cycle === 'ovulation'} onclick={() => pick('cycle', 'ovulation')}>
-								<span class="choice-letter">C</span> 🟠 Ovulation (J14–J16)
+								<span class="choice-letter">C</span> <span class="tone-dot" style="background:#f59e0b"></span>Ovulation (J14–J16)
 							</button>
 							<button class="choice" class:selected={form.cycle === 'luteale'} onclick={() => pick('cycle', 'luteale')}>
-								<span class="choice-letter">D</span> 🔵 Phase lutéale (J15 à J28)
+								<span class="choice-letter">D</span> <span class="tone-dot" style="background:#3b82f6"></span>Phase lutéale (J15 à J28)
 							</button>
 							<button class="choice" class:selected={form.cycle === 'menopause'} onclick={() => pick('cycle', 'menopause')}>
-								<span class="choice-letter">E</span> 🟣 Ménopause / péri-ménopause
+								<span class="choice-letter">E</span> <span class="tone-dot" style="background:#a855f7"></span>Ménopause / péri-ménopause
 							</button>
 							<button class="choice" class:selected={form.cycle === 'pilule'} onclick={() => pick('cycle', 'pilule')}>
-								<span class="choice-letter">F</span> 🔷 Pilule / contraception hormonale
+								<span class="choice-letter">F</span> <span class="tone-dot" style="background:#2563eb"></span>Pilule / contraception hormonale
 							</button>
 							<button class="choice" class:selected={form.cycle === 'sais-pas'} onclick={() => pick('cycle', 'sais-pas')}>
-								<span class="choice-letter">G</span> ⚪ Je ne sais pas / peu de repères
+								<span class="choice-letter">G</span> <span class="tone-dot" style="background:#9ca3af"></span>Je ne sais pas / peu de repères
 							</button>
 						</div>
 					</div>
@@ -443,7 +444,7 @@
 		{#if step === 6}
 			<div class="page active slide-in" class:slide-in-back={direction === 'back'}>
 				<div class="step-indicator">Étape 6 sur 8</div>
-				<div class="step-title">Bon à savoir 💡</div>
+				<div class="step-title"><Icon name="lightbulb" size={22} class="step-title-icon" /> Bon à savoir</div>
 				<div class="step-subtitle">Le corps ne réagit pas de la même façon selon le moment du cycle.</div>
 				<div style="margin-top:20px">
 					<div class="info-box">
@@ -467,19 +468,19 @@
 		{#if step === 7}
 			<div class="page active slide-in" class:slide-in-back={direction === 'back'}>
 				<div class="step-indicator">Étape 7 sur 8</div>
-				<div class="step-title">Évolution & suivi corporel 📊</div>
+				<div class="step-title"><Icon name="chartLine" size={22} class="step-title-icon" /> Évolution & suivi corporel</div>
 				<div style="margin-top:28px">
 					<div class="field">
 						<div class="field-label">Comment as-tu perçu l'évolution de ton corps cette semaine ?</div>
 						<div class="choices">
 							<button class="choice" class:selected={form.evolution === 'baisse'} onclick={() => pick('evolution', 'baisse')}>
-								<span class="choice-letter">A</span> 🟢 En baisse / amélioration
+								<span class="choice-letter">A</span> <span class="tone-dot" style="background:#22c55e"></span>En baisse / amélioration
 							</button>
 							<button class="choice" class:selected={form.evolution === 'stable'} onclick={() => pick('evolution', 'stable')}>
-								<span class="choice-letter">B</span> ⚪ Stable
+								<span class="choice-letter">B</span> <span class="tone-dot" style="background:#9ca3af"></span>Stable
 							</button>
 							<button class="choice" class:selected={form.evolution === 'hausse'} onclick={() => pick('evolution', 'hausse')}>
-								<span class="choice-letter">C</span> 🔴 En hausse / sensation de stagnation
+								<span class="choice-letter">C</span> <span class="tone-dot" style="background:#ef4444"></span>En hausse / sensation de stagnation
 							</button>
 						</div>
 					</div>
@@ -489,15 +490,15 @@
 						</div>
 						<div class="choices">
 							<button class="choice" class:selected={form.mensurations === 'oui'} onclick={() => pick('mensurations', 'oui')}>
-								<span class="choice-letter">A</span> 🟢 Oui
+								<span class="choice-letter">A</span> <span class="tone-dot" style="background:#22c55e"></span>Oui
 							</button>
 							<button class="choice" class:selected={form.mensurations === 'non'} onclick={() => pick('mensurations', 'non')}>
-								<span class="choice-letter">B</span> ⚪ Non
+								<span class="choice-letter">B</span> <span class="tone-dot" style="background:#9ca3af"></span>Non
 							</button>
 						</div>
 						{#if form.mensurations === 'oui'}
 							<div class="cond-block visible">
-								<div class="reminder-box">📏 Pense à encoder tes mensurations dans l'application ce week-end. Je les vérifie quand je valide ton bilan.</div>
+								<div class="reminder-box"><Icon name="ruler" size={16} class="reminder-icon" /> <span>Pense à encoder tes mensurations dans l'application ce week-end. Je les vérifie quand je valide ton bilan.</span></div>
 							</div>
 						{/if}
 					</div>
@@ -507,15 +508,15 @@
 						</div>
 						<div class="choices">
 							<button class="choice" class:selected={form.photos === 'oui'} onclick={() => pick('photos', 'oui')}>
-								<span class="choice-letter">A</span> 🟢 Oui
+								<span class="choice-letter">A</span> <span class="tone-dot" style="background:#22c55e"></span>Oui
 							</button>
 							<button class="choice" class:selected={form.photos === 'non'} onclick={() => pick('photos', 'non')}>
-								<span class="choice-letter">B</span> ⚪ Non
+								<span class="choice-letter">B</span> <span class="tone-dot" style="background:#9ca3af"></span>Non
 							</button>
 						</div>
 						{#if form.photos === 'oui'}
 							<div class="cond-block visible">
-								<div class="reminder-box">📸 Pense à uploader tes photos dans l'appli ce week-end. Je les regarde quand je valide ton bilan.</div>
+								<div class="reminder-box"><Icon name="camera" size={16} class="reminder-icon" /> <span>Pense à uploader tes photos dans l'appli ce week-end. Je les regarde quand je valide ton bilan.</span></div>
 							</div>
 						{/if}
 					</div>
@@ -531,22 +532,22 @@
 		{#if step === 8}
 			<div class="page active slide-in" class:slide-in-back={direction === 'back'}>
 				<div class="step-indicator">Étape 8 sur 8</div>
-				<div class="step-title">🚀 Dernière étape</div>
+				<div class="step-title"><Icon name="rocket" size={22} class="step-title-icon" /> Dernière étape</div>
 				<div style="margin-top:28px">
 					<div class="field">
 						<div class="field-label">De quoi as-tu besoin de ma part cette semaine ?</div>
 						<div class="choices">
 							<button class="choice" class:selected={form.besoin_retour === 'rien'} onclick={() => pickBesoin('rien')}>
-								<span class="choice-letter">A</span> 💪 Rien, tout va bien — je continue comme ça
+								<span class="choice-letter">A</span> <Icon name="check" size={16} class="choice-icon" />Rien, tout va bien — je continue comme ça
 							</button>
 							<div class="cond-subtext" style="font-style:italic;font-size:12px;color:var(--muted);margin:-8px 0 8px 36px">
 								Je t'enverrai un message de bonne réception sur WhatsApp, et si un point m'interpelle je t'en ferai part.
 							</div>
 							<button class="choice" class:selected={form.besoin_retour === 'ecrit'} onclick={() => pickBesoin('ecrit')}>
-								<span class="choice-letter">B</span> ✍️ Un retour écrit / vidéo
+								<span class="choice-letter">B</span> <Icon name="pencil" size={16} class="choice-icon" />Un retour écrit / vidéo
 							</button>
 							<button class="choice" class:selected={form.besoin_retour === 'appel'} onclick={() => pickBesoin('appel')}>
-								<span class="choice-letter">C</span> 📞 Réserver un appel ensemble pour la semaine prochaine
+								<span class="choice-letter">C</span> <Icon name="phone" size={16} class="choice-icon" />Réserver un appel ensemble pour la semaine prochaine
 							</button>
 						</div>
 					</div>
@@ -559,16 +560,16 @@
 								</div>
 								<div class="choices">
 									<button class="choice" class:selected={form.categorie_retour.includes('alimentation')} onclick={() => toggleCategorie('alimentation')}>
-										<span class="choice-letter">A</span> 🍽️ Alimentation
+										<span class="choice-letter">A</span> <Icon name="utensils" size={16} class="choice-icon" />Alimentation
 									</button>
 									<button class="choice" class:selected={form.categorie_retour.includes('sport')} onclick={() => toggleCategorie('sport')}>
-										<span class="choice-letter">B</span> 🏃 Sport
+										<span class="choice-letter">B</span> <Icon name="dumbbell" size={16} class="choice-icon" />Sport
 									</button>
 									<button class="choice" class:selected={form.categorie_retour.includes('motivation')} onclick={() => toggleCategorie('motivation')}>
-										<span class="choice-letter">C</span> 🧠 Motivation
+										<span class="choice-letter">C</span> <Icon name="brain" size={16} class="choice-icon" />Motivation
 									</button>
 									<button class="choice" class:selected={form.categorie_retour.includes('autre')} onclick={() => toggleCategorie('autre')}>
-										<span class="choice-letter">D</span> ✏️ Autre
+										<span class="choice-letter">D</span> <Icon name="pencil" size={16} class="choice-icon" />Autre
 									</button>
 								</div>
 							</div>
@@ -596,13 +597,13 @@
 						<div class="field-label">
 							Y a-t-il une victoire ou une fierté à partager cette semaine ? <small style="color:var(--muted);font-weight:400">(optionnel)</small>
 						</div>
-						<textarea bind:value={form.victoire} placeholder="Même petite, elle compte 💪"></textarea>
+						<textarea bind:value={form.victoire} placeholder="Même petite, elle compte"></textarea>
 					</div>
 
 					{#if action?.error}
-						<div class="info-msg" style="border-color:var(--red);background:var(--red-l);color:var(--red)">
-							⚠️ {action.error}
-						</div>
+					<div class="info-msg" style="border-color:var(--red);background:var(--red-l);color:var(--red)">
+						<Icon name="triangleAlert" size={17} class="info-msg-icon" /> <span>{action.error}</span>
+					</div>
 					{/if}
 				</div>
 				<div class="nav">
@@ -682,10 +683,17 @@
 		margin-bottom: 6px;
 	}
 	.step-title {
+		display: flex;
+		align-items: center;
+		gap: 10px;
 		font-family: 'Oswald', sans-serif;
 		font-size: 26px;
 		font-weight: 600;
 		line-height: 1.2;
+	}
+	.step-title-icon {
+		color: var(--accent);
+		flex-shrink: 0;
 	}
 	.step-subtitle {
 		margin-top: 8px;
@@ -882,6 +890,25 @@
 		font-size: 11px;
 		color: var(--muted);
 	}
+	.motivation-labels span {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+	}
+	.motivation-icon {
+		color: var(--muted);
+	}
+	.tone-dot {
+		display: inline-block;
+		width: 10px;
+		height: 10px;
+		border-radius: 9999px;
+		flex-shrink: 0;
+	}
+	.choice-icon {
+		color: var(--accent);
+		flex-shrink: 0;
+	}
 
 	textarea {
 		width: 100%;
@@ -939,6 +966,9 @@
 	}
 
 	.reminder-box {
+		display: flex;
+		align-items: flex-start;
+		gap: 10px;
 		background: #fffbeb;
 		border: 2px solid #fde68a;
 		border-radius: 12px;
@@ -947,6 +977,11 @@
 		line-height: 1.6;
 		color: #78600a;
 		margin-top: 10px;
+	}
+	.reminder-icon {
+		color: #b45309;
+		flex-shrink: 0;
+		margin-top: 2px;
 	}
 
 	.cond-block {
@@ -1078,6 +1113,9 @@
 		animation: fadeUp 0.4s 0.3s ease both;
 	}
 	.info-msg {
+		display: flex;
+		align-items: flex-start;
+		gap: 10px;
 		margin-top: 16px;
 		background: var(--card);
 		border: 2px solid var(--border);
@@ -1087,6 +1125,11 @@
 		color: var(--text);
 		line-height: 1.6;
 		animation: fadeUp 0.4s 0.4s ease both;
+	}
+	.info-msg-icon {
+		color: var(--accent);
+		flex-shrink: 0;
+		margin-top: 2px;
 	}
 	.info-msg.green {
 		border-color: var(--accent);
@@ -1107,8 +1150,10 @@
 		padding: 60px 0;
 	}
 	.closed-page .icon {
-		font-size: 48px;
+		display: grid;
+		place-items: center;
 		margin-bottom: 20px;
+		color: var(--accent);
 	}
 	.closed-page h2 {
 		font-family: 'Oswald', sans-serif;

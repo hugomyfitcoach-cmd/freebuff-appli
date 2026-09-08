@@ -86,33 +86,33 @@
 		{
 			label: 'Recettes',
 			items: [
-				{ id: 'petitdej', icon: '☀️', label: 'Petit-déjeuner', count: '20' },
-				{ id: 'dejeuner', icon: '🥗', label: 'Déjeuner', count: '30' },
-				{ id: 'diner', icon: '🌙', label: 'Dîner', count: '30' },
-				{ id: 'snacks', icon: '🫐', label: 'Snacks', count: '20' },
-				{ id: 'desserts', icon: '🍮', label: 'Desserts allégés', count: '5' },
+				{ id: 'petitdej', icon: 'sunrise', label: 'Petit-déjeuner', count: '20' },
+				{ id: 'dejeuner', icon: 'salad', label: 'Déjeuner', count: '30' },
+				{ id: 'diner', icon: 'moon', label: 'Dîner', count: '30' },
+				{ id: 'snacks', icon: 'cookie', label: 'Snacks', count: '20' },
+				{ id: 'desserts', icon: 'cakeSlice', label: 'Desserts allégés', count: '5' },
 			],
 		},
 		{
 			label: 'Accompagnements',
 			items: [
-				{ id: 'feculents', icon: '🍚', label: 'Féculents', count: '15' },
-				{ id: 'legumes', icon: '🫑', label: 'Légumes & épices', count: '15' },
+				{ id: 'feculents', icon: 'wheat', label: 'Féculents', count: '15' },
+				{ id: 'legumes', icon: 'leafyGreen', label: 'Légumes & épices', count: '15' },
 			],
 		},
 		{
 			label: 'Guides spéciaux',
 			items: [
-				{ id: 'volume', icon: '🥣', label: 'Repas volume', count: '10' },
-				{ id: 'keto', icon: '🥑', label: 'Kéto', count: '15' },
-				{ id: 'sansgl', icon: '🌿', label: 'Sans lactose & gluten', count: '25' },
+				{ id: 'volume', icon: 'soup', label: 'Repas volume', count: '10' },
+				{ id: 'keto', icon: 'nut', label: 'Kéto', count: '15' },
+				{ id: 'sansgl', icon: 'leaf', label: 'Sans lactose & gluten', count: '25' },
 			],
 		},
 		{
 			label: 'Références',
 			items: [
-				{ id: 'proteines', icon: '💪', label: 'Aliments protéines dominantes', count: 'Guide' },
-				{ id: 'memo', icon: '🎯', label: 'Repères mémo tracking', count: 'Guide' },
+				{ id: 'proteines', icon: 'drumstick', label: 'Aliments protéines dominantes', count: 'Guide' },
+				{ id: 'memo', icon: 'target', label: 'Repères mémo tracking', count: 'Guide' },
 			],
 		},
 	];
@@ -204,7 +204,7 @@
 						<div class="home-items">
 							{#each group.items as item (item.id)}
 								<button type="button" class="home-btn" onclick={() => goTo(item.id)}>
-									<span class="home-btn-icon">{item.icon}</span>
+									<span class="home-btn-icon"><Icon name={item.icon} size={20} /></span>
 									<span class="home-btn-text">{item.label}</span>
 									<span class="home-btn-count">{item.count}</span>
 								</button>

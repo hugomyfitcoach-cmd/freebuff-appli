@@ -29,6 +29,7 @@
 		"vite": "^8.0.16"
 	},
 	"dependencies": {
+		"@lucide/svelte": "^1.42.0",
 		"convex": "^1.45.0",
 		"html5-qrcode": "^2.3.8"
 	}

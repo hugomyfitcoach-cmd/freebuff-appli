@@ -667,7 +667,7 @@
 		const b = cockpit?.bilan ?? null;
 		if (!b) return null;
 		if (b.status === 'retour_envoye') return { label: 'Retour envoyé', cls: 'bg-brand-light text-brand-dark' };
-		if (b.draft) return { label: '📝 Brouillon', cls: 'bg-line/70 text-mist' };
+		if (b.draft) return { label: 'Brouillon', cls: 'bg-line/70 text-mist' };
 		return { label: 'À traiter', cls: 'bg-warn-light text-warn' };
 	});
 	function fmtVal(n: number): string {
@@ -742,7 +742,7 @@
 			{alert.error ? 'border-danger/40 bg-danger-light text-danger' : 'border-brand/40 bg-brand-light text-ink'}"
 	>
 		<span>{alert.error ?? alert.ok}</span>
-		<span class="text-mist">✳️</span>
+		<Icon name="info" size={15} class="shrink-0 text-mist" />
 	</div>
 {/if}
 
@@ -751,7 +751,7 @@
 	<div class="mt-6 rounded-2xl border border-line bg-card shadow-sm">
 		<div class="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
 			<div class="flex flex-wrap items-center gap-2">
-				<h2 class="font-display text-lg font-semibold text-ink">📋 File des bilans</h2>
+				<h2 class="flex items-center gap-2 font-display text-lg font-semibold text-ink"><Icon name="clipboardList" size={18} class="shrink-0 text-brand" /> File des bilans</h2>
 				{#if board.toTreat.length > 0}
 					<span class="rounded-full bg-warn px-2 py-0.5 text-[11px] font-bold text-white">À traiter {board.toTreat.length}</span>
 				{/if}
@@ -970,17 +970,21 @@
 				</div>
 				<div>
 					<h2 class="font-display text-lg font-semibold text-ink">{selected.user.prenom}</h2>
-					<p class="text-[11px] text-mist">
-						{selected.user.email}
-						{selected.user.birthDate ? ` · 🎂 ${fmtDateShort(selected.user.birthDate)}` : ''}
-						{selected.user.heightCm ? ` · <Icon name="ruler" size={12} class="inline -mt-0.5" /> ${selected.user.heightCm} cm` : ''}
-						· 🕒 {fmtLastSeen(selected.user.lastSeenAt)}
+					<p class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-mist">
+						<span class="truncate">{selected.user.email}</span>
+						{#if selected.user.birthDate}
+							<span class="inline-flex items-center gap-1"><Icon name="cake" size={12} class="shrink-0" /> {fmtDateShort(selected.user.birthDate)}</span>
+						{/if}
+						{#if selected.user.heightCm}
+							<span class="inline-flex items-center gap-1"><Icon name="ruler" size={12} class="shrink-0" /> {selected.user.heightCm} cm</span>
+						{/if}
+						<span class="inline-flex items-center gap-1"><Icon name="clock" size={12} class="shrink-0" /> {fmtLastSeen(selected.user.lastSeenAt)}</span>
 					</p>
 				</div>
 			</div>
 			<div class="flex flex-wrap items-center gap-2">
 				<details class="group relative">
-					<summary class="cursor-pointer list-none rounded-lg border-2 border-line px-3 py-1.5 text-sm text-ink transition hover:border-brand hover:text-brand">⚙️ Fiche</summary>
+					<summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-lg border-2 border-line px-3 py-1.5 text-sm text-ink transition hover:border-brand hover:text-brand"><Icon name="settings" size={14} class="shrink-0" /> Fiche</summary>
 					<form method="POST" action="?/updateFiche" class="absolute right-0 top-10 z-20 w-80 rounded-xl border border-line bg-white p-4 shadow-xl">
 						<input type="hidden" name="userId" value={selected.user._id} />
 						<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-prenom">Prénom</label>
@@ -1049,7 +1053,7 @@
 				<div class="rounded-2xl border border-line bg-card p-4 shadow-sm">
 					<div class="flex flex-wrap items-center justify-between gap-3">
 						<div class="flex items-center gap-2.5">
-							<span class="grid h-8 w-8 place-items-center rounded-full bg-brand-light text-base">🚀</span>
+							<span class="grid h-8 w-8 place-items-center rounded-full bg-brand-light"><Icon name="rocket" size={15} class="text-brand" /></span>
 							<div class="min-w-0">
 								<p class="text-[11px] font-bold uppercase tracking-wider text-mist">Onboarding de démarrage</p>
 								<p class="mt-0.5 text-xs text-mist">
@@ -1058,7 +1062,7 @@
 										·
 										{onboardingView.step2.done ? 'mensurations & photos ✓' : 'mensurations & photos à compléter'}
 									{:else}
-										Non activé pour cette cliente (⚙️ Fiche pour l'activer)
+										Non activé pour cette cliente (<span class="inline-flex items-center gap-0.5"><Icon name="settings" size={11} class="shrink-0" /> Fiche pour l'activer</span>)
 									{/if}
 								</p>
 							</div>
@@ -1076,7 +1080,7 @@
 				<!-- Message du coach du jour (champ dédié, visible par la cliente sur son dashboard) -->
 				<div class="rounded-2xl border border-line bg-card p-4 shadow-sm">
 					<div class="flex items-center justify-between gap-2">
-						<div class="text-[11px] font-bold uppercase tracking-wider text-mist">💬 Message du coach du jour</div>
+						<div class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="messageCircle" size={13} class="shrink-0 text-brand" /> Message du coach du jour</div>
 						{#if selected.user.coachMessage && selected.user.coachMessageDate}
 							<span class="rounded-full bg-brand-light px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand-dark">Publié · {fmtDateShort(selected.user.coachMessageDate)}</span>
 						{/if}
@@ -1089,7 +1093,7 @@
 							<textarea
 								name="message"
 								rows="2"
-								placeholder="Ex. Belle régularité cette semaine, continue comme ça 💪"
+								placeholder="Ex. Belle régularité cette semaine, continue comme ça"
 								class="min-h-14 flex-1 rounded-xl border-2 border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-brand"
 							>{selected.user.coachMessage ?? ''}</textarea>
 							<div class="flex shrink-0 gap-2">
@@ -1157,7 +1161,7 @@
 
 				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
 					<div class="flex flex-wrap items-center justify-between gap-2">
-						<h3 class="font-display text-base font-semibold text-ink">📊 Calories — tendance des 7 derniers jours</h3>
+						<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="chartBar" size={17} class="shrink-0 text-brand" /> Calories — tendance des 7 derniers jours</h3>
 						<span class="text-[11px] text-mist">barres : kcal consommées · ligne pointillée : objectif · ligne verte : moyenne</span>
 					</div>
 					{#if chart}
@@ -1174,15 +1178,15 @@
 									</g>
 								{/each}
 								<line x1="0" y1={chart.goalY} x2="700" y2={chart.goalY} stroke="#111110" stroke-width="1.5" stroke-dasharray="6 5" />
-								<text x="704" y={chart.goalY - 4} font-size="12" fill="#111110" font-weight="600">🎯</text>
+								<polygon points={`690,${chart.goalY - 8} 696,${chart.goalY} 684,${chart.goalY}`} fill="#111110" />
 								{#if chart.avgY != null}
 									<line x1="0" y1={chart.avgY} x2="700" y2={chart.avgY} stroke="#1db954" stroke-width="2.5" stroke-dasharray="10 6" />
 									<text x="704" y={chart.avgY - 4} font-size="12" fill="#1db954" font-weight="700">moy {weekAvg}</text>
 								{/if}
 							</svg>
 						</div>
-						<div class="mt-2 rounded-xl bg-brand-light px-4 py-2.5 text-xs text-ink">
-							<Icon name="ruler" size={13} class="inline -mt-0.5" /> <strong>Moyenne constatée : {weekAvg} kcal/jour</strong> sur {loggedDays} jour(s) renseigné(s) — calcul : somme des calories des jours saisis ÷ nombre de jours saisis (objectif : {goalKcal} kcal).
+						<div class="mt-2 flex items-start gap-1.5 rounded-xl bg-brand-light px-4 py-2.5 text-xs text-ink">
+							<Icon name="ruler" size={13} class="mt-0.5 shrink-0" /> <span><strong>Moyenne constatée : {weekAvg} kcal/jour</strong> sur {loggedDays} jour(s) renseigné(s) — calcul : somme des calories des jours saisis ÷ nombre de jours saisis (objectif : {goalKcal} kcal).</span>
 						</div>
 					{:else}
 						<p class="mt-3 rounded-xl border border-dashed border-line px-4 py-8 text-center text-sm text-mist">Aucune donnée de journal sur les 7 derniers jours.</p>
@@ -1192,7 +1196,7 @@
 				{#if weightPoints && weightPoints.coords.length > 0}
 					<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
 						<div class="flex flex-wrap items-center justify-between gap-2">
-							<h3 class="font-display text-base font-semibold text-ink">📉 Tendance du poids</h3>
+							<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="chartLine" size={17} class="shrink-0 text-brand" /> Tendance du poids</h3>
 							<span class="text-[11px] text-mist">{weightPoints.coords.length} prise(s) · {String(weightPoints.min).replace('.', ',')} → {String(weightPoints.max).replace('.', ',')} kg</span>
 						</div>
 						<div class="mt-3 overflow-x-auto">
@@ -1226,7 +1230,7 @@
 				<!-- Objectifs journaliers -->
 				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
 					<div class="flex flex-wrap items-center justify-between gap-2">
-						<h3 class="font-display text-base font-semibold text-ink">🎯 Objectifs journaliers</h3>
+						<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="target" size={17} class="shrink-0 text-brand" /> Objectifs journaliers</h3>
 						<span class="text-[11px] text-mist">Affichés dans le Journal de {selected.user.prenom}</span>
 					</div>
 					{#key selected.user._id}
@@ -1238,13 +1242,11 @@
 								<button
 									type="button"
 									class="flex-1 px-3 py-2 transition {goalsMode === 'pct' ? 'bg-brand text-white' : 'text-ink hover:bg-line/40'}"
-									onclick={() => switchGoalsMode('pct')}
-								>🎯 Calories + répartition %</button>
+									onclick={() => switchGoalsMode('pct')}													><span class="inline-flex items-center gap-1.5"><Icon name="target" size={14} /> Calories + répartition %</span></button>
 								<button
 									type="button"
 									class="flex-1 px-3 py-2 transition {goalsMode === 'grams' ? 'bg-brand text-white' : 'text-ink hover:bg-line/40'}"
-									onclick={() => switchGoalsMode('grams')}
-								>🥩 Méthode macros (g)</button>
+									onclick={() => switchGoalsMode('grams')}													><span class="inline-flex items-center gap-1.5"><Icon name="drumstick" size={14} /> Méthode macros (g)</span></button>
 							</div>
 
 							{#if goalsMode === 'pct'}
@@ -1305,7 +1307,7 @@
 							<div class="mt-3 rounded-xl border-2 border-dashed border-brand/30 bg-brand-light/50 px-3 py-2.5">
 								<label class="flex items-center justify-between gap-3">
 									<span class="min-w-0">
-										<span class="block text-[10px] font-bold uppercase tracking-wider text-brand-dark">🛟 Maintenance calorique (optionnel)</span>
+										<span class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-brand-dark"><Icon name="lifeBuoy" size={12} class="shrink-0" /> Maintenance calorique (optionnel)</span>
 										<span class="mt-0.5 block text-[11px] leading-snug text-mist">Filet de sécurité : repère discret côté cliente si elle dépasse légèrement son objectif. Doit rester &gt; l'objectif. Laisse vide pour désactiver.</span>
 									</span>
 									<input
@@ -1331,7 +1333,7 @@
 							<div class="mt-3 rounded-xl border-2 border-dashed border-line bg-cream/50 px-3 py-2.5">
 								<label class="flex items-center justify-between gap-3">
 									<span class="min-w-0">
-										<span class="block text-[10px] font-bold uppercase tracking-wider text-mist">👟 Objectif quotidien de pas (optionnel)</span>
+										<span class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-mist"><Icon name="footprints" size={12} class="shrink-0" /> Objectif quotidien de pas (optionnel)</span>
 										<span class="mt-0.5 block text-[11px] leading-snug text-mist">Visible côté cliente sur son Accueil (« Pas aujourd'hui ») et utilisé dans le récap hebdo et le cockpit Bilans. Laisse vide pour ne pas afficher d'objectif.</span>
 									</span>
 									<input
@@ -1365,7 +1367,7 @@
 				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
 					<div class="flex flex-wrap items-center justify-between gap-3">
 						<div>
-							<h3 class="font-display text-base font-semibold text-ink">🚀 Onboarding de démarrage</h3>
+							<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="rocket" size={17} class="shrink-0 text-brand" /> Onboarding de démarrage</h3>
 							<p class="mt-0.5 text-xs leading-relaxed text-mist">
 								Le formulaire initial sert de point de départ à l'accompagnement. Les étapes sont
 								validées automatiquement côté cliente — aucune saisie manuelle ici.
@@ -1394,7 +1396,7 @@
 							</div>
 						</div>
 						<div class="rounded-xl bg-line/40 px-3 py-2 text-center">
-							<div class="text-[10px] font-bold uppercase tracking-wider text-mist">📝 Formulaire</div>
+							<div class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-mist"><Icon name="clipboardPen" size={12} class="shrink-0" /> Formulaire</div>
 							<div class="mt-0.5 text-sm font-bold {onboardingView?.step1.done ? 'text-brand' : 'text-mist'}">
 								{onboardingView?.step1.done ? '✓ Complété' : '○ En attente'}
 							</div>
@@ -1418,7 +1420,7 @@
 				{#if onboardingView?.intake}
 					<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
 						<div class="flex flex-wrap items-center justify-between gap-2">
-							<h3 class="font-display text-base font-semibold text-ink">📋 Formulaire de démarrage</h3>
+							<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="clipboardList" size={17} class="shrink-0 text-brand" /> Formulaire de démarrage</h3>
 							<div class="text-right text-[11px] text-mist">
 								{#if onboardingView.intake.status === 'submitted'}
 									<p class="font-semibold text-brand">Soumis{onboardingView.intake.submittedAt ? ` le ${fmtTs(onboardingView.intake.submittedAt)}` : ''}</p>
@@ -1447,7 +1449,7 @@
 					</div>
 				{:else}
 					<div class="rounded-2xl border border-dashed border-line bg-card px-5 py-8 text-center">
-						<p class="text-3xl">📭</p>
+						<p class="grid place-items-center"><Icon name="inbox" size={36} class="text-mist" /></p>
 						<p class="mt-2 text-sm font-semibold text-ink">Aucun formulaire pour l'instant</p>
 						<p class="mx-auto mt-1 max-w-sm text-xs leading-relaxed text-mist">
 							Quand {selected.user.prenom} commencera son formulaire de démarrage (brouillon ou soumission),
@@ -1536,7 +1538,7 @@
 													<button onclick={() => setQty(entry, Math.max(1, entry.qtyGrams - 10))} class="h-7 w-7 rounded-lg border-2 border-line text-sm font-bold text-ink hover:border-brand">−</button>
 													<span class="w-16 text-center text-sm font-semibold text-ink">{entry.qtyGrams} g</span>
 													<button onclick={() => setQty(entry, entry.qtyGrams + 10)} class="h-7 w-7 rounded-lg border-2 border-line text-sm font-bold text-ink hover:border-brand">＋</button>
-													<button onclick={() => removeEntry(entry)} class="ml-1 rounded-lg border-2 border-line px-2 py-1 text-xs text-danger hover:border-danger" title="Supprimer">🗑</button>
+													<button onclick={() => removeEntry(entry)} class="ml-1 grid h-7 w-7 place-items-center rounded-lg border-2 border-line text-danger hover:border-danger" title="Supprimer"><Icon name="trash" size={13} /></button>
 												</div>
 											</li>
 										{/each}
@@ -1668,7 +1670,7 @@
 												<span class="text-mist"> · {fmtDateShort(r.date)}</span>
 											</span>
 											<button onclick={() => startBmEdit(meta.key, r.date, r.value)} class="rounded-lg px-2 py-1 text-xs text-mist transition hover:bg-line/60 hover:text-ink" title="Modifier cette valeur" aria-label={`Modifier ${meta.label} du ${fmtDateShort(r.date)}`}>✎</button>
-											<button onclick={() => deleteMetric(r.date, meta.key)} class="rounded-lg px-2 py-1 text-xs text-danger/70 transition hover:bg-danger-light hover:text-danger" title="Supprimer cette valeur" aria-label={`Supprimer ${meta.label} du ${fmtDateShort(r.date)}`}>🗑</button>
+											<button onclick={() => deleteMetric(r.date, meta.key)} class="inline-flex items-center rounded-lg px-2 py-1 text-danger/70 transition hover:bg-danger-light hover:text-danger" title="Supprimer cette valeur" aria-label={`Supprimer ${meta.label} du ${fmtDateShort(r.date)}`}><Icon name="trash" size={13} /></button>
 										</li>
 									{/each}
 								</ul>
@@ -1719,7 +1721,7 @@
 					<!-- Masse grasse estimée : dérivée côté Convex, lecture seule -->
 					<div class="mt-4 rounded-xl border border-line p-3">
 						<div class="flex flex-wrap items-center justify-between gap-2">
-							<h5 class="text-sm font-bold text-ink">🎯 Masse grasse estimée</h5>
+							<h5 class="flex items-center gap-1.5 text-sm font-bold text-ink"><Icon name="target" size={15} class="shrink-0 text-brand" /> Masse grasse estimée</h5>
 							<span class="text-[11px] text-mist">US Navy — automatique, non modifiable</span>
 						</div>
 						{#if bfPoints.length > 0}
@@ -1790,7 +1792,7 @@
 				<div class="space-y-4">
 					{#if checkins.length === 0}
 						<div class="rounded-2xl border border-dashed border-line bg-card px-6 py-10 text-center">
-							<p class="text-2xl">🗓️</p>
+							<p class="grid place-items-center"><Icon name="calendarDays" size={30} class="text-mist" /></p>
 							<p class="mt-2 text-sm text-ink">Aucun bilan reçu pour {selected.user.prenom} pour l’instant.</p>
 							<p class="mt-1 text-xs text-mist">Transmets ses identifiants (email + mot de passe) pour qu’elle commence son suivi.</p>
 						</div>
@@ -1848,7 +1850,7 @@
 								<!-- PAS : moyenne réelle des jours renseignés (sinon déclaration au bilan) -->
 								{#if cockpit.steps.avg !== null || cockpit.steps.declared}
 									<div class="rounded-xl border border-line bg-cream/40 p-3">
-										<div class="text-[11px] font-bold uppercase tracking-wider text-mist">👣 Pas</div>
+										<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="footprints" size={13} class="shrink-0 text-brand" /> Pas</div>
 										{#if cockpit.steps.avg !== null}
 											<div class="mt-1 font-display text-2xl font-semibold text-ink">
 												{cockpit.steps.avg.toLocaleString('fr-FR')} <span class="text-xs font-semibold text-mist">/ jour</span>
@@ -1933,7 +1935,7 @@
 	</aside>
 {:else if clients.length === 0}
 	<div class="mt-6 rounded-2xl border border-dashed border-line bg-card px-6 py-14 text-center">
-		<p class="text-3xl">👋</p>
+		<p class="grid place-items-center"><Icon name="users" size={36} class="text-mist" /></p>
 		<p class="mt-3 text-sm text-ink">Crée un compte client pour démarrer le suivi.</p>
 	</div>
 {/if}

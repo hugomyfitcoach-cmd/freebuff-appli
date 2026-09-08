@@ -1,4 +1,7 @@
 <script lang="ts">
+	import Icon from '$lib/components/Icon.svelte';
+	import BackToHome from '$lib/components/BackToHome.svelte';
+
 	const STEPS = [
 		{ id: 'demarrage', label: 'Démarrage' },
 		{ id: 'mois1', label: 'Mois 1' },
@@ -109,19 +112,16 @@
 <svelte:head><title>Photos de suivi — G-Flux</title></svelte:head>
 
 <div class="mx-auto max-w-lg">
-	<div class="mb-6 flex items-center gap-3">
-		<img src="/logo-header.jpg" alt="G-Flux" class="h-8 w-auto" />
-		<span class="font-display text-xs font-semibold uppercase tracking-widest text-mist">Photos de suivi</span>
-	</div>
+	<BackToHome label="Photos de suivi" />
 
 	{#if screen === 'intro'}
 		<section class="rounded-3xl border border-line bg-card p-6 shadow-sm">
 			<div class="space-y-3 text-sm leading-relaxed text-ink">
-				<p>📸 Bienvenue dans l’espace de dépôt de tes photos de suivi.</p>
-				<p>🔓 Elles ne seront jamais utilisées ou partagées sans ton autorisation explicite.</p>
-				<p>📅 Tu peux faire ces photos pour suivre visuellement ta progression.</p>
+				<p>Bienvenue dans l’espace de dépôt de tes photos de suivi.</p>
+				<p>Elles ne seront jamais utilisées ou partagées sans ton autorisation explicite.</p>
+				<p>Tu peux faire ces photos pour suivre visuellement ta progression.</p>
 				<p>L’objectif n’est pas de juger, mais de voir les petits changements invisibles sur la balance.</p>
-				<p>👉 Merci de bien remplir les infos suivantes pour qu’on puisse bien suivre ton évolution ensemble 🙌</p>
+				<p>Merci de bien remplir les infos suivantes pour qu’on puisse bien suivre ton évolution ensemble.</p>
 			</div>
 			<button
 				onclick={() => (screen = 'step')}
@@ -153,7 +153,7 @@
 			<p class="font-display text-lg font-semibold text-ink">
 				Photos — <span class="text-brand">{STEP_LABELS[selectedStep ?? '']}</span>
 			</p>
-			<p class="mt-1 text-sm text-mist">Télécharge les 2 ou 3 photos que tu souhaites partager (idéalement : face / profil / dos) 👇</p>
+			<p class="mt-1 text-sm text-mist">Télécharge les 2 ou 3 photos que tu souhaites partager (idéalement : face / profil / dos).</p>
 
 			{#if selectedFiles.length > 0}
 				<div class="mt-4 grid grid-cols-3 gap-2">
@@ -176,7 +176,7 @@
 				for="photo-input"
 				class="mt-4 flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-line bg-cream px-4 py-8 text-center transition hover:border-brand"
 			>
-				<span class="text-2xl">⬆️</span>
+				<span class="grid place-items-center"><Icon name="upload" size={24} class="text-brand" /></span>
 				<span class="mt-2 text-sm font-semibold text-ink">Clique pour choisir une photo</span>
 				<span class="mt-1 text-xs text-mist">Format image · 10 Mo max · jusqu’à 6 photos</span>
 				<input
@@ -208,11 +208,11 @@
 
 	{:else}
 		<section class="rounded-3xl border border-brand/40 bg-brand-light p-6 text-center shadow-sm">
-			<div class="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-brand text-3xl text-white">✓</div>
+			<div class="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-brand text-white"><Icon name="check" size={30} strokeWidth={2.5} /></div>
 			<h2 class="mt-4 font-display text-xl font-semibold text-ink">Photos envoyées !</h2>
 			<p class="mt-2 text-sm leading-relaxed text-ink">
 				Ta série <strong>{STEP_LABELS[lastSent?.step ?? '']}</strong> ({lastSent?.count} photo{lastSent && lastSent.count > 1 ? 's' : ''}) a bien été
-				envoyée à ta coach. Elle te confirmera la réception lors de ton prochain suivi 🙌
+				envoyée à ta coach. Elle te confirmera la réception lors de ton prochain suivi.
 			</p>
 			<button
 				onclick={() => (screen = 'intro')}
@@ -223,12 +223,12 @@
 
 	{#if screen === 'done' && submissions.length > 0}
 		<section class="mt-4 rounded-3xl border border-line bg-card p-5 shadow-sm">
-			<h3 class="font-display text-sm font-semibold text-ink">📤 Mes séries envoyées</h3>
+			<h3 class="flex items-center gap-1.5 font-display text-sm font-semibold text-ink"><Icon name="upload" size={15} class="shrink-0 text-brand" /> Mes séries envoyées</h3>
 			<ul class="mt-3 space-y-2">
 				{#each submissions as s}
 					<li class="flex items-center justify-between rounded-xl border border-line bg-white px-4 py-2.5 text-sm">
 						<span class="font-semibold text-ink">{STEP_LABELS[s.step] ?? s.step}</span>
-						<span class="text-xs text-mist">{fmtDate(s.date)} · {s.count} photo{s.count > 1 ? 's' : ''} ✓</span>
+						<span class="inline-flex items-center gap-1 text-xs text-mist">{fmtDate(s.date)} · {s.count} photo{s.count > 1 ? 's' : ''} <Icon name="check" size={12} class="text-brand" /></span>
 					</li>
 				{/each}
 			</ul>
