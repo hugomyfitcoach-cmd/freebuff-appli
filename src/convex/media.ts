@@ -2,7 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { getSessionUser } from "./helpers";
+import { getSessionUser, localTodayISO } from "./helpers";
 
 /** Types structurels minimaux pour partager helpers entre query/mutation. */
 type DbOnly = { db: QueryCtx["db"] };
@@ -222,6 +222,66 @@ export const myPublished = query({
 	},
 });
 
+/**
+ * Message du coach du jour : éphémère — il expire au MINUIT LOCAL DE LA
+ * CLIENTE suivant la publication (coachMessageExpiresAt, calculé dans son
+ * fuseau à la publication) ; on retire alors le message (texte/audio) de
+ * l'état actif (Accueil). Replis compat : messages antérieurs au passage en
+ * horodatage = 24 h fixes, puis (pré-timestamp) = jour exact. Les FICHIERS
+ * audio référencés par le journal CRM (coachMessages) sont conservés pour la
+ * réécoute dans la Vision 360 ; seuls les fichiers sans autre utilité
+ * (brouillons, doublons) sont réellement supprimés. Les retours de bilan ne
+ * sont PAS concernés : ils font partie de l'historique (rétention 72 h/14 j).
+ */
+async function expireStaleCoachMessages(ctx: WriterCtx, now: number) {
+	const users = await ctx.db
+		.query("users")
+		.filter((q) => q.eq(q.field("role"), "client"))
+		.collect();
+	let removed = 0;
+	for (const u of users) {
+		// Expiration : minuit local cliente stocké à la publication → repli 24 h
+		// fixes pour les messages antérieurs → repli jour exact (jamais un message
+		// périmé qui ressortirait). Le cron horaire ne nettoie jamais un message frais.
+		let expired = false;
+		if (u.coachMessageExpiresAt != null) {
+			expired = now >= u.coachMessageExpiresAt;
+		} else if (u.coachMessageAt != null) {
+			expired = now - u.coachMessageAt >= 24 * 3600 * 1000;
+		} else if (u.coachMessageDate != null) {
+			expired = u.coachMessageDate < localTodayISO(new Date(now));
+		}
+		if (!expired) continue;
+		await ctx.db.patch(u._id, {
+			coachMessage: undefined,
+			coachMessageDate: undefined,
+			coachMessageAt: undefined,
+			coachMessageExpiresAt: undefined,
+			coachMessageReadAt: undefined,
+			coachMessageAudioId: undefined,
+		});
+		// Supprime uniquement les fichiers non référencés par le journal CRM.
+		await deleteMessageAudioRows(ctx, u._id);
+		removed++;
+	}
+	return removed;
+}
+
+/** Ids des audios conservés par le journal CRM (coachMessages) — pour une cliente. */
+async function journalAudioIds(ctx: Pick<WriterCtx, "db">, userId: Id<"users">): Promise<Set<string>> {
+	const rows = await ctx.db
+		.query("coachMessages")
+		.withIndex("by_user", (q) => q.eq("userId", userId as never))
+		.collect();
+	return new Set(rows.map((r) => (r.audioId ? String(r.audioId) : "")).filter(Boolean));
+}
+
+/** Ids de TOUS les audios journalisés (toutes clientes) — pour le cron global. */
+async function allJournalAudioIds(ctx: Pick<WriterCtx, "db">): Promise<Set<string>> {
+	const rows = await ctx.db.query("coachMessages").collect();
+	return new Set(rows.map((r) => (r.audioId ? String(r.audioId) : "")).filter(Boolean));
+}
+
 /** Nettoyage automatique des audios expirés (cron horaire) — suppression réelle du storage. */
 export const expire = mutation({
 	args: { sessionToken: v.optional(v.string()), guard: v.optional(v.string()) },
@@ -235,11 +295,29 @@ export const expire = mutation({
 			throw new ConvexError("Purge refusée.");
 		}
 		const now = Date.now();
+		// 1) Messages du coach du jour expirés (minuit local cliente) : retrait de
+		//    l'état actif ; les fichiers journalisés (Vision 360) sont conservés.
+		await expireStaleCoachMessages(ctx, now);
+		// Audios conservés par le journal CRM : jamais purgés, ni par l'éphémère
+		// 24 h ni par la rétention 72 h/14 j (ils servent à la réécoute coach).
+		const journaled = await allJournalAudioIds(ctx);
 		const rows = await ctx.db.query("coachMedia").collect();
 		let removed = 0;
 		for (const row of rows) {
 			// Audios publiés : première échéance atteinte (72 h après écoute / 14 j max).
 			if (row.kind === "audio" && row.status === "published") {
+				// Audio du message du jour référencé par le journal CRM : conservé pour
+				// la réécoute coach — ni l'éphémère 24 h ni la rétention ne s'appliquent.
+				if (row.source === "coach_message_audio" && journaled.has(String(row._id))) {
+					continue;
+				}
+				// Audio du message du jour non journalisé (orphelin) : éphémère 24 h.
+				if (row.source === "coach_message_audio" && row.publishedAt && now - row.publishedAt >= 24 * 3600 * 1000) {
+					await ctx.storage.delete(row.storageId);
+					await ctx.db.delete(row._id);
+					removed++;
+					continue;
+				}
 				const expiresAt = mediaExpiresAt(row);
 				if (expiresAt && expiresAt <= now) {
 					await ctx.storage.delete(row.storageId);
@@ -324,7 +402,11 @@ export async function setCheckinMediaVisibility(
 	}
 }
 
-/** Supprime les fichiers du message du coach d'une cliente (remplacement/effacement). */
+/**
+ * Supprime les fichiers du message du coach d'une cliente (remplacement ou
+ * effacement) — JAMAIS ceux référencés par le journal CRM (coachMessages),
+ * qui servent à la réécoute dans la Vision 360.
+ */
 export async function deleteMessageAudioRows(
 	ctx: WriterCtx,
 	userId: Id<"users">,
@@ -334,8 +416,10 @@ export async function deleteMessageAudioRows(
 		.query("coachMedia")
 		.withIndex("by_user_source", (q) => q.eq("userId", userId as never).eq("source", "coach_message_audio"))
 		.collect();
+	const journaled = await journalAudioIds(ctx, userId);
 	for (const row of rows) {
 		if (exceptId && row._id === exceptId) continue;
+		if (journaled.has(String(row._id))) continue;
 		await ctx.storage.delete(row.storageId);
 		await ctx.db.delete(row._id);
 	}

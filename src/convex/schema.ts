@@ -22,6 +22,10 @@ export default defineSchema({
 		passwordHash: v.string(),
 		role: userRole,
 		prenom: v.string(),
+		/** Nom de famille — distinguer deux clientes au même prénom (fiche CRM). */
+		nom: v.optional(v.string()),
+		/** Lien vers le tableur Google Sheets G-FLUX de la cliente — usage coach uniquement, jamais exposé côté client. */
+		gsheetUrl: v.optional(v.string()),
 		disabled: v.optional(v.boolean()),
 		/** Coach qui a créé le compte (pour les clients). */
 		createdBy: v.optional(v.id("users")),
@@ -33,14 +37,35 @@ export default defineSchema({
 		startDate: v.optional(v.string()),
 		/** Message du coach visible par la cliente sur son dashboard (jamais une note interne). */
 		coachMessage: v.optional(v.string()),
-		/** Jour "yyyy-mm-dd" pour lequel le message du coach est actif (le lendemain, il expire). */
+		/** Jour "yyyy-mm-dd" pour lequel le message du coach a été publié (info CRM). */
 		coachMessageDate: v.optional(v.string()),
+		/** Horodatage (ms) de publication — le message est éphémère : il expire au minuit local de la cliente. */
+		coachMessageAt: v.optional(v.number()),
+		/** Minuit local (ms UTC) suivant la publication, dans le fuseau de la cliente — visibilité + nettoyage. */
+		coachMessageExpiresAt: v.optional(v.number()),
+		/** Dernière consultation réelle du message par la cliente ("Vu") — badge non lu tant que vide/antérieur à coachMessageAt. */
+		coachMessageReadAt: v.optional(v.number()),
+		/** Fuseau horaire IANA de la cliente ("Europe/Paris" par défaut) — rafraîchi à sa connexion. */
+		timeZone: v.optional(v.string()),
 		/** Message audio du coach du jour — pointe vers la ligne coachMedia correspondante (publique après publication). */
 		coachMessageAudioId: v.optional(v.id("coachMedia")),
 		/** Onboarding de démarrage exigé pour cette cliente (décidé par le coach). */
 		onboardingEnabled: v.optional(v.boolean()),
 		/** Dernière activité connue (timestamp) — tri du CRM par dernière connexion. */
 		lastSeenAt: v.optional(v.number()),
+		/** Suivi de cycle (carte Accueil cliente + Vision 360 coach) — mêmes questions et formule que l'outil historique. */
+		cycle: v.optional(
+			v.object({
+				contra: v.union(v.literal("none"), v.literal("iud-hormonal"), v.literal("hormonal")),
+				/** « Je n'ai plus de règles régulières » — aucune estimation affichée. */
+				noDate: v.boolean(),
+				/** Premier jour des dernières règles "yyyy-mm-dd". */
+				lmp: v.optional(v.string()),
+				/** Durée moyenne du cycle en jours (21–32). */
+				len: v.optional(v.number()),
+				updatedAt: v.number(),
+			})
+		),
 	}).index("by_email", ["email"]),
 
 	sessions: defineTable({
@@ -295,6 +320,75 @@ export default defineSchema({
 		.index("by_user", ["userId"])
 		.index("by_user_source", ["userId", "source"])
 		.index("by_checkin", ["checkinId"]),
+
+	/**
+	 * Abonnements aux notifications push Web (service worker + VAPID).
+	 * Un enregistrement par endpoint — la clé privée VAPID reste côté serveur
+	 * SvelteKit, jamais ici. L'endpoint et les clés p256dh/auth permettent
+	 * d'envoyer une notification chiffrée à l'appareil de la cliente.
+	 */
+	pushSubscriptions: defineTable({
+		userId: v.id("users"),
+		/** Endpoint fourni par le navigateur (push service). */
+		endpoint: v.string(),
+		/** Clé publique P-256 du client (chiffrement RFC 8291). */
+		p256dh: v.string(),
+		/** Secret d'authentification du client. */
+		auth: v.string(),
+		createdAt: v.number(),
+	})
+		.index("by_user", ["userId"])
+		.index("by_user_endpoint", ["userId", "endpoint"])
+		.index("by_endpoint", ["endpoint"]),
+
+	/**
+	 * Journal des messages du coach envoyés à une cliente (Vision 360 CRM).
+	 * Une ligne par publication : texte et/ou audio, horodatée, avec l'état
+	 * « lu » réel (Vu côté cliente). L'audio référencé est conservé pour la
+	 * réécoute dans le CRM — seul l'état actif du message du jour est éphémère.
+	 */
+	coachMessages: defineTable({
+		userId: v.id("users"),
+		/** Texte du message (si publié avec du texte). */
+		text: v.optional(v.string()),
+		/** Audio publié avec le message (conservé pour la réécoute CRM). */
+		audioId: v.optional(v.id("coachMedia")),
+		/** Horodatage (ms) de la publication. */
+		publishedAt: v.number(),
+		/** Jour "yyyy-mm-dd" de publication (repère CRM). */
+		publishedDay: v.string(),
+		/** Première consultation réelle par la cliente (« Vu »). */
+		readAt: v.optional(v.number()),
+	})
+		.index("by_user", ["userId"])
+		.index("by_user_day", ["userId", "publishedDay"]),
+
+	/**
+	 * Dossier de la cliente (CRM coach) : notes privées et ressources partagées.
+	 * Chaque entrée porte sa visibilité — par défaut « private » (note interne,
+	 * jamais envoyée) ; seules les entrées « shared » apparaissent dans la page
+	 * cliente « Ressources ». Un seul fichier / une seule entrée : la visibilité
+	 * détermine qui peut y accéder, sans duplication physique.
+	 */
+	coachResources: defineTable({
+		userId: v.id("users"),
+		/** « note » (texte) ou « file » (fichier stocké sur Convex storage). */
+		kind: v.union(v.literal("note"), v.literal("file")),
+		/** Titre court affiché côté CRM et côté cliente (ressources partagées). */
+		title: v.string(),
+		/** Corps de la note (kind = "note"). */
+		body: v.optional(v.string()),
+		/** Visibilité : « private » = note/doc privé coach ; « shared » = visible cliente. */
+		visibility: v.union(v.literal("private"), v.literal("shared")),
+		/** Fichier (kind = "file") — pointe vers le storage Convex. */
+		storageId: v.optional(v.id("_storage")),
+		mime: v.optional(v.string()),
+		name: v.optional(v.string()),
+		size: v.optional(v.number()),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	})
+		.index("by_user", ["userId"]),
 
 	/** Une prise de mesures par date (poids, tour de cou, taille, fessier). */
 	bodyMetrics: defineTable({

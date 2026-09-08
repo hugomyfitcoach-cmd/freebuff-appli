@@ -1,7 +1,7 @@
-import { mutation } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { getSessionUser } from "./helpers";
-import type { MutationCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 
 /**
@@ -36,6 +36,28 @@ async function upsertRow(
 	if (existing) await ctx.db.patch(existing._id, { count, createdAt: Date.now() });
 	else await ctx.db.insert("dailySteps", { userId, date, count, createdAt: Date.now() });
 }
+
+/**
+ * Historique quotidien des pas + objectif coach — même source que le
+ * dashboard et le CRM (aucune deuxième base de données). La page « Mes pas »
+ * construit sa fenêtre de 7 jours côté client (fuseau de la cliente) ; une
+ * journée sans ligne n'est jamais interprétée comme 0 pas.
+ */
+export const myHistory = query({
+	args: { sessionToken: v.optional(v.string()) },
+	handler: async (ctx: QueryCtx, { sessionToken }) => {
+		const user = await getSessionUser(ctx, sessionToken);
+		if (!user || user.role !== "client") throw new ConvexError("Session invalide.");
+		const [goalsRow, rows] = await Promise.all([
+			ctx.db.query("clientGoals").withIndex("by_userId", (q) => q.eq("userId", user._id)).first(),
+			ctx.db.query("dailySteps").withIndex("by_user", (q) => q.eq("userId", user._id)).order("asc").collect(),
+		]);
+		return {
+			goal: goalsRow?.stepGoal ?? null,
+			rows: rows.map((r) => ({ date: r.date, count: r.count })),
+		};
+	},
+});
 
 /** Enregistre (ou corrige) le nombre de pas de la journée. */
 export const setSteps = mutation({

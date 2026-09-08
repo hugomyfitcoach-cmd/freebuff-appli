@@ -10,6 +10,9 @@
 	--color-mist: #999990;
 	--color-card: #ffffff;
 	--color-line: #e5e3dc;
+	/* Espace cliente : fond gris très doux à nuance verte (direction mobile premium). */
+	--color-soft: #f4f6f4;
+	--color-soft-deep: #e9ede9;
 	--color-danger: #ff4444;
 	--color-danger-light: #fff0f0;
 	--color-warn: #ff9500;

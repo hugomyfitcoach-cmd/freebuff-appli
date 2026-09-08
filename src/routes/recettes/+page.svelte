@@ -146,19 +146,6 @@
 	let view = $state<string>('home');
 	let open = $state<Set<string>>(new Set());
 
-	/** Thème du guide : 'dark' (fichier d'origine) ou 'light' (palette cream G-Flux). */
-	let theme = $state<'dark' | 'light'>('dark');
-
-	const logo = $derived(theme === 'light' ? '/logo-header.jpg' : '/logo-guide.png');
-
-	$effect(() => {
-		if (browser) window.localStorage.setItem('gflux_guide_theme', theme);
-	});
-
-	function toggleTheme() {
-		theme = theme === 'dark' ? 'light' : 'dark';
-	}
-
 	function goTo(id: string) {
 		view = id;
 		window.scrollTo(0, 0);
@@ -179,22 +166,13 @@
 
 <svelte:head>
 	<title>Guide nutrition & recettes — G-Flux</title>
-	<link rel="preconnect" href="https://fonts.googleapis.com" />
-	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
-	<link
-		href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap"
-		rel="stylesheet"
-	/>
 </svelte:head>
 
-<div class="guide-root" class:theme-light={theme === 'light'}>
+<div class="guide-root theme-light">
 	{#if view === 'home'}
 		<!-- ACCUEIL : choix d'une section -->
 		<div class="home-screen">
-			<div class="home-logo">
-				<img src={logo} alt="G-Flux" style="height:56px;width:auto;display:block;" />
-			</div>
-			<div class="home-title">Guide Complet<br />Nutrition & Recettes</div>
+			<div class="home-title">Guide nutrition &amp; recettes</div>
 			<div class="home-sub">Sélectionne une section pour commencer</div>
 
 			<div class="home-nav">
@@ -219,10 +197,7 @@
 	{:else}
 		<!-- BARRE DU GUIDE -->
 		<div class="topbar">
-			<div class="logo">
-				<img src={logo} alt="G-Flux" style="height:32px;width:auto;display:block;" />
-			</div>
-			<button type="button" class="home-back-btn" onclick={goHome}>← Accueil</button>
+			<button type="button" class="home-back-btn" onclick={goHome}>← Toutes les sections</button>
 			<div class="topbar-right">
 				<span class="badge-count">105 recettes · 5 guides</span>
 				<span>Guide Nutrition</span>
@@ -348,10 +323,7 @@
 
 		<!-- PIED DE PAGE -->
 		<div class="footer">
-			<div class="footer-brand">
-				<img src={logo} alt="G-Flux" style="height:24px;width:auto;vertical-align:middle;margin-right:8px;" />
-				Coaching
-			</div>
+			<div class="footer-brand">Coaching</div>
 			<div class="footer-copy">GH Online Fit Trainer Ltd · myfit-coach.fr</div>
 		</div>
 	{/if}
@@ -363,18 +335,4 @@
 		</div>
 	{/if}
 
-	<!-- Bascule de thème (clair / sombre) -->
-	<button
-		type="button"
-		class="theme-toggle"
-		aria-pressed={theme === 'light'}
-		onclick={toggleTheme}
-		title={theme === 'dark' ? 'Passer en mode clair' : 'Passer en mode sombre'}
-	>
-		{#if theme === 'dark'}
-			<Icon name="sun" size={16} /> Mode clair
-		{:else}
-			<Icon name="moon" size={16} /> Mode sombre
-		{/if}
-	</button>
 </div>

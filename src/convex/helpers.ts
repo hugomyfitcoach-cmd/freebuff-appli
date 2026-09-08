@@ -139,6 +139,65 @@ export function formatWeekLabel(weekStartISO: string): string {
 
 const ISO_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
+const TZ_NAME_RE = /^[A-Za-z_]+\/[A-Za-z_+\-]+$/;
+
+/** Valide un nom de fuseau IANA (ex. "Europe/Paris") — jamais de valeur arbitraire stockée. */
+export function validTimeZone(tz: string | null | undefined): string | null {
+	if (!tz || !TZ_NAME_RE.test(tz)) return null;
+	try {
+		new Intl.DateTimeFormat("en-US", { timeZone: tz });
+		return tz;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Instant (ms UTC) du MINUIT local suivant `ts` dans le fuseau `timeZone`
+ * (ex. "Europe/Paris") : le message du jour publié le jour local D expire au
+ * passage à D+1 — calculé dans le fuseau de la cliente, pas dans celui du
+ * serveur. Utilise l'ICU complet du runtime (vérifié sur le déploiement).
+ */
+export function nextMidnightUtcMs(ts: number, timeZone: string): number {
+	const fmt = new Intl.DateTimeFormat("en-CA", {
+		timeZone,
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+		hour: "2-digit",
+		minute: "2-digit",
+		second: "2-digit",
+		hourCycle: "h23",
+	});
+	const wallAt = (t: number) => {
+		const p = fmt.formatToParts(new Date(t));
+		const g = (type: string) => Number(p.find((x) => x.type === type)?.value ?? "0");
+		return {
+			year: g("year"),
+			month: g("month"),
+			day: g("day"),
+			hour: g("hour"),
+			minute: g("minute"),
+			second: g("second"),
+		};
+	};
+	// Heure locale de publication, puis minuit local du lendemain en UTC-naïf.
+	const a = wallAt(ts);
+	const target = Date.UTC(a.year, a.month - 1, a.day + 1); // 00:00:00 local (naïf)
+	// Corrige par l'offset réel du fuseau au voisinage (1-2 itérations, DST inclus) :
+	// offset = wallNaive - guess, et on cherche guess tel que guess + offset = target.
+	let guess = target;
+	for (let i = 0; i < 4; i++) {
+		const w = wallAt(guess);
+		const wallNaive = Date.UTC(w.year, w.month - 1, w.day, w.hour, w.minute, w.second);
+		const offset = wallNaive - guess;
+		const next = target - offset;
+		if (next === guess) break;
+		guess = next;
+	}
+	return guess;
+}
+
 /** Date du jour au format "yyyy-mm-dd" (fuseau du serveur). */
 export function localTodayISO(now: Date = new Date()): string {
 	const y = now.getFullYear();

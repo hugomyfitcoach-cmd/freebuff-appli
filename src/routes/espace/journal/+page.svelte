@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, tick, untrack } from 'svelte';
 	import { startBarcodeScanner, type BarcodeScannerHandle } from '$lib/barcodeScanner';
+	import JournalDay from '$lib/components/JournalDay.svelte';
 	import QuantitySheet from '$lib/components/QuantitySheet.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 
@@ -138,7 +139,6 @@
 		}
 		return t;
 	});
-	const remaining = $derived(Math.max(0, day.goals.kcal - totals.kcal));
 	/** Filet de sécurité : maintenance > objectif — sinon le comportement actuel est conservé. */
 	const maintenanceKcal = $derived(
 		day.goals.maintenanceKcal && day.goals.maintenanceKcal > day.goals.kcal ? day.goals.maintenanceKcal : null
@@ -147,26 +147,17 @@
 	const barScale = $derived(maintenanceKcal ?? day.goals.kcal);
 	const kcalPct = $derived(barScale > 0 ? Math.min(100, (totals.kcal / barScale) * 100) : 0);
 	const overGoal = $derived(totals.kcal > day.goals.kcal);
-	const inSafetyNet = $derived(!!maintenanceKcal && totals.kcal > day.goals.kcal && totals.kcal <= maintenanceKcal);
 	const overMaintenance = $derived(!!maintenanceKcal && totals.kcal > maintenanceKcal);
-	/** Position du marqueur « Objectif » sur la barre (en % de l'échelle). */
-	const goalMarkPct = $derived(barScale > 0 ? (day.goals.kcal / barScale) * 100 : 0);
 	/** Teinte contextuelle des calories (filet de sécurité compris). */
 	const kcalTone = $derived(overMaintenance ? '#ef4444' : overGoal ? '#f59e0b' : '#1db954');
 
 	/* ————— Mini-barre sticky (HUD nutritionnel) ————— */
 	let stickyBar = $state(false);
-	let calCard: HTMLElement | undefined;
+	let calCardEl: HTMLElement | undefined;
 	let pageWrap: HTMLElement | undefined;
 	/** Position/portée de la mini-barre : calée sur le conteneur du Journal. */
 	let barStyle = $state({ left: 0, width: 0 });
 
-	function mealEntries(meal: string) {
-		return day.entries.filter((e) => e.meal === meal);
-	}
-	function mealKcal(meal: string) {
-		return Math.round(mealEntries(meal).reduce((s, e) => s + e.kcal, 0));
-	}
 	function macroPct(eaten: number, goal: number) {
 		return goal > 0 ? Math.min(100, (eaten / goal) * 100) : 0;
 	}
@@ -798,15 +789,6 @@
 			setKb();
 		}
 
-		/* Mini-barre sticky : dès que la carte nutritionnelle complète sort du
-		   viewport, on affiche le HUD compact ; il disparaît au retour en haut. */
-		if (calCard && 'IntersectionObserver' in window) {
-			const io = new IntersectionObserver((entries) => {
-				for (const e of entries) stickyBar = !e.isIntersecting;
-			}, { threshold: 0 });
-			io.observe(calCard);
-		}
-
 		/* Barre sticky : alignée sur le conteneur du Journal (largeur max centrée),
 		   indépendamment de la sidebar desktop ou des marges du viewport. */
 		const setBarPos = () => {
@@ -819,6 +801,18 @@
 		window.addEventListener('resize', setBarPos);
 	});
 
+	/* Mini-barre sticky : dès que la carte nutritionnelle (rendue par JournalDay)
+	   sort du viewport, on affiche le HUD compact ; il disparaît au retour en haut. */
+	$effect(() => {
+		const el = calCardEl;
+		if (!el || typeof IntersectionObserver === 'undefined') return;
+		const io = new IntersectionObserver((entries) => {
+			for (const e of entries) stickyBar = !e.isIntersecting;
+		}, { threshold: 0 });
+		io.observe(el);
+		return () => io.disconnect();
+	});
+
 	/* Verrouille le scroll du fond quand un panneau plein écran est ouvert. */
 	$effect(() => {
 		const locked = logOpen || !!qtyFood || !!editEntry || !!qtyMealSel;
@@ -828,11 +822,16 @@
 
 <svelte:head><title>Journal — G-Flux</title></svelte:head>
 
-<svelte:window ontouchstart={onTouchStart} ontouchend={onTouchEnd} />
+<svelte:window ontouchstart={onTouchStart} ontouchend={onTouchEnd} />	<div bind:this={pageWrap} class="relative mx-auto w-full max-w-2xl px-3 pb-28 pt-4 sm:px-6">
+	<!-- Vague dégradée douce (esprit « Recettes ») : blanc → gris très clair → vert très pâle,
+	     uniquement derrière la zone haute du journal — jamais un dégradé plein écran. -->
+	<div
+		aria-hidden="true"
+		class="pointer-events-none absolute inset-x-0 -top-8 z-0 h-72 rounded-b-[3rem] bg-[linear-gradient(180deg,#e2f1e8_0%,#eef5ef_58%,rgba(244,246,244,0)_100%)]"
+	></div>
 
-<div bind:this={pageWrap} class="mx-auto w-full max-w-2xl px-3 pb-28 pt-4 sm:px-6">
 	<!-- En-tête : date + navigation -->
-	<header class="mb-3 flex items-center justify-between gap-2">
+	<header class="relative z-10 mb-3 flex items-center justify-between gap-2">
 		<button
 			type="button"
 			class="grid h-9 w-9 place-items-center rounded-full border-2 border-line bg-card text-lg font-bold text-ink transition hover:border-brand"
@@ -870,157 +869,19 @@
 		</div>
 	{/if}
 
-	<div class="transition-opacity" class:opacity-40={loadingDay}>
-		<!-- Carte calories -->
-		<section bind:this={calCard} class="mb-2.5 rounded-2xl border border-line bg-card p-4">
-			<div class="flex items-start justify-between gap-3">
-				<p class="text-sm text-ink">
-					{overGoal ? (overMaintenance ? 'Maintenance dépassée de' : 'Objectif dépassé de') : 'Il te reste'}
-					<span class="block text-3xl font-bold leading-tight text-ink">
-						{overGoal ? (overMaintenance ? fmt(totals.kcal - (maintenanceKcal ?? day.goals.kcal)) : fmt(totals.kcal - day.goals.kcal)) : fmt(remaining)}<span class="ml-1 text-base font-semibold text-mist">kcal</span>
-					</span>
-				</p>
-				<Icon name="flame" size={26} class="mt-0.5 text-brand" />
-			</div>
-			{#if inSafetyNet}
-				<p class="mt-0.5 flex items-center gap-1 text-xs font-semibold text-warn"><Icon name="lifeBuoy" size={13} class="shrink-0" /> Dans ton filet de sécurité</p>
-			{/if}
-			{#if overMaintenance}
-				<p class="mt-0.5 text-xs font-semibold text-danger/80">Ta journée reste dans le cadre sur la durée — on ajuste ensemble si besoin.</p>
-			{/if}
-			<div class="relative mt-3 h-2 w-full overflow-hidden rounded-full bg-line/70">
-				{#if maintenanceKcal}
-					<!-- Zone « filet de sécurité » entre l'objectif et la maintenance -->
-					<div class="absolute inset-y-0 rounded-full bg-warn-light" style="left: {goalMarkPct}%; right: 0"></div>
-				{/if}
-				<div
-					class="relative h-full rounded-full transition-all duration-500 {overMaintenance ? 'bg-danger' : overGoal ? 'bg-warn' : 'bg-brand'}"
-					style:width="{kcalPct}%"
-				></div>
-				{#if maintenanceKcal}
-					<!-- Marqueur vertical de l'objectif (la cible principale) -->
-					<div class="absolute inset-y-[-3px] w-[2px] rounded bg-ink/60" style="left: {goalMarkPct}%" title="Objectif : {fmt(day.goals.kcal)} kcal"></div>
-				{/if}
-			</div>
-			<div class="mt-1.5 flex items-baseline justify-between gap-2 text-xs">
-				<span class="font-semibold {overMaintenance ? 'text-danger' : overGoal ? 'text-warn' : 'text-brand'}">{fmt(Math.round(totals.kcal))} kcal consommées</span>
-				<span class="text-right">
-					<span class="font-semibold text-ink">Objectif : {fmt(day.goals.kcal)}</span>
-					{#if maintenanceKcal}
-						<span class="ml-1 text-[11px] text-mist">· Maintenance : {fmt(maintenanceKcal)}</span>
-					{/if}
-				</span>
-			</div>
-				<div class="mt-2 inline-flex items-center gap-1.5 rounded-full bg-danger-light px-2.5 py-1 text-[11px] font-semibold text-danger">
-					<Icon name="clock" size={12} /> 0 kcal brûlées
-				</div>
-		</section>
-
-		<!-- Macros -->
-		<section class="mb-2.5 grid grid-cols-3 gap-2">
-			{#each rings as ring (ring.label)}
-				{@const pct = macroPct(ring.eaten, ring.goal)}
-				{@const circ = 2 * Math.PI * 22}
-				<div class="rounded-2xl border border-line bg-card px-2 pb-2 pt-2.5 text-center">
-					<div class="mb-1 flex items-center justify-between">
-						<span class="text-[10px] font-bold text-ink">{ring.label}</span>
-						<Icon name={ring.icon} size={14} class="shrink-0" style="color:{ring.color}" />
-					</div>
-					<div class="relative mx-auto h-[76px] w-[76px] md:h-[84px] md:w-[84px]">
-						<svg viewBox="0 0 64 64" class="h-[76px] w-[76px] -rotate-90 md:h-[84px] md:w-[84px]">
-							<circle cx="32" cy="32" r="22" fill="none" stroke="#eef0ec" stroke-width="8" />
-							<circle
-								cx="32"
-								cy="32"
-								r="22"
-								fill="none"
-								stroke={ring.color}
-								stroke-width="8"
-								stroke-linecap="round"
-								stroke-dasharray={circ}
-								stroke-dashoffset={circ * (1 - pct / 100)}
-								style="transition: stroke-dashoffset .5s"
-							/>
-						</svg>
-						<span class="absolute inset-0 grid place-items-center font-bold leading-none" style:color={ring.color}>
-							<span class="text-[15px] md:text-[17px]">{Math.round(pct)}%</span>
-						</span>
-					</div>
-					<p class="mt-2 text-[11px] text-ink">
-						<strong class="font-bold">{fmt(Math.round(ring.eaten))}</strong><span class="text-mist">/{fmt(ring.goal)}g</span>
-					</p>
-				</div>
-			{/each}
-		</section>
-
-		<!-- Astuce du jour -->
-		{#if !tipDismissed}
-			<section class="mb-2.5 rounded-2xl border border-dashed border-brand/40 bg-brand-light/40 px-3.5 py-2.5">
-				<div class="flex items-center justify-between">
-					<span class="text-[10px] font-bold uppercase tracking-widest text-brand">Astuce du jour</span>
-					<button
-						type="button"
-						class="grid h-6 w-6 place-items-center rounded-full bg-line/60 text-xs text-mist hover:bg-line"
-						aria-label="Fermer l'astuce"
-						onclick={() => (tipDismissed = true)}
-					>✕</button>
-				</div>
-				<p class="mt-1 text-[13px] leading-snug text-ink">{tip}</p>
-			</section>
-		{/if}
-
-		<!-- Repas -->
-		{#each MEAL_DEFS as meal (meal.id)}
-			{@const entries = mealEntries(meal.id)}
-			<section class="mb-2.5 overflow-hidden rounded-2xl border border-line bg-card">
-				<header class="flex items-center justify-between gap-2 px-3.5 pt-2.5">
-					<h2 class="flex min-w-0 items-center font-display text-[15px] font-semibold text-ink">
-						<Icon name={meal.icon} size={15} class="mr-1.5 shrink-0 text-brand" />{meal.label}
-						{#if mealKcal(meal.id) > 0}
-							<span class="ml-2 text-xs font-semibold text-brand">{fmt(mealKcal(meal.id))} kcal</span>
-						{/if}
-					</h2>
-					<button
-						type="button"
-						class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-brand text-base font-bold text-white transition hover:bg-brand-dark"
-						aria-label={`Ajouter au ${meal.label}`}
-						onclick={() => { qtyMeal = meal.id; openLog(meal.id); }}
-					>+</button>
-				</header>
-				<div class="mt-1.5 px-1 pb-1">
-					{#if entries.length === 0}
-						<p class="px-2.5 py-2 text-center text-xs text-mist">Rien pour l'instant — ajoute un aliment avec « + ».</p>
-					{:else}
-						<div class="divide-y divide-line/60">
-							{#each entries as e (e._id)}
-								<button
-									type="button"
-									class="flex w-full items-center gap-2.5 px-2 py-1.5 text-left transition hover:bg-line/40"
-									onclick={() => openEdit(e)}
-								>
-									{#if e.imageUrl}
-										<img src={e.imageUrl} alt="" class="h-9 w-9 shrink-0 rounded-lg object-cover" loading="lazy" />
-									{:else}
-										<div class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={16} class="text-brand" /></div>
-									{/if}
-									<span class="min-w-0 flex-1">
-										<span class="block truncate text-sm font-semibold text-ink">{e.name}</span>
-										<span class="block text-[11px] text-mist">
-											<strong class="font-bold text-brand">{fmt(e.kcal)} kcal</strong>
-											{#if e.portions}
-												· {String(e.portions).replace('.', ',')} {e.portions === 1 ? 'portion' : 'portions'}
-											{:else}
-												· {fmt(e.qtyGrams)} g
-											{/if}
-										</span>
-									</span>
-								</button>
-							{/each}
-						</div>
-					{/if}
-				</div>
-			</section>
-		{/each}
+	<div class="relative z-10 transition-opacity" class:opacity-40={loadingDay}>
+		<!-- Journée complète : carte calories + macros + astuce + repas.
+		     Composant partagé avec la Vision 360 coach (même rendu, une seule
+		     logique visuelle). Côté client : ligne cliquable → édition. -->
+		<JournalDay
+			{day}
+			mode="client"
+			tip={tipDismissed ? null : tip}
+			onAdd={(meal) => openLog(meal as 'petit-dej' | 'dejeuner' | 'diner' | 'collation')}
+			onEntryClick={openEdit}
+			onCalCardMount={(el) => (calCardEl = el)}
+			onTipDismiss={() => (tipDismissed = true)}
+		/>
 
 		<p class="mt-4 text-center text-xs text-mist">
 			Glisse le journal à gauche/droite (ou utilise les chevrons) pour changer de jour.

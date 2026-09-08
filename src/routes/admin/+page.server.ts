@@ -2,9 +2,9 @@ import { redirect } from '@sveltejs/kit';
 import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { convex } from '$lib/server/convex';
-import { api } from '../../convex/_generated/api.js';
-import { SESSION_COOKIE, requireRole } from '$lib/server/session';
-import { errMsg } from '$lib/errors.js';	export const load: PageServerLoad = async (event) => {
+import { api } from '../../convex/_generated/api.js';	import { SESSION_COOKIE, requireRole } from '$lib/server/session';
+	import { errMsg } from '$lib/errors.js';
+	import { sendPushToUser } from '$lib/server/push.js';	export const load: PageServerLoad = async (event) => {
 	await requireRole(event, 'coach', { next: '/admin' });
 	const token = event.cookies.get(SESSION_COOKIE);
 
@@ -16,6 +16,9 @@ import { errMsg } from '$lib/errors.js';	export const load: PageServerLoad = asy
 	// (?client=…) — jamais automatiquement à l'arrivée sur /admin. Sinon il se
 	// rouvre sans cesse sur le premier client et on ne peut plus revenir à la liste.
 	const selectedId = param && clients.some((c: { user: { _id: string } }) => c.user._id === param) ? param : null;
+	// Semaine d'origine quand le 360 est ouvert depuis la vue globale « Bilans »
+	// (?week=yyyy-mm-dd) — sert au lien retour « Tous les bilans » de l'onglet Bilans.
+	const weekParam = /^\d{4}-\d{2}-\d{2}$/.test(event.url.searchParams.get('week') ?? '') ? event.url.searchParams.get('week') : null;
 
 	const view = selectedId
 		? await convex.query(api.coach.client360, { sessionToken: token, userId: selectedId as never })
@@ -34,16 +37,22 @@ import { errMsg } from '$lib/errors.js';	export const load: PageServerLoad = asy
 	const onboardingView = selectedId
 		? await convex.query(api.onboarding.coachView, { sessionToken: token, userId: selectedId as never })
 		: null;
+	// Journal CRM des messages du coach envoyés (historique daté, lu/non lu, réécoute).
+	const messageLog = selectedId
+		? await convex.query(api.coach.messageLog, { sessionToken: token, userId: selectedId as never })
+		: [];
 
 	return {
 		clients,
 		bilansBoard,
 		selectedId,
+		weekParam,
 		view,
 		checkins,
 		photos,
 		media,
 		onboardingView,
+		messageLog,
 		form: null as null | { action: string; error?: string; ok?: string },
 	};
 };
@@ -59,6 +68,7 @@ export const actions: Actions = {
 		const form = await event.request.formData();
 		const email = String(form.get('email') ?? '');
 		const prenom = String(form.get('prenom') ?? '');
+		const nom = String(form.get('nom') ?? '');
 		const password = String(form.get('password') ?? '');
 		const token = event.cookies.get(SESSION_COOKIE);
 		try {
@@ -67,6 +77,7 @@ export const actions: Actions = {
 				email,
 				password,
 				prenom,
+				...(nom.trim() ? { nom } : {}),
 			});
 			return { action: 'createClient', ok: `Compte créé : ${prenom.trim()} (${email.trim()}). Pense à lui transmettre ses identifiants.`, userId: res.userId };
 		} catch (e) {
@@ -78,9 +89,11 @@ export const actions: Actions = {
 		const form = await event.request.formData();
 		const userId = String(form.get('userId') ?? '');
 		const prenom = String(form.get('prenom') ?? '');
+		const nom = String(form.get('nom') ?? '');
 		const email = String(form.get('email') ?? '');
 		const birthDate = String(form.get('birthDate') ?? '');
 		const startDate = String(form.get('startDate') ?? '');
+		const gsheetUrl = String(form.get('gsheetUrl') ?? '');
 		const heightRaw = String(form.get('heightCm') ?? '');
 		// Checkbox + jumeau caché (0) : présent dans tous les cas → vrai toggle.
 		const onboardingEnabled = String(form.get('onboardingEnabled') ?? '0') === '1';
@@ -90,9 +103,11 @@ export const actions: Actions = {
 				sessionToken: token,
 				userId: userId as never,
 				prenom,
+				...(nom.trim() ? { nom } : { nom: '' }),
 				email,
 				birthDate,
 				startDate,
+				gsheetUrl,
 				heightCm: heightRaw ? Number(heightRaw) : undefined,
 				onboardingEnabled,
 			});
@@ -202,6 +217,15 @@ export const actions: Actions = {
 			if (res.hasText) parts.push('texte');
 			if (res.hasAudio) parts.push('audio');
 			const what = parts.length ? `Message ${parts.join(' + ')} publié pour aujourd'hui` : 'Message du coach supprimé';
+			// Notification push (uniquement à la publication — jamais à l'effacement).
+			if (parts.length > 0) {
+				const preview = message.trim().slice(0, 90) || "Un message audio t'attend.";
+				await sendPushToUser(
+					userId,
+					{ title: 'Nouveau message de ton coach', body: preview, url: '/espace', tag: 'coach-message' },
+					token
+				);
+			}
 			return { action: 'setCoachMessage', ok: `${what} — visible en haut du dashboard de la cliente.`, clientId: userId };
 		} catch (e) {
 			return fail(400, { action: 'setCoachMessage', error: errMsg(e), clientId: userId });
@@ -228,6 +252,19 @@ export const actions: Actions = {
 				: feedback.trim()
 					? 'Brouillon enregistré — invisible pour la cliente tant que tu n’as pas publié.'
 					: 'Bilan conservé en « À traiter ».';
+			// Notification push à la publication du retour (jamais pour un brouillon).
+			if (isPublish) {
+				await sendPushToUser(
+					clientId,
+					{
+						title: 'Retour de ton coach',
+						body: 'Ton retour de bilan est disponible — retrouve-le dans « Mes bilans ».',
+						url: '/espace/historique',
+						tag: 'coach-feedback',
+					},
+					token
+				);
+			}
 			return { action: 'setFeedback', ok, clientId };
 		} catch (e) {
 			return fail(400, { action: 'setFeedback', error: errMsg(e) });

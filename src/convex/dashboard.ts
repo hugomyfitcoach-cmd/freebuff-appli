@@ -1,15 +1,16 @@
 import { mutation, query } from "./_generated/server";
-import { v, ConvexError } from "convex/values";
-import {
-	addDaysISO,
-	addMonthsISO,
-	daysBetweenISO,
-	getSessionUser,
-	isBilanWindowOpen,
-	localTodayISO,
-	mondayISOof,
-	monthsBetweenISO,
-} from "./helpers";
+import { v, ConvexError } from "convex/values";	import {
+		addDaysISO,
+		addMonthsISO,
+		daysBetweenISO,
+		getSessionUser,
+		isBilanWindowOpen,
+		localTodayISO,
+		mondayISOof,
+		monthsBetweenISO,
+		nextMidnightUtcMs,
+		validTimeZone,
+	} from "./helpers";
 import type { QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { DEFAULT_GOALS } from "./journal";
@@ -74,13 +75,25 @@ export const getDashboard = query({
 			ctx.db.query("diaryEntries").withIndex("by_user_date", (q) => q.eq("userId", user._id).gte("date", prevMonday).lt("date", addDaysISO(weekStart, 7))).collect(),
 			ctx.db.query("clientGoals").withIndex("by_userId", (q) => q.eq("userId", user._id)).first(),
 			ctx.db.query("dailySteps").withIndex("by_user", (q) => q.eq("userId", user._id)).order("asc").collect(),
-		]);		/* ── Message du coach (texte et/ou audio) : actif uniquement pour le jour associé ── */
+		]);		/* ── Message du coach (texte et/ou audio) : éphémère, visible jusqu'au minuit
+		   LOCAL DE LA CLIENTE suivant la publication (jamais le minuit serveur/UTC).
+		   Replis compat : messages antérieurs au passage en horodatage = 24 h fixes,
+		   puis (pré-timestamp) = jour exact — jamais de message périmé qui ressortirait. */
+		const MSG_TTL_MS = 24 * 3600 * 1000;
+		const msgAt = user.coachMessageAt ?? null;
+		const msgExp = user.coachMessageExpiresAt ?? null;
+		const msgFresh = msgExp
+			? ts < msgExp
+			: msgAt
+				? ts - msgAt < MSG_TTL_MS
+				: user.coachMessageDate === day;
 		let coachMessage: {
 			date: string;
 			text: string | null;
 			audio: { mediaId: string; durationMs: number | null; url: string } | null;
+			read: boolean;
 		} | null = null;
-		if (user.coachMessageDate === day) {
+		if (msgFresh) {
 			const text = user.coachMessage ?? null;
 			let audio: { mediaId: string; durationMs: number | null; url: string } | null = null;
 			const audioRow = user.coachMessageAudioId ? await ctx.db.get(user.coachMessageAudioId) : null;
@@ -97,7 +110,13 @@ export const getDashboard = query({
 				}
 			}
 			if (text || audio) {
-				coachMessage = { date: user.coachMessageDate, text, audio };
+				const read = msgAt ? (user.coachMessageReadAt ?? 0) >= msgAt : true;
+				coachMessage = {
+					date: user.coachMessageDate ?? localTodayISO(new Date(ts)),
+					text,
+					audio,
+					read,
+				};
 			}
 		}
 
@@ -137,12 +156,14 @@ export const getDashboard = query({
 		const currentWeekCheckin = checkins.find((c) => c.weekStart === weekStart) ?? null;
 		const bilanDue = windowOpen && !currentWeekCheckin;
 
-		/* ── Retour coach : publié mais pas encore consulté ── */
-		const latestFeedback = checkins.find((c) => c.status === "retour_envoye") ?? null;
-		const feedbackUnread = latestFeedback
-			? latestFeedback.feedbackReadAt == null ||
-				latestFeedback.feedbackReadAt < (latestFeedback.feedbackAt ?? latestFeedback._creationTime)
-			: false;
+		/* ── Retours coach publiés : chaque retour non consulté compte réellement
+		   (jamais un simple « 1 » codé en dur) ── */
+		const withReturn = checkins.filter((c) => c.status === "retour_envoye");
+		const unreadReturns = withReturn.filter(
+			(c) => c.feedbackReadAt == null || c.feedbackReadAt < (c.feedbackAt ?? c._creationTime)
+		);
+		const unreadCount = unreadReturns.length;
+		const latestFeedback = (unreadReturns[0] ?? withReturn[0]) ?? null;
 
 		/* ── Onboarding de démarrage (si activé par le coach) ── */
 		let onboarding: {
@@ -244,14 +265,20 @@ export const getDashboard = query({
 			},
 			bilan: { due: bilanDue, windowOpen },
 			feedback: {
-				unread: feedbackUnread,
+				unread: unreadCount > 0,
+				unreadCount,
 				hasCheckins: checkins.length > 0,
 				latestWeekLabel: latestFeedback?.weekLabel ?? null,
 				latestFeedbackAt: latestFeedback?.feedbackAt ?? null,
 			},
 			recap,
 			badges: {
-				bilans: (bilanDue ? 1 : 0) + (feedbackUnread ? 1 : 0),
+				// « bilans » = actions en attente sur l'Accueil (bilan à faire + retours non lus).
+				bilans: (bilanDue ? 1 : 0) + unreadCount,
+				// « retours » = uniquement les retours coach non consultés (page Mes bilans).
+				retours: unreadCount,
+				// « message » = message du coach du jour non encore marqué « Vu » par la cliente.
+				message: msgFresh && (msgAt ? (user.coachMessageReadAt ?? 0) < msgAt : false) ? 1 : 0,
 				progression: (measurementsDue ? 1 : 0) + (photosDue ? 1 : 0),
 			},
 		};
@@ -279,6 +306,108 @@ export const markFeedbackRead = mutation({
 			await ctx.db.patch(checkinId, { feedbackReadAt: Date.now() });
 		}
 		return { ok: true };
+	},
+});
+
+/**
+ * La cliente marque réellement le message du coach du jour comme lu (« Vu ») :
+ * le badge non lu et la mise en évidence de l'Accueil disparaissent. Une
+ * simple consultation de l'Accueil ne suffit jamais — c'est un geste explicite
+ * (ou l'écoute de l'audio via markListened) qui consomme l'état non lu.
+ */
+export const markCoachMessageRead = mutation({
+	args: { sessionToken: v.optional(v.string()) },		handler: async (ctx, { sessionToken }) => {
+			const user = await requireClient(ctx, sessionToken);
+			const msgAt = user.coachMessageAt ?? null;
+			if (!msgAt) return { ok: false };
+			if ((user.coachMessageReadAt ?? 0) < msgAt) {
+				await ctx.db.patch(user._id, { coachMessageReadAt: Date.now() });
+			}
+			// Journal CRM : toutes les publications jusqu'à celle en cours deviennent lues.
+			const now = Date.now();
+			const log = await ctx.db
+				.query("coachMessages")
+				.withIndex("by_user", (q) => q.eq("userId", user._id))
+				.collect();
+			for (const row of log) {
+				if (row.readAt == null && row.publishedAt <= msgAt) {
+					await ctx.db.patch(row._id, { readAt: now });
+				}
+			}
+			return { ok: true };
+		},
+});
+
+/**
+ * La cliente a réellement ouvert la section « Messages » (qui liste le journal
+ * des messages du coach) : chaque publication non encore consultée passe en
+ * « lu », y compris les messages antérieurs dont l'éphémère 24 h a expiré.
+ */
+export const markAllCoachMessagesRead = mutation({
+	args: { sessionToken: v.optional(v.string()) },
+	handler: async (ctx, { sessionToken }) => {
+		const user = await requireClient(ctx, sessionToken);
+		const now = Date.now();
+		const log = await ctx.db
+			.query("coachMessages")
+			.withIndex("by_user", (q) => q.eq("userId", user._id))
+			.collect();
+		let updated = 0;
+		for (const row of log) {
+			if (row.readAt == null) {
+				await ctx.db.patch(row._id, { readAt: now });
+				updated++;
+			}
+		}
+		if (user.coachMessageAt && (user.coachMessageReadAt ?? 0) < user.coachMessageAt) {
+			await ctx.db.patch(user._id, { coachMessageReadAt: now });
+		}
+		return { ok: true, updated };
+	},
+});
+
+/**
+ * Journal des messages du coach vus côté cliente (section « Messages »).
+ * Une ligne par publication (texte et/ou audio), de la plus récente à la plus
+ * ancienne — les messages déjà « lus » restent consultables ici pour toujours.
+ */
+export const myCoachMessages = query({
+	args: { sessionToken: v.optional(v.string()) },
+	handler: async (ctx, { sessionToken }) => {
+		const user = await requireClient(ctx, sessionToken);
+		const rows = await ctx.db
+			.query("coachMessages")
+			.withIndex("by_user", (q) => q.eq("userId", user._id))
+			.order("desc")
+			.collect();
+		const out: {
+			publishedAt: number;
+			publishedDay: string;
+			text: string | null;
+			readAt: number | null;
+			audio: { mediaId: string; durationMs: number | null; url: string } | null;
+		}[] = [];
+		for (const r of rows) {
+			let audio: { mediaId: string; durationMs: number | null; url: string } | null = null;
+			if (r.audioId) {
+				const media = await ctx.db.get(r.audioId);
+				if (media && media.kind === "audio" && media.status === "published") {
+					audio = {
+						mediaId: String(r.audioId),
+						durationMs: media.durationMs ?? null,
+						url: (await ctx.storage.getUrl(media.storageId)) ?? "",
+					};
+				}
+			}
+			out.push({
+				publishedAt: r.publishedAt,
+				publishedDay: r.publishedDay,
+				text: r.text ?? null,
+				readAt: r.readAt ?? null,
+				audio: audio && audio.url ? audio : null,
+			});
+		}
+		return out;
 	},
 });
 
@@ -325,21 +454,43 @@ export const setCoachMessage = mutation({
 		}
 
 		if (!trimmed && !audioId) {
-			// Message entièrement vidé → on retire texte, audio et la date d'activité.
+			// Message entièrement vidé → on retire texte, audio et toute trace d'activité.
 			await ctx.db.patch(userId, {
 				coachMessage: undefined,
 				coachMessageDate: undefined,
+				coachMessageAt: undefined,
+				coachMessageExpiresAt: undefined,
+				coachMessageReadAt: undefined,
 				coachMessageAudioId: undefined,
 			});
 		} else {
+			// Minuit local de la cliente après cette publication (fuseau IANA stocké,
+			// Europe/Paris par défaut) — l'éphémère suit SON jour, pas un créneau fixe.
+			const publishedMs = Date.now();
+			const tz = validTimeZone(target.timeZone) ?? "Europe/Paris";
+			const expiresAt = nextMidnightUtcMs(publishedMs, tz);
 			await ctx.db.patch(userId, {
 				// Message du jour : le texte vide (audio seul) efface tout texte
 				// précédent — jamais de message périmé qui ressortirait.
 				coachMessage: trimmed ? trimmed : undefined,
-				// Le message (texte et/ou audio) est actif pour aujourd'hui uniquement ;
-				// le fichier audio suit sa propre rétention (72 h après écoute / 14 j max).
+				// Le message (texte et/ou audio) est éphémère : actif jusqu'au minuit
+				// local de la cliente, puis retiré de l'Accueil (état actif nettoyé par
+				// le cron). Une nouvelle publication réinitialise le non-lu.
 				coachMessageDate: today,
+				coachMessageAt: publishedMs,
+				coachMessageExpiresAt: expiresAt,
+				coachMessageReadAt: undefined,
 				...(newAudioId ? { coachMessageAudioId: newAudioId as never } : {}),
+			});
+			// Journal CRM : une ligne par publication (texte et/ou audio, datée,
+			// état lu/non lu) — l'historique n'est jamais supprimé par l'éphémère.
+			await ctx.db.insert("coachMessages", {
+				userId: userId as never,
+				...(trimmed ? { text: trimmed } : {}),
+				...(newAudioId ? { audioId: newAudioId as never } : {}),
+				publishedAt: publishedMs,
+				publishedDay: today,
+				readAt: undefined,
 			});
 		}
 		return { ok: true, hasText: !!trimmed, hasAudio: !!newAudioId };

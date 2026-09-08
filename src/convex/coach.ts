@@ -18,6 +18,8 @@ import { DEFAULT_GOALS } from "./journal";
 import { bodyFatSeries, logHeightRow } from "./metrics";
 import { deleteAllForUser, setCheckinMediaVisibility } from "./media";
 import { deleteIntakeForUser } from "./onboarding";
+import { deleteAllResourcesForUser } from "./resources";
+import { deleteAllForUser as pushDeleteAllForUser } from "./push";
 
 /**
  * CRM réservé au coach. Chaque fonction vérifie le rôle « coach » depuis
@@ -40,6 +42,9 @@ function publicUser(user: UserRow) {
 		_id: user._id,
 		email: user.email,
 		prenom: user.prenom,
+		nom: user.nom ?? null,
+		/** Tableur G-FLUX — exposé uniquement aux requêtes coach (jamais côté client). */
+		gsheetUrl: user.gsheetUrl ?? null,
 		disabled: !!user.disabled,
 		createdAt: user._creationTime,
 		heightCm: user.heightCm ?? null,
@@ -47,8 +52,16 @@ function publicUser(user: UserRow) {
 		startDate: user.startDate ?? null,
 		coachMessage: user.coachMessage ?? null,
 		coachMessageDate: user.coachMessageDate ?? null,
+		/** Éphémère : timestamp de publication + expiration au minuit local de la cliente (CRM uniquement). */
+		coachMessageAt: user.coachMessageAt ?? null,
+		coachMessageExpiresAt: user.coachMessageExpiresAt ?? null,
+		coachMessageReadAt: user.coachMessageReadAt ?? null,
+		/** Audio actif du message du jour (id interne — composeur CRM uniquement). */
+		coachMessageAudioId: user.coachMessageAudioId ?? null,
 		onboardingEnabled: !!user.onboardingEnabled,
 		lastSeenAt: user.lastSeenAt ?? null,
+		/** Suivi de cycle (mêmes données que le dashboard cliente). */
+		cycle: user.cycle ?? null,
 	};
 }
 
@@ -137,6 +150,7 @@ export const bilansBoard = query({
 		type Row = {
 			userId: Id<"users">;
 			prenom: string;
+			nom: string | null;
 			weekStart: string;
 			weekLabel: string;
 			checkin: CheckinRow | null;
@@ -144,11 +158,14 @@ export const bilansBoard = query({
 		const toTreat: Row[] = [];
 		const feedbackSent: Row[] = [];
 		const done: Row[] = [];
+		/** Toutes les lignes (toutes semaines, non tronquées) — utilisée par la vue globale par semaine. */
+		const all: Row[] = [];
 
 		for (const u of users) {
 			if (u.disabled) continue;
 			for (const c of byUser.get(u._id) ?? []) {
-				const row: Row = { userId: u._id, prenom: u.prenom, weekStart: c.weekStart, weekLabel: c.weekLabel, checkin: c };
+				const row: Row = { userId: u._id, prenom: u.prenom, nom: u.nom ?? null, weekStart: c.weekStart, weekLabel: c.weekLabel, checkin: c };
+				all.push(row);
 				if (c.status === "nouveau") toTreat.push(row);
 				else if (isUnread(c)) feedbackSent.push(row);
 				else done.push(row);
@@ -158,6 +175,7 @@ export const bilansBoard = query({
 		toTreat.sort(desc);
 		feedbackSent.sort(desc);
 		done.sort(desc);
+		all.sort(desc);
 
 		// Bilans manquants : référence = dernière semaine de bilan fermée.
 		const refWeek = lastClosedBilanWeekStart();
@@ -173,10 +191,11 @@ export const bilansBoard = query({
 			// Éligible : suivie et démarrée au plus tard le vendredi d'ouverture
 			// (une cliente onboardée samedi/dimanche n'est pas un « manquant »).
 			if (startDate <= openFriday && !submittedRefWeek.has(u._id)) {
-				missing.push({ userId: u._id, prenom: u.prenom, weekStart: refWeek, weekLabel: refLabel, checkin: null });
+				missing.push({ userId: u._id, prenom: u.prenom, nom: u.nom ?? null, weekStart: refWeek, weekLabel: refLabel, checkin: null });
 			}
 		}
 		missing.sort((a, b) => a.prenom.localeCompare(b.prenom, "fr"));
+		for (const m of missing) all.push(m);
 
 		return {
 			toTreat: toTreat.slice(0, 50),
@@ -184,6 +203,8 @@ export const bilansBoard = query({
 			done: done.slice(0, 25),
 			missing,
 			missingWeek: { weekStart: refWeek, weekLabel: refLabel },
+			/** Vue complète pour l'organisation par semaine — jamais tronquée par statut. */
+			all: all.sort((a, b) => b.weekStart.localeCompare(a.weekStart) || a.prenom.localeCompare(b.prenom, "fr")).slice(0, 300),
 		};
 	},
 });
@@ -234,14 +255,16 @@ export const createClient = mutation({
 		email: v.string(),
 		password: v.string(),
 		prenom: v.string(),
+		nom: v.optional(v.string()),
 		startDate: v.optional(v.string()),
 	},
-	handler: async (ctx, { sessionToken, email, password, prenom, startDate }) => {
+	handler: async (ctx, { sessionToken, email, password, prenom, nom, startDate }) => {
 		const coach = await requireCoach(ctx, sessionToken);
 		const emailClean = normalizeEmail(email);
 		if (!EMAIL_RE.test(emailClean)) throw new ConvexError("Adresse email invalide.");
 		const prenomClean = prenom.trim().slice(0, 60);
 		if (!prenomClean) throw new ConvexError("Le prénom est requis.");
+		const nomClean = nom?.trim().slice(0, 60) ?? "";
 		if (password.length < 8) {
 			throw new ConvexError("Le mot de passe doit faire au moins 8 caractères.");
 		}
@@ -259,6 +282,7 @@ export const createClient = mutation({
 			passwordHash: await hashPassword(password),
 			role: "client",
 			prenom: prenomClean,
+			...(nomClean ? { nom: nomClean } : {}),
 			createdBy: coach._id,
 			// Date de démarrage du suivi : par défaut le jour de création du compte.
 			startDate: dateClean || localTodayISO(),
@@ -273,18 +297,21 @@ export const updateClient = mutation({
 		sessionToken: v.optional(v.string()),
 		userId: v.id("users"),
 		prenom: v.optional(v.string()),
+		nom: v.optional(v.string()),
 		email: v.optional(v.string()),
 		birthDate: v.optional(v.string()),
 		startDate: v.optional(v.string()),
 		heightCm: v.optional(v.number()),
 		onboardingEnabled: v.optional(v.boolean()),
+		/** Lien du tableur Google Sheets G-FLUX (coach uniquement). */
+		gsheetUrl: v.optional(v.string()),
 	},
-	handler: async (ctx, { sessionToken, userId, prenom, email, birthDate, startDate, heightCm, onboardingEnabled }) => {
+	handler: async (ctx, { sessionToken, userId, prenom, nom, email, birthDate, startDate, heightCm, onboardingEnabled, gsheetUrl }) => {
 		await requireCoach(ctx, sessionToken);
 		const target = await ctx.db.get(userId);
 		if (!target || target.role !== "client") throw new ConvexError("Client introuvable.");
 		const patch: Partial<
-			Pick<UserRow, "prenom" | "email" | "birthDate" | "startDate" | "heightCm" | "onboardingEnabled">
+			Pick<UserRow, "prenom" | "nom" | "email" | "birthDate" | "startDate" | "heightCm" | "onboardingEnabled" | "gsheetUrl">
 		> = {};
 		if (onboardingEnabled !== undefined) {
 			// Simple activation : on ne supprime jamais les réponses déjà envoyées
@@ -295,6 +322,17 @@ export const updateClient = mutation({
 			const clean = prenom.trim().slice(0, 60);
 			if (!clean) throw new ConvexError("Le prénom ne peut pas être vide.");
 			patch.prenom = clean;
+		}
+		if (nom !== undefined) {
+			// Vide = on efface le nom ; une ancienne cliente sans nom n'est jamais bloquée.
+			patch.nom = nom.trim().slice(0, 60) || undefined;
+		}
+		if (gsheetUrl !== undefined) {
+			const g = gsheetUrl.trim();
+			if (g && !/^https?:\/\//i.test(g)) {
+				throw new ConvexError("Lien du tableur invalide (doit commencer par http(s)://).");
+			}
+			patch.gsheetUrl = g || undefined;
 		}
 		if (email !== undefined) {
 			const emailClean = normalizeEmail(email);
@@ -394,9 +432,36 @@ export const removeClient = mutation({
 			.withIndex("by_user", (q) => q.eq("userId", userId))
 			.collect();
 		for (const s of steps) await ctx.db.delete(s._id);
+		// Suivi corporel (poids/mensurations) + photos de progression : données
+		// privées de la cliente — supprimées avec la fiche.
+		const metrics = await ctx.db
+			.query("bodyMetrics")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.collect();
+		for (const m of metrics) await ctx.db.delete(m._id);
+		const photos = await ctx.db
+			.query("progressPhotos")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.collect();
+		for (const p of photos) {
+			for (const ph of p.photos) {
+				await ctx.storage.delete(ph.storageId).catch(() => {});
+			}
+			await ctx.db.delete(p._id);
+		}
 		// Médias coach → cliente (retours audio, pièces jointes, message audio) :
 		// suppression réelle des fichiers du storage + lignes de métadonnées.
 		await deleteAllForUser(ctx, userId);
+		// Abonnements push de la cliente (données privées — supprimés avec la fiche).
+		await pushDeleteAllForUser(ctx, userId);
+		// Journal des messages envoyés (historique + références audio).
+		const logRows = await ctx.db
+			.query("coachMessages")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.collect();
+		for (const l of logRows) await ctx.db.delete(l._id);
+		// Dossier de la cliente (notes privées + ressources partagées, fichiers compris).
+		await deleteAllResourcesForUser(ctx, userId);
 		await deleteIntakeForUser(ctx, userId);
 		await ctx.db.delete(userId);
 		return { ok: true, removedCheckins: rows.length };
@@ -516,6 +581,7 @@ export const client360 = query({
 				status: "nouveau" | "retour_envoye";
 				receivedAt: number;
 				feedbackAt: number | null;
+				readAt: number | null;
 				draft: boolean;
 			};
 		} | null = null;
@@ -620,15 +686,30 @@ export const client360 = query({
 					status: refCheckin.status,
 					receivedAt: refCheckin._creationTime,
 					feedbackAt: refCheckin.feedbackAt ?? null,
+					readAt: refCheckin.feedbackReadAt ?? null,
 					draft: refCheckin.status === "nouveau" && !!refCheckin.feedback?.trim(),
 				},
 			};
 		}
 
+		// Les 7 derniers jours (aujourd'hui local compris) pour le mini-graphique
+		// « Pas » du cockpit — jour sans ligne = null (jamais un zéro inventé).
+		const last7 = (() => {
+			const end = localTodayISO(new Date());
+			const out: { date: string; count: number | null }[] = [];
+			for (let i = 6; i >= 0; i--) {
+				const date = addDaysISO(end, -i);
+				const hit = stepsRows.find((s) => s.date === date);
+				out.push({ date, count: hit ? hit.count : null });
+			}
+			return out;
+		})();
+
 		return {
 			user: publicUser(target),
 			goals: goalsRow ?? { userId, ...DEFAULT_GOALS },
 			goalsSet: !!goalsRow,
+			stepsLast7: last7,
 			week,
 			weekAvgKcal:
 				week.reduce((s, d) => s + d.kcal, 0) / Math.max(1, week.filter((d) => d.count > 0).length),
@@ -641,5 +722,44 @@ export const client360 = query({
 			checkinCount: checkins.length,
 			cockpit,
 		};
+	},
+});
+
+/**
+ * Journal CRM des messages du coach envoyés à une cliente (Vision 360) :
+ * historique daté des publications (texte et/ou audio) avec état lu/non lu
+ * réel et URL de réécoute pour les audios. Réservé à la coach.
+ */
+export const messageLog = query({
+	args: { sessionToken: v.optional(v.string()), userId: v.id("users") },
+	handler: async (ctx, { sessionToken, userId }) => {
+		await requireCoach(ctx, sessionToken);
+		const target = await ctx.db.get(userId);
+		if (!target || target.role !== "client") throw new ConvexError("Client introuvable.");
+		const rows = await ctx.db
+			.query("coachMessages")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.order("desc")
+			.collect();
+		const out = [];
+		for (const r of rows) {
+			let audio: { mediaId: string; durationMs: number | null; url: string } | null = null;
+			if (r.audioId) {
+				const m = await ctx.db.get(r.audioId);
+				if (m && m.kind === "audio" && m.status !== "expired") {
+					const url = await ctx.storage.getUrl(m.storageId);
+					if (url) audio = { mediaId: m._id, durationMs: m.durationMs ?? null, url };
+				}
+			}
+			out.push({
+				_id: r._id,
+				text: r.text ?? null,
+				audio,
+				publishedAt: r.publishedAt,
+				publishedDay: r.publishedDay,
+				readAt: r.readAt ?? null,
+			});
+		}
+		return out;
 	},
 });

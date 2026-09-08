@@ -208,7 +208,40 @@
 									{q.label}{q.required ? ' *' : ''}
 								</label>
 
-								{#if q.kind === 'choice'}
+								{#if q.id === 'silhouette'}
+									<!-- Visuel original « Grille taux MG » — restauré depuis le HTML d'origine (base64 extraite → asset local). -->
+									<img
+										src="/grille-taux-mg.jpg"
+										alt="Grille visuelle des taux de masse grasse — situe-toi parmi les profils A à I"
+										class="mx-auto w-full max-w-sm rounded-xl border border-line bg-white"
+										loading="lazy"
+									/>
+									<div class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+										{#each q.options ?? [] as opt, i (opt.value)}
+											<button
+												type="button"
+												onclick={() => setValue(q.id, opt.value)}
+												aria-pressed={answers[q.id] === opt.value}
+												class="flex flex-col items-start gap-1 rounded-xl border-2 px-3 py-2.5 text-left transition
+													{answers[q.id] === opt.value
+														? 'border-brand bg-brand-light text-brand-dark'
+														: 'border-line bg-white text-ink hover:border-brand/60'}"
+											>
+												<span
+													class="grid h-5 w-5 place-items-center rounded-md text-[11px] font-bold {answers[q.id] === opt.value ? 'bg-brand text-white' : 'bg-line/60 text-mist'}"
+													>{String.fromCharCode(65 + i)}</span
+												>
+												<span class="text-sm font-semibold leading-tight">{opt.label}</span>
+												{#if answers[q.id] === opt.value}
+													<span class="inline-flex items-center gap-0.5 text-[11px] font-bold text-brand-dark"
+														><Icon name="check" size={11} strokeWidth={2.5} /> Sélectionné</span
+													>
+												{/if}
+											</button>
+										{/each}
+									</div>
+
+								{:else if q.kind === 'choice'}
 									<div class="grid gap-2 {q.options && q.options.length > 4 ? 'grid-cols-2' : ''}">
 										{#each q.options ?? [] as opt (opt.value)}
 											<button

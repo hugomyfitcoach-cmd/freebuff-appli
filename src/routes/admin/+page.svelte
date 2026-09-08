@@ -2,10 +2,16 @@
 	import { invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
 	import { untrack } from 'svelte';
+	import AudioPlayer from '../../lib/components/AudioPlayer.svelte';
 	import BilanCard from '../../lib/components/BilanCard.svelte';
 	import CoachMedia from '../../lib/components/CoachMedia.svelte';
+	import DossierPanel from '../../lib/components/DossierPanel.svelte';
 	import Icon from '../../lib/components/Icon.svelte';
-	import Sparkline from '../../lib/components/Sparkline.svelte';
+	import JournalDay from '../../lib/components/JournalDay.svelte';
+	import MetricTrend from '../../lib/components/MetricTrend.svelte';
+	import StepsBars from '../../lib/components/StepsBars.svelte';
+	import { cycleState } from '../../lib/cycle.js';
+	import { fmtMs } from '../../lib/media.js';
 	import { labelFor } from '../../lib/labels.js';
 	import { ONBOARDING_SECTIONS, readableAnswer } from '../../lib/onboarding.js';
 
@@ -13,6 +19,8 @@
 
 	const clients = $derived(data.clients ?? []);
 	const selectedId = $derived(data.selectedId ?? null);
+	// Semaine d'origine quand le 360 est ouvert depuis « Bilans » (vue par semaine).
+	const weekParam = $derived(data.weekParam ?? null);
 	const view = $derived(data.view ?? null);
 	const checkins = $derived(data.checkins ?? []);
 	const photos = $derived(data.photos ?? []);
@@ -20,11 +28,33 @@
 	// Onboarding de démarrage : formulaire initial + statuts des deux étapes.
 	const onboardingView = $derived(data.onboardingView ?? null);
 	// Médias coach → cliente : ceux du message du jour + filtrage par bilan.
-	const messageAudio = $derived(mediaAll.filter((m: { source: string }) => m.source === 'coach_message_audio'));
+	// Seul l'audio ACTIF du message est montré dans le composeur — les audios
+	// plus anciens vivent dans l'historique (messageLog), pour la réécoute.
+	const selected = $derived(clients.find((c: { user: { _id: string } }) => c.user._id === selectedId) ?? null);
+	// Médias coach → cliente : ceux du message du jour + filtrage par bilan.
+	// Seul l'audio ACTIF du message est montré dans le composeur — les audios
+	// plus anciens vivent dans l'historique (messageLog), pour la réécoute.
+	const messageAudio = $derived(
+		selected?.user.coachMessageAudioId
+			? mediaAll.filter((m: { _id: string }) => m._id === selected.user.coachMessageAudioId)
+			: []
+	);
 	const mediaFor = (checkinId: string) =>
 		mediaAll.filter((m: { checkinId: string | null }) => m.checkinId === checkinId);
+	// Journal des messages envoyés (historique daté, lu/non lu, réécoute audio).
+	const messageLog = $derived<MessageLogRow[]>((data.messageLog ?? []) as MessageLogRow[]);
+	type MessageLogRow = {
+		_id: string;
+		text: string | null;
+		audio: { mediaId: string; durationMs: number | null; url: string } | null;
+		publishedAt: number;
+		publishedDay: string;
+		readAt: number | null;
+	};
 	let msgAudioDraft = $state('');
-	const selected = $derived(clients.find((c: { user: { _id: string } }) => c.user._id === selectedId) ?? null);
+	// Suivi de cycle de la cliente — mêmes données que le dashboard cliente (une seule source de vérité).
+	const selCycle = $derived(selected?.user.cycle ?? null);
+	const selCycleState = $derived(cycleState(selCycle));
 
 	/* ── File globale des bilans (vue CRM dérivée de bilansBoard) ── */
 	const board = $derived(
@@ -45,18 +75,53 @@
 		}).length
 	);
 
+	/* ── Message du coach du jour : éphémère, expire au minuit local de la cliente
+	   (coachMessageExpiresAt calculé dans SON fuseau à la publication ; replis
+	   compat 24 h fixes puis jour exact) — la carte coach se réinitialise d'elle-même. ── */
+	const msgActive = $derived.by(() => {
+		const u = selected?.user;
+		if (!u) return false;
+		if (u.coachMessageExpiresAt != null) return Date.now() < u.coachMessageExpiresAt;
+		const at = u.coachMessageAt ?? null;
+		if (at) return Date.now() - at < 24 * 3600 * 1000;
+		return !!u.coachMessageDate && u.coachMessageDate === new Date().toISOString().slice(0, 10);
+	});
+	const msgRead = $derived.by(() => {
+		const u = selected?.user;
+		const at = u?.coachMessageAt ?? null;
+		return !!at && (u?.coachMessageReadAt ?? 0) >= at;
+	});
+	const msgHasContent = $derived(!!selected?.user.coachMessage || messageAudio.length > 0);
+
 	let query = $state('');
+
+	/** « Prénom Nom » quand le nom est renseigné, sinon simple prénom (cliente existante). */
+	const fullName = (u: { prenom: string; nom?: string | null }): string =>
+		u.nom ? `${u.prenom} ${u.nom}` : u.prenom;
 
 	const filtered = $derived(
 		query.trim()
-			? clients.filter((c: { user: { prenom: string; email: string } }) =>
-					`${c.user.prenom} ${c.user.email}`.toLowerCase().includes(query.trim().toLowerCase())
+			? clients.filter((c: { user: { prenom: string; nom?: string | null; email: string } }) =>
+					`${fullName(c.user)} ${c.user.email}`.toLowerCase().includes(query.trim().toLowerCase())
 				)
 			: clients
 	);
 
 	const alert = $derived(form && 'action' in form ? (form as { action: string; error?: string; ok?: string; clientId?: string }) : null);
 	const initial = (name: string) => name.trim().charAt(0).toUpperCase() || '?';
+
+	/** Âge calculé depuis la date de naissance (jamais saisi à la main) — jour/mois d'anniversaire inclus. */
+	const ageOf = $derived.by(() => {
+		const b = selected?.user.birthDate;
+		if (!b) return null;
+		const birth = new Date(b + 'T12:00:00');
+		if (isNaN(birth.getTime())) return null;
+		const now = new Date();
+		let age = now.getFullYear() - birth.getFullYear();
+		const m = now.getMonth() - birth.getMonth();
+		if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age--;
+		return age;
+	});
 
 	/* ── Formatage ─────────────────────────────────────────────── */
 	function fmtLastSeen(ts: number | null): string {
@@ -457,6 +522,19 @@
 	let measurements = $state<Measurement[]>([]);
 	let heightCm = $state<number | null>(null);
 	let bodyFat = $state<{ date: string; value: number }[]>([]);
+	/** Vue détaillée par métrique dans l'onglet Poids & mesures (null = grille des cartes). */
+	let corpsDetail = $state<{ kind: 'metric'; key: BodyMetricKey } | { kind: 'height' } | { kind: 'bodyfat' } | null>(null);
+	/** Métrique affichée en détail (dérivée de corpsDetail, pour un typage net dans le markup). */
+	const corpsMeta = $derived.by(() => {
+		const d = corpsDetail;
+		if (!d || d.kind !== 'metric') return null;
+		return BODY_METRICS.find((m) => m.key === d.key) ?? null;
+	});
+	const corpsRows = $derived.by(() => {
+		const d = corpsDetail;
+		if (!d || d.kind !== 'metric') return [];
+		return bmSeries(d.key);
+	});
 	// un brouillon (date + valeur) par métrique + un pour la taille
 	// (bind:value sur <input type="number"> renvoie un nombre en Svelte 5)
 	let bmDraft = $state<Record<string, { date: string; value: string | number }>>({});
@@ -655,6 +733,8 @@
 
 	/* ── Cockpit hebdo de l'onglet Bilans (calculé côté Convex, même période que le bilan) ── */
 	const cockpit = $derived(view?.cockpit ?? null);
+	/** Série des 7 derniers jours (pas) pour le mini-graphique — mêmes données que la cliente. */
+	const stepsLast7 = $derived((view?.stepsLast7 ?? []) as { date: string; count: number | null }[]);
 	const weekPhotos = $derived.by(() => {
 		if (!cockpit) return null;
 		const groups = (photos ?? []).filter(
@@ -666,7 +746,13 @@
 	const cockpitPill = $derived.by(() => {
 		const b = cockpit?.bilan ?? null;
 		if (!b) return null;
-		if (b.status === 'retour_envoye') return { label: 'Retour envoyé', cls: 'bg-brand-light text-brand-dark' };
+		if (b.status === 'retour_envoye') {
+			// Comme WhatsApp : non lu tant que la cliente n'a pas ouvert le retour.
+			const unread = b.readAt == null || b.readAt < (b.feedbackAt ?? b.receivedAt);
+			return unread
+				? { label: 'Retour publié · non lu', cls: 'bg-warn-light text-warn' }
+				: { label: 'Retour lu', cls: 'bg-brand-light text-brand-dark' };
+		}
 		if (b.draft) return { label: 'Brouillon', cls: 'bg-line/70 text-mist' };
 		return { label: 'À traiter', cls: 'bg-warn-light text-warn' };
 	});
@@ -705,6 +791,7 @@
 		{ id: 'corps', label: 'Poids & mesures' },
 		{ id: 'photos', label: `Photos (${totalPhotos})` },
 		{ id: 'bilans', label: 'Bilans' },
+		{ id: 'dossier', label: 'Dossier' },
 		{ id: 'demarrage', label: 'Démarrage' },
 	]);
 
@@ -736,7 +823,7 @@
 	</div>
 </section>
 
-{#if alert}
+{#if alert && !(selected && view)}
 	<div
 		class="mt-4 flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm
 			{alert.error ? 'border-danger/40 bg-danger-light text-danger' : 'border-brand/40 bg-brand-light text-ink'}"
@@ -761,9 +848,14 @@
 				{#if board.missing.length > 0}
 					<span class="rounded-full bg-danger px-2 py-0.5 text-[11px] font-bold text-white">Manquants {board.missing.length}</span>
 				{/if}
-			</div>
-			<span class="text-xs text-mist">Fenêtre : vendredi 9h → dimanche 12h · cliquer ouvre la fiche sur l'onglet Bilans</span>
-		</div>
+			</div>						<div class="flex flex-wrap items-center gap-3">
+							<a
+								href="/admin/bilans"
+								class="inline-flex items-center gap-1 rounded-lg border-2 border-line px-2.5 py-1 text-xs font-semibold text-ink transition hover:border-brand hover:text-brand"
+							><Icon name="calendarRange" size={13} class="shrink-0" /> Vue par semaine</a>
+							<span class="text-xs text-mist">Fenêtre : vendredi 9h → dimanche 12h · cliquer ouvre la fiche sur l'onglet Bilans</span>
+						</div>
+					</div>
 		<div class="grid gap-4 p-4 md:grid-cols-2 xl:grid-cols-4">
 			<!-- À traiter : bilan reçu, retour pas encore envoyé -->
 			<div class="rounded-xl border border-line bg-cream/40 p-3">
@@ -778,7 +870,7 @@
 							class="flex items-center gap-2 rounded-lg border border-line/70 bg-white px-2.5 py-2 transition hover:border-warn/60 hover:bg-warn-light/30"
 						>
 							<div class="min-w-0 flex-1">
-								<div class="truncate text-sm font-semibold text-ink">{r.prenom}</div>
+								<div class="truncate text-sm font-semibold text-ink">{fullName(r)}</div>
 								<div class="truncate text-[11px] text-mist">{r.weekLabel} · reçu le {reçuLe(r.checkin?._creationTime)}</div>
 							</div>
 							<span class="shrink-0 text-xs font-bold text-warn">→</span>
@@ -802,7 +894,7 @@
 							class="flex items-center gap-2 rounded-lg border border-line/70 bg-white px-2.5 py-2 transition hover:border-brand/60 hover:bg-brand-light/30"
 						>
 							<div class="min-w-0 flex-1">
-								<div class="truncate text-sm font-semibold text-ink">{r.prenom}</div>
+								<div class="truncate text-sm font-semibold text-ink">{fullName(r)}</div>
 								<div class="truncate text-[11px] text-mist">{r.weekLabel}</div>
 							</div>
 							<span class="shrink-0 rounded-full bg-brand-light px-1.5 py-0.5 text-[10px] font-bold uppercase text-brand-dark">non lu</span>
@@ -830,7 +922,7 @@
 							class="flex items-center gap-2 rounded-lg border border-line/70 bg-white px-2.5 py-2 transition hover:border-danger/60 hover:bg-danger-light/30"
 						>
 							<div class="min-w-0 flex-1">
-								<div class="truncate text-sm font-semibold text-ink">{r.prenom}</div>
+								<div class="truncate text-sm font-semibold text-ink">{fullName(r)}</div>
 								<div class="truncate text-[11px] text-mist">Bilan non reçu</div>
 							</div>
 							<span class="shrink-0 text-xs font-bold text-danger">→</span>
@@ -854,7 +946,7 @@
 							class="flex items-center gap-2 rounded-lg border border-line/70 bg-white px-2.5 py-2 transition hover:bg-cream"
 						>
 							<div class="min-w-0 flex-1">
-								<div class="truncate text-sm font-semibold text-ink">{r.prenom}</div>
+								<div class="truncate text-sm font-semibold text-ink">{fullName(r)}</div>
 								<div class="truncate text-[11px] text-mist">{r.weekLabel} · retour consulté</div>
 							</div>
 							<span class="shrink-0 text-xs font-bold text-mist">→</span>
@@ -926,8 +1018,8 @@
 										{initial(client.user.prenom)}
 									</div>
 									<div class="min-w-0">
-										<div class="flex items-center gap-2">
-											<span class="truncate font-semibold text-ink">{client.user.prenom}</span>
+									<div class="flex items-center gap-2">
+										<span class="truncate font-semibold text-ink">{fullName(client.user)}</span>
 											<span class="h-2 w-2 shrink-0 rounded-full {isOnline(client.user.lastSeenAt) ? 'bg-brand' : 'bg-line'}" title={isOnline(client.user.lastSeenAt) ? 'En ligne' : 'Hors ligne'}></span>
 										</div>
 										<div class="truncate text-[11px] text-mist">{client.user.email}</div>
@@ -968,27 +1060,37 @@
 				<div class="flex h-10 w-10 items-center justify-center rounded-full bg-brand font-display text-lg font-semibold text-white">
 					{initial(selected.user.prenom)}
 				</div>
-				<div>
-					<h2 class="font-display text-lg font-semibold text-ink">{selected.user.prenom}</h2>
-					<p class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-mist">
-						<span class="truncate">{selected.user.email}</span>
-						{#if selected.user.birthDate}
-							<span class="inline-flex items-center gap-1"><Icon name="cake" size={12} class="shrink-0" /> {fmtDateShort(selected.user.birthDate)}</span>
-						{/if}
-						{#if selected.user.heightCm}
-							<span class="inline-flex items-center gap-1"><Icon name="ruler" size={12} class="shrink-0" /> {selected.user.heightCm} cm</span>
-						{/if}
-						<span class="inline-flex items-center gap-1"><Icon name="clock" size={12} class="shrink-0" /> {fmtLastSeen(selected.user.lastSeenAt)}</span>
-					</p>
-				</div>
+			<div>
+				<h2 class="font-display text-lg font-semibold text-ink">{fullName(selected.user)}</h2>
+				<p class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-mist">
+					<span class="truncate">{selected.user.email}</span>
+					{#if selected.user.birthDate}
+						<span class="inline-flex items-center gap-1"><Icon name="cake" size={12} class="shrink-0" /> {fmtDateShort(selected.user.birthDate)}{ageOf != null ? ` · ${ageOf} ans` : ''}</span>
+					{/if}
+					{#if selected.user.heightCm}
+						<span class="inline-flex items-center gap-1"><Icon name="ruler" size={12} class="shrink-0" /> {selected.user.heightCm} cm</span>
+					{/if}
+					<span class="inline-flex items-center gap-1"><Icon name="clock" size={12} class="shrink-0" /> {fmtLastSeen(selected.user.lastSeenAt)}</span>
+				</p>
+				{#if selected.user.gsheetUrl}
+					<a
+						href={selected.user.gsheetUrl}
+						target="_blank"
+						rel="noopener noreferrer"
+						class="mt-1 inline-flex items-center gap-1 rounded-lg border border-brand/40 bg-brand-light/50 px-2 py-1 text-[11px] font-semibold text-brand-dark transition hover:border-brand hover:bg-brand-light"
+					><Icon name="externalLink" size={12} class="shrink-0" /> Ouvrir le tableur G-FLUX</a>
+				{/if}
 			</div>
+		</div>
 			<div class="flex flex-wrap items-center gap-2">
 				<details class="group relative">
 					<summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-lg border-2 border-line px-3 py-1.5 text-sm text-ink transition hover:border-brand hover:text-brand"><Icon name="settings" size={14} class="shrink-0" /> Fiche</summary>
-					<form method="POST" action="?/updateFiche" class="absolute right-0 top-10 z-20 w-80 rounded-xl border border-line bg-white p-4 shadow-xl">
+					<form method="POST" action="?/updateFiche&client={selected.user._id}&section={section}" class="absolute right-0 top-10 z-20 w-80 rounded-xl border border-line bg-white p-4 shadow-xl">
 						<input type="hidden" name="userId" value={selected.user._id} />
 						<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-prenom">Prénom</label>
 						<input id="f-prenom" name="prenom" required value={selected.user.prenom} class="mb-3 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
+						<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-nom">Nom</label>
+						<input id="f-nom" name="nom" value={selected.user.nom ?? ''} placeholder="Ex. Dupont" class="mb-3 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
 						<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-email">Email (identifiant)</label>
 						<input id="f-email" name="email" type="email" required value={selected.user.email} class="mb-3 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
 						<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-birth">Date de naissance</label>
@@ -998,6 +1100,9 @@
 						<p class="-mt-1 mb-3 text-[10px] text-mist">Ancre les échéances : mensurations tous les 15 jours, photos tous les mois.</p>
 						<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-height">Taille (cm)</label>
 						<input id="f-height" name="heightCm" type="number" min="80" max="250" step="0.5" value={selected.user.heightCm ?? ''} placeholder="Ex. 168" class="mb-3 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
+						<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-gsheet">Tableur de suivi G-FLUX (lien Google Sheets)</label>
+						<input id="f-gsheet" name="gsheetUrl" type="url" value={selected.user.gsheetUrl ?? ''} placeholder="https://docs.google.com/spreadsheets/d/…" class="mb-3 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
+						<p class="-mt-1.5 mb-3 text-[10px] text-mist">Réservé au coach — jamais visible côté cliente. S'ouvre dans un nouvel onglet.</p>
 						<div class="mb-3 rounded-lg border-2 border-dashed border-line bg-cream/50 px-3 py-2.5">
 							<label class="flex cursor-pointer items-start gap-2 text-sm text-ink">
 								<input type="checkbox" name="onboardingEnabled" value="1" checked={selected.user.onboardingEnabled} class="accent-brand" />
@@ -1013,7 +1118,7 @@
 				</details>
 				<details class="group relative">
 					<summary class="cursor-pointer list-none rounded-lg border-2 border-line px-3 py-1.5 text-sm text-ink transition hover:border-warn hover:text-warn">Mot de passe</summary>
-					<form method="POST" action="?/resetPassword" class="absolute right-0 top-10 z-20 w-72 rounded-xl border border-line bg-white p-3 shadow-xl">
+					<form method="POST" action="?/resetPassword&client={selected.user._id}&section={section}" class="absolute right-0 top-10 z-20 w-72 rounded-xl border border-line bg-white p-3 shadow-xl">
 						<input type="hidden" name="userId" value={selected.user._id} />
 						<input name="newPassword" type="text" required minlength="8" placeholder="Nouveau mot de passe (8+ car.)" class="mb-2 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-warn" />
 						<button type="submit" class="w-full rounded-lg bg-warn px-3 py-1.5 text-sm font-semibold text-white hover:brightness-95">Réinitialiser</button>
@@ -1031,7 +1136,12 @@
 						<button type="submit" class="mt-2 w-full rounded-lg bg-danger px-3 py-1.5 text-sm font-semibold text-white hover:brightness-95">Supprimer le compte</button>
 					</form>
 				</details>
-				<a href="/admin" class="rounded-lg bg-ink px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-brand">✕ Fermer</a>
+				<a
+					href="/admin"
+					class="grid h-9 w-9 place-items-center rounded-lg bg-ink text-white transition hover:bg-brand"
+					aria-label="Fermer la vue 360° et revenir à la liste des clientes"
+					title="Fermer la Vision 360°"
+				><Icon name="x" size={16} /></a>
 			</div>
 		</div>
 
@@ -1047,6 +1157,17 @@
 		</div>
 
 		<div class="flex-1 space-y-5 overflow-y-auto px-5 py-5">
+			<!-- Feedback discret après une sauvegarde (le tiroir reste ouvert) -->
+			{#if alert}
+				<div
+					class="flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm
+						{alert.error ? 'border-danger/40 bg-danger-light text-danger' : 'border-brand/40 bg-brand-light text-ink'}"
+				>
+					<span>{alert.error ?? alert.ok}</span>
+					<Icon name="info" size={15} class="shrink-0 text-mist" />
+				</div>
+			{/if}
+
 			<!-- ═══ Aperçu : message du coach + dernières données + diagramme calories ═══ -->
 			{#if section === 'apercu'}
 				<!-- Raccourci formulaire de démarrage (onboarding, discret) -->
@@ -1077,16 +1198,21 @@
 					</div>
 				</div>
 
-				<!-- Message du coach du jour (champ dédié, visible par la cliente sur son dashboard) -->
+				<!-- Message du coach du jour (champ dédié, éphémère — visible par la cliente 24 h après publication) -->
 				<div class="rounded-2xl border border-line bg-card p-4 shadow-sm">
-					<div class="flex items-center justify-between gap-2">
+					<div class="flex flex-wrap items-center justify-between gap-2">
 						<div class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="messageCircle" size={13} class="shrink-0 text-brand" /> Message du coach du jour</div>
-						{#if selected.user.coachMessage && selected.user.coachMessageDate}
-							<span class="rounded-full bg-brand-light px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand-dark">Publié · {fmtDateShort(selected.user.coachMessageDate)}</span>
-						{/if}
+						<div class="flex items-center gap-1.5">
+							{#if msgActive && msgHasContent}
+								<span class="rounded-full bg-brand-light px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand-dark">Publié · {selected.user.coachMessageDate ? fmtDateShort(selected.user.coachMessageDate) : ''}</span>
+							{/if}
+							{#if msgActive && msgHasContent}
+								<span class="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide {msgRead ? 'bg-line/70 text-mist' : 'bg-warn-light text-warn'}">{msgRead ? '✓ Lu' : 'Non lu'}</span>
+							{/if}
+						</div>
 					</div>
-					<p class="mt-1 text-xs text-mist">Apparaît tout en haut du dashboard de la cliente pour aujourd’hui seulement. Une note interne n’est jamais affichée automatiquement.</p>
-					<form method="POST" action="/admin?/setCoachMessage" class="mt-2">
+					<p class="mt-1 text-xs text-mist">Apparaît tout en haut du dashboard de la cliente pendant 24 h après publication (texte et/ou audio), puis est retiré automatiquement. Une note interne n’est jamais affichée automatiquement.</p>
+					<form method="POST" action="?/setCoachMessage&client={selected.user._id}&section={section}" class="mt-2">
 						<input type="hidden" name="userId" value={selected.user._id} />
 						<input type="hidden" name="audioId" value={msgAudioDraft} />
 						<div class="flex flex-col gap-2 sm:flex-row">
@@ -1095,7 +1221,7 @@
 								rows="2"
 								placeholder="Ex. Belle régularité cette semaine, continue comme ça"
 								class="min-h-14 flex-1 rounded-xl border-2 border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-brand"
-							>{selected.user.coachMessage ?? ''}</textarea>
+							>{msgActive ? (selected.user.coachMessage ?? '') : ''}</textarea>
 							<div class="flex shrink-0 gap-2">
 								<button type="submit" name="publish" value="1" class="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark">
 									Publier
@@ -1118,7 +1244,40 @@
 					</form>
 				</div>
 
-				<div class="grid gap-3 sm:grid-cols-3">
+				<!-- Historique des messages envoyés (journal CRM : daté, lu/non lu, réécoute) -->
+				<div class="rounded-2xl border border-line bg-card p-4 shadow-sm">
+					<div class="flex flex-wrap items-center justify-between gap-2">
+						<div class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="clock3" size={13} class="shrink-0 text-brand" /> Historique des messages envoyés</div>
+						<span class="text-[11px] text-mist">{messageLog.length} publication{messageLog.length > 1 ? 's' : ''}</span>
+					</div>
+					{#if messageLog.length === 0}
+						<p class="mt-2 text-xs leading-relaxed text-mist">
+							Aucun message publié pour le moment — chaque publication (texte et/ou audio) apparaîtra ici, datée, avec son état lu/non lu et la réécoute de l'audio.
+						</p>
+					{:else}
+						<ul class="mt-3 space-y-2">
+							{#each messageLog as msg (msg._id)}
+								<li class="rounded-xl border border-line bg-white p-3">
+									<div class="flex flex-wrap items-center justify-between gap-2">
+										<span class="text-xs font-bold text-ink">{fmtDateTime(msg.publishedAt)}</span>
+										<span class="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide {msg.readAt ? 'bg-line/70 text-mist' : 'bg-warn-light text-warn'}">{msg.readAt ? `✓ Lu le ${fmtDateTime(msg.readAt)}` : 'Non lu'}</span>
+									</div>
+									{#if msg.text}
+										<p class="mt-1 text-sm leading-relaxed text-ink">{msg.text}</p>
+									{/if}
+									{#if msg.audio}
+										<div class="mt-2 rounded-xl bg-brand-light/60 p-2.5">
+											<p class="mb-1 inline-flex items-center gap-1.5 text-[11px] font-semibold text-brand-dark"><Icon name="mic" size={12} /> Message audio · {fmtMs(msg.audio.durationMs)}</p>
+											<AudioPlayer src={msg.audio.url} durationMs={msg.audio.durationMs} accent="ink" />
+										</div>
+									{/if}
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</div>
+
+				<div class="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
 					<div class="rounded-2xl border border-line bg-card p-4">
 						<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="scale" size={12} /> Poids actuel</div>
 						<div class="mt-1 flex items-baseline gap-2">
@@ -1156,6 +1315,23 @@
 							{/if}
 						</div>
 						<div class="mt-1 text-[11px] text-mist">moyenne constatée · {loggedDays} jour(s) renseigné(s) sur 7 · objectif {goalKcal}</div>
+					</div>
+					<!-- Cycle — mêmes données et formule que le dashboard de la cliente -->
+					<div class="rounded-2xl border border-line bg-card p-4">
+						<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="flower2" size={12} /> Cycle</div>
+						{#if selCycleState.kind === 'empty'}
+							<div class="mt-1.5 text-sm text-mist">Non renseigné</div>
+						{:else if selCycleState.kind === 'hormonal'}
+							<div class="mt-1 font-display text-base font-semibold text-ink">Non concernée</div>
+							<div class="mt-0.5 text-[11px] leading-snug text-mist">contraception hormonale — pas d'estimation</div>
+						{:else if selCycleState.kind === 'nodate'}
+							<div class="mt-1 font-display text-base font-semibold text-ink">Règles irrégulières</div>
+							<div class="mt-0.5 text-[11px] leading-snug text-mist">pas d'estimation fiable sans date de règles</div>
+						{:else}
+							<div class="mt-1 font-display text-2xl font-semibold text-ink">J{selCycleState.cycleDay}<span class="text-sm font-semibold text-mist"> / {selCycleState.cycleLength}</span></div>
+							<div class="text-sm font-semibold text-ink">{selCycleState.label}</div>
+							<div class="mt-1 text-[11px] leading-snug text-mist">règles : {selCycle?.lmp ? fmtDateShort(selCycle.lmp) : '—'} · durée {selCycle?.len ?? '—'} j · ovulation ~ J{selCycleState.ovulationDay}</div>
+						{/if}
 					</div>
 				</div>
 
@@ -1234,7 +1410,7 @@
 						<span class="text-[11px] text-mist">Affichés dans le Journal de {selected.user.prenom}</span>
 					</div>
 					{#key selected.user._id}
-						<form method="POST" action="?/setGoals" class="mt-3">
+						<form method="POST" action="?/setGoals&client={selected.user._id}&section={section}" class="mt-3">
 							<input type="hidden" name="userId" value={selected.user._id} />
 
 							<!-- Choix du mode de saisie -->
@@ -1373,7 +1549,7 @@
 								validées automatiquement côté cliente — aucune saisie manuelle ici.
 							</p>
 						</div>
-						<form method="POST" action="?/setOnboarding" class="shrink-0">
+						<form method="POST" action="?/setOnboarding&client={selected.user._id}&section={section}" class="shrink-0">
 							<input type="hidden" name="userId" value={selected.user._id} />
 							<input type="hidden" name="enabled" value={onboardingView?.enabled ? '0' : '1'} />
 							<button
@@ -1462,7 +1638,7 @@
 			{:else if section === 'journal'}
 				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
 					<div class="flex flex-wrap items-center justify-between gap-3">
-						<h3 class="flex items-center gap-1.5 font-display text-base font-semibold text-ink"><Icon name="notebook" size={17} class="shrink-0 text-brand" /> Journal alimentaire de {selected.user.prenom}</h3>
+						<h3 class="flex items-center gap-1.5 font-display text-base font-semibold text-ink"><Icon name="notebook" size={17} class="shrink-0 text-brand" /> Journal alimentaire de {fullName(selected.user)}</h3>
 						<div class="flex items-center gap-2">
 							<!-- Changer la date recharge la journée immédiatement (comme côté cliente). -->
 							<input
@@ -1488,64 +1664,19 @@
 					{/if}
 
 					{#if day}
-						<div class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-							<div class="rounded-xl bg-line/40 px-3 py-2 text-center">
-								<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Calories</div>
-								<div class="font-display text-lg font-semibold text-ink">{Math.round(day.totals.kcal)} <span class="text-xs text-mist">/ {day.goals.kcal}</span></div>
-							</div>
-							<div class="rounded-xl bg-line/40 px-3 py-2 text-center">
-								<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Glucides</div>
-								<div class="font-display text-lg font-semibold text-ink">{Math.round(day.totals.carbs)} g</div>
-							</div>
-							<div class="rounded-xl bg-line/40 px-3 py-2 text-center">
-								<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Protéines</div>
-								<div class="font-display text-lg font-semibold text-ink">{Math.round(day.totals.protein)} g</div>
-							</div>
-							<div class="rounded-xl bg-line/40 px-3 py-2 text-center">
-								<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Lipides</div>
-								<div class="font-display text-lg font-semibold text-ink">{Math.round(day.totals.fat)} g</div>
-							</div>
+						<!-- Même interface que l'espace cliente (composant partagé JournalDay). -->
+						<div class="mt-4">
+							<JournalDay
+								{day}
+								mode="coach"
+								onAdd={(meal) => {
+									addMeal = meal;
+									searchOpen = true;
+								}}
+								onQty={setQty}
+								onRemove={removeEntry}
+							/>
 						</div>
-
-						{#each MEALS as meal}
-							<div class="mt-4">
-								<div class="flex items-center justify-between border-b border-line pb-1.5">
-									<h4 class="font-display text-sm font-semibold text-ink">{meal.label}</h4>
-									<button
-										onclick={() => {
-											addMeal = meal.id;
-											searchOpen = true;
-										}}
-										class="rounded-lg border-2 border-line px-2 py-1 text-xs font-semibold text-ink transition hover:border-brand hover:text-brand"
-									>＋ Ajouter</button>
-								</div>
-								{#if (day.entries ?? []).filter((e) => e.meal === meal.id).length === 0}
-									<p class="py-2 text-xs italic text-mist">Rien pour ce repas.</p>
-								{:else}
-									<ul class="divide-y divide-line/60">
-										{#each day.entries.filter((e) => e.meal === meal.id) as entry (entry._id)}
-											<li class="flex items-center gap-3 py-2">
-												{#if entry.imageUrl}
-													<img src={entry.imageUrl} alt="" class="h-9 w-9 shrink-0 rounded-lg object-cover" />
-												{:else}
-													<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-line/60"><Icon name="utensils" size={16} class="text-mist" /></div>
-												{/if}
-												<div class="min-w-0 flex-1">
-													<div class="truncate text-sm font-semibold text-ink">{entry.name}</div>
-													<div class="text-[11px] text-mist">{entry.kcal} kcal · G {entry.carbs} · P {entry.protein} · L {entry.fat}</div>
-												</div>
-												<div class="flex items-center gap-1">
-													<button onclick={() => setQty(entry, Math.max(1, entry.qtyGrams - 10))} class="h-7 w-7 rounded-lg border-2 border-line text-sm font-bold text-ink hover:border-brand">−</button>
-													<span class="w-16 text-center text-sm font-semibold text-ink">{entry.qtyGrams} g</span>
-													<button onclick={() => setQty(entry, entry.qtyGrams + 10)} class="h-7 w-7 rounded-lg border-2 border-line text-sm font-bold text-ink hover:border-brand">＋</button>
-													<button onclick={() => removeEntry(entry)} class="ml-1 grid h-7 w-7 place-items-center rounded-lg border-2 border-line text-danger hover:border-danger" title="Supprimer"><Icon name="trash" size={13} /></button>
-												</div>
-											</li>
-										{/each}
-									</ul>
-								{/if}
-							</div>
-						{/each}
 					{:else if !journalBusy}
 						<p class="mt-4 rounded-xl border border-dashed border-line px-4 py-8 text-center text-sm text-mist">Clique sur « Charger » pour afficher la journée.</p>
 					{/if}
@@ -1612,7 +1743,7 @@
 			{:else if section === 'corps'}
 				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
 					<div class="flex flex-wrap items-center justify-between gap-2">
-						<h3 class="flex items-center gap-1.5 font-display text-base font-semibold text-ink"><Icon name="scale" size={17} class="shrink-0 text-brand" /> Poids & mensurations de {selected.user.prenom}</h3>
+						<h3 class="flex items-center gap-1.5 font-display text-base font-semibold text-ink"><Icon name="scale" size={17} class="shrink-0 text-brand" /> Poids & mensurations de {fullName(selected.user)}</h3>
 						<span class="text-[11px] text-mist">Chaque métrique a son propre historique — tout est visible côté cliente.</span>
 					</div>
 
@@ -1620,134 +1751,231 @@
 						<p class="mt-3 rounded-lg bg-brand-light px-3 py-2 text-xs font-semibold text-ink">{bmMsg}</p>
 					{/if}
 
-					<!-- Historiques indépendants par métrique (ajout, modification, suppression) -->
-					{#each BODY_METRICS as meta (meta.key)}
-						{@const rows = bmSeries(meta.key)}
-						{@const editing = bmEdit?.key === meta.key}
-						{@const draft = bmDraft[meta.key] ?? { date: todayISO(), value: '' }}
-						<div id={`bm-form-${meta.key}`} class="mt-4 rounded-xl border border-line p-3">
-							<div class="flex flex-wrap items-center justify-between gap-2">
-								<h5 class="flex items-center gap-1.5 text-sm font-bold text-ink"><Icon name={meta.icon} size={15} class="shrink-0" /> {meta.label} <span class="font-normal text-mist">({meta.unit})</span></h5>
-								<span class="text-[11px] text-mist">{rows.length} entrée(s)</span>
-							</div>
-							{#if rows.length > 0}
-								{@const last = rows[rows.length - 1]}
-								{@const delta = metricDelta(rows)}
-								<div class="mt-2 flex items-center justify-between gap-3 rounded-lg bg-line/40 px-3 py-2">
-									<div class="min-w-0">
-										<div class="font-display text-xl font-semibold text-ink">{String(last.value).replace('.', ',')} {meta.unit}</div>
-										{#if delta !== null}
-											<div class="text-[11px] font-medium text-mist">{fmtSigned(delta)} {meta.unit} depuis le démarrage</div>
+					{#if corpsDetail}
+						<!-- Vue détaillée d'une métrique : courbe complète interactive + historique -->
+						<button
+							type="button"
+							onclick={() => (corpsDetail = null)}
+							class="mt-3 inline-flex items-center gap-1 rounded-lg border-2 border-line px-2.5 py-1.5 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand"
+						><Icon name="arrowLeft" size={14} class="shrink-0" /> Retour aux métriques</button>
+
+						{#if corpsMeta}
+							{@const meta = corpsMeta}
+							{@const rows = corpsRows}
+							{@const editing = bmEdit?.key === meta.key}
+							{@const draft = bmDraft[meta.key] ?? { date: todayISO(), value: '' }}
+								<div id={`bm-form-${meta.key}`} class="mt-3 rounded-xl border border-line p-3">
+									<div class="flex flex-wrap items-center justify-between gap-2">
+										<h5 class="flex items-center gap-1.5 text-sm font-bold text-ink"><Icon name={meta.icon} size={15} class="shrink-0" /> {meta.label} <span class="font-normal text-mist">({meta.unit})</span></h5>
+										<span class="text-[11px] text-mist">{rows.length} entrée(s)</span>
+									</div>
+									{#if rows.length > 0}
+										{@const last = rows[rows.length - 1]}
+										{@const delta = metricDelta(rows)}
+										<div class="mt-2">
+											<div class="font-display text-2xl font-semibold text-ink">{String(last.value).replace('.', ',')} {meta.unit}</div>
+											{#if delta !== null}
+												<div class="text-[11px] font-medium text-mist">{fmtSigned(delta)} {meta.unit} depuis le démarrage</div>
+											{/if}
+										</div>
+										<div class="mt-2 rounded-lg bg-line/40 px-3 py-2">
+											<MetricTrend points={rows} color={meta.color} unit={meta.unit} height={110} />
+										</div>
+									{/if}
+									<div class="mt-2 flex flex-wrap items-center gap-2">
+										<input type="date" bind:value={draft.date} class="rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" aria-label={`Date — ${meta.label}`} />
+										<input type="number" inputmode="decimal" min={meta.min} max={meta.max} step="0.1" bind:value={draft.value} placeholder={`Ex. ${meta.min}`} class="w-24 rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" aria-label={`Valeur — ${meta.label}`} />
+										{#if editing}
+											<button onclick={() => editBodyMetric(meta.key)} disabled={bmBusy} class="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-dark disabled:opacity-50">
+												{bmBusy ? '…' : 'Enregistrer la modification'}
+											</button>
+											<button onclick={() => { bmEdit = null; bmDraft[meta.key] = { date: todayISO(), value: '' }; }} class="rounded-lg border-2 border-line px-3 py-1.5 text-xs font-semibold text-mist transition hover:border-ink hover:text-ink">Annuler</button>
+										{:else}
+											<button onclick={() => addBodyMetric(meta.key)} disabled={bmBusy} class="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-dark disabled:opacity-50">
+												{bmBusy ? '…' : 'Ajouter une mesure'}
+											</button>
 										{/if}
 									</div>
-									{#if rows.length >= 2}
-										<Sparkline points={rows} color={meta.color} />
-									{/if}
+									{#if rows.length === 0}
+										<p class="mt-2 text-xs italic text-mist">Aucune entrée pour l'instant.</p>
+									{:else}
+										<ul class="mt-2 divide-y divide-line/60">
+											{#each [...rows].reverse() as r (r.date)}
+												<li class="flex items-center gap-2 py-1.5">
+													<span class="min-w-0 flex-1 text-sm text-ink">
+														<strong class="font-bold">{String(r.value).replace('.', ',')} {meta.unit}</strong>
+														<span class="text-mist"> · {fmtDateShort(r.date)}</span>
+													</span>
+													<button onclick={() => startBmEdit(meta.key, r.date, r.value)} class="rounded-lg px-2 py-1 text-xs text-mist transition hover:bg-line/60 hover:text-ink" title="Modifier cette valeur" aria-label={`Modifier ${meta.label} du ${fmtDateShort(r.date)}`}>✎</button>
+													<button onclick={() => deleteMetric(r.date, meta.key)} class="inline-flex items-center rounded-lg px-2 py-1 text-danger/70 transition hover:bg-danger-light hover:text-danger" title="Supprimer cette valeur" aria-label={`Supprimer ${meta.label} du ${fmtDateShort(r.date)}`}><Icon name="trash" size={13} /></button>
+												</li>
+											{/each}
+										</ul>										{/if}
+									</div>
+
+						{:else if corpsDetail.kind === 'height'}
+							<div id="bm-form-heightCm" class="mt-3 rounded-xl border border-line p-3">
+								<div class="flex flex-wrap items-center justify-between gap-2">
+									<h5 class="flex items-center gap-1.5 text-sm font-bold text-ink"><Icon name="ruler" size={14} class="shrink-0 text-brand" /> Taille <span class="font-normal text-mist">(cm)</span></h5>
+									<span class="text-[11px] text-mist">{heightCm != null ? `valeur actuelle : ${String(heightCm).replace('.', ',')} cm` : 'non renseignée'}</span>
 								</div>
-							{/if}
-							<div class="mt-2 flex flex-wrap items-center gap-2">
-								<input type="date" bind:value={draft.date} class="rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" aria-label={`Date — ${meta.label}`} />
-								<input type="number" inputmode="decimal" min={meta.min} max={meta.max} step="0.1" bind:value={draft.value} placeholder={`Ex. ${meta.min}`} class="w-24 rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" aria-label={`Valeur — ${meta.label}`} />
-								{#if editing}
-									<button onclick={() => editBodyMetric(meta.key)} disabled={bmBusy} class="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-dark disabled:opacity-50">
-										{bmBusy ? '…' : 'Enregistrer la modification'}
+								{#if heightSeries.length > 0}
+									{@const hLast = heightSeries[heightSeries.length - 1]}
+									{@const hDelta = metricDelta(heightSeries)}
+									<div class="mt-2">
+										<div class="font-display text-2xl font-semibold text-ink">{String(hLast.value).replace('.', ',')} cm</div>
+										{#if hDelta !== null}
+											<div class="text-[11px] font-medium text-mist">{fmtSigned(hDelta)} cm depuis le démarrage</div>
+										{/if}
+									</div>
+									<div class="mt-2 rounded-lg bg-line/40 px-3 py-2">
+										<MetricTrend points={heightSeries} color="#a855f7" unit="cm" height={110} />
+									</div>
+								{/if}
+								<div class="mt-2 flex flex-wrap items-center gap-2">
+									<input type="date" bind:value={hDraft.date} class="rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" aria-label="Date — Taille" />
+									<input type="number" inputmode="decimal" min="80" max="250" step="0.1" bind:value={hDraft.value} placeholder="Ex. 165" class="w-24 rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" aria-label="Valeur — Taille" />
+									<button onclick={saveHeightCrm} disabled={hBusy} class="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-dark disabled:opacity-50">
+										{hBusy ? '…' : heightCm != null ? 'Modifier la taille' : 'Ajouter la taille'}
 									</button>
-									<button onclick={() => { bmEdit = null; bmDraft[meta.key] = { date: todayISO(), value: '' }; }} class="rounded-lg border-2 border-line px-3 py-1.5 text-xs font-semibold text-mist transition hover:border-ink hover:text-ink">Annuler</button>
+								</div>
+								{#if heightSeries.length === 0}
+									<p class="mt-2 text-xs italic text-mist">Aucun historique pour l'instant — la taille actuelle est affichée ci-dessus.</p>
 								{:else}
-									<button onclick={() => addBodyMetric(meta.key)} disabled={bmBusy} class="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-dark disabled:opacity-50">
-										{bmBusy ? '…' : 'Ajouter une mesure'}
-									</button>
+									<ul class="mt-2 divide-y divide-line/60">
+										{#each [...heightSeries].reverse() as r (r.date)}
+											<li class="flex items-center gap-2 py-1.5">
+												<span class="min-w-0 flex-1 text-sm text-ink"><strong class="font-bold">{String(r.value).replace('.', ',')} cm</strong><span class="text-mist"> · {fmtDateShort(r.date)}</span></span>
+											</li>
+										{/each}
+									</ul>
 								{/if}
 							</div>
-							{#if rows.length === 0}
-								<p class="mt-2 text-xs italic text-mist">Aucune entrée pour l'instant.</p>
-							{:else}
-								<ul class="mt-2 divide-y divide-line/60">
-									{#each [...rows].reverse() as r (r.date)}
-										<li class="flex items-center gap-2 py-1.5">
-											<span class="min-w-0 flex-1 text-sm text-ink">
-												<strong class="font-bold">{String(r.value).replace('.', ',')} {meta.unit}</strong>
-												<span class="text-mist"> · {fmtDateShort(r.date)}</span>
-											</span>
-											<button onclick={() => startBmEdit(meta.key, r.date, r.value)} class="rounded-lg px-2 py-1 text-xs text-mist transition hover:bg-line/60 hover:text-ink" title="Modifier cette valeur" aria-label={`Modifier ${meta.label} du ${fmtDateShort(r.date)}`}>✎</button>
-											<button onclick={() => deleteMetric(r.date, meta.key)} class="inline-flex items-center rounded-lg px-2 py-1 text-danger/70 transition hover:bg-danger-light hover:text-danger" title="Supprimer cette valeur" aria-label={`Supprimer ${meta.label} du ${fmtDateShort(r.date)}`}><Icon name="trash" size={13} /></button>
-										</li>
-									{/each}
-								</ul>
-							{/if}
-						</div>
-					{/each}
 
-					<!-- Taille (hauteur) : profil + historique daté -->
-					<div id="bm-form-heightCm" class="mt-4 rounded-xl border border-line p-3">
-						<div class="flex flex-wrap items-center justify-between gap-2">								<h5 class="flex items-center gap-1.5 text-sm font-bold text-ink"><Icon name="ruler" size={14} class="shrink-0 text-brand" /> Taille <span class="font-normal text-mist">(cm)</span></h5>
-							<span class="text-[11px] text-mist">{heightCm != null ? `valeur actuelle : ${String(heightCm).replace('.', ',')} cm` : 'non renseignée'}</span>
-						</div>
-						{#if heightSeries.length > 0}
-							{@const hLast = heightSeries[heightSeries.length - 1]}
-							{@const hDelta = metricDelta(heightSeries)}
-							<div class="mt-2 flex items-center justify-between gap-3 rounded-lg bg-line/40 px-3 py-2">
-								<div class="min-w-0">
-									<div class="font-display text-xl font-semibold text-ink">{String(hLast.value).replace('.', ',')} cm</div>
-									{#if hDelta !== null}
-										<div class="text-[11px] font-medium text-mist">{fmtSigned(hDelta)} cm depuis le démarrage</div>
-									{/if}
+						{:else}
+							<!-- Masse grasse estimée : dérivée côté Convex, lecture seule -->
+							<div class="mt-3 rounded-xl border border-line p-3">
+								<div class="flex flex-wrap items-center justify-between gap-2">
+									<h5 class="flex items-center gap-1.5 text-sm font-bold text-ink"><Icon name="target" size={15} class="shrink-0 text-brand" /> Masse grasse estimée</h5>
+									<span class="text-[11px] text-mist">US Navy — automatique, non modifiable</span>
 								</div>
-								{#if heightSeries.length >= 2}
-									<Sparkline points={heightSeries} color="#a855f7" />
+								{#if bfPoints.length > 0}
+									<div class="mt-2">
+										<div class="font-display text-2xl font-semibold text-ink">{String(bfLast).replace('.', ',')} %</div>
+										{#if bfDelta !== null}
+											<div class="text-[11px] font-medium text-mist">{fmtSigned(bfDelta)} point{Math.abs(bfDelta) > 1 ? 's' : ''} depuis le démarrage</div>
+										{/if}
+									</div>
+									<div class="mt-2 rounded-lg bg-line/40 px-3 py-2">
+										<MetricTrend points={bfPoints} color="#a855f7" unit="%" height={110} />
+									</div>
+									<ul class="mt-2 divide-y divide-line/60">
+										{#each [...bfPoints].reverse() as r (r.date)}
+											<li class="flex items-center gap-2 py-1.5">
+												<span class="min-w-0 flex-1 text-sm text-ink"><strong class="font-bold">{String(r.value).replace('.', ',')} %</strong><span class="text-mist"> · {fmtDateShort(r.date)}</span></span>
+											</li>
+										{/each}
+									</ul>
+									<p class="mt-1 text-[11px] text-mist">Calculée depuis tour de taille + fessiers + tour de cou (même date) et la taille du profil — même valeur que dans l'espace cliente.</p>
+								{:else}
+									<p class="mt-2 text-xs italic text-mist">Renseigne tour de taille + fessiers + tour de cou (même date) et la taille pour obtenir une estimation.</p>
 								{/if}
 							</div>
 						{/if}
-						<div class="mt-2 flex flex-wrap items-center gap-2">
-							<input type="date" bind:value={hDraft.date} class="rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" aria-label="Date — Taille" />
-							<input type="number" inputmode="decimal" min="80" max="250" step="0.1" bind:value={hDraft.value} placeholder="Ex. 165" class="w-24 rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" aria-label="Valeur — Taille" />
-							<button onclick={saveHeightCrm} disabled={hBusy} class="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-dark disabled:opacity-50">
-								{hBusy ? '…' : heightCm != null ? 'Modifier la taille' : 'Ajouter la taille'}
+					{:else}
+						<!-- Cartes par métrique : valeur actuelle + mini-courbe interactive. Un clic ouvre le détail. -->
+						<div class="mt-3 grid gap-3 sm:grid-cols-2">
+							{#each BODY_METRICS as meta (meta.key)}
+								{@const rows = bmSeries(meta.key)}
+								<button
+									type="button"
+									onclick={() => (corpsDetail = { kind: 'metric', key: meta.key })}
+									class="rounded-xl border border-line bg-card p-3 text-left transition hover:border-brand"
+								>
+									<div class="flex flex-wrap items-center justify-between gap-2">
+										<h5 class="flex items-center gap-1.5 text-sm font-bold text-ink"><Icon name={meta.icon} size={15} class="shrink-0" /> {meta.label} <span class="font-normal text-mist">({meta.unit})</span></h5>
+										<span class="text-[11px] text-mist">{rows.length} entrée(s)</span>
+									</div>
+									{#if rows.length > 0}
+										{@const last = rows[rows.length - 1]}
+										{@const delta = metricDelta(rows)}
+										<div class="mt-2 flex items-end justify-between gap-3">
+											<div class="min-w-0">
+												<div class="font-display text-xl font-semibold text-ink">{String(last.value).replace('.', ',')} {meta.unit}</div>
+												{#if delta !== null}
+													<div class="text-[11px] font-medium text-mist">{fmtSigned(delta)} {meta.unit} depuis le démarrage</div>
+												{/if}
+											</div>
+											<div class="w-28 shrink-0 sm:w-36">
+												<MetricTrend points={rows} color={meta.color} unit={meta.unit} height={44} />
+											</div>
+										</div>
+									{:else}
+										<p class="mt-2 text-xs italic text-mist">Aucune entrée pour l'instant — clique pour ajouter.</p>
+									{/if}
+									<span class="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-brand">Voir le détail <Icon name="chevronRight" size={12} /></span>
+								</button>
+							{/each}
+
+							<!-- Taille (hauteur) -->
+							<button
+								type="button"
+								onclick={() => (corpsDetail = { kind: 'height' })}
+								class="rounded-xl border border-line bg-card p-3 text-left transition hover:border-brand"
+							>
+								<div class="flex flex-wrap items-center justify-between gap-2">
+									<h5 class="flex items-center gap-1.5 text-sm font-bold text-ink"><Icon name="ruler" size={15} class="shrink-0" /> Taille <span class="font-normal text-mist">(cm)</span></h5>
+									<span class="text-[11px] text-mist">{heightCm != null ? `actuelle : ${String(heightCm).replace('.', ',')} cm` : 'non renseignée'}</span>
+								</div>
+								{#if heightSeries.length > 0}
+									{@const hLast = heightSeries[heightSeries.length - 1]}
+									{@const hDelta = metricDelta(heightSeries)}
+									<div class="mt-2 flex items-end justify-between gap-3">
+										<div class="min-w-0">
+											<div class="font-display text-xl font-semibold text-ink">{String(hLast.value).replace('.', ',')} cm</div>
+											{#if hDelta !== null}
+												<div class="text-[11px] font-medium text-mist">{fmtSigned(hDelta)} cm depuis le démarrage</div>
+											{/if}
+										</div>
+										<div class="w-28 shrink-0 sm:w-36">
+											<MetricTrend points={heightSeries} color="#a855f7" unit="cm" height={44} />
+										</div>
+									</div>
+								{:else}
+									<p class="mt-2 text-xs italic text-mist">Aucun historique pour l'instant.</p>
+								{/if}
+								<span class="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-brand">Voir le détail <Icon name="chevronRight" size={12} /></span>
+							</button>
+
+							<!-- Masse grasse estimée -->
+							<button
+								type="button"
+								onclick={() => (corpsDetail = { kind: 'bodyfat' })}
+								class="rounded-xl border border-line bg-card p-3 text-left transition hover:border-brand"
+							>
+								<div class="flex flex-wrap items-center justify-between gap-2">
+									<h5 class="flex items-center gap-1.5 text-sm font-bold text-ink"><Icon name="target" size={15} class="shrink-0" /> Masse grasse estimée</h5>
+									<span class="text-[11px] text-mist">{bfPoints.length} entrée(s)</span>
+								</div>
+								{#if bfPoints.length > 0}
+									<div class="mt-2 flex items-end justify-between gap-3">
+										<div class="min-w-0">
+											<div class="font-display text-xl font-semibold text-ink">{String(bfLast).replace('.', ',')} %</div>
+											{#if bfDelta !== null}
+												<div class="text-[11px] font-medium text-mist">{fmtSigned(bfDelta)} point{Math.abs(bfDelta) > 1 ? 's' : ''} depuis le démarrage</div>
+											{/if}
+										</div>
+										<div class="w-28 shrink-0 sm:w-36">
+											<MetricTrend points={bfPoints} color="#a855f7" unit="%" height={44} />
+										</div>
+									</div>
+								{:else}
+									<p class="mt-2 text-xs italic text-mist">Aucune estimation pour l'instant — renseigne tour de taille + fessiers + cou.</p>
+								{/if}
+								<span class="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-brand">Voir le détail <Icon name="chevronRight" size={12} /></span>
 							</button>
 						</div>
-						{#if heightSeries.length === 0}
-							<p class="mt-2 text-xs italic text-mist">Aucun historique pour l'instant — la taille actuelle est affichée ci-dessus.</p>
-						{:else}
-							<ul class="mt-2 divide-y divide-line/60">
-								{#each [...heightSeries].reverse() as r (r.date)}
-									<li class="flex items-center gap-2 py-1.5">
-										<span class="min-w-0 flex-1 text-sm text-ink"><strong class="font-bold">{String(r.value).replace('.', ',')} cm</strong><span class="text-mist"> · {fmtDateShort(r.date)}</span></span>
-									</li>
-								{/each}
-							</ul>
-						{/if}
-					</div>
-
-					<!-- Masse grasse estimée : dérivée côté Convex, lecture seule -->
-					<div class="mt-4 rounded-xl border border-line p-3">
-						<div class="flex flex-wrap items-center justify-between gap-2">
-							<h5 class="flex items-center gap-1.5 text-sm font-bold text-ink"><Icon name="target" size={15} class="shrink-0 text-brand" /> Masse grasse estimée</h5>
-							<span class="text-[11px] text-mist">US Navy — automatique, non modifiable</span>
-						</div>
-						{#if bfPoints.length > 0}
-							<div class="mt-2 flex items-center justify-between gap-3 rounded-lg bg-line/40 px-3 py-2">
-								<div class="min-w-0">
-									<div class="font-display text-xl font-semibold text-ink">{String(bfLast).replace('.', ',')} %</div>
-									{#if bfDelta !== null}
-										<div class="text-[11px] font-medium text-mist">{fmtSigned(bfDelta)} point{Math.abs(bfDelta) > 1 ? 's' : ''} depuis le démarrage</div>
-									{/if}
-								</div>
-								{#if bfPoints.length >= 2}
-									<Sparkline points={bfPoints} color="#a855f7" />
-								{/if}
-							</div>
-							<ul class="mt-1 divide-y divide-line/60">
-								{#each [...bfPoints].reverse() as r (r.date)}
-									<li class="flex items-center gap-2 py-1.5">
-										<span class="min-w-0 flex-1 text-sm text-ink"><strong class="font-bold">{String(r.value).replace('.', ',')} %</strong><span class="text-mist"> · {fmtDateShort(r.date)}</span></span>
-									</li>
-								{/each}
-							</ul>
-							<p class="mt-1 text-[11px] text-mist">Calculée depuis tour de taille + fessiers + tour de cou (même date) et la taille du profil — même valeur que dans l'espace cliente.</p>
-						{:else}
-							<p class="mt-2 text-xs italic text-mist">Renseigne tour de taille + fessiers + tour de cou (même date) et la taille pour obtenir une estimation.</p>
-						{/if}
-					</div>
+					{/if}
 				</div>
 
 			<!-- ═══ Photos de suivi ═══ -->
@@ -1790,6 +2018,14 @@
 			<!-- ═══ Bilans : cockpit hebdo + historique des échanges ═══ -->
 			{:else if section === 'bilans'}
 				<div class="space-y-4">
+					<!-- Retour vers la vue globale des bilans (CRM) -->
+					<div class="flex flex-wrap items-center justify-between gap-2">
+						<a
+							href={`/admin/bilans${weekParam ? `?week=${encodeURIComponent(weekParam)}` : ''}`}
+							class="inline-flex items-center gap-1 rounded-lg border-2 border-line bg-card px-2.5 py-1.5 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand"
+						><Icon name="arrowLeft" size={14} class="shrink-0" /> Tous les bilans</a>
+						<span class="text-[11px] text-mist">Bilans de {fullName(selected.user)} — semaine après semaine</span>
+					</div>
 					{#if checkins.length === 0}
 						<div class="rounded-2xl border border-dashed border-line bg-card px-6 py-10 text-center">
 							<p class="grid place-items-center"><Icon name="calendarDays" size={30} class="text-mist" /></p>
@@ -1811,7 +2047,15 @@
 										{/if}
 									</div>
 								</div>
-								<span class="text-xs text-mist">Bilan reçu {fmtDateTime(cockpit.bilan.receivedAt)}</span>
+								<span class="text-xs text-mist">
+									Bilan reçu {fmtDateTime(cockpit.bilan.receivedAt)}
+									{#if cockpit.bilan.status === 'retour_envoye' && cockpit.bilan.feedbackAt}
+										· retour publié {fmtDateTime(cockpit.bilan.feedbackAt)}
+										{#if cockpit.bilan.readAt}
+											· lu le {fmtDateTime(cockpit.bilan.readAt)}
+										{/if}
+									{/if}
+								</span>
 							</div>
 
 							<div class="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -1847,8 +2091,8 @@
 									<p class="text-[11px] text-mist">{cockpit.calories.trackedDays} / 7 jours suivis</p>
 								</div>
 
-								<!-- PAS : moyenne réelle des jours renseignés (sinon déclaration au bilan) -->
-								{#if cockpit.steps.avg !== null || cockpit.steps.declared}
+								<!-- PAS : moyenne réelle des jours renseignés (sinon déclaration au bilan) + 7 derniers jours -->
+								{#if cockpit.steps.avg !== null || cockpit.steps.declared || stepsLast7.some((d) => d.count !== null)}
 									<div class="rounded-xl border border-line bg-cream/40 p-3">
 										<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="footprints" size={13} class="shrink-0 text-brand" /> Pas</div>
 										{#if cockpit.steps.avg !== null}
@@ -1863,9 +2107,15 @@
 											{#if cockpit.steps.declared}
 												<p class="mt-1 text-[11px] italic text-mist">Déclaré au bilan : {labelFor('pas', cockpit.steps.declared)} pas/jour</p>
 											{/if}
-										{:else}
+										{:else if cockpit.steps.declared}
 											<div class="mt-1 text-sm font-semibold text-ink">{labelFor('pas', cockpit.steps.declared ?? '')} pas / jour</div>
 											<p class="mt-1 text-[11px] text-mist">Déclaré par la cliente dans son bilan — pas de saisie quotidienne cette semaine</p>
+										{/if}
+										{#if stepsLast7.some((d) => d.count !== null)}
+											<div class="mt-2 rounded-lg bg-white/60 p-2">
+												<p class="mb-1 text-[9px] font-bold uppercase tracking-wider text-mist">7 derniers jours</p>
+												<StepsBars days={stepsLast7} goal={cockpit.steps.goal} height={64} compact />
+											</div>
 										{/if}
 									</div>
 								{/if}
@@ -1922,14 +2172,17 @@
 
 						<!-- Historique semaine par semaine (bilan + réponses + retour coach) -->
 						{#each checkins as checkin (checkin._id)}
-							<BilanCard checkin={checkin} clientName={selected.user.prenom} clientId={selected.user._id} media={mediaFor(checkin._id)} />
+							<BilanCard checkin={checkin} clientName={fullName(selected.user)} clientId={selected.user._id} media={mediaFor(checkin._id)} />
 						{/each}
 					{:else}
 						{#each checkins as checkin (checkin._id)}
-							<BilanCard checkin={checkin} clientName={selected.user.prenom} clientId={selected.user._id} media={mediaFor(checkin._id)} />
+							<BilanCard checkin={checkin} clientName={fullName(selected.user)} clientId={selected.user._id} media={mediaFor(checkin._id)} />
 						{/each}
 					{/if}
 				</div>
+			{:else if section === 'dossier'}
+				<!-- Dossier : notes privées coach + ressources partagées (« Ressources » côté cliente) -->
+				<DossierPanel clientId={selected.user._id} clientName={fullName(selected.user)} />
 			{/if}
 		</div>
 	</aside>

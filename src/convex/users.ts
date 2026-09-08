@@ -1,15 +1,15 @@
 import { mutation, query } from "./_generated/server";
-import { v, ConvexError } from "convex/values";
-import {
-	EMAIL_RE,
-	SESSION_TTL_MS,
-	getSessionUser,
-	hashPassword,
-	hashToken,
-	newSessionToken,
-	normalizeEmail,
-	verifyPassword,
-} from "./helpers";
+import { v, ConvexError } from "convex/values";	import {
+		EMAIL_RE,
+		SESSION_TTL_MS,
+		getSessionUser,
+		hashPassword,
+		hashToken,
+		newSessionToken,
+		normalizeEmail,
+		validTimeZone,
+		verifyPassword,
+	} from "./helpers";
 
 /**
  * Comptes (email + mot de passe) et sessions.
@@ -59,8 +59,11 @@ export const signIn = mutation({
 
 /** Met à jour la « dernière connexion » de l'utilisateur (appelé à chaque chargement d'espace). */
 export const touch = mutation({
-	args: { sessionToken: v.optional(v.string()) },
-	handler: async (ctx, { sessionToken }) => {
+	args: {
+		sessionToken: v.optional(v.string()),
+		timeZone: v.optional(v.string()),
+	},
+	handler: async (ctx, { sessionToken, timeZone }) => {
 		const user = await getSessionUser(ctx, sessionToken);
 		if (!user) return { ok: false };
 		const now = Date.now();
@@ -68,6 +71,13 @@ export const touch = mutation({
 		// activité date de plus de 60 s.
 		if (!user.lastSeenAt || now - user.lastSeenAt > 60_000) {
 			await ctx.db.patch(user._id, { lastSeenAt: now });
+		}
+		// Fuseau de la cliente (envoyé par son navigateur) : stocké pour que
+		// l'expiration du message du jour suive SON minuit local, pas celui du
+		// serveur. Jamais de valeur arbitraire : nom IANA validé uniquement.
+		const tz = validTimeZone(timeZone);
+		if (tz && user.timeZone !== tz) {
+			await ctx.db.patch(user._id, { timeZone: tz });
 		}
 		return { ok: true };
 	},
@@ -120,6 +130,66 @@ export const updateProfile = mutation({
 		const clean = prenom.trim().slice(0, 60);
 		if (!clean) throw new ConvexError("Le prénom ne peut pas être vide.");
 		await ctx.db.patch(user._id, { prenom: clean });
+		return { ok: true };
+	},
+});
+
+/* ════ Suivi de cycle (Accueil cliente — mêmes questions/formule que l'outil historique) ════ */
+
+/** La cliente lit sa propre configuration de cycle. */
+export const myCycle = query({
+	args: { sessionToken: v.optional(v.string()) },
+	handler: async (ctx, { sessionToken }) => {
+		const user = await getSessionUser(ctx, sessionToken);
+		if (!user) return null;
+		return user.cycle ?? null;
+	},
+});
+
+/**
+ * Enregistre la configuration de cycle de la cliente connectée.
+ * Les valeurs suivent exactement l'outil d'origine : contraception (3 choix),
+ * « je n'ai plus de règles régulières », premier jour des dernières règles,
+ * durée moyenne 21–32 jours. Aucune donnée n'est partagée avec un autre profil.
+ */
+export const saveCycle = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		contra: v.union(v.literal("none"), v.literal("iud-hormonal"), v.literal("hormonal")),
+		noDate: v.boolean(),
+		lmp: v.optional(v.string()),
+		len: v.optional(v.number()),
+	},
+	handler: async (ctx, { sessionToken, contra, noDate, lmp, len }) => {
+		const user = await getSessionUser(ctx, sessionToken);
+		if (!user) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
+
+		const updatedAt = Date.now();
+		if (contra === "hormonal") {
+			// Contraception qui met le cycle naturel en pause : on n'affiche aucune
+			// fausse estimation — on ne conserve pas de date de règles inutile.
+			await ctx.db.patch(user._id, { cycle: { contra, noDate: false, updatedAt } });
+			return { ok: true };
+		}
+
+		if (noDate) {
+			// Règles irrégulières / plus de règles : une estimation ne serait pas
+			// fiable — on garde uniquement le choix de contraception.
+			await ctx.db.patch(user._id, { cycle: { contra, noDate: true, updatedAt } });
+			return { ok: true };
+		}
+
+		const lmpClean = lmp?.trim() ?? "";
+		if (!/^\d{4}-\d{2}-\d{2}$/.test(lmpClean) || Number.isNaN(new Date(lmpClean + "T00:00:00").getTime())) {
+			throw new ConvexError("Indique le premier jour de tes dernières règles.");
+		}
+		const lenN = len;
+		if (typeof lenN !== "number" || !Number.isInteger(lenN) || lenN < 21 || lenN > 32) {
+			throw new ConvexError("La durée moyenne du cycle doit être comprise entre 21 et 32 jours.");
+		}
+		await ctx.db.patch(user._id, {
+			cycle: { contra, noDate: false, lmp: lmpClean, len: lenN, updatedAt },
+		});
 		return { ok: true };
 	},
 });

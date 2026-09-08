@@ -134,9 +134,9 @@ fichiers et adapter la page sans toucher au reste de l'appli.
 Portage fidèle du HTML « Calibrage — La Méthode G-Flux™ », en **thème
 clair** directement adapté à la palette cream/brand de l'appli (fond
 crème, cartes blanches, accent vert, ambre foncé lisible sur blanc) —
-comme le mode clair du guide recettes. Les 6 petits outils sont
-accessibles via des onglets, depuis la barre latérale de l'espace client
-comme du CRM coach :
+comme le mode clair du guide recettes. Les outils bonus sont accessibles
+via des onglets, depuis la barre latérale de l'espace client comme du
+CRM coach :
 
 1. **Cru ⇄ Cuit** — convertisseur poids cru/cuit + calories réelles
    (riz, pâtes, viandes, poissons…).
@@ -149,16 +149,18 @@ comme du CRM coach :
    jour, modulation des jours restants (plancher de sécurité, plafond de
    pas) et perte estimée. Saisies mémorisées dans le navigateur
    (`localStorage`, clé `gflux_semaine`).
-5. **Cycle** — estimation de phase selon la contraception, la date des
-   dernières règles et la durée moyenne, avec courbe SVG animée, repères
-   par phase et messages d'adaptation. Aucune donnée n'est enregistrée.
-6. **Cyclage refeed / diet break** — planification selon le % de graisse
+5. **Cyclage refeed / diet break** — planification selon le % de graisse
    et la disponibilité énergétique (grille femme/homme, calendrier de
    phases, guides pratiques).
 
+> **Cycle** : l'outil ponctuel a été migré vers une vraie carte du
+> Dashboard cliente (et sa jumelle en lecture seule dans la Vision 360 du
+> CRM coach) — mêmes questions, mêmes tranches et même formule
+> (`src/lib/cycle.ts`), données désormais enregistrées par cliente.
+
 | Fichier | Rôle |
 | --- | --- |
-| `src/routes/outils/+page.svelte` | les 6 outils (logique + interface) |
+| `src/routes/outils/+page.svelte` | les outils bonus (logique + interface) |
 | `src/routes/outils/tools.css` | thème clair scopé sous `.tools-root` |
 | `static/logo-outils.png` | logo G-Flux (version outils) |
 

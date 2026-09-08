@@ -22,6 +22,8 @@ import type * as metrics from "../metrics.js";
 import type * as off from "../off.js";
 import type * as onboarding from "../onboarding.js";
 import type * as photos from "../photos.js";
+import type * as push from "../push.js";
+import type * as resources from "../resources.js";
 import type * as steps from "../steps.js";
 import type * as users from "../users.js";
 
@@ -46,6 +48,8 @@ declare const fullApi: ApiFromModules<{
   off: typeof off;
   onboarding: typeof onboarding;
   photos: typeof photos;
+  push: typeof push;
+  resources: typeof resources;
   steps: typeof steps;
   users: typeof users;
 }>;

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import MetricChart from '../../../lib/components/MetricChart.svelte';
+	import MetricTrend from '../../../lib/components/MetricTrend.svelte';
 	import Icon from '../../../lib/components/Icon.svelte';
 
 	type Measurement = {
@@ -64,10 +64,6 @@
 			.filter((m) => m[key] !== undefined && m[key] !== null)
 			.map((m) => ({ date: m.date, value: m[key] as number }))
 			.sort((a, b) => a.date.localeCompare(b.date));
-	}
-	function shortDate(iso: string) {
-		const d = new Date(iso + 'T12:00:00');
-		return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: '2-digit' });
 	}
 	function longDate(iso: string) {
 		const d = new Date(iso + 'T12:00:00');
@@ -274,7 +270,7 @@
 
 		<section class="mt-4 rounded-2xl border border-line bg-card p-3 shadow-sm">
 			{#if detailRows.length > 0}
-				<MetricChart values={detailRows.map((r) => r.value)} labels={[shortDate(detailRows[0].date), shortDate(detailRows[detailRows.length - 1].date)]} color={detailMeta.color} height={220} />
+				<MetricTrend points={detailRows} color={detailMeta.color} unit={detailMeta.unit} height={220} width={600} />
 			{:else}
 				<div class="px-4 py-12 text-center">
 					<p class="text-sm text-mist">Aucune donnée pour {detailMeta.sub.toLowerCase()}.</p>
@@ -329,7 +325,7 @@
 
 		<section class="mt-4 rounded-2xl border border-line bg-card p-3 shadow-sm">
 			{#if bfRows.length > 0}
-				<MetricChart values={bfRows.map((r) => r.value)} labels={[shortDate(bfRows[0].date), shortDate(bfRows[bfRows.length - 1].date)]} color={BF_COLOR} height={220} />
+				<MetricTrend points={bfRows} color={BF_COLOR} unit="%" height={220} width={600} />
 			{:else}
 				<div class="px-4 py-12 text-center">
 					<p class="text-sm text-mist">Renseigne ta taille et tes mensurations pour obtenir ton estimation.</p>
@@ -415,15 +411,15 @@
 						<Icon name={meta.icon} size={28} class="shrink-0 text-mist" />
 					</div>
 				</div>
-				<button type="button" class="block w-full px-3 pt-2 text-left" aria-label={`Voir la courbe ${meta.sub}`} onclick={() => openDetail(meta.key)}>
+				<div role="button" tabindex="0" aria-label={`Voir la courbe ${meta.sub}`} class="block w-full cursor-pointer px-3 pt-2 text-left outline-none" onclick={() => openDetail(meta.key)} onkeydown={(e) => { if (e.key === 'Enter') openDetail(meta.key); }}>
 					{#if rows.length > 0}
-						<MetricChart values={rows.map((r) => r.value)} labels={[shortDate(rows[0].date), shortDate(rows[rows.length - 1].date)]} color={meta.color} height={150} />
+						<MetricTrend points={rows} color={meta.color} unit={meta.unit} height={110} />
 					{:else}
 						<div class="rounded-xl border-2 border-dashed border-line px-4 py-8 text-center">
 							<p class="text-sm text-mist">Aucune prise enregistrée pour {meta.sub.toLowerCase()}.</p>
 						</div>
 					{/if}
-				</button>
+				</div>
 				<button type="button" class="flex w-full items-center justify-between border-t border-line px-4 py-3.5 text-sm font-semibold text-ink transition hover:bg-line/40" onclick={() => openLog(meta.group)}>
 					<span>Enregistrer une valeur</span>
 					<span class="text-mist">›</span>
@@ -453,9 +449,9 @@
 				</div>
 			</div>
 			{#if bfRows.length > 0}
-				<button type="button" class="block w-full px-3 pt-2 text-left" aria-label="Voir l'historique de la masse grasse estimée" onclick={() => (bfDetail = true)}>
-					<MetricChart values={bfRows.map((r) => r.value)} labels={[shortDate(bfRows[0].date), shortDate(bfRows[bfRows.length - 1].date)]} color={BF_COLOR} height={150} />
-				</button>
+				<div role="button" tabindex="0" aria-label="Voir l'historique de la masse grasse estimée" class="block w-full cursor-pointer px-3 pt-2 text-left outline-none" onclick={() => (bfDetail = true)} onkeydown={(e) => { if (e.key === 'Enter') bfDetail = true; }}>
+					<MetricTrend points={bfRows} color={BF_COLOR} unit="%" height={110} />
+				</div>
 				<p class="flex items-start gap-1.5 border-t border-line px-4 py-3 text-xs text-mist"><Icon name="lightbulb" size={13} class="mt-0.5 shrink-0" /> <span>Calcul automatique depuis tes mensurations — impossible à modifier. Touche la courbe pour voir l'historique.</span></p>
 			{:else}
 				<div class="px-3 pt-2">

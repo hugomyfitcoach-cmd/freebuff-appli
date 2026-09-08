@@ -88,8 +88,9 @@
 		{/if}
 	</div>
 
-	<!-- Rédaction du retour coach (POST vers /admin?/setFeedback) -->
-	<form method="POST" action="/admin?/setFeedback" class="border-t border-line bg-cream/50 px-5 py-4">
+	<!-- Rédaction du retour coach — l'action préserve la Vision 360 ouverte
+	     (client + section bilans dans l'URL de destination). -->
+	<form method="POST" action="?/setFeedback&client={clientId}&section=bilans" class="border-t border-line bg-cream/50 px-5 py-4">
 		<input type="hidden" name="checkinId" value={checkin._id} />
 		<input type="hidden" name="clientId" value={clientId} />
 		<div class="mb-2 flex flex-wrap items-center justify-between gap-2">

@@ -19,24 +19,30 @@
 		user: SessionUser;
 		contentWidth?: 'std' | 'wide' | 'full';
 		showFooter?: boolean;
-		badges?: { bilans?: number; progression?: number };
+		badges?: { bilans?: number; retours?: number; message?: number; progression?: number };
 	} = $props();
 
 	const path = $derived(page.url.pathname);
 
 	type Link = { href: string; label: string; icon?: string; accent?: boolean; badge?: number };
+	/** Badge de l'Accueil = actions bilans + message du coach du jour non lu. */
+	const homeBadge = $derived((badges.bilans ?? 0) + (badges.message ?? 0));
+
 	const links = $derived<Link[]>(
 		role === 'client'
 			? [
-					{ href: '/espace', label: 'Accueil', icon: 'home' },
+					{ href: '/espace', label: 'Accueil', icon: 'home', badge: homeBadge },
 					{ href: '/espace/journal', label: 'Journal', icon: 'notebook' },
 					{ href: '/espace/progression', label: 'Progression', icon: 'trendingUp', badge: badges.progression ?? 0 },
-					{ href: '/espace/historique', label: 'Bilans', icon: 'clipboardCheck', badge: badges.bilans ?? 0 },
+					{ href: '/espace/messages', label: 'Messages', icon: 'messageCircle', badge: badges.message ?? 0 },
+					{ href: '/espace/historique', label: 'Bilans & retours', icon: 'clipboardCheck', badge: badges.retours ?? 0 },
+					{ href: '/espace/ressources', label: 'Ressources', icon: 'bookOpen' },
 					{ href: '/recettes', label: 'Recettes & nutrition', icon: 'chefHat' },
 					{ href: '/outils', label: 'Outils & calibrage', icon: 'wrench' },
 				]
 			: [
 					{ href: '/admin', label: 'Tableau de bord', icon: 'chartBar' },
+					{ href: '/admin/bilans', label: 'Bilans', icon: 'clipboardList' },
 					{ href: '/recettes', label: 'Guide nutrition & recettes', icon: 'chefHat' },
 					{ href: '/outils', label: 'Outils & calibrage', icon: 'wrench' },
 				]
@@ -45,7 +51,7 @@
 	function isActive(link: Link): boolean {
 		// Accueil = uniquement la page d'accueil ; chaque onglet met en avant sa propre section.
 		if (link.href === '/espace') return path === '/espace';
-		if (link.href === '/admin') return path === '/admin' || path.startsWith('/admin/');
+		if (link.href === '/admin') return path === '/admin'; // /admin/bilans a sa propre entrée
 		return path === link.href || path.startsWith(link.href + '/');
 	}
 
@@ -54,7 +60,7 @@
 	const primaryLinks = $derived(
 		role === 'client'
 			? ([
-					{ href: '/espace', label: 'Accueil', icon: 'home' },
+					{ href: '/espace', label: 'Accueil', icon: 'home', badge: homeBadge },
 					{ href: '/espace/journal', label: 'Journal', icon: 'notebook' },
 					{ href: '/espace/progression', label: 'Progression', icon: 'trendingUp', badge: badges.progression ?? 0 },
 				] as Link[])
@@ -121,9 +127,9 @@
 		</div>
 	</aside>
 
-	<div class="flex min-w-0 flex-1 flex-col md:pl-64">
+	<div class="flex min-w-0 flex-1 flex-col md:pl-64 {role === 'client' ? 'bg-soft' : ''}">
 		<!-- Barre mobile -->
-		<header class="sticky top-0 z-40 border-b border-line bg-cream/95 backdrop-blur md:hidden">
+		<header class="sticky top-0 z-40 border-b border-line backdrop-blur md:hidden {role === 'client' ? 'bg-soft/90' : 'bg-cream/95'}">
 			<div class="flex items-center justify-between gap-2 px-4 py-2.5">
 				<a href={role === 'coach' ? '/admin' : '/espace'} class="flex items-center gap-2">
 					<img src="/logo-header.jpg" alt="G-Flux" class="h-7 w-auto" />
@@ -146,37 +152,38 @@
 
 		<main class={mainClass}>
 			{@render children()}
-		</main>
-
-		{#if showFooter}
+		</main>				{#if showFooter}
 			<footer class="border-t border-line py-6 text-center text-xs text-mist">
 				Suivi coaching <strong class="text-ink">G-Flux</strong> — pense à remplir ton bilan chaque fin de semaine
 			</footer>
 		{/if}
 
-		<!-- Espace pour la barre de navigation mobile fixe (cliente) -->
+		<!-- Espace pour la barre flottante mobile (cliente) — jamais de contenu masqué -->
 		{#if role === 'client'}
-			<div class="h-[calc(4rem+env(safe-area-inset-bottom))] shrink-0 md:hidden" aria-hidden="true"></div>
+			<div class="h-[calc(5.25rem+env(safe-area-inset-bottom))] shrink-0 md:hidden" aria-hidden="true"></div>
 		{/if}
 	</div>
 
-	<!-- Barre de navigation mobile fixe en bas (Accueil · Journal · Progression) -->
+	<!-- Barre de navigation mobile FLOTTANTE (Accueil · Journal · Progression) :
+	     capsule arrondie, centrée, au-dessus de la safe-area — jamais collée au bord. -->
 	{#if role === 'client' && primaryLinks.length > 0}
 		<nav
-			class="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-white/95 backdrop-blur md:hidden"
+			class="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 md:hidden"
 			aria-label="Navigation mobile"
-			style="padding-bottom:env(safe-area-inset-bottom)"
+			style="padding-bottom:calc(env(safe-area-inset-bottom) + 10px)"
 		>
-			<div class="mx-auto grid w-full max-w-md grid-cols-3">
+			<div class="pointer-events-auto flex w-full max-w-sm items-stretch justify-around rounded-full border border-line bg-white/95 p-1.5 shadow-lg shadow-ink/10 backdrop-blur">
 				{#each primaryLinks as link (link.href)}
+					{@const active = isActive(link)}
 					<a
 						href={link.href}
-						class="relative flex flex-col items-center gap-0.5 px-2 py-2 text-[11px] font-semibold transition {isActive(link) ? 'text-brand' : 'text-mist hover:text-ink'}"
+						class="relative flex flex-1 flex-col items-center justify-center gap-0.5 rounded-full px-2 py-2 text-[11px] font-semibold transition
+							{active ? 'bg-brand-light text-brand-dark' : 'text-mist hover:bg-soft hover:text-ink'}"
 					>
-						<Icon name={link.icon ?? 'home'} size={23} strokeWidth={isActive(link) ? 2.3 : 2} />
-						{link.label}
+						<Icon name={link.icon ?? 'home'} size={22} strokeWidth={active ? 2.3 : 1.9} class="transition" />
+						<span>{link.label}</span>
 						{#if link.badge && link.badge > 0}
-							<span class="absolute right-1/2 top-1 ml-3 grid h-4 min-w-4 translate-x-1/2 place-items-center rounded-full bg-warn px-1 text-[10px] font-bold text-white">{link.badge}</span>
+							<span class="absolute right-1/2 top-0.5 grid h-4 min-w-4 -translate-x-1/2 translate-x-3 place-items-center rounded-full bg-warn px-1 text-[10px] font-bold text-white">{link.badge}</span>
 						{/if}
 					</a>
 				{/each}
