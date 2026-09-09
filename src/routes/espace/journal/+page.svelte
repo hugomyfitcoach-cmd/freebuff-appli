@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { onMount, tick, untrack } from 'svelte';
+	import { beforeNavigate } from '$app/navigation';
 	import { startBarcodeScanner, type BarcodeScannerHandle } from '$lib/barcodeScanner';
+	import { currentLocalDay } from '$lib/currentDay.svelte';
+	import { appWarm, firstVisit, isFresh, noteSync, restoreScroll, saveScroll } from '$lib/navMemory';
 	import JournalDay from '$lib/components/JournalDay.svelte';
 	import QuantitySheet from '$lib/components/QuantitySheet.svelte';
 	import FoodImg from '$lib/components/FoodImg.svelte';
@@ -81,8 +84,17 @@
 	] as const;
 
 	/* ————— État ————— */
-	let date = $state(untrack(() => data.today));
-	let day = $state<DayData>(untrack(() => data.day));
+	/* Jour local de la cliente (jamais minuit UTC) : le Journal démarre sur la
+	   VRAIE date locale. Si la journée servie par le serveur ne correspond pas
+	   (minuit passé, reprise de l'app, fuseau), on ne rend jamais les entrées
+	   de la veille comme celles d'aujourd'hui : journée vide + re-fetch. */
+	let date = $state(untrack(() => (typeof window !== 'undefined' ? currentLocalDay() : data.today)));
+	let day = $state<DayData>(untrack(() => {
+		if (typeof window !== 'undefined' && data.today !== currentLocalDay()) {
+			return { ...data.day, date: currentLocalDay(), entries: [], totals: { kcal: 0, carbs: 0, protein: 0, fat: 0 } };
+		}
+		return data.day;
+	}));
 	let loadingDay = $state(false);
 	let error = $state('');
 	let tipDismissed = $state(false);
@@ -95,11 +107,10 @@
 	];
 	const tip = $derived(TIPS[new Date(date + 'T12:00:00').getDay() % TIPS.length]);
 
-	/* ————— Jour : navigation & chargement ————— */
-	const todayISO = $derived((() => {
-		const d = new Date();
-		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-	})());
+	/* ————— Jour : navigation & chargement —————
+	   Date locale courante (source centrale, réactive) : au passage de minuit
+	   ou à la reprise de l'app, « Aujourd'hui » suit automatiquement. */
+	const todayISO = $derived(currentLocalDay());
 	const dateLabel = $derived.by(() => {
 		const d = new Date(date + 'T12:00:00');
 		const base = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' });
@@ -107,6 +118,17 @@
 		return base;
 	});
 	const isToday = $derived(date === todayISO);
+
+	/* Changement de journée (minuit / reprise) : si on affichait « aujourd'hui »,
+	   on bascule sur la nouvelle journée. Une date historique consultée n'est
+	   pas arrachée pendant que la cliente travaille dessus. */
+	let lastKnownToday = $state(currentLocalDay());
+	$effect(() => {
+		const d = currentLocalDay();
+		const prev = lastKnownToday;
+		lastKnownToday = d;
+		if (d !== prev && date === prev) void setDate(d);
+	});
 
 	function shiftDay(n: number) {
 		const d = new Date(date + 'T12:00:00');
@@ -879,6 +901,25 @@
 		setBarPos();
 		window.addEventListener('resize', setBarPos);
 		window.addEventListener('orientationchange', setBarPos);
+
+		/* Jour serveur ≠ jour local (minuit, reprise, fuseau) : on charge la
+		   vraie journée locale — la vue démarre déjà vide (pas de veille affichée). */
+		if (data.today !== currentLocalDay()) void setDate(date);
+
+		/* Navigation rapide : revalidation silencieuse du jour quand la donnée
+		   préchargée a plus de 30 s — le rendu est déjà affiché, aucun spinner.
+		   Jamais au premier montage (donnée fraîche de la navigation). */
+		if (!firstVisit(ROUTE) && !isFresh(ROUTE) && appWarm()) {
+			noteSync(ROUTE);
+			void syncDaySilently();
+		} else {
+			noteSync(ROUTE);
+		}
+		/* Retour sur l'onglet : position de scroll restaurée (après le reset
+		   scroll(0,0) que SvelteKit applique en fin de navigation). */
+		const y = restoreScroll(ROUTE);
+		if (y > 0) setTimeout(() => window.scrollTo(0, y), 0);
+
 		return () => {
 			if (vv) {
 				vv.removeEventListener('resize', setVh);
@@ -890,6 +931,24 @@
 			window.removeEventListener('orientationchange', setBarPos);
 		};
 	});
+
+	/* Sauvegarde de la position de scroll AVANT la navigation : à ce moment le
+	   scroll est encore celui de l'utilisateur (le réajustement de transition
+	   arrive plus tard et fausserait la valeur au démontage). */
+	beforeNavigate(() => saveScroll(ROUTE));
+
+	/* ————— Navigation rapide : identifiant de route + re-fetch silencieux ————— */
+	const ROUTE = '/espace/journal';
+	async function syncDaySilently() {
+		try {
+			const r = await fetch(`/api/journal?date=${date}`);
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			day = j;
+		} catch {
+			// silencieux : on garde la donnée affichée
+		}
+	}
 
 	/* Mini-barre sticky : dès que la carte nutritionnelle (rendue par JournalDay)
 	   sort du viewport, on affiche le HUD compact ; il disparaît au retour en haut. */

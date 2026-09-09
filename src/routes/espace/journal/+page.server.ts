@@ -1,7 +1,7 @@
 import type { PageServerLoad } from './$types';
 import { convex } from '$lib/server/convex';
 import { api } from '../../../convex/_generated/api.js';
-import { SESSION_COOKIE, requireRole } from '$lib/server/session';
+import { SESSION_COOKIE } from '$lib/server/session';
 
 function toLocalISO(d: Date): string {
 	const y = d.getFullYear();
@@ -11,7 +11,8 @@ function toLocalISO(d: Date): string {
 }
 
 export const load: PageServerLoad = async (event) => {
-	await requireRole(event, 'client', { next: '/espace/journal' });
+	// Le layout /espace a déjà vérifié la session (requireRole) — on ne refait
+	// jamais cette requête Convex ici : navigation d'onglet plus rapide.
 	const token = event.cookies.get(SESSION_COOKIE);
 	const today = toLocalISO(new Date());
 	const day = await convex.query(api.journal.getDay, { sessionToken: token, date: today });

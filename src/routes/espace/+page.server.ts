@@ -1,7 +1,7 @@
 import type { PageServerLoad } from './$types';
 import { convex } from '$lib/server/convex';
 import { api } from '../../convex/_generated/api.js';
-import { SESSION_COOKIE, requireRole } from '$lib/server/session';
+import { SESSION_COOKIE } from '$lib/server/session';
 
 /**
  * Chargement propre à l'Accueil : l'historique des retours de bilan affiché
@@ -12,7 +12,8 @@ import { SESSION_COOKIE, requireRole } from '$lib/server/session';
  * fait, dans /espace/historique).
  */
 export const load: PageServerLoad = async (event) => {
-	await requireRole(event, 'client', { next: '/espace' });
+	// Le layout /espace a déjà vérifié la session (requireRole) — on ne refait
+	// jamais cette requête Convex ici : navigation d'onglet plus rapide.
 	const token = event.cookies.get(SESSION_COOKIE);
 	const checkins = await convex.query(api.checkins.myCheckins, { sessionToken: token });
 	// Médias publiés des retours (audios + pièces jointes), groupés par bilan.

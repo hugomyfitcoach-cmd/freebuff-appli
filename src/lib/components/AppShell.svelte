@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { page } from '$app/state';
-	import { invalidateAll } from '$app/navigation';
+	import { page, navigating } from '$app/state';
+	import { invalidateAll, preloadCode, preloadData } from '$app/navigation';
 	import type { Snippet } from 'svelte';
 	import Icon from './Icon.svelte';
+	import { noteSync } from '../navMemory';
 
 	type Role = 'client' | 'coach';
 	type SessionUser = { prenom: string; email: string; role: Role };
@@ -73,10 +74,13 @@
 	);
 
 	function isActive(link: Link): boolean {
+		// Pendant une navigation (même très courte), l'onglet cible s'active
+		// immédiatement : feedback visuel instantané dès le tap.
+		const target = navigating?.to?.url.pathname ?? path;
 		// Accueil = uniquement la page d'accueil ; chaque onglet met en avant sa propre section.
-		if (link.href === '/espace') return path === '/espace';
-		if (link.href === '/admin') return path === '/admin'; // /admin/bilans a sa propre entrée
-		return path === link.href || path.startsWith(link.href + '/');
+		if (link.href === '/espace') return target === '/espace';
+		if (link.href === '/admin') return target === '/admin'; // /admin/bilans a sa propre entrée
+		return target === link.href || target.startsWith(link.href + '/');
 	}
 
 	/** Onglets permanents de la barre mobile en bas (cliente).
@@ -98,6 +102,50 @@
 				? 'mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6'
 				: 'mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6'
 	);
+
+	/* ————— Préchargement des 3 onglets principaux —————
+	   Au montage et à chaque changement d'onglet :
+	   - chunks de TOUS les onglets inactifs (le JS est prêt au tap) ;
+	   - données : le cache SvelteKit n'a QU'UNE SEULE entrée — on précharge la
+	     destination la plus probable (l'onglet suivant dans la barre). Le tap
+	     lui-même déclenche aussi un préchargement ciblé (preload-data="tap"). */
+	const MAIN_TABS = ['/espace', '/espace/journal', '/espace/progression'] as const;
+	function warmTabs() {
+		const current = page.url.pathname;
+		const others = MAIN_TABS.filter((r) => r !== current);
+		for (const r of others) void preloadCode(r).catch(() => {});
+		/* Données : la destination « la plus probable » — l'onglet suivant dans
+		   la barre (Accueil → Journal → Progression → Accueil). */
+		const idx = MAIN_TABS.indexOf(current as (typeof MAIN_TABS)[number]);
+		const next = MAIN_TABS[(idx + 1) % MAIN_TABS.length] ?? others[0];
+		void preloadData(next)
+			.then(() => noteSync(next))
+			.catch(() => {});
+	}
+	$effect(() => {
+		if (typeof window === 'undefined') return;
+		if (role !== 'client' || !page.url.pathname.startsWith('/espace')) return;
+		warmTabs();
+	});
+	/* Après une invalidation (revalidation silencieuse), on re-précharge. */
+	$effect(() => {
+		if (typeof window === 'undefined') return;
+		const onWarm = () => warmTabs();
+		window.addEventListener('gflux:warm-tabs', onWarm);
+		return () => window.removeEventListener('gflux:warm-tabs', onWarm);
+	});
+	/* Changement de journée (minuit / reprise de l'app) : on re-synchronise le
+	   layout (dashboard, badges) et les données de la page — le préchargement
+	   de la veille ne doit jamais servir de données du jour. */
+	$effect(() => {
+		if (typeof window === 'undefined') return;
+		if (role !== 'client' || !page.url.pathname.startsWith('/espace')) return;
+		const onDay = () => {
+			void invalidateAll().then(() => warmTabs());
+		};
+		document.addEventListener('gflux:day-changed', onDay);
+		return () => document.removeEventListener('gflux:day-changed', onDay);
+	});
 </script>
 
 <div class="flex min-h-screen">
@@ -116,6 +164,8 @@
 			{#each links as link (link.href)}
 				<a
 					href={link.href}
+					data-sveltekit-prefetch
+					data-sveltekit-preload-data="hover"
 					class="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition
 						{isActive(link) ? 'bg-ink text-white' : 'text-ink hover:bg-line/60'}"
 				>
@@ -235,6 +285,8 @@
 					{@const active = isActive(link)}
 					<a
 						href={link.href}
+						data-sveltekit-prefetch
+						data-sveltekit-preload-data="tap"
 						class="relative flex flex-1 flex-col items-center justify-center gap-0.5 rounded-full px-2 py-2 text-[11px] font-semibold transition
 							{active ? 'bg-brand-light text-brand-dark' : 'text-mist hover:bg-soft hover:text-ink'}"
 					>

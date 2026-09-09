@@ -56,7 +56,10 @@
 		badges: { bilans: number; retours?: number; message?: number; progression: number };
 	};
 
-	import { goto, invalidateAll } from '$app/navigation';
+	import { beforeNavigate, goto, invalidateAll } from '$app/navigation';
+	import { onMount } from 'svelte';
+	import { appWarm, firstVisit, isFresh, noteSync, restoreScroll, saveScroll } from '$lib/navMemory';
+	import { currentLocalDay } from '$lib/currentDay.svelte';
 	import { getGreeting } from '$lib/greetings';
 	import AudioPlayer from '$lib/components/AudioPlayer.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -212,9 +215,12 @@
 	// Salutation contextuelle (heure locale de la cliente) — stable pour la journée.
 	const greeting = $derived(getGreeting(user._id, user.prenom));
 
-	/* ————— Suivi de cycle (même moteur/formule que l'outil historique « Cycle ») ————— */
+	/* ————— Suivi de cycle (même moteur/formule que l'outil historique « Cycle ») —————
+	   Calculé sur la date locale courante (réactive) : à minuit / à la reprise,
+	   le jour et la phase se recalculent automatiquement. */
 	const cycleCfg = $derived<CycleConfig | null>((data.cycle ?? null) as CycleConfig | null);
-	const cycle = $derived(cycleState(cycleCfg));
+	const cycleRefDate = $derived(new Date(currentLocalDay() + 'T12:00:00'));
+	const cycle = $derived(cycleState(cycleCfg, cycleRefDate));
 	/** Couleurs de la mini-jauge (phases de la formule d'origine). */
 	const PHASE_GAUGE_COLORS: Record<string, string> = {
 		menses: '#eeb2c4',
@@ -320,8 +326,17 @@
 	const peseesLabel = $derived(dash ? `${peseesCount} / 3${peseesDone ? ' ✓' : ''}` : '');
 
 	/* ————— Pas du jour (la carte ouvre la vue statistiques « Mes pas ») ————— */
-	const todaySteps = $derived(dash?.steps.today ?? null);
+	/** Le dashboard serveur est calculé pour le jour serveur (`data.today`).
+	 *  Tant qu'il ne correspond pas à la date locale de la cliente (minuit,
+	 *  reprise de l'app, fuseau), on n'affiche JAMAIS la veille comme le jour :
+	 *  les valeurs quotidiennes passent à un état neutre, puis une
+	 *  re-synchronisation silencieuse charge la vraie journée. */
+	const dayFresh = $derived(data.today === currentLocalDay());
+	const todaySteps = $derived(dayFresh ? (dash?.steps.today ?? null) : 0);
 	const stepGoal = $derived(dash?.steps.goal ?? null);
+	/** Calories affichées : celles du jour local (0 tant que le serveur n'a pas
+	 *  re-synchronisé — jamais les valeurs de la veille). */
+	const kcalToday = $derived(dayFresh ? (dash?.tracking.kcal ?? 0) : 0);
 
 	/* ————— Mini-graphiques : pas (semaine courante) & poids (dernières pesées) ————— */
 	const stepsWeekPts = $derived((dash?.steps.week ?? []).map((s) => ({ date: s.date, value: s.count })));
@@ -357,7 +372,7 @@
 			: null
 	);
 	const barScale = $derived(maintenanceKcal ?? dash?.tracking.kcalGoal ?? 1);
-	const kcalPct = $derived(dash ? Math.min(100, (dash.tracking.kcal / barScale) * 100) : 0);
+	const kcalPct = $derived(dash ? Math.min(100, (kcalToday / barScale) * 100) : 0);
 	const goalMarkPct = $derived(barScale > 0 ? ((dash?.tracking.kcalGoal ?? 1) / barScale) * 100 : 0);
 
 	/* ————— État calorique de la carte Accueil (même moteur que le Journal :
@@ -365,7 +380,7 @@
 	   de l'objectif : une sous-alimentation importante n'est jamais validée. ————— */
 	const kcalState = $derived.by(() => {
 		if (!dash) return 'neutral';
-		const kcal = dash.tracking.kcal;
+		const kcal = kcalToday;
 		const goal = dash.tracking.kcalGoal;
 		if (maintenanceKcal && kcal > maintenanceKcal) return 'over-maintenance';
 		if (kcal > goal) return maintenanceKcal ? 'filet' : 'over';
@@ -392,7 +407,7 @@
 	);
 	const kcalStatusText = $derived.by(() => {
 		if (!dash) return '';
-		const kcal = dash.tracking.kcal;
+		const kcal = kcalToday;
 		const goal = dash.tracking.kcalGoal;
 		if (kcalState === 'over-maintenance') return `Maintenance dépassée · Objectif ${fmt(goal)}`;
 		if (kcalState === 'filet') return `Dans ton filet de sécurité · Objectif ${fmt(goal)}`;
@@ -403,6 +418,48 @@
 
 	/* Pas du jour : objectif atteint = validation verte discrète (texte secondaire). */
 	const stepsReached = $derived(stepGoal !== null && todaySteps !== null && todaySteps >= stepGoal);
+
+	/* ————— Navigation rapide + changement de journée —————
+	   L'Accueil est préchargé pendant la visite des autres onglets (cache
+	   SvelteKit) : au tap, le rendu est immédiat. Les cartes quotidiennes
+	   (Pas, Calories) n'affichent que le jour LOCAL courant ; si le jour
+	   serveur ne correspond pas (minuit, reprise, préchargement de la veille),
+	   on re-synchronise silencieusement et on affiche un état neutre en
+	   attendant — jamais les valeurs d'hier comme celles d'aujourd'hui. */
+	const ROUTE = '/espace';
+	let dayChecked = false;
+	async function syncDay() {
+		noteSync(ROUTE);
+		if (!dayFresh) {
+			/* Jour serveur ≠ jour local : une seule re-synchronisation par
+			   montage / changement de jour (pas de boucle). */
+			if (!dayChecked) {
+				dayChecked = true;
+				await invalidateAll().catch(() => {});
+				window.dispatchEvent(new CustomEvent('gflux:warm-tabs'));
+			}
+			return;
+		}
+		if (!firstVisit(ROUTE) && !isFresh(ROUTE) && appWarm()) {
+			await invalidateAll().catch(() => {});
+			window.dispatchEvent(new CustomEvent('gflux:warm-tabs'));
+		}
+	}
+	onMount(() => {
+		void syncDay();
+		const onDayChanged = () => {
+			dayChecked = false;
+			void syncDay();
+		};
+		document.addEventListener('gflux:day-changed', onDayChanged);
+		const y = restoreScroll(ROUTE);
+		if (y > 0) setTimeout(() => window.scrollTo(0, y), 0);
+		return () => document.removeEventListener('gflux:day-changed', onDayChanged);
+	});
+	/* Sauvegarde de la position de scroll AVANT la navigation : à ce moment le
+	   scroll est encore celui de l'utilisateur (le réajustement de transition
+	   arrive plus tard et fausserait la valeur au démontage). */
+	beforeNavigate(() => saveScroll(ROUTE));
 </script>
 
 <svelte:head><title>Accueil — G-Flux</title></svelte:head>
@@ -620,7 +677,7 @@
 					<Icon name="chevronRight" size={15} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
 				</div>
 				<p class="mt-2 font-display text-3xl font-bold leading-none tracking-tight text-ink tabular-nums">
-					{todaySteps !== null ? fmt(todaySteps) : '—'}
+					{todaySteps !== null ? fmt(todaySteps) : '0'}
 				</p>
 				<p class="mt-1.5 flex items-center gap-1 text-xs font-semibold {stepsReached ? 'text-brand-dark' : 'text-mist'}">
 					{#if stepsReached}
@@ -629,7 +686,7 @@
 					{:else if todaySteps !== null && stepGoal !== null}
 						{fmt(todaySteps)} / {fmt(stepGoal)} pas
 					{:else}
-						Voir mes statistiques de pas
+						{todaySteps === 0 && !dayFresh ? 'Synchronisation de la journée…' : 'Voir mes statistiques de pas'}
 					{/if}
 				</p>
 			</a>
@@ -644,7 +701,7 @@
 					<Icon name="chevronRight" size={15} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
 				</div>
 				<p class="mt-2 font-display text-3xl font-bold leading-none tracking-tight text-ink tabular-nums">
-					{fmt(dash.tracking.kcal)} <span class="text-sm font-semibold text-mist">kcal</span>
+					{fmt(kcalToday)} <span class="text-sm font-semibold text-mist">kcal</span>
 				</p>
 				<div class="mt-2 h-1.5 overflow-hidden rounded-full bg-line/70">
 					<div class="h-full rounded-full transition-all duration-500 {kcalBarClass}" style="width: {kcalPct}%"></div>

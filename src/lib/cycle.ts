@@ -203,11 +203,11 @@ export type CycleState =
 			blurb: string;
 	  };
 
-export function cycleState(cfg: CycleConfig | null | undefined): CycleState {
+export function cycleState(cfg: CycleConfig | null | undefined, ref?: Date): CycleState {
 	if (!cfg) return { kind: 'empty' };
 	if (cfg.contra === 'hormonal') return { kind: 'hormonal' };
 	if (cfg.noDate || !cfg.lmp || !cfg.len) return { kind: 'nodate' };
-	const r = getCyclePhase(cfg.lmp, cfg.len);
+	const r = getCyclePhase(cfg.lmp, cfg.len, ref);
 	return {
 		kind: 'tracked',
 		cycleDay: r.cycleDay,

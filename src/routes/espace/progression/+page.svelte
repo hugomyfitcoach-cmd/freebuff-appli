@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { beforeNavigate } from '$app/navigation';
+	import { appWarm, cacheGet, cacheSet, isFresh, noteSync, restoreScroll, saveScroll } from '../../../lib/navMemory';
 	import MetricTrend from '../../../lib/components/MetricTrend.svelte';
 	import BackToHome from '../../../lib/components/BackToHome.svelte';
 	import Icon from '../../../lib/components/Icon.svelte';
@@ -30,9 +32,25 @@
 	let error = $state('');
 	let saving = $state(false);
 
-	/* ————— Chargement ————— */
+	/* ————— Navigation rapide : identifiant de route ————— */
+	const ROUTE = '/espace/progression';
+
+	/* ————— Chargement —————
+	   Au retour sur l'onglet : les données déjà connues (cache de navigation)
+	   s'affichent immédiatement ; on ne refetch que si elles ont plus de 30 s.
+	   Même source que le fetch — jamais de donnée inventée. */
 	async function load() {
-		loading = true;
+		const cached = cacheGet<{ heightCm: number | null; measurements: Measurement[]; bodyFat: { date: string; value: number }[] }>(ROUTE);
+		if (cached) {
+			heightCm = cached.heightCm;
+			measurements = cached.measurements;
+			bodyFat = cached.bodyFat;
+			loading = false;
+		}
+		if (cached && isFresh(ROUTE)) return;
+		/* Premier chargement de session : skeleton. Sinon (cache ou session
+		   chaude) : revalidation silencieuse en arrière-plan, sans spinner. */
+		if (cached || appWarm()) loading = false;
 		error = '';
 		try {
 			const r = await fetch('/api/metrics');
@@ -42,8 +60,10 @@
 			measurements = j.measurements ?? [];
 			// Masse grasse : calcul centralisé côté Convex (même source que le CRM).
 			bodyFat = j.bodyFat ?? [];
+			cacheSet(ROUTE, { heightCm, measurements, bodyFat });
+			noteSync(ROUTE);
 		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
+			if (!cached) error = e instanceof Error ? e.message : String(e);
 		} finally {
 			loading = false;
 		}
@@ -57,7 +77,16 @@
 		if (params.get('action') === 'mensurations') {
 			openLog('mensurations');
 		}
+		/* Retour sur l'onglet : position de scroll restaurée (après le reset
+		   scroll(0,0) que SvelteKit applique en fin de navigation). */
+		const y = restoreScroll(ROUTE);
+		if (y > 0) setTimeout(() => window.scrollTo(0, y), 0);
 	});
+
+	/* Sauvegarde de la position de scroll AVANT la navigation : à ce moment le
+	   scroll est encore celui de l'utilisateur (le réajustement de transition
+	   arrive plus tard et fausserait la valeur au démontage). */
+	beforeNavigate(() => saveScroll(ROUTE));
 
 	/* ————— Séries par métrique ————— */
 	function series(key: Metric): { date: string; value: number }[] {

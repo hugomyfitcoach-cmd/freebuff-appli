@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
 	import { onMount } from 'svelte';
+	import { currentLocalDay } from '$lib/currentDay.svelte';
 	import BackToHome from '$lib/components/BackToHome.svelte';
 	import CycleForm from '$lib/components/CycleForm.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -21,7 +22,9 @@
 	let { data } = $props();
 
 	let cfg = $state<CycleConfig | null>((data.cycle ?? null) as CycleConfig | null);
-	const cycle = $derived(cycleState(cfg));
+	/* Jour actuel du cycle calculé sur la date locale courante (réactive) :
+	   à minuit / à la reprise, le marqueur « Aujourd'hui » et la phase avancent. */
+	const cycle = $derived(cycleState(cfg, new Date(currentLocalDay() + 'T12:00:00')));
 	let editing = $state(false);
 
 	const GREEN = '#1db954';
