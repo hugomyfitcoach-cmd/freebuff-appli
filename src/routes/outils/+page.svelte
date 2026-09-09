@@ -4,6 +4,10 @@
 	import { browser } from '$app/environment';
 	import Icon from '$lib/components/Icon.svelte';
 
+	let { data } = $props();
+	/** Retour vers l'espace client uniquement pour la cliente (le CRM coach a sa sidebar). */
+	const isClient = $derived(data?.user?.role === 'client');
+
 	/* Icônes Lucide injectées dans les blocs HTML construits en chaîne ({@html}).
 	   Même famille, même stroke que le composant <Icon /> — jamais d'emoji UI. */
 	const NOTE_IC_PATHS = {
@@ -685,6 +689,9 @@
 
 <div class="tools-root">
 	<div class="wrap">
+		{#if isClient}
+			<a href="/espace" class="tools-back"><Icon name="arrowLeft" size={16} class="shrink-0" /> Accueil</a>
+		{/if}
 		<header>
 			<h1>Calibrage</h1>
 			<p class="sub">
@@ -966,7 +973,7 @@
 
 		<footer>
 			Quantités indicatives (sources : Ciqual ANSES). Ton plan personnalisé prime toujours.<br />
-			<b>La Méthode G-Flux™</b> · myfit-coach.fr
+			© 2026 G-FLUX — Tous droits réservés
 		</footer>
 	</div>
 

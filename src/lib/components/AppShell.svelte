@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { invalidateAll } from '$app/navigation';
 	import type { Snippet } from 'svelte';
 	import Icon from './Icon.svelte';
 
@@ -23,6 +24,29 @@
 	} = $props();
 
 	const path = $derived(page.url.pathname);
+
+	/* Rafraîchir : re-fetch NON destructif des données de la page (re-run des
+	   load functions) — aucune saisie en cours n'est perdue. */
+	let refreshing = $state(false);
+	function refreshPage() {
+		if (refreshing) return;
+		refreshing = true;
+		invalidateAll().finally(() => setTimeout(() => (refreshing = false), 500));
+	}
+	/* Journal : refresh ciblé (événement écouté par la page) — re-fetch du jour. */
+	function refreshJournal() {
+		if (refreshing) return;
+		refreshing = true;
+		window.dispatchEvent(new CustomEvent('gflux:journal-refresh'));
+		setTimeout(() => (refreshing = false), 900);
+	}
+
+	/* Logo affiché uniquement là où il apporte de la valeur (Accueil + Journal,
+	   les onglets primaires). Les sous-pages ont leur propre retour + titre. */
+	const showBrand = $derived(role === 'coach' || path === '/espace' || path === '/espace/journal');
+
+	/* Menu utilisateur mobile : la déconnexion quitte le header principal. */
+	let menuOpen = $state(false);
 
 	type Link = { href: string; label: string; icon?: string; accent?: boolean; badge?: number };
 	/** Badge de l'Accueil = actions bilans + message du coach du jour non lu. */
@@ -81,7 +105,7 @@
 	<aside class="fixed inset-y-0 left-0 z-50 hidden w-64 flex-col border-r border-line bg-cream md:flex">
 		<div class="flex items-center gap-3 border-b border-line px-5 py-4">
 			<a href={role === 'coach' ? '/admin' : '/espace'} class="flex items-center gap-3">
-				<img src="/logo-header.jpg" alt="G-Flux" class="h-8 w-auto" />
+				<img src="/logo-header.jpg" alt="G-Flux" class="h-9 w-auto" />
 			</a>
 			<span class="font-display text-xs font-semibold uppercase tracking-widest text-mist">
 				{role === 'coach' ? 'CRM Coach' : 'Espace client'}
@@ -128,24 +152,58 @@
 	</aside>
 
 	<div class="flex min-w-0 flex-1 flex-col md:pl-64 {role === 'client' ? 'bg-soft' : ''}">
-		<!-- Barre mobile -->
+		<!-- Barre mobile : logo (Accueil / Journal) + Rafraîchir + menu utilisateur.
+		     Plus de « Bilan → » ni de « Quitter » permanents : la déconnexion vit
+		     dans le menu, Bilans reste accessible via raccourcis / badges. -->
 		<header class="sticky top-0 z-40 border-b border-line backdrop-blur md:hidden {role === 'client' ? 'bg-soft/90' : 'bg-cream/95'}">
-			<div class="flex items-center justify-between gap-2 px-4 py-2.5">
-				<a href={role === 'coach' ? '/admin' : '/espace'} class="flex items-center gap-2">
-					<img src="/logo-header.jpg" alt="G-Flux" class="h-7 w-auto" />
-				</a>				<div class="flex items-center gap-2">
+			<div class="flex items-center justify-between gap-2 px-4 py-2">
+				{#if showBrand}
+					<a href={role === 'coach' ? '/admin' : '/espace'} class="flex items-center py-0.5" aria-label="Accueil G-FLUX">
+						<img src="/logo-header.jpg" alt="G-Flux" class="h-auto w-[76px]" />
+					</a>
+				{/if}
+				<div class="ml-auto flex items-center gap-1">
 					{#if role === 'client'}
-						<a
-							href="/bilan"
-							class="rounded-lg bg-brand px-2.5 py-1.5 text-xs font-semibold text-white"
-						>Bilan →</a>
-					{/if}
-					<form method="POST" action="/connexion?/logout">
 						<button
-							type="submit"
-							class="rounded-lg border-2 border-line px-2.5 py-1.5 text-xs font-semibold text-ink"
-						>Quitter</button>
-					</form>
+							type="button"
+							onclick={path === '/espace/journal' ? refreshJournal : refreshPage}
+							class="grid h-10 w-10 place-items-center rounded-full text-ink transition hover:bg-line/40 active:scale-95"
+							title={path === '/espace/journal' ? 'Recharger la journée' : 'Actualiser les données'}
+							aria-label={path === '/espace/journal' ? 'Recharger la journée' : 'Actualiser les données'}
+						>
+							<Icon name="refreshCw" size={18} class={refreshing ? 'animate-spin' : ''} />
+						</button>
+					{/if}
+					<div class="relative">
+						<button
+							type="button"
+							onclick={() => (menuOpen = !menuOpen)}
+							class="grid h-10 w-10 place-items-center rounded-full border-2 border-line text-ink transition active:scale-95"
+							aria-label="Menu utilisateur"
+							aria-expanded={menuOpen}
+						>
+							<Icon name="settings" size={18} />
+						</button>
+						{#if menuOpen}
+							<!-- Fond transparent : un tap ailleurs referme le menu -->
+							<button type="button" class="fixed inset-0 z-40 cursor-default" aria-label="Fermer le menu" onclick={() => (menuOpen = false)}></button>
+							<div class="absolute right-0 top-12 z-50 w-60 rounded-2xl border border-line bg-card p-2 shadow-xl shadow-ink/10">
+								<div class="border-b border-line/70 px-3 py-2.5">
+									<p class="truncate text-sm font-bold text-ink">{user.prenom}</p>
+									<p class="truncate text-xs text-mist">{user.email}</p>
+								</div>
+								<form method="POST" action="/connexion?/logout" class="pt-1.5">
+									<button
+										type="submit"
+										class="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-danger transition hover:bg-danger-light"
+									>
+										<Icon name="logOut" size={16} class="shrink-0" />
+										Déconnexion
+									</button>
+								</form>
+							</div>
+						{/if}
+					</div>
 				</div>
 			</div>
 		</header>
@@ -153,8 +211,8 @@
 		<main class={mainClass}>
 			{@render children()}
 		</main>				{#if showFooter}
-			<footer class="border-t border-line py-6 text-center text-xs text-mist">
-				Suivi coaching <strong class="text-ink">G-Flux</strong> — pense à remplir ton bilan chaque fin de semaine
+			<footer class="px-4 pb-6 pt-2 text-center text-[11px] text-mist/80">
+				© 2026 G-FLUX — Tous droits réservés
 			</footer>
 		{/if}
 

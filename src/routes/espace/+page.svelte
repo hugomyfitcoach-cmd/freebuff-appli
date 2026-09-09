@@ -56,7 +56,7 @@
 		badges: { bilans: number; retours?: number; message?: number; progression: number };
 	};
 
-	import { invalidateAll } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import { getGreeting } from '$lib/greetings';
 	import AudioPlayer from '$lib/components/AudioPlayer.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -239,6 +239,12 @@
 		cErr = '';
 		cycleOpen = !cycleOpen;
 	}
+	/** Carte Cycle : questionnaire SEULEMENT si rien n'est configuré ;
+	 *  sinon → vraie page « Mon cycle » (jamais de re-questionnaire automatique). */
+	function onCycleCardClick() {
+		if (cycle.kind === 'empty') openCycleEditor();
+		else void goto('/espace/cycle');
+	}
 	function pickContra(v: CycleContra) {
 		cContra = v;
 		if (v === 'hormonal') cNoDate = false;
@@ -307,9 +313,11 @@
 	const fmtWeight = (n: number | null) => (n === null ? '—' : `${String(n).replace('.', ',')} kg`);
 	const fmtShortDate = (iso: string | null) =>
 		iso ? new Date(iso + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : '';
-	const peseesLabel = $derived(
-		dash ? `${dash.progression.weighinsThisWeek} / 3${dash.progression.weighinsThisWeek >= 3 ? ' ✓' : ''}` : ''
-	);
+	/* Pesées de la semaine (lundi → dimanche, calcul G-FLUX serveur) — l'objectif
+	   est 3 : au-delà on affiche toujours « 3/3 » (objectif atteint, pas de score). */
+	const peseesCount = $derived(Math.min(dash?.progression.weighinsThisWeek ?? 0, 3));
+	const peseesDone = $derived(peseesCount >= 3);
+	const peseesLabel = $derived(dash ? `${peseesCount} / 3${peseesDone ? ' ✓' : ''}` : '');
 
 	/* ————— Pas du jour (la carte ouvre la vue statistiques « Mes pas ») ————— */
 	const todaySteps = $derived(dash?.steps.today ?? null);
@@ -351,6 +359,50 @@
 	const barScale = $derived(maintenanceKcal ?? dash?.tracking.kcalGoal ?? 1);
 	const kcalPct = $derived(dash ? Math.min(100, (dash.tracking.kcal / barScale) * 100) : 0);
 	const goalMarkPct = $derived(barScale > 0 ? ((dash?.tracking.kcalGoal ?? 1) / barScale) * 100 : 0);
+
+	/* ————— État calorique de la carte Accueil (même moteur que le Journal :
+	   filet de sécurité = maintenance > objectif). « Respecté » = bande 80–100 %
+	   de l'objectif : une sous-alimentation importante n'est jamais validée. ————— */
+	const kcalState = $derived.by(() => {
+		if (!dash) return 'neutral';
+		const kcal = dash.tracking.kcal;
+		const goal = dash.tracking.kcalGoal;
+		if (maintenanceKcal && kcal > maintenanceKcal) return 'over-maintenance';
+		if (kcal > goal) return maintenanceKcal ? 'filet' : 'over';
+		if (goal > 0 && kcal >= goal * 0.8) return 'aligned';
+		return 'neutral';
+	});
+	const kcalBarClass = $derived(
+		kcalState === 'over-maintenance'
+			? 'bg-danger'
+			: kcalState === 'filet' || kcalState === 'over'
+				? 'bg-warn'
+				: kcalState === 'aligned'
+					? 'bg-brand'
+					: 'bg-mist/60'
+	);
+	const kcalStatusClass = $derived(
+		kcalState === 'over-maintenance'
+			? 'text-danger'
+			: kcalState === 'filet' || kcalState === 'over'
+				? 'text-warn'
+				: kcalState === 'aligned'
+					? 'text-brand-dark'
+					: 'text-mist'
+	);
+	const kcalStatusText = $derived.by(() => {
+		if (!dash) return '';
+		const kcal = dash.tracking.kcal;
+		const goal = dash.tracking.kcalGoal;
+		if (kcalState === 'over-maintenance') return `Maintenance dépassée · Objectif ${fmt(goal)}`;
+		if (kcalState === 'filet') return `Dans ton filet de sécurité · Objectif ${fmt(goal)}`;
+		if (kcalState === 'over') return `Objectif dépassé de ${fmt(kcal - goal)} · Objectif ${fmt(goal)}`;
+		if (kcalState === 'aligned') return `Objectif ${fmt(goal)} respecté`;
+		return `Il te reste ${fmt(Math.max(0, goal - kcal))} · Objectif ${fmt(goal)}`;
+	});
+
+	/* Pas du jour : objectif atteint = validation verte discrète (texte secondaire). */
+	const stepsReached = $derived(stepGoal !== null && todaySteps !== null && todaySteps >= stepGoal);
 </script>
 
 <svelte:head><title>Accueil — G-Flux</title></svelte:head>
@@ -570,14 +622,15 @@
 				<p class="mt-2 font-display text-3xl font-bold leading-none tracking-tight text-ink tabular-nums">
 					{todaySteps !== null ? fmt(todaySteps) : '—'}
 				</p>
-				<p class="mt-1.5 text-xs text-mist">
-					{todaySteps === null
-						? 'Voir mes statistiques de pas'
-						: stepGoal !== null && todaySteps >= stepGoal
-							? `Objectif ${fmt(stepGoal)} atteint ✓`
-							: stepGoal !== null
-								? `Objectif ${fmt(stepGoal)} pas`
-								: 'Voir mes statistiques de pas'}
+				<p class="mt-1.5 flex items-center gap-1 text-xs font-semibold {stepsReached ? 'text-brand-dark' : 'text-mist'}">
+					{#if stepsReached}
+						<Icon name="circleCheck" size={13} class="shrink-0" />
+						Objectif {fmt(stepGoal ?? 0)} atteint
+					{:else if todaySteps !== null && stepGoal !== null}
+						{fmt(todaySteps)} / {fmt(stepGoal)} pas
+					{:else}
+						Voir mes statistiques de pas
+					{/if}
 				</p>
 			</a>
 
@@ -594,9 +647,14 @@
 					{fmt(dash.tracking.kcal)} <span class="text-sm font-semibold text-mist">kcal</span>
 				</p>
 				<div class="mt-2 h-1.5 overflow-hidden rounded-full bg-line/70">
-					<div class="h-full rounded-full bg-brand transition-all" style="width: {kcalPct}%"></div>
+					<div class="h-full rounded-full transition-all duration-500 {kcalBarClass}" style="width: {kcalPct}%"></div>
 				</div>
-				<p class="mt-1.5 text-xs text-mist">Objectif {fmt(dash.tracking.kcalGoal)} kcal</p>
+				<p class="mt-1.5 flex items-center gap-1 text-xs font-semibold {kcalStatusClass}">
+					{#if kcalState === 'aligned'}
+						<Icon name="circleCheck" size={13} class="shrink-0" />
+					{/if}
+					<span class="min-w-0 truncate">{kcalStatusText}</span>
+				</p>
 			</a>
 
 			<!-- POIDS -->
@@ -611,15 +669,24 @@
 				<p class="mt-2 font-display text-3xl font-bold leading-none tracking-tight text-ink tabular-nums">
 					{dash.progression.lastWeightKg !== null ? fmtWeight(dash.progression.lastWeightKg) : '—'}
 				</p>
-				<p class="mt-1.5 text-xs text-mist">
-					{#if weightDelta !== null}<span class="font-semibold {weightDelta <= 0.05 ? 'text-brand-dark' : 'text-mist'}">{weightDeltaLabel(weightDelta)}</span>{:else}Ta progression ici{/if}
-				</p>
+				<div class="mt-1.5 flex items-center justify-between gap-2">
+					<p class="min-w-0 truncate text-xs text-mist">
+						{#if weightDelta !== null}<span class="font-semibold {weightDelta <= 0.05 ? 'text-brand-dark' : 'text-mist'}">{weightDeltaLabel(weightDelta)}</span>{:else}Ta progression ici{/if}
+					</p>
+					{#if peseesDone}
+						<span class="inline-flex shrink-0 items-center gap-1 rounded-full bg-brand-light px-2 py-0.5 text-[11px] font-bold text-brand-dark">
+							<Icon name="circleCheck" size={12} class="shrink-0" /> Pesées 3/3
+						</span>
+					{:else}
+						<span class="shrink-0 text-[11px] font-semibold tabular-nums text-mist">Pesées {peseesCount}/3</span>
+					{/if}
+				</div>
 			</a>
 
 			<!-- CYCLE -->
 			<button
 				type="button"
-				onclick={openCycleEditor}
+				onclick={onCycleCardClick}
 				class="group rounded-3xl border border-line bg-card p-4 text-left shadow-sm transition hover:border-brand/50 active:scale-[0.99]"
 			>
 				<div class="flex items-center justify-between gap-1">
@@ -741,18 +808,13 @@
 				</div>
 			</div>
 			<div class="flex flex-wrap gap-x-5 gap-y-1 text-sm text-ink">
-				<span class="inline-flex items-center gap-1"><Icon name="scale" size={14} class="shrink-0" /> Pesées : <strong>{recap.weighins.count} / {recap.weighins.goal}</strong>{recap.weighins.count >= recap.weighins.goal ? ' ✓' : ''}</span>
+				<span class="inline-flex items-center gap-1"><Icon name="scale" size={14} class="shrink-0" /> Pesées : <strong>{Math.min(recap.weighins.count, recap.weighins.goal)} / {recap.weighins.goal}</strong>{recap.weighins.count >= recap.weighins.goal ? ' ✓' : ''}</span>
 				<span class="inline-flex items-center gap-1"><Icon name="clipboardList" size={14} class="shrink-0" /> Bilan : <strong>{recap.bilan.sent ? 'Envoyé ✓' : 'Non envoyé'}</strong></span>
 			</div>
 		</div>
 	</section>
 {/if}
 
-<!-- Pied discret : accès à l'historique des bilans & retours -->
-<nav class="mt-5 flex items-center justify-between gap-2 border-t border-line/80 pt-4 text-xs">
-	<a href="/espace/historique" class="inline-flex items-center gap-1.5 font-semibold text-mist transition hover:text-ink"><Icon name="clipboardCheck" size={14} class="shrink-0" /> Mes bilans & retours</a>
-	<a href="/espace/ressources" class="inline-flex items-center gap-1.5 font-semibold text-mist transition hover:text-ink"><Icon name="bookOpen" size={14} class="shrink-0" /> Ressources</a>
-</nav>
 <style>
 	/* Petite animation discrète à la première apparition du récap hebdo. */
 	.recap-card {

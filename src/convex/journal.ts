@@ -337,6 +337,40 @@ export const cacheFoods = mutation({
 	},
 });
 
+/** Aliments « fréquents » : derniers aliments réellement consommés par la
+ *  cliente (dédupliqués, résolus en hits complets) — alimente l'écran
+ *  « Ajouter un aliment » avant toute saisie. Jamais de données inventées. */
+export const recentFoods = query({
+	args: { sessionToken: v.optional(v.string()) },
+	handler: async (ctx, { sessionToken }) => {
+		const user = await requireClient(ctx, sessionToken);
+		const recent = await ctx.db
+			.query("diaryEntries")
+			.withIndex("by_user", (q) => q.eq("userId", user._id))
+			.order("desc")
+			.take(40);
+		const seen = new Set<string>();
+		const foodIds: Id<"foods">[] = [];
+		const customIds: Id<"customFoods">[] = [];
+		for (const e of recent) {
+			const key = e.foodId ? `f:${e.foodId}` : e.customFoodId ? `c:${e.customFoodId}` : null;
+			if (!key || seen.has(key)) continue;
+			seen.add(key);
+			if (e.foodId) foodIds.push(e.foodId);
+			if (e.customFoodId) customIds.push(e.customFoodId);
+			if (seen.size >= 12) break;
+		}
+		const [foodRows, customRows] = await Promise.all([
+			Promise.all(foodIds.map((id) => ctx.db.get(id))),
+			Promise.all(customIds.map((id) => ctx.db.get(id))),
+		]);
+		const hits: FoodHit[] = [];
+		for (const f of foodRows) if (f) hits.push(toHit(f));
+		for (const f of customRows) if (f) hits.push(toCustomHit(f));
+		return hits;
+	},
+});
+
 /* ─────────────────────────── Objectifs (coach) ─────────────────────────── */
 
 export const setClientGoals = mutation({

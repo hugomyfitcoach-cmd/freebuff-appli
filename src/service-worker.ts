@@ -10,8 +10,19 @@ import { build, files, version } from '$service-worker';
 
 // Nom unique par build : un nouveau déploiement invalide l'ancien cache.
 const CACHE = `gflux-${version}`;
+/** Cache dédié aux vignettes alimentaires Open Food Facts (SWR : lecture
+ *  instantanée + rafraîchissement en arrière-plan, jamais de cache cassant). */
+const IMG_CACHE = `gflux-img-${version}`;
 
 const ASSETS = [...build, ...files];
+
+/** Hôtes d'images alimentaires (vignettes OFF déjà optimisées). */
+const IMG_HOSTS = ['images.openfoodfacts.org', 'static.openfoodfacts.org', 'world.openfoodfacts.org'];
+const IMG_RE = /\.(png|jpe?g|webp|avif|gif)(\?.*)?$/i;
+
+function isFoodImage(url: URL): boolean {
+	return IMG_HOSTS.includes(url.hostname) && IMG_RE.test(url.pathname);
+}
 
 self.addEventListener('install', (event) => {
 	event.waitUntil(
@@ -68,10 +79,28 @@ self.addEventListener('notificationclick', (event) => {
 	);
 });
 
-/* ── Navigation : réseau d'abord, repli cache (app shell) ── */
+/* ── Images alimentaires OFF : stale-while-revalidate (instantané puis
+      mise à jour en arrière-plan — ne casse jamais une nouvelle image). ── */
 self.addEventListener('fetch', (event) => {
 	if (event.request.method !== 'GET') return;
 	const url = new URL(event.request.url);
+	if (isFoodImage(url)) {
+		event.respondWith(
+			caches.match(event.request).then((cached) => {
+				const network = fetch(event.request)
+					.then((res) => {
+						if (res.ok) {
+							const clone = res.clone();
+							caches.open(IMG_CACHE).then((c) => c.put(event.request, clone));
+						}
+						return res;
+					})
+					.catch(() => cached);
+				return cached ?? network;
+			})
+		);
+		return;
+	}
 	if (url.origin !== self.location.origin) return;
 	// Données/API : jamais mises en cache (sessions + réponses privées).
 	if (event.request.url.includes('/api/')) return;

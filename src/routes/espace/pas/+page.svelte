@@ -44,6 +44,67 @@
 			.replace(/^./, (c) => c.toUpperCase());
 	}
 
+	/* ————— Saisie rétroactive : mode édition des 7 derniers jours ————— */
+	let editing = $state(false);
+	let edits = $state<Record<string, string>>({});
+	let editsSaving = $state(false);
+	let editsError = $state('');
+
+	function dayLabel(date: string): { day: string; dateLabel: string } {
+		const d = new Date(date + 'T12:00:00');
+		const wd = d
+			.toLocaleDateString('fr-FR', { weekday: 'short' })
+			.replace(/\.$/, '');
+		const dl = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+		return { day: wd, dateLabel: dl };
+	}
+
+	function startEditing() {
+		const next: Record<string, string> = {};
+		for (const d of windowDays) next[d.date] = d.count !== null ? String(d.count) : '';
+		edits = next;
+		editsError = '';
+		editing = true;
+	}
+
+	async function saveEdits() {
+		const changes: { date: string; count: number }[] = [];
+		for (const d of windowDays) {
+			const raw = (edits[d.date] ?? '').trim();
+			if (raw === '') continue; // champ vide = aucun changement (jour sans donnée ≠ 0)
+			const n = Number(raw.replace(/\s/g, ''));
+			if (!Number.isInteger(n) || n < 0 || n > 150000) {
+				editsError = `Valeur invalide pour le ${dayLabel(d.date).day} ${dayLabel(d.date).dateLabel} : entre 0 et 150 000 pas.`;
+				return;
+			}
+			changes.push({ date: d.date, count: n });
+		}
+		if (changes.length === 0) {
+			editing = false;
+			return;
+		}
+		editsSaving = true;
+		editsError = '';
+		try {
+			// Upsert par date (1 cliente + 1 date = 1 valeur) — jamais de doublon.
+			for (const c of changes) {
+				const res = await fetch('/api/steps', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(c),
+				});
+				const body = await res.json();
+				if (!res.ok || body.error) throw new Error(body.error ?? 'Enregistrement impossible.');
+			}
+			editing = false;
+			await invalidateAll(); // graphique + total + moyenne + meilleur jour + suivi recalculés
+		} catch (e) {
+			editsError = e instanceof Error ? e.message : 'Enregistrement impossible.';
+		} finally {
+			editsSaving = false;
+		}
+	}
+
 	/* ————— Saisie du jour ————— */
 	let stepsValue = $state('');
 	let stepsSaving = $state(false);
@@ -85,11 +146,66 @@
 
 	<div class="flex items-center gap-3">
 		<div class="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-brand-light"><Icon name="footprints" size={22} class="text-brand" /></div>
-		<div>
+		<div class="min-w-0 flex-1">
 			<h1 class="font-display text-2xl font-semibold tracking-tight text-ink">Mes pas</h1>
 			<p class="text-sm text-mist">7 derniers jours — les jours sans saisie ne comptent pas comme zéro.</p>
 		</div>
+		{#if !editing}
+			<button
+				type="button"
+				onclick={startEditing}
+				class="grid h-11 w-11 shrink-0 place-items-center rounded-full text-mist transition hover:bg-line/50 hover:text-ink"
+				aria-label="Modifier les 7 derniers jours"
+				title="Modifier les 7 jours"
+			><Icon name="pencil" size={18} /></button>
+		{/if}
 	</div>
+
+	{#if editing}
+		<!-- Mode édition : tous les jours de la fenêtre, y compris rétroactifs -->
+		<section class="mt-5 rounded-3xl border border-line bg-card p-4 shadow-sm">
+			<div class="flex items-center justify-between gap-2">
+				<h2 class="text-[11px] font-bold uppercase tracking-widest text-mist">Modifier les 7 jours</h2>
+				<span class="text-[11px] text-mist">1 valeur par jour</span>
+			</div>
+			<div class="mt-1 flex flex-col divide-y divide-line/60">
+				{#each windowDays as d (d.date)}
+					{@const lbl = dayLabel(d.date)}
+					<div class="flex items-center gap-2 py-2">
+						<span class="w-12 shrink-0 text-[13px] font-semibold text-ink">{lbl.day}</span>
+						<span class="w-[4.5rem] shrink-0 text-xs text-mist">{lbl.dateLabel}{d.date === todayISO ? ' · auj.' : ''}</span>
+						<input
+							type="number"
+							inputmode="numeric"
+							min="0"
+							max="150000"
+							placeholder={d.count !== null ? String(d.count) : 'Ajouter'}
+							bind:value={edits[d.date]}
+							class="w-full min-w-0 flex-1 rounded-xl border-2 border-line bg-soft px-3 py-2 text-sm font-semibold tabular-nums text-ink outline-none transition focus:border-brand"
+						/>
+					</div>
+				{/each}
+			</div>
+			{#if editsError}
+				<p class="mt-2 text-xs font-semibold text-danger">{editsError}</p>
+			{/if}
+			<div class="mt-3 flex gap-2">
+				<button
+					type="button"
+					onclick={saveEdits}
+					disabled={editsSaving}
+					class="flex-1 rounded-xl bg-brand px-4 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
+				>{editsSaving ? 'Enregistrement…' : 'Enregistrer'}</button>
+				<button
+					type="button"
+					onclick={() => (editing = false)}
+					disabled={editsSaving}
+					class="rounded-xl border-2 border-line px-4 py-2.5 text-sm font-semibold text-mist transition hover:text-ink"
+				>Annuler</button>
+			</div>
+			<p class="mt-2 text-[11px] leading-snug text-mist">Un champ vide ne change rien : une journée sans saisie n'est jamais comptée comme 0 pas.</p>
+		</section>
+	{/if}
 
 	<!-- Saisie du jour -->
 	<section class="mt-5 rounded-3xl border border-line bg-card p-4 shadow-sm">

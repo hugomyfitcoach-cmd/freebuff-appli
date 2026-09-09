@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import MetricTrend from '../../../lib/components/MetricTrend.svelte';
+	import BackToHome from '../../../lib/components/BackToHome.svelte';
 	import Icon from '../../../lib/components/Icon.svelte';
 
 	type Measurement = {
@@ -269,8 +270,13 @@
 		<p class="mt-1 text-sm text-mist">Touche une date pour corriger ou supprimer une valeur.</p>
 
 		<section class="mt-4 rounded-2xl border border-line bg-card p-3 shadow-sm">
-			{#if detailRows.length > 0}
+			{#if detailRows.length >= 2}
 				<MetricTrend points={detailRows} color={detailMeta.color} unit={detailMeta.unit} height={220} width={600} />
+			{:else if detailRows.length === 1 && detailLast !== null}
+				<div class="px-4 py-6 text-center">
+					<p class="text-sm font-semibold text-ink">{fmt(Math.round(detailLast * 10) / 10)} {detailMeta.unit}</p>
+					<p class="mt-1 text-xs text-mist">1 mesure enregistrée — la tendance apparaîtra après une prochaine mesure.</p>
+				</div>
 			{:else}
 				<div class="px-4 py-12 text-center">
 					<p class="text-sm text-mist">Aucune donnée pour {detailMeta.sub.toLowerCase()}.</p>
@@ -324,8 +330,13 @@
 		<p class="mt-1 text-sm text-mist">Estimation indicative calculée avec la méthode US Navy — elle n'est pas modifiable.</p>
 
 		<section class="mt-4 rounded-2xl border border-line bg-card p-3 shadow-sm">
-			{#if bfRows.length > 0}
+			{#if bfRows.length >= 2}
 				<MetricTrend points={bfRows} color={BF_COLOR} unit="%" height={220} width={600} />
+			{:else if bfRows.length === 1 && bfLast !== null}
+				<div class="px-4 py-6 text-center">
+					<p class="text-sm font-semibold text-ink">{fmt(bfLast)} %</p>
+					<p class="mt-1 text-xs text-mist">1 estimation — la tendance apparaîtra après une prochaine mesure.</p>
+				</div>
 			{:else}
 				<div class="px-4 py-12 text-center">
 					<p class="text-sm text-mist">Renseigne ta taille et tes mensurations pour obtenir ton estimation.</p>
@@ -363,6 +374,7 @@
 	{:else}
 	<!-- ═══════════ Vue principale ═══════════ -->
 	<div class="mx-auto w-full max-w-xl px-4 pb-28 pt-4 sm:px-6">
+		<BackToHome label="Ma progression" />
 		<h1 class="font-display text-2xl font-semibold text-ink">Ma progression <Icon name="trendingUp" size={22} class="inline -mt-1 text-brand" /></h1>
 		<p class="mt-1 text-sm text-mist">Poids, mensurations et masse grasse estimée — touche une courbe pour la détailler.</p>
 
@@ -412,11 +424,15 @@
 					</div>
 				</div>
 				<div role="button" tabindex="0" aria-label={`Voir la courbe ${meta.sub}`} class="block w-full cursor-pointer px-3 pt-2 text-left outline-none" onclick={() => openDetail(meta.key)} onkeydown={(e) => { if (e.key === 'Enter') openDetail(meta.key); }}>
-					{#if rows.length > 0}
+					{#if rows.length >= 2}
 						<MetricTrend points={rows} color={meta.color} unit={meta.unit} height={110} />
+					{:else if rows.length === 1}
+						<div class="px-4 pb-4">
+							<p class="flex items-start gap-1.5 text-xs text-mist"><Icon name="lightbulb" size={13} class="mt-0.5 shrink-0" /><span>Tendance disponible après une prochaine mesure.</span></p>
+						</div>
 					{:else}
-						<div class="rounded-xl border-2 border-dashed border-line px-4 py-8 text-center">
-							<p class="text-sm text-mist">Aucune prise enregistrée pour {meta.sub.toLowerCase()}.</p>
+						<div class="mx-3 mb-3 rounded-xl border-2 border-dashed border-line px-4 py-4 text-center">
+							<p class="text-xs text-mist">Aucune prise enregistrée pour {meta.sub.toLowerCase()}.</p>
 						</div>
 					{/if}
 				</div>
@@ -448,11 +464,15 @@
 					<span class="grid place-items-center"><Icon name="target" size={22} class="text-brand" /></span>
 				</div>
 			</div>
-			{#if bfRows.length > 0}
+			{#if bfRows.length >= 2}
 				<div role="button" tabindex="0" aria-label="Voir l'historique de la masse grasse estimée" class="block w-full cursor-pointer px-3 pt-2 text-left outline-none" onclick={() => (bfDetail = true)} onkeydown={(e) => { if (e.key === 'Enter') bfDetail = true; }}>
 					<MetricTrend points={bfRows} color={BF_COLOR} unit="%" height={110} />
 				</div>
 				<p class="flex items-start gap-1.5 border-t border-line px-4 py-3 text-xs text-mist"><Icon name="lightbulb" size={13} class="mt-0.5 shrink-0" /> <span>Calcul automatique depuis tes mensurations — impossible à modifier. Touche la courbe pour voir l'historique.</span></p>
+			{:else if bfRows.length === 1}
+				<div role="button" tabindex="0" aria-label="Voir l'historique de la masse grasse estimée" class="block w-full cursor-pointer px-3 pt-1 text-left outline-none" onclick={() => (bfDetail = true)} onkeydown={(e) => { if (e.key === 'Enter') bfDetail = true; }}>
+					<p class="flex items-start gap-1.5 px-4 pb-4 text-xs text-mist"><Icon name="lightbulb" size={13} class="mt-0.5 shrink-0" /><span>Calcul automatique depuis tes mensurations — impossible à modifier. Tendance disponible après une prochaine mesure.</span></p>
+				</div>
 			{:else}
 				<div class="px-3 pt-2">
 					<div class="rounded-xl border-2 border-dashed border-line px-4 py-8 text-center">

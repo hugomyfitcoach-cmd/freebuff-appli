@@ -36,7 +36,25 @@
 }
 
 .tools-root header {
-	padding: 28px 0 18px;
+	padding: 12px 0 18px;
+}
+
+.tools-root .tools-back {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 13px;
+	font-weight: 700;
+	color: var(--muted);
+	padding: 8px 10px;
+	margin: 16px 0 0 -10px;
+	border-radius: 12px;
+	transition: color 0.15s ease, background 0.15s ease;
+}
+
+.tools-root .tools-back:hover {
+	color: var(--green);
+	background: var(--surface2);
 }
 .tools-root .brand {
 	margin-bottom: 16px;
@@ -47,13 +65,12 @@
 	display: block;
 }
 .tools-root h1 {
-	font-family: 'Oswald', ui-sans-serif, system-ui, sans-serif;
-	font-size: 24px;
-	font-weight: 600;
+	font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
+	font-size: 22px;
+	font-weight: 700;
 	line-height: 1.2;
 	color: var(--text);
-	text-transform: uppercase;
-	letter-spacing: 0.01em;
+	letter-spacing: -0.01em;
 }
 .tools-root h1 em {
 	font-style: normal;
@@ -744,7 +761,7 @@
 	100% { r: 16; opacity: 0; }
 }
 .tools-root .marker-label {
-	font-family: 'Oswald', ui-sans-serif, system-ui, sans-serif;
+	font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
 	font-size: 12px;
 	font-weight: 600;
 	fill: var(--text);

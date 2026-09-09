@@ -3,6 +3,7 @@
 	import { startBarcodeScanner, type BarcodeScannerHandle } from '$lib/barcodeScanner';
 	import JournalDay from '$lib/components/JournalDay.svelte';
 	import QuantitySheet from '$lib/components/QuantitySheet.svelte';
+	import FoodImg from '$lib/components/FoodImg.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 
 	type Goals = { kcal: number; carbs: number; protein: number; fat: number; maintenanceKcal?: number };
@@ -157,6 +158,8 @@
 	let pageWrap: HTMLElement | undefined;
 	/** Position/portée de la mini-barre : calée sur le conteneur du Journal. */
 	let barStyle = $state({ left: 0, width: 0 });
+	/** Position verticale : juste sous le header mobile (mesuré), 16 px sur desktop. */
+	let barTop = $state(56);
 
 	function macroPct(eaten: number, goal: number) {
 		return goal > 0 ? Math.min(100, (eaten / goal) * 100) : 0;
@@ -168,6 +171,17 @@
 		{ label: 'Glucides', icon: 'wheat', color: '#ec4899', eaten: totals.carbs, goal: day.goals.carbs },
 		{ label: 'Protéines', icon: 'drumstick', color: '#3b82f6', eaten: totals.protein, goal: day.goals.protein },
 		{ label: 'Lipides', icon: 'droplet', color: '#f97316', eaten: totals.fat, goal: day.goals.fat },
+	]);
+	/** HUD sticky : kcal + 3 macros, libellés abrégés pour tenir sur une ligne. */
+	const stickyRings = $derived([
+		{ label: 'kcal', icon: 'flame', color: kcalTone, eaten: Math.round(totals.kcal), goal: day.goals.kcal },
+		...rings.map((r) => ({
+			label: r.label === 'Glucides' ? 'gluc.' : r.label === 'Protéines' ? 'prot.' : 'lip.',
+			icon: r.icon,
+			color: r.color,
+			eaten: Math.round(r.eaten),
+			goal: r.goal,
+		})),
 	]);
 
 	/* ————— Swipe gauche/droite ————— */
@@ -217,10 +231,27 @@
 		searchTimer = setTimeout(() => runSearch(searchQ.trim()), 300);
 	}
 
+	/* ————— Aliments fréquents (suggestions avant recherche) ————— */
+	let recentFoods = $state<Food[]>([]);
+	let recentLoaded = $state(false);
+
+	async function loadRecent() {
+		try {
+			const r = await fetch('/api/foods/recent');
+			const j = await r.json();
+			if (!j.error) recentFoods = j;
+		} catch {
+			// silencieux : suggestions vides si indisponibles
+		} finally {
+			recentLoaded = true;
+		}
+	}
+
 	async function openLog(meal?: 'petit-dej' | 'dejeuner' | 'diner' | 'collation') {
 		if (meal) qtyMeal = meal;
 		searchQ = '';
 		results = [];
+		searchError = '';
 		searchTab = 'produits';
 		favOnly = false;
 		mealEditor = false;
@@ -230,6 +261,8 @@
 		barcodeManual = '';
 		logMode = 'search';
 		logOpen = true;
+		recentLoaded = false;
+		loadRecent();
 		loadFavorites();
 		loadMeals();
 		loadCustomFoods();
@@ -766,6 +799,12 @@
 		}
 	}
 
+	/* Hauteur visible (visualViewport) — dimensionne l'écran « Ajouter un aliment »
+	   en px réels : fiable iOS avec clavier ouvert (contrairement aux unités dvh). */
+	let vvH = $state(typeof window !== 'undefined' ? Math.round(window.visualViewport?.height ?? window.innerHeight) : 700);
+	let mobile = $state(typeof window !== 'undefined' ? window.matchMedia('(max-width: 639px)').matches : true);
+	let refreshing = $state(false);
+
 	onMount(() => {
 		document.addEventListener('keydown', (e) => {
 			if (logOpen || qtyFood || editEntry || qtyMealSel) return;
@@ -773,21 +812,28 @@
 			if (e.key === 'ArrowRight') shiftDay(1);
 		});
 
-		/* Clavier mobile : ajuste la hauteur de la modale pour que la liste de
-		   résultats et la barre Recherche/Code-barres restent visibles au-dessus
-		   du clavier (comme une app native). --kb = hauteur du clavier en px. */
-		const setKb = () => {
-			const vv = window.visualViewport;
-			if (!vv) return;
-			const kb = Math.max(0, window.innerHeight - vv.height);
-			document.documentElement.style.setProperty('--kb', `${kb}px`);
-		};
+		/* Clavier mobile : la hauteur de l'écran Ajouter suit le visualViewport. */
 		const vv = window.visualViewport;
+		const setVh = () => {
+			vvH = Math.round((vv?.height ?? window.innerHeight) ?? 0);
+		};
 		if (vv) {
-			vv.addEventListener('resize', setKb);
-			vv.addEventListener('scroll', setKb);
-			setKb();
+			vv.addEventListener('resize', setVh);
+			vv.addEventListener('scroll', setVh);
 		}
+		setVh();
+		const mq = window.matchMedia('(max-width: 639px)');
+		const onMq = () => (mobile = mq.matches);
+		mq.addEventListener('change', onMq);
+
+		/* Rafraîchir (bouton AppShell) → re-fetch du jour, sans perdre la saisie. */
+		const onRefresh = () => {
+			refreshing = true;
+			void setDate(date).finally(() => {
+				refreshing = false;
+			});
+		};
+		window.addEventListener('gflux:journal-refresh', onRefresh);
 
 		/* Barre sticky : alignée sur le conteneur du Journal (largeur max centrée),
 		   indépendamment de la sidebar desktop ou des marges du viewport. */
@@ -796,9 +842,25 @@
 			const r = pageWrap.getBoundingClientRect();
 			barStyle.left = r.left;
 			barStyle.width = r.width;
+			/* Le header mobile AppShell est sticky : on mesure sa hauteur réelle
+			   (safe-area / Dynamic Island incluses). Desktop : header masqué → 16 px. */
+			const hdr = document.querySelector('header');
+			const h = hdr ? hdr.getBoundingClientRect().height : 0;
+			barTop = h > 4 ? Math.ceil(h) : 16;
 		};
 		setBarPos();
 		window.addEventListener('resize', setBarPos);
+		window.addEventListener('orientationchange', setBarPos);
+		return () => {
+			if (vv) {
+				vv.removeEventListener('resize', setVh);
+				vv.removeEventListener('scroll', setVh);
+			}
+			mq.removeEventListener('change', onMq);
+			window.removeEventListener('gflux:journal-refresh', onRefresh);
+			window.removeEventListener('resize', setBarPos);
+			window.removeEventListener('orientationchange', setBarPos);
+		};
 	});
 
 	/* Mini-barre sticky : dès que la carte nutritionnelle (rendue par JournalDay)
@@ -822,33 +884,33 @@
 
 <svelte:head><title>Journal — G-Flux</title></svelte:head>
 
-<svelte:window ontouchstart={onTouchStart} ontouchend={onTouchEnd} />	<div bind:this={pageWrap} class="relative mx-auto w-full max-w-2xl px-3 pb-28 pt-4 sm:px-6">
+<svelte:window ontouchstart={onTouchStart} ontouchend={onTouchEnd} />	<div bind:this={pageWrap} class="relative mx-auto w-full max-w-2xl px-3.5 pb-32 pt-1 sm:px-6 sm:pt-4">
 	<!-- Vague dégradée douce (esprit « Recettes ») : blanc → gris très clair → vert très pâle,
 	     uniquement derrière la zone haute du journal — jamais un dégradé plein écran. -->
 	<div
 		aria-hidden="true"
-		class="pointer-events-none absolute inset-x-0 -top-8 z-0 h-72 rounded-b-[3rem] bg-[linear-gradient(180deg,#e2f1e8_0%,#eef5ef_58%,rgba(244,246,244,0)_100%)]"
+		class="pointer-events-none absolute inset-x-0 -top-8 z-0 h-56 rounded-b-[3rem] bg-[linear-gradient(180deg,#e2f1e8_0%,#eef5ef_58%,rgba(244,246,244,0)_100%)]"
 	></div>
 
-	<!-- En-tête : date + navigation -->
-	<header class="relative z-10 mb-3 flex items-center justify-between gap-2">
+	<!-- En-tête : date + navigation (compact) -->
+	<header class="relative z-10 mb-1.5 flex items-center justify-between gap-2">
 		<button
 			type="button"
-			class="grid h-9 w-9 place-items-center rounded-full border-2 border-line bg-card text-lg font-bold text-ink transition hover:border-brand"
+			class="grid h-8 w-8 shrink-0 place-items-center rounded-full border-2 border-line bg-card text-base font-bold text-ink transition hover:border-brand"
 			aria-label="Jour précédent"
 			onclick={() => shiftDay(-1)}
 		>‹</button>
 		<button
 			type="button"
-			class="rounded-full px-3 py-1.5 text-center font-display text-sm font-semibold capitalize text-ink transition hover:bg-line/50"
+			class="rounded-full px-2.5 py-1 text-center font-display text-sm font-semibold capitalize text-ink transition hover:bg-line/50"
 			onclick={openDatePicker}
 			title="Choisir une date"
 		>
-			{dateLabel} <span class="ml-1 text-[11px] text-mist">▾</span>
+			{dateLabel} <span class="ml-0.5 text-[11px] text-mist">▾</span>
 		</button>
 		<button
 			type="button"
-			class="grid h-9 w-9 place-items-center rounded-full border-2 border-line bg-card text-lg font-bold text-ink transition hover:border-brand"
+			class="grid h-8 w-8 shrink-0 place-items-center rounded-full border-2 border-line bg-card text-base font-bold text-ink transition hover:border-brand"
 			aria-label="Jour suivant"
 			onclick={() => shiftDay(1)}
 		>›</button>
@@ -889,19 +951,21 @@
 	</div>
 </div>
 
-<!-- Mini-barre sticky : HUD nutritionnel compact (apparaît quand la zone complète sort du viewport) -->
+<!-- Mini-barre sticky : HUD nutritionnel SOMBRE type FOOD (apparaît quand la zone
+     nutrition sort du viewport, disparaît au retour en haut). Une seule ligne :
+     kcal + glucides + protéines + lipides, rings fins, valeurs tabular-nums. -->
 {#snippet miniRing(pct: number, color: string, size: number)}
-	{@const r = size / 2 - 2.5}
+	{@const r = size / 2 - 2}
 	{@const c = 2 * Math.PI * r}
 	<svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} class="-rotate-90 shrink-0">
-		<circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#eef0ec" stroke-width={Math.max(2, size / 9)} />
+		<circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,0.14)" stroke-width={Math.max(2, size / 7)} />
 		<circle
 			cx={size / 2}
 			cy={size / 2}
 			r={r}
 			fill="none"
 			stroke={color}
-			stroke-width={Math.max(2, size / 9)}
+			stroke-width={Math.max(2, size / 7)}
 			stroke-linecap="round"
 			stroke-dasharray={c}
 			stroke-dashoffset={c * (1 - Math.min(100, pct) / 100)}
@@ -911,69 +975,100 @@
 
 {#if stickyBar && !logOpen}
 	<div
-		class="pointer-events-none fixed z-30 top-[49px] transition-opacity duration-200 md:top-4"
+		class="pointer-events-none fixed z-30 transition-opacity duration-200"
+		style:top="{barTop}px"
 		style:left="{barStyle.left}px"
 		style:width="{barStyle.width}px"
 	>
-		<div class="pointer-events-auto flex w-full items-center justify-between gap-2 rounded-2xl border border-line bg-white/95 px-3 py-1.5 shadow-md shadow-ink/5 backdrop-blur">
-				<div class="flex min-w-0 items-center gap-1.5">
-					{@render miniRing(kcalPct, kcalTone, 26)}
-					<div class="min-w-0 leading-tight">
-						<div class="flex items-baseline gap-0.5 text-[15px] font-bold text-ink">{fmt(Math.round(totals.kcal))}<span class="text-[10px] font-semibold text-mist">/{fmt(day.goals.kcal)}</span></div>
-						<div class="flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wide text-mist"><Icon name="flame" size={9} /> kcal</div>
+		<div class="pointer-events-auto flex w-full items-center justify-between rounded-2xl border border-white/10 bg-ink/95 px-2 py-1.5 shadow-lg shadow-ink/25 backdrop-blur">
+			{#each stickyRings as r (r.label)}
+				{@const pct = macroPct(r.eaten, r.goal)}
+				<div class="flex min-w-0 flex-1 items-center justify-center gap-1.5">
+					{@render miniRing(pct, r.color, 20)}
+					<div class="min-w-0 leading-none">
+						<div class="text-[11px] font-bold tabular-nums text-white">{fmt(r.eaten)}<span class="text-[9px] font-semibold text-white/50">/{fmt(r.goal)}</span></div>
+						<div class="mt-0.5 text-[8px] font-bold uppercase tracking-wide text-white/55">{r.label}</div>
 					</div>
 				</div>
-				{#each rings as ring (ring.label)}
-					{@const pct = macroPct(ring.eaten, ring.goal)}
-					<div class="hidden min-w-0 items-center gap-1.5 min-[320px]:flex">
-						{@render miniRing(pct, ring.color, 22)}
-						<div class="hidden min-w-0 leading-tight sm:block">
-							<div class="flex items-baseline gap-0.5 text-[12px] font-bold text-ink">{fmt(Math.round(ring.eaten))}<span class="text-[9px] font-semibold text-mist">/{fmt(ring.goal)}g</span></div>
-							<div class="truncate text-[8px] font-bold uppercase tracking-wide text-mist">{ring.label === 'Glucides' ? 'gluc.' : ring.label === 'Protéines' ? 'prot.' : 'lipides'}</div>
-						</div>
-					</div>
-				{/each}
-			</div>
+			{/each}
 		</div>
+	</div>
 {/if}
 
-<!-- Bouton flottant + -->
+<!-- Bouton flottant + (au-dessus de la barre flottante, avec respiration) -->
 <button
 	type="button"
-	class="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-4 z-40 grid h-14 w-14 place-items-center rounded-full bg-brand text-2xl font-bold text-white shadow-lg shadow-brand/30 transition hover:scale-105 hover:bg-brand-dark active:scale-95 md:bottom-6 md:right-6 md:h-16 md:w-16"
+	class="fixed bottom-[calc(6.5rem+env(safe-area-inset-bottom))] right-4 z-40 grid h-14 w-14 place-items-center rounded-full bg-brand text-white shadow-lg shadow-brand/30 transition hover:scale-105 hover:bg-brand-dark active:scale-95 md:bottom-6 md:right-6 md:h-16 md:w-16"
 	aria-label="Ajouter un aliment"
 	onclick={() => openLog()}
->+</button>
+><Icon name="plus" size={26} /></button>
 
-<!-- ═══════════ Modale « Ajouter un aliment » ═══════════ -->
+<!-- Ligne produit compacte (style FOOD) : image · nom · kcal · cœur -->
+{#snippet foodRow(food: Food)}
+	{@const fav = favSet.has(food._id)}
+	<li class="flex items-center gap-1">
+		<button type="button" class="flex min-w-0 flex-1 items-center gap-2.5 py-2 pl-1 pr-1 text-left transition hover:bg-line/30" onclick={() => openQty(food)}>
+			{#if food.imageUrl}
+				<FoodImg src={food.imageUrl} alt="" class="h-10 w-10 rounded-lg" />
+			{:else}
+				<div class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={18} class="text-brand" /></div>
+			{/if}
+			<span class="min-w-0 flex-1">
+				<span class="flex items-center gap-1">
+					<span class="truncate text-[14px] font-semibold text-ink">{food.name}</span>
+					{#if !food.custom}<span class="shrink-0 text-[9px] font-bold text-brand" title="Vérifié Open Food Facts">✓</span>{/if}
+				</span>
+				<span class="block text-[12px] text-mist tabular-nums">
+					<strong class="font-bold text-brand">{fmt(food.kcal100)} kcal</strong> · 100 g{#if food.brand && food.brand !== 'null'} · {food.brand}{/if}
+				</span>
+			</span>
+		</button>
+		{#if !food.custom}
+			<button type="button" class="grid h-10 w-10 shrink-0 place-items-center rounded-full transition {fav ? 'text-brand' : 'text-mist hover:text-brand'}" aria-label={fav ? `Retirer ${food.name} des favoris` : `Ajouter ${food.name} aux favoris`} onclick={() => toggleFav(food)}><Icon name="heart" size={18} /></button>
+		{/if}
+	</li>
+{/snippet}
+
+<!-- ═══════════ ÉCRAN COMPLET « Ajouter un aliment » ═══════════
+     Mobile : vrai écran plein (hauteur = visualViewport, fiable avec le clavier
+     ouvert) ; header + recherche + onglets fixes, seule la liste défile.
+     Desktop : même panneau, centré et arrondi. -->
 {#if logOpen}
-	<div role="presentation" class="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-0 sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget) closeLog(); }} onkeydown={(e) => { if (e.key === 'Escape') closeLog(); }}>
-		<div class="flex h-[calc(100dvh-var(--kb,0px))] w-full max-w-lg flex-col overflow-hidden bg-white shadow-2xl sm:h-auto sm:max-h-[92dvh] sm:rounded-3xl">
-			<!-- En-tête -->
-			<div class="flex items-center justify-between border-b border-line px-4 py-3">
-				<button type="button" class="grid h-8 w-8 place-items-center rounded-full text-lg text-mist hover:bg-line/50" aria-label="Fermer" onclick={() => closeLog()}>✕</button>
-				<h2 class="font-display text-base font-semibold text-ink">{logMode === 'barcode' ? 'Code-barres' : 'Ajouter un aliment'}</h2>
-				<span class="w-8"></span>
+	<div role="presentation" class="fixed inset-0 z-50 bg-soft sm:flex sm:items-center sm:justify-center sm:bg-ink/40 sm:p-6" onclick={(e) => { if (e.target === e.currentTarget) closeLog(); }} onkeydown={(e) => { if (e.key === 'Escape') closeLog(); }}>
+		<div class="flex w-full flex-col overflow-hidden bg-soft sm:h-[min(92dvh,720px)] sm:max-w-lg sm:rounded-3xl sm:bg-white sm:shadow-2xl" style:height={mobile ? `${vvH}px` : undefined}>
+			<!-- En-tête fixe -->
+			<div class="flex shrink-0 items-center justify-between border-b border-line bg-white/95 px-3 py-2.5 backdrop-blur">
+				<button type="button" class="grid h-9 w-9 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={() => closeLog()}><Icon name="x" size={20} /></button>
+				<h2 class="font-display text-[15px] font-semibold text-ink">{logMode === 'barcode' ? 'Code-barres' : 'Ajouter un aliment'}</h2>
+				<span class="w-9"></span>
 			</div>
 
 			{#if logMode === 'search'}
-				<!-- Recherche + onglets -->
-				<div class="border-b border-line p-3">
-					<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2.5 focus-within:border-brand">										<Icon name="search" size={18} class="shrink-0 text-mist" />
+				<!-- Recherche + onglets (fixes) -->
+				<div class="shrink-0 border-b border-line bg-white/95 px-2.5 pb-2 pt-2 backdrop-blur">
+					<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2 focus-within:border-brand">										<Icon name="search" size={17} class="shrink-0 text-mist" />
 						<!-- svelte-ignore a11y_autofocus -->
 						<input
 							type="search"
-							class="w-full bg-transparent text-sm text-ink outline-none placeholder:text-mist"
+							class="w-full bg-transparent text-[15px] text-ink outline-none placeholder:text-mist"
 							placeholder="Rechercher un produit…"
 							bind:value={searchQ}
 							oninput={onSearchInput}
 							autofocus
 						/>
+						{#if searchQ}
+							<button
+								type="button"
+								class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-line/70 text-mist transition hover:bg-line"
+								aria-label="Effacer la recherche"
+								onclick={() => { searchQ = ''; results = []; }}
+							><Icon name="x" size={13} /></button>
+						{/if}
 					</div>
-					<div class="mt-2 flex items-center gap-2 overflow-x-auto">
+					<div class="mt-2 flex items-center gap-1.5 overflow-x-auto">
 						<button
 							type="button"
-							class="grid h-8 w-8 shrink-0 place-items-center rounded-full text-base transition {favOnly ? 'bg-brand text-white' : 'bg-line/50 text-mist hover:text-ink'}"
+							class="grid h-8 w-8 shrink-0 place-items-center rounded-full transition {favOnly ? 'bg-brand text-white' : 'bg-line/50 text-mist hover:text-ink'}"
 							title={favOnly ? 'Voir tous les produits' : 'Voir mes favoris'}
 							aria-label="Voir mes favoris"
 							onclick={() => (favOnly = !favOnly)}
@@ -986,8 +1081,8 @@
 					</div>
 				</div>
 
-				<!-- Résultats -->
-				<div class="flex-1 overflow-y-auto p-3">
+				<!-- Résultats : liste seule scrollable -->
+				<div class="flex-1 overflow-y-auto overscroll-contain px-2.5 pb-4">
 					{#if mealEditor}
 						<!-- ═══════ Éditeur de repas ═══════ -->
 						<div>
@@ -1034,12 +1129,11 @@
 							{:else}
 								<ul class="flex flex-col gap-2">
 									{#each mealItems as it, i (it.food._id)}
-										<li class="flex items-center gap-2 rounded-xl border border-line bg-white p-2">
-											{#if it.food.imageUrl}
-												<img src={it.food.imageUrl} alt="" class="h-10 w-10 shrink-0 rounded-lg object-cover" loading="lazy" />
-											{:else}
-												<div class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={18} class="text-brand" /></div>
-											{/if}
+										<li class="flex items-center gap-2 rounded-xl border border-line bg-white p-2">														{#if it.food.imageUrl}
+															<FoodImg src={it.food.imageUrl} alt="" class="h-10 w-10 rounded-lg" />
+														{:else}
+															<div class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={18} class="text-brand" /></div>
+														{/if}
 											<span class="min-w-0 flex-1">
 												<span class="block truncate text-xs font-semibold text-ink">{it.food.name}</span>
 												<span class="block text-[11px] text-mist">{fmt(Math.round((it.food.kcal100 * it.qty) / 100))} kcal</span>
@@ -1073,7 +1167,7 @@
 										<li>
 											<button type="button" class="flex w-full items-center gap-2 rounded-xl border border-line bg-white p-2 text-left transition hover:border-brand" onclick={() => addIngredient(food)}>
 												{#if food.imageUrl}
-													<img src={food.imageUrl} alt="" class="h-9 w-9 shrink-0 rounded-lg object-cover" loading="lazy" />
+													<FoodImg src={food.imageUrl} alt="" class="h-9 w-9 rounded-lg" />
 												{:else}
 													<div class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={16} class="text-brand" /></div>
 												{/if}
@@ -1116,7 +1210,7 @@
 									<li class="flex items-center gap-2 rounded-2xl border border-line bg-white p-2.5 shadow-sm transition hover:border-brand">
 										<button type="button" class="flex min-w-0 flex-1 items-center gap-3 text-left" onclick={() => openPortion(meal)}>
 											{#if meal.ingredients[0]?.imageUrl}
-												<img src={meal.ingredients[0].imageUrl} alt="" class="h-11 w-11 shrink-0 rounded-xl object-cover" loading="lazy" />
+												<FoodImg src={meal.ingredients[0].imageUrl} alt="" class="h-11 w-11 rounded-xl" />
 											{:else}
 												<div class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name="soup" size={20} class="text-brand" /></div>
 											{/if}
@@ -1216,66 +1310,51 @@
 							<div class="py-10 text-center">												<div class="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-brand-light"><Icon name="heart" size={26} class="text-brand" /></div>
 								<p class="text-sm font-semibold text-ink">Aucun favori</p>											<p class="mx-auto mt-1 max-w-xs text-xs text-mist">Touche le cœur <Icon name="heart" size={13} class="inline -mt-0.5 text-brand" /> d'un produit pour le retrouver ici en un geste.</p>
 							</div>
-						{:else}
-							<ul class="flex flex-col gap-2">
-								{#each favorites as food (food._id)}
-									<li class="flex items-center gap-2">
-										<button type="button" class="flex min-w-0 flex-1 items-center gap-3 rounded-2xl border border-line bg-white p-2.5 text-left shadow-sm transition hover:border-brand" onclick={() => openQty(food)}>
-											{#if food.imageUrl}
-												<img src={food.imageUrl} alt="" class="h-11 w-11 shrink-0 rounded-xl object-cover" loading="lazy" />
-											{:else}
-												<div class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name="utensils" size={20} class="text-brand" /></div>
-											{/if}
-											<span class="min-w-0 flex-1">
-												<span class="block truncate text-sm font-semibold text-ink">{food.name}</span>
-												<span class="block text-xs text-mist"><strong class="font-bold text-brand">{fmt(food.kcal100)} kcal</strong> · 100 g</span>
-											</span>
-										</button>												<button type="button" class="grid h-9 w-9 shrink-0 place-items-center rounded-full text-brand transition hover:bg-brand-light" aria-label={`Retirer ${food.name} des favoris`} onclick={() => toggleFav(food)}><Icon name="heart" size={18} /></button>
-									</li>
-								{/each}
-							</ul>
+						{:else}											<ul class="flex flex-col divide-y divide-line/50">
+												{#each favorites as food (food._id)}
+													{@render foodRow(food)}
+												{/each}
+											</ul>
 						{/if}
-					{:else if searching}
+					{:else if searching && results.length === 0}
 						<p class="py-10 text-center text-sm text-mist">Recherche…</p>
 					{:else if searchError}
 						<p class="rounded-xl border-2 border-danger bg-danger-light px-3 py-3 text-sm text-danger">{searchError}</p>
 					{:else if searchQ.trim().length < 2}
-						<p class="py-10 text-center text-sm text-mist">Tape au moins 2 lettres pour chercher un produit (base G-Flux, 780 000 aliments).</p>
+						<!-- Suggestions avant toute saisie : aliments réellement utilisés (jamais inventés) -->
+						{#if recentFoods.length > 0}
+							<div class="flex items-baseline justify-between px-1 pb-1 pt-1.5">
+								<h3 class="text-[11px] font-bold uppercase tracking-widest text-mist">Tes aliments fréquents</h3>
+								<span class="text-[10px] text-mist">récemment utilisés</span>
+							</div>
+							<ul class="flex flex-col divide-y divide-line/50">
+								{#each recentFoods as food (food._id)}
+									{@render foodRow(food)}
+								{/each}
+							</ul>
+						{:else if recentLoaded}
+							<div class="py-10 text-center">
+								<div class="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-brand-light"><Icon name="search" size={22} class="text-brand" /></div>
+								<p class="text-sm font-semibold text-ink">Recherche un produit</p>
+								<p class="mx-auto mt-1 max-w-xs text-xs text-mist">Base G-Flux (780 000 aliments), code-barres, ou « Créés par moi » pour un plat avec étiquette.</p>
+							</div>
+						{/if}
 					{:else if results.length === 0}
 						<p class="py-10 text-center text-sm text-mist">Aucun résultat pour « {searchQ.trim()} ».</p>
 					{:else}
-						<ul class="flex flex-col gap-2">
+						<!-- Résultats : conservés pendant une nouvelle recherche (pas de flash blanc) -->
+						<ul class="flex flex-col divide-y divide-line/50 transition-opacity {searching ? 'opacity-50' : ''}">
 							{#each results as food (food._id)}
-								{@const fav = favSet.has(food._id)}
-								<li class="flex items-center gap-2">
-									<button type="button" class="flex min-w-0 flex-1 items-center gap-3 rounded-2xl border border-line bg-white p-2.5 text-left shadow-sm transition hover:border-brand" onclick={() => openQty(food)}>
-										{#if food.imageUrl}
-											<img src={food.imageUrl} alt="" class="h-12 w-12 shrink-0 rounded-xl object-cover" loading="lazy" />
-										{:else}
-											<div class="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name="utensils" size={20} class="text-brand" /></div>
-										{/if}
-										<span class="min-w-0 flex-1">
-											<span class="flex items-center gap-1">
-												<span class="truncate text-sm font-semibold text-ink">{food.name}</span>
-												{#if !food.custom}<span class="shrink-0 text-[10px] font-bold text-brand" title="Vérifié Open Food Facts">✓</span>{/if}
-											</span>
-											<span class="block text-xs text-mist">
-												<strong class="font-bold text-brand">{fmt(food.kcal100)} kcal</strong> · 100 g{#if food.brand} · {food.brand}{/if}
-											</span>
-										</span>
-									</button>
-									{#if !food.custom}													<button type="button" class="grid h-9 w-9 shrink-0 place-items-center rounded-full transition {fav ? 'text-brand' : 'text-mist hover:text-brand'}" aria-label={fav ? `Retirer ${food.name} des favoris` : `Ajouter ${food.name} aux favoris`} onclick={() => toggleFav(food)}><Icon name="heart" size={18} /></button>
-									{/if}
-								</li>
+								{@render foodRow(food)}
 							{/each}
 						</ul>
 					{/if}
 				</div>
 			{:else}
-				<!-- ═══════ Scanner code-barres ═══════ -->
-				<div class="flex-1 overflow-y-auto p-3">
-					<p class="mb-3 text-center text-xs text-mist">Scanne le code-barres du produit (ça marche même à distance) ou saisis-le à la main : on le retrouve dans la base G-Flux.</p>
-					<div id="bc-reader" class="relative mx-auto w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink/5 transition-colors {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}"></div>
+				<!-- ═══════ Scanner code-barres (cadre portrait stable) ═══════ -->
+				<div class="flex-1 overflow-y-auto overscroll-contain p-3">
+					<p class="mb-2.5 text-center text-xs text-mist">Scanne le code-barres du produit (ça marche même à distance) ou saisis-le à la main : on le retrouve dans la base G-Flux.</p>
+					<div id="bc-reader" class="relative mx-auto aspect-[3/4] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-colors {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}"></div>
 
 					<div class="mx-auto mt-3 w-full max-w-sm">
 						<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2.5 focus-within:border-brand">														<Icon name="barcode" size={18} class="shrink-0 text-mist" />
@@ -1345,12 +1424,11 @@
 {#if qtyMealSel}
 	<div role="presentation" class="fixed inset-0 z-[60] flex items-end justify-center bg-ink/40 backdrop-blur-sm sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget && !portionSaving) qtyMealSel = null; }} onkeydown={(e) => { if (e.key === 'Escape' && !portionSaving) qtyMealSel = null; }}>
 		<div class="w-full max-w-lg rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
-			<div class="flex items-center gap-3">
-				{#if qtyMealSel.ingredients[0]?.imageUrl}
-					<img src={qtyMealSel.ingredients[0].imageUrl} alt="" class="h-14 w-14 rounded-xl object-cover" />
-				{:else}
-					<div class="grid h-14 w-14 place-items-center rounded-xl bg-brand-light"><Icon name="soup" size={26} class="text-brand" /></div>
-				{/if}
+			<div class="flex items-center gap-3">							{#if qtyMealSel.ingredients[0]?.imageUrl}
+								<FoodImg src={qtyMealSel.ingredients[0].imageUrl} alt="" class="h-14 w-14 rounded-xl" eager />
+							{:else}
+								<div class="grid h-14 w-14 place-items-center rounded-xl bg-brand-light"><Icon name="soup" size={26} class="text-brand" /></div>
+							{/if}
 				<div class="min-w-0 flex-1">
 					<p class="truncate font-semibold text-ink">{qtyMealSel.name}</p>
 					{#if isRecipeMeal}

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import AudioPlayer from '$lib/components/AudioPlayer.svelte';
+	import BackToHome from '$lib/components/BackToHome.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { fmtMs } from '$lib/media';
 
@@ -42,11 +43,7 @@
 
 <svelte:head><title>Messages — G-Flux</title></svelte:head>
 
-<!-- Fil Accueil discret (mobile) — la barre du bas reste disponible -->
-<a
-	href="/espace"
-	class="mb-3 inline-flex items-center gap-1 rounded-lg px-1 text-sm font-semibold text-mist transition hover:text-ink md:hidden"
-><Icon name="arrowLeft" size={16} class="shrink-0" /> Accueil</a>
+<BackToHome label="Messages" />
 
 <header class="mb-5 flex items-end justify-between gap-3">
 	<div>

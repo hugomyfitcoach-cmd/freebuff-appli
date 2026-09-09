@@ -100,6 +100,8 @@ export async function startBarcodeScanner(
 	}
 
 	// -- Éléments visuels ----------------------------------------------------
+	// La vidéo remplit TOUJOURS le conteneur (cadre portrait stable, même si
+	// la source caméra est paysage) : object-fit cover + position absolute.
 	const video = document.createElement('video');
 	video.playsInline = true;
 	video.muted = true;
@@ -107,7 +109,11 @@ export async function startBarcodeScanner(
 	video.setAttribute('autoplay', '');
 	video.srcObject = stream;
 	Object.assign(video.style, {
+		position: 'absolute',
+		inset: '0',
 		width: '100%',
+		height: '100%',
+		objectFit: 'cover',
 		display: 'block',
 	} as CSSStyleDeclaration);
 
@@ -127,6 +133,39 @@ export async function startBarcodeScanner(
 		top: '33%',
 		height: '34%',
 	} as CSSStyleDeclaration);
+	// Voile sombre autour du cadre (repère visuel clair, décode toute l'image).
+	const dim = document.createElement('div');
+	Object.assign(dim.style, {
+		position: 'absolute',
+		left: '0',
+		top: '0',
+		width: '100%',
+		height: '33%',
+		background: 'rgba(0,0,0,.38)',
+	} as Partial<CSSStyleDeclaration>);
+	frame.append(dim);
+	const dim2 = document.createElement('div');
+	Object.assign(dim2.style, {
+		position: 'absolute',
+		left: '0',
+		bottom: '0',
+		width: '100%',
+		height: '33%',
+		background: 'rgba(0,0,0,.38)',
+	} as Partial<CSSStyleDeclaration>);
+	frame.append(dim2);
+	for (const side of ['left', 'right'] as const) {
+		const sideDim = document.createElement('div');
+		Object.assign(sideDim.style, {
+			position: 'absolute',
+			[side]: '0',
+			top: '33%',
+			bottom: '33%',
+			width: '6%',
+			background: 'rgba(0,0,0,.38)',
+		} as Partial<CSSStyleDeclaration>);
+		frame.append(sideDim);
+	}
 	for (const styles of [
 		{ left: '0', top: '0', borderLeft: '3px solid rgba(255,255,255,.9)', borderTop: '3px solid rgba(255,255,255,.9)' },
 		{ right: '0', top: '0', borderRight: '3px solid rgba(255,255,255,.9)', borderTop: '3px solid rgba(255,255,255,.9)' },

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
+	import BackToHome from '$lib/components/BackToHome.svelte';
 
 	let { data } = $props();
 
@@ -45,11 +46,7 @@
 
 <svelte:head><title>Ressources — G-Flux</title></svelte:head>
 
-<!-- Fil Accueil discret (mobile) — la barre du bas reste disponible -->
-<a
-	href="/espace"
-	class="mb-3 inline-flex items-center gap-1 rounded-lg px-1 text-sm font-semibold text-mist transition hover:text-ink md:hidden"
-><Icon name="arrowLeft" size={16} class="shrink-0" /> Accueil</a>
+<BackToHome label="Ressources" />
 
 <header class="mb-5">
 	<h1 class="flex items-center gap-2 font-display text-2xl font-semibold text-ink">

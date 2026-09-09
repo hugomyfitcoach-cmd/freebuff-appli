@@ -172,8 +172,9 @@
 	{#if view === 'home'}
 		<!-- ACCUEIL : choix d'une section -->
 		<div class="home-screen">
-			<div class="home-title">Guide nutrition &amp; recettes</div>
-			<div class="home-sub">Sélectionne une section pour commencer</div>
+			<a href="/espace" class="home-back-accueil"><Icon name="arrowLeft" size={16} class="shrink-0" /> Accueil</a>
+			<div class="home-title">Nutrition &amp; recettes</div>
+			<div class="home-sub">Choisis une catégorie</div>
 
 			<div class="home-nav">
 				{#each HOME_GROUPS as group (group.label)}
@@ -207,7 +208,7 @@
 		<!-- HERO -->
 		<div class="hero-strip">
 			<div class="hero-left">
-				<h1>Recettes G-Flux™</h1>
+				<h1>Recettes</h1>
 				<p>
 					Chaque recette est calibrée pour 1 personne · 1 portion.<br />
 					Protéines ciblées, déficit intelligent, préparation rapide.
@@ -323,8 +324,7 @@
 
 		<!-- PIED DE PAGE -->
 		<div class="footer">
-			<div class="footer-brand">Coaching</div>
-			<div class="footer-copy">GH Online Fit Trainer Ltd · myfit-coach.fr</div>
+			<div class="footer-copy">© 2026 G-FLUX — Tous droits réservés</div>
 		</div>
 	{/if}
 

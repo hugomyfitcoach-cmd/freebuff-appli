@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
+	import BackToHome from '$lib/components/BackToHome.svelte';
 	import RecapBilan from '../../../lib/components/RecapBilan.svelte';
 
 	let { data } = $props();
@@ -9,6 +10,8 @@
 </script>
 
 <svelte:head><title>Mes bilans — G-Flux</title></svelte:head>
+
+<BackToHome label="Mes bilans" />
 
 <div class="mb-6 flex flex-wrap items-end justify-between gap-2">
 	<div>

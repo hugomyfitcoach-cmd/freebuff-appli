@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Icon from './Icon.svelte';
+	import FoodImg from './FoodImg.svelte';
 
 	/* Feuille de quantité partagée AJOUT / MODIFICATION d'un aliment.
 	   Une seule source de vérité : la quantité finale en grammes (qtyGrams),
@@ -122,11 +123,11 @@
 	<div class="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
 		<!-- En-tête : photo + nom + portion OFF -->
 		<div class="flex items-center gap-3">
-			{#if food.imageUrl}
-				<img src={food.imageUrl} alt="" class="h-14 w-14 shrink-0 rounded-xl object-cover" />
-			{:else}
-				<div class="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name="utensils" size={22} class="text-brand" /></div>
-			{/if}
+		{#if food.imageUrl}
+			<FoodImg src={food.imageUrl} alt="" class="h-14 w-14 rounded-xl" eager />
+		{:else}
+			<div class="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name="utensils" size={22} class="text-brand" /></div>
+		{/if}
 			<div class="min-w-0 flex-1">
 				<p class="truncate font-semibold text-ink">{food.name}</p>
 				<p class="text-xs text-mist">

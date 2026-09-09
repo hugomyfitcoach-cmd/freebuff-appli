@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import BackToHome from '$lib/components/BackToHome.svelte';
 	import { isFormOpen } from '$lib/week.js';
 
 	let { data, form: action } = $props();
@@ -178,6 +179,16 @@
 	<div class="form-header">
 		<img src="/logo-header.jpg" alt="G-Flux" class="logo-img" />
 	</div>
+
+	<!-- Jamais d'impasse : retour Accueil quand le formulaire est fermé ou déjà envoyé,
+	     et sortie discrète pendant les étapes du formulaire -->
+	{#if !formOpen || merci}
+		<div class="closed-page-back"><BackToHome label="Bilans" /></div>
+	{:else}
+		<div class="form-exit">
+			<a href="/espace"><Icon name="arrowLeft" size={16} class="form-exit-ic" /> Accueil</a>
+		</div>
+	{/if}
 
 	<!-- FERMÉ / MERCI / FORMULAIRE (route réservée aux clients connectés) -->
 	{#if !formOpen}
@@ -1145,6 +1156,29 @@
 		z-index: 999;
 	}
 
+	.closed-page-back {
+		margin-bottom: 6px;
+	}
+	.form-exit {
+		margin-bottom: 6px;
+	}
+	.form-exit a {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 13px;
+		font-weight: 700;
+		color: var(--muted);
+		padding: 8px 10px;
+		border-radius: 12px;
+		transition:
+			color 0.15s ease,
+			background 0.15s ease;
+	}
+	.form-exit a:hover {
+		color: var(--accent-dark);
+		background: var(--bg);
+	}
 	.closed-page {
 		text-align: center;
 		padding: 60px 0;
