@@ -10,6 +10,7 @@
 	import JournalDay from '../../lib/components/JournalDay.svelte';
 	import MetricTrend from '../../lib/components/MetricTrend.svelte';
 	import StepsBars from '../../lib/components/StepsBars.svelte';
+	import WeeklyTrendChart from '../../lib/components/WeeklyTrendChart.svelte';
 	import { cycleState } from '../../lib/cycle.js';
 	import { fmtMs } from '../../lib/media.js';
 	import { labelFor } from '../../lib/labels.js';
@@ -99,6 +100,42 @@
 	const fullName = (u: { prenom: string; nom?: string | null }): string =>
 		u.nom ? `${u.prenom} ${u.nom}` : u.prenom;
 
+	/** Téléchargement réel de la photo originale depuis le storage (jamais la vignette).
+	    Nom propre : {prenom}_{date}_{label|photo-N}.{ext} — données réelles, non hardcodées. */
+	function slugify(s: string): string {
+		return s
+			.normalize('NFD')
+			.replace(/[\u0300-\u036f]/g, '')
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, '-')
+			.replace(/^-+|-+$/g, '');
+	}
+	async function downloadPhoto(photo: { url: string | null; label?: string }, group: { date: string }, idx: number, prenom: string) {
+		if (!photo.url) return;
+		const ext = (photo.url.match(/\.(jpe?g|png|webp|heic|avif|gif)(?:\?|$)/i)?.[1] ?? 'jpg').toLowerCase();
+		const slug = slugify(prenom);
+		const label = photo.label ? slugify(photo.label) : '';
+		const base = label && !/^(photo|img|image)/i.test(label) ? label : `photo-${idx + 1}`;
+		const filename = `${slug}_${group.date}_${base}.${ext}`;
+		try {
+			// fetch du vrai fichier → blob → download local. L'URL stockage peut être
+			// cross-origin (Convex) : l'attribut download ne suffirait pas toujours.
+			const res = await fetch(photo.url, { credentials: 'omit' });
+			if (!res.ok) throw new Error('fetch failed');
+			const blob = await res.blob();
+			const a = document.createElement('a');
+			a.href = URL.createObjectURL(blob);
+			a.download = filename;
+			document.body.appendChild(a);
+			a.click();
+			a.remove();
+			setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+		} catch {
+			// Repli : ouverture du fichier original dans un onglet (téléchargement manuel possible).
+			window.open(photo.url, '_blank', 'noopener');
+		}
+	}
+
 	const filtered = $derived(
 		query.trim()
 			? clients.filter((c: { user: { prenom: string; nom?: string | null; email: string } }) =>
@@ -167,10 +204,6 @@
 		return out;
 	});
 
-	function dayLabel(iso: string): string {
-		return new Date(iso + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'short' });
-	}
-
 	function todayISO(): string {
 		const d = new Date();
 		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -186,29 +219,28 @@
 	const kcalTrend = $derived(view && weekAvg > 0 ? Math.round(((weekAvg - goalKcal) / goalKcal) * 100) : 0);
 	const loggedDays = $derived(view?.week?.filter((d: { count: number }) => d.count > 0).length ?? 0);
 
-	const chart = $derived.by(() => {
-		if (!view) return null;
-		const days = view.week ?? [];
-		const maxVal = Math.max(goalKcal, ...days.map((d: { kcal: number }) => d.kcal), 100);
-		const W = 700, H = 190, top = 12, bottom = 26;
-		const innerH = H - top - bottom;
-		const bars = days.map((d: { date: string; kcal: number; count: number }, i: number) => {
-			const h = Math.max(4, (d.kcal / maxVal) * innerH);
-			return {
-				x: i * 100 + 22,
-				y: H - bottom - h,
-				h,
-				kcal: d.kcal,
-				count: d.count,
-				label: dayLabel(d.date),
-				full: fmtDateShort(d.date),
-				isToday: i === days.length - 1,
-			};
-		});
-		const goalY = H - bottom - (goalKcal / maxVal) * innerH;
-		const avgY = weekAvg > 0 ? H - bottom - (weekAvg / maxVal) * innerH : null;
-		return { bars, goalY, avgY, maxVal };
+	/** Barres calories des 7 derniers jours — jour sans entrée = null (≠ 0). */
+	const calBars = $derived.by<{ date: string; value: number | null; count: number; isToday: boolean }[]>(() => {
+		const days = (view?.week ?? []) as { date: string; kcal: number; count: number }[];
+		return days.map((d, i) => ({
+			date: d.date,
+			value: d.count > 0 ? d.kcal : null,
+			count: d.count,
+			isToday: i === days.length - 1,
+		}));
 	});
+
+	/* ── Pas — tendance des 7 derniers jours (mêmes règles : null = non renseigné) ── */
+	const stepGoalVal = $derived(((view?.goals as { stepGoal?: number } | undefined)?.stepGoal) ?? null);
+	const stepWeek = $derived((view?.stepsLast7 ?? []) as { date: string; count: number | null }[]);
+	const stepBars = $derived(
+		stepWeek.map((d, i) => ({ date: d.date, value: d.count, isToday: i === stepWeek.length - 1 }))
+	);
+	const stepsTracked = $derived(stepBars.filter((b) => b.value != null).length);
+	const stepsTotal = $derived(stepBars.reduce((s, b) => s + (b.value ?? 0), 0));
+	/** Moyenne UNIQUEMENT sur les jours réellement renseignés — jamais divisée par 7. */
+	const stepsAvg = $derived(stepsTracked > 0 ? Math.round(stepsTotal / stepsTracked) : 0);
+	const fmtN = (n: number) => Math.round(n).toLocaleString('fr-FR');
 
 	const weightPoints = $derived.by(() => {
 		if (!view || (view.weightTrend ?? []).length < 1) return null;
@@ -409,11 +441,23 @@
 	 * est appliquée — sinon un jour déjà quitté peut réapparaître.
 	 */
 	let journalReq = 0;
+	/** Décale d'un jour (locale, T12:00 — aucun décalage UTC) et recharge immédiatement. */
+	function shiftDay(delta: number) {
+		const d = new Date(journalDate + 'T12:00:00');
+		d.setDate(d.getDate() + delta);
+		journalDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+		loadDay();
+	}
+	/** On ne peut jamais aller au-delà d'aujourd'hui (flèche › désactivée). */
+	const journalAtToday = $derived(journalDate >= todayISO());
 	async function loadDay() {
 		if (!selectedId) return;
 		const req = ++journalReq;
 		journalBusy = true;
 		journalMsg = '';
+		// Jour différent de celui affiché : on retire l'ancienne journée pour ne
+		// jamais laisser croire que les aliments visibles sont ceux de la date demandée.
+		if (day && day.date !== journalDate) day = null;
 		try {
 			const res = await fetch(`/api/coach/journal?userId=${selectedId}&date=${journalDate}`);
 			const data = await res.json();
@@ -775,12 +819,114 @@
 	$effect(() => {
 		const id = selectedId;
 		if (id) {
-			journalDate = todayISO();
-			initBodyDrafts();
-			loadDay();
-			loadMeasurements();
+			// untrack : seuls les changements de client doivent relancer ce
+			// préchargement. Sans cela, lire journalDate/day via loadDay() ferait
+			// repartir l'effet à chaque changement de date → la journée revenait
+			// toujours à aujourd'hui et les requêtes s'empilaient (état « chargement »).
+			untrack(() => {
+				journalDate = todayISO();
+				initBodyDrafts();
+				loadDay();
+				loadMeasurements();
+			});
 		}
 	});
+
+	/* ── Plan de repas (assignation coach → cliente) ──────────── */
+	type PlanRow = { _id: string; name: string; totalKcal: number; updatedAt: number; clients: number };
+	type AssignmentRow = {
+		_id: string;
+		templateId: string;
+		templateName: string;
+		totalKcal: number;
+		startDate: string;
+		endDate: string;
+		weekdays: number[];
+		removedAt: number | null;
+	};
+	let plansList = $state<PlanRow[]>([]);
+	let assignments = $state<AssignmentRow[]>([]);
+	let planLoading = $state(false);
+	let planMsg = $state('');
+	let assignOpen = $state(false);
+	let assignTemplateId = $state('');
+	let assignStart = $state(todayISO());
+	let assignEnd = $state('');
+	let assignDays = $state<number[]>([1, 2, 3, 4, 5, 6, 7]);
+	let assignBusy = $state(false);
+	const DAY_LABELS = ['L', 'M', 'M', 'J', 'V', 'S', 'D']; // index 0 = lundi
+	const activeAssignment = $derived(assignments.find((a) => !a.removedAt) ?? null);
+
+	async function loadPlans() {
+		planLoading = true;
+		try {
+			const [pr, ar] = await Promise.all([
+				fetch('/api/coach/meal-plans').then((r) => r.json()),
+				selectedId ? fetch(`/api/coach/meal-plan-assignments?userId=${selectedId}`).then((r) => r.json()) : Promise.resolve([]),
+			]);
+			plansList = pr.error ? [] : pr;
+			assignments = Array.isArray(ar) ? ar : [];
+			// Pré-sélection : plan visé via ?client-plan=… (bouton « Assigner » de la bibliothèque)
+			const wanted = page.url.searchParams.get('client-plan');
+			if (wanted && plansList.some((p) => p._id === wanted)) {
+				assignTemplateId = wanted;
+				assignOpen = true;
+			}
+		} catch {
+			/* silencieux */
+		} finally {
+			planLoading = false;
+		}
+	}
+
+	function toggleAssignDay(d: number) {
+		assignDays = assignDays.includes(d) ? assignDays.filter((x) => x !== d) : [...assignDays, d].sort();
+	}
+
+	async function confirmAssign() {
+		if (!selectedId || !assignTemplateId) return;
+		assignBusy = true;
+		planMsg = '';
+		try {
+			const r = await fetch('/api/coach/meal-plan-assignments', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					userId: selectedId,
+					templateId: assignTemplateId,
+					startDate: assignStart,
+					endDate: assignEnd || assignStart,
+					weekdays: assignDays.length === 7 ? undefined : assignDays,
+				}),
+			});
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			assignOpen = false;
+			planMsg = 'Plan assigné — les aliments apparaissent dans le journal aux dates concernées (état planifié, gris).';
+			await loadPlans();
+		} catch (e) {
+			planMsg = e instanceof Error ? e.message : 'Assignation impossible.';
+		} finally {
+			assignBusy = false;
+		}
+	}
+
+	async function removePlan(assignmentId: string) {
+		if (!confirm('Retirer le plan ? Les propositions futures disparaissent du journal — historique et données déjà consommées restent intacts, les planifications personnelles de ta cliente sont conservées.')) return;
+		try {
+			const r = await fetch(`/api/coach/meal-plan-assignments?assignmentId=${assignmentId}`, { method: 'DELETE' });
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			planMsg = 'Plan retiré.';
+			await loadPlans();
+		} catch (e) {
+			planMsg = e instanceof Error ? e.message : 'Retrait impossible.';
+		}
+	}
+
+	function fmtISO(iso: string) {
+		return new Date(iso + 'T12:00:00').toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+	}
 
 	/* ── Sections du tiroir 360° ───────────────────────────────── */
 	let section = $state('apercu');
@@ -788,6 +934,7 @@
 	const sectionTabs = $derived([
 		{ id: 'apercu', label: 'Aperçu' },
 		{ id: 'journal', label: 'Journal' },
+		{ id: 'plan', label: 'Plan de repas' },
 		{ id: 'corps', label: 'Poids & mesures' },
 		{ id: 'photos', label: `Photos (${totalPhotos})` },
 		{ id: 'bilans', label: 'Bilans' },
@@ -802,6 +949,13 @@
 		if (fromUrl && sectionTabs.some((t) => t.id === fromUrl)) {
 			section = fromUrl;
 		}
+	});
+
+	/* Onglet Plan de repas : chargé à l'ouverture du tiroir (changement de cliente). */
+	$effect(() => {
+		const id = selectedId;
+		if (!id) return;
+		untrack(() => loadPlans());
 	});
 </script>
 
@@ -1048,12 +1202,11 @@
 			</table>
 		</div>
 	{/if}
-</div>
-
-<!-- ═══ Tiroir 360° ═══ -->
-{#if selected && view}
-	<button type="button" class="fixed inset-0 z-50 cursor-pointer bg-ink/50" aria-label="Fermer la vue 360°" onclick={() => (window.location.href = '/admin')}></button>
-	<aside class="fixed inset-y-0 right-0 z-50 flex w-full max-w-4xl flex-col border-l border-line bg-cream shadow-2xl">
+</div>	<!-- ═══ Vision 360° : occupe TOUT l'espace restant à droite de la sidebar
+	     CRM (md:pl-64 = largeur sidebar). Sur mobile, plein écran. ═══ -->
+	{#if selected && view}
+		<button type="button" class="fixed inset-0 z-50 cursor-pointer bg-ink/50 md:left-64" aria-label="Fermer la vue 360°" onclick={() => (window.location.href = '/admin')}></button>
+		<aside class="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-line bg-cream shadow-2xl md:left-64 md:w-auto">
 		<!-- En-tête du tiroir -->
 		<div class="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-card px-5 py-3">
 			<div class="flex items-center gap-3">
@@ -1244,39 +1397,6 @@
 					</form>
 				</div>
 
-				<!-- Historique des messages envoyés (journal CRM : daté, lu/non lu, réécoute) -->
-				<div class="rounded-2xl border border-line bg-card p-4 shadow-sm">
-					<div class="flex flex-wrap items-center justify-between gap-2">
-						<div class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="clock3" size={13} class="shrink-0 text-brand" /> Historique des messages envoyés</div>
-						<span class="text-[11px] text-mist">{messageLog.length} publication{messageLog.length > 1 ? 's' : ''}</span>
-					</div>
-					{#if messageLog.length === 0}
-						<p class="mt-2 text-xs leading-relaxed text-mist">
-							Aucun message publié pour le moment — chaque publication (texte et/ou audio) apparaîtra ici, datée, avec son état lu/non lu et la réécoute de l'audio.
-						</p>
-					{:else}
-						<ul class="mt-3 space-y-2">
-							{#each messageLog as msg (msg._id)}
-								<li class="rounded-xl border border-line bg-white p-3">
-									<div class="flex flex-wrap items-center justify-between gap-2">
-										<span class="text-xs font-bold text-ink">{fmtDateTime(msg.publishedAt)}</span>
-										<span class="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide {msg.readAt ? 'bg-line/70 text-mist' : 'bg-warn-light text-warn'}">{msg.readAt ? `✓ Lu le ${fmtDateTime(msg.readAt)}` : 'Non lu'}</span>
-									</div>
-									{#if msg.text}
-										<p class="mt-1 text-sm leading-relaxed text-ink">{msg.text}</p>
-									{/if}
-									{#if msg.audio}
-										<div class="mt-2 rounded-xl bg-brand-light/60 p-2.5">
-											<p class="mb-1 inline-flex items-center gap-1.5 text-[11px] font-semibold text-brand-dark"><Icon name="mic" size={12} /> Message audio · {fmtMs(msg.audio.durationMs)}</p>
-											<AudioPlayer src={msg.audio.url} durationMs={msg.audio.durationMs} accent="ink" />
-										</div>
-									{/if}
-								</li>
-							{/each}
-						</ul>
-					{/if}
-				</div>
-
 				<div class="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
 					<div class="rounded-2xl border border-line bg-card p-4">
 						<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="scale" size={12} /> Poids actuel</div>
@@ -1340,32 +1460,38 @@
 						<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="chartBar" size={17} class="shrink-0 text-brand" /> Calories — tendance des 7 derniers jours</h3>
 						<span class="text-[11px] text-mist">barres : kcal consommées · ligne pointillée : objectif · ligne verte : moyenne</span>
 					</div>
-					{#if chart}
-						<div class="mt-3 overflow-x-auto">
-							<svg viewBox="0 0 700 220" class="h-auto w-full min-w-[560px]" role="img" aria-label="Calories de la semaine">
-								{#each chart.bars as bar, i}
-									<g>
-										<rect x={bar.x} y={chart.goalY - 3} width="56" height="6" rx="3" fill="none" stroke="#999990" stroke-width="1" stroke-dasharray="3 3" class="chart-goal-tick" />
-										<rect x={bar.x} y={bar.y} width="56" height={bar.h} rx="6" fill={bar.isToday ? '#1db954' : '#7ce0a5'} class="chart-bar" style={`animation-delay: ${i * 70}ms`}>
-											<title>{bar.full} : {bar.kcal} kcal ({bar.count} entrée{bar.count > 1 ? 's' : ''})</title>
-										</rect>
-										<text x={bar.x + 28} y={bar.y - 6} text-anchor="middle" class="chart-value" font-size="13" font-weight="600" fill="#111110">{bar.kcal > 0 ? bar.kcal : ''}</text>
-										<text x={bar.x + 28} y="214" text-anchor="middle" font-size="12" fill="#999990" font-weight="600">{bar.label}</text>
-									</g>
-								{/each}
-								<line x1="0" y1={chart.goalY} x2="700" y2={chart.goalY} stroke="#111110" stroke-width="1.5" stroke-dasharray="6 5" />
-								<polygon points={`690,${chart.goalY - 8} 696,${chart.goalY} 684,${chart.goalY}`} fill="#111110" />
-								{#if chart.avgY != null}
-									<line x1="0" y1={chart.avgY} x2="700" y2={chart.avgY} stroke="#1db954" stroke-width="2.5" stroke-dasharray="10 6" />
-									<text x="704" y={chart.avgY - 4} font-size="12" fill="#1db954" font-weight="700">moy {weekAvg}</text>
-								{/if}
-							</svg>
+					{#if calBars.some((b) => b.value != null)}
+						<div class="mt-3">
+							<WeeklyTrendChart bars={calBars} goal={goalKcal} avg={weekAvg} fmt={fmtN} ariaLabel="Calories de la semaine" />
 						</div>
 						<div class="mt-2 flex items-start gap-1.5 rounded-xl bg-brand-light px-4 py-2.5 text-xs text-ink">
 							<Icon name="ruler" size={13} class="mt-0.5 shrink-0" /> <span><strong>Moyenne constatée : {weekAvg} kcal/jour</strong> sur {loggedDays} jour(s) renseigné(s) — calcul : somme des calories des jours saisis ÷ nombre de jours saisis (objectif : {goalKcal} kcal).</span>
 						</div>
 					{:else}
 						<p class="mt-3 rounded-xl border border-dashed border-line px-4 py-8 text-center text-sm text-mist">Aucune donnée de journal sur les 7 derniers jours.</p>
+					{/if}
+				</div>
+
+				<!-- Pas — tendance des 7 derniers jours (même design system que Calories) -->
+				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
+					<div class="flex flex-wrap items-center justify-between gap-2">
+						<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="footprints" size={17} class="shrink-0 text-brand" /> Pas — tendance des 7 derniers jours</h3>
+						<span class="text-[11px] text-mist">barres : pas saisis · ligne pointillée : objectif · ligne verte : moyenne</span>
+					</div>
+					{#if stepsTracked > 0}
+						<div class="mt-3">
+							<WeeklyTrendChart bars={stepBars} goal={stepGoalVal} avg={stepsAvg} fmt={fmtN} unit=" pas" ariaLabel="Pas de la semaine" />
+						</div>
+						<div class="mt-2 flex flex-wrap items-start gap-x-3 gap-y-1 rounded-xl bg-brand-light px-4 py-2.5 text-xs text-ink">
+							<Icon name="footprints" size={13} class="mt-0.5 shrink-0" />
+							<span>
+								<strong>Moyenne constatée : {fmtN(stepsAvg)} pas/jour</strong>
+								sur {stepsTracked} jour(s) renseigné(s) — calcul : somme des pas des jours saisis ÷ nombre de jours saisis{stepGoalVal ? ` (objectif : ${fmtN(stepGoalVal)} pas/jour)` : ''}.
+							</span>
+							<span class="ml-auto whitespace-nowrap font-semibold text-mist">Total : {fmtN(stepsTotal)} pas</span>
+						</div>
+					{:else}
+						<p class="mt-3 rounded-xl border border-dashed border-line px-4 py-8 text-center text-sm text-mist">Aucun pas renseigné sur les 7 derniers jours.</p>
 					{/if}
 				</div>
 
@@ -1538,6 +1664,40 @@
 					{/key}
 				</div>
 
+				<!-- Historique des messages envoyés (journal CRM : daté, lu/non lu, réécoute) —
+				     DERNIÈRE section de l'Aperçu : les infos opérationnelles passent d'abord. -->
+				<div class="rounded-2xl border border-line bg-card p-4 shadow-sm">
+					<div class="flex flex-wrap items-center justify-between gap-2">
+						<div class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="clock3" size={13} class="shrink-0 text-brand" /> Historique des messages envoyés</div>
+						<span class="text-[11px] text-mist">{messageLog.length} publication{messageLog.length > 1 ? 's' : ''}</span>
+					</div>
+					{#if messageLog.length === 0}
+						<p class="mt-2 text-xs leading-relaxed text-mist">
+							Aucun message publié pour le moment — chaque publication (texte et/ou audio) apparaîtra ici, datée, avec son état lu/non lu et la réécoute de l'audio.
+						</p>
+					{:else}
+						<ul class="mt-3 space-y-2">
+							{#each messageLog as msg (msg._id)}
+								<li class="rounded-xl border border-line bg-white p-3">
+									<div class="flex flex-wrap items-center justify-between gap-2">
+										<span class="text-xs font-bold text-ink">{fmtDateTime(msg.publishedAt)}</span>
+										<span class="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide {msg.readAt ? 'bg-line/70 text-mist' : 'bg-warn-light text-warn'}">{msg.readAt ? `✓ Lu le ${fmtDateTime(msg.readAt)}` : 'Non lu'}</span>
+									</div>
+									{#if msg.text}
+										<p class="mt-1 text-sm leading-relaxed text-ink">{msg.text}</p>
+									{/if}
+									{#if msg.audio}
+										<div class="mt-2 rounded-xl bg-brand-light/60 p-2.5">
+											<p class="mb-1 inline-flex items-center gap-1.5 text-[11px] font-semibold text-brand-dark"><Icon name="mic" size={12} /> Message audio · {fmtMs(msg.audio.durationMs)}</p>
+											<AudioPlayer src={msg.audio.url} durationMs={msg.audio.durationMs} accent="ink" />
+										</div>
+									{/if}
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</div>
+
 			<!-- ═══ Démarrage : formulaire initial + statuts de l'onboarding ═══ -->
 			{:else if section === 'demarrage'}
 				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
@@ -1568,7 +1728,13 @@
 						<div class="rounded-xl bg-line/40 px-3 py-2 text-center">
 							<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Statut global</div>
 							<div class="mt-0.5 text-sm font-bold {onboardingView?.done ? 'text-brand' : onboardingView?.enabled ? 'text-warn' : 'text-mist'}">
-								{onboardingView ? (onboardingView.done ? 'Terminé ✓' : onboardingView.enabled ? 'En cours' : 'Inactif') : '—'}
+								{onboardingView
+									? onboardingView.done
+										? `Terminé ✓${onboardingView.completedAt ? ` · ${fmtTs(onboardingView.completedAt)}` : ''}`
+										: onboardingView.enabled
+											? 'En cours'
+											: 'Inactif'
+									: '—'}
 							</div>
 						</div>
 						<div class="rounded-xl bg-line/40 px-3 py-2 text-center">
@@ -1639,11 +1805,22 @@
 				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
 					<div class="flex flex-wrap items-center justify-between gap-3">
 						<h3 class="flex items-center gap-1.5 font-display text-base font-semibold text-ink"><Icon name="notebook" size={17} class="shrink-0 text-brand" /> Journal alimentaire de {fullName(selected.user)}</h3>
-						<div class="flex items-center gap-2">
-							<!-- Changer la date recharge la journée immédiatement (comme côté cliente). -->
+						<div class="flex items-center gap-1.5">
+							<!-- ‹ / › : navigation immédiate, une seule source de vérité (journalDate). -->
+							<button
+								type="button"
+								onclick={() => shiftDay(-1)}
+								disabled={journalBusy}
+								aria-label="Jour précédent"
+								title="Jour précédent"
+								class="grid h-9 w-9 shrink-0 place-items-center rounded-lg border-2 border-line text-ink transition hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-40"
+							>
+								<Icon name="chevronLeft" size={16} />
+							</button>
 							<input
 								type="date"
 								value={journalDate}
+								max={todayISO()}
 								onchange={(e) => {
 									const v = (e.currentTarget as HTMLInputElement).value;
 									if (!v) return;
@@ -1652,6 +1829,16 @@
 								}}
 								class="rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand"
 							/>
+							<button
+								type="button"
+								onclick={() => shiftDay(1)}
+								disabled={journalBusy || journalAtToday}
+								aria-label="Jour suivant"
+								title="Jour suivant"
+								class="grid h-9 w-9 shrink-0 place-items-center rounded-lg border-2 border-line text-ink transition hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-40"
+							>
+								<Icon name="chevronRight" size={16} />
+							</button>
 							<button onclick={loadDay} disabled={journalBusy} class="rounded-lg bg-ink px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-brand disabled:opacity-60">
 								{journalBusy ? 'Chargement…' : 'Charger'}
 							</button>
@@ -1738,6 +1925,118 @@
 						</div>
 					</div>
 				{/if}
+
+			{:else if section === 'plan'}
+			<!-- ═══ Plan de repas : assignation coach → cliente ═══ -->
+			<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
+				<div class="flex flex-wrap items-center justify-between gap-3">
+					<h3 class="flex items-center gap-1.5 font-display text-base font-semibold text-ink"><Icon name="utensils" size={17} class="shrink-0 text-brand" /> Plan de repas de {fullName(selected.user)}</h3>
+					<div class="flex items-center gap-1.5">
+						<a href="/admin/plans" class="rounded-lg border-2 border-line px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-brand hover:text-brand">Bibliothèque des plans →</a>
+						{#if activeAssignment}
+							<button type="button" onclick={() => { assignOpen = true; }} class="rounded-lg bg-ink px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand">Changer</button>
+							<button type="button" onclick={() => removePlan(activeAssignment._id)} class="rounded-lg border-2 border-line px-3 py-1.5 text-xs font-semibold text-danger transition hover:border-danger">Retirer le plan</button>
+						{:else}
+							<button type="button" onclick={() => { assignOpen = true; }} disabled={plansList.length === 0} class="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand-dark disabled:opacity-50" title={plansList.length === 0 ? 'Crée d’abord un plan dans la bibliothèque.' : ''}>Assigner un plan</button>
+						{/if}
+					</div>
+				</div>
+
+				{#if planMsg}
+					<p class="mt-3 rounded-lg bg-brand-light px-3 py-2 text-xs font-semibold text-ink">{planMsg}</p>
+				{/if}
+
+				{#if planLoading}
+					<p class="py-8 text-center text-sm text-mist">Chargement…</p>
+				{:else if !activeAssignment}
+					<div class="mt-4 rounded-xl border border-dashed border-line px-4 py-10 text-center">
+						<p class="text-sm font-semibold text-ink">Aucun plan actif</p>
+						<p class="mx-auto mt-1 max-w-sm text-xs text-mist">Assigne une journée type : les aliments apparaissent automatiquement dans le journal de {selected.user.prenom} aux dates concernées — en gris (planifié), sans impact sur ses calories consommées tant qu'elle ne valide pas « Mangé ».</p>
+						{#if plansList.length === 0}
+							<p class="mt-3 text-xs text-mist">Crée d'abord un plan dans la <a href="/admin/plans" class="font-semibold text-brand underline">bibliothèque</a>.</p>
+						{:else}
+							<button type="button" onclick={() => (assignOpen = true)} class="mt-3 rounded-lg bg-brand px-4 py-2 text-xs font-semibold text-white transition hover:bg-brand-dark">Assigner un plan</button>
+						{/if}
+					</div>
+				{:else}
+					<!-- PLAN ACTIF -->
+					<div class="mt-4 rounded-xl border border-brand/40 bg-brand-light/30 p-4">
+						<p class="text-[10px] font-bold uppercase tracking-widest text-brand-dark">Plan actif</p>
+						<p class="mt-1 font-display text-lg font-semibold text-ink">{activeAssignment.templateName}</p>
+						{#if activeAssignment.totalKcal > 0}
+							<p class="text-xs text-mist tabular-nums">≈ {activeAssignment.totalKcal.toLocaleString('fr-FR')} kcal / jour</p>
+						{/if}
+						<p class="mt-2 text-xs text-ink">Du <strong>{fmtISO(activeAssignment.startDate)}</strong> au <strong>{fmtISO(activeAssignment.endDate)}</strong></p>
+						{#if activeAssignment.weekdays.length < 7}
+							<p class="mt-0.5 text-[11px] text-mist">Jours concernés : {[1, 2, 3, 4, 5, 6, 7].filter((d) => activeAssignment.weekdays.includes(d)).map((d) => DAY_LABELS[d - 1]).join(' ')}</p>
+						{/if}
+					</div>
+				{/if}
+
+				{#if assignments.filter((a) => a.removedAt).length > 0}
+					<details class="mt-3">
+						<summary class="cursor-pointer text-xs font-semibold text-mist hover:text-ink">Historique des plans retirés ({assignments.filter((a) => a.removedAt).length})</summary>
+						<ul class="mt-2 flex flex-col gap-1.5">
+							{#each assignments.filter((a) => a.removedAt) as a (a._id)}
+								<li class="rounded-lg border border-line px-3 py-2 text-xs text-mist">
+									<strong class="text-ink">{a.templateName}</strong> · {fmtISO(a.startDate)} → {fmtISO(a.endDate)}
+								</li>
+							{/each}
+						</ul>
+					</details>
+				{/if}
+			</div>
+
+			<!-- Modal d'assignation -->
+			{#if assignOpen}
+				<button type="button" class="fixed inset-0 z-[70] cursor-pointer bg-ink/50" aria-label="Fermer" onclick={() => (assignOpen = false)}></button>
+				<div class="fixed inset-x-0 bottom-0 z-[70] mx-auto w-full max-w-md rounded-t-3xl bg-white p-5 shadow-2xl sm:inset-y-0 sm:right-0 sm:left-auto sm:rounded-l-3xl">
+					<div class="flex items-center justify-between">
+						<h4 class="font-display text-base font-semibold text-ink">Assigner un plan</h4>
+						<button type="button" onclick={() => (assignOpen = false)} class="rounded-lg px-2 py-1 text-lg text-mist hover:text-ink" aria-label="Fermer">✕</button>
+					</div>
+					<label class="mt-4 block">
+						<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Plan</span>
+						<select bind:value={assignTemplateId} class="w-full rounded-xl border-2 border-line px-3 py-2.5 text-sm outline-none focus:border-brand">
+							<option value="" disabled>Sélectionner…</option>
+							{#each plansList as p (p._id)}
+								<option value={p._id}>{p.name} · {p.totalKcal.toLocaleString('fr-FR')} kcal</option>
+							{/each}
+						</select>
+					</label>
+					<div class="mt-3 grid grid-cols-2 gap-2">
+						<label class="block">
+							<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Date de début</span>
+							<input type="date" bind:value={assignStart} class="w-full rounded-xl border-2 border-line px-3 py-2.5 text-sm outline-none focus:border-brand" />
+						</label>
+						<label class="block">
+							<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Date de fin</span>
+							<input type="date" bind:value={assignEnd} min={assignStart} class="w-full rounded-xl border-2 border-line px-3 py-2.5 text-sm outline-none focus:border-brand" />
+						</label>
+					</div>
+					<fieldset class="mt-3">
+						<legend class="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-mist">Jours concernés (tous par défaut)</legend>
+						<div class="flex gap-1.5">
+							{#each [1, 2, 3, 4, 5, 6, 7] as d (d)}
+								<button
+									type="button"
+									onclick={() => toggleAssignDay(d)}
+									class="grid h-9 w-9 place-items-center rounded-full border-2 text-xs font-bold transition {assignDays.includes(d) ? 'border-brand bg-brand text-white' : 'border-line text-mist hover:border-brand'}"
+								>{DAY_LABELS[d - 1]}</button>
+							{/each}
+						</div>
+					</fieldset>
+					<p class="mt-3 text-[11px] leading-snug text-mist">Les aliments du plan apparaissent dans le journal aux dates concernées, en gris (planifié). Ta cliente les valide en touchant le cercle « Mangé » — rien n'est compté automatiquement.</p>
+					<button
+						type="button"
+						onclick={confirmAssign}
+						disabled={assignBusy || !assignTemplateId || !assignStart}
+						class="mt-4 w-full rounded-full bg-brand px-3 py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
+					>
+						{assignBusy ? 'Assignation…' : 'Assigner ce plan'}
+					</button>
+				</div>
+			{/if}
 
 			<!-- ═══ Poids & mensurations ═══ -->
 			{:else if section === 'corps'}
@@ -1997,16 +2296,27 @@
 									<span class="text-xs text-mist">reçue le {fmtDateShort(group.date)}</span>
 								</div>
 								<div class="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3">
-									{#each group.photos as photo}
-										<figure class="overflow-hidden rounded-xl border border-line bg-white">
+									{#each group.photos as photo, idx}
+										<figure class="relative overflow-hidden rounded-xl border border-line bg-white">
 											{#if photo.url}
-												<a href={photo.url} target="_blank" rel="noreferrer">
+												<a href={photo.url} target="_blank" rel="noreferrer" aria-label={`Voir ${photo.label}`}>
 													<img src={photo.url} alt={photo.label} class="h-44 w-full object-cover transition hover:scale-105" loading="lazy" />
 												</a>
-											{:else}
-												<div class="flex h-44 items-center justify-center bg-line/40 text-sm text-mist">Image indisponible</div>
-											{/if}
-											<figcaption class="truncate px-2 py-1 text-[11px] text-mist">{photo.label}</figcaption>
+												<button
+													type="button"
+													title="Télécharger la photo"
+													aria-label={`Télécharger ${photo.label ?? `la photo ${idx + 1}`}`}
+													onclick={(e) => {
+														e.preventDefault();
+														e.stopPropagation();
+														void downloadPhoto(photo, group, idx, selected.user.prenom);
+													}}
+													class="absolute right-1.5 top-1.5 grid h-7 w-7 place-items-center rounded-full bg-ink/55 text-white backdrop-blur-sm transition hover:bg-brand active:scale-95"
+												><Icon name="download" size={13} /></button>
+										{:else}
+											<div class="flex h-44 items-center justify-center bg-line/40 text-sm text-mist">Image indisponible</div>
+										{/if}
+										<figcaption class="truncate px-2 py-1 text-[11px] text-mist">{photo.label}</figcaption>
 										</figure>
 									{/each}
 								</div>
@@ -2242,8 +2552,5 @@
 		to {
 			opacity: 1;
 		}
-	}
-	.chart-goal-tick {
-		opacity: 0.55;
 	}
 </style>

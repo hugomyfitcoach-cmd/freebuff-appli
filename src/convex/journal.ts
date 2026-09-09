@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { getSessionUser } from "./helpers";
+import { resolveCoachPlanForDate } from "./mealPlans";
 import type { QueryCtx } from "./_generated/server";
 import type { Id, Doc } from "./_generated/dataModel";
 
@@ -466,7 +467,15 @@ export const getClientGoals = query({
 
 /* ─────────────────────────── Journal ─────────────────────────── */
 
-/** Jour complet d'un client : objectifs + entrées + totaux. */
+/** Jour complet d'un client : objectifs + entrées consommées + items planifiés + totaux.
+ *
+ * PLANIFIÉ ≠ CONSOMMÉ (single source of truth) :
+ * - `entries`/`totals` : UNIQUEMENT ce qui est réellement consommé (diaryEntries) ;
+ * - `planned`/`plannedTotals` : propositions (plan coach + préparation cliente)
+ *   — grises dans l'UI, zéro impact sur le header tant qu'elles ne sont pas validées.
+ * Le plan coach actif est résolu (copy-on-write) AVANT la lecture — la mutation
+ * `mealPlans.ensurePlanForDate` est appelée par l'endpoint juste avant.
+ */
 export const getDay = query({
 	args: {
 		sessionToken: v.optional(v.string()),
@@ -476,7 +485,7 @@ export const getDay = query({
 		const user = await requireClient(ctx, sessionToken);
 		if (!isValidDateISO(date)) throw new ConvexError("Date invalide.");
 
-		const [entries, goalsRow] = await Promise.all([
+		const [entries, goalsRow, plannedRows] = await Promise.all([
 			ctx.db
 				.query("diaryEntries")
 				.withIndex("by_user_date", (q) => q.eq("userId", user._id).eq("date", date))
@@ -486,12 +495,17 @@ export const getDay = query({
 				.query("clientGoals")
 				.withIndex("by_userId", (q) => q.eq("userId", user._id))
 				.first(),
+			ctx.db
+				.query("plannedEntries")
+				.withIndex("by_user_date", (q) => q.eq("userId", user._id).eq("date", date))
+				.order("asc")
+				.collect(),
 		]);
 
 		// Portion OFF (mode « portion » à l'édition) : on joint l'aliment de la
-		// base ou l'aliment personnel associé à chaque entrée du jour.
-		const foodIds = [...new Set(entries.map((e) => e.foodId).filter((x): x is Id<"foods"> => !!x))];
-		const customIds = [...new Set(entries.map((e) => e.customFoodId).filter((x): x is Id<"customFoods"> => !!x))];
+		// base ou l'aliment personnel associé à chaque entrée (consommée OU planifiée).
+		const foodIds = [...new Set([...entries, ...plannedRows].map((e) => e.foodId).filter((x): x is Id<"foods"> => !!x))];
+		const customIds = [...new Set([...entries, ...plannedRows].map((e) => e.customFoodId).filter((x): x is Id<"customFoods"> => !!x))];
 		const [foodRows, customRows] = await Promise.all([
 			Promise.all(foodIds.map((id) => ctx.db.get(id))),
 			Promise.all(customIds.map((id) => ctx.db.get(id))),
@@ -500,6 +514,14 @@ export const getDay = query({
 		for (const f of foodRows) if (f) servingByFood.set(f._id, { qty: f.servingQty, unit: f.servingUnit });
 		for (const f of customRows) if (f) servingByFood.set(f._id, { qty: f.servingQty });
 		const entriesOut = entries.map((e) => {
+			const info = e.foodId ? servingByFood.get(e.foodId) : e.customFoodId ? servingByFood.get(e.customFoodId) : undefined;
+			return {
+				...e,
+				servingQty: info?.qty ?? undefined,
+				servingUnit: info?.unit ?? undefined,
+			};
+		});
+		const plannedOut = plannedRows.map((e) => {
 			const info = e.foodId ? servingByFood.get(e.foodId) : e.customFoodId ? servingByFood.get(e.customFoodId) : undefined;
 			return {
 				...e,
@@ -521,6 +543,20 @@ export const getDay = query({
 		for (const k of Object.keys(totals) as (keyof typeof totals)[]) {
 			totals[k] = Math.round(totals[k] * 10) / 10;
 		}
+		// Totaux PRÉVUS — information secondaire uniquement (jamais le header).
+		const plannedTotals = plannedRows.reduce(
+			(acc, e) => {
+				acc.kcal += e.kcal;
+				acc.carbs += e.carbs;
+				acc.protein += e.protein;
+				acc.fat += e.fat;
+				return acc;
+			},
+			{ kcal: 0, carbs: 0, protein: 0, fat: 0 }
+		);
+		for (const k of Object.keys(plannedTotals) as (keyof typeof plannedTotals)[]) {
+			plannedTotals[k] = Math.round(plannedTotals[k] * 10) / 10;
+		}
 
 		return {
 			date,
@@ -528,11 +564,14 @@ export const getDay = query({
 			goalsSet: !!goalsRow,
 			entries: entriesOut,
 			totals,
+			planned: plannedOut,
+			plannedTotals,
 		};
 	},
 });
 
-/** Ajoute un aliment au journal (base OFF ou aliment personnel). */
+/** Ajout LIBRE : aujourd'hui → consommé (comportement historique du tracker) ;
+ *  date FUTURE → planifié (client_planned — grisé, zéro impact header). */
 export const addEntry = mutation({
 	args: {
 		sessionToken: v.optional(v.string()),
@@ -552,6 +591,10 @@ export const addEntry = mutation({
 		if (!foodId && !customFoodId) {
 			throw new ConvexError("Aucun aliment fourni.");
 		}
+
+		// Résout le plan coach actif AVANT l'ajout (copy-on-write) : sur une date
+		// future, les propositions apparaissent même si getDay n'a pas encore tourné.
+		await resolveCoachPlanForDate(ctx, user._id, date);
 
 		let name = '';
 		let brand: string | undefined;
@@ -583,6 +626,30 @@ export const addEntry = mutation({
 		}
 
 		const k = qtyGrams / 100;
+		const today = localTodayOfTs();
+		const future = date > today;
+		if (future) {
+			// JOUR FUTUR → PLANNED (client_planned) : jamais compté comme consommé.
+			const entryId = await ctx.db.insert("plannedEntries", {
+				userId: user._id,
+				date,
+				meal,
+				source: "client_planned",
+				name,
+				brand,
+				imageUrl,
+				qtyGrams,
+				kcal: Math.round(kcal100 * k),
+				carbs: Math.round(carbs100 * k * 10) / 10,
+				protein: Math.round(protein100 * k * 10) / 10,
+				fat: Math.round(fat100 * k * 10) / 10,
+				foodId: foodId ?? undefined,
+				customFoodId: customFoodId ?? undefined,
+				createdAt: Date.now(),
+			});
+			return { ok: true, entryId, planned: true };
+		}
+		// Aujourd'hui (ou passé) → entrée consommée classique.
 		const entryId = await ctx.db.insert("diaryEntries", {
 			userId: user._id,
 			date,
@@ -599,9 +666,15 @@ export const addEntry = mutation({
 			fat: Math.round(fat100 * k * 10) / 10,
 			createdAt: Date.now(),
 		});
-		return { ok: true, entryId };
+		return { ok: true, entryId, planned: false };
 	},
 });
+
+/** Jour ISO local du serveur (sert uniquement de frontière « futur → planifié »). */
+function localTodayOfTs(): string {
+	const d = new Date();
+	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 /** Modifie la quantité (et éventuellement le repas) d'une entrée — les macros sont recalculées. */
 export const updateEntryQty = mutation({
@@ -656,5 +729,231 @@ export const removeEntry = mutation({
 		if (!entry || entry.userId !== user._id) throw new ConvexError("Entrée introuvable.");
 		await ctx.db.delete(entryId);
 		return { ok: true };
+	},
+});
+
+/* ═══════════════════ Items PLANNED (planifiés, non consommés) ═══════════════════
+ *
+ * RÈGLE ABSOLUE — PLANIFIÉ ≠ CONSOMMÉ :
+ * - une plannedEntry n'impacte JAMAIS le header (calories/macros/donuts/barre) ;
+ * - la validation « Mangé » la transforme en diaryEntry (consommé, une seule
+ *   source de vérité des calories) puis supprime la ligne planifiée ;
+ * - « remettre en planifié » fait l'inverse, de façon parfaitement réversible ;
+ * - la date du jour seule autorise la validation (pas de « mangé » dans le futur).
+ */
+
+async function requireOwnPlanned(
+	ctx: Pick<QueryCtx, "db">,
+	userId: Id<"users">,
+	plannedId: Id<"plannedEntries">
+): Promise<Doc<"plannedEntries">> {
+	const row = await ctx.db.get(plannedId);
+	if (!row || row.userId !== userId) throw new ConvexError("Aliment planifié introuvable.");
+	return row;
+}
+
+/** Validation d'un item planifié : planned → diaryEntries (consommé). */
+export const eatPlanned = mutation({
+	args: { sessionToken: v.optional(v.string()), plannedId: v.id("plannedEntries") },
+	handler: async (ctx, { sessionToken, plannedId }) => {
+		const user = await requireClient(ctx, sessionToken);
+		const p = await requireOwnPlanned(ctx, user._id, plannedId);
+		if (!isValidDateISO(p.date)) throw new ConvexError("Date invalide.");
+		if (!isMeal(p.meal)) throw new ConvexError("Repas invalide.");
+		const today = localTodayOfTs();
+		if (p.date > today) {
+			throw new ConvexError("Impossible de valider « Mangé » sur une date future.");
+		}
+		const entryId = await ctx.db.insert("diaryEntries", {
+			userId: user._id,
+			date: p.date,
+			meal: p.meal,
+			foodId: p.foodId,
+			customFoodId: p.customFoodId,
+			name: p.name,
+			brand: p.brand,
+			imageUrl: p.imageUrl,
+			qtyGrams: p.qtyGrams,
+			kcal: p.kcal,
+			carbs: p.carbs,
+			protein: p.protein,
+			fat: p.fat,
+			source: "planned_eaten",
+			createdAt: Date.now(),
+		});
+		await ctx.db.delete(plannedId);
+		return { ok: true, entryId };
+	},
+});
+
+/** Annulation : consommé → planifié (retrait immédiat des totaux, réversible). */
+export const uneatEntry = mutation({
+	args: { sessionToken: v.optional(v.string()), entryId: v.id("diaryEntries") },
+	handler: async (ctx, { sessionToken, entryId }) => {
+		const user = await requireClient(ctx, sessionToken);
+		const entry = await ctx.db.get(entryId);
+		if (!entry || entry.userId !== user._id) throw new ConvexError("Entrée introuvable.");
+		const today = localTodayOfTs();
+		// Une journée passée verrouille l'historique : on ne réécrit pas le passé.
+		if (entry.date < today) throw new ConvexError("Impossible de dé-valider un jour passé.");
+		await ctx.db.insert("plannedEntries", {
+			userId: user._id,
+			date: entry.date,
+			meal: entry.meal,
+			source: "client_planned",
+			name: entry.name,
+			brand: entry.brand,
+			imageUrl: entry.imageUrl,
+			qtyGrams: entry.qtyGrams,
+			kcal: entry.kcal,
+			carbs: entry.carbs,
+			protein: entry.protein,
+			fat: entry.fat,
+			foodId: entry.foodId,
+			customFoodId: entry.customFoodId,
+			createdAt: Date.now(),
+		});
+		await ctx.db.delete(entryId);
+		return { ok: true };
+	},
+});
+
+/** Quantité d'un item PLANIFIÉ (reste planifié, zéro impact header). */
+export const updatePlannedQty = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		plannedId: v.id("plannedEntries"),
+		qtyGrams: v.number(),
+		meal: v.optional(v.string()),
+	},
+	handler: async (ctx, { sessionToken, plannedId, qtyGrams, meal }) => {
+		const user = await requireClient(ctx, sessionToken);
+		if (!isFinite(qtyGrams) || qtyGrams <= 0 || qtyGrams > 5000) {
+			throw new ConvexError("Quantité invalide (entre 1 et 5000 g).");
+		}
+		if (meal !== undefined && !isMeal(meal)) throw new ConvexError("Repas invalide.");
+		const p = await requireOwnPlanned(ctx, user._id, plannedId);
+		const k = qtyGrams / 100;
+		const kcal100 = p.qtyGrams > 0 ? p.kcal / (p.qtyGrams / 100) : 0;
+		const carbs100 = p.qtyGrams > 0 ? p.carbs / (p.qtyGrams / 100) : 0;
+		const protein100 = p.qtyGrams > 0 ? p.protein / (p.qtyGrams / 100) : 0;
+		const fat100 = p.qtyGrams > 0 ? p.fat / (p.qtyGrams / 100) : 0;
+		await ctx.db.patch(plannedId, {
+			qtyGrams,
+			kcal: Math.round(kcal100 * k),
+			carbs: Math.round(carbs100 * k * 10) / 10,
+			protein: Math.round(protein100 * k * 10) / 10,
+			fat: Math.round(fat100 * k * 10) / 10,
+			...(meal !== undefined ? { meal } : {}),
+		});
+		return { ok: true };
+	},
+});
+
+/** Supprime un item planifié (ce jour uniquement — le template coach reste intact). */
+export const removePlanned = mutation({
+	args: { sessionToken: v.optional(v.string()), plannedId: v.id("plannedEntries") },
+	handler: async (ctx, { sessionToken, plannedId }) => {
+		const user = await requireClient(ctx, sessionToken);
+		await requireOwnPlanned(ctx, user._id, plannedId);
+		await ctx.db.delete(plannedId);
+		return { ok: true };
+	},
+});
+
+/** Remplace un item planifié par un autre aliment (ce jour uniquement). */
+export const replacePlanned = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		plannedId: v.id("plannedEntries"),
+		foodId: v.optional(v.id("foods")),
+		customFoodId: v.optional(v.id("customFoods")),
+		qtyGrams: v.number(),
+	},
+	handler: async (ctx, { sessionToken, plannedId, foodId, customFoodId, qtyGrams }) => {
+		const user = await requireClient(ctx, sessionToken);
+		if (!isFinite(qtyGrams) || qtyGrams <= 0 || qtyGrams > 5000) {
+			throw new ConvexError("Quantité invalide (entre 1 et 5000 g).");
+		}
+		if (!foodId && !customFoodId) throw new ConvexError("Aucun aliment fourni.");
+		const p = await requireOwnPlanned(ctx, user._id, plannedId);
+
+		let name = '';
+		let brand: string | undefined;
+		let imageUrl: string | undefined;
+		let kcal100 = 0;
+		let carbs100 = 0;
+		let protein100 = 0;
+		let fat100 = 0;
+		if (foodId) {
+			const food = await ctx.db.get(foodId);
+			if (!food) throw new ConvexError("Cet aliment n'existe plus dans la base.");
+			name = food.name;
+			brand = food.brand;
+			imageUrl = food.imageUrl;
+			kcal100 = food.kcal100;
+			carbs100 = food.carbs100;
+			protein100 = food.protein100;
+			fat100 = food.fat100;
+		} else if (customFoodId) {
+			const food = await ctx.db.get(customFoodId);
+			if (!food || food.userId !== user._id) throw new ConvexError("Cet aliment ne t'appartient pas.");
+			name = food.name;
+			brand = food.brand;
+			kcal100 = food.kcal100;
+			carbs100 = food.carbs100;
+			protein100 = food.protein100;
+			fat100 = food.fat100;
+		}
+		const k = qtyGrams / 100;
+		await ctx.db.patch(plannedId, {
+			foodId: foodId ?? undefined,
+			customFoodId: customFoodId ?? undefined,
+			name,
+			brand,
+			imageUrl,
+			qtyGrams,
+			kcal: Math.round(kcal100 * k),
+			carbs: Math.round(carbs100 * k * 10) / 10,
+			protein: Math.round(protein100 * k * 10) / 10,
+			fat: Math.round(fat100 * k * 10) / 10,
+		});
+		return { ok: true };
+	},
+});
+
+/** Validation en masse : plusieurs items planifiés → consommés (jour uniquement). */
+export const eatManyPlanned = mutation({
+	args: { sessionToken: v.optional(v.string()), plannedIds: v.array(v.id("plannedEntries")) },
+	handler: async (ctx, { sessionToken, plannedIds }) => {
+		const user = await requireClient(ctx, sessionToken);
+		const today = localTodayOfTs();
+		let eaten = 0;
+		for (const plannedId of plannedIds.slice(0, 60)) {
+			const p = await ctx.db.get(plannedId);
+			if (!p || p.userId !== user._id) continue;
+			if (p.date > today) continue; // jamais « mangé » dans le futur
+			if (!isValidDateISO(p.date) || !isMeal(p.meal)) continue;
+			await ctx.db.insert("diaryEntries", {
+				userId: user._id,
+				date: p.date,
+				meal: p.meal,
+				foodId: p.foodId,
+				customFoodId: p.customFoodId,
+				name: p.name,
+				brand: p.brand,
+				imageUrl: p.imageUrl,
+				qtyGrams: p.qtyGrams,
+				kcal: p.kcal,
+				carbs: p.carbs,
+				protein: p.protein,
+				fat: p.fat,
+				source: "planned_eaten",
+				createdAt: Date.now(),
+			});
+			await ctx.db.delete(plannedId);
+			eaten++;
+		}
+		return { ok: true, eaten };
 	},
 });

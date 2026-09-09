@@ -26,6 +26,25 @@
 		/** Portion OFF (g) de l'aliment associé — mode « portion » en édition. */
 		servingQty?: number;
 		servingUnit?: string;
+		/** « planned_eaten » : validé depuis un item planifié (cercle ✓ dans le Journal). */
+		source?: string;
+	};
+	/** Item PLANIFIÉ — plan coach ou préparation cliente : grisé, 0 impact header. */
+	type PlannedItem = {
+		_id: string;
+		name: string;
+		brand?: string;
+		imageUrl?: string;
+		qtyGrams: number;
+		kcal: number;
+		carbs: number;
+		protein: number;
+		fat: number;
+		meal: string;
+		/** « coach_plan » | « client_planned ». */
+		source: string;
+		servingQty?: number;
+		servingUnit?: string;
 	};
 	type DayData = {
 		date: string;
@@ -33,6 +52,9 @@
 		goalsSet: boolean;
 		entries: Entry[];
 		totals: { kcal: number; carbs: number; protein: number; fat: number };
+		/** Items planifiés (non consommés) — gris, information secondaire uniquement. */
+		planned?: PlannedItem[];
+		plannedTotals?: { kcal: number; carbs: number; protein: number; fat: number };
 	};
 	type Food = {
 		_id: string;
@@ -111,13 +133,33 @@
 	   Date locale courante (source centrale, réactive) : au passage de minuit
 	   ou à la reprise de l'app, « Aujourd'hui » suit automatiquement. */
 	const todayISO = $derived(currentLocalDay());
+	/** Libellé ultra-compact type FOOD : « Aujourd'hui · 9 » ou « Mardi · 8 sept. » (mois abrégé, une ligne). */
+	const MOIS_ABBR = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
 	const dateLabel = $derived.by(() => {
 		const d = new Date(date + 'T12:00:00');
-		const base = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' });
-		if (date === todayISO) return `Aujourd'hui · ${base}`;
-		return base;
+		if (date === todayISO) return `Aujourd'hui · ${d.getDate()} ${MOIS_ABBR[d.getMonth()]}`;
+		return `${d.toLocaleDateString('fr-FR', { weekday: 'long' })} · ${d.getDate()} ${MOIS_ABBR[d.getMonth()]}`;
 	});
 	const isToday = $derived(date === todayISO);
+	/** Jour FUTUR : préparation possible (ajouter/modifier/remplacer/supprimer),
+	 *  mais JAMAIS de validation « Mangé » — on ne mange pas demain. */
+	const isFuture = $derived(date > todayISO);
+	const canEat = $derived(!isFuture);
+
+	/* ————— Sélecteur de date — NATIF (input type=date), robuste sur tous
+	   les navigateurs, aucune logique custom. max = date LOCALE du jour →
+	   impossible de choisir un jour futur. ————— */
+	let calOpen = $state(false);
+	let calDraft = $state('');
+	function openCalendar() {
+		calDraft = date; // la journée déjà consultée est pré-sélectionnée
+		calOpen = true;
+	}
+	function pickDay(d: string) {
+		calOpen = false;
+		if (!d) return;
+		void setDate(d); // futur AUTORISÉ : planifier ses journées à l'avance
+	}
 
 	/* Changement de journée (minuit / reprise) : si on affichait « aujourd'hui »,
 	   on bascule sur la nouvelle journée. Une date historique consultée n'est
@@ -174,6 +216,206 @@
 	/** Teinte contextuelle des calories (filet de sécurité compris). */
 	const kcalTone = $derived(overMaintenance ? '#ef4444' : overGoal ? '#f59e0b' : '#1db954');
 
+	/* ————— Items PLANIFIÉS (plan coach + préparation cliente) —————
+	   PLANIFIÉ ≠ CONSOMMÉ : ces items sont grisés et n'impactent RIEN dans le
+	   header tant qu'ils ne sont pas validés « Mangé ». Les totaux consommés
+	   ci-dessus ne lisent QUE day.entries (single source of truth). */
+	const plannedItems = $derived(day.planned ?? []);
+	const hasPlanned = $derived(plannedItems.length > 0);
+
+	/* ————— Sélection multiple (items planifiés) ————— */
+	let selMode = $state(false);
+	let selIds = $state<Set<string>>(new Set());
+	const allSel = $derived(hasPlanned && plannedItems.every((p) => selIds.has(p._id)));
+	function enterSelMode() {
+		selMode = true;
+		selIds = new Set();
+	}
+	function exitSelMode() {
+		selMode = false;
+		selIds = new Set();
+	}
+	function toggleSel(id: string) {
+		const next = new Set(selIds);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		selIds = next;
+	}
+	function toggleAllSel() {
+		selIds = allSel ? new Set() : new Set(plannedItems.map((p) => p._id));
+	}
+
+	/* ————— Actions sur les items planifiés ————— */
+	let plannedBusy = $state(false);
+	let plannedErr = $state('');
+
+	async function refreshAfterPlanned() {
+		await setDate(date); // re-fetch : header recalculé côté serveur (instantané)
+	}
+
+	/** Mangé : planned → consommé (impact immédiat : kcal + 3 macros + barre + donuts). */
+	async function eatPlanned(p: PlannedItem) {
+		if (plannedBusy || isFuture) return;
+		plannedBusy = true;
+		plannedErr = '';
+		try {
+			const r = await fetch('/api/journal/planned', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ plannedId: p._id }),
+			});
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			await refreshAfterPlanned();
+		} catch (e) {
+			plannedErr = e instanceof Error ? e.message : String(e);
+		} finally {
+			plannedBusy = false;
+		}
+	}
+
+	/** Tout marquer comme mangé (un repas ou toute la sélection). */
+	async function eatMany(ids: string[]) {
+		if (plannedBusy || isFuture || ids.length === 0) return;
+		plannedBusy = true;
+		plannedErr = '';
+		try {
+			const r = await fetch('/api/journal/planned', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ plannedIds: ids }),
+			});
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			exitSelMode();
+			await refreshAfterPlanned();
+		} catch (e) {
+			plannedErr = e instanceof Error ? e.message : String(e);
+		} finally {
+			plannedBusy = false;
+		}
+	}
+
+	async function deletePlanned(p: PlannedItem) {
+		if (plannedBusy) return;
+		plannedBusy = true;
+		plannedErr = '';
+		try {
+			const r = await fetch(`/api/journal/planned?plannedId=${p._id}`, { method: 'DELETE' });
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			await refreshAfterPlanned();
+		} catch (e) {
+			plannedErr = e instanceof Error ? e.message : String(e);
+		} finally {
+			plannedBusy = false;
+		}
+	}
+
+	async function deleteManyPlanned(ids: string[]) {
+		if (plannedBusy || ids.length === 0) return;
+		plannedBusy = true;
+		plannedErr = '';
+		try {
+			for (const id of ids) {
+				await fetch(`/api/journal/planned?plannedId=${id}`, { method: 'DELETE' });
+			}
+			exitSelMode();
+			await refreshAfterPlanned();
+		} catch (e) {
+			plannedErr = e instanceof Error ? e.message : String(e);
+		} finally {
+			plannedBusy = false;
+		}
+	}
+
+	/* Feuille d'édition d'un item planifié */
+	let editPlanned = $state<PlannedItem | null>(null);
+	let plannedSheetBusy = $state(false);
+	let plannedSheetErr = $state('');
+	/** Remplacement en cours : la feuille de quantité rejouera l'ajout. */
+	let replacingPlanned = $state<PlannedItem | null>(null);
+
+	const editPlannedFood = $derived(
+		editPlanned
+			? {
+					name: editPlanned.name,
+					imageUrl: editPlanned.imageUrl,
+					kcal100: editPlanned.qtyGrams > 0 ? (editPlanned.kcal / editPlanned.qtyGrams) * 100 : 0,
+					carbs100: editPlanned.qtyGrams > 0 ? (editPlanned.carbs / editPlanned.qtyGrams) * 100 : 0,
+					protein100: editPlanned.qtyGrams > 0 ? (editPlanned.protein / editPlanned.qtyGrams) * 100 : 0,
+					fat100: editPlanned.qtyGrams > 0 ? (editPlanned.fat / editPlanned.qtyGrams) * 100 : 0,
+					servingQty: editPlanned.servingQty,
+				}
+			: null
+	);
+
+	async function savePlannedQty(qtyGrams: number, meal: string) {
+		if (!editPlanned) return;
+		plannedSheetBusy = true;
+		plannedSheetErr = '';
+		try {
+			// Tant que l'item est planifié : aucune valeur n'impacte le header.
+			const r = await fetch('/api/journal/planned', {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ plannedId: editPlanned._id, qtyGrams, meal }),
+			});
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			editPlanned = null;
+			await refreshAfterPlanned();
+		} catch (e) {
+			plannedSheetErr = e instanceof Error ? e.message : String(e);
+		} finally {
+			plannedSheetBusy = false;
+		}
+	}
+
+	async function eatFromSheet() {
+		if (!editPlanned) return;
+		plannedSheetBusy = true;
+		plannedSheetErr = '';
+		try {
+			const r = await fetch('/api/journal/planned', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ plannedId: editPlanned._id }),
+			});
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			editPlanned = null;
+			await refreshAfterPlanned();
+		} catch (e) {
+			plannedSheetErr = e instanceof Error ? e.message : String(e);
+		} finally {
+			plannedSheetBusy = false;
+		}
+	}
+
+	async function deleteFromSheet() {
+		if (!editPlanned) return;
+		plannedSheetBusy = true;
+		try {
+			const r = await fetch(`/api/journal/planned?plannedId=${editPlanned._id}`, { method: 'DELETE' });
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			editPlanned = null;
+			await refreshAfterPlanned();
+		} finally {
+			plannedSheetBusy = false;
+		}
+	}
+
+	/** Remplacer : la feuille « Remplacer » propose la recherche → nouvel aliment.
+	 *  Simplification assumée : remplacer = supprimer puis rouvrir l'ajout sur
+	 *  le même repas (le template coach n'est jamais touché). */
+	function replaceFromSheet() {
+		if (!editPlanned) return;
+		const meal = editPlanned.meal as 'petit-dej' | 'dejeuner' | 'diner' | 'collation';
+		void deleteFromSheet().then(() => openLog(meal));
+	}
+
 	/* ————— Mini-barre sticky (HUD nutritionnel) ————— */
 	let stickyBar = $state(false);
 	let calCardEl: HTMLElement | undefined;
@@ -206,17 +448,40 @@
 		})),
 	]);
 
-	/* ————— Swipe gauche/droite ————— */
-	let touchX = $state<number | null>(null);
+	/* ————— Swipe gauche/droite (robuste) —————
+	   Seuil horizontal + direction dominante + durée : un scroll vertical, un
+	   tap produit ou un petit mouvement involontaire ne change JAMAIS de jour.
+	   Interdit au futur : aujourd'hui reste la journée maximale. */
+	let swipe = $state<{ x: number; y: number; t: number } | null>(null);
+	let slideDir = $state<'left' | 'right' | null>(null); // micro-transition
 	function onTouchStart(e: TouchEvent) {
 		if (logOpen || qtyFood || editEntry || qtyMealSel) return;
-		touchX = e.touches[0].clientX;
+		const t = e.touches[0];
+		swipe = { x: t.clientX, y: t.clientY, t: Date.now() };
 	}
 	function onTouchEnd(e: TouchEvent) {
-		if (touchX === null) return;
-		const dx = e.changedTouches[0].clientX - touchX;
-		touchX = null;
-		if (Math.abs(dx) > 60) shiftDay(dx < 0 ? 1 : -1);
+		if (!swipe) return;
+		const t = e.changedTouches[0];
+		const dx = t.clientX - swipe.x;
+		const dy = t.clientY - swipe.y;
+		const dt = Date.now() - swipe.t;
+		swipe = null;
+		// Direction dominante horizontale + geste volontaire (dist/vélocité).
+		if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.6 || dt > 900) return;
+		// Droite → jour précédent ; gauche → jour suivant (futur autorisé : planification).
+		if (dx > 0) {
+			void shiftDay(-1);
+			slideDir = 'right';
+		} else {
+			void shiftDay(1);
+			slideDir = 'left';
+		}
+		// Le contenu glisse depuis la direction du swipe puis se replace (150 ms).
+		if (slideDir && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+			setTimeout(() => (slideDir = null), 60);
+		} else {
+			slideDir = null;
+		}
 	}
 
 	/* ————— Modale : recherche, favoris, repas, code-barres ————— */
@@ -795,6 +1060,27 @@
 			editSaving = false;
 		}
 	}
+	/** Décocher un « Mangé » : consommé → planifié (totaux retirés immédiatement). */
+	async function unEatEntry() {
+		if (!editEntry) return;
+		editSaving = true;
+		editError = '';
+		try {
+			const r = await fetch(`/api/journal/${editEntry._id}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ unEat: true }),
+			});
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			editEntry = null;
+			await setDate(date);
+		} catch (e) {
+			editError = e instanceof Error ? e.message : String(e);
+		} finally {
+			editSaving = false;
+		}
+	}
 	async function deleteEdit() {
 		if (!editEntry) return;
 		editSaving = true;
@@ -812,12 +1098,15 @@
 	}
 
 	/* ————— Sélecteur de date natif ————— */
-	let datePicker = $state<HTMLInputElement | null>(null);
-	function openDatePicker() {
-		if (datePicker) {
-			datePicker.value = date;
-			datePicker.showPicker?.();
-			datePicker.focus();
+	/** Refresh local (non destructif) : re-fetch du jour affiché — ne change ni la date, ni les saisies. */
+	let refreshingDay = $state(false);
+	async function refreshDay() {
+		if (refreshingDay) return;
+		refreshingDay = true;
+		try {
+			await setDate(date);
+		} finally {
+			setTimeout(() => (refreshingDay = false), 500);
 		}
 	}
 
@@ -971,48 +1260,60 @@
 
 <svelte:head><title>Journal — G-Flux</title></svelte:head>
 
-<svelte:window ontouchstart={onTouchStart} ontouchend={onTouchEnd} />	<!-- L'AppShell fournit déjà le padding horizontal mobile (px-4 = 16 px) ;
-	     ne pas ajouter de deuxième marge ici : le Journal exploite la largeur. -->
-	<div bind:this={pageWrap} class="relative mx-auto w-full max-w-2xl px-0 pb-32 pt-1 sm:px-6 sm:pt-4">
-	<!-- Vague dégradée douce (esprit « Recettes ») : blanc → gris très clair → vert très pâle,
-	     uniquement derrière la zone haute du journal — jamais un dégradé plein écran. -->
+<svelte:window ontouchstart={onTouchStart} ontouchend={onTouchEnd} />
+	<!-- VUE PLEIN ÉCRAN : le gradient appartient au VIEWPORT (pas au container).
+	     Halo menthe très pâle, diffus, très large — jamais une bande verte. -->
 	<div
 		aria-hidden="true"
-		class="pointer-events-none absolute inset-x-0 -top-8 z-0 h-56 rounded-b-[3rem] bg-[linear-gradient(180deg,#e2f1e8_0%,#eef5ef_58%,rgba(244,246,244,0)_100%)]"
+		class="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(120%_55%_at_50%_0%,#ddefe4_0%,#e7f2ea_38%,rgba(244,246,244,0)_78%)]"
 	></div>
-
-	<!-- En-tête : date + navigation (compact) -->
-	<header class="relative z-10 mb-1.5 flex items-center justify-between gap-2">
-		<button
-			type="button"
-			class="grid h-8 w-8 shrink-0 place-items-center rounded-full border-2 border-line bg-card text-base font-bold text-ink transition hover:border-brand"
-			aria-label="Jour précédent"
-			onclick={() => shiftDay(-1)}
-		>‹</button>
-		<button
-			type="button"
-			class="rounded-full px-2.5 py-1 text-center font-display text-sm font-semibold capitalize text-ink transition hover:bg-line/50"
-			onclick={openDatePicker}
-			title="Choisir une date"
-		>
-			{dateLabel} <span class="ml-0.5 text-[11px] text-mist">▾</span>
-		</button>
-		<button
-			type="button"
-			class="grid h-8 w-8 shrink-0 place-items-center rounded-full border-2 border-line bg-card text-base font-bold text-ink transition hover:border-brand"
-			aria-label="Jour suivant"
-			onclick={() => shiftDay(1)}
-		>›</button>
-		<input
-			bind:this={datePicker}
-			type="date"
-			class="sr-only"
-			onchange={(e) => {
-				const v = (e.currentTarget as HTMLInputElement).value;
-				if (v) setDate(v);
-			}}
-		/>
-	</header>
+	<div
+		bind:this={pageWrap}
+		class="relative z-10 mx-auto w-full px-4 pb-32 pt-[max(env(safe-area-inset-top),14px)] sm:px-8 md:max-w-5xl md:pt-6 lg:max-w-6xl"
+	>
+	<!-- Ligne de date compacte type FOOD : à gauche, cliquable (▾ = calendrier) ;
+	     Refresh discret à droite (icon-only, ~44 px). UNE seule ligne, aucun gros
+	     bouton ‹ › — le swipe gère la navigation entre les jours. -->
+				<header class="relative z-10 mb-2 flex items-center justify-between gap-2">
+				<button
+					type="button"
+					class="flex min-w-0 items-center gap-1 rounded-xl py-1 pl-0 pr-1.5 text-left transition hover:bg-line/40"
+					onclick={openCalendar}
+					title="Choisir une date"
+				>
+					<span class="truncate text-[19px] font-bold tracking-tight text-ink">{dateLabel}</span>
+					<Icon name="chevronDown" size={16} class="shrink-0 text-mist" />
+				</button>
+				<div class="flex shrink-0 items-center gap-1">
+					{#if hasPlanned && !selMode}
+						<button
+							type="button"
+							onclick={enterSelMode}
+							class="rounded-full border border-line px-3 py-1.5 text-[12px] font-bold text-mist transition hover:border-brand hover:text-brand"
+						>Sélectionner</button>
+					{:else if selMode}
+						<button
+							type="button"
+							onclick={toggleAllSel}
+							class="rounded-full border border-brand/40 bg-brand-light/50 px-3 py-1.5 text-[12px] font-bold text-brand-dark transition hover:bg-brand-light"
+						>{allSel ? 'Tout désélec.' : 'Tout sélec.'}</button>
+						<button
+							type="button"
+							onclick={exitSelMode}
+							class="rounded-full px-2.5 py-1.5 text-[12px] font-bold text-mist transition hover:text-ink"
+						>Annuler</button>
+					{/if}
+					<button
+						type="button"
+						onclick={refreshDay}
+						class="grid h-11 w-11 place-items-center rounded-full text-mist transition hover:bg-line/40 hover:text-ink active:scale-95"
+						title="Recharger la journée"
+						aria-label="Recharger la journée"
+					>
+						<Icon name="refreshCw" size={17} class={loadingDay ? 'animate-spin' : ''} />
+					</button>
+				</div>
+				</header>
 
 	{#if error}
 		<div class="mb-4 rounded-xl border-2 border-danger bg-danger-light px-4 py-3 text-sm text-danger">
@@ -1020,25 +1321,76 @@
 		</div>
 	{/if}
 
-	<div class="relative z-10 transition-opacity" class:opacity-40={loadingDay}>
+	{#if plannedErr}
+		<div class="mb-4 rounded-xl border-2 border-danger bg-danger-light px-4 py-3 text-sm text-danger">
+			{plannedErr}
+		</div>
+	{/if}
+
+	{#if isFuture}
+		<!-- Journée FUTURE : préparation (gris = prévu, rien n'est consommé). -->
+		<div class="mb-3 flex items-start gap-2 rounded-xl border border-brand/30 bg-brand-light/40 px-3 py-2.5 text-[12px] font-semibold text-brand-dark">
+			<Icon name="calendarClock" size={15} class="mt-0.5 shrink-0 text-brand" />
+			<span>Tu prépares cette journée à l'avance — tout est <strong>planifié</strong> (gris), rien n'est encore compté. Le jour venu, touche le cercle ✓ pour valider ce que tu as réellement mangé.</span>
+		</div>
+	{/if}
+
+	<!-- Micro-transition de changement de jour (150 ms, direction du swipe) —
+	     désactivée si prefers-reduced-motion. -->
+	<div
+		class="relative z-10 transition-opacity"
+		class:opacity-40={loadingDay}
+		style:transform={slideDir === 'left' ? 'translateX(-14px)' : slideDir === 'right' ? 'translateX(14px)' : 'none'}
+		style:transition={slideDir ? 'transform 150ms ease-out, opacity 200ms' : 'opacity 200ms'}
+	>
 		<!-- Journée complète : carte calories + macros + astuce + repas.
 		     Composant partagé avec la Vision 360 coach (même rendu, une seule
-		     logique visuelle). Côté client : ligne cliquable → édition. -->
+		     logique visuelle). Côté client : ligne cliquable → édition, items
+		     planifiés grisés (cercle = Mangé), navigation future autorisée. -->
 		<JournalDay
 			{day}
 			mode="client"
-			tip={tipDismissed ? null : tip}
+			tip={tipDismissed || isFuture ? null : tip}
 			onAdd={(meal) => openLog(meal as 'petit-dej' | 'dejeuner' | 'diner' | 'collation')}
 			onEntryClick={openEdit}
+			onPlannedClick={(p) => {
+				if (selMode) toggleSel(p._id);
+				else {
+					editPlanned = p;
+					plannedSheetErr = '';
+				}
+			}}
+			onToggleEat={eatPlanned}
+			onEatAllMeal={(meal) => eatMany(plannedItems.filter((p) => p.meal === meal).map((p) => p._id))}
+			{canEat}
+			selMode={selMode && hasPlanned}
+			selIds={selIds}
+			onToggleSel={toggleSel}
 			onCalCardMount={(el) => (calCardEl = el)}
 			onTipDismiss={() => (tipDismissed = true)}
 		/>
-
-		<p class="mt-4 text-center text-xs text-mist">
-			Glisse le journal à gauche/droite (ou utilise les chevrons) pour changer de jour.
-		</p>
 	</div>
 </div>
+
+<!-- Sélecteur de date natif : sheet compacte, <input type="date">,
+     max = aujourd'hui local → aucune date future possible. -->
+{#if calOpen}
+	<button type="button" class="fixed inset-0 z-40 bg-ink/25" aria-label="Fermer le calendrier" onclick={() => (calOpen = false)}></button>
+	<div class="fixed inset-x-0 bottom-0 z-50 rounded-t-3xl bg-white p-5 pb-[max(env(safe-area-inset-bottom),20px)] shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[360px] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-3xl">
+		<p class="mb-3 text-center text-[17px] font-bold text-ink">Choisir une date</p>
+		<input
+			type="date"
+			value={calDraft}
+			onchange={(e) => pickDay(e.currentTarget.value)}
+			class="w-full rounded-2xl border-2 border-line bg-cream px-3 py-3 text-center text-[17px] font-semibold text-ink outline-none transition focus:border-brand/60"
+			aria-label="Choisir une date"
+		/>
+		<div class="mt-4 flex items-center justify-between">
+			<button type="button" class="rounded-full px-3 py-2 text-[14px] font-semibold text-mist transition hover:text-ink" onclick={() => (calOpen = false)}>Annuler</button>
+			<button type="button" class="rounded-full bg-brand px-5 py-2 text-[14px] font-bold text-white transition hover:bg-brand-dark" onclick={() => pickDay(todayISO)}>Aujourd'hui</button>
+		</div>
+	</div>
+{/if}
 
 <!-- Mini-barre sticky : HUD nutritionnel SOMBRE type FOOD (apparaît quand la zone
      nutrition sort du viewport, disparaît au retour en haut). Une seule ligne :
@@ -1496,6 +1848,72 @@
 	</div>
 {/if}
 
+<!-- Barre d'actions de la sélection multiple (items planifiés) -->
+{#if selMode && hasPlanned && selIds.size > 0}
+	<div class="fixed inset-x-0 bottom-[calc(5.25rem+env(safe-area-inset-bottom))] z-40 flex justify-center px-4">
+		<div class="flex w-full max-w-md items-center justify-around rounded-full border border-white/10 bg-ink/95 p-1.5 shadow-lg shadow-ink/30 backdrop-blur">
+			{#if canEat}
+				<button
+					type="button"
+					class="flex flex-1 flex-col items-center gap-0.5 rounded-full py-1.5 text-[11px] font-semibold text-white transition hover:bg-white/10"
+					disabled={plannedBusy}
+					onclick={() => eatMany([...selIds])}
+				>
+					<Icon name="check" size={17} strokeWidth={3} />
+					Mangé
+				</button>
+			{:else}
+				<span class="flex flex-1 flex-col items-center gap-0.5 py-1.5 text-[10px] font-semibold text-white/50">
+					<Icon name="calendarClock" size={17} />
+					Jour futur
+				</span>
+			{/if}
+			<button
+				type="button"
+				class="flex flex-1 flex-col items-center gap-0.5 rounded-full py-1.5 text-[11px] font-semibold text-white transition hover:bg-white/10"
+				disabled={plannedBusy}
+				onclick={() => {
+					const first = plannedItems.find((p) => selIds.has(p._id));
+					if (first) {
+						exitSelMode();
+						editPlanned = first;
+					}
+				}}
+			>
+				<Icon name="edit" size={17} />
+				Modifier
+			</button>
+			<button
+				type="button"
+				class="flex flex-1 flex-col items-center gap-0.5 rounded-full py-1.5 text-[11px] font-semibold text-danger transition hover:bg-danger/20"
+				disabled={plannedBusy}
+				onclick={() => deleteManyPlanned([...selIds])}
+			>
+				<Icon name="trash" size={17} />
+				Supprimer
+			</button>
+		</div>
+	</div>
+{/if}
+
+<!-- ═══════════ Feuille quantité (item planifié) — édition ═══════════ -->
+{#if editPlanned && editPlannedFood}
+	<QuantitySheet
+		food={editPlannedFood}
+		mealDefs={MEAL_DEFS}
+		initialQtyGrams={editPlanned.qtyGrams}
+		initialMeal={editPlanned.meal}
+		mode="planned"
+		saving={plannedSheetBusy}
+		error={plannedSheetErr}
+		onSave={(g, meal) => savePlannedQty(g, meal)}
+		onEat={eatFromSheet}
+		onReplace={replaceFromSheet}
+		onDelete={deleteFromSheet}
+		onClose={() => { editPlanned = null; }}
+	/>
+{/if}
+
 <!-- ═══════════ Feuille quantité (aliment) — ajout ═══════════ -->
 {#if qtyFood}
 	<QuantitySheet
@@ -1598,6 +2016,7 @@
 		saving={editSaving}
 		error={editError}
 		onSave={(g, meal) => saveEdit(g, meal)}
+		onUnEat={canEat ? unEatEntry : undefined}
 		onDelete={deleteEdit}
 		onClose={() => { editEntry = null; }}
 	/>

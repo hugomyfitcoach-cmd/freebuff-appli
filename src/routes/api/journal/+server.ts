@@ -5,12 +5,17 @@ import { api } from '../../../convex/_generated/api.js';
 import { SESSION_COOKIE, requireRole } from '$lib/server/session';
 import { errMsg } from '$lib/errors.js';
 
-/** Jour complet (objectifs + entrées + totaux) — ?date=yyyy-mm-dd (défaut : aujourd'hui). */
+/** Jour complet (objectifs + consommé + planifié + totaux) — ?date=yyyy-mm-dd.
+ *  Le plan coach actif est matérialisé (copy-on-write) AVANT la lecture. */
 export const GET: RequestHandler = async (event) => {
 	await requireRole(event, 'client', { next: '/espace/journal' });
 	const token = event.cookies.get(SESSION_COOKIE);
 	const date = event.url.searchParams.get('date') ?? '';
 	try {
+		if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+			// Résolution copy-on-write du plan coach (mutation) — jamais dans le passé.
+			await convex.mutation(api.mealPlans.ensurePlanForDate, { sessionToken: token, date });
+		}
 		const day = await convex.query(api.journal.getDay, {
 			sessionToken: token,
 			date: date || toLocalISO(new Date()),
@@ -21,7 +26,7 @@ export const GET: RequestHandler = async (event) => {
 	}
 };
 
-/** Ajoute un aliment au journal. */
+/** Ajout : aujourd'hui → consommé ; date future → planifié (client_planned). */
 export const POST: RequestHandler = async (event) => {
 	await requireRole(event, 'client', { next: '/espace/journal' });
 	const token = event.cookies.get(SESSION_COOKIE);

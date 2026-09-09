@@ -11,6 +11,8 @@ export type SessionUser = {
 	email: string;
 	role: 'coach' | 'client';
 	prenom: string;
+	/** Statut onboarding installation PWA ("not_seen" par défaut) — survit au logout. */
+	pwaInstallStatus: 'not_seen' | 'skipped' | 'tutorial_completed' | 'installed_confirmed';
 };
 
 type ResolveResult = {
@@ -18,6 +20,7 @@ type ResolveResult = {
 	email: string;
 	role: 'coach' | 'client';
 	prenom: string;
+	pwaInstallStatus?: 'not_seen' | 'skipped' | 'tutorial_completed' | 'installed_confirmed';
 } | null;
 
 async function resolve(token: string | undefined): Promise<SessionUser | null> {
@@ -25,7 +28,8 @@ async function resolve(token: string | undefined): Promise<SessionUser | null> {
 	const u = (await convex.query(api.users.resolveSession, {
 		sessionToken: token,
 	})) as ResolveResult;
-	return u;
+	if (!u) return null;
+	return { ...u, pwaInstallStatus: u.pwaInstallStatus ?? 'not_seen' };
 }
 
 /** Récupère l'utilisateur connecté (cookie) ou null. */

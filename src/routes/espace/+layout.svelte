@@ -2,8 +2,30 @@
 	import AppShell from '$lib/components/AppShell.svelte';
 	import PushOptIn from '$lib/components/PushOptIn.svelte';
 	import { setAppBadgeFor } from '$lib/appBadge';
+	import { goto } from '$app/navigation';
+	import { isStandalone, wasOnboardingSeenLocally } from '$lib/pwa';
 
 	let { children, data } = $props();
+
+	/**
+	 * Onboarding installation PWA — après la première connexion uniquement.
+	 * JAMAIS en mode standalone : si l'app est lancée depuis son icône, elle
+	 * est déjà installée → on enregistre la confirmation et on reste ici
+	 * (vrai même après un logout/re-login ; la règle est absolue).
+	 */
+	$effect(() => {
+		if (!data.pwaInstallNeeded) return;
+		if (isStandalone()) {
+			fetch('/api/users/pwa-install', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ status: 'installed_confirmed' }),
+			}).catch(() => {});
+			return;
+		}
+		if (wasOnboardingSeenLocally()) return; // « plus tard » déjà choisi cette session
+		goto('/onboarding/install', { replaceState: true });
+	});
 
 	/**
 	 * Fuseau horaire du navigateur de la cliente → users.touch : l'éphémère du

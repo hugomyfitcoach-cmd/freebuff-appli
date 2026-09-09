@@ -16,6 +16,7 @@ import type * as customFoods from "../customFoods.js";
 import type * as dashboard from "../dashboard.js";
 import type * as helpers from "../helpers.js";
 import type * as journal from "../journal.js";
+import type * as mealPlans from "../mealPlans.js";
 import type * as meals from "../meals.js";
 import type * as media from "../media.js";
 import type * as metrics from "../metrics.js";
@@ -42,6 +43,7 @@ declare const fullApi: ApiFromModules<{
   dashboard: typeof dashboard;
   helpers: typeof helpers;
   journal: typeof journal;
+  mealPlans: typeof mealPlans;
   meals: typeof meals;
   media: typeof media;
   metrics: typeof metrics;

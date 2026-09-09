@@ -51,6 +51,21 @@ export default defineSchema({
 		coachMessageAudioId: v.optional(v.id("coachMedia")),
 		/** Onboarding de démarrage exigé pour cette cliente (décidé par le coach). */
 		onboardingEnabled: v.optional(v.boolean()),
+		/** Moment (ms) où la cliente a terminé TOUTES les étapes — horodaté une seule fois, sert à la confirmation 24 h puis à la disparition automatique de la carte (jamais recalculé à chaque rendu). */
+		onboardingCompletedAt: v.optional(v.number()),
+		/** Onboarding installation PWA : "not_seen" | "skipped" | "tutorial_completed" | "installed_confirmed" — lié au COMPTE (survit au logout). */
+		pwaInstallStatus: v.optional(
+			v.union(
+				v.literal("not_seen"),
+				v.literal("skipped"),
+				v.literal("tutorial_completed"),
+				v.literal("installed_confirmed")
+			)
+		),
+		/** Plateforme du tutoriel suivi ("ios" | "android") — info, la détection locale reste prioritaire (nouvel appareil). */
+		pwaInstallPlatform: v.optional(v.union(v.literal("ios"), v.literal("android"))),
+		/** Moment (ms) où l'installation a été réellement confirmée (lancement standalone ou événement appinstalled). */
+		pwaInstallConfirmedAt: v.optional(v.number()),
 		/** Dernière activité connue (timestamp) — tri du CRM par dernière connexion. */
 		lastSeenAt: v.optional(v.number()),
 		/** Suivi de cycle (carte Accueil cliente + Vision 360 coach) — mêmes questions et formule que l'outil historique. */
@@ -153,6 +168,8 @@ export default defineSchema({
 		carbs: v.number(),
 		protein: v.number(),
 		fat: v.number(),
+		/** « planned_eaten » : validé depuis un item planifié (✓ affiché dans le Journal). */
+		source: v.optional(v.string()),
 		createdAt: v.number(),
 	})
 		.index("by_user_date", ["userId", "date"])
@@ -388,6 +405,115 @@ export default defineSchema({
 		createdAt: v.number(),
 		updatedAt: v.number(),
 	})
+		.index("by_user", ["userId"]),
+
+	/* ═══ Plans de repas coach + planification (client & coach) ═══ */
+
+	/**
+	 * TEMPLATE de plan de repas créé par la coach (bibliothèque globale CRM).
+	 * Un template est indépendant des clientes : le même plan peut être assigné
+	 * à plusieurs clientes sans copie par cliente. Une seule journée type —
+	 * la répétition est faite par l'assignation (dates + jours concernés).
+	 * JAMAIS modifié par une cliente ; les ajustements passent par les
+	 * `plannedEntries` (overrides journaliers, snapshot inclus).
+	 */
+	mealPlanTemplates: defineTable({
+		/** Coach propriétaire du plan. */
+		coachId: v.id("users"),
+		name: v.string(),
+		description: v.optional(v.string()),
+		/** Items du plan : 1 journée type, snacks inclus (snapshot nutritionnel). */
+		items: v.array(
+			v.object({
+				meal: v.string(),
+				foodId: v.optional(v.id("foods")),
+				customFoodId: v.optional(v.id("customFoods")),
+				name: v.string(),
+				brand: v.optional(v.string()),
+				imageUrl: v.optional(v.string()),
+				qtyGrams: v.number(),
+				/** Valeurs calculées pour la quantité donnée (snapshot, jamais recalculées). */
+				kcal: v.number(),
+				carbs: v.number(),
+				protein: v.number(),
+				fat: v.number(),
+			})
+		),
+		/** Totaux du plan complet (somme des items, cachés pour la liste). */
+		totalKcal: v.number(),
+		totalCarbs: v.number(),
+		totalProtein: v.number(),
+		totalFat: v.number(),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	})
+		.index("by_coach", ["coachId"])
+		.index("by_coach_updated", ["coachId", "updatedAt"]),
+
+	/**
+	 * Assignation d'un plan à une cliente : période + jours concernés.
+	 * Actif pour une date D ssi start ≤ D ≤ end ET weekday(D) ∈ weekdays ET
+	 * removedAt est vide (retrait par la coach). Retirer n'efface jamais les
+	 * données passées : les overrides et consommations restent intacts.
+	 */
+	mealPlanAssignments: defineTable({
+		userId: v.id("users"),
+		templateId: v.id("mealPlanTemplates"),
+		coachId: v.id("users"),
+		/** Premier jour concerné "yyyy-mm-dd" (heure locale de la cliente). */
+		startDate: v.string(),
+		/** Dernier jour concerné "yyyy-mm-dd" — la période est toujours bornée. */
+		endDate: v.string(),
+		/** Jours de semaine concernés : [1..7] = lundi..dimanche (tous par défaut). */
+		weekdays: v.optional(v.array(v.number())),
+		/** Retrait par la coach (ms) — l'historique consommé reste intact. */
+		removedAt: v.optional(v.number()),
+		createdAt: v.number(),
+	})
+		.index("by_user", ["userId"])
+		.index("by_template", ["templateId"]),
+
+	/**
+	 * Aliment PLANIFIÉ — dans le journal d'une journée, mais PAS encore
+	 * consommé : zéro impact calories/macros tant qu'il n'est pas validé.
+	 *
+	 * Sources : `coach_plan` (proposition issue du plan assigné — résolue à la
+	 * volée depuis le template, jamais dupliquée en base) et `client_planned`
+	 * (préparation volontaire de la cliente sur une date future).
+	 *
+	 * Overrides journaliers (quantity changed / deleted / replaced) portés par
+	 * cette table — le template coach n'est JAMAIS modifié par une cliente.
+	 * La validation « Mangé » transforme la ligne en entrée `diaryEntries`
+	 * normale (single source of truth des calories consommées) puis supprime
+	 * cette ligne planned. Le coach peut tout lire, jamais écrire.
+	 */
+	plannedEntries: defineTable({
+		userId: v.id("users"),
+		/** Date visée "yyyy-mm-dd" (heure locale de la cliente) — peut être future. */
+		date: v.string(),
+		meal: v.string(),
+		/** "coach_plan" | "client_planned". */
+		source: v.union(v.literal("coach_plan"), v.literal("client_planned")),
+		/** Pour coach_plan : la ligne de template résolue ce jour-là (copy-on-write). */
+		templateId: v.optional(v.id("mealPlanTemplates")),
+		/** Index de l'item dans le template (stabilité malgré les éditions coach). */
+		templateItemKey: v.optional(v.string()),
+		/** Override éventuel du nom (remplacement : l'ancien item est supprimé, celui-ci est créé). */
+		name: v.string(),
+		brand: v.optional(v.string()),
+		imageUrl: v.optional(v.string()),
+		qtyGrams: v.number(),
+		/** Snapshot nutritionnel — un changement OFF/template futur ne réécrit jamais l'historique. */
+		kcal: v.number(),
+		carbs: v.number(),
+		protein: v.number(),
+		fat: v.number(),
+		/** Aliment d'origine (pour éditer la quantité avec la bonne portion). */
+		foodId: v.optional(v.id("foods")),
+		customFoodId: v.optional(v.id("customFoods")),
+		createdAt: v.number(),
+	})
+		.index("by_user_date", ["userId", "date"])
 		.index("by_user", ["userId"]),
 
 	/** Une prise de mesures par date (poids, tour de cou, taille, fessier). */

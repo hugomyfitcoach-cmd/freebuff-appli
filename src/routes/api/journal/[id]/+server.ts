@@ -5,12 +5,20 @@ import { api } from '../../../../convex/_generated/api.js';
 import { SESSION_COOKIE, requireRole } from '$lib/server/session';
 import { errMsg } from '$lib/errors.js';
 
-/** Met à jour la quantité (et éventuellement le repas) d'une entrée. */
+/** Met à jour la quantité (et éventuellement le repas) d'une entrée consommée. */
 export const PATCH: RequestHandler = async (event) => {
 	await requireRole(event, 'client', { next: '/espace/journal' });
 	const token = event.cookies.get(SESSION_COOKIE);
 	try {
 		const body = await event.request.json();
+		// « Remettre en planifié » : l'entrée consommée redevient grisée/non comptée.
+		if (body.unEat) {
+			const res = await convex.mutation(api.journal.uneatEntry, {
+				sessionToken: token,
+				entryId: event.params.id as never,
+			});
+			return json(res);
+		}
 		const res = await convex.mutation(api.journal.updateEntryQty, {
 			sessionToken: token,
 			entryId: event.params.id as never,
@@ -23,7 +31,7 @@ export const PATCH: RequestHandler = async (event) => {
 	}
 };
 
-/** Supprime une entrée. */
+/** Supprime une entrée consommée. */
 export const DELETE: RequestHandler = async (event) => {
 	await requireRole(event, 'client', { next: '/espace/journal' });
 	const token = event.cookies.get(SESSION_COOKIE);

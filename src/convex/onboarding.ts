@@ -149,7 +149,32 @@ export const coachView = query({
 			step1: { done: intake?.status === "submitted" },
 			step2,
 			done: !!(intake?.status === "submitted") && step2.done,
+			completedAt: target.onboardingCompletedAt ?? null,
 		};
+	},
+});
+
+/**
+ * Marque la complétion de l'onboarding de démarrage (une seule fois, idempotent).
+ * L'horodatage réel sert au compte à rebours de 24 h côté Accueil — jamais
+ * recalculé à chaque rendu. Si les étapes ne sont pas toutes terminées, ne fait rien.
+ */
+export const complete = mutation({
+	args: { sessionToken: v.optional(v.string()) },
+	handler: async (ctx, { sessionToken }) => {
+		const user = await me(ctx, sessionToken);
+		if (user.role !== "client") throw new ConvexError("Réservé à l'espace cliente.");
+		if (user.onboardingCompletedAt) return { ok: true, completedAt: user.onboardingCompletedAt };
+		const [intake, metrics, photos] = await Promise.all([
+			getIntake(ctx, user._id),
+			ctx.db.query("bodyMetrics").withIndex("by_user", (q) => q.eq("userId", user._id)).collect(),
+			ctx.db.query("progressPhotos").withIndex("by_user", (q) => q.eq("userId", user._id)).collect(),
+		]);
+		const done = intake?.status === "submitted" && step2Done(metrics, photos).done;
+		if (!done) return { ok: false, completedAt: null };
+		const completedAt = Date.now();
+		await ctx.db.patch(user._id, { onboardingCompletedAt: completedAt });
+		return { ok: true, completedAt };
 	},
 });
 

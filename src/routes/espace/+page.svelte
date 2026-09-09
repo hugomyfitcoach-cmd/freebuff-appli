@@ -22,6 +22,8 @@
 		formDone: boolean;
 		step2: { measurements: boolean; photos: boolean; done: boolean };
 		done: boolean;
+		/** Horodatage réel de complétion (posé une seule fois) — déclenche la confirmation 24 h puis la disparition automatique. */
+		completedAt: number | null;
 		submittedAt: number | null;
 	};
 
@@ -447,6 +449,15 @@
 	}
 	onMount(() => {
 		void syncDay();
+		// Première détection de la complétion de l'onboarding : on enregistre
+		// l'horodatage (une seule fois, idempotent) qui démarre la confirmation
+		// 24 h avant la disparition automatique de la carte. La date réelle est
+		// réévaluée côté serveur à chaque chargement — aucune minuterie fragile.
+		if (dash?.onboarding?.done && !dash.onboarding.completedAt) {
+			void fetch('/api/onboarding/complete', { method: 'POST' })
+				.then((r) => (r.ok ? invalidateAll() : null))
+				.catch(() => {});
+		}
 		const onDayChanged = () => {
 			dayChecked = false;
 			void syncDay();
@@ -489,7 +500,7 @@
 </nav>
 
 <!-- ═══════════ Actions prioritaires conditionnelles ═══════════ -->
-{#if bilanCard || (dash?.onboarding && !dash.onboarding.done) || (dash?.coachMessage && !dash.coachMessage.read)}
+{#if bilanCard || dash?.onboarding || (dash?.coachMessage && !dash.coachMessage.read)}
 	<section class="space-y-3">
 		<!-- Carte bilan hebdomadaire (cycle : à faire → complété → retour coach) -->
 		{#if bilanCard}
@@ -565,11 +576,23 @@
 			</div>
 		{/if}
 
-		<!-- Onboarding de démarrage (si activé par le coach et non terminé) -->
-		{#if dash?.onboarding && !dash.onboarding.done}
+		<!-- Onboarding de démarrage (si activé par le coach). Terminé → confirmation
+		     « Tout est prêt » visible 24 h (date réelle), puis carte masquée par le serveur. -->
+		{#if dash?.onboarding}
 			{@const ob = dash.onboarding}
-			<div class="rounded-3xl border border-brand/40 bg-gradient-to-br from-brand-light via-brand-light/50 to-white p-5 shadow-sm">
-				<h2 class="font-display text-lg font-semibold text-ink">Bienvenue dans G-FLUX</h2>
+			{#if ob.done}
+				<div class="rounded-3xl border border-brand/40 bg-gradient-to-br from-brand-light via-brand-light/50 to-white p-5 shadow-sm">
+					<div class="flex items-center gap-3">
+						<span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand text-white"><Icon name="check" size={20} strokeWidth={2.5} /></span>
+						<div class="min-w-0 flex-1">
+							<h2 class="font-display text-lg font-semibold text-ink">Tout est prêt</h2>
+							<p class="mt-0.5 text-sm leading-relaxed text-mist">Ton coach dispose maintenant de toutes tes informations de démarrage.</p>
+						</div>
+					</div>
+				</div>
+			{:else}
+				<div class="rounded-3xl border border-brand/40 bg-gradient-to-br from-brand-light via-brand-light/50 to-white p-5 shadow-sm">
+					<h2 class="font-display text-lg font-semibold text-ink">Bienvenue dans G-FLUX</h2>
 				<p class="mt-1 text-sm leading-relaxed text-mist">
 					Avant de commencer, complète ces deux étapes pour que ton coach puisse préparer ton accompagnement.
 				</p>
@@ -634,7 +657,8 @@
 						{/if}
 					</div>
 				</div>
-			</div>
+				</div>
+			{/if}
 		{/if}
 	</section>
 {/if}
@@ -660,7 +684,7 @@
 
 <!-- ═══════════ KPI compacts « Aujourd'hui » (2 par ligne) ═══════════ -->
 {#if dash}
-	<section aria-label="Aujourd'hui">
+	<section aria-label="Aujourd'hui" class="mt-7">
 		<div class="flex items-center justify-between px-1">
 			<h2 class="text-[11px] font-bold uppercase tracking-widest text-mist">Aujourd'hui</h2>
 			<span class="text-[11px] text-mist">{todayLabel}</span>

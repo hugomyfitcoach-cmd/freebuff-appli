@@ -25,7 +25,14 @@ export const resolveSession = query({
 	handler: async (ctx, { sessionToken }) => {
 		const user = await getSessionUser(ctx, sessionToken);
 		if (!user) return null;
-		return { _id: user._id, email: user.email, role: user.role, prenom: user.prenom };
+		return {
+			_id: user._id,
+			email: user.email,
+			role: user.role,
+			prenom: user.prenom,
+			// Statut onboarding installation PWA (survit au logout — lié au compte).
+			pwaInstallStatus: user.pwaInstallStatus ?? "not_seen",
+		};
 	},
 });
 
@@ -79,6 +86,37 @@ export const touch = mutation({
 		if (tz && user.timeZone !== tz) {
 			await ctx.db.patch(user._id, { timeZone: tz });
 		}
+		return { ok: true };
+	},
+});
+
+/**
+ * Statut de l'onboarding installation PWA — lié au COMPTE (jamais supprimé
+ * par un logout). Valeurs :
+ * - "skipped" : la cliente a dit « j'ai déjà l'icône » ou « plus tard » ;
+ * - "tutorial_completed" : elle a parcouru le tutoriel jusqu'au bout ;
+ * - "installed_confirmed" : installation RÉELLEMENT confirmée (lancement en
+ *   mode standalone ou événement appinstalled) — pas une simple supposition.
+ * Le navigateur ne prétend jamais savoir qu'une icône existe : seul un
+ * lancement standalone (ou appinstalled côté Android) confirme l'installation.
+ */
+export const setPwaInstall = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		status: v.union(
+			v.literal("skipped"),
+			v.literal("tutorial_completed"),
+			v.literal("installed_confirmed")
+		),
+		platform: v.optional(v.union(v.literal("ios"), v.literal("android"))),
+	},
+	handler: async (ctx, { sessionToken, status, platform }) => {
+		const user = await getSessionUser(ctx, sessionToken);
+		if (!user) return { ok: false };
+		const patch: Record<string, unknown> = { pwaInstallStatus: status };
+		if (platform) patch.pwaInstallPlatform = platform;
+		if (status === "installed_confirmed") patch.pwaInstallConfirmedAt = Date.now();
+		await ctx.db.patch(user._id, patch);
 		return { ok: true };
 	},
 });

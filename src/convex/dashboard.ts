@@ -166,11 +166,13 @@ export const getDashboard = query({
 		const latestFeedback = (unreadReturns[0] ?? withReturn[0]) ?? null;
 
 		/* ── Onboarding de démarrage (si activé par le coach) ── */
+		const ONBOARDING_HIDE_MS = 24 * 3600 * 1000;
 		let onboarding: {
 			enabled: boolean;
 			formDone: boolean;
 			step2: { measurements: boolean; photos: boolean; done: boolean };
 			done: boolean;
+			completedAt: number | null;
 			submittedAt: number | null;
 		} | null = null;
 		if (user.onboardingEnabled) {
@@ -180,13 +182,23 @@ export const getDashboard = query({
 				.first();
 			const formDone = intakeRow?.status === "submitted";
 			const step2 = step2Done(metrics, photos);
-			onboarding = {
-				enabled: true,
-				formDone,
-				step2,
-				done: formDone && step2.done,
-				submittedAt: intakeRow?.submittedAt ?? null,
-			};
+			const done = formDone && step2.done;
+			const completedAt = user.onboardingCompletedAt ?? null;
+			// Terminé : confirmation visible 24 h (vraie date, réévaluée à chaque
+			// chargement / reprise — aucune minuterie fragile), puis carte masquée.
+			// Les données et l'horodatage restent (le CRM continue d'afficher « Terminé »).
+			if (done && completedAt && ts - completedAt >= ONBOARDING_HIDE_MS) {
+				onboarding = null;
+			} else {
+				onboarding = {
+					enabled: true,
+					formDone,
+					step2,
+					done,
+					completedAt,
+					submittedAt: intakeRow?.submittedAt ?? null,
+				};
+			}
 		}
 
 		/* ── Pas du jour (une valeur par jour, modifiable) ── */

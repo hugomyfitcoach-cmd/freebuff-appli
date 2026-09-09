@@ -14,5 +14,11 @@ import { api } from '../../convex/_generated/api.js';	export const load = async 
 		.query(api.dashboard.getDashboard, { sessionToken: token, today, now: now.getTime() })
 		.catch(() => null);
 	await touchP;
-	return { user, dashboard, today };
+	// Onboarding installation PWA : après une PREMIÈRE connexion, la cliente
+	// est guidée vers l'installation (jamais en mode standalone — règle gérée
+	// côté client qui redirige aussitôt ; le layout ne bloque jamais l'accès).
+	if (user.pwaInstallStatus === 'not_seen') {
+		return { user, dashboard, today, pwaInstallNeeded: true };
+	}
+	return { user, dashboard, today, pwaInstallNeeded: false };
 };

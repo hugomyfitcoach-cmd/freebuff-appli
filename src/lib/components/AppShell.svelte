@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { page, navigating } from '$app/state';
-	import { invalidateAll, preloadCode, preloadData } from '$app/navigation';
+	import { invalidateAll, preloadCode, preloadData, goto } from '$app/navigation';
 	import type { Snippet } from 'svelte';
 	import Icon from './Icon.svelte';
 	import { noteSync } from '../navMemory';
+	import { isStandalone } from '../pwa';
 
 	type Role = 'client' | 'coach';
 	type SessionUser = { prenom: string; email: string; role: Role };
@@ -42,12 +43,21 @@
 		setTimeout(() => (refreshing = false), 900);
 	}
 
-	/* Logo affiché uniquement là où il apporte de la valeur (Accueil + Journal,
-	   les onglets primaires). Les sous-pages ont leur propre retour + titre. */
-	const showBrand = $derived(role === 'coach' || path === '/espace' || path === '/espace/journal');
+	/* Logo affiché uniquement là où il apporte de la valeur (Accueil + CRM).
+	   Journal = vue nutrition PLEIN ÉCRAN : pas de header global (ni logo, ni
+	   settings) — la date + Refresh forment la barre supérieure de la vue. */
+	const showBrand = $derived(role === 'coach' || path === '/espace');
+	/* Journal mobile : la vue gère elle-même sa barre de date (plein écran). */
+	const journalFullScreen = $derived(role === 'client' && path === '/espace/journal');
 
 	/* Menu utilisateur mobile : la déconnexion quitte le header principal. */
 	let menuOpen = $state(false);
+	/* G-FLUX lancée depuis son icône → installation confirmée sur cet appareil. */
+	const installed = $derived(typeof window !== 'undefined' ? isStandalone() : false);
+	function openInstallTutorial() {
+		menuOpen = false;
+		goto('/onboarding/install');
+	}
 
 	type Link = { href: string; label: string; icon?: string; accent?: boolean; badge?: number };
 	/** Badge de l'Accueil = actions bilans + message du coach du jour non lu. */
@@ -68,6 +78,7 @@
 			: [
 					{ href: '/admin', label: 'Tableau de bord', icon: 'chartBar' },
 					{ href: '/admin/bilans', label: 'Bilans', icon: 'clipboardList' },
+					{ href: '/admin/plans', label: 'Plans de repas', icon: 'utensils' },
 					{ href: '/recettes', label: 'Guide nutrition & recettes', icon: 'chefHat' },
 					{ href: '/outils', label: 'Outils & calibrage', icon: 'wrench' },
 				]
@@ -96,11 +107,13 @@
 	);
 
 	const mainClass = $derived(
-		contentWidth === 'full'
-			? 'min-w-0 flex-1'
-			: contentWidth === 'wide'
-				? 'mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6'
-				: 'mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6'
+		journalFullScreen
+			? 'min-w-0 flex-1' /* plein écran : la page gère paddings/safe-area/max-width */
+			: contentWidth === 'full'
+				? 'min-w-0 flex-1'
+				: contentWidth === 'wide'
+					? 'mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6'
+					: 'mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6'
 	);
 
 	/* ————— Préchargement des 3 onglets principaux —————
@@ -202,9 +215,9 @@
 	</aside>
 
 	<div class="flex min-w-0 flex-1 flex-col md:pl-64 {role === 'client' ? 'bg-soft' : ''}">
-		<!-- Barre mobile : logo (Accueil / Journal) + Rafraîchir + menu utilisateur.
-		     Plus de « Bilan → » ni de « Quitter » permanents : la déconnexion vit
-		     dans le menu, Bilans reste accessible via raccourcis / badges. -->
+		<!-- Barre mobile : logo (Accueil) + Rafraîchir + menu utilisateur.
+		     Le Journal (vue plein écran) n'affiche AUCUN header global. -->
+		{#if !journalFullScreen}
 		<header class="sticky top-0 z-40 border-b border-line backdrop-blur md:hidden {role === 'client' ? 'bg-soft/90' : 'bg-cream/95'}">
 			<div class="flex items-center justify-between gap-2 px-4 py-2">
 				{#if showBrand}
@@ -237,12 +250,28 @@
 						{#if menuOpen}
 							<!-- Fond transparent : un tap ailleurs referme le menu -->
 							<button type="button" class="fixed inset-0 z-40 cursor-default" aria-label="Fermer le menu" onclick={() => (menuOpen = false)}></button>
-							<div class="absolute right-0 top-12 z-50 w-60 rounded-2xl border border-line bg-card p-2 shadow-xl shadow-ink/10">
-								<div class="border-b border-line/70 px-3 py-2.5">
-									<p class="truncate text-sm font-bold text-ink">{user.prenom}</p>
-									<p class="truncate text-xs text-mist">{user.email}</p>
-								</div>
-								<form method="POST" action="/connexion?/logout" class="pt-1.5">
+						<div class="absolute right-0 top-12 z-50 w-60 rounded-2xl border border-line bg-card p-2 shadow-xl shadow-ink/10">
+							<div class="border-b border-line/70 px-3 py-2.5">
+								<p class="truncate text-sm font-bold text-ink">{user.prenom}</p>
+								<p class="truncate text-xs text-mist">{user.email}</p>
+							</div>
+							{#if role === 'client'}
+								<button
+									type="button"
+									onclick={openInstallTutorial}
+									class="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-ink transition hover:bg-soft"
+								>
+									<Icon name="smartphone" size={16} class="shrink-0" />
+									{#if installed}
+										<span class="flex-1 text-left">G-FLUX est installée</span>
+										<Icon name="circleCheck" size={16} class="text-brand" />
+									{:else}
+										<span class="flex-1 text-left">Installer G-FLUX</span>
+										<Icon name="chevronRight" size={16} class="text-mist" />
+									{/if}
+								</button>
+							{/if}
+							<form method="POST" action="/connexion?/logout" class="pt-1.5">
 									<button
 										type="submit"
 										class="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-danger transition hover:bg-danger-light"
@@ -257,6 +286,7 @@
 				</div>
 			</div>
 		</header>
+		{/if}
 
 		<main class={mainClass}>
 			{@render children()}

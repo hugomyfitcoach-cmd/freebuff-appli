@@ -22,6 +22,9 @@
 		favActive = false,
 		onToggleFav,
 		onSave,
+		onEat,
+		onReplace,
+		onUnEat,
 		onDelete,
 		onClose,
 	}: {
@@ -38,13 +41,20 @@
 		mealDefs: readonly MealDef[];
 		initialQtyGrams: number;
 		initialMeal?: string;
-		mode?: 'add' | 'edit';
+		/** add = ajout au journal · edit = entrée consommée · planned = item planifié (gris). */
+		mode?: 'add' | 'edit' | 'planned';
 		saving?: boolean;
 		error?: string;
 		showFav?: boolean;
 		favActive?: boolean;
 		onToggleFav?: () => void;
 		onSave: (qtyGrams: number, meal: string) => void;
+		/** Mode planned uniquement : valider « Mangé » (planned → consommé). */
+		onEat?: () => void;
+		/** Mode planned uniquement : remplacer par un autre aliment. */
+		onReplace?: () => void;
+		/** Mode edit (jour courant uniquement) : consommé → planifié (décocher). */
+		onUnEat?: () => void;
 		onDelete?: () => void;
 		onClose: () => void;
 	} = $props();
@@ -106,7 +116,7 @@
 	}
 	function save() {
 		if (!valid || gramsNum == null || saving) return;
-		onSave(Math.round(gramsNum * 100) / 100, meal);
+		onSave(Math.round((gramsNum ?? 0) * 100) / 100, meal);
 	}
 </script>
 
@@ -253,23 +263,79 @@
 		{/if}
 
 		<!-- Actions -->
-		<div class="mt-4 flex gap-2">
-			{#if mode === 'edit'}
+		{#if mode === 'planned'}
+			<!-- Item PLANIFIÉ : Mangé = action principale (bascule immédiate vers
+		     consommé) ; la quantité s'enregistre sans consommer ; Remplacer et
+		     Supprimer ne touchent que CE jour (jamais le template coach). -->
+			<div class="mt-4 flex gap-2">
 				<button
 					type="button"
-					class="flex-1 rounded-full border-2 border-danger px-3 py-3 text-sm font-bold text-danger transition hover:bg-danger-light"
+					class="flex-1 rounded-full bg-brand px-3 py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
+					disabled={saving || !valid}
+					onclick={() => { if (gramsNum != null) onSave(Math.round(gramsNum * 100) / 100, meal); }}
+				>
+					{saving ? 'Enregistrement…' : 'Enregistrer la quantité'}
+				</button>
+			</div>
+			<div class="mt-2 flex gap-2">
+				{#if onEat}
+					<!-- « Mangé » : uniquement le jour même — on ne mange jamais demain. -->
+					<button
+						type="button"
+						class="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-ink px-3 py-3 text-sm font-bold text-white transition hover:bg-ink/85 disabled:opacity-60"
+						disabled={saving}
+						onclick={onEat}
+					>
+						<Icon name="check" size={16} strokeWidth={3} />
+						Mangé
+					</button>
+				{/if}
+				{#if onReplace}
+					<button
+						type="button"
+						class="flex-1 rounded-full border-2 border-line px-3 py-3 text-sm font-bold text-ink transition hover:border-brand hover:text-brand"
+						disabled={saving}
+						onclick={onReplace}
+					>Remplacer</button>
+				{/if}
+				{#if onDelete}
+					<button
+						type="button"
+						class="rounded-full border-2 border-danger px-4 py-3 text-sm font-bold text-danger transition hover:bg-danger-light"
+						disabled={saving}
+						onclick={onDelete}
+					>Supprimer</button>
+				{/if}
+			</div>
+		{:else}
+			<div class="mt-4 flex gap-2">
+				{#if mode === 'edit'}
+					<button
+						type="button"
+						class="flex-1 rounded-full border-2 border-danger px-3 py-3 text-sm font-bold text-danger transition hover:bg-danger-light"
+						disabled={saving}
+						onclick={onDelete}
+					>Supprimer</button>
+				{/if}
+				<button
+					type="button"
+					class="flex-1 rounded-full bg-brand px-3 py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
+					disabled={saving || !valid}
+					onclick={save}
+				>
+					{saving ? 'Enregistrement…' : mode === 'edit' ? 'Enregistrer' : 'Ajouter au journal'}
+				</button>
+			</div>
+			{#if mode === 'edit' && onUnEat}
+				<!-- Décocher un « Mangé » validé par erreur : retire immédiatement
+			     kcal/macros des totaux (recalcul parfaitement réversible). -->
+				<button
+					type="button"
+					class="mt-2 w-full rounded-full border-2 border-line px-3 py-2.5 text-sm font-bold text-mist transition hover:border-brand hover:text-brand"
 					disabled={saving}
-					onclick={onDelete}
-				>Supprimer</button>
+					onclick={onUnEat}
+				>↩︎ Remettre en planifié</button>
 			{/if}
-			<button
-				type="button"
-				class="flex-1 rounded-full bg-brand px-3 py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
-				disabled={saving || !valid}
-				onclick={save}
-			>
-				{saving ? 'Enregistrement…' : mode === 'edit' ? 'Enregistrer' : 'Ajouter au journal'}
-			</button>
-		</div>
+		{/if}
 	</div>
 </div>
