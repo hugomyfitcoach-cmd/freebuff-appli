@@ -247,82 +247,109 @@
 <!-- Repas -->
 {#each MEAL_DEFS as meal (meal.id)}
 	{@const entries = mealEntries(meal.id)}
-	<section class="overflow-hidden rounded-2xl border border-line bg-card {compact ? 'mb-1.5' : 'mb-2.5'}">
-		<header class="flex items-center justify-between gap-2 {compact ? 'px-3 pb-1 pt-2' : 'px-3.5 pt-2.5'}">
-			{#if compact}
-				<!-- Type FOOD : titre + kcal & % en secondaire vert -->
+	{#if compact}
+		<!-- Type FOOD : le repas est une SECTION — titre, total kcal & % et petit + sont
+		     HORS carte ; la carte blanche contient uniquement les aliments. Repas vide = aucun bloc. -->
+		<section class="mb-2">
+			<div class="flex items-center justify-between gap-2 px-1">
 				<div class="min-w-0">
-					<h2 class="flex min-w-0 items-center font-display text-[15px] font-semibold text-ink">
-						<Icon name={meal.icon} size={14} class="mr-1.5 shrink-0 text-brand" />{meal.label}
+					<h2 class="flex min-w-0 items-center text-[17px] font-semibold text-ink">
+						<Icon name={meal.icon} size={15} class="mr-1.5 shrink-0 text-brand" />{meal.label}
 					</h2>
-					<p class="mt-0.5 text-[10px] font-semibold tabular-nums text-brand">{fmt(mealKcal(meal.id))} kcal · {mealPct(meal.id)} %</p>
+					<p class="mt-0.5 text-[13px] font-semibold tabular-nums text-brand">{fmt(mealKcal(meal.id))} kcal · {mealPct(meal.id)} %</p>
 				</div>
-			{:else}
+				{#if onAdd}
+					<button
+						type="button"
+						class="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-brand/25 text-brand transition hover:bg-brand-light"
+						aria-label={`Ajouter au ${meal.label}`}
+						onclick={() => onAdd(meal.id)}
+					><Icon name="plus" size={16} /></button>
+				{/if}
+			</div>
+			{#if entries.length > 0}
+				<div class="mt-1.5 overflow-hidden rounded-2xl border border-line bg-card">
+					<div class="divide-y divide-line/60">
+						{#each entries as e (e._id)}
+							{@render mealRow(e)}
+						{/each}
+					</div>
+				</div>
+			{/if}
+		</section>
+	{:else}
+		<!-- Coach (Vision 360) : structure historique inchangée -->
+		<section class="mb-2.5 overflow-hidden rounded-2xl border border-line bg-card">
+			<header class="flex items-center justify-between gap-2 px-3.5 pt-2.5">
 				<h2 class="flex min-w-0 items-center font-display text-[15px] font-semibold text-ink">
 					<Icon name={meal.icon} size={15} class="mr-1.5 shrink-0 text-brand" />{meal.label}
 					{#if mealKcal(meal.id) > 0}
 						<span class="ml-2 font-semibold text-brand tabular-nums text-xs">{fmt(mealKcal(meal.id))} kcal</span>
 					{/if}
 				</h2>
-			{/if}
-			{#if onAdd}
-				<button
-					type="button"
-					class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-brand text-base font-bold text-white transition hover:bg-brand-dark"
-					aria-label={`Ajouter au ${meal.label}`}
-					onclick={() => onAdd(meal.id)}
-				>+</button>
-			{/if}
-		</header>
-		<div class="{compact ? 'mt-1 px-1 pb-0.5' : 'mt-1.5 px-1 pb-1'}">
-			{#if entries.length === 0}
-				<p class="px-2.5 text-center text-xs text-mist {compact ? 'py-1.5' : 'py-2'}">Rien pour l'instant — ajoute un aliment avec « + ».</p>
-			{:else}
-				<div class="divide-y divide-line/60">
-					{#each entries as e (e._id)}
-						{#if mode === 'client' && onEntryClick}
-							<button
-								type="button"
-								class="flex w-full items-center text-left transition hover:bg-line/40 {compact ? 'gap-2.5 px-2 py-1.5' : 'gap-2.5 px-2 py-1.5'}"
-								onclick={() => onEntryClick(e)}
-							>
-								{@render entryBody(e)}
-							</button>
-						{:else}
-							<div class="flex w-full items-center {compact ? 'gap-2.5 px-2 py-1.5' : 'gap-2.5 px-2 py-1.5'}">
-								{@render entryBody(e)}
-								{#if mode === 'coach' && onQty && onRemove}
-									<div class="flex shrink-0 items-center gap-1">
-										<button
-											type="button"
-											onclick={() => onQty(e, Math.max(1, e.qtyGrams - 10))}
-											class="grid h-7 w-7 place-items-center rounded-lg border-2 border-line text-sm font-bold text-ink transition hover:border-brand"
-											aria-label="Réduire la quantité"
-										>−</button>
-										<span class="w-16 text-center text-sm font-semibold text-ink">{e.qtyGrams} g</span>
-										<button
-											type="button"
-											onclick={() => onQty(e, e.qtyGrams + 10)}
-											class="grid h-7 w-7 place-items-center rounded-lg border-2 border-line text-sm font-bold text-ink transition hover:border-brand"
-											aria-label="Augmenter la quantité"
-										>＋</button>
-										<button
-											type="button"
-											onclick={() => onRemove(e)}
-											class="ml-1 grid h-7 w-7 place-items-center rounded-lg border-2 border-line text-danger transition hover:border-danger"
-											title="Supprimer"
-											aria-label="Supprimer cette entrée"
-										><Icon name="trash" size={13} /></button>
-									</div>
-								{/if}
-							</div>
-						{/if}
-					{/each}
+				{#if onAdd}
+					<button
+						type="button"
+						class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-brand text-base font-bold text-white transition hover:bg-brand-dark"
+						aria-label={`Ajouter au ${meal.label}`}
+						onclick={() => onAdd(meal.id)}
+					>+</button>
+				{/if}
+			</header>
+			<div class="mt-1.5 px-1 pb-1">
+				{#if entries.length === 0}
+					<p class="px-2.5 py-2 text-center text-xs text-mist">Rien pour l'instant — ajoute un aliment avec « + ».</p>
+				{:else}
+					<div class="divide-y divide-line/60">
+						{#each entries as e (e._id)}
+							{@render mealRow(e)}
+						{/each}
+					</div>
+				{/if}
+			</div>
+		</section>
+	{/if}
+{/each}
+
+{#snippet mealRow(e: Entry)}
+	{#if mode === 'client' && onEntryClick}
+		<button
+			type="button"
+			class="flex w-full items-center text-left transition hover:bg-line/40 {compact ? 'gap-2 px-2 py-1' : 'gap-2.5 px-2 py-1.5'}"
+			onclick={() => onEntryClick(e)}
+		>
+			{@render entryBody(e)}
+		</button>
+	{:else}
+		<div class="flex w-full items-center {compact ? 'gap-2 px-2 py-1' : 'gap-2.5 px-2 py-1.5'}">
+			{@render entryBody(e)}
+			{#if mode === 'coach' && onQty && onRemove}
+				<div class="flex shrink-0 items-center gap-1">
+					<button
+						type="button"
+						onclick={() => onQty(e, Math.max(1, e.qtyGrams - 10))}
+						class="grid h-7 w-7 place-items-center rounded-lg border-2 border-line text-sm font-bold text-ink transition hover:border-brand"
+						aria-label="Réduire la quantité"
+					>−</button>
+					<span class="w-16 text-center text-sm font-semibold text-ink">{e.qtyGrams} g</span>
+					<button
+						type="button"
+						onclick={() => onQty(e, e.qtyGrams + 10)}
+						class="grid h-7 w-7 place-items-center rounded-lg border-2 border-line text-sm font-bold text-ink transition hover:border-brand"
+						aria-label="Augmenter la quantité"
+					>＋</button>
+					<button
+						type="button"
+						onclick={() => onRemove(e)}
+						class="ml-1 grid h-7 w-7 place-items-center rounded-lg border-2 border-line text-danger transition hover:border-danger"
+						title="Supprimer"
+						aria-label="Supprimer cette entrée"
+					><Icon name="trash" size={13} /></button>
 				</div>
 			{/if}
 		</div>
-	</section>
-{/each}
+	{/if}
+{/snippet}
 
 {#snippet entryBody(e: Entry)}
 	{#if e.imageUrl}

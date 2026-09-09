@@ -805,6 +805,34 @@
 	let mobile = $state(typeof window !== 'undefined' ? window.matchMedia('(max-width: 639px)').matches : true);
 	let refreshing = $state(false);
 
+	/* Listes scrollables de l'écran « Ajouter un aliment » (recherche + code-barres).
+	   $state : l'$effect de fermeture du clavier doit se rattacher à chaque montage. */
+	let logListEl = $state<HTMLElement | undefined>();
+	let bcListEl = $state<HTMLElement | undefined>();
+
+	/* Clavier iOS : un vrai scroll vertical de la liste ferme le clavier (blur),
+	   sans vider la recherche ni perdre les résultats ; le geste continue.
+	   Seuil : ignore les micro-mouvements et les taps sur un produit. */
+	function attachScrollDismiss(el: HTMLElement) {
+		let lastTop = el.scrollTop;
+		const onScroll = () => {
+			const top = el.scrollTop;
+			const dy = Math.abs(top - lastTop);
+			lastTop = top;
+			if (top < 8) return;
+			const active = document.activeElement;
+			if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) active.blur();
+		};
+		el.addEventListener('scroll', onScroll, { passive: true });
+		return () => el.removeEventListener('scroll', onScroll);
+	}
+	$effect(() => {
+		const els = [logListEl, bcListEl].filter((e): e is HTMLElement => !!e);
+		if (els.length === 0) return;
+		const cleanups = els.map(attachScrollDismiss);
+		return () => cleanups.forEach((c) => c());
+	});
+
 	onMount(() => {
 		document.addEventListener('keydown', (e) => {
 			if (logOpen || qtyFood || editEntry || qtyMealSel) return;
@@ -884,7 +912,9 @@
 
 <svelte:head><title>Journal — G-Flux</title></svelte:head>
 
-<svelte:window ontouchstart={onTouchStart} ontouchend={onTouchEnd} />	<div bind:this={pageWrap} class="relative mx-auto w-full max-w-2xl px-3.5 pb-32 pt-1 sm:px-6 sm:pt-4">
+<svelte:window ontouchstart={onTouchStart} ontouchend={onTouchEnd} />	<!-- L'AppShell fournit déjà le padding horizontal mobile (px-4 = 16 px) ;
+	     ne pas ajouter de deuxième marge ici : le Journal exploite la largeur. -->
+	<div bind:this={pageWrap} class="relative mx-auto w-full max-w-2xl px-0 pb-32 pt-1 sm:px-6 sm:pt-4">
 	<!-- Vague dégradée douce (esprit « Recettes ») : blanc → gris très clair → vert très pâle,
 	     uniquement derrière la zone haute du journal — jamais un dégradé plein écran. -->
 	<div
@@ -1035,7 +1065,7 @@
      Desktop : même panneau, centré et arrondi. -->
 {#if logOpen}
 	<div role="presentation" class="fixed inset-0 z-50 bg-soft sm:flex sm:items-center sm:justify-center sm:bg-ink/40 sm:p-6" onclick={(e) => { if (e.target === e.currentTarget) closeLog(); }} onkeydown={(e) => { if (e.key === 'Escape') closeLog(); }}>
-		<div class="flex w-full flex-col overflow-hidden bg-soft sm:h-[min(92dvh,720px)] sm:max-w-lg sm:rounded-3xl sm:bg-white sm:shadow-2xl" style:height={mobile ? `${vvH}px` : undefined}>
+		<div class="relative flex w-full flex-col overflow-hidden bg-soft sm:h-[min(92dvh,720px)] sm:max-w-lg sm:rounded-3xl sm:bg-white sm:shadow-2xl" style:height={mobile ? `${vvH}px` : undefined}>
 			<!-- En-tête fixe -->
 			<div class="flex shrink-0 items-center justify-between border-b border-line bg-white/95 px-3 py-2.5 backdrop-blur">
 				<button type="button" class="grid h-9 w-9 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={() => closeLog()}><Icon name="x" size={20} /></button>
@@ -1081,8 +1111,9 @@
 					</div>
 				</div>
 
-				<!-- Résultats : liste seule scrollable -->
-				<div class="flex-1 overflow-y-auto overscroll-contain px-2.5 pb-4">
+				<!-- Résultats : liste seule scrollable (pb généreux : le dernier
+				     produit doit passer entièrement au-dessus de la capsule flottante) -->
+				<div bind:this={logListEl} class="flex-1 overflow-y-auto overscroll-contain px-2.5 pb-24">
 					{#if mealEditor}
 						<!-- ═══════ Éditeur de repas ═══════ -->
 						<div>
@@ -1352,7 +1383,7 @@
 				</div>
 			{:else}
 				<!-- ═══════ Scanner code-barres (cadre portrait stable) ═══════ -->
-				<div class="flex-1 overflow-y-auto overscroll-contain p-3">
+				<div bind:this={bcListEl} class="flex-1 overflow-y-auto overscroll-contain px-3 pb-24 pt-3">
 					<p class="mb-2.5 text-center text-xs text-mist">Scanne le code-barres du produit (ça marche même à distance) ou saisis-le à la main : on le retrouve dans la base G-Flux.</p>
 					<div id="bc-reader" class="relative mx-auto aspect-[3/4] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-colors {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}"></div>
 
@@ -1378,23 +1409,26 @@
 						<p class="mt-3 text-center text-xs text-mist">Caméra active — présente le code-barres à plat devant l'objectif, même à distance : dès qu'il est lu, l'encadré passe au vert.</p>
 					{/if}
 				</div>
-			{/if}			<!-- Segmented control : Recherche ⇄ Code-barres -->
-			<div class="px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3">
-				<div class="mx-auto flex max-w-[300px] items-center gap-1 rounded-2xl bg-ink p-1 shadow-md shadow-ink/20">
+			{/if}
+			<!-- Capsule flottante Recherche ⇄ Code-barres (type FOOD) : positionnée
+			     juste au-dessus du clavier (le conteneur suit le visualViewport),
+			     ne réserve aucune place dans le flux ; la liste défile dessous. -->
+			<div class="pointer-events-none absolute inset-x-0 bottom-[calc(0.625rem+env(safe-area-inset-bottom))] z-10 flex justify-center px-4">
+				<div class="pointer-events-auto flex h-14 w-[55%] min-w-[190px] max-w-[260px] items-center gap-1 rounded-full bg-ink/95 p-1 shadow-lg shadow-ink/30 ring-1 ring-white/10">
 					<button
 						type="button"
-						class="flex flex-1 flex-col items-center justify-center gap-1 rounded-xl py-2 text-xs font-semibold transition {logMode === 'search' ? 'bg-white text-ink shadow-sm' : 'text-white/80 hover:text-white'}"
+						class="flex h-full flex-1 flex-col items-center justify-center gap-0.5 rounded-full text-[11px] font-semibold transition {logMode === 'search' ? 'bg-white/15 text-white' : 'text-white/70 hover:text-white'}"
 						onclick={() => switchMode('search')}
 					>
-						<Icon name="search" size={20} />
+						<Icon name="search" size={17} />
 						<span>Recherche</span>
 					</button>
 					<button
 						type="button"
-						class="flex flex-1 flex-col items-center justify-center gap-1 rounded-xl py-2 text-xs font-semibold transition {logMode === 'barcode' ? 'bg-white text-ink shadow-sm' : 'text-white/80 hover:text-white'}"
+						class="flex h-full flex-1 flex-col items-center justify-center gap-0.5 rounded-full text-[11px] font-semibold transition {logMode === 'barcode' ? 'bg-white/15 text-white' : 'text-white/70 hover:text-white'}"
 						onclick={() => switchMode('barcode')}
 					>
-						<Icon name="barcode" size={20} />
+						<Icon name="barcode" size={17} />
 						<span>Code-barres</span>
 					</button>
 				</div>

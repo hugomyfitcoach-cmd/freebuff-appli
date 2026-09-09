@@ -70,7 +70,8 @@
 	async function saveEdits() {
 		const changes: { date: string; count: number }[] = [];
 		for (const d of windowDays) {
-			const raw = (edits[d.date] ?? '').trim();
+			// bind:value sur <input type="number"> renvoie un nombre : on normalise en chaîne.
+			const raw = String(edits[d.date] ?? '').trim();
 			if (raw === '') continue; // champ vide = aucun changement (jour sans donnée ≠ 0)
 			const n = Number(raw.replace(/\s/g, ''));
 			if (!Number.isInteger(n) || n < 0 || n > 150000) {
