@@ -7,6 +7,7 @@
 	import { onMount } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import FoodImg from '$lib/components/FoodImg.svelte';
+	import QuantitySheet from '$lib/components/QuantitySheet.svelte';
 
 	type PlanRow = {
 		_id: string;
@@ -75,12 +76,41 @@
 	let saving = $state(false);
 	let editorErr = $state('');
 
-	/* ————— Recherche d'aliments (moteur du Journal) ————— */
+	/* ————— Recherche d'aliments (même modal que le CRM coach) ————— */
+	let searchOpen = $state(false);
 	let searchQ = $state('');
-	let results = $state<Food[]>([]);
-	let searching = $state(false);
-	let searchTimer: ReturnType<typeof setTimeout> | undefined;
+	let searchBusy = $state(false);
+	let searchHits = $state<Food[]>([]);
+	/** Repas ciblé par l'ajout en cours (défini par « + Ajouter » du repas ou la barre de recherche). */
 	let searchForMeal = $state<string>('petit-dej');
+
+	function openSearch() {
+		searchQ = '';
+		searchHits = [];
+		searchOpen = true;
+	}
+	async function doSearch() {
+		if (searchQ.trim().length < 2) return;
+		searchBusy = true;
+		try {
+			const res = await fetch(`/api/coach/search?q=${encodeURIComponent(searchQ.trim())}`);
+			const data = await res.json();
+			if (!res.ok) throw new Error(data.error ?? 'Recherche impossible.');
+			searchHits = data;
+		} catch (e) {
+			editorErr = e instanceof Error ? e.message : 'Recherche impossible.';
+		} finally {
+			searchBusy = false;
+		}
+	}
+	let pendingFood = $state<Food | null>(null);
+
+	/* ————— Feuille de quantité (composant partagé avec l'espace cliente) —————
+	   Un clic sur un aliment du plan ouvre la même feuille que le Journal :
+	   déplacement vers un autre repas, grammage précis, portions → grammes. */
+	let editKey = $state<string | null>(null); // null = feuille fermée ; '' = NOUVEL ajout
+	let editSaving = $state(false);
+	const editItem = $derived(items.find((it) => it.key === editKey) ?? null);
 
 	function fmt(n: number) {
 		return n.toLocaleString('fr-FR');
@@ -112,7 +142,8 @@
 		items = [];
 		editorErr = '';
 		searchQ = '';
-		results = [];
+		searchHits = [];
+		editKey = null;
 		editorOpen = true;
 	}
 	async function openEdit(id: string) {
@@ -140,49 +171,43 @@
 			}));
 			editorErr = '';
 			searchQ = '';
-			results = [];
+			searchHits = [];
+			editKey = null;
 			editorOpen = true;
 		} catch (e) {
 			pageErr = e instanceof Error ? e.message : String(e);
 		}
 	}
 
-	function runSearch(q: string) {
-		if (q.trim().length < 2) {
-			results = [];
-			return;
-		}
-		searching = true;
-		fetch(`/api/coach/search?q=${encodeURIComponent(q.trim())}`)
-			.then((r) => r.json())
-			.then((j) => {
-				results = j.error ? [] : j;
-			})
-			.catch(() => (results = []))
-			.finally(() => (searching = false));
-	}
-	function onSearchInput() {
-		clearTimeout(searchTimer);
-		searchTimer = setTimeout(() => runSearch(searchQ), 300);
-	}
+	/** Ouvre la feuille de quantité pour un NOUVEL aliment (repas présélectionné). */
 	function addItem(food: Food) {
-		items = [
-			...items,
-			{
-				key: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-				meal: searchForMeal,
-				food,
-				qty: food.servingQty && food.servingQty > 0 ? Math.round(food.servingQty) : 100,
-			},
-		];
 		searchQ = '';
-		results = [];
+		searchHits = [];
+		pendingFood = food;
+		editKey = ''; // feuille en mode « ajout »
 	}
-	function setQty(key: string, qty: number) {
-		items = items.map((it) => (it.key === key ? { ...it, qty: Math.min(5000, Math.max(1, qty)) } : it));
-	}
-	function setMeal(key: string, meal: string) {
-		items = items.map((it) => (it.key === key ? { ...it, meal } : it));
+	const sheetFood = $derived(editKey === '' ? pendingFood : editItem?.food ?? null);
+	const sheetQty = $derived(editKey === '' ? (pendingFood?.servingQty && pendingFood.servingQty > 0 ? Math.round(pendingFood.servingQty) : 100) : editItem?.qty ?? 100);
+	const sheetMeal = $derived(editKey === '' ? searchForMeal : editItem?.meal ?? 'petit-dej');
+
+	/** Valide la feuille : quantité finale en g + repas (ajout ou modification). */
+	function applySheet(qtyGrams: number, meal: string) {
+		if (editKey === '') {
+			if (!pendingFood) return;
+			items = [
+				...items,
+				{
+					key: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+					meal,
+					food: pendingFood,
+					qty: qtyGrams,
+				},
+			];
+			pendingFood = null;
+		} else {
+			items = items.map((it) => (it.key === editKey ? { ...it, qty: qtyGrams, meal } : it));
+		}
+		editKey = null;
 	}
 	function removeItem(key: string) {
 		items = items.filter((it) => it.key !== key);
@@ -401,7 +426,7 @@
 								{meal.label}
 								{#if mealItems.length > 0}<span class="text-[11px] font-semibold text-brand tabular-nums">{fmt(mealKcalOf(meal.id))} kcal</span>{/if}
 							</h3>
-							<button type="button" class="rounded-full border border-brand/40 px-2.5 py-1 text-[11px] font-bold text-brand transition hover:bg-brand-light" onclick={() => { searchForMeal = meal.id; document.getElementById('plan-search')?.focus(); }}>
+							<button type="button" class="rounded-full border border-brand/40 px-2.5 py-1 text-[11px] font-bold text-brand transition hover:bg-brand-light" onclick={() => { searchForMeal = meal.id; openSearch(); }}>
 								+ Ajouter
 							</button>
 						</div>
@@ -410,7 +435,10 @@
 						{:else}
 							<ul class="flex flex-col divide-y divide-line/60">
 								{#each mealItems as it (it.key)}
-									<li class="flex items-center gap-2 py-1.5">
+								<!-- Clic sur l'aliment → feuille de quantité (déplacer / grammage / portions) ;
+								     le bouton ✕ reste un raccourci de retrait direct. -->
+								<li class="flex items-center gap-2 py-1.5">
+									<button type="button" class="flex min-w-0 flex-1 items-center gap-2 text-left" aria-label={`Modifier ${it.food.name}`} onclick={() => (editKey = it.key)}>
 										{#if it.food.imageUrl}
 											<FoodImg src={it.food.imageUrl} alt="" class="h-9 w-9 rounded-lg" />
 										{:else}
@@ -418,20 +446,12 @@
 										{/if}
 										<span class="min-w-0 flex-1">
 											<span class="block truncate text-[13px] font-semibold text-ink">{it.food.name}</span>
-											<span class="block text-[11px] text-mist tabular-nums"><strong class="text-brand">{fmt(itemKcal(it))} kcal</strong> · {fmt(it.qty)} g</span>
+											<span class="block text-[11px] text-mist tabular-nums"><strong class="text-brand">{fmt(itemKcal(it))} kcal</strong> · {fmt(it.qty)} g · {MEAL_LABEL[it.meal] ?? it.meal}</span>
 										</span>
-										<div class="flex shrink-0 items-center gap-1">
-											<button type="button" class="grid h-7 w-7 place-items-center rounded-lg border border-line text-sm font-bold text-ink" aria-label="Moins" onclick={() => setQty(it.key, it.qty - 10)}>−</button>
-											<span class="w-12 text-center text-xs font-bold tabular-nums text-ink">{fmt(it.qty)} g</span>
-											<button type="button" class="grid h-7 w-7 place-items-center rounded-lg border border-line text-sm font-bold text-ink" aria-label="Plus" onclick={() => setQty(it.key, it.qty + 10)}>+</button>
-											<select bind:value={it.meal} onchange={() => setMeal(it.key, it.meal)} class="ml-1 rounded-lg border border-line bg-white px-1 py-1 text-[10px] text-mist outline-none" aria-label="Repas">
-												{#each MEAL_DEFS as m (m.id)}
-													<option value={m.id}>{m.label.split(' ')[0]}</option>
-												{/each}
-											</select>
-											<button type="button" class="ml-0.5 grid h-7 w-7 place-items-center rounded-lg text-mist hover:bg-danger-light hover:text-danger" aria-label="Retirer" onclick={() => removeItem(it.key)}>✕</button>
-										</div>
-									</li>
+										<span class="shrink-0 text-mist"><Icon name="pencil" size={14} /></span>
+									</button>
+									<button type="button" class="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-mist hover:bg-danger-light hover:text-danger" aria-label="Retirer" onclick={() => removeItem(it.key)}>✕</button>
+								</li>
 								{/each}
 							</ul>
 						{/if}
@@ -439,41 +459,12 @@
 				{/each}
 			</div>
 
-			<!-- Recherche d'aliments (moteur du Journal : base OFF + coach) -->
+			<!-- Barre de recherche : ouvre le même modal de recherche alimentaire que le CRM coach -->
 			<div class="sticky bottom-0 mt-4 bg-soft pb-4 pt-2">
-				<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-white px-3 py-2.5 focus-within:border-brand">
+				<button type="button" class="flex w-full items-center gap-2 rounded-xl border-2 border-line bg-white px-3 py-2.5 text-left transition hover:border-brand" onclick={() => openSearch()}>
 					<Icon name="search" size={17} class="shrink-0 text-mist" />
-					<input
-						id="plan-search"
-						type="search"
-						class="w-full bg-transparent text-sm text-ink outline-none placeholder:text-mist"
-						placeholder={`Rechercher un aliment pour « ${MEAL_LABEL[searchForMeal] ?? searchForMeal} »…`}
-						bind:value={searchQ}
-						oninput={onSearchInput}
-					/>
-				</div>
-				{#if searching}
-					<p class="py-2 text-center text-xs text-mist">Recherche…</p>
-				{:else if results.length > 0}
-					<ul class="mt-2 flex max-h-64 flex-col gap-1.5 overflow-y-auto">
-						{#each results as food (food._id)}
-							<li>
-								<button type="button" class="flex w-full items-center gap-2 rounded-xl border border-line bg-white p-2 text-left transition hover:border-brand" onclick={() => addItem(food)}>
-									{#if food.imageUrl}
-										<FoodImg src={food.imageUrl} alt="" class="h-9 w-9 rounded-lg" />
-									{:else}
-										<div class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={15} class="text-brand" /></div>
-									{/if}
-									<span class="min-w-0 flex-1">
-										<span class="block truncate text-[13px] font-semibold text-ink">{food.name}</span>
-										<span class="block text-[11px] text-mist">{fmt(Math.round(food.kcal100))} kcal / 100 g{#if food.brand} · {food.brand}{/if}</span>
-									</span>
-									<span class="text-brand">＋</span>
-								</button>
-							</li>
-						{/each}
-					</ul>
-				{/if}
+					<span class="w-full bg-transparent text-sm text-mist">Rechercher un aliment pour « {MEAL_LABEL[searchForMeal] ?? searchForMeal} »…</span>
+				</button>
 			</div>
 
 			{#if editorErr}
@@ -493,4 +484,64 @@
 			</div>
 		</div>
 	</div>
+{/if}
+
+<!-- ═══════ Modal de recherche alimentaire (même UI que le CRM coach) ═══════ -->
+{#if searchOpen}
+	<button type="button" class="fixed inset-0 z-[60] cursor-pointer bg-ink/50" aria-label="Fermer la recherche" onclick={() => (searchOpen = false)}></button>
+	<div class="fixed inset-x-0 bottom-0 z-[60] mx-auto w-full max-w-2xl rounded-t-3xl border-t border-line bg-card p-5 shadow-2xl sm:inset-y-0 sm:right-0 sm:left-auto sm:w-96 sm:rounded-l-3xl sm:rounded-tr-none sm:rounded-br-none sm:border-l">
+		<div class="flex items-center justify-between">
+			<h4 class="font-display text-base font-semibold text-ink">＋ Ajouter un aliment — {MEAL_LABEL[searchForMeal] ?? searchForMeal}</h4>
+			<button type="button" onclick={() => (searchOpen = false)} class="rounded-lg px-2 py-1 text-lg text-mist hover:text-ink" aria-label="Fermer">✕</button>
+		</div>
+		<div class="mt-3 flex gap-2">
+			<input
+				type="search"
+				bind:value={searchQ}
+				placeholder="Rechercher un aliment (ex. riz)…"
+				class="flex-1 rounded-xl border-2 border-line px-3 py-2 text-sm outline-none focus:border-brand"
+				onkeydown={(e) => e.key === 'Enter' && doSearch()}
+			/>
+			<button type="button" onclick={doSearch} disabled={searchBusy} class="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-50">{searchBusy ? '…' : 'Chercher'}</button>
+		</div>
+		<div class="mt-3 max-h-[50vh] space-y-1 overflow-y-auto">
+			{#if searchHits.length === 0}
+				<p class="py-6 text-center text-xs text-mist">Tape au moins 2 lettres pour chercher dans la base.</p>
+			{:else}
+				{#each searchHits as hit (hit._id)}
+					<button
+						type="button"
+						onclick={() => addItem(hit)}
+						class="flex w-full items-center gap-3 rounded-xl border border-line bg-white px-3 py-2 text-left transition hover:border-brand"
+					>
+						{#if hit.imageUrl}
+							<FoodImg src={hit.imageUrl} alt="" class="h-9 w-9 shrink-0 rounded-lg" />
+						{:else}
+							<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-line/60"><Icon name="apple" size={16} class="text-mist" /></div>
+						{/if}
+						<div class="min-w-0 flex-1">
+							<div class="truncate text-sm font-semibold text-ink">{hit.name}</div>
+							<div class="text-[11px] text-mist">{hit.kcal100} kcal/100 g{hit.brand ? ` · ${hit.brand}` : ''}</div>
+						</div>
+						<span class="text-brand">＋</span>
+					</button>
+				{/each}
+			{/if}
+		</div>
+	</div>
+{/if}
+
+<!-- ═══════ Feuille de quantité (composant partagé avec le Journal cliente) ═══════ -->
+{#if sheetFood}
+	<QuantitySheet
+		food={sheetFood}
+		mealDefs={MEAL_DEFS}
+		initialQtyGrams={sheetQty}
+		initialMeal={sheetMeal}
+		mode="add"
+		saveLabel={editKey === '' ? 'Ajouter au plan' : 'Enregistrer'}
+		saving={editSaving}
+		onSave={applySheet}
+		onClose={() => { editKey = null; pendingFood = null; }}
+	/>
 {/if}
