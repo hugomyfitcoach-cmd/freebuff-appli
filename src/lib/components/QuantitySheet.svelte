@@ -16,7 +16,6 @@
 		initialQtyGrams,
 		initialMeal = 'dejeuner',
 		mode = 'add',
-		saveLabel = 'Ajouter au journal',
 		saving = false,
 		error = '',
 		/** Libellé du bouton principal (défaut : « Ajouter au journal » / « Enregistrer »). */
@@ -46,8 +45,6 @@
 		initialMeal?: string;
 		/** add = ajout au journal · edit = entrée consommée · planned = item planifié (gris). */
 		mode?: 'add' | 'edit' | 'planned';
-		/** Libellé du bouton principal en mode add (défaut : « Ajouter au journal »). */
-		saveLabel?: string;
 		saving?: boolean;
 		error?: string;
 		saveLabel?: string;
