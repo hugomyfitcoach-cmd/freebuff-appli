@@ -40,8 +40,8 @@ export async function sendPushToUser(
 	if (!vapidConfigured() || !coachToken) return 0;
 	webpush.setVapidDetails(
 		env.VAPID_SUBJECT || 'mailto:contact@g-flux.fr',
-		env.VAPID_PUBLIC_KEY,
-		env.VAPID_PRIVATE_KEY
+		env.VAPID_PUBLIC_KEY as string,
+		env.VAPID_PRIVATE_KEY as string
 	);
 	let subs: PushSub[] = [];
 	try {

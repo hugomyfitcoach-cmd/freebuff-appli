@@ -55,7 +55,17 @@
 			latestFeedbackAt: number | null;
 		};
 		recap: Recap | null;
-		badges: { bilans: number; retours?: number; message?: number; progression: number };
+		/** Rappel 12 h dérivé du rendez-vous confirmé (null hors fenêtre / annulé / passé). */
+		appointmentReminder: {
+			appointmentId: string;
+			date: string;
+			time: string;
+			endTime: string;
+			kind: string;
+			startAtMs: number;
+			bookingSource: 'coach' | 'client' | null;
+		} | null;
+		badges: { bilans: number; retours?: number; message?: number; progression: number; reminder?: number };
 	};
 
 	import { beforeNavigate, goto, invalidateAll } from '$app/navigation';
@@ -206,8 +216,29 @@
 	const todayLabel = $derived(
 		new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }).replace(/^./, (c) => c.toUpperCase())
 	);
-	/** Raccourcis horizontaux de l'Accueil (désengorgent le dashboard). */
+
+	/* ————— Rappel compact 12 h (source de vérité : appointment.startAt/status) —————
+	   Disparaît seul : RDV passé, annulé ou replanifié hors fenêtre (le serveur
+	   recalcule sur le nouveau startAt). Clic → ouvrir Rendez-vous (§20). */
+	const reminder = $derived(dash?.appointmentReminder ?? null);
+	const reminderWhen = $derived.by(() => {
+		if (!reminder) return '';
+		const fmt = (d: Date) => d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+		const start = new Date(reminder.startAtMs);
+		const hhmm = start.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+		const localISO = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+		const now = new Date();
+		const tomorrow = new Date(now);
+		tomorrow.setDate(tomorrow.getDate() + 1);
+		const day = localISO(start);
+		if (day === localISO(now)) return `Aujourd'hui à ${hhmm}`;
+		if (day === localISO(tomorrow)) return `Demain à ${hhmm}`;
+		return `${fmt(start)} à ${hhmm}`;
+	});
+	/** Raccourcis horizontaux de l'Accueil (désengorgent le dashboard).
+	    « Rendez-vous » : libellé INVARIABLE, même gabarit que les autres (§16). */
 	const chips = $derived([
+		{ href: '/espace/rendez-vous', label: 'Rendez-vous', icon: 'calendarCheck', badge: 0 },
 		{ href: '/recettes', label: 'Recettes', icon: 'chefHat', badge: 0 },
 		{ href: '/espace/ressources', label: 'Ressources', icon: 'bookOpen', badge: 0 },
 		{ href: '/espace/historique', label: 'Bilans', icon: 'clipboardCheck', badge: dash?.badges.bilans ?? 0 },
@@ -480,6 +511,21 @@
 	<h1 class="font-display text-[30px] font-semibold leading-tight tracking-tight text-ink sm:text-3xl">{greeting.title}</h1>
 	<p class="mt-1 text-sm text-mist">{greeting.dayLine ?? `${todayLabel} — voici où tu en es.`}</p>
 </header>
+
+<!-- ═══════════ Rappel rendez-vous 12 h (compact, en haut de l'Accueil) ═══════════ -->
+{#if reminder}
+	<a
+		href="/espace/rendez-vous"
+		class="mb-4 flex items-center gap-3 rounded-2xl border border-brand/40 bg-brand-light/70 px-4 py-3 shadow-sm transition hover:border-brand"
+	>
+		<span class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand text-white"><Icon name="calendarClock" size={17} /></span>
+		<span class="min-w-0 flex-1">
+			<span class="block text-[10px] font-bold uppercase tracking-widest text-brand-dark">Rendez-vous coaching</span>
+			<span class="block truncate text-sm font-semibold text-ink">N'oublie pas ton rendez-vous — <span class="capitalize">{reminderWhen}</span></span>
+		</span>
+		<span class="shrink-0 rounded-xl bg-ink px-3 py-1.5 text-xs font-bold text-white">Voir</span>
+	</a>
+{/if}
 
 <!-- ═══════════ Raccourcis horizontaux (désengorgent l'Accueil) ═══════════ -->
 <nav class="-mx-4 mb-6 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:flex-wrap md:overflow-visible md:px-0" aria-label="Raccourcis">

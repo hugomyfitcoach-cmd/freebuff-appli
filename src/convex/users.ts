@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { internalQuery, mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";	import {
 		EMAIL_RE,
 		SESSION_TTL_MS,
@@ -18,6 +18,16 @@ import { v, ConvexError } from "convex/values";	import {
  * partir du jeton de session (jamais exposé au JavaScript navigateur) :
  * une requête directe sans jeton valide n'accède à rien.
  */
+
+/** Profil d'une cliente SANS session — moteur interne uniquement (rappel 12 h). */
+export const internalUserById = internalQuery({
+	args: { userId: v.id("users") },
+	handler: async (ctx, { userId }) => {
+		const u = await ctx.db.get(userId);
+		if (!u) return null;
+		return { _id: u._id, role: u.role, prenom: u.prenom, timeZone: u.timeZone ?? null, pushPermission: u.pushPermission ?? null };
+	},
+});
 
 /** Résout un jeton de session → profil utilisateur (ou null si invalide). */
 export const resolveSession = query({
@@ -48,7 +58,7 @@ export const signIn = mutation({
 			throw new ConvexError("Email ou mot de passe incorrect.");
 		}
 		if (user.disabled) {
-			throw new ConvexError("Ce compte est désactivé. Contacte ta coach.");
+			throw new ConvexError("Ce compte est désactivé. Contacte ton coach.");
 		}
 		const token = newSessionToken();
 		await ctx.db.insert("sessions", {

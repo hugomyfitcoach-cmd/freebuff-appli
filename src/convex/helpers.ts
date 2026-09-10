@@ -198,6 +198,40 @@ export function nextMidnightUtcMs(ts: number, timeZone: string): number {
 	return guess;
 }
 
+/**
+ * Instant (ms UTC) d'un horaire "murale" (date ISO + "HH:mm") dans un fuseau
+ * IANA — gère l'heure d'été par itération (même moteur que nextMidnightUtcMs).
+ * Sert à convertir un rendez-vous (date + heure, fuseau de la coach) en vrai
+ * instant UTC pour les rappels et la disponibilité.
+ */
+export function wallTimeToUtcMs(dateISO: string, hhmm: string, timeZone = "Europe/Paris"): number {
+	const m = ISO_RE.exec(dateISO);
+	if (!m || !/^\d{2}:\d{2}$/.test(hhmm)) return NaN;
+	const [h, mi] = hhmm.split(":").map(Number);
+	const target = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), h, mi); // naïf
+	const fmt = new Intl.DateTimeFormat("en-CA", {
+		timeZone,
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+		hour: "2-digit",
+		minute: "2-digit",
+		second: "2-digit",
+		hourCycle: "h23",
+	});
+	let guess = target;
+	for (let i = 0; i < 4; i++) {
+		const p = fmt.formatToParts(new Date(guess));
+		const g = (type: string) => Number(p.find((x) => x.type === type)?.value ?? "0");
+		const wallNaive = Date.UTC(g("year"), g("month") - 1, g("day"), g("hour"), g("minute"), g("second"));
+		const offset = wallNaive - guess;
+		const next = target - offset;
+		if (next === guess) break;
+		guess = next;
+	}
+	return guess;
+}
+
 /** Date du jour au format "yyyy-mm-dd" (fuseau du serveur). */
 export function localTodayISO(now: Date = new Date()): string {
 	const y = now.getFullYear();

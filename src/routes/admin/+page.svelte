@@ -12,6 +12,7 @@
 	import StepsBars from '../../lib/components/StepsBars.svelte';
 	import WeeklyTrendChart from '../../lib/components/WeeklyTrendChart.svelte';
 	import { cycleState } from '../../lib/cycle.js';
+	import { kindRule, toISO } from '../../lib/appointments.js';
 	import { fmtMs } from '../../lib/media.js';
 	import { labelFor } from '../../lib/labels.js';
 	import { ONBOARDING_SECTIONS, readableAnswer } from '../../lib/onboarding.js';
@@ -69,6 +70,21 @@
 	}
 
 	const totalWaiting = $derived(clients.reduce((s: number, c: { waiting: number }) => s + c.waiting, 0));
+
+	/* ── Google Calendar (connexion OAuth du coach) ── */
+	const google = $derived(data.google ?? null);
+	const googleBanner = $derived(data.googleBanner ?? null);
+	let googleBusy = $state(false);
+	async function googleDisconnect() {
+		if (googleBusy) return;
+		googleBusy = true;
+		try {
+			await fetch('/api/google/disconnect', { method: 'POST' });
+			await invalidateAll();
+		} finally {
+			googleBusy = false;
+		}
+	}
 	const activeToday = $derived(
 		clients.filter((c: { user: { lastSeenAt: number | null } }) => {
 			const ts = c.user.lastSeenAt;
@@ -938,6 +954,7 @@
 		{ id: 'corps', label: 'Poids & mesures' },
 		{ id: 'photos', label: `Photos (${totalPhotos})` },
 		{ id: 'bilans', label: 'Bilans' },
+		{ id: 'rdv', label: 'Rendez-vous' },
 		{ id: 'dossier', label: 'Dossier' },
 		{ id: 'demarrage', label: 'Démarrage' },
 	]);
@@ -957,6 +974,158 @@
 		if (!id) return;
 		untrack(() => loadPlans());
 	});
+
+	/* ── Onglet Rendez-vous (Vision 360) — la cliente est DÉJÀ connue : le
+	   clientId de la fiche ouverte est la source de vérité (§11). Aucun champ
+	   identité (nom, prénom, téléphone, email) n'est jamais demandé. ── */
+	type RdvRow = {
+		_id: string;
+		clientId: string;
+		date: string;
+		time: string;
+		endTime: string;
+		kind: string;
+		status: 'on_book' | 'client_request' | 'cancelled';
+		bookedByName: string | null;
+		bookingSource: 'coach' | 'client' | null;
+		rescheduleCount: number;
+		googleEventId: string | null;
+	};
+	const RDV_KINDS = ['Suivi', 'Démarrage']; // seuls types réservables (§6)
+	function rdvToMin(h: string): number {
+		const [hh, mm] = h.split(':');
+		return Number(hh) * 60 + Number(mm);
+	}
+	function rdvFromMin(m: number): string {
+		return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+	}
+	let rdvList = $state<RdvRow[]>([]);
+	let rdvLoading = $state(false);
+	let rdvNotice = $state('');
+	let rdvErr = $state('');
+	let rdvKind = $state<string>('Suivi');
+	let rdvDate = $state('');
+	let rdvSlots = $state<{ start: string; end: string }[]>([]);
+	let rdvSlotsLoading = $state(false);
+	let rdvMoving = $state<RdvRow | null>(null); // RDV en cours de replanification
+
+	/**
+	 * Chargement STRICTEMENT filtré par cliente (§1) : la requête serveur
+	 * (`?userId=` → index by_client côté Convex) renvoie UNIQUEMENT les RDV
+	 * de la cliente ouverte — jamais une liste globale masquée côté UI.
+	 */
+	async function loadRdvs() {
+		const id = selectedId;
+		if (!id) return;
+		rdvLoading = true;
+		rdvErr = '';
+		try {
+			const r = await fetch(`/api/appointments?userId=${encodeURIComponent(id)}`).then((x) => x.json());
+			if (r.error) throw new Error(r.error);
+			rdvList = r.appointments ?? [];
+		} catch (e) {
+			rdvErr = e instanceof Error ? e.message : 'Chargement impossible.';
+		} finally {
+			rdvLoading = false;
+		}
+	}
+	$effect(() => {
+		const id = selectedId;
+		if (!id) return;
+		untrack(() => loadRdvs());
+	});
+
+	const rdvNext = $derived(
+		rdvList
+			.filter((r) => r.status === 'on_book' && `${r.date}T${r.time}` >= `${toISO(new Date())}T00:00`)
+			.sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))[0] ?? null
+	);
+	const rdvHistory = $derived(
+		rdvList.filter((r) => r.status === 'cancelled' || `${r.date}T${r.time}` < `${toISO(new Date())}T00:00`)
+	);
+
+	/** Créneaux du MOTEUR (plages − Google − RDV − buffers, durée selon type). */
+	async function loadRdvSlots() {
+		if (!rdvDate) return;
+		rdvSlotsLoading = true;
+		rdvErr = '';
+		rdvSlots = [];
+		try {
+			const p = new URLSearchParams({ date: rdvDate, type: rdvKind });
+			if (rdvMoving) p.set('excludeId', rdvMoving._id);
+			const j = await fetch(`/api/appointments/availability?${p.toString()}`).then((x) => x.json());
+			if (j.error) throw new Error(j.error);
+			rdvSlots = j.days?.[0]?.slots ?? [];
+		} catch (e) {
+			rdvErr = e instanceof Error ? e.message : 'Disponibilités indisponibles.';
+		} finally {
+			rdvSlotsLoading = false;
+		}
+	}
+
+	async function rdvBook(date: string, time: string) {
+		const id = selectedId;
+		if (!id) return;
+		rdvErr = '';
+		try {
+			const res = await fetch('/api/appointments', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					clientId: id,
+					clientName: fullName(selected!.user),
+					date,
+					time,
+					endTime: rdvFromMin(rdvToMin(time) + kindRule(rdvKind).durationMin),
+					kind: rdvKind,
+				}),
+			});
+			const j = await res.json();
+			if (!res.ok) throw new Error(j.error);
+			rdvNotice = j.googleEventId ? 'Rendez-vous confirmé + ajouté à Google Calendar ✓' : 'Rendez-vous confirmé (Google Calendar non connecté — événement non créé).';
+			rdvDate = '';
+			rdvSlots = [];
+			await loadRdvs();
+		} catch (e) {
+			rdvErr = e instanceof Error ? e.message : 'Erreur';
+		}
+	}
+	async function rdvMove(date: string, time: string) {
+		if (!rdvMoving) return;
+		rdvErr = '';
+		try {
+			const res = await fetch(`/api/appointments/${rdvMoving._id}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					date,
+					time,
+					endTime: rdvFromMin(rdvToMin(time) + kindRule(rdvMoving.kind).durationMin),
+				}),
+			});
+			const j = await res.json();
+			if (!res.ok) throw new Error(j.error);
+			rdvNotice = j.googleEventId ? 'Rendez-vous replanifié — même événement Google déplacé ✓' : 'Rendez-vous replanifié ✓';
+			rdvMoving = null;
+			rdvDate = '';
+			rdvSlots = [];
+			await loadRdvs();
+		} catch (e) {
+			rdvErr = e instanceof Error ? e.message : 'Erreur';
+		}
+	}
+	async function rdvCancel(r: RdvRow) {
+		rdvErr = '';
+		try {
+			const res = await fetch(`/api/appointments/${r._id}`, { method: 'DELETE' });
+			const j = await res.json();
+			if (!res.ok) throw new Error(j.error);
+			rdvNotice = 'Rendez-vous annulé — créneau libéré.';
+			await loadRdvs();
+		} catch (e) {
+			rdvErr = e instanceof Error ? e.message : 'Erreur';
+		}
+	}
 </script>
 
 <svelte:head><title>CRM — G-Flux</title></svelte:head>
@@ -986,6 +1155,54 @@
 		<Icon name="info" size={15} class="shrink-0 text-mist" />
 	</div>
 {/if}
+
+{#if googleBanner}
+	<div
+		class="mt-4 flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm
+			{googleBanner.startsWith('google-error') ? 'border-danger/40 bg-danger-light text-danger' : 'border-brand/40 bg-brand-light text-ink'}"
+	>
+		<span>
+			{#if googleBanner === 'google-ok'}
+				<strong>Google Calendar connecté ✓</strong> — les rendez-vous peuvent être synchronisés avec ton agenda.
+			{:else}
+				<strong>Connexion Google échouée :</strong> {googleBanner.slice('google-error:'.length)}
+			{/if}
+		</span>
+		<Icon name={googleBanner.startsWith('google-error') ? 'info' : 'calendarCheck'} size={15} class="shrink-0 text-mist" />
+	</div>
+{/if}
+
+<!-- ═══ Google Calendar (compte du coach) ═══ -->
+<section class="mt-4 rounded-2xl border border-line bg-card p-4 shadow-sm">
+	<div class="flex flex-wrap items-center justify-between gap-3">
+		<div class="flex items-center gap-2">
+			<h2 class="flex items-center gap-2 font-display text-lg font-semibold text-ink">
+				<Icon name="calendarCheck" size={18} class="shrink-0 text-brand" /> Google Calendar
+			</h2>
+			{#if google}
+				<span class="rounded-full bg-brand px-2 py-0.5 text-[11px] font-bold text-white">Connecté ✓</span>
+			{:else}
+				<span class="rounded-full bg-cream px-2 py-0.5 text-[11px] font-bold text-mist">Non connecté</span>
+			{/if}
+		</div>
+		{#if google}
+			<div class="flex items-center gap-2">
+				<span class="text-xs text-mist">{google.email || 'Compte Google'} · tokens chiffrés côté serveur</span>
+				<button
+					type="button"
+					onclick={googleDisconnect}
+					disabled={googleBusy}
+					class="inline-flex items-center gap-1 rounded-lg border-2 border-line px-2.5 py-1 text-xs font-semibold text-ink transition hover:border-danger hover:text-danger disabled:opacity-50"
+				>Déconnecter</button>
+			</div>
+		{:else}
+			<a
+				href="/api/google/connect"
+				class="inline-flex items-center gap-1 rounded-lg bg-brand px-3 py-1.5 text-xs font-bold text-white transition hover:bg-brand-dark"
+			><Icon name="calendarRange" size={13} class="shrink-0" /> Connecter Google Calendar</a>
+		{/if}
+	</div>
+</section>
 
 <!-- ═══ File globale des bilans (À traiter / Retour envoyé / Manquants / Terminés) ═══ -->
 {#if clients.length > 0 && pendingCount > 0}
@@ -2489,7 +2706,90 @@
 							<BilanCard checkin={checkin} clientName={fullName(selected.user)} clientId={selected.user._id} media={mediaFor(checkin._id)} />
 						{/each}
 					{/if}
-				</div>
+				</div>				{:else if section === 'rdv'}
+				<!-- Rendez-vous (Vision 360) : UNIQUEMENT les RDV de cette cliente.
+				     Affichage simple : un RDV futur ? → carte + actions. Sinon →
+				     réservation. (La vue globale reste /admin/rendez-vous.) -->
+				{#if rdvLoading}
+					<p class="py-8 text-center text-sm text-mist">Chargement du planning…</p>
+				{:else}
+					{#if rdvErr}<p class="rounded-xl border-2 border-danger bg-danger-light px-4 py-3 text-sm text-danger">{rdvErr}</p>{/if}
+					{#if rdvNotice}<p class="rounded-xl border border-brand/40 bg-brand-light px-4 py-3 text-sm font-semibold text-ink">{rdvNotice}</p>{/if}
+
+					<div class="rounded-2xl border border-line bg-card p-4">
+						<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="calendarClock" size={16} class="text-brand" /> Prochain rendez-vous</h3>
+						{#if rdvNext}
+							<div class="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-brand/30 bg-brand-light/50 px-3 py-2.5 text-sm">
+								<span>
+									<strong class="tabular-nums">{new Date(Number(rdvNext.date.slice(0, 4)), Number(rdvNext.date.slice(5, 7)) - 1, Number(rdvNext.date.slice(8, 10))).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })} · {rdvNext.time}</strong>
+									<span class="text-mist"> · {rdvNext.kind}{rdvNext.rescheduleCount > 0 ? ` · replanifié ×${rdvNext.rescheduleCount}` : ''}{rdvNext.googleEventId ? ' · 📅 Google ✓' : ''}</span>
+								</span>
+								<span class="flex gap-2">
+									<button type="button" class="rounded-lg border-2 border-line px-2.5 py-1 text-xs font-semibold text-ink transition hover:border-brand hover:text-brand" onclick={() => { rdvMoving = rdvNext; rdvKind = rdvNext.kind; rdvDate = ''; rdvSlots = []; }}>Replanifier</button>
+									<button type="button" class="rounded-lg border-2 border-line px-2.5 py-1 text-xs font-semibold text-ink transition hover:border-danger hover:text-danger" onclick={() => rdvCancel(rdvNext)}>Annuler</button>
+								</span>
+							</div>
+						{:else}
+							<p class="mt-2 text-sm italic text-mist">Aucun rendez-vous prévu pour cette cliente.</p>
+						{/if}
+					</div>
+
+					<div class="rounded-2xl border border-line bg-card p-4">
+						<h3 class="mb-3 flex items-center gap-2 font-display text-base font-semibold text-ink">
+							<Icon name="calendarDays" size={16} class="text-brand" />
+							{rdvMoving ? 'Replanifier sur un nouveau créneau' : 'Planifier un rendez-vous'}
+							{#if rdvMoving}<button type="button" class="ml-1 text-xs font-semibold text-mist underline" onclick={() => { rdvMoving = null; rdvDate = ''; rdvSlots = []; }}>annuler le déplacement</button>{/if}
+						</h3>
+						<p class="mb-3 text-xs text-mist">Cliente : <strong class="text-ink">{selected ? fullName(selected.user) : ''}</strong> — connue via sa fiche, rien à ressaisir.</p>
+						<div class="mb-3 flex flex-wrap items-end gap-2 text-sm">
+							<span>
+								<label class="mb-0.5 block text-[10px] font-bold uppercase tracking-wider text-mist" for="rdv-type">Type</label>
+								<select id="rdv-type" class="rounded-lg border border-line bg-white px-2 py-1.5" bind:value={rdvKind} onchange={() => { if (rdvDate) void loadRdvSlots(); }}>
+									{#each RDV_KINDS as k}<option value={k}>{k}</option>{/each}
+								</select>
+							</span>
+							<span>
+								<label class="mb-0.5 block text-[10px] font-bold uppercase tracking-wider text-mist" for="rdv-date">Date</label>
+								<input id="rdv-date" type="date" class="rounded-lg border border-line bg-white px-2 py-1.5" bind:value={rdvDate} onchange={() => void loadRdvSlots()} />
+							</span>
+						</div>
+						{#if !rdvDate}
+							<p class="text-sm italic text-mist">Choisis une date pour voir les créneaux réellement libres (disponibilités − Google − RDV − buffers).</p>
+						{:else if rdvSlotsLoading}
+							<p class="text-sm italic text-mist">Recherche des créneaux disponibles…</p>
+						{:else if rdvSlots.length === 0}
+							<p class="text-sm italic text-mist">Aucun créneau libre ce jour-là (réglable dans Rendez-vous → Disponibilités).</p>
+						{:else}
+							<div class="flex flex-wrap gap-1.5">
+								{#each rdvSlots as s (s.start)}
+									<button
+										type="button"
+										onclick={() => (rdvMoving ? rdvMove(rdvDate, s.start) : rdvBook(rdvDate, s.start))}
+										class="rounded-lg px-2.5 py-1.5 text-xs font-bold tabular-nums transition bg-brand-light text-brand-dark hover:bg-brand hover:text-white"
+									>{s.start} → {s.end}</button>
+								{/each}
+							</div>
+						{/if}
+					</div>
+
+					{#if rdvHistory.length > 0}
+						<div class="rounded-2xl border border-line bg-card p-4">
+							<h3 class="mb-2 flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="listTodo" size={16} class="text-brand" /> Historique</h3>
+							{#each rdvHistory as r (r._id)}
+								<div class="flex flex-wrap items-center justify-between gap-2 border-b border-line/60 py-2 text-sm last:border-0">
+									<span class="tabular-nums"><strong>{r.date}</strong> · {r.time} · {r.kind}</span>
+									<span class="flex items-center gap-2 text-xs">
+										<span class="rounded-full px-2 py-0.5 font-bold {r.status === 'on_book' ? 'bg-brand text-white' : 'bg-line text-mist'}">{r.status === 'on_book' ? 'passé' : 'annulé'}</span>
+										<span class="text-mist">{r.bookingSource === 'coach' ? 'planifié par le coach' : 'réservé par la cliente'}</span>
+										{#if r.status === 'on_book'}
+											<button type="button" class="text-mist transition hover:text-danger" onclick={() => rdvCancel(r)} aria-label="Annuler ce rendez-vous"><Icon name="trash" size={14} /></button>
+										{/if}
+									</span>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				{/if}
 			{:else if section === 'dossier'}
 				<!-- Dossier : notes privées coach + ressources partagées (« Ressources » côté cliente) -->
 				<DossierPanel clientId={selected.user._id} clientName={fullName(selected.user)} />

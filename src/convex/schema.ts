@@ -47,6 +47,12 @@ export default defineSchema({
 		coachMessageReadAt: v.optional(v.number()),
 		/** Fuseau horaire IANA de la cliente ("Europe/Paris" par défaut) — rafraîchi à sa connexion. */
 		timeZone: v.optional(v.string()),
+		/** Dernier état de permission notifications déclaré par son navigateur (rappel 12 h : push si "granted"). */
+		pushPermission: v.optional(
+			v.union(v.literal("granted"), v.literal("denied"), v.literal("unsupported"), v.literal("default"))
+		),
+		/** Moment (ms) du dernier changement de permission — info, jamais bloquant. */
+		pushPermissionAskedAt: v.optional(v.number()),
 		/** Message audio du coach du jour — pointe vers la ligne coachMedia correspondante (publique après publication). */
 		coachMessageAudioId: v.optional(v.id("coachMedia")),
 		/** Onboarding de démarrage exigé pour cette cliente (décidé par le coach). */
@@ -515,6 +521,84 @@ export default defineSchema({
 	})
 		.index("by_user_date", ["userId", "date"])
 		.index("by_user", ["userId"]),
+
+	/**
+	 * Compte Google Calendar connecté du COACH (CRM) — système de rendez-vous.
+	 * Le refresh token est stocké chiffré AES-256-GCM (clé GOOGLE_ENC_KEY
+	 * détenue par le serveur SvelteKit, jamais par Convex ni par le client) —
+	 * cette table ne contient jamais de token en clair.
+	 */
+	googleAccounts: defineTable({
+		/** Coach propriétaire de la connexion (un compte Google par coach). */
+		coachId: v.id("users"),
+		/** Email du compte Google connecté (affichage CRM). */
+		email: v.string(),
+		/** Refresh token chiffré AES-256-GCM (base64 : iv | tag | ciphertext). */
+		encRefreshToken: v.string(),
+		/** Access token chiffré (base64) — optionnel, ré-échangé à expiration. */
+		encAccessToken: v.optional(v.string()),
+		/** Expiration de l'access token (ms epoch) — 0 si inconnue. */
+		expiry: v.optional(v.number()),
+		/** Scopes accordés (espace séparé, ex. calendar.events calendar.freebusy). */
+		scope: v.string(),
+		/** Moment (ms) de la connexion (ou de la dernière reconnexion). */
+		connectedAt: v.number(),
+	}).index("by_coach", ["coachId"]),
+
+	/**
+	 * Système de rendez-vous — disponibilités de la coach (créneaux par jour
+	 * de semaine). Le module de gestion vit dans le système de rendez-vous ;
+	 * la déclaration ici préserve la table et ses données existantes.
+	 */
+	bookingSettings: defineTable({
+		coachId: v.id("users"),
+		/** Créneaux ouverts : [{ day: 1..7 (lundi..dimanche), start: "09:00", end: "12:30" }]. */
+		ranges: v.array(v.object({ day: v.number(), start: v.string(), end: v.string() })),
+		updatedAt: v.number(),
+	}).index("by_coach", ["coachId"]),
+
+	/**
+	 * Système de rendez-vous — rendez-vous entre la coach et une cliente.
+	 * Statuts : `on_book` (confirmé, événement Google créé) / `client_request`
+	 * (statut historique conservé pour les anciennes données — plus créé) /
+	 * `cancelled` (annulé, historique conservé).
+	 * `bookedBy` + `bookingSource` portent l'origine : coach ou cliente.
+	 * L'origine n'est JAMAIS un droit : une cliente peut replanifier un RDV
+	 * créé par elle ou par la coach (`lastModifiedBy` trace le dernier geste).
+	 */
+	appointments: defineTable({
+		coachId: v.id("users"),
+		clientId: v.id("users"),
+		/** Date "yyyy-mm-dd" (fuseau de la coach, Europe/Paris). */
+		date: v.string(),
+		/** Heure de début "HH:mm". */
+		time: v.string(),
+		/** Heure de fin "HH:mm". */
+		endTime: v.string(),
+		/** Type de rendez-vous ("Suivi" 15 min, "Démarrage" 60 min ; anciens types conservés). */
+		kind: v.string(),
+		status: v.union(v.literal("on_book"), v.literal("client_request"), v.literal("cancelled")),
+		/** Origine de la réservation : coach ou cliente. */
+		bookedBy: v.id("users"),
+		/** Origine conceptuelle de la réservation initiale ("coach" | "client"). */
+		bookingSource: v.optional(v.union(v.literal("coach"), v.literal("client"))),
+		/** Dernier auteur d'une modification (replanification / annulation). */
+		lastModifiedBy: v.optional(v.id("users")),
+		createdAt: v.number(),
+		updatedAt: v.optional(v.number()),
+		/** Nombre de replanifications (info CRM). */
+		rescheduleCount: v.optional(v.number()),
+		/** Pour une demande de replanification cliente : le RDV confirmé source. */
+		sourceId: v.optional(v.id("appointments")),
+		/** Événement Google Calendar associé (créé/mis à jour par le BFF). */
+		googleEventId: v.optional(v.string()),
+		cancelledAt: v.optional(v.number()),
+		cancelledBy: v.optional(v.id("users")),
+		/** Rappel 12 h : moment d'envoi (ms) — protection anti-doublon (idempotence). */
+		reminder12hSentAt: v.optional(v.number()),
+		/** startAt (ms UTC) pour lequel le rappel a été envoyé — une replanification réarme le rappel. */
+		reminder12hForStartAt: v.optional(v.number()),
+	}).index("by_coach", ["coachId"]).index("by_client", ["clientId"]),
 
 	/** Une prise de mesures par date (poids, tour de cou, taille, fessier). */
 	bodyMetrics: defineTable({
