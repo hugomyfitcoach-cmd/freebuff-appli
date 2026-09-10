@@ -16,6 +16,7 @@
 		initialQtyGrams,
 		initialMeal = 'dejeuner',
 		mode = 'add',
+		saveLabel = 'Ajouter au journal',
 		saving = false,
 		error = '',
 		showFav = false,
@@ -43,6 +44,8 @@
 		initialMeal?: string;
 		/** add = ajout au journal · edit = entrée consommée · planned = item planifié (gris). */
 		mode?: 'add' | 'edit' | 'planned';
+		/** Libellé du bouton principal en mode add (défaut : « Ajouter au journal »). */
+		saveLabel?: string;
 		saving?: boolean;
 		error?: string;
 		showFav?: boolean;
@@ -322,8 +325,7 @@
 					class="flex-1 rounded-full bg-brand px-3 py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
 					disabled={saving || !valid}
 					onclick={save}
-				>
-					{saving ? 'Enregistrement…' : mode === 'edit' ? 'Enregistrer' : 'Ajouter au journal'}
+				>						{saving ? 'Enregistrement…' : mode === 'edit' ? 'Enregistrer' : saveLabel}
 				</button>
 			</div>
 			{#if mode === 'edit' && onUnEat}
