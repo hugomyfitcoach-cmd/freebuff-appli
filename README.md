@@ -181,8 +181,10 @@ Tracking de calories fidèle à l'appli de référence (FR) :
   quantité ou supprimer (recalcul automatique des macros).
 - **Bouton + (FAB)** : modale de recherche → feuille de quantité
   (portions OFF, paliers 50/100/150/200 g) → choix du repas → ajout.
-  Onglets « Tous les produits / Repas / Créés par moi » prêts pour les
-  recettes créées par l'utilisateur (à venir).
+  Onglets « Tous les produits / Repas / Créés par moi » : aliments
+  personnalisés (étiquette nutritionnelle) et **repas créés par le client**
+  (création, modification — totaux recalculés côté serveur —, suppression,
+  ajout d'une portion au journal).
 - **Base alimentaire embarquée** : les **780 000 aliments** du dump Open
   Food Facts filtré (France/Europe, kcal > 0, valeurs nutritionnelles
   complètes) sont importés dans la table `foods` — la recherche est donc

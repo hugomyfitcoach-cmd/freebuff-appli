@@ -78,10 +78,10 @@
 		kcal: number;
 		carbs: number;
 		protein: number;
-		fat: number;
-		ingredients: {
-			foodId?: string;
-			name: string;
+		fat: number;	ingredients: {
+						foodId?: string;
+						customFoodId?: string;
+						name: string;
 			brand?: string;
 			imageUrl?: string;
 			qtyGrams: number;
@@ -711,6 +711,8 @@
 
 	/* ————— Éditeur de repas ————— */
 	let mealEditor = $state(false);
+	/** Repas en cours de modification (null = création). */
+	let mealEditingId = $state<string | null>(null);
 	let mealName = $state('');
 	let mealDesc = $state('');
 	let mealItems = $state<MealDraftItem[]>([]);
@@ -718,11 +720,14 @@
 	let mealResults = $state<Food[]>([]);
 	let mealSearching = $state(false);
 	let mealSearchTimer: ReturnType<typeof setTimeout> | undefined;
+	/** Fenêtre de recherche d'aliments DANS l'éditeur de repas (bouton « Ajouter un produit »). */
+	let mealSearchOpen = $state(false);
 	let mealSaving = $state(false);
 	let mealError = $state('');
 
 	function openMealEditor() {
 		mealEditor = true;
+		mealEditingId = null;
 		mealName = '';
 		mealDesc = '';
 		mealItems = [];
@@ -730,20 +735,53 @@
 		mealResults = [];
 		mealError = '';
 	}
+	/** Édition : pré-remplit l'éditeur avec le repas existant (ingrédients « reconstruits »
+	 *  depuis le snapshot — mêmes valeurs /100 g, le serveur recalcule à l'enregistrement). */
+	function openMealEditorFor(meal: Meal) {
+		mealEditor = true;
+		mealEditingId = meal._id;
+		mealName = meal.name;
+		mealDesc = meal.description ?? '';
+		mealItems = meal.ingredients.map((ing) => ({
+			food: {
+				_id: ing.foodId ?? ing.customFoodId ?? ing.name,
+				name: ing.name,
+				brand: ing.brand,
+				imageUrl: ing.imageUrl,
+				kcal100: ing.qtyGrams > 0 ? (ing.kcal / ing.qtyGrams) * 100 : 0,
+				carbs100: ing.qtyGrams > 0 ? (ing.carbs / ing.qtyGrams) * 100 : 0,
+				protein100: ing.qtyGrams > 0 ? (ing.protein / ing.qtyGrams) * 100 : 0,
+				fat100: ing.qtyGrams > 0 ? (ing.fat / ing.qtyGrams) * 100 : 0,
+				custom: !!ing.customFoodId,
+			},
+			qty: ing.qtyGrams,
+			custom: !!ing.customFoodId,
+			customFoodId: ing.customFoodId,
+		}));
+		mealSearchQ = '';
+		mealResults = [];
+		mealError = '';
+	}
 	function closeMealEditor() {
 		mealEditor = false;
+		mealEditingId = null;
+		mealSearchOpen = false;
 	}
+	let mealSearchError = $state('');
 	async function runMealSearch(q: string) {
 		if (q.length < 2) {
 			mealResults = [];
 			return;
 		}
 		mealSearching = true;
+		mealSearchError = '';
 		try {
 			const r = await fetch(`/api/foods/search?q=${encodeURIComponent(q)}`);
 			const j = await r.json();
-			if (!j.error) mealResults = j;
-		} catch {
+			if (j.error) throw new Error(j.error);
+			mealResults = j;
+		} catch (e) {
+			mealSearchError = e instanceof Error ? e.message : String(e);
 			mealResults = [];
 		} finally {
 			mealSearching = false;
@@ -753,18 +791,51 @@
 		clearTimeout(mealSearchTimer);
 		mealSearchTimer = setTimeout(() => runMealSearch(mealSearchQ.trim()), 300);
 	}
-	function addIngredient(food: Food) {
-		mealItems = [
-			...mealItems,
-			{
-				food,
-				qty: food.servingQty && food.servingQty > 0 ? Math.round(food.servingQty) : 100,
-				custom: food.custom,
-				customFoodId: food.custom ? food._id : undefined,
-			},
-		];
-		mealSearchQ = '';
-		mealResults = [];
+	/** Édition au gramme près : feuille de quantité partagée (identique au journal). */
+	let ingEdit = $state<{ idx: number; food: Food; qty: number } | null>(null);
+	function openIngredientQty(idx: number) {
+		const it = mealItems[idx];
+		if (!it) return;
+		ingEdit = { idx, food: it.food, qty: it.qty };
+	}
+	function saveIngredientQty(qtyGrams: number) {
+		if (!ingEdit) return;
+		setIngQty(ingEdit.idx, qtyGrams);
+		ingEdit = null;
+	}
+	function removeIngredientAt() {
+		if (!ingEdit) return;
+		const idx = ingEdit.idx;
+		mealItems = mealItems.filter((_, i) => i !== idx);
+		ingEdit = null;
+	}
+	/** Produit choisi dans la recherche : feuille de portion (comme le journal).
+	 *  La validation ajoute l'ingrédient ET referme la recherche. */
+	function openIngredientPortion(foodIdx: number) {
+		const food = mealResults[foodIdx];
+		if (!food) return;
+		mealPickedIdx = foodIdx;
+		ingEdit = { idx: -1, food, qty: food.servingQty && food.servingQty > 0 ? Math.round(food.servingQty) : 100 };
+	}
+	let mealPickedIdx = $state<number | null>(null);
+	/** Sauvegarde depuis la feuille : ajout si idx = -1 (produit de la recherche), édition sinon. */
+	function saveIngredientQty2(qtyGrams: number) {
+		if (mealPickedIdx != null) {
+			const food = mealResults[mealPickedIdx];
+			if (food) {
+				mealItems = [
+					...mealItems,
+					{ food, qty: qtyGrams, custom: food.custom, customFoodId: food.custom ? food._id : undefined },
+				];
+				mealSearchQ = '';
+				mealResults = [];
+				mealSearchOpen = false; // un seul geste : portion validée → retour à l'éditeur
+			}
+			mealPickedIdx = null;
+			ingEdit = null;
+			return;
+		}
+		saveIngredientQty(qtyGrams);
 	}
 	function setIngQty(idx: number, qty: number) {
 		const items = mealItems.slice();
@@ -796,8 +867,8 @@
 		mealSaving = true;
 		mealError = '';
 		try {
-			const r = await fetch('/api/meals', {
-				method: 'POST',
+			const r = await fetch(mealEditingId ? `/api/meals/${mealEditingId}` : '/api/meals', {
+				method: mealEditingId ? 'PATCH' : 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					name: mealName,
@@ -1144,6 +1215,17 @@
 		return () => cleanups.forEach((c) => c());
 	});
 
+	/* Recherche ingrédient ouverte : pré-remplit le champ et lance la recherche
+	   initiale, puis focalise le champ (clavier immédiat, comme « Ajouter un aliment »). */
+	$effect(() => {
+		if (!mealSearchOpen) return;
+		mealSearchQ = '';
+		mealResults = [];
+		mealSearching = false;
+		const el = document.getElementById('meal-picker-input');
+		el?.focus();
+	});
+
 	onMount(() => {
 		document.addEventListener('keydown', (e) => {
 			if (logOpen || qtyFood || editEntry || qtyMealSel) return;
@@ -1477,8 +1559,8 @@
 {#if logOpen}
 	<div role="presentation" class="fixed inset-0 z-50 bg-soft sm:flex sm:items-center sm:justify-center sm:bg-ink/40 sm:p-6" onclick={(e) => { if (e.target === e.currentTarget) closeLog(); }} onkeydown={(e) => { if (e.key === 'Escape') closeLog(); }}>
 		<div class="relative flex w-full flex-col overflow-hidden bg-soft sm:h-[min(92dvh,720px)] sm:max-w-lg sm:rounded-3xl sm:bg-white sm:shadow-2xl" style:height={mobile ? `${vvH}px` : undefined}>
-			<!-- En-tête fixe -->
-			<div class="flex shrink-0 items-center justify-between border-b border-line bg-white/95 px-3 py-2.5 backdrop-blur">
+			<!-- En-tête fixe (respire sous l'encoche en PWA installée, cf. convention safe-area de l'app) -->
+			<div class="flex shrink-0 items-center justify-between border-b border-line bg-white/95 px-3 pt-[max(env(safe-area-inset-top),10px)] pb-2.5 backdrop-blur">
 				<button type="button" class="grid h-9 w-9 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={() => closeLog()}><Icon name="x" size={20} /></button>
 				<h2 class="font-display text-[15px] font-semibold text-ink">{logMode === 'barcode' ? 'Code-barres' : 'Ajouter un aliment'}</h2>
 				<span class="w-9"></span>
@@ -1529,6 +1611,7 @@
 						<!-- ═══════ Éditeur de repas ═══════ -->
 						<div>
 							<button type="button" class="mb-3 flex items-center gap-1 text-sm font-semibold text-mist hover:text-ink" onclick={closeMealEditor}>← Retour aux repas</button>
+							<p class="mb-1 text-sm font-semibold text-ink">{mealEditingId ? 'Modifier le repas' : 'Nouveau repas'}</p>
 
 							<input
 								type="text"
@@ -1569,9 +1652,8 @@
 							{#if mealItems.length === 0}
 								<p class="rounded-xl border-2 border-dashed border-line px-4 py-6 text-center text-sm text-mist">Aucun ingrédient pour l'instant — ajoute des produits ci-dessous.</p>
 							{:else}
-								<ul class="flex flex-col gap-2">
-									{#each mealItems as it, i (it.food._id)}
-										<li class="flex items-center gap-2 rounded-xl border border-line bg-white p-2">														{#if it.food.imageUrl}
+								<ul class="flex flex-col gap-2">												{#each mealItems as it, i (i)}
+										<li class="flex cursor-pointer items-center gap-2 rounded-xl border border-line bg-white p-2 text-left transition hover:border-brand" role="button" tabindex="0" onclick={() => openIngredientQty(i)} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openIngredientQty(i); } }}>														{#if it.food.imageUrl}
 															<FoodImg src={it.food.imageUrl} alt="" class="h-10 w-10 rounded-lg" />
 														{:else}
 															<div class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={18} class="text-brand" /></div>
@@ -1580,56 +1662,25 @@
 												<span class="block truncate text-xs font-semibold text-ink">{it.food.name}</span>
 												<span class="block text-[11px] text-mist">{fmt(Math.round((it.food.kcal100 * it.qty) / 100))} kcal</span>
 											</span>
-											<div class="flex shrink-0 items-center gap-1">
-												<button type="button" class="grid h-7 w-7 place-items-center rounded-lg border border-line text-sm font-bold text-ink" aria-label="Moins" onclick={() => setIngQty(i, it.qty - 10)}>−</button>
-												<span class="w-12 text-center text-xs font-bold text-ink">{fmt(it.qty)} g</span>
-												<button type="button" class="grid h-7 w-7 place-items-center rounded-lg border border-line text-sm font-bold text-ink" aria-label="Plus" onclick={() => setIngQty(i, it.qty + 10)}>+</button>
-												<button type="button" class="ml-1 grid h-7 w-7 place-items-center rounded-lg text-sm text-mist hover:bg-danger-light hover:text-danger" aria-label="Retirer l'ingrédient" onclick={() => removeIngredient(i)}>✕</button>
-											</div>
+											<span class="shrink-0 text-sm font-bold text-brand">{fmt(it.qty)} g</span>
+											<Icon name="chevronRight" size={16} class="shrink-0 text-mist" />
 										</li>
 									{/each}
 								</ul>
 							{/if}
 
-							<!-- Mini-recherche pour ajouter un produit -->
-							<div class="mt-3 rounded-xl border-2 border-line bg-cream px-3 py-2.5 focus-within:border-brand">
-								<input
-									type="search"
-									class="w-full bg-transparent text-sm text-ink outline-none placeholder:text-mist"
-									placeholder="Ajouter un produit…"
-									bind:value={mealSearchQ}
-									oninput={onMealSearchInput}
-								/>
-							</div>
-							{#if mealSearching}
-								<p class="py-3 text-center text-xs text-mist">Recherche…</p>
-							{:else if mealResults.length > 0}
-								<ul class="mt-2 flex flex-col gap-1.5">
-									{#each mealResults as food (food._id)}
-										<li>
-											<button type="button" class="flex w-full items-center gap-2 rounded-xl border border-line bg-white p-2 text-left transition hover:border-brand" onclick={() => addIngredient(food)}>
-												{#if food.imageUrl}
-													<FoodImg src={food.imageUrl} alt="" class="h-9 w-9 rounded-lg" />
-												{:else}
-													<div class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={16} class="text-brand" /></div>
-												{/if}
-												<span class="min-w-0 flex-1">
-													<span class="block truncate text-xs font-semibold text-ink">{food.name}</span>
-													<span class="block text-[11px] text-mist">{fmt(food.kcal100)} kcal / 100 g</span>
-												</span>
-												<span class="text-sm text-brand">＋</span>
-											</button>
-										</li>
-									{/each}
-								</ul>
-							{/if}
+							<!-- Ajout de produit : même fenêtre de recherche que « Ajouter un aliment » -->
+							<button type="button" class="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-brand bg-brand-light px-3 py-2.5 text-sm font-semibold text-brand transition hover:bg-brand/15" onclick={() => (mealSearchOpen = true)}>
+								<Icon name="plus" size={16} strokeWidth={2.5} />
+								Ajouter un produit
+							</button>
 
 							{#if mealError}
 								<p class="mt-3 rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{mealError}</p>
 							{/if}
 
 							<button type="button" class="mt-4 w-full rounded-full bg-brand py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={mealSaving || mealItems.length === 0 || mealName.trim().length < 2} onclick={saveMeal}>
-								{mealSaving ? 'Enregistrement…' : 'Enregistrer le repas'}
+								{mealSaving ? 'Enregistrement…' : mealEditingId ? 'Enregistrer les modifications' : 'Enregistrer le repas'}
 							</button>
 						</div>
 					{:else if searchTab === 'repas'}
@@ -1668,6 +1719,9 @@
 												</span>
 											</span>
 										</button>
+										{#if !isRecipe}
+											<button type="button" class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-mist transition hover:bg-line/70 hover:text-ink" aria-label={`Modifier ${meal.name}`} onclick={() => openMealEditorFor(meal)}><Icon name="pencil" size={15} /></button>
+										{/if}
 										<button type="button" class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-mist transition hover:bg-danger-light hover:text-danger" aria-label={`Supprimer ${meal.name}`} onclick={() => deleteMeal(meal)}><Icon name="trash" size={15} /></button>
 									</li>
 								{/each}
@@ -1843,6 +1897,84 @@
 						<span>Code-barres</span>
 					</button>
 				</div>
+			</div>
+		</div>
+	</div>
+{/if}
+
+{#if ingEdit}
+	<!-- Feuille de quantité d'un INGRÉDIENT de repas : même composant que le
+	     journal (grammes au pas de 1 g, portions, raccourcis, macros live). -->
+	<QuantitySheet
+		food={ingEdit.food}
+		mealDefs={[]}
+		initialQtyGrams={ingEdit.qty}
+		mode={mealPickedIdx != null ? 'add' : 'edit'}
+		saving={false}
+		saveLabel={mealPickedIdx != null ? 'Ajouter au repas' : undefined}
+		onSave={saveIngredientQty2}
+		onDelete={mealPickedIdx != null ? () => { ingEdit = null; mealPickedIdx = null; } : removeIngredientAt}
+		onClose={() => { ingEdit = null; mealPickedIdx = null; }}
+	/>
+{/if}
+
+{#if mealSearchOpen}
+	<!-- Fenêtre de recherche d'aliments DANS l'éditeur de repas : mêmes
+	     résultats et même feuille de quantité que l'ajout au journal. La
+	     feuille de portion valide directement sur l'ingrédient (index transmis). -->
+	<div role="presentation" class="fixed inset-0 z-[70] bg-soft sm:flex sm:items-center sm:justify-center sm:bg-ink/40 sm:p-6" onclick={(e) => { if (e.target === e.currentTarget) mealSearchOpen = false; }} onkeydown={(e) => { if (e.key === 'Escape') mealSearchOpen = false; }}>
+		<div class="relative flex w-full flex-col overflow-hidden bg-soft sm:h-[min(92dvh,720px)] sm:max-w-lg sm:rounded-3xl sm:bg-white sm:shadow-2xl" style:height={mobile ? `${vvH}px` : undefined}>
+			<!-- En-tête fixe (safe-area top, cf. « Ajouter un aliment ») -->
+			<div class="flex shrink-0 items-center justify-between border-b border-line bg-white/95 px-3 pt-[max(env(safe-area-inset-top),10px)] pb-2.5 backdrop-blur">
+				<button type="button" class="grid h-9 w-9 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={() => (mealSearchOpen = false)}><Icon name="x" size={20} /></button>
+				<h2 class="font-display text-[15px] font-semibold text-ink">Ajouter un produit</h2>
+				<span class="w-9"></span>
+			</div>
+			<div class="shrink-0 border-b border-line bg-white/95 px-2.5 pb-2 pt-2 backdrop-blur">
+				<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2 focus-within:border-brand">
+					<Icon name="search" size={17} class="shrink-0 text-mist" />
+					<input
+						id="meal-picker-input"
+						type="search"
+						class="w-full bg-transparent text-[15px] text-ink outline-none placeholder:text-mist"
+						placeholder="Rechercher un produit…"
+						bind:value={mealSearchQ}
+						oninput={onMealSearchInput}
+					/>
+					{#if mealSearchQ}
+						<button type="button" class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-line/70 text-mist transition hover:bg-line" aria-label="Effacer la recherche" onclick={() => { mealSearchQ = ''; mealResults = []; }}><Icon name="x" size={13} /></button>
+					{/if}
+				</div>
+			</div>
+			<div class="flex-1 overflow-y-auto overscroll-contain px-2.5 pb-24">
+				{#if mealSearching && mealResults.length === 0}
+					<p class="py-10 text-center text-sm text-mist">Recherche…</p>
+				{:else if mealSearchError}
+					<p class="rounded-xl border-2 border-danger bg-danger-light px-3 py-3 text-sm text-danger">{mealSearchError}</p>
+				{:else if mealSearchQ.trim().length < 2}
+					<p class="py-10 text-center text-sm text-mist">Recherche un produit — base G-Flux (780 000 aliments) et tes aliments « Créés par moi ».</p>
+				{:else if mealResults.length === 0}
+					<p class="py-10 text-center text-sm text-mist">Aucun résultat pour « {mealSearchQ.trim()} ».</p>
+				{:else}
+					<ul class="flex flex-col divide-y divide-line/50 transition-opacity {mealSearching ? 'opacity-50' : ''}">
+						{#each mealResults as food, i (food._id)}
+							<li>
+								<button type="button" class="flex w-full items-center gap-2 px-1 py-2 text-left transition hover:opacity-70" onclick={() => openIngredientPortion(i)}>
+									{#if food.imageUrl}
+										<FoodImg src={food.imageUrl} alt="" class="h-10 w-10 rounded-lg" />
+									{:else}
+										<div class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={18} class="text-brand" /></div>
+									{/if}
+									<span class="min-w-0 flex-1">
+										<span class="block truncate text-sm font-semibold text-ink">{food.name}</span>
+										<span class="block text-xs text-mist"><strong class="font-bold text-brand">{fmt(food.kcal100)} kcal</strong> / 100 g{#if food.brand} · {food.brand}{/if}</span>
+									</span>
+									<span class="text-brand">＋</span>
+								</button>
+							</li>
+						{/each}
+					</ul>
+				{/if}
 			</div>
 		</div>
 	</div>

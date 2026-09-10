@@ -18,6 +18,8 @@
 		mode = 'add',
 		saving = false,
 		error = '',
+		/** Libellé du bouton principal (défaut : « Ajouter au journal » / « Enregistrer »). */
+		saveLabel = undefined,
 		showFav = false,
 		favActive = false,
 		onToggleFav,
@@ -45,6 +47,7 @@
 		mode?: 'add' | 'edit' | 'planned';
 		saving?: boolean;
 		error?: string;
+		saveLabel?: string;
 		showFav?: boolean;
 		favActive?: boolean;
 		onToggleFav?: () => void;
@@ -323,7 +326,7 @@
 					disabled={saving || !valid}
 					onclick={save}
 				>
-					{saving ? 'Enregistrement…' : mode === 'edit' ? 'Enregistrer' : 'Ajouter au journal'}
+					{saving ? 'Enregistrement…' : saveLabel ?? (mode === 'edit' ? 'Enregistrer' : 'Ajouter au journal')}
 				</button>
 			</div>
 			{#if mode === 'edit' && onUnEat}

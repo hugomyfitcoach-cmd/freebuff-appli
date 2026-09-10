@@ -47,6 +47,91 @@ const ingredientInput = v.object({
 	qtyGrams: v.number(),
 });
 
+/**
+ * Valide les ingrédients et construit le snapshot + les totaux du repas
+ * (partagé par la création et la modification).
+ */
+async function buildMealData(
+	ctx: Pick<QueryCtx, "db">,
+	userId: Id<"users">,
+	name: string,
+	description: string | undefined,
+	ingredients: { foodId?: Id<"foods">; customFoodId?: Id<"customFoods">; qtyGrams: number }[],
+) {
+	const clean = name.trim();
+	if (clean.length < 2 || clean.length > 80) {
+		throw new ConvexError("Donne un nom à ton repas (entre 2 et 80 caractères).");
+	}
+	if (description && description.trim().length > 300) {
+		throw new ConvexError("Description trop longue (300 caractères max).");
+	}
+	if (ingredients.length === 0) {
+		throw new ConvexError("Ajoute au moins un ingrédient à ton repas.");
+	}
+	if (ingredients.length > 30) {
+		throw new ConvexError("Maximum 30 ingrédients par repas.");
+	}
+
+	let totalWeight = 0;
+	let kcal = 0;
+	let carbs = 0;
+	let protein = 0;
+	let fat = 0;
+
+	const snapshot = [];
+	for (const ing of ingredients) {
+		if (!isFinite(ing.qtyGrams) || ing.qtyGrams <= 0 || ing.qtyGrams > 5000) {
+			throw new ConvexError("Quantité d'ingrédient invalide (entre 1 et 5000 g).");
+		}
+		if (!ing.foodId && !ing.customFoodId) {
+			throw new ConvexError("Un ingrédient est invalide : aliment introuvable.");
+		}
+		let food: { name: string; brand?: string; imageUrl?: string; kcal100: number; carbs100: number; protein100: number; fat100: number } | null = null;
+		if (ing.foodId) {
+			const f = await ctx.db.get(ing.foodId);
+			if (!f) throw new ConvexError("Un ingrédient n'existe plus dans la base. Retire-le et réessaie.");
+			food = f;
+		} else if (ing.customFoodId) {
+			const f = await ctx.db.get(ing.customFoodId);
+			if (!f || f.userId !== userId) {
+				throw new ConvexError("Un ingrédient personnel n'existe plus. Retire-le et réessaie.");
+			}
+			food = f;
+		}
+		if (!food) throw new ConvexError("Ingrédient invalide : aliment introuvable.");
+		const k = ing.qtyGrams / 100;
+		const row = {
+			foodId: ing.foodId ?? undefined,
+			customFoodId: ing.customFoodId ?? undefined,
+			name: food.name,
+			brand: food.brand,
+			imageUrl: food.imageUrl,
+			qtyGrams: ing.qtyGrams,
+			kcal: Math.round(food.kcal100 * k),
+			carbs: round1(food.carbs100 * k),
+			protein: round1(food.protein100 * k),
+			fat: round1(food.fat100 * k),
+		};
+		snapshot.push(row);
+		totalWeight += ing.qtyGrams;
+		kcal += row.kcal;
+		carbs += row.carbs;
+		protein += row.protein;
+		fat += row.fat;
+	}
+
+	return {
+		name: clean,
+		description: description?.trim() || undefined,
+		totalWeight: Math.round(totalWeight),
+		kcal: Math.round(kcal),
+		carbs: round1(carbs),
+		protein: round1(protein),
+		fat: round1(fat),
+		ingredients: snapshot,
+	};
+}
+
 /** Crée un repas : totaux calculés côté serveur à partir de la base. */
 export const createMeal = mutation({
 	args: {
@@ -57,80 +142,39 @@ export const createMeal = mutation({
 	},
 	handler: async (ctx, { sessionToken, name, description, ingredients }) => {
 		const user = await requireClient(ctx, sessionToken);
-		const clean = name.trim();
-		if (clean.length < 2 || clean.length > 80) {
-			throw new ConvexError("Donne un nom à ton repas (entre 2 et 80 caractères).");
-		}
-		if (description && description.trim().length > 300) {
-			throw new ConvexError("Description trop longue (300 caractères max).");
-		}
-		if (ingredients.length === 0) {
-			throw new ConvexError("Ajoute au moins un ingrédient à ton repas.");
-		}
-		if (ingredients.length > 30) {
-			throw new ConvexError("Maximum 30 ingrédients par repas.");
-		}
-
-		let totalWeight = 0;
-		let kcal = 0;
-		let carbs = 0;
-		let protein = 0;
-		let fat = 0;
-
-		const snapshot = [];
-		for (const ing of ingredients) {
-			if (!isFinite(ing.qtyGrams) || ing.qtyGrams <= 0 || ing.qtyGrams > 5000) {
-				throw new ConvexError("Quantité d'ingrédient invalide (entre 1 et 5000 g).");
-			}
-			if (!ing.foodId && !ing.customFoodId) {
-				throw new ConvexError("Un ingrédient est invalide : aliment introuvable.");
-			}
-			let food: { name: string; brand?: string; imageUrl?: string; kcal100: number; carbs100: number; protein100: number; fat100: number } | null = null;
-			if (ing.foodId) {
-				const f = await ctx.db.get(ing.foodId);
-				if (!f) throw new ConvexError("Un ingrédient n'existe plus dans la base. Retire-le et réessaie.");
-				food = f;
-			} else if (ing.customFoodId) {
-				const f = await ctx.db.get(ing.customFoodId);
-				if (!f || f.userId !== user._id) {
-					throw new ConvexError("Un ingrédient personnel n'existe plus. Retire-le et réessaie.");
-				}
-				food = f;
-			}
-			if (!food) throw new ConvexError("Ingrédient invalide : aliment introuvable.");
-			const k = ing.qtyGrams / 100;
-			const row = {
-				foodId: ing.foodId ?? undefined,
-				customFoodId: ing.customFoodId ?? undefined,
-				name: food.name,
-				brand: food.brand,
-				imageUrl: food.imageUrl,
-				qtyGrams: ing.qtyGrams,
-				kcal: Math.round(food.kcal100 * k),
-				carbs: round1(food.carbs100 * k),
-				protein: round1(food.protein100 * k),
-				fat: round1(food.fat100 * k),
-			};
-			snapshot.push(row);
-			totalWeight += ing.qtyGrams;
-			kcal += row.kcal;
-			carbs += row.carbs;
-			protein += row.protein;
-			fat += row.fat;
-		}
-
+		const data = await buildMealData(ctx, user._id, name, description, ingredients);
 		const mealId = await ctx.db.insert("meals", {
 			userId: user._id,
-			name: clean,
-			description: description?.trim() || undefined,
-			totalWeight: Math.round(totalWeight),
-			kcal: Math.round(kcal),
-			carbs: round1(carbs),
-			protein: round1(protein),
-			fat: round1(fat),
-			ingredients: snapshot,
+			...data,
 			createdAt: Date.now(),
 		});
+		return { ok: true, mealId };
+	},
+});
+
+/**
+ * Modifie un repas du client (nom, description, ingrédients) : totaux et
+ * snapshot recalculés intégralement côté serveur. Recette G-FLUX refusée
+ * (elle vit telle quelle dans « Mes repas ») ; les entrées déjà consommées
+ * conservent leur snapshot (l'historique n'est jamais réécrit).
+ */
+export const updateMeal = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		mealId: v.id("meals"),
+		name: v.string(),
+		description: v.optional(v.string()),
+		ingredients: v.array(ingredientInput),
+	},
+	handler: async (ctx, { sessionToken, mealId, name, description, ingredients }) => {
+		const user = await requireClient(ctx, sessionToken);
+		const meal = await ctx.db.get(mealId);
+		if (!meal || meal.userId !== user._id) throw new ConvexError("Repas introuvable.");
+		if (meal.sourceType === "gflux_recipe") {
+			throw new ConvexError("Les recettes G-FLUX ne peuvent pas être modifiées.");
+		}
+		const data = await buildMealData(ctx, user._id, name, description, ingredients);
+		await ctx.db.patch(mealId, data);
 		return { ok: true, mealId };
 	},
 });
