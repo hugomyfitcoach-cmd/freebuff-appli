@@ -16,6 +16,7 @@ import type { Doc } from "./_generated/dataModel";
 import { DEFAULT_GOALS } from "./journal";
 import { deleteMessageAudioRows, mediaExpiresAt } from "./media";
 import { step2Done } from "./onboarding";
+import { wallTimeToUtcMs } from "./helpers";
 
 /**
  * Dashboard « Accueil » de l'espace cliente.
@@ -205,6 +206,50 @@ export const getDashboard = query({
 		const stepsTodayRow = stepsRows.find((s) => s.date === day) ?? null;
 		const stepGoal = goalsRow?.stepGoal ?? null;
 
+		/* ── Rappel 12 h du prochain rendez-vous (état DÉRIVÉ, §29/§31) ──
+		   Source de vérité : le rendez-vous G-FLUX confirmé (startAt + status).
+		   Aucune donnée de rappel indépendante : la carte Accueil et le badge
+		   apparaissent dès que now ∈ [startAt − 12 h, startAt[ et disparaissent
+		   si le RDV est annulé / passé / replanifié hors fenêtre (recalcul
+		   automatique sur le nouveau startAt). Indépendant du push (§24). */
+		const apptRows = await ctx.db
+			.query("appointments")
+			.withIndex("by_client", (q) => q.eq("clientId", user._id))
+			.order("desc")
+			.take(100);
+		let appointmentReminder: {
+			appointmentId: string;
+			date: string;
+			time: string;
+			endTime: string;
+			kind: string;
+			startAtMs: number;
+			bookingSource: "coach" | "client" | null;
+		} | null = null;
+		// Le PLUS PROCHE rendez-vous futur confirmé (jamais un autre, jamais un
+		// RDV annulé ni passé), puis test de la fenêtre 12 h sur lui seul.
+		let nextStartMs = Number.POSITIVE_INFINITY;
+		let nextAppt: Doc<"appointments"> | null = null;
+		for (const a of apptRows) {
+			if (a.status !== "on_book") continue; // annulé → jamais de rappel (§28)
+			const startAtMs = wallTimeToUtcMs(a.date, a.time, "Europe/Paris");
+			if (!Number.isFinite(startAtMs)) continue;
+			if (startAtMs <= ts || startAtMs >= nextStartMs) continue;
+			nextStartMs = startAtMs;
+			nextAppt = a;
+		}
+		if (nextAppt && nextStartMs - ts <= 12 * 3600 * 1000) {
+			appointmentReminder = {
+				appointmentId: nextAppt._id,
+				date: nextAppt.date,
+				time: nextAppt.time,
+				endTime: nextAppt.endTime,
+				kind: nextAppt.kind,
+				startAtMs: nextStartMs,
+				bookingSource: nextAppt.bookingSource ?? null,
+			};
+		}
+
 		/* ── Récap hebdo : samedi + dimanche de la semaine courante (sinon rien) ── */
 		// La carte « Ta semaine en un coup d'œil » n'apparaît que samedi et
 		// dimanche ; dès le lundi 00:00 elle disparaît (aucun résumé d'une
@@ -255,6 +300,7 @@ export const getDashboard = query({
 			today: day,
 			coachMessage,
 			onboarding,
+			appointmentReminder,
 			tracking: { kcal, kcalGoal, maintenanceKcal },
 			steps: {
 				today: stepsTodayRow?.count ?? null,
@@ -292,6 +338,9 @@ export const getDashboard = query({
 				// « message » = message du coach du jour non encore marqué « Vu » par la cliente.
 				message: msgFresh && (msgAt ? (user.coachMessageReadAt ?? 0) < msgAt : false) ? 1 : 0,
 				progression: (measurementsDue ? 1 : 0) + (photosDue ? 1 : 0),
+				// « reminder » = information importante disponible sur l'Accueil
+				// (rappel rendez-vous dans la fenêtre 12 h) — badge Accueil (§21).
+				reminder: appointmentReminder ? 1 : 0,
 			},
 		};
 	},

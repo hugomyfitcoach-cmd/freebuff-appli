@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import { getSessionUser } from "./helpers";
@@ -102,6 +102,57 @@ export const subscriptionsFor = query({
 			.withIndex("by_user", (q) => q.eq("userId", userId))
 			.collect();
 		return rows.map((r) => ({ endpoint: r.endpoint, p256dh: r.p256dh, auth: r.auth }));
+	},
+});
+
+/** Abonnements d'une cliente SANS session — réservé au moteur interne (cron rappel 12 h). */
+export const internalSubscriptionsOfUser = internalQuery({
+	args: { userId: v.id("users") },
+	handler: async (ctx, { userId }) => {
+		const rows = await ctx.db
+			.query("pushSubscriptions")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.collect();
+		return rows.map((r) => ({ endpoint: r.endpoint, p256dh: r.p256dh, auth: r.auth }));
+	},
+});
+
+/** Retrait interne d'un endpoint mort (404/410) — moteur de rappel 12 h. */
+export const internalRemoveEndpoint = internalMutation({
+	args: { endpoint: v.string() },
+	handler: async (ctx, { endpoint }) => {
+		const rows = await ctx.db
+			.query("pushSubscriptions")
+			.withIndex("by_endpoint", (q) => q.eq("endpoint", endpoint.slice(0, 500)))
+			.collect();
+		for (const r of rows) await ctx.db.delete(r._id);
+		return { ok: true };
+	},
+});
+
+/**
+ * État de permission notifications déclaré par le navigateur de la cliente
+ * ("granted" | "denied" | "unsupported" | "default"). Sert au moteur de
+ * rappel 12 h : permission refusée ou indisponible → rappel interne + badge
+ * uniquement (le push n'est jamais une dépendance, §24).
+ */
+export const setPermission = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		permission: v.union(
+			v.literal("granted"),
+			v.literal("denied"),
+			v.literal("unsupported"),
+			v.literal("default")
+		),
+	},
+	handler: async (ctx, { sessionToken, permission }) => {
+		const user = await getSessionUser(ctx, sessionToken);
+		if (!user) return { ok: false };
+		if (user.pushPermission !== permission) {
+			await ctx.db.patch(user._id, { pushPermission: permission, pushPermissionAskedAt: Date.now() });
+		}
+		return { ok: true };
 	},
 });
 

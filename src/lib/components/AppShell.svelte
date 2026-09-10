@@ -22,7 +22,7 @@
 		user: SessionUser;
 		contentWidth?: 'std' | 'wide' | 'full';
 		showFooter?: boolean;
-		badges?: { bilans?: number; retours?: number; message?: number; progression?: number };
+		badges?: { bilans?: number; retours?: number; message?: number; progression?: number; reminder?: number };
 	} = $props();
 
 	const path = $derived(page.url.pathname);
@@ -60,8 +60,10 @@
 	}
 
 	type Link = { href: string; label: string; icon?: string; accent?: boolean; badge?: number };
-	/** Badge de l'Accueil = actions bilans + message du coach du jour non lu. */
-	const homeBadge = $derived((badges.bilans ?? 0) + (badges.message ?? 0));
+	/** Badge de l'Accueil = actions bilans + message du coach non lu + rappel RDV 12 h.
+	    Le rappel compte pour 1 (point, §21) : une information importante est
+	    disponible sur l'Accueil — sans déformer l'icône ni agrandir le bouton. */
+	const homeBadge = $derived((badges.bilans ?? 0) + (badges.message ?? 0) + (badges.reminder ?? 0));
 
 	const links = $derived<Link[]>(
 		role === 'client'
@@ -71,6 +73,7 @@
 					{ href: '/espace/progression', label: 'Progression', icon: 'trendingUp', badge: badges.progression ?? 0 },
 					{ href: '/espace/messages', label: 'Messages', icon: 'messageCircle', badge: badges.message ?? 0 },
 					{ href: '/espace/historique', label: 'Bilans & retours', icon: 'clipboardCheck', badge: badges.retours ?? 0 },
+					{ href: '/espace/rendez-vous', label: 'Rendez-vous', icon: 'calendarCheck' },
 					{ href: '/espace/ressources', label: 'Ressources', icon: 'bookOpen' },
 					{ href: '/recettes', label: 'Recettes & nutrition', icon: 'chefHat' },
 					{ href: '/outils', label: 'Outils & calibrage', icon: 'wrench' },
@@ -79,6 +82,7 @@
 					{ href: '/admin', label: 'Tableau de bord', icon: 'chartBar' },
 					{ href: '/admin/bilans', label: 'Bilans', icon: 'clipboardList' },
 					{ href: '/admin/plans', label: 'Plans de repas', icon: 'utensils' },
+					{ href: '/admin/rendez-vous', label: 'Rendez-vous', icon: 'calendarCheck' },
 					{ href: '/recettes', label: 'Guide nutrition & recettes', icon: 'chefHat' },
 					{ href: '/outils', label: 'Outils & calibrage', icon: 'wrench' },
 				]
@@ -105,6 +109,8 @@
 				] as Link[])
 			: []
 	);
+	/** Le badge Accueil est un POINT (présence d'une info), jamais un gros compteur. */
+	const homeBadgeIsDot = $derived((badges.reminder ?? 0) > 0 && (badges.bilans ?? 0) + (badges.message ?? 0) === 0);
 
 	const mainClass = $derived(
 		journalFullScreen
@@ -323,7 +329,11 @@
 						<Icon name={link.icon ?? 'home'} size={22} strokeWidth={active ? 2.3 : 1.9} class="transition" />
 						<span>{link.label}</span>
 						{#if link.badge && link.badge > 0}
-							<span class="absolute right-1/2 top-0.5 grid h-4 min-w-4 -translate-x-1/2 translate-x-3 place-items-center rounded-full bg-warn px-1 text-[10px] font-bold text-white">{link.badge}</span>
+							{#if homeBadgeIsDot}
+								<span class="absolute right-1/2 top-0.5 h-2 w-2 -translate-x-1/2 translate-x-3 rounded-full bg-warn ring-2 ring-white"></span>
+							{:else}
+								<span class="absolute right-1/2 top-0.5 grid h-4 min-w-4 -translate-x-1/2 translate-x-3 place-items-center rounded-full bg-warn px-1 text-[10px] font-bold text-white">{link.badge}</span>
+							{/if}
 						{/if}
 					</a>
 				{/each}

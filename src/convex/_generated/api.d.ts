@@ -9,11 +9,13 @@
  */
 
 import type * as answers from "../answers.js";
+import type * as appointments from "../appointments.js";
 import type * as checkins from "../checkins.js";
 import type * as coach from "../coach.js";
 import type * as crons from "../crons.js";
 import type * as customFoods from "../customFoods.js";
 import type * as dashboard from "../dashboard.js";
+import type * as googleCalendar from "../googleCalendar.js";
 import type * as helpers from "../helpers.js";
 import type * as journal from "../journal.js";
 import type * as mealPlans from "../mealPlans.js";
@@ -24,9 +26,11 @@ import type * as off from "../off.js";
 import type * as onboarding from "../onboarding.js";
 import type * as photos from "../photos.js";
 import type * as push from "../push.js";
+import type * as reminderPush from "../reminderPush.js";
 import type * as resources from "../resources.js";
 import type * as steps from "../steps.js";
 import type * as users from "../users.js";
+import type * as webPushVendors from "../webPushVendors.js";
 
 import type {
   ApiFromModules,
@@ -36,11 +40,13 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   answers: typeof answers;
+  appointments: typeof appointments;
   checkins: typeof checkins;
   coach: typeof coach;
   crons: typeof crons;
   customFoods: typeof customFoods;
   dashboard: typeof dashboard;
+  googleCalendar: typeof googleCalendar;
   helpers: typeof helpers;
   journal: typeof journal;
   mealPlans: typeof mealPlans;
@@ -51,9 +57,11 @@ declare const fullApi: ApiFromModules<{
   onboarding: typeof onboarding;
   photos: typeof photos;
   push: typeof push;
+  reminderPush: typeof reminderPush;
   resources: typeof resources;
   steps: typeof steps;
   users: typeof users;
+  webPushVendors: typeof webPushVendors;
 }>;
 
 /**

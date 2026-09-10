@@ -130,7 +130,7 @@
 		</header>
 
 		<!-- Carrousel + pagination -->
-		<div class="flex flex-1 flex-col justify-center py-8">
+		<div class="flex flex-1 flex-col justify-center pt-4 pb-12">
 			<div
 				bind:this={track}
 				onscroll={onScroll}
@@ -200,7 +200,7 @@
 		</div>
 
 		<!-- CTA unique -->
-		<footer class="pb-[max(env(safe-area-inset-bottom),12px)] pt-1">
+		<footer class="pb-[max(env(safe-area-inset-bottom),28px)] pt-1">
 			<button
 				type="button"
 				onclick={() => (showLogin = true)}

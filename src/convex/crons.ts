@@ -1,16 +1,15 @@
 import { cronJobs } from "convex/server";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 
 /**
- * Tâche planifiée : purge automatique des retours audio expirés.
+ * Tâches planifiées G-FLUX.
  *
- * Règle de rétention (la première échéance atteinte gagne) :
- *   - 72 h après la première écoute réelle de la cliente ;
- *   - au plus tard 14 jours après la publication.
- *
- * Le nettoyage ne dépend jamais d'une ouverture de page : la purge tourne
- * chaque heure et supprime réellement le fichier du storage, puis marque la
- * ligne « expired » (le bilan texte, lui, reste conservé).
+ * 1) Purge des retours audio expirés (chaque heure).
+ * 2) RAPPEL 12 h des rendez-vous confirmés (toutes les 5 minutes) :
+ *    l'envoi vit côté backend (action Convex) pour que la notification parte
+ *    même quand l'app de la cliente est fermée — jamais un timer navigateur.
+ *    Idempotence garantie par appointments.internalMarkReminderSent (§26) :
+ *    un job exécuté plusieurs fois n'envoie jamais deux fois le même rappel.
  */
 const crons = cronJobs();
 
@@ -20,5 +19,7 @@ crons.interval(
 	api.media.expire,
 	{ guard: "cron-purge-2026" }
 );
+
+crons.interval("reminder-12h-tick", { minutes: 5 }, internal.reminderPush.tick, {});
 
 export default crons;

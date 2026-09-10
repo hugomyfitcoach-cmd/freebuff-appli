@@ -42,6 +42,15 @@ import { api } from '../../convex/_generated/api.js';	import { SESSION_COOKIE, r
 		? await convex.query(api.coach.messageLog, { sessionToken: token, userId: selectedId as never })
 		: [];
 
+	// État de connexion Google Calendar du coach (email + scopes — jamais de token).
+	const google = await convex.query(api.googleCalendar.status, { sessionToken: token }).catch(() => null);
+	const googleBanner =
+		event.url.searchParams.get('google') === 'ok'
+			? 'google-ok'
+			: event.url.searchParams.get('google') === 'error'
+				? `google-error:${event.url.searchParams.get('reason') ?? 'Erreur inconnue'}`
+				: null;
+
 	return {
 		clients,
 		bilansBoard,
@@ -53,6 +62,8 @@ import { api } from '../../convex/_generated/api.js';	import { SESSION_COOKIE, r
 		media,
 		onboardingView,
 		messageLog,
+		google,
+		googleBanner,
 		form: null as null | { action: string; error?: string; ok?: string },
 	};
 };
@@ -300,6 +311,16 @@ export const actions: Actions = {
 			return { action: 'setGoals', ok: 'Objectifs journaliers enregistrés.', clientId: userId };
 		} catch (e) {
 			return fail(400, { action: 'setGoals', error: errMsg(e), clientId: userId });
+		}
+	},
+	googleDisconnect: async (event) => {
+		await requireRole(event, 'coach');
+		const token = event.cookies.get(SESSION_COOKIE);
+		try {
+			await convex.mutation(api.googleCalendar.disconnect, { sessionToken: token });
+			return { action: 'googleDisconnect', ok: 'Google Calendar déconnecté — les tokens chiffrés ont été supprimés.' };
+		} catch (e) {
+			return fail(400, { action: 'googleDisconnect', error: errMsg(e) });
 		}
 	},
 };
