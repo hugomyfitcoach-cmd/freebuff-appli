@@ -28,7 +28,7 @@
 	};
 	type Food = {
 		_id: string;
-		offId: string;
+		offId?: string;
 		name: string;
 		brand?: string;
 		kcal100: number;
@@ -37,6 +37,8 @@
 		fat100: number;
 		imageUrl?: string;
 		servingQty?: number;
+		/** Aliment personnel créé par le client (base « Créés par moi »). */
+		custom?: boolean;
 	};
 	type Meal = {
 		_id: string;
@@ -59,7 +61,7 @@
 			fat: number;
 		}[];
 	};
-	type MealDraftItem = { food: Food; qty: number };
+	type MealDraftItem = { food: Food; qty: number; custom?: boolean; customFoodId?: string };
 
 	let { data } = $props();
 
@@ -206,6 +208,7 @@
 		searchTab = 'produits';
 		favOnly = false;
 		mealEditor = false;
+		customEditor = false;
 		barcodeStatus = 'idle';
 		barcodeError = '';
 		barcodeManual = '';
@@ -213,6 +216,7 @@
 		logOpen = true;
 		loadFavorites();
 		loadMeals();
+		loadCustomFoods();
 	}
 	async function closeLog() {
 		await stopScanner();
@@ -283,6 +287,92 @@
 		}
 	}
 
+	/* ————— Aliments personnels (« Créés par moi ») ————— */
+	let customFoods = $state<Food[]>([]);
+	let customFoodsError = $state('');
+	let customEditor = $state(false);
+	let cfName = $state('');
+	let cfBrand = $state('');
+	let cfKcal = $state('');
+	let cfCarbs = $state('');
+	let cfProtein = $state('');
+	let cfFat = $state('');
+	let cfServing = $state('');
+	let cfSaving = $state(false);
+	let cfError = $state('');
+
+	async function loadCustomFoods() {
+		customFoodsError = '';
+		try {
+			const r = await fetch('/api/foods/custom');
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			customFoods = (j as Food[]).map((f) => ({ ...f, custom: true }));
+		} catch (e) {
+			customFoodsError = e instanceof Error ? e.message : String(e);
+		}
+	}
+	function openCustomEditor() {
+		customEditor = true;
+		cfName = '';
+		cfBrand = '';
+		cfKcal = '';
+		cfCarbs = '';
+		cfProtein = '';
+		cfFat = '';
+		cfServing = '';
+		cfError = '';
+	}
+	function closeCustomEditor() {
+		customEditor = false;
+	}
+	async function saveCustomFood() {
+		const num = (v: string) => {
+			const n = parseFloat(v.replace(',', '.'));
+			return v.trim() === '' || !isFinite(n) ? undefined : n;
+		};
+		if (cfName.trim().length < 2) {
+			cfError = 'Donne un nom à ton aliment.';
+			return;
+		}
+		cfSaving = true;
+		cfError = '';
+		try {
+			const r = await fetch('/api/foods/custom', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					name: cfName,
+					brand: cfBrand.trim() || undefined,
+					kcal100: num(cfKcal),
+					carbs100: num(cfCarbs) ?? 0,
+					protein100: num(cfProtein) ?? 0,
+					fat100: num(cfFat) ?? 0,
+					servingQty: num(cfServing),
+				}),
+			});
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			await loadCustomFoods();
+			closeCustomEditor();
+		} catch (e) {
+			cfError = e instanceof Error ? e.message : String(e);
+		} finally {
+			cfSaving = false;
+		}
+	}
+	async function deleteCustomFood(food: Food) {
+		if (!confirm(`Supprimer l'aliment « ${food.name} » de ta base ?`)) return;
+		try {
+			const r = await fetch(`/api/foods/custom?id=${food._id}`, { method: 'DELETE' });
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			await loadCustomFoods();
+		} catch (e) {
+			customFoodsError = e instanceof Error ? e.message : String(e);
+		}
+	}
+
 	/* ————— Éditeur de repas ————— */
 	let mealEditor = $state(false);
 	let mealName = $state('');
@@ -328,7 +418,15 @@
 		mealSearchTimer = setTimeout(() => runMealSearch(mealSearchQ.trim()), 300);
 	}
 	function addIngredient(food: Food) {
-		mealItems = [...mealItems, { food, qty: food.servingQty && food.servingQty > 0 ? Math.round(food.servingQty) : 100 }];
+		mealItems = [
+			...mealItems,
+			{
+				food,
+				qty: food.servingQty && food.servingQty > 0 ? Math.round(food.servingQty) : 100,
+				custom: food.custom,
+				customFoodId: food.custom ? food._id : undefined,
+			},
+		];
 		mealSearchQ = '';
 		mealResults = [];
 	}
@@ -368,7 +466,10 @@
 				body: JSON.stringify({
 					name: mealName,
 					description: mealDesc.trim() || undefined,
-					ingredients: mealItems.map((it) => ({ foodId: it.food._id, qtyGrams: it.qty })),
+					ingredients: mealItems.map((it) => ({
+						...(it.custom ? { customFoodId: it.food._id } : { foodId: it.food._id }),
+						qtyGrams: it.qty,
+					})),
 				}),
 			});
 			const j = await r.json();
@@ -407,7 +508,12 @@
 			const r = await fetch('/api/journal', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ date, meal: qtyMeal, foodId: qtyFood._id, qtyGrams }),
+				body: JSON.stringify({
+					date,
+					meal: qtyMeal,
+					...(qtyFood.custom ? { customFoodId: qtyFood._id } : { foodId: qtyFood._id }),
+					qtyGrams,
+				}),
 			});
 			const j = await r.json();
 			if (j.error) throw new Error(j.error);
@@ -631,6 +737,22 @@
 			if (e.key === 'ArrowLeft') shiftDay(-1);
 			if (e.key === 'ArrowRight') shiftDay(1);
 		});
+
+		/* Clavier mobile : ajuste la hauteur de la modale pour que la liste de
+		   résultats et la barre Recherche/Code-barres restent visibles au-dessus
+		   du clavier (comme une app native). --kb = hauteur du clavier en px. */
+		const setKb = () => {
+			const vv = window.visualViewport;
+			if (!vv) return;
+			const kb = Math.max(0, window.innerHeight - vv.height);
+			document.documentElement.style.setProperty('--kb', `${kb}px`);
+		};
+		const vv = window.visualViewport;
+		if (vv) {
+			vv.addEventListener('resize', setKb);
+			vv.addEventListener('scroll', setKb);
+			setKb();
+		}
 	});
 </script>
 
@@ -638,7 +760,7 @@
 
 <svelte:window ontouchstart={onTouchStart} ontouchend={onTouchEnd} />
 
-<div class="mx-auto w-full max-w-xl px-4 pb-28 pt-4 sm:px-6">
+<div class="mx-auto w-full max-w-2xl px-3 pb-28 pt-4 sm:px-6">
 	<!-- En-tête : date + navigation -->
 	<header class="mb-4 flex items-center justify-between gap-2">
 		<button
@@ -821,7 +943,7 @@
 <!-- ═══════════ Modale « Ajouter un aliment » ═══════════ -->
 {#if logOpen}
 	<div role="presentation" class="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-0 backdrop-blur-sm sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget) closeLog(); }} onkeydown={(e) => { if (e.key === 'Escape') closeLog(); }}>
-		<div class="flex max-h-[92dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
+		<div class="flex h-[calc(100dvh-var(--kb,0px))] w-full max-w-lg flex-col overflow-hidden bg-white shadow-2xl sm:h-auto sm:max-h-[92dvh] sm:rounded-3xl">
 			<!-- En-tête -->
 			<div class="flex items-center justify-between border-b border-line px-4 py-3">
 				<button type="button" class="grid h-8 w-8 place-items-center rounded-full text-lg text-mist hover:bg-line/50" aria-label="Fermer" onclick={() => closeLog()}>✕</button>
@@ -972,7 +1094,7 @@
 								{mealSaving ? 'Enregistrement…' : 'Enregistrer le repas'}
 							</button>
 						</div>
-					{:else if searchTab === 'repas' || searchTab === 'crees'}
+					{:else if searchTab === 'repas'}
 						<!-- ═══════ Mes repas ═══════ -->
 						<button type="button" class="mb-3 flex w-full items-center gap-2 rounded-xl bg-brand-light px-3 py-2.5 text-sm font-semibold text-brand transition hover:bg-brand/15" onclick={openMealEditor}>
 							<span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand text-white">＋</span>
@@ -1008,6 +1130,78 @@
 								{/each}
 							</ul>
 							<p class="mt-3 text-center text-xs text-mist">Touche un repas pour ajouter une portion au journal.</p>
+						{/if}
+					{:else if searchTab === 'crees'}
+						<!-- ═══════ Créés par moi : aliments personnels ═══════ -->
+						{#if customEditor}
+							<button type="button" class="mb-3 flex items-center gap-1 text-sm font-semibold text-mist hover:text-ink" onclick={closeCustomEditor}>← Retour à mes aliments</button>
+							<p class="mb-1 text-sm font-semibold text-ink">Nouvel aliment</p>
+							<p class="mb-3 text-xs text-mist">Reçois-tu un plat avec une étiquette nutritionnelle ? Saisis les valeurs pour 100 g : l'aliment sera ajouté à ta base.</p>
+
+							<input type="text" class="w-full rounded-xl border-2 border-line bg-cream px-3 py-2.5 text-sm font-semibold text-ink outline-none focus:border-brand" placeholder="Nom (ex. Hachis parmentier)" bind:value={cfName} />
+							<input type="text" class="mt-2 w-full rounded-xl border-2 border-line bg-cream px-3 py-2.5 text-sm text-ink outline-none focus:border-brand" placeholder="Marque (optionnel)" bind:value={cfBrand} />
+
+							<div class="mt-3 grid grid-cols-2 gap-2">
+								<label class="rounded-xl border-2 border-line bg-cream px-3 py-2">
+									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist">Calories / 100 g</span>
+									<input type="text" inputmode="decimal" class="mt-1 w-full bg-transparent text-sm font-bold text-ink outline-none" placeholder="Ex. 120" bind:value={cfKcal} />
+								</label>
+								<label class="rounded-xl border-2 border-line bg-cream px-3 py-2">
+									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist">Glucides / 100 g</span>
+									<input type="text" inputmode="decimal" class="mt-1 w-full bg-transparent text-sm font-bold text-ink outline-none" placeholder="Ex. 15" bind:value={cfCarbs} />
+								</label>
+								<label class="rounded-xl border-2 border-line bg-cream px-3 py-2">
+									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist">Protéines / 100 g</span>
+									<input type="text" inputmode="decimal" class="mt-1 w-full bg-transparent text-sm font-bold text-ink outline-none" placeholder="Ex. 10" bind:value={cfProtein} />
+								</label>
+								<label class="rounded-xl border-2 border-line bg-cream px-3 py-2">
+									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist">Lipides / 100 g</span>
+									<input type="text" inputmode="decimal" class="mt-1 w-full bg-transparent text-sm font-bold text-ink outline-none" placeholder="Ex. 4" bind:value={cfFat} />
+								</label>
+							</div>
+
+							<label class="mt-2 block rounded-xl border-2 border-line bg-cream px-3 py-2">
+								<span class="block text-[11px] font-bold uppercase tracking-wide text-mist">Portion habituelle (g, optionnel)</span>
+								<input type="text" inputmode="decimal" class="mt-1 w-full bg-transparent text-sm font-bold text-ink outline-none" placeholder="Ex. 200" bind:value={cfServing} />
+							</label>
+
+							{#if cfError}
+								<p class="mt-3 rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{cfError}</p>
+							{/if}
+
+							<button type="button" class="mt-4 w-full rounded-full bg-brand py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={cfSaving || cfName.trim().length < 2} onclick={saveCustomFood}>
+								{cfSaving ? 'Enregistrement…' : 'Créer mon aliment'}
+							</button>
+						{:else}
+							<button type="button" class="mb-3 flex w-full items-center gap-2 rounded-xl bg-brand-light px-3 py-2.5 text-sm font-semibold text-brand transition hover:bg-brand/15" onclick={openCustomEditor}>
+								<span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand text-white">＋</span>
+								Créer un aliment (étiquette nutritionnelle)
+							</button>
+							{#if customFoodsError}
+								<p class="rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{customFoodsError}</p>
+							{:else if customFoods.length === 0}
+								<div class="py-10 text-center">
+									<div class="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-brand-light text-2xl">🍲</div>
+									<p class="text-sm font-semibold text-ink">Aucun aliment créé</p>
+									<p class="mx-auto mt-1 max-w-xs text-xs text-mist">Un produit absent de la base ? Crée-le ici avec son étiquette nutritionnelle (calories, protéines, lipides…).</p>
+								</div>
+							{:else}
+								<ul class="flex flex-col gap-2">
+									{#each customFoods as food (food._id)}
+										<li class="flex items-center gap-2">
+											<button type="button" class="flex min-w-0 flex-1 items-center gap-3 rounded-2xl border border-line bg-white p-2.5 text-left shadow-sm transition hover:border-brand" onclick={() => openQty(food)}>
+												<div class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-light text-xl">🍲</div>
+												<span class="min-w-0 flex-1">
+													<span class="block truncate text-sm font-semibold text-ink">{food.name}</span>
+													<span class="block text-xs text-mist"><strong class="font-bold text-brand">{fmt(food.kcal100)} kcal</strong> · 100 g{#if food.brand} · {food.brand}{/if}</span>
+												</span>
+											</button>
+											<button type="button" class="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-sm text-mist transition hover:bg-danger-light hover:text-danger" aria-label={`Supprimer ${food.name}`} onclick={() => deleteCustomFood(food)}>🗑</button>
+										</li>
+									{/each}
+								</ul>
+								<p class="mt-3 text-center text-xs text-mist">Touche un aliment pour l'ajouter au journal. Il apparaît aussi dans la recherche.</p>
+							{/if}
 						{/if}
 					{:else if favOnly}
 						<!-- ═══════ Favoris ═══════ -->
@@ -1059,14 +1253,16 @@
 										<span class="min-w-0 flex-1">
 											<span class="flex items-center gap-1">
 												<span class="truncate text-sm font-semibold text-ink">{food.name}</span>
-												<span class="shrink-0 text-[10px] font-bold text-brand" title="Vérifié Open Food Facts">✓</span>
+												{#if !food.custom}<span class="shrink-0 text-[10px] font-bold text-brand" title="Vérifié Open Food Facts">✓</span>{/if}
 											</span>
 											<span class="block text-xs text-mist">
 												<strong class="font-bold text-brand">{fmt(food.kcal100)} kcal</strong> · 100 g{#if food.brand} · {food.brand}{/if}
 											</span>
 										</span>
 									</button>
-									<button type="button" class="grid h-9 w-9 shrink-0 place-items-center rounded-full text-lg transition {fav ? 'text-brand' : 'text-mist hover:text-brand'}" aria-label={fav ? `Retirer ${food.name} des favoris` : `Ajouter ${food.name} aux favoris`} onclick={() => toggleFav(food)}>{fav ? '♥' : '♡'}</button>
+									{#if !food.custom}
+										<button type="button" class="grid h-9 w-9 shrink-0 place-items-center rounded-full text-lg transition {fav ? 'text-brand' : 'text-mist hover:text-brand'}" aria-label={fav ? `Retirer ${food.name} des favoris` : `Ajouter ${food.name} aux favoris`} onclick={() => toggleFav(food)}>{fav ? '♥' : '♡'}</button>
+									{/if}
 								</li>
 							{/each}
 						</ul>
@@ -1103,9 +1299,9 @@
 				</div>
 			{/if}
 
-			<!-- Barre basse : Recherche ⇄ Code-barres -->
-			<div class="border-t border-line bg-white p-2">
-				<div class="mx-auto flex max-w-[260px] items-center gap-1 rounded-full bg-ink/90 p-1">
+			<!-- Barre flottante : Recherche ⇄ Code-barres -->
+			<div class="px-3 py-3">
+				<div class="mx-auto flex max-w-[280px] items-center gap-1 rounded-full bg-ink/95 p-1 shadow-lg shadow-ink/20">
 					<button type="button" class="flex-1 rounded-full py-2 text-center text-xs font-semibold transition {logMode === 'search' ? 'bg-white/90 text-ink' : 'text-white/70 hover:text-white'}" onclick={() => switchMode('search')}>
 						<span class="block text-base leading-none" aria-hidden="true">🔍</span>
 						<span class="mt-0.5 block">Recherche</span>
@@ -1134,7 +1330,9 @@
 					<p class="truncate font-semibold text-ink">{qtyFood.name}</p>
 					<p class="text-xs text-mist">{fmt(qtyFood.kcal100)} kcal pour 100 g</p>
 				</div>
-				<button type="button" class="grid h-9 w-9 shrink-0 place-items-center rounded-full text-lg transition {favSet.has(qtyFood._id) ? 'text-brand' : 'text-mist hover:text-brand'}" aria-label="Favori" onclick={() => { if (qtyFood) toggleFav(qtyFood); }}>{favSet.has(qtyFood._id) ? '♥' : '♡'}</button>
+				{#if !qtyFood.custom}
+					<button type="button" class="grid h-9 w-9 shrink-0 place-items-center rounded-full text-lg transition {favSet.has(qtyFood._id) ? 'text-brand' : 'text-mist hover:text-brand'}" aria-label="Favori" onclick={() => { if (qtyFood) toggleFav(qtyFood); }}>{favSet.has(qtyFood._id) ? '♥' : '♡'}</button>
+				{/if}
 			</div>
 
 			<div class="mt-4 flex items-center justify-between gap-3">

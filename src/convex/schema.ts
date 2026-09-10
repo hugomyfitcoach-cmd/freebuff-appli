@@ -25,6 +25,12 @@ export default defineSchema({
 		disabled: v.optional(v.boolean()),
 		/** Coach qui a créé le compte (pour les clients). */
 		createdBy: v.optional(v.id("users")),
+		/** Taille (cm) du client — saisie une fois, utilisée pour l'IMC. */
+		heightCm: v.optional(v.number()),
+		/** Date de naissance "yyyy-mm-dd" (fiche client CRM). */
+		birthDate: v.optional(v.string()),
+		/** Dernière activité connue (timestamp) — tri du CRM par dernière connexion. */
+		lastSeenAt: v.optional(v.number()),
 	}).index("by_email", ["email"]),
 
 	sessions: defineTable({
@@ -69,6 +75,23 @@ export default defineSchema({
 		.index("by_offId", ["offId"])
 		.searchIndex("by_name", { searchField: "name" }),
 
+	/** Aliments créés par les clients (produit non présent dans la base OFF). */
+	customFoods: defineTable({
+		userId: v.id("users"),
+		name: v.string(),
+		brand: v.optional(v.string()),
+		/** Valeurs nutritionnelles pour 100 g (saisies depuis l'étiquette). */
+		kcal100: v.number(),
+		carbs100: v.number(),
+		protein100: v.number(),
+		fat100: v.number(),
+		/** Portion suggérée (g), optionnelle — sert de quantité par défaut. */
+		servingQty: v.optional(v.number()),
+		createdAt: v.number(),
+	})
+		.index("by_user", ["userId"])
+		.searchIndex("by_name", { searchField: "name" }),
+
 	/** Lignes du journal : un aliment consommé, un jour, un repas. */
 	diaryEntries: defineTable({
 		userId: v.id("users"),
@@ -77,6 +100,8 @@ export default defineSchema({
 		/** Repas : "petit-dej" | "dejeuner" | "diner" | "collation". */
 		meal: v.string(),
 		foodId: v.optional(v.id("foods")),
+		/** Aliment créé par le client, quand l'entrée vient d'un custom food. */
+		customFoodId: v.optional(v.id("customFoods")),
 		/** Repas personnalisé du client (portion), quand l'entrée vient d'un repas. */
 		mealId: v.optional(v.id("meals")),
 		name: v.string(),
@@ -121,6 +146,7 @@ export default defineSchema({
 		ingredients: v.array(
 			v.object({
 				foodId: v.optional(v.id("foods")),
+				customFoodId: v.optional(v.id("customFoods")),
 				name: v.string(),
 				brand: v.optional(v.string()),
 				imageUrl: v.optional(v.string()),
@@ -141,5 +167,51 @@ export default defineSchema({
 		createdAt: v.number(),
 	})
 		.index("by_user_food", ["userId", "foodId"])
+		.index("by_user", ["userId"]),
+
+	/* ═══ Suivi corporel (progression) ═══ */
+
+	/* ═══ Photos de suivi (envoyées par le client, visibles par la coach) ═══ */
+
+	/**
+	 * Une série de photos de suivi envoyée par un client à un moment donné
+	 * (démarrage, mois 1…6). Les images sont stockées dans le file storage
+	 * Convex (jamais accessibles au client après envoi) ; la coach les voit
+	 * dans le CRM. Chaque série est conservée définitivement.
+	 */
+	progressPhotos: defineTable({
+		userId: v.id("users"),
+		/** Moment : "demarrage" | "mois1"…"mois6". */
+		step: v.string(),
+		/** Date d'envoi "yyyy-mm-dd". */
+		date: v.string(),
+		/** Photos : un storageId Convex + un libellé (face, profil, dos…). */
+		photos: v.array(
+			v.object({
+				storageId: v.id("_storage"),
+				label: v.string(),
+			})
+		),
+		createdAt: v.number(),
+	})
+		.index("by_user", ["userId"])
+		.index("by_user_date", ["userId", "date"]),
+
+	/** Une prise de mesures par date (poids, tour de cou, taille, fessier). */
+	bodyMetrics: defineTable({
+		userId: v.id("users"),
+		/** Date de la prise au format "yyyy-mm-dd" (heure locale du client). */
+		date: v.string(),
+		/** Poids en kg. */
+		weightKg: v.optional(v.number()),
+		/** Tour de cou en cm. */
+		neckCm: v.optional(v.number()),
+		/** Tour de taille (partie la plus fine) en cm. */
+		waistCm: v.optional(v.number()),
+		/** Circonférence des fessiers en cm. */
+		hipCm: v.optional(v.number()),
+		createdAt: v.number(),
+	})
+		.index("by_user_date", ["userId", "date"])
 		.index("by_user", ["userId"]),
 });

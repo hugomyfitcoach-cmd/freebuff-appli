@@ -42,7 +42,8 @@ const round1 = (n: number) => Math.round(n * 10) / 10;
 /* ─────────────────────────── Repas personnalisés ─────────────────────────── */
 
 const ingredientInput = v.object({
-	foodId: v.id("foods"),
+	foodId: v.optional(v.id("foods")),
+	customFoodId: v.optional(v.id("customFoods")),
 	qtyGrams: v.number(),
 });
 
@@ -81,11 +82,26 @@ export const createMeal = mutation({
 			if (!isFinite(ing.qtyGrams) || ing.qtyGrams <= 0 || ing.qtyGrams > 5000) {
 				throw new ConvexError("Quantité d'ingrédient invalide (entre 1 et 5000 g).");
 			}
-			const food = await ctx.db.get(ing.foodId);
-			if (!food) throw new ConvexError("Un ingrédient n'existe plus dans la base. Retire-le et réessaie.");
+			if (!ing.foodId && !ing.customFoodId) {
+				throw new ConvexError("Un ingrédient est invalide : aliment introuvable.");
+			}
+			let food: { name: string; brand?: string; imageUrl?: string; kcal100: number; carbs100: number; protein100: number; fat100: number } | null = null;
+			if (ing.foodId) {
+				const f = await ctx.db.get(ing.foodId);
+				if (!f) throw new ConvexError("Un ingrédient n'existe plus dans la base. Retire-le et réessaie.");
+				food = f;
+			} else if (ing.customFoodId) {
+				const f = await ctx.db.get(ing.customFoodId);
+				if (!f || f.userId !== user._id) {
+					throw new ConvexError("Un ingrédient personnel n'existe plus. Retire-le et réessaie.");
+				}
+				food = f;
+			}
+			if (!food) throw new ConvexError("Ingrédient invalide : aliment introuvable.");
 			const k = ing.qtyGrams / 100;
 			const row = {
-				foodId: food._id,
+				foodId: ing.foodId ?? undefined,
+				customFoodId: ing.customFoodId ?? undefined,
 				name: food.name,
 				brand: food.brand,
 				imageUrl: food.imageUrl,

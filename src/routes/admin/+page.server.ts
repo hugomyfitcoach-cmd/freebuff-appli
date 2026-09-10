@@ -4,9 +4,7 @@ import type { Actions, PageServerLoad } from './$types';
 import { convex } from '$lib/server/convex';
 import { api } from '../../convex/_generated/api.js';
 import { SESSION_COOKIE, requireRole } from '$lib/server/session';
-import { errMsg } from '$lib/errors.js';
-
-export const load: PageServerLoad = async (event) => {
+import { errMsg } from '$lib/errors.js';	export const load: PageServerLoad = async (event) => {
 	await requireRole(event, 'coach', { next: '/admin' });
 	const token = event.cookies.get(SESSION_COOKIE);
 
@@ -16,18 +14,22 @@ export const load: PageServerLoad = async (event) => {
 	const selectedId =
 		param && clients.some((c: { user: { _id: string } }) => c.user._id === param) ? param : (clients[0]?.user._id ?? null);
 
+	const view = selectedId
+		? await convex.query(api.coach.client360, { sessionToken: token, userId: selectedId as never })
+		: null;
 	const checkins = selectedId
 		? await convex.query(api.coach.checkinsFor, { sessionToken: token, userId: selectedId as never })
 		: [];
-	const goals = selectedId
-		? await convex.query(api.journal.getClientGoals, { sessionToken: token, userId: selectedId as never })
-		: null;
+	const photos = selectedId
+		? await convex.query(api.photos.listForCoach, { sessionToken: token, userId: selectedId as never })
+		: [];
 
 	return {
 		clients,
 		selectedId,
+		view,
 		checkins,
-		goals,
+		photos,
 		form: null as null | { action: string; error?: string; ok?: string },
 	};
 };
@@ -55,6 +57,29 @@ export const actions: Actions = {
 			return { action: 'createClient', ok: `Compte créé : ${prenom.trim()} (${email.trim()}). Pense à lui transmettre ses identifiants.`, userId: res.userId };
 		} catch (e) {
 			return fail(400, { action: 'createClient', error: errMsg(e) });
+		}
+	},
+	updateFiche: async (event) => {
+		await requireRole(event, 'coach');
+		const form = await event.request.formData();
+		const userId = String(form.get('userId') ?? '');
+		const prenom = String(form.get('prenom') ?? '');
+		const email = String(form.get('email') ?? '');
+		const birthDate = String(form.get('birthDate') ?? '');
+		const heightRaw = String(form.get('heightCm') ?? '');
+		const token = event.cookies.get(SESSION_COOKIE);
+		try {
+			await convex.mutation(api.coach.updateClient, {
+				sessionToken: token,
+				userId: userId as never,
+				prenom,
+				email,
+				birthDate,
+				heightCm: heightRaw ? Number(heightRaw) : undefined,
+			});
+			return { action: 'updateFiche', ok: 'Fiche client mise à jour.', clientId: userId };
+		} catch (e) {
+			return fail(400, { action: 'updateFiche', error: errMsg(e), clientId: userId });
 		}
 	},
 	rename: async (event) => {

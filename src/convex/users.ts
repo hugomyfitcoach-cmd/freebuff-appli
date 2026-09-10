@@ -49,10 +49,27 @@ export const signIn = mutation({
 			tokenHash: await hashToken(token),
 			expiresAt: Date.now() + SESSION_TTL_MS,
 		});
+		await ctx.db.patch(user._id, { lastSeenAt: Date.now() });
 		return {
 			token,
 			user: { _id: user._id, email: user.email, role: user.role, prenom: user.prenom },
 		};
+	},
+});
+
+/** Met à jour la « dernière connexion » de l'utilisateur (appelé à chaque chargement d'espace). */
+export const touch = mutation({
+	args: { sessionToken: v.optional(v.string()) },
+	handler: async (ctx, { sessionToken }) => {
+		const user = await getSessionUser(ctx, sessionToken);
+		if (!user) return { ok: false };
+		const now = Date.now();
+		// Évite d'écrire à chaque requête : on ne rafraîchit que si la dernière
+		// activité date de plus de 60 s.
+		if (!user.lastSeenAt || now - user.lastSeenAt > 60_000) {
+			await ctx.db.patch(user._id, { lastSeenAt: now });
+		}
+		return { ok: true };
 	},
 });
 

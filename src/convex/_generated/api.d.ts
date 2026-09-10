@@ -11,10 +11,13 @@
 import type * as answers from "../answers.js";
 import type * as checkins from "../checkins.js";
 import type * as coach from "../coach.js";
+import type * as customFoods from "../customFoods.js";
 import type * as helpers from "../helpers.js";
 import type * as journal from "../journal.js";
 import type * as meals from "../meals.js";
+import type * as metrics from "../metrics.js";
 import type * as off from "../off.js";
+import type * as photos from "../photos.js";
 import type * as users from "../users.js";
 
 import type {
@@ -27,10 +30,13 @@ declare const fullApi: ApiFromModules<{
   answers: typeof answers;
   checkins: typeof checkins;
   coach: typeof coach;
+  customFoods: typeof customFoods;
   helpers: typeof helpers;
   journal: typeof journal;
   meals: typeof meals;
+  metrics: typeof metrics;
   off: typeof off;
+  photos: typeof photos;
   users: typeof users;
 }>;
 

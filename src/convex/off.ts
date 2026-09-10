@@ -2,6 +2,7 @@ import { action } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { api } from "./_generated/api";
 import type { Id, Doc } from "./_generated/dataModel";
+import type { FoodHit } from "./journal";
 
 /**
  * Recherche Open Food Facts (action).
@@ -159,12 +160,12 @@ export const barcodeLookup = action({
 	},
 });
 
-/** Recherche par nom (base locale d'abord, OFF en secours). */
+/** Recherche par nom (base locale + aliments personnels d'abord, OFF en secours). */
 export const searchFoods = action({
 	args: {
 		sessionToken: v.optional(v.string()),
 		query: v.string(),
-	},		handler: async (ctx, { sessionToken, query }): Promise<Doc<"foods">[]> => {
+	},		handler: async (ctx, { sessionToken, query }): Promise<FoodHit[]> => {
 			// Annotations explicites : `api` référence ce module (cycle
 			// d'inférence TS), on ne laisse donc rien s'inférer via lui.
 			const user: { _id: Id<"users">; role: "coach" | "client" } | null = await ctx.runQuery(
@@ -178,8 +179,8 @@ export const searchFoods = action({
 			const q = normalizeQuery(query);
 			if (!q || q.length < 2) return [];
 
-			// 1) Base locale d'abord (index de recherche plein texte sur `foods`).
-			const local: Doc<"foods">[] = await ctx.runQuery(api.journal.searchLocal, {
+			// 1) Base locale + aliments personnels d'abord.
+			const local: FoodHit[] = await ctx.runQuery(api.journal.searchLocal, {
 				sessionToken,
 				query: q,
 			});
@@ -188,6 +189,20 @@ export const searchFoods = action({
 			// 2) Sinon : appel OFF + upsert dans `foods` (la base locale s'enrichit).
 			const products = await fetchOffSearch(q);
 			const ids: Id<"foods">[] = await ctx.runMutation(api.journal.cacheFoods, { sessionToken, products });
-			return ctx.runQuery(api.journal.foodsByIds, { sessionToken, ids });
+			const foods = await ctx.runQuery(api.journal.foodsByIds, { sessionToken, ids });
+			return foods.map((f) => ({
+				_id: f._id,
+				custom: false,
+				offId: f.offId,
+				name: f.name,
+				brand: f.brand,
+				kcal100: f.kcal100,
+				carbs100: f.carbs100,
+				protein100: f.protein100,
+				fat100: f.fat100,
+				imageUrl: f.imageUrl,
+				servingQty: f.servingQty,
+				servingUnit: f.servingUnit,
+			}));
 		},
 });

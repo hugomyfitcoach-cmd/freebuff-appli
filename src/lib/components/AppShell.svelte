@@ -28,6 +28,7 @@
 					{ href: '/espace', label: 'Mon suivi', icon: '📊' },
 					{ href: '/espace/journal', label: 'Journal', icon: '📔' },
 					{ href: '/espace/progression', label: 'Progression', icon: '📈' },
+					{ href: '/espace/photos', label: 'Photos de suivi', icon: '📸' },
 					{ href: '/espace/historique', label: 'Mes bilans', icon: '🗂️' },
 					{ href: '/recettes', label: 'Recettes & nutrition', icon: '🍳' },
 					{ href: '/outils', label: 'Outils & calibrage', icon: '🧰' },
