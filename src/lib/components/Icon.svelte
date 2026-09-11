@@ -26,6 +26,7 @@
 		Banknote,
 		Barcode,
 		Bell,
+		BellOff,
 		BellRing,
 		Bean,
 		Beef,
@@ -41,6 +42,7 @@
 		CalendarClock,
 		CalendarDays,
 		CalendarRange,
+		CalendarX2,
 		Camera,
 		Candy,
 		Carrot,
@@ -398,6 +400,8 @@
 		zapOff: ZapOff,
 		eye: Eye,
 		eyeOff: EyeOff,
+		bellOff: BellOff,
+		calendarX: CalendarX2,
 	};
 
 	let {

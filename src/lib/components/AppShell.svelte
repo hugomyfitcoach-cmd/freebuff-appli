@@ -22,7 +22,15 @@
 		user: SessionUser;
 		contentWidth?: 'std' | 'wide' | 'full';
 		showFooter?: boolean;
-		badges?: { bilans?: number; retours?: number; message?: number; progression?: number; reminder?: number };
+		badges?: {
+			bilans?: number;
+			retours?: number;
+			message?: number;
+			progression?: number;
+			reminder?: number;
+			/** CRM : notifications coach « à consulter ». */
+			notifications?: number;
+		};
 	} = $props();
 
 	const path = $derived(page.url.pathname);
@@ -80,6 +88,7 @@
 				]
 			: [
 					{ href: '/admin', label: 'Tableau de bord', icon: 'chartBar' },
+					{ href: '/admin/notifications', label: 'Notifications', icon: 'bell', badge: badges.notifications ?? 0 },
 					{ href: '/admin/bilans', label: 'Bilans', icon: 'clipboardList' },
 					{ href: '/admin/plans', label: 'Plans de repas', icon: 'utensils' },
 					{ href: '/admin/rendez-vous', label: 'Rendez-vous', icon: 'calendarCheck' },

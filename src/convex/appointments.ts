@@ -3,6 +3,18 @@ import { v, ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { getSessionUser, wallTimeToUtcMs } from "./helpers";
+import { recordEvent } from "./notifications";
+
+/** Description CRM d'un RDV (ex. « Suivi le ven. 18 sept. à 09:00 »). */
+function rdvDescription(a: { kind: string; date: string; time: string }): string {
+	const d = new Date(`${a.date}T12:00:00Z`).toLocaleDateString("fr-FR", {
+		weekday: "short",
+		day: "numeric",
+		month: "short",
+		timeZone: "UTC",
+	});
+	return `${a.kind} le ${d} à ${a.time}`;
+}
 
 /** Message exact quand un créneau vient d'être pris (double booking évité). */
 export const SLOT_TAKEN_MESSAGE = "Ce créneau vient d’être réservé, choisis-en un autre";
@@ -325,6 +337,7 @@ export const bookByCoach = mutation({
 			createdAt: now,
 			updatedAt: now,
 		});
+		await recordEvent(ctx, clientId, "rdv_pris", rdvDescription({ kind, date, time }), { appointmentId: id });
 		return { appointmentId: id, date, time, endTime, kind };
 	},
 });
@@ -378,6 +391,7 @@ export const bookByClient = mutation({
 			createdAt: now,
 			updatedAt: now,
 		});
+		await recordEvent(ctx, user._id, "rdv_pris", rdvDescription({ kind, date, time }), { appointmentId: id });
 		return { appointmentId: id, date, time, endTime, kind };
 	},
 });
@@ -434,6 +448,13 @@ export const reschedule = mutation({
 			reminder12hForStartAt: undefined,
 			// googleEventId conservé : le BFF déplace le MÊME événement Google.
 		});
+		await recordEvent(
+			ctx,
+			a.clientId,
+			"rdv_replanifie",
+			`${rdvDescription({ kind: a.kind, date, time })} (auparavant ${rdvDescription({ kind: a.kind, date: a.date, time: a.time })})`,
+			{ appointmentId }
+		);
 		return { ok: true, googleEventId: a.googleEventId ?? null, date, time, endTime, kind: a.kind };
 	},
 });
@@ -461,6 +482,7 @@ export const cancel = mutation({
 			reminder12hForStartAt: undefined,
 			// googleEventId conservé : le BFF supprime l'événement Google associé.
 		});
+		await recordEvent(ctx, a.clientId, "rdv_annule", `${rdvDescription(a)} — annulé`, { appointmentId });
 		return { ok: true, googleEventId: a.googleEventId ?? null };
 	},
 });

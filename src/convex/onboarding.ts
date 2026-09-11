@@ -3,6 +3,7 @@ import { v, ConvexError } from "convex/values";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getSessionUser } from "./helpers";
+import { recordEvent } from "./notifications";
 
 /**
  * Onboarding de démarrage côté cliente.
@@ -174,6 +175,10 @@ export const complete = mutation({
 		if (!done) return { ok: false, completedAt: null };
 		const completedAt = Date.now();
 		await ctx.db.patch(user._id, { onboardingCompletedAt: completedAt });
+		// Journal CRM : formulaire de démarrage complété (événement réel, une
+		// seule fois par cliente — la garde idempotente ci-dessus le garantit,
+		// donc aucune clé de dédup nécessaire).
+		await recordEvent(ctx, user._id, "onboarding_termine", "Formulaire de démarrage complété");
 		return { ok: true, completedAt };
 	},
 });
