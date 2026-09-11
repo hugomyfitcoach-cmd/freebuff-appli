@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";	import {
 		addDaysISO,
 		addMonthsISO,
@@ -11,8 +11,8 @@ import { v, ConvexError } from "convex/values";	import {
 		nextMidnightUtcMs,
 		validTimeZone,
 	} from "./helpers";
-import type { QueryCtx } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
 import { DEFAULT_GOALS } from "./journal";
 import { deleteMessageAudioRows, mediaExpiresAt } from "./media";
 import { step2Done } from "./onboarding";
@@ -555,5 +555,249 @@ export const setCoachMessage = mutation({
 			});
 		}
 		return { ok: true, hasText: !!trimmed, hasAudio: !!newAudioId };
+	},
+});
+
+/* ═══ Message global coach → toutes les clientes actives (Tableau de bord) ═══
+ *
+ * Côté cliente, RIEN ne change : chez chacune on étampe exactement les mêmes
+ * champs que la Vision 360 (coachMessage / At / ExpiresAt / ReadAt / AudioId) —
+ * la carte Accueil, le badge « Messages », le journal et le « Vu » se
+ * comportent à l'identique d'un message classique. Toute la différence vit
+ * côté CRM : une seule ligne coachBroadcasts par envoi, un envoi à toutes les
+ * clientes actives, un retrait immédiat possible et une disparition du bloc
+ * CRM après 24 h. Aucun doublon d'envoi : la publication est transactionnelle
+ * (un seul appel inscrit tout le monde) et un message global actif bloque un
+ * nouvel envoi tant qu'il n'est pas retiré.
+ */
+
+/** Ligne de journal CRM du message global (une par destinataire, étiquetée). */
+type BroadcastLogInsert = {
+	userId: Id<"users">;
+	text: string;
+	publishedAt: number;
+	publishedDay: string;
+	readAt: undefined;
+	broadcastId: Id<"coachBroadcasts">;
+};
+
+/**
+ * Étampe le message global chez UNE cliente — exactement les mêmes champs que
+ * la publication personnelle (setCoachMessage), avec l'horodatage de la
+ * publication globale (uniforme pour toutes, et clé du retrait ciblé).
+ * Retourne false si la cliente n'est pas servie : compte désactivé, ou
+ * message personnel ENCORE ACTIF (jamais d'écrasement — le global ne complète
+ * que les Accueils « libres » ; si le personnel expire avant le global, le
+ * rattrapage la servira plus tard).
+ */
+async function stampBroadcastToClient(
+	ctx: MutationCtx,
+	b: { _id: Id<"coachBroadcasts">; text: string; publishedAt: number; publishedDay: string; expiresAt: number },
+	u: Doc<"users">
+): Promise<boolean> {
+	if (u.disabled) return false;
+	if (u.coachMessageAt != null && (u.coachMessageExpiresAt == null || Date.now() < u.coachMessageExpiresAt)) {
+		return false;
+	}
+	// La carte de la cliente suit SON minuit local, mais meurt au plus tard
+	// avec le message global (cohérence du retrait groupé).
+	const tz = validTimeZone(u.timeZone) ?? "Europe/Paris";
+	await ctx.db.patch(u._id, {
+		coachMessage: b.text,
+		coachMessageDate: b.publishedDay,
+		coachMessageAt: b.publishedAt,
+		coachMessageExpiresAt: Math.min(b.expiresAt, nextMidnightUtcMs(Date.now(), tz)),
+		coachMessageReadAt: undefined,
+		coachMessageAudioId: undefined,
+	});
+	const log: BroadcastLogInsert = {
+		userId: u._id,
+		text: b.text,
+		publishedAt: b.publishedAt,
+		publishedDay: b.publishedDay,
+		readAt: undefined,
+		broadcastId: b._id,
+	};
+	await ctx.db.insert("coachMessages", log);
+	return true;
+}
+
+/** Dernier message global publié (null si aucun envoi). */
+async function lastBroadcast(ctx: QueryCtx) {
+	return await ctx.db
+		.query("coachBroadcasts")
+		.withIndex("by_published")
+		.order("desc")
+		.first();
+}
+
+/**
+ * Envoie le message global à TOUTES les clientes actives (dernières 24 h —
+ * même définition que la carte « Actif·ve·s aujourd'hui » du CRM). Réservé à
+ * la coach. Retourne les destinataires réellement servis : côté SvelteKit,
+ * chacun reçoit LA MÊME notification push qu'un message classique.
+ */
+export const sendCoachBroadcast = mutation({
+	args: { sessionToken: v.optional(v.string()), message: v.string() },
+	handler: async (ctx, { sessionToken, message }) => {
+		const coach = await getSessionUser(ctx, sessionToken);
+		if (!coach || coach.role !== "coach") {
+			throw new ConvexError("Réservé à la coach (CRM).");
+		}
+		const trimmed = message.trim().slice(0, 500);
+		if (!trimmed) throw new ConvexError("Le message est vide.");
+
+		const now = Date.now();
+		const current = await lastBroadcast(ctx);
+		// Anti-doublon : un message global actif (24 h, non retiré) bloque un
+		// nouvel envoi — il faut d'abord le retirer pour en publier un autre.
+		if (current && current.withdrawnAt == null && now < current.expiresAt) {
+			throw new ConvexError(
+				"Un message global est déjà actif — retire-le d'abord pour en publier un nouveau."
+			);
+		}
+
+		// Fuseau de référence pour l'échéance affichée côté CRM ; chaque cliente
+		// reste fidèle à SON minuit local (voir stampBroadcastToClient).
+		const tz = validTimeZone(coach.timeZone) ?? "Europe/Paris";
+		const broadcast = {
+			text: trimmed,
+			publishedAt: now,
+			publishedDay: localTodayISO(new Date(now)),
+			expiresAt: nextMidnightUtcMs(now, tz),
+		};
+		// Le précédent (expiré) est archivé tel quel ; un éventuel résidu non
+		// retiré l'est ici — jamais deux messages globaux actifs en même temps.
+		if (current && current.withdrawnAt == null) {
+			await ctx.db.patch(current._id, { withdrawnAt: now });
+		}
+
+		const broadcastId = await ctx.db.insert("coachBroadcasts", {
+			...broadcast,
+			timeZone: tz,
+			sentTo: [],
+		});
+
+		// Fenêtre d'activité : dernières 24 h (même critère que le CRM).
+		const activeIds = (
+			await ctx.db
+				.query("users")
+				.filter((q) => q.eq(q.field("role"), "client"))
+				.collect()
+		)
+			.filter((u) => (u.lastSeenAt ?? 0) >= now - 24 * 3600 * 1000)
+			.map((u) => u._id);
+		const sentTo: Id<"users">[] = [];
+		for (const userId of activeIds) {
+			const u = await ctx.db.get(userId);
+			if (u && (await stampBroadcastToClient(ctx, { ...broadcast, _id: broadcastId }, u))) {
+				sentTo.push(userId);
+			}
+		}
+		await ctx.db.patch(broadcastId, { sentTo });
+		return { ok: true, count: sentTo.length, sentTo };
+	},
+});
+
+/**
+ * Retrait immédiat du message global actif (bouton CRM « Retirer ») : les
+ * champs actifs sont effacés chez chaque destinataire et les lignes du journal
+ * CRM correspondantes disparaissent — exactement comme l'éphémère automatique,
+ * mais tout de suite. Une cliente qui aurait déjà publié un message personnel
+ * depuis n'est pas touchée (on ne retire que CE message global).
+ */
+export const withdrawCoachBroadcast = mutation({
+	args: { sessionToken: v.optional(v.string()) },
+	handler: async (ctx, { sessionToken }) => {
+		const coach = await getSessionUser(ctx, sessionToken);
+		if (!coach || coach.role !== "coach") {
+			throw new ConvexError("Réservé à la coach (CRM).");
+		}
+		const current = await lastBroadcast(ctx);
+		if (!current || current.withdrawnAt != null) return { ok: true, removed: 0 };
+		const now = Date.now();
+		for (const userId of current.sentTo) {
+			const u = await ctx.db.get(userId);
+			if (u && u.coachMessageAt === current.publishedAt) {
+				await ctx.db.patch(userId, {
+					coachMessage: undefined,
+					coachMessageDate: undefined,
+					coachMessageAt: undefined,
+					coachMessageExpiresAt: undefined,
+					coachMessageReadAt: undefined,
+					coachMessageAudioId: undefined,
+				});
+			}
+		}
+		const rows = await ctx.db
+			.query("coachMessages")
+			.withIndex("by_broadcast", (q) => q.eq("broadcastId", current._id))
+			.collect();
+		for (const row of rows) await ctx.db.delete(row._id);
+		await ctx.db.patch(current._id, { withdrawnAt: now });
+		return { ok: true, removed: current.sentTo.length };
+	},
+});
+
+/**
+ * État du message global pour le CRM (Tableau de bord) : actif pendant 24 h
+ * (minuit local de référence) tant qu'il n'est pas retiré, avec le nombre de
+ * destinataires et de lectures réelles. Jamais de mutation ici : l'affichage
+ * CRM ne déclenche aucun envoi caché.
+ */
+export const activeCoachBroadcast = query({
+	args: { sessionToken: v.optional(v.string()) },
+	handler: async (ctx, { sessionToken }) => {
+		const coach = await getSessionUser(ctx, sessionToken);
+		if (!coach || coach.role !== "coach") return null;
+		const current = await lastBroadcast(ctx);
+		const now = Date.now();
+		if (!current || current.withdrawnAt != null || now >= current.expiresAt) return null;
+		const rows = await ctx.db
+			.query("coachMessages")
+			.withIndex("by_broadcast", (q) => q.eq("broadcastId", current._id))
+			.collect();
+		return {
+			_id: current._id,
+			text: current.text,
+			publishedAt: current.publishedAt,
+			publishedDay: current.publishedDay,
+			expiresAt: current.expiresAt,
+			recipientCount: current.sentTo.length,
+			readCount: rows.filter((r) => r.readAt != null).length,
+		};
+	},
+});
+
+/**
+ * Rattrapage du message global (cron 5 min) : les clientes devenues actives
+ * APRÈS la publication reçoivent le même étampage à leur prochaine visite.
+ * Aucun effet quand aucun message global n'est actif (une seule lecture
+ * indexée) — et jamais de doublon : sentTo est la mémoire des servies.
+ */
+export const coachBroadcastCatchUp = internalMutation({
+	args: {},
+	handler: async (ctx) => {
+		const now = Date.now();
+		const current = await lastBroadcast(ctx);
+		if (!current || current.withdrawnAt != null || now >= current.expiresAt) {
+			return { stamped: 0 };
+		}
+		const have = new Set<Id<"users">>(current.sentTo);
+		const clients = await ctx.db
+			.query("users")
+			.filter((q) => q.eq(q.field("role"), "client"))
+			.collect();
+		const fresh: Id<"users">[] = [];
+		for (const u of clients) {
+			if (have.has(u._id)) continue;
+			// Seulement les clientes réellement actives depuis la publication.
+			if ((u.lastSeenAt ?? 0) < current.publishedAt) continue;
+			if (await stampBroadcastToClient(ctx, current, u)) fresh.push(u._id);
+		}
+		if (fresh.length > 0) {
+			await ctx.db.patch(current._id, { sentTo: [...current.sentTo, ...fresh] });
+		}
+		return { stamped: fresh.length };
 	},
 });

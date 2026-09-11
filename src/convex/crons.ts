@@ -10,6 +10,9 @@ import { api, internal } from "./_generated/api";
  *    même quand l'app de la cliente est fermée — jamais un timer navigateur.
  *    Idempotence garantie par appointments.internalMarkReminderSent (§26) :
  *    un job exécuté plusieurs fois n'envoie jamais deux fois le même rappel.
+ * 3) Rattrapage du message global (toutes les 5 minutes) : les clientes
+ *    devenues actives après la publication reçoivent le même message du jour
+ *    à leur prochaine visite — sans jamais doubler celles déjà servies.
  */
 const crons = cronJobs();
 
@@ -21,5 +24,12 @@ crons.interval(
 );
 
 crons.interval("reminder-12h-tick", { minutes: 5 }, internal.reminderPush.tick, {});
+
+crons.interval(
+	"message-global-rattrapage",
+	{ minutes: 5 },
+	internal.dashboard.coachBroadcastCatchUp,
+	{}
+);
 
 export default crons;
