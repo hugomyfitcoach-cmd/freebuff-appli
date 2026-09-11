@@ -130,7 +130,7 @@
 		</header>
 
 		<!-- Carrousel + pagination -->
-		<div class="flex flex-1 flex-col justify-center pt-4 pb-12">
+		<div class="mt-auto flex flex-col pt-2 pb-4">
 			<div
 				bind:this={track}
 				onscroll={onScroll}
@@ -180,7 +180,7 @@
 			</div>
 
 			<!-- Pagination -->
-			<div class="mt-6 flex items-center justify-center gap-1.5" role="tablist" aria-label="Position du carrousel">
+			<div class="mt-4 flex items-center justify-center gap-1.5" role="tablist" aria-label="Position du carrousel">
 				{#each dots as d}
 					<button
 						type="button"
@@ -200,7 +200,7 @@
 		</div>
 
 		<!-- CTA unique -->
-		<footer class="pb-[max(env(safe-area-inset-bottom),28px)] pt-1">
+		<footer class="mb-auto pb-[max(env(safe-area-inset-bottom),28px)] pt-2">
 			<button
 				type="button"
 				onclick={() => (showLogin = true)}
