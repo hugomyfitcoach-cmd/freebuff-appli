@@ -50,7 +50,7 @@
 		<h1 class="flex items-center gap-2 font-display text-2xl font-semibold text-ink">
 			<Icon name="messageCircle" size={22} class="shrink-0 text-brand" /> Messages
 		</h1>
-		<p class="mt-1 text-sm text-mist">Les messages de ta coach, texte et audio, conservés ici.</p>
+		<p class="mt-1 text-sm text-mist">Les messages de ton coach, texte et audio, conservés ici.</p>
 	</div>
 </header>
 
@@ -58,7 +58,7 @@
 	<div class="rounded-3xl border border-dashed border-line bg-card px-6 py-14 text-center">
 		<p class="grid place-items-center"><Icon name="messageCircle" size={30} class="text-mist" /></p>
 		<p class="mt-3 text-sm font-semibold text-ink">Aucun message pour l'instant</p>
-		<p class="mx-auto mt-1 max-w-xs text-sm text-mist">Quand ta coach t'écrira un message (texte ou audio), tu le retrouveras ici, même après l'avoir lu.</p>
+		<p class="mx-auto mt-1 max-w-xs text-sm text-mist">Quand ton coach t'écrira un message (texte ou audio), tu le retrouveras ici, même après l'avoir lu.</p>
 	</div>
 {:else}
 	<div class="space-y-3">

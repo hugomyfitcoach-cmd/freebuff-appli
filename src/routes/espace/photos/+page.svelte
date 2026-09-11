@@ -212,7 +212,7 @@
 			<h2 class="mt-4 font-display text-xl font-semibold text-ink">Photos envoyées !</h2>
 			<p class="mt-2 text-sm leading-relaxed text-ink">
 				Ta série <strong>{STEP_LABELS[lastSent?.step ?? '']}</strong> ({lastSent?.count} photo{lastSent && lastSent.count > 1 ? 's' : ''}) a bien été
-				envoyée à ta coach. Elle te confirmera la réception lors de ton prochain suivi.
+				envoyée à ton coach. Il te confirmera la réception lors de ton prochain suivi.
 			</p>
 			<button
 				onclick={() => (screen = 'intro')}

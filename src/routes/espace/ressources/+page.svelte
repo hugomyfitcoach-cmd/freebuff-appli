@@ -52,14 +52,14 @@
 	<h1 class="flex items-center gap-2 font-display text-2xl font-semibold text-ink">
 		<Icon name="bookOpen" size={22} class="shrink-0 text-brand" /> Ressources
 	</h1>
-	<p class="mt-1 text-sm text-mist">Documents et récap partagés par ta coach — plus récents en premier.</p>
+	<p class="mt-1 text-sm text-mist">Documents et récap partagés par ton coach — plus récents en premier.</p>
 </header>
 
 {#if rows.length === 0}
 	<div class="rounded-3xl border border-dashed border-line bg-card px-6 py-14 text-center">
 		<p class="grid place-items-center"><Icon name="bookOpen" size={30} class="text-mist" /></p>
 		<p class="mt-3 text-sm font-semibold text-ink">Rien pour l'instant</p>
-		<p class="mx-auto mt-1 max-w-xs text-sm text-mist">Quand ta coach partagera un document, un récap ou une comparaison, tu le retrouveras ici.</p>
+		<p class="mx-auto mt-1 max-w-xs text-sm text-mist">Quand ton coach partagera un document, un récap ou une comparaison, tu le retrouveras ici.</p>
 	</div>
 {:else}
 	<ul class="space-y-3">

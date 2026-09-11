@@ -82,7 +82,7 @@
 			<div class="flex items-start gap-3">
 				<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-light"><Icon name="messageCircle" size={17} class="text-brand" /></div>
 				<div class="min-w-0 flex-1">
-					<div class="text-xs font-bold uppercase tracking-wide text-mist">Retour de ta coach</div>
+					<div class="text-xs font-bold uppercase tracking-wide text-mist">Retour de ton coach</div>
 					{#if checkin.feedback}
 						<p class="mt-1 whitespace-pre-line text-sm leading-relaxed text-ink">{checkin.feedback}</p>
 					{/if}
@@ -139,7 +139,7 @@
 				</div>
 			{/if}
 		{:else}
-			<p class="flex items-center gap-1.5 text-sm italic text-mist"><Icon name="messageCircle" size={15} class="shrink-0" /> Le retour de ta coach arrivera en fin de semaine.</p>
+			<p class="flex items-center gap-1.5 text-sm italic text-mist"><Icon name="messageCircle" size={15} class="shrink-0" /> Le retour de ton coach arrivera en fin de semaine.</p>
 		{/if}
 	</div>
 </article>

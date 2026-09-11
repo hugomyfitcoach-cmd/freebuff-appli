@@ -208,36 +208,52 @@
 					</div>
 				</div>
 				<h2>Parfait {user.prenom} !</h2>
-				<p>Bilan bien reçu. Tant que ça avance, pas de question à se poser ni de changement à faire : on garde exactement la même dynamique.</p>
-				<div class="info-msg"><Icon name="smartphone" size={17} class="info-msg-icon" /> <span>Je t'enverrai un message de bonne réception sur WhatsApp.<br />Une question dans la semaine ? Je suis dispo.</span></div>
+				<p>Ton bilan est bien reçu — merci pour ta semaine.</p>
+				<div class="info-msg">
+					<Icon name="messageCircle" size={17} class="info-msg-icon" />
+					<span>
+						Je te ferai une <strong>confirmation de bonne réception</strong> ainsi qu'un <strong>récap de ta semaine</strong>.
+						Si je vois quelque chose à corriger ou ajuster, je t'indiquerai directement quoi modifier.
+					</span>
+				</div>
 			</div>
 		{:else if merci === 'ecrit'}
-			<div class="thank-you">
-				<div class="ty-logo-wrap">
-					<div class="ty-ring"></div>
-					<div class="ty-ring-2"></div>
-					<div class="ty-inner">
-						<img src="/logo.png" alt="G-Flux" class="ty-logo-small" style="object-fit:contain;border-radius:50%;" />
+				<div class="thank-you">
+					<div class="ty-logo-wrap">
+						<div class="ty-ring"></div>
+						<div class="ty-ring-2"></div>
+						<div class="ty-inner">
+							<img src="/logo.png" alt="G-Flux" class="ty-logo-small" style="object-fit:contain;border-radius:50%;" />
+						</div>
+					</div>
+					<h2>Bilan reçu {user.prenom} !</h2>
+					<p>Je vais analyser tes données et préparer ton retour.</p>
+					<div class="info-msg green">
+						<Icon name="bellRing" size={17} class="info-msg-icon" />
+						<span>
+							Ton retour te sera envoyé <strong>directement dans l'application</strong> : tu recevras une notification dès qu'il est prêt.
+							Il restera ensuite disponible dans « Mes bilans », dans l'historique de tes retours.
+						</span>
 					</div>
 				</div>
-				<h2>Bilan reçu {user.prenom} !</h2>
-				<p>Je vais analyser tes données et préparer ton retour.</p>
-				<div class="info-msg green"><Icon name="smartphone" size={17} class="info-msg-icon" /> <span>Ton retour arrive sur WhatsApp dimanche.</span></div>
-			</div>
-		{:else}
-			<div class="thank-you">
-				<div class="ty-logo-wrap">
-					<div class="ty-ring"></div>
-					<div class="ty-ring-2"></div>
-					<div class="ty-inner">
-						<img src="/logo.png" alt="G-Flux" class="ty-logo-small" style="object-fit:contain;border-radius:50%;" />
+			{:else}
+				<div class="thank-you">
+					<div class="ty-logo-wrap">
+						<div class="ty-ring"></div>
+						<div class="ty-ring-2"></div>
+						<div class="ty-inner">
+							<img src="/logo.png" alt="G-Flux" class="ty-logo-small" style="object-fit:contain;border-radius:50%;" />
+						</div>
 					</div>
+					<h2>Merci {user.prenom} !</h2>
+					<p>Tu as demandé un rendez-vous. Choisis directement ton créneau dans l'agenda.</p>
+					<div class="info-msg"><Icon name="phone" size={17} class="info-msg-icon" /> <span>Ta demande d'appel est bien reçue : on échangera sur les points que tu as indiqués.</span></div>
+					<a href="/espace/rendez-vous" class="btn-cta">
+						<Icon name="calendarCheck" size={17} class="btn-cta-icon" /> Réserver mon créneau dans l'agenda
+					</a>
+					<p class="ty-hint">Tu recevras une confirmation dès que ton rendez-vous est réservé.</p>
 				</div>
-				<h2>Merci {user.prenom} !</h2>
-				<p>Ta demande d'appel est bien reçue.</p>
-				<div class="info-msg"><Icon name="phone" size={17} class="info-msg-icon" /> <span>Je te propose un appel pour la semaine prochaine directement sur WhatsApp.</span></div>
-			</div>
-		{/if}
+			{/if}
 	{:else}
 		<!-- PAGE 1 — ACCUEIL -->
 		{#if step === 1}
@@ -1145,6 +1161,40 @@
 	.info-msg.green {
 		border-color: var(--accent);
 		background: var(--accent-light);
+	}
+	.info-msg strong {
+		font-weight: 700;
+	}
+	.btn-cta {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
+		margin-top: 20px;
+		padding: 15px 28px;
+		background: var(--accent);
+		color: #fff;
+		border-radius: 12px;
+		font-family: 'Oswald', sans-serif;
+		font-weight: 600;
+		font-size: 15px;
+		letter-spacing: 0.5px;
+		transition: all 0.2s;
+		animation: fadeUp 0.4s 0.45s ease both;
+	}
+	.btn-cta:hover {
+		background: var(--accent-dark);
+		transform: translateY(-2px);
+		box-shadow: 0 6px 20px rgba(29, 185, 84, 0.3);
+	}
+	.btn-cta-icon {
+		flex-shrink: 0;
+	}
+	.ty-hint {
+		margin-top: 12px;
+		font-size: 12px;
+		color: var(--muted);
+		animation: fadeUp 0.4s 0.5s ease both;
 	}
 
 	.confetti-dot {
