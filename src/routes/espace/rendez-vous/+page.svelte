@@ -10,17 +10,21 @@
 	 */
 	import { onMount } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
-import {
+	import {
+	AvailabilityError,
 	clientCanReschedule,
 	fetchAvailability,
 	fromMin,
 	kindRule,
 	prettyDate,
+	refreshAvailability,
+	SLOT_TAKEN_MESSAGE,
 	toISO,
 	toMin,
-	type AvailabilitySlot,
-	type Rdv,
-} from '$lib/appointments';
+	verifySlot,
+		type AvailabilitySlot,
+		type Rdv,
+	} from '$lib/appointments';
 
 	type Range = { day: number; start: string; end: string };
 
@@ -28,6 +32,8 @@ import {
 	let pageErr = $state('');
 	let notice = $state('');
 	let rdvs = $state<Rdv[]>([]);
+	/** Créneau pris entre-temps (message exact, disponibilités rechargées). */
+	let slotTaken = $state('');
 
 	/* Réservation : type → date → créneaux (moteur serveur). */
 	let kind = $state<string>('Suivi');
@@ -66,7 +72,11 @@ import {
 		}
 	});
 
-	/** Charge les créneaux réels du moteur (plages − Google − RDV − buffers). */
+	/**
+	 * Charge les créneaux réels du moteur STRICT (plages − Google − RDV −
+	 * buffers). Le serveur renvoie 503 si l'agenda Google ne peut pas être
+	 * vérifié : aucun créneau approximatif n'est jamais affiché.
+	 */
 	async function loadSlots() {
 		if (!date) return;
 		slotsLoading = true;
@@ -80,7 +90,9 @@ import {
 				slotsErr = 'Aucun créneau disponible ce jour — essaie une autre date.';
 			}
 		} catch (e) {
-			slotsErr = e instanceof Error ? e.message : 'Disponibilités indisponibles.';
+			slotsErr = e instanceof AvailabilityError
+				? `Agenda du coach non vérifiable (${e.code === 'google_not_connected' ? 'Google Calendar non connecté' : 'Google momentanément indisponible'}) — aucun créneau ne peut être garanti pour le moment.`
+				: e instanceof Error ? e.message : 'Disponibilités indisponibles.';
 		} finally {
 			slotsLoading = false;
 		}
@@ -91,6 +103,7 @@ import {
 		date = '';
 		slots = [];
 		time = '';
+		slotTaken = '';
 	}
 
 	function startMoving(r: Rdv) {
@@ -100,6 +113,7 @@ import {
 		time = '';
 		notice = '';
 		pageErr = '';
+		slotTaken = '';
 	}
 
 	function endMoving() {
@@ -107,13 +121,38 @@ import {
 		date = '';
 		slots = [];
 		time = '';
+		slotTaken = '';
 	}
 
 	async function confirmBooking() {
 		if (!date || !time) return;
 		busy = true;
 		pageErr = '';
+		notice = '';
+		slotTaken = '';
 		try {
+			// 1ʳᵉ passe : vérification finale serveur au clic — le MÊME moteur
+			// strict que l'affichage, exécuté À L'INSTANT du clic. Si le créneau
+			// vient d'être pris : RIEN n'est envoyé, message exact + recharge
+			// immédiate des disponibilités.
+			const check = await verifySlot({ date, time, kind, excludeId: moving?._id });
+			if (!check.ok) {
+				slotTaken = check.message || SLOT_TAKEN_MESSAGE;
+				await refreshAvailability({ date, kind, excludeId: moving?._id })
+					.then((res) => {
+						slots = res.days[0]?.slots ?? [];
+						if (slots.length === 0) slotsErr = 'Aucun créneau disponible ce jour — essaie une autre date.';
+						else slotsErr = '';
+					})
+					.catch(() => {
+						slots = [];
+						slotsErr = 'Disponibilités momentanément indisponibles — réessaie.';
+					});
+				time = '';
+				return;
+			}
+			// 2ᵉ passe (serveur, juste avant création) : le POST/PATCH refait lui-
+			// même la vérification complète — rien ne peut glisser entre les deux.
 			const endTime = fromMin(toMin(time) + kindRule(kind).durationMin);
 			const res = moving
 				? await fetch(`/api/appointments/${moving._id}`, {
@@ -127,16 +166,33 @@ import {
 						body: JSON.stringify({ date, time, endTime, kind }),
 					});
 			const j = await res.json();
-			if (!res.ok) throw new Error(j.error);
+			if (!res.ok) throw new Error(j.error ?? j.message ?? 'Erreur');
 			notice = moving
 				? 'Ton rendez-vous a été déplacé ✓'
 				: '✓ Ton rendez-vous est réservé';
 			endMoving();
 			await loadRdvs();
 		} catch (e) {
-			pageErr = e instanceof Error ? e.message : 'Erreur';
-			// Créneau pris entre-temps → recharge les créneaux à jour.
-			if (date) void loadSlots();
+			// Créneau pris entre-temps malgré la 1ʳᵉ passe → message exact +
+			// recharge immédiate des disponibilités, rien n'a été créé.
+			if (e instanceof AvailabilityError || (e instanceof Error && (e.message === SLOT_TAKEN_MESSAGE || e.message.includes('pris')))) {
+				slotTaken = SLOT_TAKEN_MESSAGE;
+			} else {
+				pageErr = e instanceof Error ? e.message : 'Erreur';
+			}
+			time = '';
+			if (date) {
+				await refreshAvailability({ date, kind, excludeId: moving?._id })
+					.then((res) => {
+						slots = res.days[0]?.slots ?? [];
+						if (slots.length === 0) slotsErr = 'Aucun créneau disponible ce jour — essaie une autre date.';
+						else slotsErr = '';
+					})
+					.catch(() => {
+						slots = [];
+						slotsErr = 'Disponibilités momentanément indisponibles — réessaie.';
+					});
+			}
 		} finally {
 			busy = false;
 		}
@@ -189,6 +245,12 @@ import {
 	</header>
 
 	{#if pageErr}<p class="mb-4 rounded-xl border-2 border-danger bg-danger-light px-4 py-3 text-sm text-danger">{pageErr}</p>{/if}
+	{#if slotTaken}
+		<p class="mb-4 flex items-start gap-2 rounded-xl border-2 border-warn bg-warn-light px-4 py-3 text-sm font-semibold text-ink">
+			<Icon name="triangleAlert" size={16} class="mt-0.5 shrink-0 text-warn" />
+			<span>{slotTaken}</span>
+		</p>
+	{/if}
 	{#if notice}<p class="mb-4 rounded-xl border border-brand/40 bg-brand-light px-4 py-3 text-sm font-semibold text-ink">{notice}</p>{/if}
 
 	{#if loading}
@@ -251,12 +313,12 @@ import {
 				<!-- 2 · Jour -->
 				<p class="mb-1.5 mt-4 text-[11px] font-bold uppercase tracking-wider text-mist">2 · Jour</p>
 				<div class="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-					{#each dayOptions as d (d)}
-						<button
-							type="button"
-							onclick={() => { date = d; void loadSlots(); }}
-							class="shrink-0 rounded-xl border-2 px-3 py-2 text-xs font-bold transition {date === d ? 'border-brand bg-brand text-white' : 'border-line bg-white text-ink hover:border-brand/50'}"
-						>{dayLabel(d)}</button>
+				{#each dayOptions as d (d)}
+					<button
+						type="button"
+						onclick={() => { slotTaken = ''; date = d; void loadSlots(); }}
+						class="shrink-0 rounded-xl border-2 px-3 py-2 text-xs font-bold transition {date === d ? 'border-brand bg-brand text-white' : 'border-line bg-white text-ink hover:border-brand/50'}"
+					>{dayLabel(d)}</button>
 					{/each}
 				</div>
 
@@ -273,7 +335,7 @@ import {
 						{#each slots as s (s.start)}
 							<button
 								type="button"
-								onclick={() => (time = s.start)}
+								onclick={() => { slotTaken = ''; time = s.start; }}
 								class="rounded-xl px-2 py-2 text-xs font-bold tabular-nums transition {time === s.start ? 'bg-brand text-white' : 'bg-brand-light text-brand-dark hover:bg-brand hover:text-white'}"
 							>{s.start}</button>
 						{/each}
@@ -323,7 +385,7 @@ import {
 					{#each dayOptions as d (d)}
 						<button
 							type="button"
-							onclick={() => { date = d; void loadSlots(); }}
+							onclick={() => { slotTaken = ''; date = d; void loadSlots(); }}
 							class="shrink-0 rounded-xl border-2 px-3 py-2 text-xs font-bold transition {date === d ? 'border-brand bg-brand text-white' : 'border-line bg-white text-ink hover:border-brand/50'}"
 						>{dayLabel(d)}</button>
 					{/each}
@@ -341,7 +403,7 @@ import {
 							{#each slots as s (s.start)}
 								<button
 									type="button"
-									onclick={() => (time = s.start)}
+									onclick={() => { slotTaken = ''; time = s.start; }}
 									class="rounded-xl px-2 py-2 text-xs font-bold tabular-nums transition {time === s.start ? 'bg-brand text-white' : 'bg-brand-light text-brand-dark hover:bg-brand hover:text-white'}"
 								>{s.start}</button>
 							{/each}

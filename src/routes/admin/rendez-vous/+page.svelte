@@ -22,6 +22,7 @@
 		fromMin,
 		kindRule,
 		prettyDate,
+		SLOT_TAKEN_MESSAGE,
 		toISO,
 		toMin,
 		type Rdv,
@@ -208,14 +209,18 @@
 				body: JSON.stringify({ clientId, clientName, date, time, endTime, kind }),
 			});
 			const j = await res.json();
-			if (!res.ok) throw new Error(j.error);
+			if (!res.ok) throw new Error(j.error ?? j.message ?? 'Erreur');
 			notice = j.googleEventId ? 'Rendez-vous confirmé + ajouté à Google Calendar ✓' : 'Rendez-vous confirmé (Google Calendar non connecté — événement non créé).';
 			reserving = null;
 			await loadAll();
 		} catch (e) {
 			pageErr = e instanceof Error ? e.message : 'Erreur';
-			// Créneau pris entre-temps → recharge les créneaux à jour.
-			if (viewKind) void loadAvail(viewKind, weekStart, rescheduleFrom?._id ?? null);
+			// Créneau pris entre-temps (2e vérification serveur) → message exact +
+			// recharge immédiate des créneaux réels de la semaine.
+			if (e instanceof Error && e.message === SLOT_TAKEN_MESSAGE) {
+				pageErr = SLOT_TAKEN_MESSAGE;
+				if (viewKind) void loadAvail(viewKind, weekStart, rescheduleFrom?._id ?? null);
+			}
 		}
 	}
 	async function confirmReq(r: Rdv) {
@@ -244,9 +249,8 @@
 				method: 'PATCH',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ date, time, endTime, googleEventId: rdv.googleEventId }),
-			});
-			const j = await res.json();
-			if (!res.ok) throw new Error(j.error);
+			});			const j = await res.json();
+			if (!res.ok) throw new Error(j.error ?? j.message ?? 'Erreur');
 			notice = 'Rendez-vous replanifié ✓';
 			rescheduleFrom = null;
 			reserving = null;

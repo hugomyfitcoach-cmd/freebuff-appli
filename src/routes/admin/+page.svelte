@@ -12,7 +12,7 @@
 	import StepsBars from '../../lib/components/StepsBars.svelte';
 	import WeeklyTrendChart from '../../lib/components/WeeklyTrendChart.svelte';
 	import { cycleState } from '../../lib/cycle.js';
-	import { kindRule, toISO } from '../../lib/appointments.js';
+	import { kindRule, SLOT_TAKEN_MESSAGE, toISO } from '../../lib/appointments.js';
 	import { fmtMs } from '../../lib/media.js';
 	import { labelFor } from '../../lib/labels.js';
 	import { ONBOARDING_SECTIONS, readableAnswer } from '../../lib/onboarding.js';
@@ -1081,13 +1081,19 @@
 				}),
 			});
 			const j = await res.json();
-			if (!res.ok) throw new Error(j.error);
+			if (!res.ok) throw new Error(j.error ?? j.message ?? 'Erreur');
 			rdvNotice = j.googleEventId ? 'Rendez-vous confirmé + ajouté à Google Calendar ✓' : 'Rendez-vous confirmé (Google Calendar non connecté — événement non créé).';
 			rdvDate = '';
 			rdvSlots = [];
 			await loadRdvs();
 		} catch (e) {
 			rdvErr = e instanceof Error ? e.message : 'Erreur';
+			// Créneau pris entre-temps (2e vérification serveur) → message exact +
+			// recharge immédiate des créneaux réels.
+			if (e instanceof Error && e.message === SLOT_TAKEN_MESSAGE) {
+				rdvErr = SLOT_TAKEN_MESSAGE;
+				if (rdvDate) void loadRdvSlots();
+			}
 		}
 	}
 	async function rdvMove(date: string, time: string) {

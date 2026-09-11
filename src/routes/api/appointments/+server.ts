@@ -4,7 +4,8 @@ import { convex } from '$lib/server/convex';
 import { api } from '$lib/convex-api';
 import { SESSION_COOKIE } from '$lib/server/session';
 import { googleCalendarFetch, googleCalendarFetchForCoachId } from '$lib/server/googleOAuth';
-import { isBookableKind } from '$lib/appointments';
+import { isBookableKind, SLOT_TAKEN_MESSAGE } from '$lib/appointments';
+import { AvailabilityError, verifySlotServer } from '$lib/server/availability';
 
 /**
  * Rendez-vous — collection.
@@ -88,6 +89,33 @@ async function pushToGoogle(
 	}
 }
 
+/**
+ * 2e VÉRIFICATION SERVEUR du créneau juste avant la création (anti double
+ * booking) : disponibilités coach − RDV G-FLUX − Google Calendar − buffers,
+ * durée complète. Le résultat (422 = refus, 503 = Google illisible) est
+ * normalisé pour le client, qui recharge les disponibilités et affiche le
+ * message « créneau pris » sans rien créer.
+ */
+async function preBookCheck(
+	sessionToken: string,
+	coachId: string,
+	rdv: { date: string; time: string; kind: string }
+): Promise<Response | null> {
+	try {
+		const check = await verifySlotServer({ sessionToken, coachId, date: rdv.date, time: rdv.time, kind: rdv.kind });
+		if (check.ok) return null; // Le créneau est confirmé libre — on peut créer.
+		return json(
+			{ ok: false, code: 'slot_taken', message: SLOT_TAKEN_MESSAGE, detail: check.reason },
+			{ status: 422 }
+		);
+	} catch (e) {
+		if (e instanceof AvailabilityError) {
+			return json({ ok: false, code: e.code, error: e.message }, { status: 503 });
+		}
+		throw e;
+	}
+}
+
 export const GET: RequestHandler = async (event) => {
 	const token = event.cookies.get(SESSION_COOKIE);
 	if (!token) return json({ error: 'Session requise.' }, { status: 401 });
@@ -143,6 +171,10 @@ export const POST: RequestHandler = async (event) => {
 		if (me.role === 'coach') {
 			if (!body.clientId) return json({ error: 'Cliente requise.' }, { status: 400 });
 			const clientName = String(body.clientName ?? '').trim() || 'cliente';
+			// 2e vérification serveur du créneau (moteur STRICT : RDV + Google +
+			// buffers, durée complète) juste avant la création — anti double booking.
+			const guard = await preBookCheck(token, me._id, rdvInput);
+			if (guard) return guard;
 			const res = await convex.mutation(api.appointments.bookByCoach, {
 				sessionToken: token,
 				clientId: body.clientId,
@@ -162,9 +194,13 @@ export const POST: RequestHandler = async (event) => {
 			return json({ ok: true, appointmentId: res.appointmentId, googleEventId, status: 'on_book' });
 		}
 
-		// Cliente : réservation DIRECTE — immédiatement confirmée. La revérification
-		// serveur du créneau (dispo − RDV − buffers) est faite dans bookByClient.
+		// Cliente : réservation DIRECTE — immédiatement confirmée. La 2e vérification
+		// serveur du créneau (dispo − RDV − Google − buffers, durée complète) est
+		// faite ICI, juste avant la création — puis l'insertion Convex revalide
+		// en dernier ressort dans sa transaction.
 		const coachId = await convex.query(api.appointments.myCoachId, { sessionToken: token });
+		const guard = await preBookCheck(token, coachId as string, rdvInput);
+		if (guard) return guard;
 		const res = await convex.mutation(api.appointments.bookByClient, { sessionToken: token, ...rdvInput });
 		const googleEventId = await pushToGoogle(token, coachId, { ...rdvInput, clientName: me.prenom || 'cliente' });
 		if (googleEventId) {

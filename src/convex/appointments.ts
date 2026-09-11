@@ -4,6 +4,16 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { getSessionUser, wallTimeToUtcMs } from "./helpers";
 
+/** Message exact quand un créneau vient d'être pris (double booking évité). */
+export const SLOT_TAKEN_MESSAGE = "Ce créneau vient d’être réservé, choisis-en un autre";
+
+/**
+ * Grille d'affichage des créneaux : pas de 15 minutes, les heures rondes et
+ * les multiples de 15 uniquement. La durée COMPLÈTE du rendez-vous doit tenir
+ * dans la plage ouverte — même règle que le moteur de disponibilité BFF.
+ */
+const SLOT_GRID_STEP_MIN = 15;
+
 /**
  * Rendez-vous (CRM coach ⇄ cliente) — moteur de réservation.
  *
@@ -47,9 +57,63 @@ function toMin(hhmm: string): number {
 	return Number(h) * 60 + Number(m);
 }
 
-/** Chevauchement minute-minute sur le même jour (bornes inclusives). */
+/**
+ * Chevauchement minute-minute sur le même jour (bornes exclusives : [s, e)).
+ * Aligné sur le moteur BFF : deux plages qui se touchent exactement (fin =
+ * début) ne se chevauchent PAS — le buffer 5 min garantit déjà l'aération.
+ */
 function overlaps(aStart: number, aEnd: number, bStart: number, bEnd: number): boolean {
 	return aStart < bEnd && aEnd > bStart;
+}
+
+/** Le début est-il sur la grille des créneaux proposés (pas 15 min) ? */
+function onSlotGrid(time: string): boolean {
+	return toMin(time) % SLOT_GRID_STEP_MIN === 0;
+}
+
+/** Plages hebdo d'un coach (lecture interne, sans contrôle de rôle). */
+async function rangesOfCoach(ctx: Pick<QueryCtx, "db">, coachId: Id<"users">) {
+	const s = await ctx.db
+		.query("bookingSettings")
+		.withIndex("by_coach", (q) => q.eq("coachId", coachId))
+		.unique();
+	return s ? s.ranges : [];
+}
+
+/**
+ * Garde-fous d'un créneau demandé (création ou replanification) : format,
+ * durée RÉELLE du type, grille 15 min, et durée complète qui tient dans une
+ * plage de disponibilité ouverte. Le coach est soumis à la même grille que
+ * ses clientes — l'agenda est unique.
+ */
+function validateSlotInput(
+	ranges: { day: number; start: string; end: string }[],
+	date: string,
+	time: string,
+	endTime: string,
+	kind: string
+): { startMin: number; endMin: number } {
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time) || !/^\d{2}:\d{2}$/.test(endTime)) {
+		throw new ConvexError("Date ou horaire invalide.");
+	}
+	const rule = kindRule(kind);
+	const startMin = toMin(time);
+	const endMin = toMin(endTime);
+	if (endMin <= startMin) throw new ConvexError("L'heure de fin doit être après le début.");
+	if (endMin - startMin !== rule.durationMin) {
+		throw new ConvexError(`La durée de ce rendez-vous est de ${rule.durationMin} min.`);
+	}
+	if (!onSlotGrid(time)) {
+		throw new ConvexError("Horaire hors créneaux proposés — choisis un créneau de la grille.");
+	}
+	const day = ((new Date(`${date}T12:00:00Z`).getUTCDay() + 6) % 7) + 1;
+	const inRanges = ranges.some(
+		(r) => r.day === day && startMin >= toMin(r.start) && endMin <= toMin(r.end)
+	);
+	if (!inRanges) {
+		throw new ConvexError("Ce créneau est hors des disponibilités du coach.");
+	}
+	return { startMin, endMin };
 }
 
 /**
@@ -232,17 +296,20 @@ export const bookByCoach = mutation({
 	},
 	handler: async (ctx, { sessionToken, clientId, date, time, endTime, kind }) => {
 		const coach = await requireCoach(ctx, sessionToken);
-		if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time) || !/^\d{2}:\d{2}$/.test(endTime)) {
-			throw new ConvexError("Date ou horaire invalide.");
-		}
-		if (toMin(endTime) <= toMin(time)) throw new ConvexError("L'heure de fin doit être après le début.");
 		const client = await ctx.db.get(clientId);
 		if (!client || client.role !== "client") throw new ConvexError("Cliente introuvable.");
+		const ranges = await rangesOfCoach(ctx, coach._id);
+		// Garde-fous : format, durée réelle, grille 15 min, plage ouverte.
+		const { startMin, endMin } = validateSlotInput(ranges, date, time, endTime, kind);
 		// Revérification serveur : créneau toujours libre (RDV + buffers) ?
 		const busy = await busyFromAppointments(ctx, coach._id, date);
-		const candidate = { start: toMin(time) - kindRule(kind).bufferMin, end: toMin(endTime) + kindRule(kind).bufferMin };
+		const candidate = { start: startMin - kindRule(kind).bufferMin, end: endMin + kindRule(kind).bufferMin };
 		if (busy.some((b) => overlaps(candidate.start, candidate.end, b.start, b.end))) {
-			throw new ConvexError("Ce créneau vient d'être pris — choisis un autre créneau.");
+			throw new ConvexError(SLOT_TAKEN_MESSAGE);
+		}
+		// Passé : un RDV commence toujours après maintenant (durée complète).
+		if (wallTimeToUtcMs(date, time, "Europe/Paris") <= Date.now()) {
+			throw new ConvexError("Ce créneau est déjà passé — choisis un créneau à venir.");
 		}
 		const now = Date.now();
 		const id = await ctx.db.insert("appointments", {
@@ -278,21 +345,24 @@ export const bookByClient = mutation({
 	handler: async (ctx, { sessionToken, date, time, endTime, kind }) => {
 		const user = await requireUser(ctx, sessionToken);
 		if (user.role !== "client") throw new ConvexError("Accès réservé aux clientes.");
-		if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time) || !/^\d{2}:\d{2}$/.test(endTime)) {
-			throw new ConvexError("Date ou horaire invalide.");
-		}
-		if (toMin(endTime) <= toMin(time)) throw new ConvexError("L'heure de fin doit être après le début.");
 		// « Démarrage » est réservé au coach : une cliente ne peut créer qu'un Suivi.
 		if (kind !== "Suivi") {
 			throw new ConvexError("Type de rendez-vous non disponible — le démarrage est proposé par ton coach.");
 		}
 		const coachId = user.createdBy;
 		if (!coachId) throw new ConvexError("Ton coach n'est pas encore rattaché à ton compte.");
+		const ranges = await rangesOfCoach(ctx, coachId);
+		// Garde-fous : format, durée réelle, grille 15 min, plage ouverte.
+		const { startMin, endMin } = validateSlotInput(ranges, date, time, endTime, kind);
 		// Revérification serveur : créneau toujours libre (RDV + buffers) ?
 		const busy = await busyFromAppointments(ctx, coachId, date);
-		const candidate = { start: toMin(time) - kindRule(kind).bufferMin, end: toMin(endTime) + kindRule(kind).bufferMin };
+		const candidate = { start: startMin - kindRule(kind).bufferMin, end: endMin + kindRule(kind).bufferMin };
 		if (busy.some((b) => overlaps(candidate.start, candidate.end, b.start, b.end))) {
-			throw new ConvexError("Ce créneau vient d'être pris — choisis un autre créneau.");
+			throw new ConvexError(SLOT_TAKEN_MESSAGE);
+		}
+		// Passé : un RDV commence toujours après maintenant (durée complète).
+		if (wallTimeToUtcMs(date, time, "Europe/Paris") <= Date.now()) {
+			throw new ConvexError("Ce créneau est déjà passé — choisis un créneau à venir.");
 		}
 		const now = Date.now();
 		const id = await ctx.db.insert("appointments", {
@@ -329,10 +399,9 @@ export const reschedule = mutation({
 		const isClient = user.role === "client" && a.clientId === user._id;
 		if (!isCoach && !isClient) throw new ConvexError("Action non autorisée.");
 		if (a.status !== "on_book") throw new ConvexError("Ce rendez-vous n'est pas confirmé.");
-		if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time) || !/^\d{2}:\d{2}$/.test(endTime)) {
-			throw new ConvexError("Date ou horaire invalide.");
-		}
-		if (toMin(endTime) <= toMin(time)) throw new ConvexError("L'heure de fin doit être après le début.");
+		const ranges = await rangesOfCoach(ctx, a.coachId);
+		// Garde-fous : format, durée réelle, grille 15 min, plage ouverte.
+		const { startMin, endMin } = validateSlotInput(ranges, date, time, endTime, a.kind);
 		// Limite cliente : replanification autonome jusqu'à 4 h avant (jamais pour le coach).
 		if (!isCoach) {
 			const startAt = wallTimeToUtcMs(a.date, a.time, "Europe/Paris");
@@ -343,9 +412,13 @@ export const reschedule = mutation({
 		// Revérification serveur : le nouveau créneau est-il toujours libre ?
 		// (le RDV déplacé ne se bloque pas lui-même — excludeId).
 		const busy = await busyFromAppointments(ctx, a.coachId, date, appointmentId);
-		const candidate = { start: toMin(time) - kindRule(a.kind).bufferMin, end: toMin(endTime) + kindRule(a.kind).bufferMin };
+		const candidate = { start: startMin - kindRule(a.kind).bufferMin, end: endMin + kindRule(a.kind).bufferMin };
 		if (busy.some((b) => overlaps(candidate.start, candidate.end, b.start, b.end))) {
-			throw new ConvexError("Ce créneau vient d'être pris — choisis un autre créneau.");
+			throw new ConvexError(SLOT_TAKEN_MESSAGE);
+		}
+		// Passé : un RDV se déplace toujours vers un créneau à venir.
+		if (wallTimeToUtcMs(date, time, "Europe/Paris") <= Date.now()) {
+			throw new ConvexError("Ce créneau est déjà passé — choisis un créneau à venir.");
 		}
 		const now = Date.now();
 		await ctx.db.patch(appointmentId, {
@@ -425,11 +498,7 @@ export const internalSettingsOf = query({
 		const isCoach = user.role === "coach" && user._id === coachId;
 		const isClientOf = user.role === "client" && user.createdBy === coachId;
 		if (!isCoach && !isClientOf) throw new ConvexError("Accès refusé.");
-		const s = await ctx.db
-			.query("bookingSettings")
-			.withIndex("by_coach", (q) => q.eq("coachId", coachId))
-			.unique();
-		return s ? s.ranges : [];
+		return rangesOfCoach(ctx, coachId);
 	},
 });
 
@@ -458,6 +527,34 @@ export const listForCoachInternal = query({
 			kind: a.kind,
 			status: a.status,
 		}));
+	},
+});
+
+/**
+ * Lecture de sécurité POUR LE BFF — un seul rendez-vous par _id, visible
+ * uniquement par le coach propriétaire ou la cliente du RDV. Utilisée par la
+ * 2e vérification serveur du créneau : la propriété du rendez-vous est
+ * revérifiée ICI (dans la transaction Convex), jamais seulement côté BFF.
+ */
+export const getForUser = query({
+	args: { sessionToken: v.optional(v.string()), appointmentId: v.id("appointments") },
+	handler: async (ctx, { sessionToken, appointmentId }) => {
+		const user = await requireUser(ctx, sessionToken);
+		const a = await ctx.db.get(appointmentId);
+		if (!a) return null;
+		const isCoach = user.role === "coach" && a.coachId === user._id;
+		const isClient = user.role === "client" && a.clientId === user._id;
+		if (!isCoach && !isClient) return null;
+		return {
+			_id: a._id,
+			coachId: a.coachId,
+			clientId: a.clientId,
+			date: a.date,
+			time: a.time,
+			endTime: a.endTime,
+			kind: a.kind,
+			status: a.status,
+		};
 	},
 });
 

@@ -4,6 +4,8 @@ import { convex } from '$lib/server/convex';
 import { api } from '$lib/convex-api';
 import { SESSION_COOKIE } from '$lib/server/session';
 import { googleCalendarFetch, googleCalendarFetchForCoachId } from '$lib/server/googleOAuth';
+import { AvailabilityError, verifySlotServer } from '$lib/server/availability';
+import { SLOT_TAKEN_MESSAGE } from '$lib/appointments';
 
 /**
  * Rendez-vous — un rendez-vous.
@@ -58,6 +60,37 @@ export const PATCH: RequestHandler = async (event) => {
 	const body = await event.request.json().catch(() => null);
 	if (!body) return json({ error: 'Corps JSON attendu.' }, { status: 400 });
 	try {
+		// Propriété + kind : vérifiés ICI (dans Convex, source de vérité) — jamais
+		// depuis le corps de la requête.
+		const rdv = await convex.query(api.appointments.getForUser, {
+			sessionToken: token,
+			appointmentId: id as never,
+		});
+		if (!rdv) return json({ error: 'Rendez-vous introuvable.' }, { status: 404 });
+		// 2e vérification serveur du NOUVEAU créneau (dispo − RDV − Google −
+		// buffers, durée complète) juste avant la mutation — anti double booking.
+		// Le RDV déplacé ne se bloque pas lui-même (excludeId).
+		try {
+			const check = await verifySlotServer({
+				sessionToken: token,
+				coachId: rdv.coachId,
+				date: String(body.date ?? ''),
+				time: String(body.time ?? ''),
+				kind: rdv.kind,
+				excludeIds: [id],
+			});
+			if (!check.ok) {
+				return json(
+					{ ok: false, code: 'slot_taken', message: SLOT_TAKEN_MESSAGE, detail: check.reason },
+					{ status: 422 }
+				);
+			}
+		} catch (e) {
+			if (e instanceof AvailabilityError) {
+				return json({ ok: false, code: e.code, error: e.message }, { status: 503 });
+			}
+			throw e;
+		}
 		// La mutation (revérification serveur du créneau + règle 4 h cliente)
 		// précède tout appel Google : jamais de déplacement d'événement si le
 		// RDV G-FLUX ne bouge pas. Elle renvoie le googleEventId à déplacer.

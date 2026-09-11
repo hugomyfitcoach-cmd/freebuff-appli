@@ -76,18 +76,125 @@ export function prettyDate(iso: string): string {
 /** Fenêtre de replanification autonome cliente : jusqu'à 4 h avant (§15). */
 export const CLIENT_RESCHEDULE_LIMIT_MS = 4 * 60 * 60 * 1000;
 
+/**
+ * Message EXACT affiché quand le créneau a été pris entre-temps (double
+ * booking évité de justesse) : la 2e vérification serveur au clic « Réserver »
+ * a refusé la création, aucun RDV n'a été créé, et les disponibilités sont
+ * rechargées immédiatement.
+ */
+export const SLOT_TAKEN_MESSAGE = 'Ce créneau vient d’être réservé, choisis-en un autre';
+
+/** Codes d’échec de la vérification finale d’un créneau (2e passe serveur). */
+export type SlotCheckFailureCode =
+	| 'slot_taken'
+	| 'not_in_ranges'
+	| 'in_past'
+	| 'overlap_gflux'
+	| 'overlap_google'
+	| 'invalid'
+	| 'google_unavailable'
+	| 'google_not_connected'
+	| 'unknown';
+
+/** Résultat de la vérification finale d’un créneau (moteur serveur). */
+export type SlotCheck =
+	| { ok: true; durationMin: number; bufferMin: number }
+	| { ok: false; code: SlotCheckFailureCode; message: string; durationMin: number; bufferMin: number };
+
 /** La cliente peut-elle encore replanifier seule ce RDV ? */
 export function clientCanReschedule(r: { date: string; time: string }): boolean {
 	return rdvStartMs(r) - Date.now() > CLIENT_RESCHEDULE_LIMIT_MS;
+}
+
+/**
+ * Erreur de disponibilité structurée — le client peut reconnaître un échec
+ * strict du moteur (Google injoignable / non connecté, créneau pris…) sans
+ * parser un message en langue naturelle.
+ */
+export class AvailabilityError extends Error {
+	code: 'google_unavailable' | 'google_not_connected' | 'slot_taken' | 'unknown';
+	constructor(
+		code: 'google_unavailable' | 'google_not_connected' | 'slot_taken' | 'unknown',
+		message: string
+	) {
+		super(message);
+		this.code = code;
+	}
+}
+
+/**
+ * VÉRIFICATION FINALE D'UN CRÉNEAU juste avant la réservation (2e passe
+ * serveur, indépendante de l'affichage). À appeler au clic « Réserver » : si
+ * le créneau vient d’être pris, on n’envoie JAMAIS le POST/PATCH — on
+ * affiche `SLOT_TAKEN_MESSAGE` et on recharge les disponibilités.
+ */
+export async function verifySlot(opts: {
+	date: string;
+	time: string;
+	kind: string;
+	excludeId?: string;
+}): Promise<SlotCheck> {
+	const p = new URLSearchParams({ date: opts.date, time: opts.time, type: opts.kind });
+	if (opts.excludeId) p.set('excludeId', opts.excludeId);
+	const res = await fetch(`/api/appointments/availability/verify?${p.toString()}`);
+	const j = (await res.json()) as {
+		ok?: boolean;
+		reason?: string;
+		code?: string;
+		message?: string;
+		durationMin?: number;
+		bufferMin?: number;
+		error?: string;
+	};
+	if (!res.ok && res.status !== 409) {
+		throw new AvailabilityError(
+			(j.code as AvailabilityError['code']) ?? 'unknown',
+			j.error ?? j.message ?? 'Vérification du créneau impossible.'
+		);
+	}
+	if (j.ok) {
+		return {
+			ok: true,
+			durationMin: j.durationMin ?? kindRule(opts.kind).durationMin,
+			bufferMin: j.bufferMin ?? 5,
+		};
+	}
+	return {
+		ok: false,
+		code: (j.code as SlotCheckFailureCode) ?? 'unknown',
+		message: j.message ?? SLOT_TAKEN_MESSAGE,
+		durationMin: j.durationMin ?? kindRule(opts.kind).durationMin,
+		bufferMin: j.bufferMin ?? 5,
+	};
+}
+
+/**
+ * RECHARGE IMMÉDIATE des disponibilités — appelé dès qu'un créneau s'est
+ * fait prendre entre-temps (vérification finale ou refus à la création) :
+ * l'utilisateur revoit instantanément la grille réelle, jamais une liste
+ * périmée contenant encore le créneau fantôme.
+ */
+export async function refreshAvailability(opts: {
+	date: string;
+	kind: string;
+	excludeId?: string;
+	days?: number;
+}): Promise<{ days: AvailabilityDay[]; durationMin: number; bufferMin: number }> {
+	return fetchAvailability(opts);
 }
 
 export type AvailabilitySlot = { start: string; end: string };
 export type AvailabilityDay = { date: string; slots: AvailabilitySlot[] };
 
 /**
- * Créneaux réellement disponibles (moteur serveur) :
- * plages autorisées − Google Calendar − RDV G-FLUX − buffers, pour le TYPE
- * demandé (la durée dépend du type). `excludeId` : replanification.
+ * Créneaux réellement disponibles (moteur serveur STRICT, recalcul à chaque
+ * appel — jamais un cache) :
+ * disponibilités coach − Google Calendar − RDV G-FLUX (toutes clientes) −
+ * buffers, avec la durée COMPLÈTE du type demandé. `excludeId` : replanification.
+ *
+ * STRICT : si l'agenda Google ne peut pas être lu (non connecté, erreur,
+ * token expiré), l'endpoint renvoie une erreur — aucun créneau approximatif
+ * n'est jamais affiché.
  */
 export async function fetchAvailability(opts: {
 	date: string;
@@ -105,8 +212,17 @@ export async function fetchAvailability(opts: {
 		durationMin?: number;
 		bufferMin?: number;
 		error?: string;
+		code?: string;
 	};
-	if (!res.ok) throw new Error(j.error ?? 'Disponibilités indisponibles.');
+	if (!res.ok) {
+		// Échec STRICT du moteur (Google non connecté / injoignable) : erreur
+		// structurée — l'appelant peut afficher une explication honnête au lieu
+		// d'une liste de créneaux non garantis.
+		if (j.code === 'google_unavailable' || j.code === 'google_not_connected') {
+			throw new AvailabilityError(j.code, j.error ?? 'Agenda non vérifiable.');
+		}
+		throw new Error(j.error ?? 'Disponibilités indisponibles.');
+	}
 	return {
 		days: j.days ?? [],
 		durationMin: j.durationMin ?? kindRule(opts.kind).durationMin,
