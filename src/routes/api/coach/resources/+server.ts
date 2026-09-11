@@ -67,7 +67,7 @@ export const POST: RequestHandler = async (event) => {
 			const typeOk = FILE_TYPES.has(file.type) || EXT_OK.test(file.name);
 			if (!typeOk) {
 				return json(
-					{ error: 'Format non accepté pour le Dossier : PDF, image ou document (Word, Excel, PowerPoint, texte…).' },
+					{ error: 'Format non accepté pour le Drive : PDF, image ou document (Word, Excel, PowerPoint, texte…).' },
 					{ status: 400 }
 				);
 			}

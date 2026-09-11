@@ -83,7 +83,7 @@
 			noteTitle = '';
 			noteBody = '';
 			noteOpen = false;
-			flashOk('Note ajoutée au Dossier (privée coach par défaut).');
+			flashOk('Note ajoutée au Drive (privée coach par défaut).');
 			await load();
 		} catch (e) {
 			flashErr(e);
@@ -116,7 +116,7 @@
 			fileTitle = '';
 			if (fileInput) fileInput.value = '';
 			fileOpen = false;
-			flashOk('Document ajouté au Dossier (privé coach par défaut).');
+			flashOk('Document ajouté au Drive (privé coach par défaut).');
 			await load();
 		} catch (e) {
 			flashErr(e);
@@ -138,7 +138,7 @@
 			});
 			const j = await r.json();
 			if (!r.ok || j.error) throw new Error(j.error || 'Mise à jour impossible.');
-			flashOk(visibility === 'shared' ? 'Visible par la cliente dans « Ressources ». ✔' : 'Repassée en privé — plus visible côté cliente.');
+			flashOk(visibility === 'shared' ? 'Visible par la cliente dans « Drive ». ✔' : 'Repassée en privé — plus visible côté cliente.');
 			await load();
 		} catch (e) {
 			flashErr(e);
@@ -147,7 +147,7 @@
 		}
 	}
 	async function remove(id: string, title: string) {
-		if (!confirm(`Supprimer définitivement « ${title} » du Dossier ?`)) return;
+		if (!confirm(`Supprimer définitivement « ${title} » du Drive ?`)) return;
 		busyId = id;
 		err = '';
 		try {
@@ -178,9 +178,9 @@
 <div class="rounded-2xl border border-line bg-card p-4 shadow-sm">
 	<div class="flex flex-wrap items-center justify-between gap-2">
 		<div class="flex items-center gap-2.5">
-			<span class="grid h-8 w-8 place-items-center rounded-full bg-brand-light"><Icon name="bookOpen" size={15} class="text-brand" /></span>
+			<span class="grid h-8 w-8 place-items-center rounded-full bg-brand-light"><Icon name="cloud" size={15} class="text-brand" /></span>
 			<div class="min-w-0">
-				<p class="text-[11px] font-bold uppercase tracking-wider text-mist">Dossier{clientName ? ` · ${clientName}` : ''}</p>
+				<p class="text-[11px] font-bold uppercase tracking-wider text-mist">Drive{clientName ? ` · ${clientName}` : ''}</p>
 				<p class="mt-0.5 text-xs text-mist">Notes privées coach + ressources partagées avec la cliente</p>
 			</div>
 		</div>
@@ -253,10 +253,10 @@
 
 	<div class="mt-3 space-y-2">
 		{#if loading}
-			<p class="py-3 text-center text-xs text-mist">Chargement du Dossier…</p>
+			<p class="py-3 text-center text-xs text-mist">Chargement du Drive…</p>
 		{:else if rows.length === 0}
 			<div class="rounded-xl border border-dashed border-line px-4 py-6 text-center">
-				<p class="text-sm text-ink">Dossier vide pour l'instant</p>
+				<p class="text-sm text-ink">Drive vide pour l'instant</p>
 				<p class="mt-0.5 text-xs text-mist">Ajoute une note privée ou un document. Tout reste « Privé coach » tant que tu ne choisis pas de le partager.</p>
 			</div>
 		{:else}

@@ -27,12 +27,12 @@ const GREETINGS: Record<Period, string[]> = {
 	matin: [
 		'Bonjour {prenom}',
 		'Belle matinée {prenom}',
-		'Ravie de te retrouver {prenom}',
+		'Content de te retrouver {prenom}',
 	],
 	apresmidi: [
 		'Bon après-midi {prenom}',
 		'{prenom} est de retour',
-		'Contente de te revoir {prenom}',
+		'Content de te revoir {prenom}',
 	],
 	soir: [
 		'Bonsoir {prenom}',
