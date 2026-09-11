@@ -3,6 +3,7 @@ import { v, ConvexError } from "convex/values";
 import { getSessionUser, localTodayISO } from "./helpers";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { recordEvent } from "./notifications";
 
 /**
  * Suivi corporel (progression) : poids, tour de cou, tour de taille et
@@ -121,6 +122,44 @@ const METRIC_RANGE: Record<MetricKey, [number, number, string]> = {
 	waistCm: [40, 250, "Le tour de taille"],
 	hipCm: [50, 300, "La circonférence des fessiers"],
 };
+
+const fmtMesure = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 1 });
+
+/** Description CRM d'un nouveau poids (ex. « Poids : 62,4 kg »). */
+function poidsDescription(kg: number): string {
+	return `Poids : ${fmtMesure(kg)} kg`;
+}
+
+/** Description CRM de nouvelles mensurations (seuls les champs saisis sont listés). */
+function mesuresDescription(m: { neckCm?: number; waistCm?: number; hipCm?: number }): string {
+	const parts: string[] = [];
+	if (m.neckCm !== undefined) parts.push(`cou ${fmtMesure(m.neckCm)} cm`);
+	if (m.waistCm !== undefined) parts.push(`taille ${fmtMesure(m.waistCm)} cm`);
+	if (m.hipCm !== undefined) parts.push(`fessiers ${fmtMesure(m.hipCm)} cm`);
+	return `Mensurations : ${parts.join(", ")}`;
+}
+
+/**
+ * Journalise les événements CRM « nouveau poids » / « nouvelles mensurations »
+ * pour la cliente concernée — uniquement quand une valeur RÉELLE est écrite.
+ * Appelé depuis les écritures de la cliente (l'espace de suivi) : une saisie
+ * de la coach elle-même (upsertForCoach / updateOneForCoach) n'est pas de
+ * l'activité cliente et ne génère jamais de notification.
+ */
+async function recordCoachNotifs(
+	ctx: Pick<MutationCtx, "db">,
+	userId: Id<"users">,
+	patch: { weightKg?: number; neckCm?: number; waistCm?: number; hipCm?: number }
+): Promise<void> {
+	const { weightKg, ...mens } = patch;
+	const hasMens = mens.neckCm !== undefined || mens.waistCm !== undefined || mens.hipCm !== undefined;
+	if (weightKg !== undefined) {
+		await recordEvent(ctx, userId, "nouveau_poids", poidsDescription(weightKg));
+	}
+	if (hasMens) {
+		await recordEvent(ctx, userId, "nouvelles_mesures", mesuresDescription(mens));
+	}
+}
 
 function patchMetric(metric: MetricKey, value: number | undefined) {
 	if (metric === "weightKg") return { weightKg: value };
@@ -288,6 +327,7 @@ export const upsert = mutation({
 				createdAt: Date.now(),
 			});
 		}
+		await recordCoachNotifs(ctx, user._id, patch);
 		return { ok: true };
 	},
 });
@@ -318,6 +358,7 @@ export const updateOne = mutation({
 		} else {
 			await ctx.db.insert("bodyMetrics", { userId: user._id, date, ...patch, createdAt: Date.now() });
 		}
+		await recordCoachNotifs(ctx, user._id, patch);
 		return { ok: true };
 	},
 });

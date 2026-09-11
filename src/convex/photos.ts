@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { getSessionUser } from "./helpers";
+import { recordEvent } from "./notifications";
 import type { QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 
@@ -68,6 +69,13 @@ export const submit = mutation({
 			photos,
 			createdAt: Date.now(),
 		});
+		// Journal CRM : nouvelle série de photos de suivi (événement réel).
+		await recordEvent(
+			ctx,
+			user._id,
+			"nouvelles_photos",
+			`${photos.length} photo${photos.length > 1 ? "s" : ""} envoyée${photos.length > 1 ? "s" : ""} — ${PHOTO_STEP_LABELS[step]}`
+		);
 		return { ok: true, count: photos.length };
 	},
 });

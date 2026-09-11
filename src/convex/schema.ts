@@ -13,6 +13,23 @@ import { answersValidator } from "./answers";
  */
 export const checkinStatus = v.union(v.literal("nouveau"), v.literal("retour_envoye"));
 export const userRole = v.union(v.literal("coach"), v.literal("client"));
+/**
+ * Types d'événements du journal d'activité cliente (onglet Notifications du
+ * CRM). Liste fermée : chaque type a son libellé, son icône et la section de
+ * la Vision 360 qu'il ouvre (miroir côté client : src/lib/notifications.ts).
+ * Les anciens types « bilan_envoye » / « bilan_manquant » ont été retirés à
+ * la demande — le cron `notifications-tick` purge les lignes historiques.
+ */
+export const coachNotifKind = v.union(
+	v.literal("nouveau_poids"),
+	v.literal("nouvelles_mesures"),
+	v.literal("nouvelles_photos"),
+	v.literal("rdv_pris"),
+	v.literal("rdv_annule"),
+	v.literal("rdv_replanifie"),
+	v.literal("onboarding_termine"),
+	v.literal("inactivite")
+);
 
 export default defineSchema({
 	users: defineTable({
@@ -619,4 +636,40 @@ export default defineSchema({
 	})
 		.index("by_user_date", ["userId", "date"])
 		.index("by_user", ["userId"]),
+
+	/**
+	 * Notifications coach (CRM) — journal centralisé de l'activité cliente :
+	 * nouveau poids / mensurations / photos, rendez-vous pris / annulés /
+	 * replanifiés, bilan hebdo envoyé, bilan manquant et inactivité (aucune
+	 * connexion depuis 4 jours). Une notification = cliente + événement +
+	 * courte description + horodatage, avec un statut « à consulter / vue ».
+	 *
+	 * `dedupKey` porte la déduplication transactionnelle : le même événement
+	 * (même période d'inactivité, même semaine de bilan manquant, même envoi)
+	 * n'est jamais enregistré deux fois — la garde est relue DANS la même
+	 * transaction que l'insertion (les mutations Convex sont sérialisables).
+	 * Les alertes dérivées (inactivité, bilan manquant) sont posées par le
+	 * cron `notifications-tick` ; les événements réels sont enregistrés
+	 * directement dans les mutations qui les produisent.
+	 */
+	coachNotifications: defineTable({
+		/** Cliente concernée par l'événement. */
+		userId: v.id("users"),
+		kind: coachNotifKind,
+		/** Courte description affichée dans le CRM (ex. « Poids : 62,4 kg (−0,8) »). */
+		description: v.string(),
+		/** Statut de consultation : false = « À consulter », true = « Vue ». */
+		read: v.boolean(),
+		/** Clé de déduplication (ex. "inact:userId:2026-09-07") — absente pour les événements uniques. */
+		dedupKey: v.optional(v.string()),
+		/** Bilan concerné — conservé pour les lignes historiques. */
+		checkinId: v.optional(v.id("checkins")),
+		/** Rendez-vous concerné (rdv_*) — lien direct vers la source. */
+		appointmentId: v.optional(v.id("appointments")),
+		/** Semaine de référence ("yyyy-mm-dd", lundi) pour les événements bilan. */
+		weekStart: v.optional(v.string()),
+	})
+		.index("by_user", ["userId"])
+		.index("by_read", ["read"])
+		.index("by_dedup", ["dedupKey"]),
 });

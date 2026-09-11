@@ -6,6 +6,6 @@
 
 <svelte:head><title>CRM — G-Flux</title></svelte:head>
 
-<AppShell role="coach" user={data.user} contentWidth="wide">
+<AppShell role="coach" user={data.user} contentWidth="wide" badges={{ notifications: data.notificationsBadge ?? 0 }}>
 	{@render children()}
 </AppShell>

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { invalidateAll } from '$app/navigation';
+	import { onMount } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 
 	type Row = {
@@ -88,6 +90,25 @@
 		manquants: weekRows.missing.length,
 		lu: weekRows.done.length,
 	});
+
+	/* ── Bilans manquants ACTUELS (temps réel) ──────────────────────────
+	   Coup d'œil instantané : les clientes dont le bilan ATTENDU n'a pas
+	   encore été envoyé, calculé côté serveur (bilansBoard.missing, même
+	   moteur que le CRM). Un intervalle de 30 s revalide la page — la liste
+	   suit les soumissions en direct, sans recharger manuellement. ── */
+	let showMissingNow = $state(false);
+	let missingTimer: ReturnType<typeof setInterval> | null = null;
+	const missingNow = $derived(board.missing ?? []);
+	const missingNowWeek = $derived(board.missingWeek ?? null);
+
+	onMount(() => {
+		missingTimer = setInterval(() => void invalidateAll(), 30000);
+		return () => {
+			if (missingTimer) clearInterval(missingTimer);
+		};
+	});
+
+	const open360Missing = (r: Row) => `/admin?client=${encodeURIComponent(r.userId)}&section=bilans`;
 </script>
 
 <svelte:head><title>Bilans — G-Flux (CRM)</title></svelte:head>
@@ -104,6 +125,54 @@
 		class="inline-flex items-center gap-1.5 rounded-xl border-2 border-line bg-card px-3.5 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand"
 	><Icon name="arrowLeft" size={14} class="shrink-0" /> Client·e·s & tableau de bord</a>
 </div>
+
+<!-- ═══ Bilans manquants ACTUELS : temps réel, par simple bouton ═══ -->
+<section class="mt-5">
+	<button
+		type="button"
+		onclick={() => (showMissingNow = !showMissingNow)}
+		class="inline-flex items-center gap-2 rounded-xl border-2 px-3.5 py-2 text-sm font-semibold transition
+			{showMissingNow ? 'border-danger bg-danger-light text-danger' : 'border-line bg-card text-ink hover:border-danger hover:text-danger'}"
+	>
+		<Icon name="clipboardList" size={15} class="shrink-0" />
+		Bilans manquants actuels
+		{#if missingNow.length > 0}
+			<span class="grid h-5 min-w-5 place-items-center rounded-full bg-danger px-1 text-[11px] font-bold text-white">{missingNow.length}</span>
+		{/if}
+	</button>
+
+	{#if showMissingNow}
+		<div class="mt-3 rounded-2xl border border-line bg-card p-4 shadow-sm">
+			<div class="flex flex-wrap items-center justify-between gap-2">
+				<h3 class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-danger">
+					<span class="h-2 w-2 animate-pulse rounded-full bg-danger"></span>
+					En attente de bilan
+					{#if missingNowWeek}<span class="font-normal normal-case text-mist">— semaine du {missingNowWeek.weekLabel}</span>{/if}
+				</h3>
+				<span class="inline-flex items-center gap-1 text-[11px] text-mist"><Icon name="refreshCw" size={11} /> actualisé toutes les 30 s</span>
+			</div>
+			{#if missingNow.length === 0}
+				<p class="mt-3 rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm text-mist">Tout le monde a envoyé son bilan ✓</p>
+			{:else}
+				<div class="mt-3 grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
+					{#each missingNow as r (r.userId)}
+						<a
+							href={open360Missing(r)}
+							class="flex items-center gap-2 rounded-xl border border-line/70 bg-white px-3 py-2.5 transition hover:border-danger/60 hover:bg-danger-light/30"
+						>
+							<div class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-danger/10 font-display text-sm font-semibold text-danger">{r.prenom.charAt(0).toUpperCase()}</div>
+							<div class="min-w-0 flex-1">
+								<div class="truncate text-sm font-semibold text-ink">{fullName(r)}</div>
+								<div class="truncate text-[11px] text-mist">Bilan attendu — pas encore envoyé</div>
+							</div>
+							<span class="shrink-0 text-xs font-bold text-danger">Vision 360 →</span>
+						</a>
+					{/each}
+				</div>
+			{/if}
+		</div>
+	{/if}
+</section>
 
 <!-- ═══ Sélecteur de semaine ═══ -->
 {#if weeks.length > 0}

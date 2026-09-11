@@ -9,7 +9,6 @@ import { api } from '../../convex/_generated/api.js';	import { SESSION_COOKIE, r
 	const token = event.cookies.get(SESSION_COOKIE);
 
 	const clients = await convex.query(api.coach.listClients, { sessionToken: token });
-	const bilansBoard = await convex.query(api.coach.bilansBoard, { sessionToken: token });
 
 	const param = event.url.searchParams.get('client');
 	// Le tiroir 360° ne s'ouvre que si l'on clique sur « 360° » d'un·e client·e précis·e
@@ -53,7 +52,6 @@ import { api } from '../../convex/_generated/api.js';	import { SESSION_COOKIE, r
 
 	return {
 		clients,
-		bilansBoard,
 		selectedId,
 		weekParam,
 		view,

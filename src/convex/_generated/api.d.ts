@@ -22,6 +22,7 @@ import type * as mealPlans from "../mealPlans.js";
 import type * as meals from "../meals.js";
 import type * as media from "../media.js";
 import type * as metrics from "../metrics.js";
+import type * as notifications from "../notifications.js";
 import type * as off from "../off.js";
 import type * as onboarding from "../onboarding.js";
 import type * as photos from "../photos.js";
@@ -53,6 +54,7 @@ declare const fullApi: ApiFromModules<{
   meals: typeof meals;
   media: typeof media;
   metrics: typeof metrics;
+  notifications: typeof notifications;
   off: typeof off;
   onboarding: typeof onboarding;
   photos: typeof photos;

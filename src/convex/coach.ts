@@ -16,6 +16,7 @@ import {
 } from "./helpers";
 import { DEFAULT_GOALS } from "./journal";
 import { bodyFatSeries, logHeightRow } from "./metrics";
+import { resolveInactivity } from "./notifications";
 import { deleteAllForUser, setCheckinMediaVisibility } from "./media";
 import { deleteIntakeForUser } from "./onboarding";
 import { deleteAllResourcesForUser } from "./resources";

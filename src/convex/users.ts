@@ -10,6 +10,7 @@ import { v, ConvexError } from "convex/values";	import {
 		validTimeZone,
 		verifyPassword,
 	} from "./helpers";
+import { resolveInactivity } from "./notifications";
 
 /**
  * Comptes (email + mot de passe) et sessions.
@@ -89,6 +90,10 @@ export const touch = mutation({
 		if (!user.lastSeenAt || now - user.lastSeenAt > 60_000) {
 			await ctx.db.patch(user._id, { lastSeenAt: now });
 		}
+		// Une cliente de retour après une alerte d'inactivité la résout d'elle-même
+		// (marquée « vue » dans le CRM) — la clé de dédup est réutilisable pour la
+		// PROCHAINE période d'inactivité, jamais de doublon.
+		await resolveInactivity(ctx, user._id);
 		// Fuseau de la cliente (envoyé par son navigateur) : stocké pour que
 		// l'expiration du message du jour suive SON minuit local, pas celui du
 		// serveur. Jamais de valeur arbitraire : nom IANA validé uniquement.
