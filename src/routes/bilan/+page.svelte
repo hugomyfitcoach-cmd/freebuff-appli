@@ -567,9 +567,6 @@
 							<button class="choice" class:selected={form.besoin_retour === 'rien'} onclick={() => pickBesoin('rien')}>
 								<span class="choice-letter">A</span> <Icon name="check" size={16} class="choice-icon" />Rien, tout va bien — je continue comme ça
 							</button>
-							<div class="cond-subtext" style="font-style:italic;font-size:12px;color:var(--muted);margin:-8px 0 8px 36px">
-								Je t'enverrai un message de bonne réception sur WhatsApp, et si un point m'interpelle je t'en ferai part.
-							</div>
 							<button class="choice" class:selected={form.besoin_retour === 'ecrit'} onclick={() => pickBesoin('ecrit')}>
 								<span class="choice-letter">B</span> <Icon name="pencil" size={16} class="choice-icon" />Un retour écrit / vidéo
 							</button>
