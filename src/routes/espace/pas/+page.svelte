@@ -140,9 +140,7 @@
 	const fmt = (n: number) => n.toLocaleString('fr-FR');
 </script>
 
-<svelte:head><title>Mes pas — G-Flux</title></svelte:head>
-
-<div class="mx-auto w-full max-w-xl px-4 pb-28 pt-4 sm:px-6">
+<svelte:head><title>Mes pas — G-Flux</title></svelte:head>	<div class="mx-auto w-full max-w-xl px-4 pb-28 sm:px-6">
 	<BackToHome label="Mes pas" />
 
 	<div class="flex items-center gap-3">
