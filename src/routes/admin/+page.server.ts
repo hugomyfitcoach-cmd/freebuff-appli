@@ -41,6 +41,11 @@ import { api } from '../../convex/_generated/api.js';	import { SESSION_COOKIE, r
 		? await convex.query(api.coach.messageLog, { sessionToken: token, userId: selectedId as never })
 		: [];
 
+	// Message global (Tableau de bord) : état actif, destinataires et lectures —
+	// null quand aucun message global n'est en cours.
+	const globalMessage = await convex
+		.query(api.dashboard.activeCoachBroadcast, { sessionToken: token })
+		.catch(() => null);
 	// État de connexion Google Calendar du coach (email + scopes — jamais de token).
 	const google = await convex.query(api.googleCalendar.status, { sessionToken: token }).catch(() => null);
 	const googleBanner =
@@ -60,6 +65,7 @@ import { api } from '../../convex/_generated/api.js';	import { SESSION_COOKIE, r
 		media,
 		onboardingView,
 		messageLog,
+		globalMessage,
 		google,
 		googleBanner,
 		form: null as null | { action: string; error?: string; ok?: string },
@@ -238,6 +244,57 @@ export const actions: Actions = {
 			return { action: 'setCoachMessage', ok: `${what} — visible en haut du dashboard de la cliente.`, clientId: userId };
 		} catch (e) {
 			return fail(400, { action: 'setCoachMessage', error: errMsg(e), clientId: userId });
+		}
+	},
+	/**
+	 * Message global (Tableau de bord) : même notification, même carte, même
+	 * journal que la Vision 360 — seule la logistique change (toutes les
+	 * clientes actives d'un coup, retrait possible, anti-doublon côté Convex).
+	 */
+	sendGlobalMessage: async (event) => {
+		await requireRole(event, 'coach');
+		const form = await event.request.formData();
+		const message = String(form.get('message') ?? '');
+		const token = event.cookies.get(SESSION_COOKIE);
+		try {
+			const res = await convex.mutation(api.dashboard.sendCoachBroadcast, {
+				sessionToken: token,
+				message,
+			});
+			// MÊME notification push que la Vision 360 (même titre, même tag) :
+			// la cliente voit un « Message de ton coach » comme les autres jours.
+			const preview = message.trim().slice(0, 90) || 'Un message t\'attend.';
+			let pushes = 0;
+			for (const userId of res.sentTo) {
+				pushes += await sendPushToUser(
+					userId,
+					{ title: 'Nouveau message de ton coach', body: preview, url: '/espace', tag: 'coach-message' },
+					token
+				);
+			}
+			const dest =
+				res.count > 1 ? `${res.count} clientes actives sur les 5 derniers jours` : '1 cliente active sur les 5 derniers jours';
+			return {
+				action: 'sendGlobalMessage',
+				ok: `Message global envoyé à ${dest} — il apparaît comme un « Message coach du jour » classique${pushes > 0 ? `, ${pushes} notification(s) envoyée(s)` : ''}.`,
+			};
+		} catch (e) {
+			return fail(400, { action: 'sendGlobalMessage', error: errMsg(e) });
+		}
+	},
+	withdrawGlobalMessage: async (event) => {
+		await requireRole(event, 'coach');
+		const token = event.cookies.get(SESSION_COOKIE);
+		try {
+			const res = await convex.mutation(api.dashboard.withdrawCoachBroadcast, { sessionToken: token });
+			return {
+				action: 'withdrawGlobalMessage',
+				ok: res.removed > 0
+					? `Message global retiré — il a disparu de l'accueil de ${res.removed} cliente(s).`
+					: 'Message global déjà retiré.',
+			};
+		} catch (e) {
+			return fail(400, { action: 'withdrawGlobalMessage', error: errMsg(e) });
 		}
 	},
 	setFeedback: async (event) => {

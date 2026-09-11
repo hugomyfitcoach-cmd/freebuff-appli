@@ -52,7 +52,28 @@
 		publishedAt: number;
 		publishedDay: string;
 		readAt: number | null;
+		isGlobal?: boolean;
 	};
+	/* ── Message global (Tableau de bord) : un envoi à toutes les clientes actives ──
+	   La notification, la carte et le journal côté cliente sont identiques à un
+	   message classique — seule la logistique coach diffère (envoi groupé,
+	   retrait possible, disparition du bloc CRM après 24 h). */
+	const globalMessage = $derived<GlobalMessageRow | null>((data.globalMessage ?? null) as GlobalMessageRow | null);
+	type GlobalMessageRow = {
+		_id: string;
+		text: string;
+		publishedAt: number;
+		publishedDay: string;
+		expiresAt: number;
+		recipientCount: number;
+		readCount: number;
+	};
+	const globalRemainingMs = $derived(globalMessage ? Math.max(0, globalMessage.expiresAt - Date.now()) : 0);
+	function fmtRemaining(ms: number): string {
+		const h = Math.floor(ms / 3600000);
+		const m = Math.floor((ms % 3600000) / 60000);
+		return h > 0 ? `${h} h ${String(m).padStart(2, '0')}` : `${m} min`;
+	}
 	let msgAudioDraft = $state('');
 	// Suivi de cycle de la cliente — mêmes données que le dashboard cliente (une seule source de vérité).
 	const selCycle = $derived(selected?.user.cycle ?? null);
@@ -78,6 +99,13 @@
 		clients.filter((c: { user: { lastSeenAt: number | null } }) => {
 			const ts = c.user.lastSeenAt;
 			return ts && Date.now() - ts < 24 * 3600 * 1000;
+		}).length
+	);
+	// Cible du message global : activité des 5 derniers jours (même critère côté Convex).
+	const active5d = $derived(
+		clients.filter((c: { user: { lastSeenAt: number | null } }) => {
+			const ts = c.user.lastSeenAt;
+			return ts && Date.now() - ts < 5 * 24 * 3600 * 1000;
 		}).length
 	);
 
@@ -1196,7 +1224,72 @@
 				class="inline-flex items-center gap-1 rounded-lg bg-brand px-3 py-1.5 text-xs font-bold text-white transition hover:bg-brand-dark"
 			><Icon name="calendarRange" size={13} class="shrink-0" /> Connecter Google Calendar</a>
 		{/if}
-	</div></section>
+	</div>
+</section>
+
+<!-- ═══ Message global : clientes actives sur les 5 derniers jours (logistique coach) ═══
+     Côté cliente, rien ne change : la notification, la carte « Message de ton
+     coach » et l'historique sont exactement ceux d'un message classique. Ici,
+     tout est séparé de la Vision 360 : envoi groupé, retrait à tout moment,
+     disparition automatique du bloc après 24 h, zéro doublon d'envoi. -->
+<section class="mt-4 rounded-2xl border border-line bg-card p-4 shadow-sm">
+	<div class="flex flex-wrap items-center justify-between gap-2">
+		<h2 class="flex items-center gap-2 font-display text-lg font-semibold text-ink">
+			<Icon name="messageCircle" size={18} class="shrink-0 text-brand" /> Message global
+		</h2>
+		<span class="text-xs text-mist">Toutes les clientes actives sur les 5 derniers jours ({active5d}) · aucun impact sur les messages personnalisés de la Vision 360</span>
+	</div>
+
+	{#if globalMessage}
+		<!-- Envoi en cours : statut + retrait immédiat (disparaît seul après 24 h) -->
+		<div class="mt-3 rounded-xl border border-brand/40 bg-brand-light/50 p-3">
+			<div class="flex flex-wrap items-center justify-between gap-2">
+				<div class="flex flex-wrap items-center gap-2">
+					<span class="rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Envoi en cours</span>
+					<span class="text-xs text-mist">Publié {fmtDateTime(globalMessage.publishedAt)} · {globalMessage.recipientCount} destinataire{globalMessage.recipientCount > 1 ? 's' : ''} · {globalMessage.readCount} lu{globalMessage.readCount > 1 ? 's' : ''}</span>
+				</div>
+				<form
+					method="POST"
+					action="?/withdrawGlobalMessage"
+					onsubmit={(e) => {
+						if (!confirm('Retirer le message global de l\'accueil de toutes les clientes, maintenant ?')) e.preventDefault();
+					}}
+				>
+					<button type="submit" class="rounded-lg border-2 border-line bg-white px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-danger hover:text-danger">
+						Retirer maintenant
+					</button>
+				</form>
+			</div>
+			<p class="mt-2 whitespace-pre-line text-sm leading-relaxed text-ink">{globalMessage.text}</p>
+			<p class="mt-1.5 text-[11px] text-mist"><Icon name="timer" size={11} class="mr-0.5 inline shrink-0" /> Disparaît automatiquement dans {fmtRemaining(globalRemainingMs)} (et de ce tableau de bord au même moment).</p>
+		</div>
+	{:else}
+		<!-- Aucun envoi actif : composeur (fermé tant qu'un message global est actif) -->
+		<form method="POST" action="?/sendGlobalMessage" class="mt-3">
+			<div class="flex flex-col gap-2 sm:flex-row">
+				<textarea
+					name="message"
+					rows="2"
+					maxlength="500"						placeholder="Ex. Pense à bien remplir ton bilan avant dimanche 12h — message commun à toutes les clientes actives sur les 5 derniers jours"
+					class="min-h-14 flex-1 rounded-xl border-2 border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-brand"
+				></textarea>
+				<div class="flex shrink-0 items-start">
+					<button
+						type="submit"
+						disabled={active5d === 0}
+						class="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						Envoyer à toutes
+					</button>
+				</div>
+			</div>
+			<p class="mt-1.5 text-[11px] leading-relaxed text-mist">
+				Part vers les clientes actives sur les 5 derniers jours · visible chez elles comme un « Message coach du jour » classique (24 h max) · notification identique · retire-le à tout moment.
+				{#if active5d === 0}Aucune cliente active sur les 5 derniers jours — l'envoi est désactivé.{/if}
+			</p>
+		</form>
+	{/if}
+</section>
 
 <!-- ═══ Tableau unique des clients ═══ -->
 <div class="mt-6 rounded-2xl border border-line bg-card shadow-sm">
@@ -1763,7 +1856,12 @@
 							{#each messageLog as msg (msg._id)}
 								<li class="rounded-xl border border-line bg-white p-3">
 									<div class="flex flex-wrap items-center justify-between gap-2">
-										<span class="text-xs font-bold text-ink">{fmtDateTime(msg.publishedAt)}</span>
+										<span class="flex flex-wrap items-center gap-1.5">
+											<span class="text-xs font-bold text-ink">{fmtDateTime(msg.publishedAt)}</span>
+											{#if msg.isGlobal}
+												<span class="rounded-full bg-ink px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white" title="Envoyé via le message global du Tableau de bord (clientes actives sur les 5 derniers jours)">Global</span>
+											{/if}
+										</span>
 										<span class="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide {msg.readAt ? 'bg-line/70 text-mist' : 'bg-warn-light text-warn'}">{msg.readAt ? `✓ Lu le ${fmtDateTime(msg.readAt)}` : 'Non lu'}</span>
 									</div>
 									{#if msg.text}

@@ -16,6 +16,9 @@ import { api, internal } from "./_generated/api";
  *    manquant » (une seule alerte par semaine fermée). Déduplication
  *    transactionnelle par dedupKey : un double tick n'insère jamais deux fois
  *    la même ligne.
+ * 4) Rattrapage du message global (toutes les 5 minutes) : les clientes
+ *    devenues actives après la publication reçoivent le même message du jour
+ *    à leur prochaine visite — sans jamais doubler celles déjà servies.
  */
 const crons = cronJobs();
 
@@ -29,5 +32,12 @@ crons.interval(
 crons.interval("reminder-12h-tick", { minutes: 5 }, internal.reminderPush.tick, {});
 
 crons.interval("notifications-tick", { minutes: 30 }, internal.notifications.tick, {});
+
+crons.interval(
+	"message-global-rattrapage",
+	{ minutes: 5 },
+	internal.dashboard.coachBroadcastCatchUp,
+	{}
+);
 
 export default crons;

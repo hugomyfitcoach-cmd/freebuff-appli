@@ -461,6 +461,17 @@ export const removeClient = mutation({
 			.withIndex("by_user", (q) => q.eq("userId", userId))
 			.collect();
 		for (const l of logRows) await ctx.db.delete(l._id);
+		// Le journal supprimé peut inclure des lignes d'un message global : on
+		// retire la cliente de la liste des destinataires (jamais de compte
+		// fantôme dans le CRM, jamais de retrait résiduel vers un compte supprimé).
+		const broadcasts = await ctx.db.query("coachBroadcasts").collect();
+		for (const b of broadcasts) {
+			if (b.sentTo.some((id) => String(id) === String(userId))) {
+				await ctx.db.patch(b._id, {
+					sentTo: b.sentTo.filter((id) => String(id) !== String(userId)),
+				});
+			}
+		}
 		// Dossier de la cliente (notes privées + ressources partagées, fichiers compris).
 		await deleteAllResourcesForUser(ctx, userId);
 		await deleteIntakeForUser(ctx, userId);
@@ -759,6 +770,8 @@ export const messageLog = query({
 				publishedAt: r.publishedAt,
 				publishedDay: r.publishedDay,
 				readAt: r.readAt ?? null,
+				// Étiquette CRM : le message vient du bloc « Message global » (Tableau de bord).
+				isGlobal: r.broadcastId != null,
 			});
 		}
 		return out;

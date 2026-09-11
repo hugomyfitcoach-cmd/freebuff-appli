@@ -399,9 +399,38 @@ export default defineSchema({
 		publishedDay: v.string(),
 		/** Première consultation réelle par la cliente (« Vu »). */
 		readAt: v.optional(v.number()),
+		/** Ligne issue d'un message global (Tableau de bord) — étiquette CRM. */
+		broadcastId: v.optional(v.id("coachBroadcasts")),
 	})
 		.index("by_user", ["userId"])
-		.index("by_user_day", ["userId", "publishedDay"]),
+		.index("by_user_day", ["userId", "publishedDay"])
+		.index("by_broadcast", ["broadcastId"]),
+
+	/**
+	 * Message global coach → toutes les clientes actives (CRM, Tableau de bord).
+	 * Une seule ligne ACTIVE à la fois : l'envoi d'un nouveau message retire
+	 * automatiquement le précédent. Un unique appel `sendCoachBroadcast` inscrit
+	 * l'étampage du message du jour chez chaque cliente visée (même système que
+	 * la Vision 360 — aucune différence d'affichage côté cliente) et note les
+	 * destinataires dans `sentTo` pour éviter tout doublon d'envoi.
+	 */
+	coachBroadcasts: defineTable({
+		/** Texte du message global (max 500 — même limite que la Vision 360). */
+		text: v.string(),
+		/** Horodatage (ms) de la publication. */
+		publishedAt: v.number(),
+		/** Jour "yyyy-mm-dd" de publication (repère CRM). */
+		publishedDay: v.string(),
+		/** Minuit local (ms UTC) de la cliente — la fenêtre suit SON fuseau. */
+		expiresAt: v.number(),
+		/** Fuseau IANA utilisé pour calculer expiresAt (Europe/Paris par défaut). */
+		timeZone: v.string(),
+		/** Ids des clientes étampées (v.activeCoachBroadcast réarme ce qui manque). */
+		sentTo: v.array(v.id("users")),
+		/** Null après retrait manuel — l'historique CRM garde la trace. */
+		withdrawnAt: v.optional(v.number()),
+	})
+		.index("by_published", ["publishedAt"]),
 
 	/**
 	 * Dossier de la cliente (CRM coach) : notes privées et ressources partagées.
