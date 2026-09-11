@@ -112,6 +112,9 @@
 	/** Le badge Accueil est un POINT (présence d'une info), jamais un gros compteur. */
 	const homeBadgeIsDot = $derived((badges.reminder ?? 0) > 0 && (badges.bilans ?? 0) + (badges.message ?? 0) === 0);
 
+	/* Pages secondaires mobile : le bloc « ← page + titre » remonte juste sous
+	   la ligne du header (Accueil conserve son espacement d'origine). */
+	const secondaryClientPage = $derived(role === 'client' && path !== '/espace');
 	const mainClass = $derived(
 		journalFullScreen
 			? 'min-w-0 flex-1' /* plein écran : la page gère paddings/safe-area/max-width */
@@ -119,7 +122,7 @@
 				? 'min-w-0 flex-1'
 				: contentWidth === 'wide'
 					? 'mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6'
-					: 'mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6'
+					: 'mx-auto w-full max-w-6xl flex-1 px-4 pb-8 sm:px-6 sm:pt-6 ' + (secondaryClientPage ? 'pt-3' : 'pt-6')
 	);
 
 	/* ————— Préchargement des 3 onglets principaux —————
