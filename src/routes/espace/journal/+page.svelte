@@ -722,6 +722,8 @@
 	let mealSearchTimer: ReturnType<typeof setTimeout> | undefined;
 	/** Fenêtre de recherche d'aliments DANS l'éditeur de repas (bouton « Ajouter un produit »). */
 	let mealSearchOpen = $state(false);
+	/** Mode de la fenêtre produit : recherche par nom ou scan code-barres (capsule flottante). */
+	let mealSearchMode = $state<'search' | 'barcode'>('search');
 	let mealSaving = $state(false);
 	let mealError = $state('');
 
@@ -763,9 +765,9 @@
 		mealError = '';
 	}
 	function closeMealEditor() {
+		void closeMealSearch(); // fenêtre produit refermée + scanner éventuellement arrêté
 		mealEditor = false;
 		mealEditingId = null;
-		mealSearchOpen = false;
 	}
 	let mealSearchError = $state('');
 	async function runMealSearch(q: string) {
@@ -809,29 +811,34 @@
 		mealItems = mealItems.filter((_, i) => i !== idx);
 		ingEdit = null;
 	}
-	/** Produit choisi dans la recherche : feuille de portion (comme le journal).
-	 *  La validation ajoute l'ingrédient ET referme la recherche. */
+	/** Produit choisi (résultats de recherche OU scan code-barres) : feuille de
+	 *  quantité/portion existante (comme le journal). La validation ajoute
+	 *  l'ingrédient à l'éditeur de repas. */
+	let mealPickedFood = $state<Food | null>(null);
+	function openMealIngredientSheet(food: Food) {
+		mealPickedFood = food;
+		ingEdit = { idx: -1, food, qty: food.servingQty && food.servingQty > 0 ? Math.round(food.servingQty) : 100 };
+	}
+	/** Clic produit dans la recherche : l'écran de recherche se referme
+	 *  IMMÉDIATEMENT et la feuille de portion existante s'ouvre à sa place. */
 	function openIngredientPortion(foodIdx: number) {
 		const food = mealResults[foodIdx];
 		if (!food) return;
-		mealPickedIdx = foodIdx;
-		ingEdit = { idx: -1, food, qty: food.servingQty && food.servingQty > 0 ? Math.round(food.servingQty) : 100 };
+		mealSearchOpen = false;
+		mealSearchMode = 'search';
+		openMealIngredientSheet(food);
 	}
-	let mealPickedIdx = $state<number | null>(null);
-	/** Sauvegarde depuis la feuille : ajout si idx = -1 (produit de la recherche), édition sinon. */
+	/** Sauvegarde depuis la feuille : ajout si un produit de la recherche est en attente, édition sinon. */
 	function saveIngredientQty2(qtyGrams: number) {
-		if (mealPickedIdx != null) {
-			const food = mealResults[mealPickedIdx];
-			if (food) {
-				mealItems = [
-					...mealItems,
-					{ food, qty: qtyGrams, custom: food.custom, customFoodId: food.custom ? food._id : undefined },
-				];
-				mealSearchQ = '';
-				mealResults = [];
-				mealSearchOpen = false; // un seul geste : portion validée → retour à l'éditeur
-			}
-			mealPickedIdx = null;
+		if (mealPickedFood) {
+			mealItems = [
+				...mealItems,
+				{ food: mealPickedFood, qty: qtyGrams, custom: mealPickedFood.custom, customFoodId: mealPickedFood.custom ? mealPickedFood._id : undefined },
+			];
+			mealSearchQ = '';
+			mealResults = [];
+			mealSearchOpen = false; // déjà refermée au clic — filet de sécurité
+			mealPickedFood = null;
 			ingEdit = null;
 			return;
 		}
@@ -1004,15 +1011,18 @@
 	let scanner: BarcodeScannerHandle | null = null;
 	let scannerBusy = false;
 
-	async function startScanner() {
+	/** Démarre le scanner sur le lecteur demandé : « bc-reader » (écran « Ajouter
+	 *  un aliment ») ou « meal-bc-reader » (fenêtre produit de l'éditeur de
+	 *  repas). Le résultat est routé vers la feuille correspondante. */
+	async function startScanner(elId: string = 'bc-reader', target: 'journal' | 'meal' = 'journal') {
 		if (scanner || scannerBusy || typeof document === 'undefined') return;
-		const el = document.getElementById('bc-reader');
+		const el = document.getElementById(elId);
 		if (!el) return;
 		scannerBusy = true;
 		barcodeStatus = 'scanning';
 		try {
 			scanner = await startBarcodeScanner(el, (decoded) => {
-				void handleScan(decoded);
+				void handleScan(decoded, target);
 			});
 		} catch {
 			barcodeStatus = 'error';
@@ -1053,13 +1063,13 @@
 			logMode = 'search';
 		}
 	}
-	async function handleScan(decoded: string) {
+	async function handleScan(decoded: string, target: 'journal' | 'meal' = 'journal') {
 		if (scannerBusy || barcodeBusy) return;
 		const code = decoded.replace(/\D/g, '');
 		if (code.length < 8) return;
-		await lookupCode(code);
+		await lookupCode(code, target);
 	}
-	async function lookupCode(code: string) {
+	async function lookupCode(code: string, target: 'journal' | 'meal' = 'journal') {
 		barcodeBusy = true;
 		barcodeError = '';
 		try {
@@ -1069,7 +1079,14 @@
 			if (j.length === 1) {
 				await stopScanner();
 				barcodeStatus = 'idle';
-				openQty(j[0]);
+				if (target === 'meal') {
+					// Un seul geste : scanner/fenêtre produit refermés → feuille de portion.
+					mealSearchOpen = false;
+					mealSearchMode = 'search';
+					openMealIngredientSheet(j[0]);
+				} else {
+					openQty(j[0]);
+				}
 			} else {
 				barcodeStatus = 'notfound';
 				barcodeError = `Aucun produit trouvé pour le code ${code}. Cherche-le par nom, ou vérifie le code.`;
@@ -1081,10 +1098,31 @@
 			barcodeBusy = false;
 		}
 	}
-	function submitManual() {
+	function submitManual(target: 'journal' | 'meal' = 'journal') {
 		const code = barcodeManual.replace(/\D/g, '');
-		if (code.length >= 8) void lookupCode(code);
+		if (code.length >= 8) void lookupCode(code, target);
 		else barcodeError = 'Saisis un code-barres complet (8 à 14 chiffres).';
+	}
+	/** Capsule Recherche ⇄ Code-barres de la fenêtre produit (éditeur de repas). */
+	async function switchMealSearchMode(m: 'search' | 'barcode') {
+		if (m === mealSearchMode) return;
+		if (m === 'barcode') {
+			mealSearchMode = 'barcode';
+			barcodeStatus = 'idle';
+			barcodeError = '';
+			barcodeManual = '';
+			await tick();
+			void startScanner('meal-bc-reader', 'meal');
+		} else {
+			await stopScanner();
+			mealSearchMode = 'search';
+		}
+	}
+	/** Fermeture de la fenêtre produit : scanner arrêté, mode réinitialisé. */
+	async function closeMealSearch() {
+		mealSearchOpen = false;
+		mealSearchMode = 'search';
+		await stopScanner();
 	}
 
 	/* ————— Édition / suppression d'une entrée ————— */
@@ -1187,10 +1225,13 @@
 	let mobile = $state(typeof window !== 'undefined' ? window.matchMedia('(max-width: 639px)').matches : true);
 	let refreshing = $state(false);
 
-	/* Listes scrollables de l'écran « Ajouter un aliment » (recherche + code-barres).
+	/* Listes scrollables de l'écran « Ajouter un aliment » (recherche + code-barres)
+	   et de la fenêtre produit de l'éditeur de repas (mêmes deux modes).
 	   $state : l'$effect de fermeture du clavier doit se rattacher à chaque montage. */
 	let logListEl = $state<HTMLElement | undefined>();
 	let bcListEl = $state<HTMLElement | undefined>();
+	let mealSearchListEl = $state<HTMLElement | undefined>();
+	let mealBcListEl = $state<HTMLElement | undefined>();
 
 	/* Clavier iOS : un vrai scroll vertical de la liste ferme le clavier (blur),
 	   sans vider la recherche ni perdre les résultats ; le geste continue.
@@ -1209,7 +1250,7 @@
 		return () => el.removeEventListener('scroll', onScroll);
 	}
 	$effect(() => {
-		const els = [logListEl, bcListEl].filter((e): e is HTMLElement => !!e);
+		const els = [logListEl, bcListEl, mealSearchListEl, mealBcListEl].filter((e): e is HTMLElement => !!e);
 		if (els.length === 0) return;
 		const cleanups = els.map(attachScrollDismiss);
 		return () => cleanups.forEach((c) => c());
@@ -1219,9 +1260,13 @@
 	   initiale, puis focalise le champ (clavier immédiat, comme « Ajouter un aliment »). */
 	$effect(() => {
 		if (!mealSearchOpen) return;
+		mealSearchMode = 'search';
 		mealSearchQ = '';
 		mealResults = [];
 		mealSearching = false;
+		barcodeStatus = 'idle';
+		barcodeError = '';
+		barcodeManual = '';
 		const el = document.getElementById('meal-picker-input');
 		el?.focus();
 	});
@@ -1863,7 +1908,7 @@
 								onkeydown={(e) => { if (e.key === 'Enter') submitManual(); }}
 							/>
 						</div>
-						<button type="button" class="mt-2 w-full rounded-full bg-brand py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={barcodeBusy} onclick={submitManual}>
+						<button type="button" class="mt-2 w-full rounded-full bg-brand py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={barcodeBusy} onclick={() => submitManual()}>
 							{barcodeBusy ? 'Recherche…' : 'Rechercher le code'}
 						</button>
 					</div>
@@ -1900,81 +1945,133 @@
 			</div>
 		</div>
 	</div>
-{/if}
-
-{#if ingEdit}
+{/if}{#if ingEdit}
 	<!-- Feuille de quantité d'un INGRÉDIENT de repas : même composant que le
 	     journal (grammes au pas de 1 g, portions, raccourcis, macros live). -->
 	<QuantitySheet
 		food={ingEdit.food}
 		mealDefs={[]}
 		initialQtyGrams={ingEdit.qty}
-		mode={mealPickedIdx != null ? 'add' : 'edit'}
+		mode={mealPickedFood ? 'add' : 'edit'}
 		saving={false}
-		saveLabel={mealPickedIdx != null ? 'Ajouter au repas' : undefined}
+		saveLabel={mealPickedFood ? 'Ajouter au repas' : undefined}
 		onSave={saveIngredientQty2}
-		onDelete={mealPickedIdx != null ? () => { ingEdit = null; mealPickedIdx = null; } : removeIngredientAt}
-		onClose={() => { ingEdit = null; mealPickedIdx = null; }}
+		onDelete={mealPickedFood
+			? () => { ingEdit = null; mealPickedFood = null; }
+			: removeIngredientAt}
+		onClose={() => { ingEdit = null; mealPickedFood = null; }}
 	/>
-{/if}
-
-{#if mealSearchOpen}
-	<!-- Fenêtre de recherche d'aliments DANS l'éditeur de repas : mêmes
-	     résultats et même feuille de quantité que l'ajout au journal. La
-	     feuille de portion valide directement sur l'ingrédient (index transmis). -->
-	<div role="presentation" class="fixed inset-0 z-[70] bg-soft sm:flex sm:items-center sm:justify-center sm:bg-ink/40 sm:p-6" onclick={(e) => { if (e.target === e.currentTarget) mealSearchOpen = false; }} onkeydown={(e) => { if (e.key === 'Escape') mealSearchOpen = false; }}>
+{/if}	{#if mealSearchOpen}
+	<!-- Fenêtre « Ajouter un produit » DANS l'éditeur de repas : mêmes résultats,
+	     même scanner et même feuille de quantité que l'ajout au journal. Le clic
+	     produit ou un scan referme CETTE fenêtre et ouvre la feuille existante. -->
+	<div role="presentation" class="fixed inset-0 z-[70] bg-soft sm:flex sm:items-center sm:justify-center sm:bg-ink/40 sm:p-6" onclick={(e) => { if (e.target === e.currentTarget) void closeMealSearch(); }} onkeydown={(e) => { if (e.key === 'Escape') void closeMealSearch(); }}>
 		<div class="relative flex w-full flex-col overflow-hidden bg-soft sm:h-[min(92dvh,720px)] sm:max-w-lg sm:rounded-3xl sm:bg-white sm:shadow-2xl" style:height={mobile ? `${vvH}px` : undefined}>
 			<!-- En-tête fixe (safe-area top, cf. « Ajouter un aliment ») -->
 			<div class="flex shrink-0 items-center justify-between border-b border-line bg-white/95 px-3 pt-[max(env(safe-area-inset-top),10px)] pb-2.5 backdrop-blur">
-				<button type="button" class="grid h-9 w-9 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={() => (mealSearchOpen = false)}><Icon name="x" size={20} /></button>
-				<h2 class="font-display text-[15px] font-semibold text-ink">Ajouter un produit</h2>
+				<button type="button" class="grid h-9 w-9 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={() => void closeMealSearch()}><Icon name="x" size={20} /></button>
+				<h2 class="font-display text-[15px] font-semibold text-ink">{mealSearchMode === 'barcode' ? 'Code-barres' : 'Ajouter un produit'}</h2>
 				<span class="w-9"></span>
 			</div>
-			<div class="shrink-0 border-b border-line bg-white/95 px-2.5 pb-2 pt-2 backdrop-blur">
-				<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2 focus-within:border-brand">
-					<Icon name="search" size={17} class="shrink-0 text-mist" />
-					<input
-						id="meal-picker-input"
-						type="search"
-						class="w-full bg-transparent text-[15px] text-ink outline-none placeholder:text-mist"
-						placeholder="Rechercher un produit…"
-						bind:value={mealSearchQ}
-						oninput={onMealSearchInput}
-					/>
-					{#if mealSearchQ}
-						<button type="button" class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-line/70 text-mist transition hover:bg-line" aria-label="Effacer la recherche" onclick={() => { mealSearchQ = ''; mealResults = []; }}><Icon name="x" size={13} /></button>
+
+			{#if mealSearchMode === 'search'}
+				<div class="shrink-0 border-b border-line bg-white/95 px-2.5 pb-2 pt-2 backdrop-blur">
+					<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2 focus-within:border-brand">
+						<Icon name="search" size={17} class="shrink-0 text-mist" />
+						<input
+							id="meal-picker-input"
+							type="search"
+							class="w-full bg-transparent text-[15px] text-ink outline-none placeholder:text-mist"
+							placeholder="Rechercher un produit…"
+							bind:value={mealSearchQ}
+							oninput={onMealSearchInput}
+						/>
+						{#if mealSearchQ}
+							<button type="button" class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-line/70 text-mist transition hover:bg-line" aria-label="Effacer la recherche" onclick={() => { mealSearchQ = ''; mealResults = []; }}><Icon name="x" size={13} /></button>
+						{/if}
+					</div>
+				</div>
+				<div bind:this={mealSearchListEl} class="flex-1 overflow-y-auto overscroll-contain px-2.5 pb-24">
+					{#if mealSearching && mealResults.length === 0}
+						<p class="py-10 text-center text-sm text-mist">Recherche…</p>
+					{:else if mealSearchError}
+						<p class="rounded-xl border-2 border-danger bg-danger-light px-3 py-3 text-sm text-danger">{mealSearchError}</p>
+					{:else if mealSearchQ.trim().length < 2}
+						<p class="py-10 text-center text-sm text-mist">Recherche un produit — base G-Flux (780 000 aliments) et tes aliments « Créés par moi ».</p>
+					{:else if mealResults.length === 0}
+						<p class="py-10 text-center text-sm text-mist">Aucun résultat pour « {mealSearchQ.trim()} ».</p>
+					{:else}
+						<ul class="flex flex-col divide-y divide-line/50 transition-opacity {mealSearching ? 'opacity-50' : ''}">
+							{#each mealResults as food, i (food._id)}
+								<li>
+									<button type="button" class="flex w-full items-center gap-2 px-1 py-2 text-left transition hover:opacity-70" onclick={() => openIngredientPortion(i)}>
+										{#if food.imageUrl}
+											<FoodImg src={food.imageUrl} alt="" class="h-10 w-10 rounded-lg" />
+										{:else}
+											<div class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={18} class="text-brand" /></div>
+										{/if}
+										<span class="min-w-0 flex-1">
+											<span class="block truncate text-sm font-semibold text-ink">{food.name}</span>
+											<span class="block text-xs text-mist"><strong class="font-bold text-brand">{fmt(food.kcal100)} kcal</strong> / 100 g{#if food.brand} · {food.brand}{/if}</span>
+										</span>
+										<span class="text-brand">＋</span>
+									</button>
+								</li>
+							{/each}
+						</ul>
 					{/if}
 				</div>
-			</div>
-			<div class="flex-1 overflow-y-auto overscroll-contain px-2.5 pb-24">
-				{#if mealSearching && mealResults.length === 0}
-					<p class="py-10 text-center text-sm text-mist">Recherche…</p>
-				{:else if mealSearchError}
-					<p class="rounded-xl border-2 border-danger bg-danger-light px-3 py-3 text-sm text-danger">{mealSearchError}</p>
-				{:else if mealSearchQ.trim().length < 2}
-					<p class="py-10 text-center text-sm text-mist">Recherche un produit — base G-Flux (780 000 aliments) et tes aliments « Créés par moi ».</p>
-				{:else if mealResults.length === 0}
-					<p class="py-10 text-center text-sm text-mist">Aucun résultat pour « {mealSearchQ.trim()} ».</p>
-				{:else}
-					<ul class="flex flex-col divide-y divide-line/50 transition-opacity {mealSearching ? 'opacity-50' : ''}">
-						{#each mealResults as food, i (food._id)}
-							<li>
-								<button type="button" class="flex w-full items-center gap-2 px-1 py-2 text-left transition hover:opacity-70" onclick={() => openIngredientPortion(i)}>
-									{#if food.imageUrl}
-										<FoodImg src={food.imageUrl} alt="" class="h-10 w-10 rounded-lg" />
-									{:else}
-										<div class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={18} class="text-brand" /></div>
-									{/if}
-									<span class="min-w-0 flex-1">
-										<span class="block truncate text-sm font-semibold text-ink">{food.name}</span>
-										<span class="block text-xs text-mist"><strong class="font-bold text-brand">{fmt(food.kcal100)} kcal</strong> / 100 g{#if food.brand} · {food.brand}{/if}</span>
-									</span>
-									<span class="text-brand">＋</span>
-								</button>
-							</li>
-						{/each}
-					</ul>
-				{/if}
+			{:else}
+				<!-- ═══════ Scanner code-barres de la fenêtre produit (même rendu que « Ajouter un aliment ») ═══════ -->
+				<div bind:this={mealBcListEl} class="flex-1 overflow-y-auto overscroll-contain px-3 pb-24 pt-3">
+					<p class="mb-2.5 text-center text-xs text-mist">Scanne le code-barres du produit : dès qu'il est lu, la feuille de portion s'ouvre directement.</p>
+					<div id="meal-bc-reader" class="relative mx-auto aspect-[3/4] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-colors {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}"></div>
+
+					<div class="mx-auto mt-3 w-full max-w-sm">
+						<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2.5 focus-within:border-brand">
+							<Icon name="barcode" size={18} class="shrink-0 text-mist" />
+							<input
+								type="text"
+								inputmode="numeric"
+								class="w-full bg-transparent text-sm text-ink outline-none placeholder:text-mist"
+								placeholder="Ou saisis le code (ex. 3017620422003)"
+								bind:value={barcodeManual}
+								onkeydown={(e) => { if (e.key === 'Enter') void lookupCode(barcodeManual.replace(/\D/g, ''), 'meal'); }}
+							/>
+						</div>
+						<button type="button" class="mt-2 w-full rounded-full bg-brand py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={barcodeBusy} onclick={() => submitManual('meal')}>
+							{barcodeBusy ? 'Recherche…' : 'Rechercher le code'}
+						</button>
+					</div>
+
+					{#if barcodeError}
+						<p class="mx-auto mt-3 w-full max-w-sm rounded-xl bg-danger-light px-3 py-2.5 text-center text-sm text-danger">{barcodeError}</p>
+					{:else if barcodeStatus === 'scanning'}
+						<p class="mt-3 text-center text-xs text-mist">Caméra active — présente le code-barres à plat devant l'objectif : dès qu'il est lu, la feuille de portion s'ouvre.</p>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Capsule flottante Recherche ⇄ Code-barres (identique à « Ajouter un aliment ») -->
+			<div class="pointer-events-none absolute inset-x-0 bottom-[calc(0.625rem+env(safe-area-inset-bottom))] z-10 flex justify-center px-4">
+				<div class="pointer-events-auto flex h-14 w-[55%] min-w-[190px] max-w-[260px] items-center gap-1 rounded-full bg-ink/95 p-1 shadow-lg shadow-ink/30 ring-1 ring-white/10">
+					<button
+						type="button"
+						class="flex h-full flex-1 flex-col items-center justify-center gap-0.5 rounded-full text-[11px] font-semibold transition {mealSearchMode === 'search' ? 'bg-white/15 text-white' : 'text-white/70 hover:text-white'}"
+						onclick={() => void switchMealSearchMode('search')}
+					>
+						<Icon name="search" size={17} />
+						<span>Recherche</span>
+					</button>
+					<button
+						type="button"
+						class="flex h-full flex-1 flex-col items-center justify-center gap-0.5 rounded-full text-[11px] font-semibold transition {mealSearchMode === 'barcode' ? 'bg-white/15 text-white' : 'text-white/70 hover:text-white'}"
+						onclick={() => void switchMealSearchMode('barcode')}
+					>
+						<Icon name="barcode" size={17} />
+						<span>Code-barres</span>
+					</button>
+				</div>
 			</div>
 		</div>
 	</div>

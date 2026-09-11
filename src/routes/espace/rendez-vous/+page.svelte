@@ -180,7 +180,7 @@ import {
 
 <svelte:head><title>Rendez-vous — G-Flux</title></svelte:head>
 
-<div class="mx-auto w-full max-w-md px-4 py-5">
+<div class="mx-auto w-full max-w-md px-4 pb-5 pt-3">
 	<header class="mb-4">
 		<h1 class="flex items-center gap-2 font-display text-2xl font-semibold text-ink">
 			<Icon name="calendarCheck" size={22} class="text-brand" /> Rendez-vous
