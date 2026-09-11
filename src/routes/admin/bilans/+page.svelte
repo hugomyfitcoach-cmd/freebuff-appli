@@ -17,19 +17,26 @@
 			_creationTime: number;
 		} | null;
 	};
+	type MissingWeek = {
+		weekStart: string;
+		weekLabel: string;
+		clients: { userId: string; prenom: string; nom: string | null }[];
+	};
 	type Board = {
 		toTreat: Row[];
 		feedbackSent: Row[];
 		done: Row[];
 		missing: Row[];
 		missingWeek: { weekStart: string; weekLabel: string } | null;
+		missingByWeek?: MissingWeek[];
 		all: Row[];
 	};
 
 	let { data } = $props();
 	const board = $derived<Board>(data.board ?? { toTreat: [], feedbackSent: [], done: [], missing: [], missingWeek: null, all: [] });
 	const weeks = $derived<string[]>(data.weeks ?? []);
-	let selectedWeek = $state<string | null>(data.selectedWeek ?? null);
+	// Réactif : changer d'onglet semaine recharge data et recalcule tout.
+	const selectedWeek = $derived<string | null>(data.selectedWeek ?? null);
 
 	const fullName = (r: Row): string => (r.nom ? `${r.prenom} ${r.nom}` : r.prenom);
 
@@ -67,6 +74,15 @@
 				done.push(r);
 			}
 		}
+		// Manquants calculés côté serveur POUR CHAQUE semaine : on complète la
+		// liste (déjà présente dans all pour la semaine de référence).
+		const knownMissing = new Set(missing.map((r) => r.userId));
+		const missingWeekData = (board.missingByWeek ?? []).find((w) => w.weekStart === selectedWeek);
+		for (const c of missingWeekData?.clients ?? []) {
+			if (!knownMissing.has(c.userId)) {
+				missing.push({ userId: c.userId, prenom: c.prenom, nom: c.nom, weekStart: selectedWeek, weekLabel: missingWeekData?.weekLabel ?? '', checkin: null });
+			}
+		}
 		const byName = (a: Row, b: Row) => fullName(a).localeCompare(fullName(b), 'fr');
 		toTreat.sort(byName);
 		feedbackSent.sort(byName);
@@ -91,15 +107,17 @@
 		lu: weekRows.done.length,
 	});
 
-	/* ── Bilans manquants ACTUELS (temps réel) ──────────────────────────
-	   Coup d'œil instantané : les clientes dont le bilan ATTENDU n'a pas
-	   encore été envoyé, calculé côté serveur (bilansBoard.missing, même
-	   moteur que le CRM). Un intervalle de 30 s revalide la page — la liste
-	   suit les soumissions en direct, sans recharger manuellement. ── */
+	/* ── Bilans manquants DE LA SEMAINE SÉLECTIONNÉE ───────────────────
+	   Chaque onglet de semaine a son propre état : le compteur et la liste
+	   ne comptent que les bilans absents de CETTE semaine (calculés côté
+	   serveur, bilansBoard.missingByWeek). Un intervalle de 30 s revalide
+	   la page — la liste suit les soumissions en direct, sans recharger
+	   manuellement. ── */
 	let showMissingNow = $state(false);
 	let missingTimer: ReturnType<typeof setInterval> | null = null;
-	const missingNow = $derived(board.missing ?? []);
-	const missingNowWeek = $derived(board.missingWeek ?? null);
+	const missingWeekRows = $derived(
+		(board.missingByWeek ?? []).find((w) => w.weekStart === selectedWeek)?.clients ?? []
+	);
 
 	onMount(() => {
 		missingTimer = setInterval(() => void invalidateAll(), 30000);
@@ -107,8 +125,6 @@
 			if (missingTimer) clearInterval(missingTimer);
 		};
 	});
-
-	const open360Missing = (r: Row) => `/admin?client=${encodeURIComponent(r.userId)}&section=bilans`;
 </script>
 
 <svelte:head><title>Bilans — G-Flux (CRM)</title></svelte:head>
@@ -126,7 +142,7 @@
 	><Icon name="arrowLeft" size={14} class="shrink-0" /> Client·e·s & tableau de bord</a>
 </div>
 
-<!-- ═══ Bilans manquants ACTUELS : temps réel, par simple bouton ═══ -->
+<!-- ═══ Bilans manquants de la semaine sélectionnée ═══ -->
 <section class="mt-5">
 	<button
 		type="button"
@@ -135,34 +151,35 @@
 			{showMissingNow ? 'border-danger bg-danger-light text-danger' : 'border-line bg-card text-ink hover:border-danger hover:text-danger'}"
 	>
 		<Icon name="clipboardList" size={15} class="shrink-0" />
-		Bilans manquants actuels
-		{#if missingNow.length > 0}
-			<span class="grid h-5 min-w-5 place-items-center rounded-full bg-danger px-1 text-[11px] font-bold text-white">{missingNow.length}</span>
+		Bilans manquants
+		{#if selectedWeek}<span class="font-normal text-mist">· {weekRange(selectedWeek)}</span>{/if}
+		{#if missingWeekRows.length > 0}
+			<span class="grid h-5 min-w-5 place-items-center rounded-full bg-danger px-1 text-[11px] font-bold text-white">{missingWeekRows.length}</span>
 		{/if}
 	</button>
 
-	{#if showMissingNow}
+	{#if showMissingNow && selectedWeek}
 		<div class="mt-3 rounded-2xl border border-line bg-card p-4 shadow-sm">
 			<div class="flex flex-wrap items-center justify-between gap-2">
 				<h3 class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-danger">
 					<span class="h-2 w-2 animate-pulse rounded-full bg-danger"></span>
 					En attente de bilan
-					{#if missingNowWeek}<span class="font-normal normal-case text-mist">— semaine du {missingNowWeek.weekLabel}</span>{/if}
+					<span class="font-normal normal-case text-mist">— {weekRange(selectedWeek)}</span>
 				</h3>
 				<span class="inline-flex items-center gap-1 text-[11px] text-mist"><Icon name="refreshCw" size={11} /> actualisé toutes les 30 s</span>
 			</div>
-			{#if missingNow.length === 0}
-				<p class="mt-3 rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm text-mist">Tout le monde a envoyé son bilan ✓</p>
+			{#if missingWeekRows.length === 0}
+				<p class="mt-3 rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm text-mist">Tout le monde a envoyé son bilan pour cette semaine ✓</p>
 			{:else}
 				<div class="mt-3 grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
-					{#each missingNow as r (r.userId)}
+					{#each missingWeekRows as r (r.userId)}
 						<a
-							href={open360Missing(r)}
+							href={`/admin?client=${encodeURIComponent(r.userId)}&section=bilans&week=${encodeURIComponent(selectedWeek)}`}
 							class="flex items-center gap-2 rounded-xl border border-line/70 bg-white px-3 py-2.5 transition hover:border-danger/60 hover:bg-danger-light/30"
 						>
 							<div class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-danger/10 font-display text-sm font-semibold text-danger">{r.prenom.charAt(0).toUpperCase()}</div>
 							<div class="min-w-0 flex-1">
-								<div class="truncate text-sm font-semibold text-ink">{fullName(r)}</div>
+								<div class="truncate text-sm font-semibold text-ink">{r.nom ? `${r.prenom} ${r.nom}` : r.prenom}</div>
 								<div class="truncate text-[11px] text-mist">Bilan attendu — pas encore envoyé</div>
 							</div>
 							<span class="shrink-0 text-xs font-bold text-danger">Vision 360 →</span>

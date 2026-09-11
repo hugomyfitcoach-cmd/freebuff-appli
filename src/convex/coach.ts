@@ -125,7 +125,8 @@ export const checkinsFor = query({
 /**
  * File globale des bilans du CRM : dérivée des dates, du statut de
  * soumission et du statut du retour — rien n'est stocké, rien n'est lancé
- * manuellement. La semaine de référence des « manquants » est la dernière
+ * manuellement. Les manquants sont calculés pour CHAQUE semaine
+ * (missingByWeek) ; la semaine de référence (« missing ») reste la dernière
  * semaine dont la fenêtre (ven. 9h → dim. 12h) est fermée.
  */
 export const bilansBoard = query({
@@ -178,24 +179,43 @@ export const bilansBoard = query({
 		done.sort(desc);
 		all.sort(desc);
 
-		// Bilans manquants : référence = dernière semaine de bilan fermée.
+		// Bilans manquants : la semaine de référence reste la dernière semaine
+		// de bilan fermée, mais les manquants sont calculés POUR CHAQUE semaine
+		// — l'UI n'affiche que ceux de la semaine sélectionnée.
 		const refWeek = lastClosedBilanWeekStart();
 		const refLabel = formatWeekLabel(refWeek);
-		const openFriday = addDaysISO(refWeek, 4); // vendredi d'ouverture de la fenêtre
-		const submittedRefWeek = new Set(
-			checkins.filter((c) => c.weekStart === refWeek).map((c) => c.userId as Id<"users">)
-		);
-		const missing: Row[] = [];
-		for (const u of users) {
-			if (u.disabled) continue;
-			const startDate = u.startDate ?? localTodayISO(new Date(u._creationTime));
-			// Éligible : suivie et démarrée au plus tard le vendredi d'ouverture
-			// (une cliente onboardée samedi/dimanche n'est pas un « manquant »).
-			if (startDate <= openFriday && !submittedRefWeek.has(u._id)) {
-				missing.push({ userId: u._id, prenom: u.prenom, nom: u.nom ?? null, weekStart: refWeek, weekLabel: refLabel, checkin: null });
-			}
+		const submittedByWeek = new Map<string, Set<Id<"users">>>();
+		for (const c of checkins) {
+			const set = submittedByWeek.get(c.weekStart);
+			if (set) set.add(c.userId as Id<"users">);
+			else submittedByWeek.set(c.weekStart, new Set([c.userId as Id<"users">]));
 		}
-		missing.sort((a, b) => a.prenom.localeCompare(b.prenom, "fr"));
+		// Semaines couvertes : toute semaine ayant au moins un bilan + la référence.
+		const coveredWeeks = [...new Set<string>([...submittedByWeek.keys(), refWeek])].sort((a, b) => b.localeCompare(a));
+		const missingByWeek = coveredWeeks.map((weekStart) => {
+			const openFriday = addDaysISO(weekStart, 4); // vendredi d'ouverture de la fenêtre
+			const submitted = submittedByWeek.get(weekStart) ?? new Set<Id<"users">>();
+			const clients = users
+				.filter((u) => {
+					if (u.disabled) return false;
+					// Éligible : suivie et démarrée au plus tard le vendredi
+					// d'ouverture (une cliente onboardée samedi/dimanche n'est
+					// pas un « manquant » pour cette semaine).
+					const startDate = u.startDate ?? localTodayISO(new Date(u._creationTime));
+					return startDate <= openFriday && !submitted.has(u._id);
+				})
+				.map((u) => ({ userId: u._id, prenom: u.prenom, nom: u.nom ?? null }));
+			clients.sort((a, b) => a.prenom.localeCompare(b.prenom, "fr"));
+			return { weekStart, weekLabel: formatWeekLabel(weekStart), clients };
+		});
+		const missing: Row[] = (missingByWeek.find((w) => w.weekStart === refWeek)?.clients ?? []).map((c) => ({
+			userId: c.userId,
+			prenom: c.prenom,
+			nom: c.nom,
+			weekStart: refWeek,
+			weekLabel: refLabel,
+			checkin: null,
+		}));
 		for (const m of missing) all.push(m);
 
 		return {
@@ -204,6 +224,8 @@ export const bilansBoard = query({
 			done: done.slice(0, 25),
 			missing,
 			missingWeek: { weekStart: refWeek, weekLabel: refLabel },
+			/** Manquants semaine par semaine — l'UI affiche ceux de la semaine sélectionnée. */
+			missingByWeek,
 			/** Vue complète pour l'organisation par semaine — jamais tronquée par statut. */
 			all: all.sort((a, b) => b.weekStart.localeCompare(a.weekStart) || a.prenom.localeCompare(b.prenom, "fr")).slice(0, 300),
 		};
