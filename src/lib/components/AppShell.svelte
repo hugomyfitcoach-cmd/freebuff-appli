@@ -74,7 +74,7 @@
 					{ href: '/espace/messages', label: 'Messages', icon: 'messageCircle', badge: badges.message ?? 0 },
 					{ href: '/espace/historique', label: 'Bilans & retours', icon: 'clipboardCheck', badge: badges.retours ?? 0 },
 					{ href: '/espace/rendez-vous', label: 'Rendez-vous', icon: 'calendarCheck' },
-					{ href: '/espace/ressources', label: 'Ressources', icon: 'bookOpen' },
+					{ href: '/espace/ressources', label: 'Drive', icon: 'cloud' },
 					{ href: '/recettes', label: 'Recettes & nutrition', icon: 'chefHat' },
 					{ href: '/outils', label: 'Outils & calibrage', icon: 'wrench' },
 				]

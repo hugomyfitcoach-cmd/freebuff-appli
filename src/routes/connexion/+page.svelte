@@ -12,7 +12,7 @@
 		{ name: 'Bilans', icon: 'clipboardCheck', accent: 'bottom-4 left-4' },
 		{ name: 'Recettes', icon: 'chefHat', accent: 'top-5 left-4' },
 		{ name: 'Cycle', icon: 'moon', accent: 'top-4 right-4' },
-		{ name: 'Ressources', icon: 'bookOpen', accent: 'bottom-5 right-4' },
+		{ name: 'Drive', icon: 'cloud', accent: 'bottom-5 right-4' },
 		{ name: 'Pas', icon: 'footprints', accent: 'top-5 right-3' },
 		{ name: 'Poids', icon: 'scale', accent: 'top-4 left-4' },
 		{ name: 'Calories', icon: 'flame', accent: 'top-5 right-4' },

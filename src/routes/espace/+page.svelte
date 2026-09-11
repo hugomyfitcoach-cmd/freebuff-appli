@@ -240,7 +240,7 @@
 	const chips = $derived([
 		{ href: '/espace/rendez-vous', label: 'Rendez-vous', icon: 'calendarCheck', badge: 0 },
 		{ href: '/recettes', label: 'Recettes', icon: 'chefHat', badge: 0 },
-		{ href: '/espace/ressources', label: 'Ressources', icon: 'bookOpen', badge: 0 },
+		{ href: '/espace/ressources', label: 'Drive', icon: 'cloud', badge: 0 },
 		{ href: '/espace/historique', label: 'Bilans', icon: 'clipboardCheck', badge: dash?.badges.bilans ?? 0 },
 		{ href: '/espace/messages', label: 'Messages', icon: 'messageCircle', badge: dash?.badges.message ?? 0 },
 		{ href: '/outils', label: 'Outils', icon: 'wrench', badge: 0 },
