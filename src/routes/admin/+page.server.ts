@@ -272,7 +272,8 @@ export const actions: Actions = {
 					token
 				);
 			}
-			const dest = res.count > 1 ? `${res.count} clientes actives` : '1 cliente active';
+			const dest =
+				res.count > 1 ? `${res.count} clientes actives sur les 5 derniers jours` : '1 cliente active sur les 5 derniers jours';
 			return {
 				action: 'sendGlobalMessage',
 				ok: `Message global envoyé à ${dest} — il apparaît comme un « Message coach du jour » classique${pushes > 0 ? `, ${pushes} notification(s) envoyée(s)` : ''}.`,

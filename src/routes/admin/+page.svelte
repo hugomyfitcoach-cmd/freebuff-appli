@@ -101,6 +101,13 @@
 			return ts && Date.now() - ts < 24 * 3600 * 1000;
 		}).length
 	);
+	// Cible du message global : activité des 5 derniers jours (même critère côté Convex).
+	const active5d = $derived(
+		clients.filter((c: { user: { lastSeenAt: number | null } }) => {
+			const ts = c.user.lastSeenAt;
+			return ts && Date.now() - ts < 5 * 24 * 3600 * 1000;
+		}).length
+	);
 
 	/* ── Message du coach du jour : éphémère, expire au minuit local de la cliente
 	   (coachMessageExpiresAt calculé dans SON fuseau à la publication ; replis
@@ -1220,7 +1227,7 @@
 	</div>
 </section>
 
-<!-- ═══ Message global : toutes les clientes actives (logistique coach) ═══
+<!-- ═══ Message global : clientes actives sur les 5 derniers jours (logistique coach) ═══
      Côté cliente, rien ne change : la notification, la carte « Message de ton
      coach » et l'historique sont exactement ceux d'un message classique. Ici,
      tout est séparé de la Vision 360 : envoi groupé, retrait à tout moment,
@@ -1230,7 +1237,7 @@
 		<h2 class="flex items-center gap-2 font-display text-lg font-semibold text-ink">
 			<Icon name="messageCircle" size={18} class="shrink-0 text-brand" /> Message global
 		</h2>
-		<span class="text-xs text-mist">Toutes les clientes actives ({activeToday}) · aucun impact sur les messages personnalisés de la Vision 360</span>
+		<span class="text-xs text-mist">Toutes les clientes actives sur les 5 derniers jours ({active5d}) · aucun impact sur les messages personnalisés de la Vision 360</span>
 	</div>
 
 	{#if globalMessage}
@@ -1263,14 +1270,13 @@
 				<textarea
 					name="message"
 					rows="2"
-					maxlength="500"
-					placeholder="Ex. Pense à bien remplir ton bilan avant dimanche 12h — message commun à toutes les clientes actives"
+					maxlength="500"						placeholder="Ex. Pense à bien remplir ton bilan avant dimanche 12h — message commun à toutes les clientes actives sur les 5 derniers jours"
 					class="min-h-14 flex-1 rounded-xl border-2 border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-brand"
 				></textarea>
 				<div class="flex shrink-0 items-start">
 					<button
 						type="submit"
-						disabled={activeToday === 0}
+						disabled={active5d === 0}
 						class="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
 					>
 						Envoyer à toutes
@@ -1278,8 +1284,8 @@
 				</div>
 			</div>
 			<p class="mt-1.5 text-[11px] leading-relaxed text-mist">
-				Part vers les clientes actives des dernières 24 h · visible chez elles comme un « Message coach du jour » classique (24 h max) · notification identique · retire-le à tout moment.
-				{#if activeToday === 0}Aucune cliente active aujourd'hui — l'envoi est désactivé.{/if}
+				Part vers les clientes actives sur les 5 derniers jours · visible chez elles comme un « Message coach du jour » classique (24 h max) · notification identique · retire-le à tout moment.
+				{#if active5d === 0}Aucune cliente active sur les 5 derniers jours — l'envoi est désactivé.{/if}
 			</p>
 		</form>
 	{/if}
@@ -1853,7 +1859,7 @@
 										<span class="flex flex-wrap items-center gap-1.5">
 											<span class="text-xs font-bold text-ink">{fmtDateTime(msg.publishedAt)}</span>
 											{#if msg.isGlobal}
-												<span class="rounded-full bg-ink px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white" title="Envoyé via le message global du Tableau de bord (toutes les clientes actives)">Global</span>
+												<span class="rounded-full bg-ink px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white" title="Envoyé via le message global du Tableau de bord (clientes actives sur les 5 derniers jours)">Global</span>
 											{/if}
 										</span>
 										<span class="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide {msg.readAt ? 'bg-line/70 text-mist' : 'bg-warn-light text-warn'}">{msg.readAt ? `✓ Lu le ${fmtDateTime(msg.readAt)}` : 'Non lu'}</span>

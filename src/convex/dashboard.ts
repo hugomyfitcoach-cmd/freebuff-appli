@@ -632,10 +632,10 @@ async function lastBroadcast(ctx: QueryCtx) {
 }
 
 /**
- * Envoie le message global à TOUTES les clientes actives (dernières 24 h —
- * même définition que la carte « Actif·ve·s aujourd'hui » du CRM). Réservé à
- * la coach. Retourne les destinataires réellement servis : côté SvelteKit,
- * chacun reçoit LA MÊME notification push qu'un message classique.
+ * Envoie le message global à TOUTES les clientes actives (activité des
+ * 5 derniers jours). Réservé à la coach. Retourne les destinataires
+ * réellement servis : côté SvelteKit, chacun reçoit LA MÊME notification
+ * push qu'un message classique.
  */
 export const sendCoachBroadcast = mutation({
 	args: { sessionToken: v.optional(v.string()), message: v.string() },
@@ -678,14 +678,14 @@ export const sendCoachBroadcast = mutation({
 			sentTo: [],
 		});
 
-		// Fenêtre d'activité : dernières 24 h (même critère que le CRM).
+		// Fenêtre d'activité : 5 derniers jours.
 		const activeIds = (
 			await ctx.db
 				.query("users")
 				.filter((q) => q.eq(q.field("role"), "client"))
 				.collect()
 		)
-			.filter((u) => (u.lastSeenAt ?? 0) >= now - 24 * 3600 * 1000)
+			.filter((u) => (u.lastSeenAt ?? 0) >= now - 5 * 24 * 3600 * 1000)
 			.map((u) => u._id);
 		const sentTo: Id<"users">[] = [];
 		for (const userId of activeIds) {
