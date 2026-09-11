@@ -70,7 +70,7 @@
 
 	import { beforeNavigate, goto, invalidateAll } from '$app/navigation';
 	import { onMount } from 'svelte';
-	import { appWarm, firstVisit, isFresh, noteSync, restoreScroll, saveScroll } from '$lib/navMemory';
+	import { appWarm, clearSharedMetricsStale, firstVisit, getSharedMetrics, isFresh, noteSync, restoreScroll, saveScroll, type MetricsShared } from '$lib/navMemory';
 	import { currentLocalDay } from '$lib/currentDay.svelte';
 	import { getGreeting } from '$lib/greetings';
 	import AudioPlayer from '$lib/components/AudioPlayer.svelte';
@@ -373,15 +373,49 @@
 
 	/* ————— Mini-graphiques : pas (semaine courante) & poids (dernières pesées) ————— */
 	const stepsWeekPts = $derived((dash?.steps.week ?? []).map((s) => ({ date: s.date, value: s.count })));
-	const weightTrendPts = $derived(
-		(dash?.progression.weightTrend ?? []).map((m) => ({ date: m.date, value: m.weightKg }))
-	);
 	// Tendance du poids : delta entre la première et la dernière pesée de la fenêtre.
 	const weightDelta = $derived.by(() => {
-		const w = dash?.progression.weightTrend ?? [];
+		const w = weightTrendShown ?? [];
 		if (w.length < 2) return null;
 		return w[w.length - 1].weightKg - w[0].weightKg;
 	});
+
+	/* ————— Poids affiché instantanément après un enregistrement —————
+	   « Ma progression » publie un instantané partagé à chaque saisie : la
+	   dernière pesée (courbe comprise) est à jour SUR L'HEURE ici, sans
+	   attendre la revalidation serveur — qui reprend la main dès qu'elle
+	   arrive (jamais plus de 2 min, TTL côté navMemory). */
+	let optimisticMetrics = $state<MetricsShared | null>(null);
+	const SHARED_TTL_MS = 2 * 60 * 1000;
+	/* Tick réactif : l'optimisme expire à l'heure même sans autre changement
+	   d'état (retour silencieux aux données serveur, source de vérité). */
+	let nowTick = $state(Date.now());
+	onMount(() => {
+		const t = setInterval(() => (nowTick = Date.now()), 15_000);
+		return () => clearInterval(t);
+	});
+	const optimisticFresh = $derived(
+		optimisticMetrics !== null && nowTick - optimisticMetrics.savedAt < SHARED_TTL_MS
+	);
+	const lastWeightKgShown = $derived(
+		optimisticFresh && optimisticMetrics
+			? (optimisticMetrics.measurements.filter((m) => m.weightKg !== undefined).at(-1)?.weightKg ?? dash?.progression.lastWeightKg ?? null)
+			: (dash?.progression.lastWeightKg ?? null)
+	);
+	const lastWeightDateShown = $derived(
+		optimisticFresh && optimisticMetrics
+			? (optimisticMetrics.measurements.filter((m) => m.weightKg !== undefined).at(-1)?.date ?? dash?.progression.lastWeightDate ?? null)
+			: (dash?.progression.lastWeightDate ?? null)
+	);
+	const weightTrendShown = $derived(
+		optimisticFresh && optimisticMetrics
+			? optimisticMetrics.measurements
+					.filter((m) => m.weightKg !== undefined)
+					.slice(-10)
+					.map((m) => ({ date: m.date, weightKg: m.weightKg as number }))
+			: (dash?.progression.weightTrend ?? [])
+);
+	const weightTrendPts = $derived((weightTrendShown ?? []).map((m) => ({ date: m.date, value: m.weightKg })));
 	function weightDeltaLabel(delta: number): string {
 		const abs = Math.abs(delta).toFixed(1).replace('.', ',');
 		if (delta < -0.05) return `↓ ${abs} kg`;
@@ -469,16 +503,28 @@
 			if (!dayChecked) {
 				dayChecked = true;
 				await invalidateAll().catch(() => {});
+				/* Revalidation terminée : les données serveur font foi — on lève
+				   l'affichage optimiste (jamais de valeur locale périmée). */
+				optimisticMetrics = null;
 				window.dispatchEvent(new CustomEvent('gflux:warm-tabs'));
 			}
 			return;
 		}
 		if (!firstVisit(ROUTE) && !isFresh(ROUTE) && appWarm()) {
 			await invalidateAll().catch(() => {});
+			optimisticMetrics = null;
 			window.dispatchEvent(new CustomEvent('gflux:warm-tabs'));
 		}
 	}
 	onMount(() => {
+		/* Pesée enregistrée dans « Ma progression » il y a moins de 2 min :
+		   affichage instantané de la nouvelle valeur (l'Accueil ne refait jamais
+		   la saisie à la place de la page Progression). */
+		const shared = getSharedMetrics();
+		if (shared) optimisticMetrics = shared;
+		/* Instantané périmé (> 2 min) : on n'en veut plus — l'Accueil retombe
+		   sur les données serveur (qui sont la source de vérité). */
+		clearSharedMetricsStale(SHARED_TTL_MS);
 		void syncDay();
 		// Première détection de la complétion de l'onboarding : on enregistre
 		// l'horodatage (une seule fois, idempotent) qui démarre la confirmation
@@ -794,7 +840,7 @@
 					<Icon name="chevronRight" size={15} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
 				</div>
 				<p class="mt-2 font-display text-3xl font-bold leading-none tracking-tight text-ink tabular-nums">
-					{dash.progression.lastWeightKg !== null ? fmtWeight(dash.progression.lastWeightKg) : '—'}
+					{lastWeightKgShown !== null ? fmtWeight(lastWeightKgShown) : '—'}
 				</p>
 				<div class="mt-1.5 flex items-center justify-between gap-2">
 					<p class="min-w-0 truncate text-xs text-mist">
@@ -895,9 +941,9 @@
 	</div>
 	<div class="mt-2 flex items-center justify-between gap-3">
 		<div class="min-w-0">
-			<p class="font-display text-4xl font-bold leading-none tracking-tight text-ink">{dash ? fmtWeight(dash.progression.lastWeightKg) : '—'}</p>
+			<p class="font-display text-4xl font-bold leading-none tracking-tight text-ink">{fmtWeight(lastWeightKgShown)}</p>
 			{#if weightDelta !== null}
-				<p class="mt-1.5 text-xs font-semibold {weightDelta <= 0.05 ? 'text-brand-dark' : 'text-mist'}">{weightDeltaLabel(weightDelta)} · dernière pesée {fmtShortDate(dash?.progression.lastWeightDate ?? null)}</p>
+				<p class="mt-1.5 text-xs font-semibold {weightDelta <= 0.05 ? 'text-brand-dark' : 'text-mist'}">{weightDeltaLabel(weightDelta)} · dernière pesée {fmtShortDate(lastWeightDateShown)}</p>
 			{:else}
 				<p class="mt-1.5 text-xs text-mist">Pesées cette semaine : <strong class="font-bold text-ink">{peseesLabel}</strong></p>
 			{/if}

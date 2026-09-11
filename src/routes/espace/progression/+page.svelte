@@ -1,21 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { beforeNavigate } from '$app/navigation';
-	import { appWarm, cacheGet, cacheSet, isFresh, noteSync, restoreScroll, saveScroll } from '../../../lib/navMemory';
+	import { appWarm, cacheGet, cacheSet, getSharedMetrics, isFresh, noteSync, restoreScroll, saveScroll, setSharedMetrics } from '../../../lib/navMemory';
+	import { clearMetricField, upsertMetricRow, withDerivedBodyFat, type Measurement, type MetricKey, type MetricsSnapshot } from '../../../lib/metrics';
 	import MetricTrend from '../../../lib/components/MetricTrend.svelte';
 	import BackToHome from '../../../lib/components/BackToHome.svelte';
 	import Icon from '../../../lib/components/Icon.svelte';
 
-	type Measurement = {
-		_id: string;
-		date: string;
-		weightKg?: number;
-		neckCm?: number;
-		waistCm?: number;
-		hipCm?: number;
-	};
-
-	type Metric = 'weightKg' | 'neckCm' | 'waistCm' | 'hipCm';
+	type Metric = MetricKey;
 	type Group = 'weight' | 'mensurations';
 
 	const METRIC_META: { key: Metric; label: string; sub: string; unit: string; icon: string; color: string; group: Group }[] = [
@@ -36,21 +28,39 @@
 	const ROUTE = '/espace/progression';
 
 	/* ————— Chargement —————
-	   Au retour sur l'onglet : les données déjà connues (cache de navigation)
-	   s'affichent immédiatement ; on ne refetch que si elles ont plus de 30 s.
-	   Même source que le fetch — jamais de donnée inventée. */
+	   Au retour sur l'onglet : les données déjà connues (cache de navigation
+	   ou instantané partagé avec l'Accueil) s'affichent immédiatement ; on ne
+	   refetch que si elles ont plus de 30 s. Même source que le fetch — jamais
+	   de donnée inventée. */
+	const SHARED_TTL_MS = 2 * 60 * 1000;
+	/** Publie l'instantané courant vers l'Accueil + le cache de navigation. */
+	function publishSnapshot() {
+		const snap: MetricsSnapshot = { heightCm, measurements, bodyFat };
+		cacheSet(ROUTE, snap);
+		setSharedMetrics(snap);
+	}
 	async function load() {
-		const cached = cacheGet<{ heightCm: number | null; measurements: Measurement[]; bodyFat: { date: string; value: number }[] }>(ROUTE);
-		if (cached) {
+		/* Instantané PARTAGÉ (Accueil ↔ Progression) : une donnée enregistrée il
+		   y a moins de 2 min s'affiche immédiatement — jamais un flash de donnée
+		   périmée juste après un enregistrement. */
+		const shared = getSharedMetrics();
+		const sharedFresh = shared !== undefined && Date.now() - shared.savedAt < SHARED_TTL_MS;
+		const cached = cacheGet<MetricsSnapshot>(ROUTE);
+		if (sharedFresh && shared) {
+			heightCm = shared.heightCm;
+			measurements = shared.measurements;
+			bodyFat = shared.bodyFat;
+			loading = false;
+		} else if (cached) {
 			heightCm = cached.heightCm;
 			measurements = cached.measurements;
 			bodyFat = cached.bodyFat;
 			loading = false;
 		}
-		if (cached && isFresh(ROUTE)) return;
+		if ((sharedFresh && shared) || (cached && isFresh(ROUTE))) return;
 		/* Premier chargement de session : skeleton. Sinon (cache ou session
 		   chaude) : revalidation silencieuse en arrière-plan, sans spinner. */
-		if (cached || appWarm()) loading = false;
+		if (cached || sharedFresh || appWarm()) loading = false;
 		error = '';
 		try {
 			const r = await fetch('/api/metrics');
@@ -60,10 +70,10 @@
 			measurements = j.measurements ?? [];
 			// Masse grasse : calcul centralisé côté Convex (même source que le CRM).
 			bodyFat = j.bodyFat ?? [];
-			cacheSet(ROUTE, { heightCm, measurements, bodyFat });
+			publishSnapshot();
 			noteSync(ROUTE);
 		} catch (e) {
-			if (!cached) error = e instanceof Error ? e.message : String(e);
+			if (!cached && !sharedFresh) error = e instanceof Error ? e.message : String(e);
 		} finally {
 			loading = false;
 		}
@@ -76,6 +86,9 @@
 		const params = new URLSearchParams(window.location.search);
 		if (params.get('action') === 'mensurations') {
 			openLog('mensurations');
+			/* Lien direct « Ajouter mes mensurations » : au retour automatique
+			   post-enregistrement, la bonne carte doit être pointée — jamais Poids. */
+			focusOn('waistCm');
 		}
 		/* Retour sur l'onglet : position de scroll restaurée (après le reset
 		   scroll(0,0) que SvelteKit applique en fin de navigation). */
@@ -144,6 +157,22 @@
 	let mNeck = $state('');
 	let logError = $state('');
 
+	/** Métrique mise en avant (carte surlignée « Mis à jour ✓ ») — retombe
+	 *  seule après ~2,5 s (jamais permanent, une seule minuterie active). */
+	let focusMetric = $state<Metric | null>(null);
+	let focusTimer: ReturnType<typeof setTimeout> | undefined;
+	function focusOn(metric: Metric, opts: { scroll?: boolean } = {}) {
+		clearTimeout(focusTimer);
+		focusMetric = metric;
+		focusTimer = setTimeout(() => (focusMetric = null), 2500);
+		if (opts.scroll) {
+			/* Le DOM n'existe plus si on vient de quitter la vue détail : le scroll
+			   part juste après le changement de vue. */
+			setTimeout(() => {
+				document.getElementById(`metric-card-${metric}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+			}, 60);
+		}
+	}
 	function openLog(group: Group) {
 		logType = group;
 		logDate = todayISO();
@@ -160,7 +189,19 @@
 		const n = parseFloat(v.replace(',', '.'));
 		return v.trim() === '' || !isFinite(n) ? undefined : n;
 	};
+	/** Retour automatique sur la carte de la métrique enregistrée — simple
+	 *  changement d'état local + scroll doux, JAMAIS de rechargement de page. */
+	function returnToCard(metric: Metric) {
+		if (detailKey === metric) {
+			focusOn(metric); // déjà sur la courbe de cette métrique
+			return;
+		}
+		detailKey = null;
+		bfDetail = false;
+		focusOn(metric, { scroll: true });
+	}
 	async function submitLog() {
+		if (saving) return; // anti double-clic : un seul enregistrement à la fois
 		const body: Record<string, unknown> = { date: logDate };
 		if (logType === 'weight') {
 			body.weightKg = numOr(wWeight);
@@ -179,7 +220,30 @@
 		}
 		saving = true;
 		logError = '';
+		const openedGroup = logType;
 		try {
+			/* UI optimiste : la nouvelle mesure apparaît IMMÉDIATEMENT (historique,
+			   courbe, carte, Accueil) — sans attendre le serveur, qui revalide
+			   ensuite silencieusement. */
+			const patch: Partial<Record<MetricKey, number>> = {};
+			for (const k of ['weightKg', 'waistCm', 'hipCm', 'neckCm'] as MetricKey[]) {
+				const v = body[k];
+				if (typeof v === 'number') patch[k] = v;
+			}
+			measurements = upsertMetricRow(measurements, logDate, patch);
+			bodyFat = withDerivedBodyFat({ heightCm, measurements, bodyFat }).bodyFat;
+			publishSnapshot();
+			const target: Metric =
+				openedGroup === 'weight'
+					? 'weightKg'
+					: typeof patch.waistCm === 'number'
+						? 'waistCm'
+						: typeof patch.hipCm === 'number'
+							? 'hipCm'
+							: 'neckCm';
+			logType = null;
+			returnToCard(target);
+			/* Revalidation silencieuse en arrière-plan (source de vérité serveur). */
 			const r = await fetch('/api/metrics', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -187,10 +251,13 @@
 			});
 			const j = await r.json();
 			if (j.error) throw new Error(j.error);
-			logType = null;
 			await load();
 		} catch (e) {
+			/* Échec serveur : on réaffiche la feuille avec l'erreur et les valeurs
+			   saisies, puis on restaure la vérité serveur. */
 			logError = e instanceof Error ? e.message : String(e);
+			logType = openedGroup;
+			await load().catch(() => {});
 		} finally {
 			saving = false;
 		}
@@ -209,7 +276,7 @@
 		editError = '';
 	}
 	async function saveEdit() {
-		if (!edit) return;
+		if (!edit || editSaving) return; // anti double-clic
 		const val = parseFloat(editValue.replace(',', '.'));
 		if (!isFinite(val) || editValue.trim() === '') {
 			editError = 'Saisis une valeur valide.';
@@ -217,34 +284,51 @@
 		}
 		editSaving = true;
 		editError = '';
+		const { metric, date } = edit;
 		try {
+			/* Optimiste : courbe + historique + carte mis à jour tout de suite. */
+			const patch: Partial<Record<MetricKey, number>> = {};
+			patch[metric] = val;
+			measurements = upsertMetricRow(measurements, date, patch);
+			bodyFat = withDerivedBodyFat({ heightCm, measurements, bodyFat }).bodyFat;
+			publishSnapshot();
+			edit = null;
 			const r = await fetch('/api/metrics', {
 				method: 'PATCH',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ date: edit.date, metric: edit.metric, value: val }),
+				body: JSON.stringify({ date, metric, value: val }),
 			});
 			const j = await r.json();
 			if (j.error) throw new Error(j.error);
-			edit = null;
 			await load();
 		} catch (e) {
 			editError = e instanceof Error ? e.message : String(e);
+			edit = { metric, date };
+			await load().catch(() => {});
 		} finally {
 			editSaving = false;
 		}
 	}
 	async function deleteEdit() {
-		if (!edit) return;
+		if (!edit || editSaving) return; // anti double-clic
 		editSaving = true;
 		editError = '';
+		const { metric, date } = edit;
 		try {
-			const r = await fetch(`/api/metrics?date=${edit.date}&metric=${edit.metric}`, { method: 'DELETE' });
+			/* Optimiste : la valeur disparaît aussitôt (ligne entière si le jour
+			   n'a plus aucune mesure — même sémantique que le serveur). */
+			measurements = clearMetricField(measurements, date, metric);
+			bodyFat = withDerivedBodyFat({ heightCm, measurements, bodyFat }).bodyFat;
+			publishSnapshot();
+			edit = null;
+			const r = await fetch(`/api/metrics?date=${date}&metric=${metric}`, { method: 'DELETE' });
 			const j = await r.json();
 			if (j.error) throw new Error(j.error);
-			edit = null;
 			await load();
 		} catch (e) {
 			editError = e instanceof Error ? e.message : String(e);
+			edit = { metric, date };
+			await load().catch(() => {});
 		} finally {
 			editSaving = false;
 		}
@@ -260,6 +344,7 @@
 		heightError = '';
 	}
 	async function saveHeight() {
+		if (saving) return; // anti double-clic
 		const h = parseFloat(heightInput.replace(',', '.'));
 		if (!isFinite(h) || h < 80 || h > 250) {
 			heightError = 'Entre une taille valide (80 à 250 cm).';
@@ -431,7 +516,7 @@
 			{@const rows = series(meta.key)}
 			{@const d = delta(rows)}
 			{@const last = rows[rows.length - 1]?.value ?? null}
-			<section class="mt-4 overflow-hidden rounded-2xl border border-line bg-card shadow-sm">
+			<section id="metric-card-{meta.key}" class="mt-4 scroll-mt-20 overflow-hidden rounded-2xl border bg-card shadow-sm transition {focusMetric === meta.key ? 'border-brand ring-2 ring-brand/30' : 'border-line'}">
 				<div class="px-4 pt-4">
 					<div class="flex items-start justify-between gap-3">
 						<div>
@@ -444,6 +529,11 @@
 								{#if d !== null}
 									<span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold {d <= 0 ? 'bg-brand-light text-brand-dark' : 'bg-warn-light text-warn'}">
 										{d <= 0 ? '↓' : '↑'} {fmt(Math.abs(d))} {meta.unit}
+									</span>
+								{/if}
+								{#if focusMetric === meta.key}
+									<span class="inline-flex items-center gap-1 rounded-full bg-brand px-2 py-0.5 text-xs font-bold text-white">
+										<Icon name="circleCheck" size={12} /> Mis à jour
 									</span>
 								{/if}
 							</div>
@@ -535,7 +625,7 @@
 <!-- ═══════════ Feuille POIDS (unique) ═══════════ -->
 {#if logType === 'weight'}
 	<div role="presentation" class="fixed inset-0 z-[60] flex items-end justify-center bg-ink/40 backdrop-blur-sm sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget && !saving) logType = null; }} onkeydown={(e) => { if (e.key === 'Escape' && !saving) logType = null; }}>
-		<div class="w-full max-w-lg rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
+		<div class="w-full max-w-lg rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl {saving ? 'pointer-events-none' : ''}">
 			<div class="flex items-center justify-between">
 				<h2 class="font-display text-lg font-semibold text-ink">Enregistrer mon poids</h2>
 				<button type="button" class="grid h-9 w-9 place-items-center rounded-full text-lg text-mist hover:bg-line/50" aria-label="Fermer" onclick={() => (logType = null)}>✕</button>
@@ -571,7 +661,7 @@
 <!-- ═══════════ Feuille MENSURATIONS (groupées) ═══════════ -->
 {#if logType === 'mensurations'}
 	<div role="presentation" class="fixed inset-0 z-[60] flex items-end justify-center bg-ink/40 backdrop-blur-sm sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget && !saving) logType = null; }} onkeydown={(e) => { if (e.key === 'Escape' && !saving) logType = null; }}>
-		<div class="w-full max-w-lg rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
+		<div class="w-full max-w-lg rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl {saving ? 'pointer-events-none' : ''}">
 			<div class="flex items-center justify-between">
 				<h2 class="font-display text-lg font-semibold text-ink">Enregistrer mes mensurations</h2>
 				<button type="button" class="grid h-9 w-9 place-items-center rounded-full text-lg text-mist hover:bg-line/50" aria-label="Fermer" onclick={() => (logType = null)}>✕</button>

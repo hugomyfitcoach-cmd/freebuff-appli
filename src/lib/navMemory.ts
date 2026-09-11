@@ -15,6 +15,7 @@ const visitedAt: Record<string, boolean> = {};
 const lastSyncAt: Record<string, number> = {};
 const scrollAt: Record<string, number> = {};
 const dataCache: Record<string, unknown> = {};
+let sharedMetrics: MetricsShared | undefined;
 
 /** Session « chaude » (>= 10 s) : évite de revalider juste après un refresh. */
 export function appWarm(): boolean {
@@ -53,4 +54,32 @@ export function cacheGet<T>(key: string): T | undefined {
 
 export function cacheSet(key: string, value: unknown) {
 	dataCache[key] = value;
+}
+
+/* ————— Instantané métriques Progression (partagé Accueil ↔ Progression) —————
+   Après un enregistrement dans « Ma progression », la nouvelle valeur est
+   posée ici immédiatement : l'Accueil l'affiche INSTANTANÉMENT au retour,
+   sans attendre sa revalidation serveur (qui fait ensuite foi). */
+export type MetricsShared = {
+	/** Moment (ms) de la dernière mise à jour — posé automatiquement. */
+	savedAt: number;
+	heightCm: number | null;
+	measurements: { _id: string; date: string; weightKg?: number; neckCm?: number; waistCm?: number; hipCm?: number }[];
+	bodyFat: { date: string; value: number }[];
+};
+
+/** Pose l'instantané (savedAt est ajouté automatiquement). */
+export function setSharedMetrics(m: Omit<MetricsShared, 'savedAt'>) {
+	sharedMetrics = { ...m, savedAt: Date.now() };
+}
+
+/** Dernier instantané connu (undefined = jamais chargé / remis à zéro). */
+export function getSharedMetrics(): MetricsShared | undefined {
+	return sharedMetrics;
+}
+
+/** Jeté l'instantané s'il est plus vieux que `ttl` ms : les pages repassent
+ *  alors sur les données serveur (source de vérité), jamais sur du périmé. */
+export function clearSharedMetricsStale(ttl: number) {
+	if (sharedMetrics && Date.now() - sharedMetrics.savedAt >= ttl) sharedMetrics = undefined;
 }
