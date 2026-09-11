@@ -43,7 +43,7 @@ export const submit = mutation({
 		if (existing) {
 			if (existing.status === "retour_envoye") {
 				throw new ConvexError(
-					"Ce bilan de la semaine a déjà été validé par ta coach. Envoie-lui un message sur WhatsApp si besoin."
+					"Ce bilan de la semaine a déjà été validé par ton coach. Envoie-lui un message sur WhatsApp si besoin."
 				);
 			}
 			const weekLabel = formatWeekLabel(weekStart);
