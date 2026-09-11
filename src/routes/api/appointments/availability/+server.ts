@@ -111,10 +111,13 @@ export const GET: RequestHandler = async (event) => {
 		const days = Math.min(Math.max(Number(url.searchParams.get('days') ?? '7'), 1), 14);
 		const kind = url.searchParams.get('type') ?? 'Suivi';
 		const rule = KINDS[kind] ?? FALLBACK;
+		// Replanification : le RDV déplacé ne se bloque pas lui-même
+		// (`excludeId` seul ou liste `excludeIds`).
 		const excludeId = url.searchParams.get('excludeId');
-		const excludeRescheduledIds = (url.searchParams.get('excludeIds') ?? '')
-			.split(',')
-			.filter(Boolean);
+		const excludeRescheduledIds = [
+			...(url.searchParams.get('excludeIds') ?? '').split(',').filter(Boolean),
+			...(excludeId ? [excludeId] : []),
+		];
 
 		// Cliente : coach rattaché. Coach : lui-même.
 		let coachId: string | null;
@@ -125,9 +128,13 @@ export const GET: RequestHandler = async (event) => {
 			if (!coachId) return json({ error: 'Ton coach n\'est pas encore rattaché à ton compte.' }, { status: 400 });
 		}
 
-		// Un paramètre date = jour unique ; sinon fenêtre glissante de `days` jours.
+		// Un paramètre date = jour unique (par défaut) ; `days` élargit la fenêtre
+		// (ex. semaine du planning coach : date=<lundi>&days=7). Sans date,
+		// fenêtre glissante de `days` jours.
 		const startDate = url.searchParams.get('date') ?? new Date().toISOString().slice(0, 10);
-		const windowDays = url.searchParams.get('date') ? 1 : days;
+		const windowDays = url.searchParams.get('date')
+			? Math.min(Math.max(Number(url.searchParams.get('days') ?? '1'), 1), 14)
+			: days;
 		const daysList: string[] = [];
 		for (let i = 0; i < windowDays; i++) daysList.push(addDaysISO(startDate, i));
 		const timeMinMs = dayMinuteToMs(daysList[0], 0);

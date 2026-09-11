@@ -93,9 +93,12 @@ export async function fetchAvailability(opts: {
 	date: string;
 	kind: string;
 	excludeId?: string;
+	/** Nombre de jours à partir de `date` (défaut 1 — ex. 7 pour la semaine du CRM coach). */
+	days?: number;
 }): Promise<{ days: AvailabilityDay[]; durationMin: number; bufferMin: number }> {
 	const p = new URLSearchParams({ date: opts.date, type: opts.kind });
 	if (opts.excludeId) p.set('excludeId', opts.excludeId);
+	if (opts.days) p.set('days', String(opts.days));
 	const res = await fetch(`/api/appointments/availability?${p.toString()}`);
 	const j = (await res.json()) as {
 		days?: AvailabilityDay[];
