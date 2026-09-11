@@ -152,6 +152,16 @@ export const getDashboard = query({
 			photosDue = !photos.some((p) => p.date >= windowStart);
 		}
 
+		/* ── « Me le rappeler plus tard » (48 h) : l'échéance reste posée (source de
+		   vérité inchangée ci-dessus), mais la carte + le badge sont masqués et les
+		   rappels push liés restent silencieux jusqu'à l'expiration du report. Si
+		   l'action est faite entre-temps, l'échéance tombe naturellement à false —
+		   rien ne réapparaît ; sinon carte + badge reviennent d'eux-mêmes. ── */
+		const measurementsSnoozed = measurementsDue && (user.measurementsSnoozeUntil ?? 0) > ts;
+		const photosSnoozed = photosDue && (user.photosSnoozeUntil ?? 0) > ts;
+		const measurementsDueShown = measurementsDue && !measurementsSnoozed;
+		const photosDueShown = photosDue && !photosSnoozed;
+
 		/* ── Bilan hebdo : fenêtre ouverte ET pas encore soumis ── */
 		const windowOpen = isBilanWindowOpen(new Date(ts));
 		const currentWeekCheckin = checkins.find((c) => c.weekStart === weekStart) ?? null;
@@ -315,8 +325,12 @@ export const getDashboard = query({
 				lastWeightKg: last?.weightKg ?? null,
 				lastWeightDate: last?.date ?? null,
 				weighinsThisWeek,
+				/** État réel de l'échéance (le report ne l'efface jamais) — usage : logique métier, pas l'affichage. */
 				measurementsDue,
 				photosDue,
+				/** État affiché : carte masquée pendant le « Me le rappeler plus tard » (48 h). */
+				measurementsDueShown,
+				photosDueShown,
 				startDate,
 				// Dernières 10 pesées pour la tendance — même source que Progression/CRM.
 				weightTrend: weightRows.slice(-10).map((m) => ({ date: m.date, weightKg: m.weightKg as number })),
@@ -337,7 +351,9 @@ export const getDashboard = query({
 				retours: unreadCount,
 				// « message » = message du coach du jour non encore marqué « Vu » par la cliente.
 				message: msgFresh && (msgAt ? (user.coachMessageReadAt ?? 0) < msgAt : false) ? 1 : 0,
-				progression: (measurementsDue ? 1 : 0) + (photosDue ? 1 : 0),
+				// « progression » = échéances affichées (mensurations + photos) : les
+				// reports « Me le rappeler plus tard » (48 h) débranche aussi le badge.
+				progression: (measurementsDueShown ? 1 : 0) + (photosDueShown ? 1 : 0),
 				// « reminder » = information importante disponible sur l'Accueil
 				// (rappel rendez-vous dans la fenêtre 12 h) — badge Accueil (§21).
 				reminder: appointmentReminder ? 1 : 0,
@@ -346,6 +362,37 @@ export const getDashboard = query({
 	},
 });
 
+
+/** Durée du « Me le rappeler plus tard » : 48 h. */
+const SNOOZE_MS = 48 * 60 * 60 * 1000;
+
+/**
+ * « Me le rappeler plus tard » (carte Mensurations ou Photos de l'Accueil).
+ *
+ * Le report ne modifie JAMAIS l'échéance elle-même (15 jours / 1 mois, calculée
+ * date à date depuis le démarrage) : il masque uniquement l'affichage — carte +
+ * badge de l'icône PWA — pendant 48 h, et débranche les rappels push liés.
+ * Après le délai, si l'action n'est toujours pas faite, carte + badge
+ * réapparaissent d'eux-mêmes ; si elle a été faite entre-temps, l'échéance est
+ * déjà tombée à false et rien ne revient. Idempotent : reporter prolonge
+ * simplement l'horodatage de 48 h à partir de maintenant.
+ */
+export const snoozeProgressionReminder = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		/** Carte visée : "mensurations" ou "photos". */
+		reminder: v.union(v.literal("mensurations"), v.literal("photos")),
+	},
+	handler: async (ctx, { sessionToken, reminder }) => {
+		const user = await requireClient(ctx, sessionToken);
+		const patch =
+			reminder === "mensurations"
+				? { measurementsSnoozeUntil: Date.now() + SNOOZE_MS }
+				: { photosSnoozeUntil: Date.now() + SNOOZE_MS };
+		await ctx.db.patch(user._id, patch);
+		return { ok: true };
+	},
+});
 
 /**
  * Marque un retour coach comme lu : appelé quand la cliente ouvre réellement

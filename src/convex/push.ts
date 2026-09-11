@@ -131,6 +131,37 @@ export const internalRemoveEndpoint = internalMutation({
 });
 
 /**
+ * État de report « Me le rappeler plus tard » (48 h) des rappels progression
+ * (mensurations / photos) — lecture interne sans session, réservée au serveur
+ * (src/lib/server/progressionPush.ts) pour couper toute notification liée
+ * pendant le délai. L'échéance réelle n'est jamais modifiée par le report.
+ */
+export const internalProgressionSnoozeState = internalQuery({
+	args: { userId: v.id("users") },
+	handler: async (ctx, { userId }) => {
+		const u = await ctx.db.get(userId);
+		if (!u) return null;
+		return { measurementsSnoozeUntil: u.measurementsSnoozeUntil ?? null, photosSnoozeUntil: u.photosSnoozeUntil ?? null };
+	},
+});
+
+/**
+ * État de report « Me le rappeler plus tard » (48 h), lisible par le SERVEUR
+ * SvelteKit avec un jeton coach (même modèle que `subscriptionsFor`) : les
+ * fonctions internes Convex ne sont pas appelables via ConvexClient, on
+ * expose donc cette variante publique strictement gated coach.
+ */
+export const progressionSnoozeState = query({
+	args: { sessionToken: v.optional(v.string()), userId: v.id("users") },
+	handler: async (ctx, { sessionToken, userId }) => {
+		await requireCoach(ctx, sessionToken);
+		const u = await ctx.db.get(userId);
+		if (!u) return null;
+		return { measurementsSnoozeUntil: u.measurementsSnoozeUntil ?? null, photosSnoozeUntil: u.photosSnoozeUntil ?? null };
+	},
+});
+
+/**
  * État de permission notifications déclaré par le navigateur de la cliente
  * ("granted" | "denied" | "unsupported" | "default"). Sert au moteur de
  * rappel 12 h : permission refusée ou indisponible → rappel interne + badge

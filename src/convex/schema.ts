@@ -91,6 +91,10 @@ export default defineSchema({
 		pwaInstallConfirmedAt: v.optional(v.number()),
 		/** Dernière activité connue (timestamp) — tri du CRM par dernière connexion. */
 		lastSeenAt: v.optional(v.number()),
+		/** « Me le rappeler plus tard » carte Mensurations : masquée jusqu'à cet horodatage (ms) — 48 h par défaut. */
+		measurementsSnoozeUntil: v.optional(v.number()),
+		/** « Me le rappeler plus tard » carte Photos : masquée jusqu'à cet horodatage (ms) — 48 h par défaut. */
+		photosSnoozeUntil: v.optional(v.number()),
 		/** Suivi de cycle (carte Accueil cliente + Vision 360 coach) — mêmes questions et formule que l'outil historique. */
 		cycle: v.optional(
 			v.object({

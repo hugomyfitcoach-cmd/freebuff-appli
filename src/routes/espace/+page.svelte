@@ -42,8 +42,12 @@
 			lastWeightKg: number | null;
 			lastWeightDate: string | null;
 			weighinsThisWeek: number;
+			/** Échéance réelle (15 j / 1 mois) — jamais modifiée par le report. */
 			measurementsDue: boolean;
 			photosDue: boolean;
+			/** État affiché : false pendant le « Me le rappeler plus tard » (48 h). */
+			measurementsDueShown: boolean;
+			photosDueShown: boolean;
 			startDate: string | null;
 			weightTrend: { date: string; weightKg: number }[];
 		};
@@ -325,7 +329,10 @@
 		// Le bilan hebdomadaire et les nouveaux retours ont leur propre carte en
 		// haut de l'Accueil (cycle : à faire → complété → retour coach) — on ne
 		// les duplique pas ici.
-		if (dash.progression.measurementsDue) {
+		// État AFFICHé : un « Me le rappeler plus tard » (48 h) masque la carte
+		// côté serveur (measurementsDueShown / photosDueShown) sans toucher à
+		// l'échéance réelle (measurementsDue / photosDue).
+		if (dash.progression.measurementsDueShown && !snoozedReminders.has('mensurations')) {
 			list.push({
 				id: 'mensurations',
 				strong: false,
@@ -335,7 +342,7 @@
 				cta: 'Ajouter mes mensurations →',
 			});
 		}
-		if (dash.progression.photosDue) {
+		if (dash.progression.photosDueShown && !snoozedReminders.has('photos')) {
 			list.push({
 				id: 'photos',
 				strong: false,
@@ -349,6 +356,35 @@
 	});
 
 	const fmt = (n: number) => Math.round(n).toLocaleString('fr-FR');
+
+	/* ————— « Me le rappeler plus tard » (48 h) sur Mensurations / Photos —————
+	   Un seul appel serveur : le dashboard masque la carte + le badge et coupe
+	   les notifications push liées pendant 48 h. On masque localement tout de
+	   suite (feedback instantané) puis on invalide pour resynchroniser l'état
+	   réel — jamais d'état optimiste persistant : le serveur fait foi. */
+	let snoozing = $state<'mensurations' | 'photos' | null>(null);
+	/* Svelte 5 : un Set en $state est réactif par mutation (proxy) — pas de réassignation. */
+	const snoozedReminders = $state<Set<'mensurations' | 'photos'>>(new Set());
+	async function snoozeReminder(reminder: 'mensurations' | 'photos') {
+		if (snoozing) return;
+		snoozing = reminder;
+		snoozedReminders.add(reminder); // masquage immédiat, sans attendre le réseau
+		try {
+			const res = await fetch('/api/progression/snooze', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ reminder }),
+			});
+			const body = await res.json().catch(() => ({}));
+			if (!res.ok || body.error) throw new Error(body.error || "Impossible d'enregistrer.");
+			await invalidateAll();
+		} catch {
+			// Échec : on ne masque pas à tort — la carte reste visible, l'échéance aussi.
+			snoozedReminders.delete(reminder);
+		} finally {
+			snoozing = null;
+		}
+	}
 	const fmtWeight = (n: number | null) => (n === null ? '—' : `${String(n).replace('.', ',')} kg`);
 	const fmtShortDate = (iso: string | null) =>
 		iso ? new Date(iso + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : '';
@@ -760,16 +796,30 @@
 	<section class="mt-4 space-y-3">
 		<h2 class="px-1 text-[11px] font-bold uppercase tracking-widest text-mist">À faire</h2>
 		{#each actions as action (action.id)}
-			<a href={action.href} class="block rounded-3xl border px-5 py-4 transition hover:border-brand {action.strong ? 'border-brand bg-brand-light' : 'border-line bg-card shadow-sm'}">
-				<div class="flex items-start gap-3">
-					<span class="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-warn text-xs font-bold text-white">1</span>
-					<div class="min-w-0 flex-1">
-						<p class="font-display text-base font-semibold text-ink">{action.title}</p>
-						<p class="mt-0.5 text-sm text-mist">{action.desc}</p>
-						<p class="mt-2 text-sm font-bold {action.strong ? 'text-brand-dark' : 'text-ink'}">{action.cta}</p>
+			<div class="rounded-3xl border px-5 py-4 transition {action.strong ? 'border-brand bg-brand-light' : 'border-line bg-card shadow-sm'}">
+				<a href={action.href} class="block">
+					<div class="flex items-start gap-3">
+						<span class="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-warn text-xs font-bold text-white">1</span>
+						<div class="min-w-0 flex-1">
+							<p class="font-display text-base font-semibold text-ink">{action.title}</p>
+							<p class="mt-0.5 text-sm text-mist">{action.desc}</p>
+							<p class="mt-2 text-sm font-bold {action.strong ? 'text-brand-dark' : 'text-ink'}">{action.cta}</p>
+						</div>
 					</div>
-				</div>
-			</a>
+				</a>
+				{#if action.id === 'mensurations' || action.id === 'photos'}
+					<div class="mt-3 flex justify-end border-t border-line pt-2">
+						<button
+							type="button"
+							disabled={snoozing !== null}
+							onclick={() => snoozeReminder(action.id as 'mensurations' | 'photos')}
+							class="rounded-full px-3 py-1 text-xs font-semibold text-mist transition hover:bg-black/5 hover:text-ink disabled:opacity-50"
+						>
+							{snoozing === action.id ? 'Enregistrement…' : 'Me le rappeler plus tard (48 h)'}
+						</button>
+					</div>
+				{/if}
+			</div>
 		{/each}
 	</section>
 {/if}
