@@ -955,7 +955,7 @@
 		{ id: 'photos', label: `Photos (${totalPhotos})` },
 		{ id: 'bilans', label: 'Bilans' },
 		{ id: 'rdv', label: 'Rendez-vous' },
-		{ id: 'dossier', label: 'Dossier' },
+		{ id: 'dossier', label: 'Drive' },
 		{ id: 'demarrage', label: 'Démarrage' },
 	]);
 
