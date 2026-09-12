@@ -177,6 +177,10 @@ export const listForCoach = query({
 	handler: async (ctx, { sessionToken, userId }) => {
 		const target = await resolveCoachTarget(ctx, sessionToken, userId);
 		const rows = await ctx.db.query("bodyMetrics").withIndex("by_user", (q) => q.eq("userId", userId)).order("asc").collect();
+		// Tri par date de mesure (l'index by_user suit l'ordre de création) : une
+		// saisie rétrodatée reste à sa place chronologique — « dernière valeur » =
+		// date la plus récente, partout côté coach.
+		rows.sort((a, b) => a.date.localeCompare(b.date));
 		return {
 			heightCm: target.heightCm ?? null,
 			measurements: rows,
@@ -278,6 +282,9 @@ export const list = query({
 			.withIndex("by_user", (q) => q.eq("userId", user._id))
 			.order("asc")
 			.collect();
+		// Tri par date de mesure (voir listForCoach) — l'espace cliente applique
+		// le même ordre chronologique que le CRM.
+		rows.sort((a, b) => a.date.localeCompare(b.date));
 		return {
 			heightCm: user.heightCm ?? null,
 			measurements: rows,

@@ -247,6 +247,29 @@
 		view && view.lastWeight != null && view.firstWeight != null ? Math.round((view.lastWeight - view.firstWeight) * 10) / 10 : null
 	);
 	const latestMetric = $derived(view?.latestMetric ?? null);
+	/** Dernière valeur par métrique, en date de mesure (source : client360).
+	 *  Sert aux cartes Aperçu : le cou noté seul à une autre date reste affiché. */
+	type LatestMetricPoint = { value: number; date: string } | null;
+	const latestByMetric = $derived(
+		(view?.latestByMetric ?? null) as
+			| { weightKg: LatestMetricPoint; waistCm: LatestMetricPoint; hipCm: LatestMetricPoint; neckCm: LatestMetricPoint }
+			| null
+	);
+	/** Valeur de secours (anciens cachets du server sans latestByMetric) : dernier relevé utile. */
+	const latestAny = $derived(
+		latestByMetric ?? {
+			weightKg: latestMetric?.weightKg != null ? { value: latestMetric.weightKg, date: latestMetric.date } : null,
+			waistCm: latestMetric?.waistCm != null ? { value: latestMetric.waistCm, date: latestMetric.date } : null,
+			hipCm: latestMetric?.hipCm != null ? { value: latestMetric.hipCm, date: latestMetric.date } : null,
+			neckCm: latestMetric?.neckCm != null ? { value: latestMetric.neckCm, date: latestMetric.date } : null,
+		}
+	);
+	const fmtCm = (n: number) => String(n).replace('.', ',');
+	/** Date du relevé mensurations affiché = la plus récente des 3 valeurs (peut différer de la pesée). */
+	const mensDate = $derived.by(() => {
+		const dates = [latestAny.waistCm?.date, latestAny.hipCm?.date, latestAny.neckCm?.date].filter((d): d is string => !!d);
+		return dates.length ? dates.sort()[dates.length - 1] : null;
+	});
 	const goalKcal = $derived(view?.goals?.kcal ?? 2000);
 	const weekAvg = $derived(view ? Math.round(view.weekAvgKcal) : 0);
 	const kcalTrend = $derived(view && weekAvg > 0 ? Math.round(((weekAvg - goalKcal) / goalKcal) * 100) : 0);
@@ -1577,30 +1600,30 @@
 					<div class="rounded-2xl border border-line bg-card p-4">
 						<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="scale" size={12} /> Poids actuel</div>
 						<div class="mt-1 flex items-baseline gap-2">
-							<span class="font-display text-3xl font-semibold text-ink">{view.lastWeight != null ? `${String(view.lastWeight).replace('.', ',')} kg` : '—'}</span>
+							<span class="font-display text-3xl font-semibold text-ink">{latestAny.weightKg != null ? `${String(latestAny.weightKg.value).replace('.', ',')} kg` : '—'}</span>
 							{#if weightDelta != null}
 								<span class="text-sm font-bold {weightDelta <= 0 ? 'text-brand' : 'text-warn'}">{weightDelta <= 0 ? '↓' : '↑'} {String(Math.abs(weightDelta)).replace('.', ',')} kg</span>
 							{/if}
 						</div>
-						<div class="mt-1 text-[11px] text-mist">{latestMetric?.weightKg != null ? `dernière prise ${fmtDateShort(latestMetric.date)}` : 'aucune prise'}</div>
+						<div class="mt-1 text-[11px] text-mist">{latestAny.weightKg != null ? `dernière prise ${fmtDateShort(latestAny.weightKg.date)}` : 'aucune prise'}</div>
 					</div>
 					<div class="rounded-2xl border border-line bg-card p-4">
 						<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="ruler" size={12} /> Mensurations</div>
 						<div class="mt-1 grid grid-cols-3 gap-2 text-center">
 							<div>
-								<div class="font-display text-lg font-semibold text-ink">{latestMetric?.waistCm != null ? String(latestMetric.waistCm).replace('.', ',') : '—'}</div>
+								<div class="font-display text-lg font-semibold text-ink">{latestAny.waistCm != null ? fmtCm(latestAny.waistCm.value) : '—'}</div>
 								<div class="text-[10px] text-mist">taille</div>
 							</div>
 							<div>
-								<div class="font-display text-lg font-semibold text-ink">{latestMetric?.hipCm != null ? String(latestMetric.hipCm).replace('.', ',') : '—'}</div>
+								<div class="font-display text-lg font-semibold text-ink">{latestAny.hipCm != null ? fmtCm(latestAny.hipCm.value) : '—'}</div>
 								<div class="text-[10px] text-mist">fessiers</div>
 							</div>
 							<div>
-								<div class="font-display text-lg font-semibold text-ink">{latestMetric?.neckCm != null ? String(latestMetric.neckCm).replace('.', ',') : '—'}</div>
+								<div class="font-display text-lg font-semibold text-ink">{latestAny.neckCm != null ? fmtCm(latestAny.neckCm.value) : '—'}</div>
 								<div class="text-[10px] text-mist">cou</div>
 							</div>
 						</div>
-						<div class="mt-1 text-[11px] text-mist">en cm {latestMetric ? `· ${fmtDateShort(latestMetric.date)}` : '· aucune prise'}</div>
+						<div class="mt-1 text-[11px] text-mist">en cm {mensDate ? `· ${fmtDateShort(mensDate)}` : '· aucune prise'}</div>
 					</div>
 					<div class="rounded-2xl border border-line bg-card p-4">
 						<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="flame" size={12} /> Calories / jour</div>

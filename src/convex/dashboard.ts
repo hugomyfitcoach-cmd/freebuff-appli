@@ -127,7 +127,11 @@ export const getDashboard = query({
 		const maintenanceKcal = goalsRow?.maintenanceKcal ?? null;
 
 		/* ── Progression : dernier poids + pesées de la semaine ── */
-		const weightRows = metrics.filter((m) => m.weightKg != null);
+		// Tri par date de mesure (l'index by_user suit l'ordre de création) :
+		// « dernière pesée » = date la plus récente, jamais la dernière saisie.
+		const weightRows = metrics
+			.filter((m) => m.weightKg != null)
+			.sort((a, b) => a.date.localeCompare(b.date));
 		const last = weightRows.length > 0 ? weightRows[weightRows.length - 1] : null;
 		const nextMonday = addDaysISO(weekStart, 7);
 		const weighinsThisWeek = weightRows.filter((m) => m.date >= weekStart && m.date < nextMonday).length;

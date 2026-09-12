@@ -529,6 +529,13 @@ export const client360 = query({
 			ctx.db.query("dailySteps").withIndex("by_user", (q) => q.eq("userId", userId)).order("asc").collect(),
 		]);
 
+		// Les lignes bodyMetrics sont lues dans l'ordre de création (index by_user),
+		// pas dans l'ordre des dates de mesure : une saisie rétrodatée arrive après
+		// les lignes plus récentes. On trie par date pour que « dernier relevé »
+		// signifie toujours « date de mesure la plus récente » (et non dernière
+		// ligne créée) — cohérent avec l'onglet Poids & mesures du CRM.
+		const metricsByDate = [...metrics].sort((a, b) => a.date.localeCompare(b.date));
+
 		// Les 7 derniers jours (aujourd'hui compris), clés "yyyy-mm-dd" locales serveur.
 		const days: string[] = [];
 		for (let i = 6; i >= 0; i--) {
@@ -565,7 +572,7 @@ export const client360 = query({
 		// Dernier relevé « utile » (poids ou mensurations) — les lignes de
 		// journalisation de la taille (heightCm seul) ne comptent pas.
 		const latestMetric =
-			[...metrics]
+			[...metricsByDate]
 				.reverse()
 				.find(
 					(m) =>
@@ -574,11 +581,28 @@ export const client360 = query({
 						m.waistCm !== undefined ||
 						m.hipCm !== undefined
 				) ?? null;
-		const weightTrend = metrics
+		const weightTrend = metricsByDate
 			.filter((m) => m.weightKg !== undefined)
 			.map((m) => ({ date: m.date, weightKg: m.weightKg as number }));
 		const firstWeight = weightTrend.length > 0 ? weightTrend[0].weightKg : null;
 		const lastWeight = weightTrend.length > 0 ? weightTrend[weightTrend.length - 1].weightKg : null;
+
+		// Dernière valeur ENREGISTRÉE par métrique, en date de mesure (par métrique :
+		// le cou noté seul à une date antérieure reste visible même si une pesée plus
+		// récente n'a pas de mensurations). Ordre ascendant → la dernière écriture gagne.
+		type MetricLatest = { value: number; date: string } | null;
+		const latestByMetric: {
+			weightKg: MetricLatest;
+			waistCm: MetricLatest;
+			hipCm: MetricLatest;
+			neckCm: MetricLatest;
+		} = { weightKg: null, waistCm: null, hipCm: null, neckCm: null };
+		for (const m of metricsByDate) {
+			if (m.weightKg !== undefined) latestByMetric.weightKg = { value: m.weightKg, date: m.date };
+			if (m.waistCm !== undefined) latestByMetric.waistCm = { value: m.waistCm, date: m.date };
+			if (m.hipCm !== undefined) latestByMetric.hipCm = { value: m.hipCm, date: m.date };
+			if (m.neckCm !== undefined) latestByMetric.neckCm = { value: m.neckCm, date: m.date };
+		}
 
 		/* ── Cockpit hebdo (onglet Bilans) ──────────────────────────────────
 		   Synthèse calculée sur la semaine du bilan le plus récent (lundi →
@@ -663,7 +687,7 @@ export const client360 = query({
 
 			// Mensurations : fraîcheur ≤ 5 jours (aujourd'hui inclus) + delta par
 			// métrique vs le relevé précédent de CETTE même métrique.
-			const mensRows = metrics.filter(
+			const mensRows = metricsByDate.filter(
 				(m) => m.waistCm !== undefined || m.hipCm !== undefined || m.neckCm !== undefined
 			);
 			const latestMens = mensRows.length > 0 ? mensRows[mensRows.length - 1] : null;
@@ -748,6 +772,7 @@ export const client360 = query({
 			weekAvgKcal:
 				week.reduce((s, d) => s + d.kcal, 0) / Math.max(1, week.filter((d) => d.count > 0).length),
 			latestMetric,
+			latestByMetric,
 			weightTrend,
 			firstWeight,
 			lastWeight,
