@@ -53,21 +53,45 @@ function isReferenceLabel(label: string): boolean {
 	return toks.length <= 8;
 }
 
+/* ── Formes SIMPLES vs préparations ÉLABORÉES (recherche générique) ──
+ *
+ * « pomme de terre » → crue d'abord, puis bouillie/vapeur, puis le reste ;
+ * dauphine / duchesse / préfrites / gratin / frit / pané / sauce… passent
+ * APRÈS les formes de base. Jamais par calories : uniquement le vocabulaire
+ * de préparation du libellé officiel + la longueur du nom. Une requête
+ * précise (« pomme de terre dauphine ») fait remonter la dauphine
+ * normalement : le filtre d'ancres + le tier préfixe dominent déjà.
+ */
+const SIMPLE_PREP = new Set(["cru", "crue", "bouilli", "bouillie", "vapeur", "eau"]);
+const ELAB_TOKENS = new Set([
+	"dauphine", "duchesse", "prefrite", "frite", "gratin", "gratinee", "pane",
+	"panee", "sauce", "beignet", "poelee", "sautee", "rissolee", "surgele",
+	"surgelee", "appertise", "appertisee", "noisette", "friture", "frit", "puree",
+]);
+const ELAB_SUBSTR = ["sous vide"];
+
 /**
  * Score de pertinence d'une référence pour la requête.
  * Plus petit = meilleur (même hiérarchie que le ranking OFF : exact >
- * préfixe de mots > mots entiers), puis aliments simples (pas des recettes
- * préparées), puis libellés officiels courts.
+ * préfixe de mots > mots entiers), puis :
+ *   − préparations élaborées fortement pénalisées (+2,5) ;
+ *   − formes simples (cru / eau / vapeur / bouilli) favorisées (−1) ;
+ *   − recettes préparées pénalisées (+1,5) ; « aliment moyen » +1 ;
+ *   − noms courts favorisés (+0,05/token, jamais de quoi changer de tier).
  */
 function scoreRef(qt: string[], refToks: string[], label: string): number {
 	const normed = refToks.join(" ");
 	const isRecipe = RECIPE_MARKERS.some((m) => normed.includes(m)) ? 1.5 : 0;
 	const isRef = isReferenceLabel(label) ? 0 : 1;
-	if (refToks.join(" ") === qt.join(" ")) return 0 + isRecipe + isRef; // exact
-	if (qt.every((t, i) => refToks[i] === t)) return 2 + isRecipe + isRef; // préfixe de mots
+	const isElab =
+		refToks.some((t) => ELAB_TOKENS.has(t)) || ELAB_SUBSTR.some((m) => normed.includes(m));
+	const prep = isElab ? 2.5 : refToks.some((t) => SIMPLE_PREP.has(t)) ? -1 : 0;
+	const lengthTerm = refToks.length * 0.05;
+	if (refToks.join(" ") === qt.join(" ")) return 0 + prep + isRecipe + isRef + lengthTerm; // exact
+	if (qt.every((t, i) => refToks[i] === t)) return 2 + prep + isRecipe + isRef + lengthTerm; // préfixe de mots
 	if (refToks.every((t) => qt.includes(t)) && refToks.length > 0)
-		return 4 + isRecipe + isRef; // la requête couvre tous les mots du libellé
-	if (refToks.some((t) => qt.includes(t))) return 6 + isRecipe + isRef; // un mot en commun
+		return 4 + prep + isRecipe + isRef + lengthTerm; // la requête couvre tous les mots du libellé
+	if (refToks.some((t) => qt.includes(t))) return 6 + prep + isRecipe + isRef + lengthTerm; // un mot en commun
 	return Number.POSITIVE_INFINITY;
 }
 
