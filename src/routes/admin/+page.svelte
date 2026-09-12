@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { invalidateAll } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
-	import { untrack } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import AudioPlayer from '../../lib/components/AudioPlayer.svelte';
 	import BilanCard from '../../lib/components/BilanCard.svelte';
 	import CoachMedia from '../../lib/components/CoachMedia.svelte';
@@ -820,6 +820,108 @@
 		}
 	}
 
+	/* ── Ajout rapide depuis l'Aperçu ────────────────────────────
+	   Les cartes « Poids actuel » et « Mensurations » ouvrent une petite
+	   fenêtre de saisie SANS quitter l'Aperçu. L'enregistrement réutilise
+	   exactement la logique de l'onglet « Poids & mesures » (POST
+	   /api/coach/metrics → upsertForCoach : n'écrit que les champs fournis
+	   sur la ligne de la date). Les champs laissés vides des mensurations
+	   ne sont PAS envoyés → ils ne bloquent rien et n'écrasent rien. */
+	type QuickSheetKind = 'weight' | 'mensurations';
+	let quickSheet = $state<{ kind: QuickSheetKind } | null>(null);
+	let quickWeight = $state<{ date: string; value: string | number }>({ date: todayISO(), value: '' });
+	let quickMes = $state({ date: todayISO(), waistCm: '' as string | number, hipCm: '' as string | number, neckCm: '' as string | number });
+	let quickBusy = $state(false);
+	let quickMsg = $state('');
+
+	function openQuickSheet(kind: QuickSheetKind) {
+		const t = todayISO();
+		quickSheet = { kind };
+		quickWeight = { date: t, value: '' };
+		quickMes = { date: t, waistCm: '', hipCm: '', neckCm: '' };
+		quickMsg = '';
+	}
+
+	/** Même convention de saisie que « Poids & mesures » : virgule française
+	   acceptée ; champ vide → undefined (non envoyé, ancienne valeur conservée). */
+	function parseQuick(raw: string | number): number | undefined {
+		const t = String(raw ?? '').trim();
+		if (t === '') return undefined;
+		const v = Number(t.replace(',', '.'));
+		return isFinite(v) ? v : NaN;
+	}
+
+	async function saveQuickWeight() {
+		if (!selectedId) return;
+		const w = parseQuick(quickWeight.value);
+		if (!quickWeight.date || w === undefined || !isFinite(w)) {
+			quickMsg = 'Renseigne la date et le poids.';
+			return;
+		}
+		quickBusy = true;
+		quickMsg = '';
+		try {
+			const res = await fetch('/api/coach/metrics', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ userId: selectedId, date: quickWeight.date, weightKg: w }),
+			});
+			const data = await res.json();
+			if (!res.ok) throw new Error(data.error ?? 'Enregistrement impossible.');
+			await loadMeasurements();
+			await invalidateAll(); // recharge la vue 360° → cartes de l'Aperçu à jour immédiatement
+			quickSheet = null;
+		} catch (e) {
+			quickMsg = e instanceof Error ? e.message : 'Enregistrement impossible.';
+		} finally {
+			quickBusy = false;
+		}
+	}
+
+	async function saveQuickMesures() {
+		if (!selectedId) return;
+		if (!quickMes.date) {
+			quickMsg = 'Renseigne la date.';
+			return;
+		}
+		const waist = parseQuick(quickMes.waistCm);
+		const hip = parseQuick(quickMes.hipCm);
+		const neck = parseQuick(quickMes.neckCm);
+		if ([waist, hip, neck].every((v) => v === undefined)) {
+			quickMsg = 'Saisis au moins une valeur — les champs vides sont ignorés.';
+			return;
+		}
+		if ([waist, hip, neck].some((v) => v !== undefined && !isFinite(v))) {
+			quickMsg = 'Valeur invalide.';
+			return;
+		}
+		quickBusy = true;
+		quickMsg = '';
+		try {
+			const res = await fetch('/api/coach/metrics', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					userId: selectedId,
+					date: quickMes.date,
+					// Seuls les champs SAISIS partent à l'upsert — les autres sont conservés.
+					...(waist !== undefined ? { waistCm: waist } : {}),
+					...(hip !== undefined ? { hipCm: hip } : {}),
+					...(neck !== undefined ? { neckCm: neck } : {}),
+				}),
+			});
+			const data = await res.json();
+			if (!res.ok) throw new Error(data.error ?? 'Enregistrement impossible.');
+			await loadMeasurements();
+			await invalidateAll();
+			quickSheet = null;
+		} catch (e) {
+			quickMsg = e instanceof Error ? e.message : 'Enregistrement impossible.';
+		} finally {
+			quickBusy = false;
+		}
+	}
+
 	/* ── Photos ────────────────────────────────────────────────── */
 	const PHOTO_STEP_LABELS: Record<string, string> = {
 		demarrage: 'Démarrage',
@@ -1008,6 +1110,26 @@
 			section = fromUrl;
 		}
 	});
+
+	/* ── Navigation Vision 360° ↔ tableau de bord ────────────────
+	   Navigation CLIENT (goto, jamais window.location) : le tableau de bord
+	   n'est jamais démonté → la recherche (query) et le tri survivent, et
+	   noScroll préserve la position de scroll à l'ouverture comme au retour. */
+	let dashScrollY = 0;
+	async function openClient(clientId: string) {
+		dashScrollY = window.scrollY;
+		await goto(`/admin?client=${clientId}`, { noScroll: true });
+	}
+	/** Ferme la Vision 360° et revient au tableau de bord (même scroll, même recherche). */
+	async function closeVision() {
+		const q = new URLSearchParams(page.url.searchParams);
+		q.delete('client');
+		q.delete('section');
+		const qs = q.toString();
+		await goto(qs ? `/admin?${qs}` : '/admin', { noScroll: true });
+		await tick();
+		if (Math.abs(window.scrollY - dashScrollY) > 1) window.scrollTo(0, dashScrollY);
+	}
 
 	/* Onglet Plan de repas : chargé à l'ouverture du tiroir (changement de cliente). */
 	$effect(() => {
@@ -1365,7 +1487,14 @@
 				</thead>
 				<tbody>
 					{#each filtered as client (client.user._id)}
-						<tr class="border-b border-line/60 transition hover:bg-cream/60">
+						<tr
+							class="cursor-pointer border-b border-line/60 transition hover:bg-cream/60"
+							tabindex="0"
+							role="link"
+							onclick={() => openClient(client.user._id)}
+							onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openClient(client.user._id); } }}
+							aria-label={`Ouvrir la Vision 360° de ${fullName(client.user)}`}
+						>
 							<td class="px-5 py-3">
 								<div class="flex items-center gap-3">
 									<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand/15 font-display text-sm font-semibold text-brand-dark">
@@ -1393,6 +1522,7 @@
 							<td class="px-5 py-3 text-right">
 								<a
 									href={`/admin?client=${client.user._id}`}
+									onclick={(e) => { e.preventDefault(); openClient(client.user._id); }}
 									class="inline-flex items-center gap-1 rounded-lg bg-ink px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand"
 								>360° →</a>
 							</td>
@@ -1405,8 +1535,19 @@
 </div>	<!-- ═══ Vision 360° : occupe TOUT l'espace restant à droite de la sidebar
 	     CRM (md:pl-64 = largeur sidebar). Sur mobile, plein écran. ═══ -->
 	{#if selected && view}
-		<button type="button" class="fixed inset-0 z-50 cursor-pointer bg-ink/50 md:left-64" aria-label="Fermer la vue 360°" onclick={() => (window.location.href = '/admin')}></button>
+		<button type="button" class="fixed inset-0 z-50 cursor-pointer bg-ink/50 md:left-64" aria-label="Fermer la vue 360°" onclick={closeVision}></button>
 		<aside class="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-line bg-cream shadow-2xl md:left-64 md:w-auto">
+		<!-- Flèche retour : collée au bord GAUCHE de la fiche 360°, à mi-hauteur.
+		     Le tiroir lui-même est fixed et ne défile jamais (seule la div
+		     intérieure scrolle) → ce bouton reste visible pendant TOUT le scroll.
+		     Mobile : entièrement dans l'écran ; desktop : à cheval sur la bordure. -->
+		<button
+			type="button"
+			onclick={closeVision}
+			class="absolute left-0 top-1/2 z-20 grid h-9 w-9 -translate-y-1/2 translate-x-2 place-items-center rounded-full border-2 border-line bg-card text-ink shadow-md transition hover:border-brand hover:text-brand md:-translate-x-1/2"
+			aria-label="Retour au tableau de bord"
+			title="Retour au tableau de bord"
+		><Icon name="arrowLeft" size={16} /></button>
 		<!-- En-tête du tiroir -->
 		<div class="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-card px-5 py-3">
 			<div class="flex items-center gap-3">
@@ -1491,6 +1632,7 @@
 				</details>
 				<a
 					href="/admin"
+					onclick={(e) => { e.preventDefault(); closeVision(); }}
 					class="grid h-9 w-9 place-items-center rounded-lg bg-ink text-white transition hover:bg-brand"
 					aria-label="Fermer la vue 360° et revenir à la liste des clientes"
 					title="Fermer la Vision 360°"
@@ -1598,8 +1740,16 @@
 				</div>
 
 				<div class="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
-					<div class="rounded-2xl border border-line bg-card p-4">
-						<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="scale" size={12} /> Poids actuel</div>
+					<button
+						type="button"
+						onclick={() => openQuickSheet('weight')}
+						class="group cursor-pointer rounded-2xl border border-line bg-card p-4 text-left transition hover:border-brand focus-visible:outline-2 focus-visible:outline-brand"
+						aria-label="Ajouter une prise de poids"
+					>
+						<div class="flex items-center justify-between gap-1 text-[11px] font-bold uppercase tracking-wider text-mist">
+							<span class="flex items-center gap-1"><Icon name="scale" size={12} /> Poids actuel</span>
+							<span class="grid h-5 w-5 place-items-center rounded-full border border-line text-mist transition group-hover:border-brand group-hover:text-brand"><Icon name="plus" size={11} /></span>
+						</div>
 						<div class="mt-1 flex items-baseline gap-2">
 							<span class="font-display text-3xl font-semibold text-ink">{latestAny.weightKg != null ? `${String(latestAny.weightKg.value).replace('.', ',')} kg` : '—'}</span>
 							{#if weightDelta != null}
@@ -1607,9 +1757,17 @@
 							{/if}
 						</div>
 						<div class="mt-1 text-[11px] text-mist">{latestAny.weightKg != null ? `dernière prise ${fmtDateShort(latestAny.weightKg.date)}` : 'aucune prise'}</div>
-					</div>
-					<div class="rounded-2xl border border-line bg-card p-4">
-						<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="ruler" size={12} /> Mensurations</div>
+					</button>
+					<button
+						type="button"
+						onclick={() => openQuickSheet('mensurations')}
+						class="group cursor-pointer rounded-2xl border border-line bg-card p-4 text-left transition hover:border-brand focus-visible:outline-2 focus-visible:outline-brand"
+						aria-label="Ajouter des mensurations"
+					>
+						<div class="flex items-center justify-between gap-1 text-[11px] font-bold uppercase tracking-wider text-mist">
+							<span class="flex items-center gap-1"><Icon name="ruler" size={12} /> Mensurations</span>
+							<span class="grid h-5 w-5 place-items-center rounded-full border border-line text-mist transition group-hover:border-brand group-hover:text-brand"><Icon name="plus" size={11} /></span>
+						</div>
 						<div class="mt-1 grid grid-cols-3 gap-2 text-center">
 							<div>
 								<div class="font-display text-lg font-semibold text-ink">{latestAny.waistCm != null ? fmtCm(latestAny.waistCm.value) : '—'}</div>
@@ -1625,7 +1783,7 @@
 							</div>
 						</div>
 						<div class="mt-1 text-[11px] text-mist">en cm {mensDate ? `· ${fmtDateShort(mensDate)}` : '· aucune prise'}</div>
-					</div>
+					</button>
 					<div class="rounded-2xl border border-line bg-card p-4">
 						<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="flame" size={12} /> Calories / jour</div>
 						<div class="mt-1 flex items-baseline gap-2">
@@ -1654,6 +1812,66 @@
 						{/if}
 					</div>
 				</div>
+
+				<!-- Ajout rapide depuis l'Aperçu : même endpoint que « Poids & mesures »,
+			     la vue est rechargée après enregistrement → cartes à jour immédiatement. -->
+				{#if quickSheet}
+					<button type="button" class="fixed inset-0 z-[80] cursor-pointer bg-ink/50" aria-label="Fermer" onclick={() => (quickSheet = null)}></button>
+					<div class="fixed inset-x-4 top-1/2 z-[80] mx-auto max-w-sm -translate-y-1/2 rounded-2xl bg-white p-5 shadow-2xl sm:left-1/2 sm:right-auto sm:-translate-x-1/2" role="dialog" aria-modal="true">
+						<div class="flex items-center justify-between">
+							<h4 class="flex items-center gap-1.5 font-display text-base font-semibold text-ink">
+								<Icon name={quickSheet.kind === 'weight' ? 'scale' : 'ruler'} size={16} class="shrink-0 text-brand" />
+								{quickSheet.kind === 'weight' ? 'Ajouter un poids' : 'Ajouter des mensurations'}
+							</h4>
+							<button type="button" onclick={() => (quickSheet = null)} class="rounded-lg px-2 py-1 text-lg text-mist hover:text-ink" aria-label="Fermer">✕</button>
+						</div>
+
+						{#if quickSheet.kind === 'weight'}
+							<div class="mt-4 flex flex-wrap items-end gap-2">
+								<label class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Date</span>
+									<input type="date" bind:value={quickWeight.date} class="rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+								</label>
+								<label class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Poids (kg)</span>
+									<input type="number" inputmode="decimal" min="30" max="350" step="0.1" bind:value={quickWeight.value} placeholder="Ex. 59,5" class="w-28 rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+								</label>
+							</div>
+							<button type="button" onclick={saveQuickWeight} disabled={quickBusy} class="mt-4 w-full rounded-full bg-brand px-3 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60">
+								{quickBusy ? 'Enregistrement…' : 'Enregistrer'}
+							</button>
+						{:else}
+							<div class="mt-4">
+								<label class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Date</span>
+									<input type="date" bind:value={quickMes.date} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+								</label>
+								<div class="mt-2 grid grid-cols-3 gap-2">
+									<label class="block">
+										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Taille (cm)</span>
+										<input type="number" inputmode="decimal" min="40" max="250" step="0.1" bind:value={quickMes.waistCm} placeholder="—" class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
+									</label>
+									<label class="block">
+										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Fessiers (cm)</span>
+										<input type="number" inputmode="decimal" min="50" max="300" step="0.1" bind:value={quickMes.hipCm} placeholder="—" class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
+									</label>
+									<label class="block">
+										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Cou (cm)</span>
+										<input type="number" inputmode="decimal" min="20" max="80" step="0.1" bind:value={quickMes.neckCm} placeholder="—" class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
+									</label>
+								</div>
+								<p class="mt-2 text-[11px] leading-snug text-mist">Un ou deux champs suffisent — les champs vides sont ignorés et n'écrasent pas les anciennes valeurs.</p>
+							</div>
+							<button type="button" onclick={saveQuickMesures} disabled={quickBusy} class="mt-4 w-full rounded-full bg-brand px-3 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60">
+								{quickBusy ? 'Enregistrement…' : 'Enregistrer'}
+							</button>
+						{/if}
+
+						{#if quickMsg}
+							<p class="mt-2 rounded-lg bg-warn-light px-3 py-2 text-xs font-semibold text-ink">{quickMsg}</p>
+						{/if}
+					</div>
+				{/if}
 
 				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
 					<div class="flex flex-wrap items-center justify-between gap-2">
