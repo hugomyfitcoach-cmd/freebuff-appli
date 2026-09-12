@@ -219,8 +219,12 @@ Tracking de calories fidèle à l'appli de référence (FR) :
   ANSES » avec mention grise "Idéal pour un suivi précis", icône générique
   (pas de photo), kcal/macros 100 % Ciqual. Recherche générique : les
   formes SIMPLES passent d'abord (cru, eau/vapeur/bouilli, noms courts) —
-  dauphine, duchesse, frites, gratin, purée, sauce… après ; une requête
-  précise ("pomme de terre dauphine") remonte normalement. À l'ajout, le client ne
+  dauphine, duchesse, frites, gratin, purée, sauce… après ; les 3 fiches sont
+  DIVERSIFIÉES par mode du même aliment de base ("riz" → blanc cru, blanc
+  cuit, puis un autre cuit réel — jamais 3 crus de variétés différentes ;
+  "poulet" → cru / bouilli / grillé) ; une requête précise (mode tapé :
+  "saumon fumé", "pomme de terre dauphine", "cuit au four") désactive la
+  diversification et remonte normalement. À l'ajout, le client ne
   transmet que le libellé officiel (`ciqualLabel`) — les valeurs sont
   résolues côté serveur (`src/convex/ciqualSource.ts`), snapshot classique
   dans `diaryEntries` / `meals` / `mealPlanTemplates`. Additif et séparé :
