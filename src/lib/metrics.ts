@@ -15,6 +15,8 @@ export type Measurement = {
 	neckCm?: number;
 	waistCm?: number;
 	hipCm?: number;
+	/** Taille (hauteur) journalisée ce jour-là — utilisée par la dérivation masse grasse. */
+	heightCm?: number;
 };
 
 /** Métrique modifiable : poids ou l'une des trois mensurations. */
@@ -52,19 +54,37 @@ export function usNavyBodyFatClient(
 	return isFinite(pct) && pct >= 2 && pct <= 70 ? round1(pct) : null;
 }
 
-/** Historique masse grasse dérivé des relevés (un point par relevé complet). */
+/**
+ * Historique masse grasse dérivé des relevés : à chaque jour où une mesure
+ * est ajoutée ou modifiée, recalcul avec les DERNIÈRES valeurs connues
+ * (report en avant) de tour de taille, fessiers, tour de cou et taille —
+ * miroir CLIENT de bodyFatSeries (src/convex/metrics.ts, source de vérité).
+ */
 export function deriveBodyFatSeries(
 	rows: Measurement[],
 	heightCm: number | null
 ): { date: string; value: number }[] {
-	if (heightCm === null) return [];
+	const sorted = [...rows].sort((a, b) => a.date.localeCompare(b.date));
+	let waist: number | undefined;
+	let hip: number | undefined;
+	let neck: number | undefined;
+	let height: number | undefined = heightCm ?? undefined;
 	const out: { date: string; value: number }[] = [];
-	for (const m of rows) {
-		if (m.waistCm === undefined || m.hipCm === undefined || m.neckCm === undefined) continue;
-		const v = usNavyBodyFatClient(m.waistCm, m.hipCm, m.neckCm, heightCm);
+	for (const m of sorted) {
+		/* Une ligne « poids seul » ne crée jamais de point : seules les mesures
+		   entrant dans le calcul (taille, fessiers, cou, hauteur) le déclenchent. */
+		const relevant =
+			m.waistCm !== undefined || m.hipCm !== undefined || m.neckCm !== undefined || m.heightCm !== undefined;
+		if (m.waistCm !== undefined) waist = m.waistCm;
+		if (m.hipCm !== undefined) hip = m.hipCm;
+		if (m.neckCm !== undefined) neck = m.neckCm;
+		if (m.heightCm !== undefined) height = m.heightCm;
+		if (!relevant) continue;
+		if (waist === undefined || hip === undefined || neck === undefined || height === undefined) continue;
+		const v = usNavyBodyFatClient(waist, hip, neck, height);
 		if (v !== null) out.push({ date: m.date, value: v });
 	}
-	return out.sort((a, b) => a.date.localeCompare(b.date));
+	return out;
 }
 
 const METRIC_FIELDS: MetricKey[] = ['weightKg', 'neckCm', 'waistCm', 'hipCm'];
