@@ -9,8 +9,8 @@ import { getSessionUser } from "./helpers";
  *
  * Deux familles d'événements :
  *  1) Événements RÉELS (poids, mensurations, photos, rendez-vous, formulaire
- *     de démarrage complété) : enregistrés directement dans les mutations qui
- *     les produisent (metrics, photos, appointments, onboarding.complete) —
+ *     de démarrage envoyé) : enregistrés directement dans les mutations qui
+ *     les produisent (metrics, photos, appointments, onboarding.save) —
  *     jamais déduits à postériori, donc jamais ratés.
  *  2) Alerte DÉRIVÉE UNIQUE (aucune connexion depuis 4 jours), posée par le
  *     cron `notifications-tick` toutes les 30 minutes.
@@ -44,7 +44,7 @@ async function requireCoach(ctx: Pick<QueryCtx, "db">, sessionToken: string | un
 
 /**
  * Insère une notification d'événement réel. À appeler depuis les mutations
- * métier (metrics, photos, appointments, coach.setFeedback) — les données
+ * métier (metrics, photos, appointments, onboarding.save) — les données
  * clientes sont déjà vérifiées par l'appelant : aucune revérification ici,
  * la fonction n'est pas exposée publiquement.
  */

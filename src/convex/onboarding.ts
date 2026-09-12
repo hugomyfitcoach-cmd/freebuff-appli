@@ -19,6 +19,10 @@ import { recordEvent } from "./notifications";
  *
  * L'activation est décidée par le coach (users.onboardingEnabled) ; désactiver
  * ne supprime jamais de données, réactiver réutilise les statuts existants.
+ *
+ * La notification coach (journal CRM) est enregistrée à la SOUMISSION du
+ * formulaire (mutation `save`, une seule fois par cliente) : c'est l'événement
+ * réel que le coach doit voir remonter — jamais déduite d'étapes postérieures.
  */
 
 type IntakeRow = Doc<"intakes">;
@@ -66,7 +70,13 @@ async function getIntake(ctx: DbOnly, userId: Id<"users">): Promise<IntakeRow | 
 	);
 }
 
-/** Sauvegarde (brouillon ou soumission) du formulaire de la cliente connectée. */
+/**
+ * Sauvegarde (brouillon ou soumission) du formulaire de la cliente connectée.
+ * La PREMIÈRE soumission enregistre la notification coach « Formulaire de
+ * démarrage complété » dans le journal CRM (une seule fois par cliente) —
+ * l'événement part au moment réel de l'envoi, même si le formulaire est la
+ * seule étape de l'onboarding ou n'est pas la dernière à être terminée.
+ */
 export const save = mutation({
 	args: {
 		sessionToken: v.optional(v.string()),
@@ -81,12 +91,19 @@ export const save = mutation({
 		const now = Date.now();
 		const existing = await getIntake(ctx, user._id);
 		if (existing) {
+			// Première soumission réelle = une seule notification coach (idempotent) :
+			// les autosaves en brouillon et les rééditions après soumission n'en
+			// génèrent jamais — la garde lit submittedAt DANS la même transaction.
+			const firstSubmission = status === "submitted" && !existing.submittedAt;
 			await ctx.db.patch(existing._id, {
 				status,
 				answers,
 				updatedAt: now,
 				...(status === "submitted" && !existing.submittedAt ? { submittedAt: now } : {}),
 			});
+			if (firstSubmission) {
+				await recordEvent(ctx, user._id, "onboarding_termine", "Formulaire de démarrage envoyé");
+			}
 			return { ok: true, status, submittedAt: existing.submittedAt ?? (status === "submitted" ? now : null) };
 		}
 		const id = await ctx.db.insert("intakes", {
@@ -97,6 +114,9 @@ export const save = mutation({
 			updatedAt: now,
 			...(status === "submitted" ? { submittedAt: now } : {}),
 		});
+		if (status === "submitted") {
+			await recordEvent(ctx, user._id, "onboarding_termine", "Formulaire de démarrage envoyé");
+		}
 		return { ok: true, status, intakeId: id, submittedAt: status === "submitted" ? now : null };
 	},
 });
@@ -175,10 +195,9 @@ export const complete = mutation({
 		if (!done) return { ok: false, completedAt: null };
 		const completedAt = Date.now();
 		await ctx.db.patch(user._id, { onboardingCompletedAt: completedAt });
-		// Journal CRM : formulaire de démarrage complété (événement réel, une
-		// seule fois par cliente — la garde idempotente ci-dessus le garantit,
-		// donc aucune clé de dédup nécessaire).
-		await recordEvent(ctx, user._id, "onboarding_termine", "Formulaire de démarrage complété");
+		// Pas de notification coach ici : elle est enregistrée à la soumission du
+		// formulaire (mutation `save`) — fiable et sans doublon même quand le
+		// formulaire est la dernière étape (complete ne serait alors jamais appelé).
 		return { ok: true, completedAt };
 	},
 });
