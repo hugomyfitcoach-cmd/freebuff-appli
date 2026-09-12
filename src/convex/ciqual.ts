@@ -67,6 +67,7 @@ const ELAB_TOKENS = new Set([
 	"dauphine", "duchesse", "prefrite", "frite", "gratin", "gratinee", "pane",
 	"panee", "sauce", "beignet", "poelee", "sautee", "rissolee", "surgele",
 	"surgelee", "appertise", "appertisee", "noisette", "friture", "frit", "puree",
+	"fume", "fumee",
 ]);
 const ELAB_SUBSTR = ["sous vide"];
 
@@ -95,6 +96,65 @@ function scoreRef(qt: string[], refToks: string[], label: string): number {
 	return Number.POSITIVE_INFINITY;
 }
 
+/* ── Diversification des 3 références (modes de préparation) ──
+ *
+ * Le bonus « formes simples » seul faisait remonter 3 variantes CRUES de
+ * variétés différentes (« riz » → blanc cru, complet cru, rouge cru). Or la
+ * cliente veut le MÊME aliment de base sous ses modes réels : « riz » →
+ * blanc cru, blanc cuit, puis (faute de 3e mode réel) la variété suivante.
+ *
+ * Mécanique : le libellé Ciqual est « Tête, état… » — la TÊTE (avant la 1re
+ * virgule) porte la variété, la QUEUE porte l'état. Mode = PREMIER token
+ * d'état de la queue (les marqueurs de CONSERVATION — surgelé, sous vide,
+ * égoutté… — sont ignorés : « surgelée, crue » est une crue). Une carte par
+ * couple (base, mode) :
+ *   A — l'aliment du 1er résultat : ses modes distincts d'abord ;
+ *   B — complète avec un MODE pas encore montré (autre variété si besoin) ;
+ *   C — dernier remplissage en pertinence pure, mais une variante CRUE ne
+ *   bouche un trou que si aucune préparation cuite réelle reste disponible.
+ * Requête SPÉCIFIQUE (un mode est tapé : « saumon fumé », « cuit au four »)
+ * → pas de diversification : l'ordre de pertinence pur prime. Aucune
+ * variante inventée : seules des fiches Ciqual réelles.
+ */
+const MODE_TOKENS = new Set([
+	"cru", "crue", "cuit", "cuite", "bouilli", "bouillie", "vapeur",
+	"roti", "rotie", "grille", "grillee", "poelee", "frit", "frite",
+	"pane", "panee", "cuire", "fume", "fumee",
+]);
+const PRESERVE_TOKENS = new Set([
+	"surgele", "surgelee", "congele", "congelee", "appertise", "appertisee",
+	"egoutte", "egouttee", "sous", "vide", "frais", "fraiche",
+]);
+const COOKED_MODES = new Set(["cuit", "bouilli", "vapeur", "roti", "grille", "poelee"]);
+
+/** Tête du libellé (variété) : partie avant la 1re virgule, tokenisée. */
+function headTokens(label: string): string[] {
+	return tokenize(label.split(",")[0]);
+}
+
+/** La requête contient-elle un MODE (« cuit », « fumé », « crue »…) ?
+ *  Oui → recherche spécifique : l'utilisateur a DEMANDÉ ce mode, les
+ *  découpes/variétés réelles qui le portent restent toutes candidates. */
+function queryHasMode(qt: string[]): boolean {
+	return qt.some((t) => MODE_TOKENS.has(t) || (t.endsWith("e") && MODE_TOKENS.has(t.slice(0, -1))));
+}
+
+/** Mode de préparation : 1er token d'état APRÈS la tête (« rôties/cuites »
+ *  → rôti ; « surgelée, crue » → cru), ou "" si l'état n'est pas qualifié.
+ *  Canonisé au masculin : « cru » et « crue » sont le MÊME mode — sans ça,
+ *  « Poulet, pilon cru » et « Poulet, viande crue » comptaient comme deux
+ *  modes et la diversification laissait passer deux cartes crues. */
+function modeOf(label: string): string {
+	const toks = tokenize(label);
+	const headLen = headTokens(label).length;
+	for (let i = headLen; i < toks.length; i++) {
+		const t = toks[i];
+		if (PRESERVE_TOKENS.has(t)) continue;
+		if (MODE_TOKENS.has(t)) return t.endsWith("e") && MODE_TOKENS.has(t.slice(0, -1)) ? t.slice(0, -1) : t;
+	}
+	return "";
+}
+
 const REFS_BY_FIRST: Map<string, { toks: string[]; ref: CiqualHit }[]> = (() => {
 	const m = new Map<string, { toks: string[]; ref: CiqualHit }[]>();
 	for (const r of ciqualNutrients) {
@@ -116,10 +176,11 @@ const REFS_BY_FIRST: Map<string, { toks: string[]; ref: CiqualHit }[]> = (() => 
 })();
 
 /**
- * Jusqu'à 3 références Ciqual pertinentes pour une requête utilisateur
- * (« riz » → Riz blanc cru, Riz complet cru, Riz cuit… ; « poulet » → Poulet
- * cru / rôti…). Aucun remplissage artificiel : moins de résultats si moins
- * de références pertinentes. Tri STABLE à score égal (ordre de la table).
+ * Jusqu'à 3 références Ciqual pertinentes pour une requête utilisateur,
+ * DIVERSIFIÉES par mode de préparation (« riz » → Riz blanc cru, Riz blanc
+ * cuit, puis la variété suivante — jamais 3 crus de variétés différentes ;
+ * « poulet » → cru / bouilli / grillé…). Aucun remplissage artificiel : moins
+ * de résultats si moins de références pertinentes. Tri STABLE à score égal.
  *
  * Multi-mots : le PREMIER aliment est obligatoire (anchorTokens — « poulet
  * cuit au four » n'exige que « poulet », les variantes d'état Ciqual restent
@@ -139,15 +200,71 @@ export function searchCiqualLocal(query: string): CiqualHit[] {
 		}
 	}
 	candidates.sort((a, b) => a.score - b.score);
-	const out: CiqualHit[] = [];
-	const seen = new Set<string>();
-	for (const c of candidates) {
-		if (seen.has(c.ref.label)) continue;
-		seen.add(c.ref.label);
-		out.push(c.ref);
-		if (out.length >= CIQUAL_MAX_RESULTS) break;
+
+	/* Requête SPÉCIFIQUE : un mode est tapé — pas de diversification. */
+	if (queryHasMode(qt)) {
+		const out: CiqualHit[] = [];
+		const seen = new Set<string>();
+		for (const c of candidates) {
+			if (seen.has(c.ref.label)) continue;
+			seen.add(c.ref.label);
+			out.push(c.ref);
+			if (out.length >= CIQUAL_MAX_RESULTS) break;
+		}
+		return out;
 	}
-	return out;
+
+	/* Requête GÉNÉRIQUE : diversifier les modes du même aliment de base —
+	 * une carte par couple (base, mode), jamais 3 cartes crues. */
+	const picked: { score: number; ref: CiqualHit }[] = [];
+	const usedGroups = new Set<string>();
+	const usedModes = new Set<string>();
+	const usedLabels = new Set<string>();
+	const baseOf = (label: string) => headTokens(label).join(" ");
+	const leaderBase = candidates.length > 0 ? baseOf(candidates[0].ref.label) : "";
+	const pick = (c: { score: number; ref: CiqualHit }): boolean => {
+		if (usedLabels.has(c.ref.label)) return false;
+		const mode = modeOf(c.ref.label);
+		const group = baseOf(c.ref.label) + "|" + mode;
+		if (usedGroups.has(group)) return false;
+		usedGroups.add(group);
+		usedLabels.add(c.ref.label);
+		usedModes.add(mode);
+		picked.push(c);
+		return true;
+	};
+	/* A — l'aliment du 1er résultat : ses modes distincts (cru, cuit…). */
+	for (const c of candidates) {
+		if (picked.length >= CIQUAL_MAX_RESULTS) break;
+		if (baseOf(c.ref.label) !== leaderBase) continue;
+		if (modeOf(c.ref.label) === "") continue; // recettes/états non qualifiés → phases B/C
+		pick(c);
+	}
+	/* B — complète avec un MODE pas encore montré, même d'une autre variété :
+	 * « saumon » (fumé en tête, sans état qualifié en queue) reçoit quand même
+	 * ses variantes crue puis bouillie réellement présentes dans Ciqual. */
+	for (const c of candidates) {
+		if (picked.length >= CIQUAL_MAX_RESULTS) break;
+		if (modeOf(c.ref.label) === "") continue;
+		if (usedModes.has(modeOf(c.ref.label))) continue;
+		pick(c);
+	}
+	/* C — dernier remplissage en pertinence pure, mais une variante CRUE ne
+	 * bouche un trou que si aucune préparation cuite réelle reste disponible
+	 * (le cas « riz » : blanc cru + blanc cuit → complet cuit, PAS complet
+	 * cru ni riz soufflé). Deux passages pour ne jamais perdre de slot. */
+	const hasCookedLeft = () =>
+		candidates.some((c) => !usedLabels.has(c.ref.label) && COOKED_MODES.has(modeOf(c.ref.label)));
+	for (const skipCrue of [true, false]) {
+		for (const c of candidates) {
+			if (picked.length >= CIQUAL_MAX_RESULTS) break;
+			if (usedLabels.has(c.ref.label)) continue;
+			if (skipCrue && modeOf(c.ref.label) === "cru" && hasCookedLeft()) continue;
+			pick(c);
+		}
+		if (picked.length >= CIQUAL_MAX_RESULTS) break;
+	}
+	return picked.map((c) => c.ref);
 }
 
 /**
