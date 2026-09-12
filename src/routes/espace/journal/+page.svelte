@@ -69,8 +69,9 @@
 		servingQty?: number;
 		/** Aliment personnel créé par le client (base « Créés par moi »). */
 		custom?: boolean;
-	};
-	type Meal = {
+		/** Fiche de RÉFÉRENCE Ciqual (ANSES) — _id = libellé officiel exact. */
+		ciqual?: boolean;
+	};	type Meal = {
 		_id: string;
 		name: string;
 		description?: string;
@@ -80,8 +81,10 @@
 		protein: number;
 		fat: number;	ingredients: {
 						foodId?: string;
-						customFoodId?: string;
-						name: string;
+			customFoodId?: string;
+			/** Fiche de RÉFÉRENCE Ciqual (ANSES) — libellé officiel exact. */
+			ciqualLabel?: string;
+			name: string;
 			brand?: string;
 			imageUrl?: string;
 			qtyGrams: number;
@@ -94,7 +97,7 @@
 		sourceType?: string;
 		sourceRecipeId?: string;
 	};
-	type MealDraftItem = { food: Food; qty: number; custom?: boolean; customFoodId?: string };
+	type MealDraftItem = { food: Food; qty: number; custom?: boolean; customFoodId?: string; ciqualLabel?: string };
 
 	let { data } = $props();
 
@@ -490,33 +493,131 @@
 	let searchQ = $state('');
 	let searchTab = $state<'produits' | 'repas' | 'crees'>('produits');
 	let results = $state<Food[]>([]);
+	/** Fiches de référence Ciqual (ANSES) du bloc « Aliments de référence » — toujours séparées des produits OFF. */
+	let ciqualResults = $state<Food[]>([]);
+	/** Pagination OFF (scroll infini) : reste-t-il des produits au-delà de la tranche affichée ? */
+	let hasMore = $state(false);
+	/** Décalage serveur de la prochaine tranche (≠ results.length : la 1ʳᵉ page peut contenir des aliments « Créés par moi » non paginés). */
+	let nextOffset = $state(0);
+	/** Garde-fou : une seule requête « page suivante » en vol à la fois. */
+	let loadingMore = $state(false);
 	let searching = $state(false);
 	let searchError = $state('');
 	let searchTimer: ReturnType<typeof setTimeout> | undefined;
 
+	/** Fiche Ciqual → Food (l'_id porté par les flux est le LIBELLÉ officiel exact ;
+	 *  à l'ajout, le serveur résout les valeurs — jamais le client). */
+	function ciqualToFood(h: { label: string; kcal: number; protein?: number; carbs?: number; fat?: number }): Food {
+		return {
+			_id: h.label,
+			name: h.label,
+			kcal100: h.kcal,
+			carbs100: h.carbs ?? 0,
+			protein100: h.protein ?? 0,
+			fat100: h.fat ?? 0,
+			ciqual: true,
+		};
+	}
+
 	async function runSearch(q: string) {
 		if (q.length < 2) {
 			results = [];
+			ciqualResults = [];
+			hasMore = false;
 			return;
 		}
 		searching = true;
 		searchError = '';
-		try {
-			const r = await fetch(`/api/foods/search?q=${encodeURIComponent(q)}`);
-			const j = await r.json();
-			if (j.error) throw new Error(j.error);
-			results = j;
-		} catch (e) {
-			searchError = e instanceof Error ? e.message : String(e);
+		// Les deux sources sont interrogées en parallèle mais restent STRICTEMENT
+		// séparées : Ciqual en tête (référence, fixe), produits OFF ensuite
+		// par tranches de 25. Un échec Ciqual est silencieux (bloc simplement
+		// absent) — jamais bloquant.
+		const req = fetch(`/api/foods/search?q=${encodeURIComponent(q)}`)
+			.then(async (r) => {
+				const j = await r.json();
+				if (j.error) throw new Error(j.error);
+				results = j.items as Food[];
+				hasMore = !!(j as { hasMore?: boolean }).hasMore;
+				nextOffset = 25;
+			})
+			.then(() => null, (e) => e as Error);
+		const ciq = fetch(`/api/foods/ciqual?q=${encodeURIComponent(q)}`)
+			.then(async (r) => {
+				const j = await r.json();
+				ciqualResults = j.error
+					? []
+					: (j as { label: string; kcal: number; protein?: number; carbs?: number; fat?: number }[]).map(ciqualToFood);
+			})
+			.then(() => null, () => 'ciqual' as const);
+		const err = await req;
+		await ciq;
+		if (err) {
+			searchError = err instanceof Error ? err.message : String(err);
 			results = [];
-		} finally {
-			searching = false;
+			hasMore = false;
+			nextOffset = 0;
 		}
+		searching = false;
+	}
+
+	/**
+	 * Page suivante de produits OFF (scroll infini, +25 classés). Le bloc
+	 * Ciqual n'y participe JAMAIS : fixe en tête, hors pagination. Appelé près
+	 * du bas de liste par le sentinel `IntersectionObserver` du template.
+	 */
+	async function loadMore() {
+		const q = searchQ.trim();
+		if (loadingMore || !hasMore || q.length < 2) return;
+		loadingMore = true;
+		try {
+			const r = await fetch(`/api/foods/search?q=${encodeURIComponent(q)}&offset=${nextOffset}&limit=25`);
+			const j = await r.json();
+			if (!j.error) {
+				const items = (j.items ?? []) as Food[];
+				const seen = new Set(results.map((f) => f._id));
+				results = [...results, ...items.filter((f) => !seen.has(f._id))];
+				hasMore = !!(j as { hasMore?: boolean }).hasMore;
+				nextOffset += 25;
+			}
+		} catch {
+			// réseau indisponible : on réessayera au prochain déclenchement
+		}
+		loadingMore = false;
 	}
 	function onSearchInput() {
 		clearTimeout(searchTimer);
 		searchTimer = setTimeout(() => runSearch(searchQ.trim()), 300);
 	}
+
+	/* ————— Scroll infini produits OFF (25 par 25) —————
+	 * Un sentinel invisible en bas de liste : dès qu'il devient visible, on
+	 * charge la tranche suivante. Observateur re-créé à chaque apparition du
+	 * sentinel (nouvelle recherche = reset de pagination). Le bloc Ciqual est
+	 * FIXE en tête : il ne fait jamais partie de la pagination. */
+	let sentinelEl = $state<HTMLElement | undefined>();
+	let mealSentinelEl = $state<HTMLElement | undefined>();
+	$effect(() => {
+		if (!sentinelEl) return;
+		const obs = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((e) => e.isIntersecting)) void loadMore();
+			},
+			{ rootMargin: '300px 0px' }
+		);
+		obs.observe(sentinelEl);
+		return () => obs.disconnect();
+	});
+	$effect(() => {
+		if (!mealSentinelEl) return;
+		const obs = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((e) => e.isIntersecting)) void loadMoreMeal();
+			},
+			{ rootMargin: '300px 0px' }
+		);
+		obs.observe(mealSentinelEl);
+		return () => obs.disconnect();
+	});
 
 	/* ————— Aliments fréquents (suggestions avant recherche) ————— */
 	let recentFoods = $state<Food[]>([]);
@@ -538,6 +639,9 @@
 		if (meal) qtyMeal = meal;
 		searchQ = '';
 		results = [];
+		hasMore = false;
+		nextOffset = 0;
+		ciqualResults = [];
 		searchError = '';
 		searchTab = 'produits';
 		favOnly = false;
@@ -718,6 +822,10 @@
 	let mealItems = $state<MealDraftItem[]>([]);
 	let mealSearchQ = $state('');
 	let mealResults = $state<Food[]>([]);
+	/** Pagination OFF de la recherche ingrédient (scroll infini, +25). */
+	let mealHasMore = $state(false);
+	let mealNextOffset = $state(0);
+	let mealLoadingMore = $state(false);
 	let mealSearching = $state(false);
 	let mealSearchTimer: ReturnType<typeof setTimeout> | undefined;
 	/** Fenêtre de recherche d'aliments DANS l'éditeur de repas (bouton « Ajouter un produit »). */
@@ -732,11 +840,13 @@
 		mealEditingId = null;
 		mealName = '';
 		mealDesc = '';
-		mealItems = [];
-		mealSearchQ = '';
-		mealResults = [];
-		mealError = '';
-	}
+		mealItems = [];			mealSearchQ = '';
+			mealResults = [];
+			mealHasMore = false;
+			mealNextOffset = 0;
+			mealCiqualResults = [];
+			mealError = '';
+		}
 	/** Édition : pré-remplit l'éditeur avec le repas existant (ingrédients « reconstruits »
 	 *  depuis le snapshot — mêmes valeurs /100 g, le serveur recalcule à l'enregistrement). */
 	function openMealEditorFor(meal: Meal) {
@@ -746,7 +856,7 @@
 		mealDesc = meal.description ?? '';
 		mealItems = meal.ingredients.map((ing) => ({
 			food: {
-				_id: ing.foodId ?? ing.customFoodId ?? ing.name,
+				_id: ing.foodId ?? ing.customFoodId ?? ing.ciqualLabel ?? ing.name,
 				name: ing.name,
 				brand: ing.brand,
 				imageUrl: ing.imageUrl,
@@ -755,39 +865,84 @@
 				protein100: ing.qtyGrams > 0 ? (ing.protein / ing.qtyGrams) * 100 : 0,
 				fat100: ing.qtyGrams > 0 ? (ing.fat / ing.qtyGrams) * 100 : 0,
 				custom: !!ing.customFoodId,
+				ciqual: !!ing.ciqualLabel,
 			},
 			qty: ing.qtyGrams,
 			custom: !!ing.customFoodId,
 			customFoodId: ing.customFoodId,
-		}));
-		mealSearchQ = '';
-		mealResults = [];
-		mealError = '';
-	}
+			ciqualLabel: ing.ciqualLabel,
+		}));			mealSearchQ = '';
+			mealResults = [];
+			mealHasMore = false;
+			mealNextOffset = 0;
+			mealCiqualResults = [];
+			mealError = '';
+		}
 	function closeMealEditor() {
 		void closeMealSearch(); // fenêtre produit refermée + scanner éventuellement arrêté
 		mealEditor = false;
 		mealEditingId = null;
-	}
-	let mealSearchError = $state('');
+	}	let mealSearchError = $state('');
+	/** Fiches Ciqual (ANSES) du bloc « Aliments de référence » — séparées des produits OFF. */
+	let mealCiqualResults = $state<Food[]>([]);
 	async function runMealSearch(q: string) {
-		if (q.length < 2) {
-			mealResults = [];
+		if (q.length < 2) {			mealResults = [];
+			mealCiqualResults = [];
+			mealHasMore = false;
+			mealNextOffset = 0;
 			return;
 		}
 		mealSearching = true;
 		mealSearchError = '';
-		try {
-			const r = await fetch(`/api/foods/search?q=${encodeURIComponent(q)}`);
-			const j = await r.json();
-			if (j.error) throw new Error(j.error);
-			mealResults = j;
-		} catch (e) {
-			mealSearchError = e instanceof Error ? e.message : String(e);
+		// Même séparation stricte que la recherche principale : Ciqual en tête,
+		// produits OFF ensuite ; échec Ciqual silencieux.
+		const req = fetch(`/api/foods/search?q=${encodeURIComponent(q)}`)
+			.then(async (r) => {
+				const j = await r.json();
+				if (j.error) throw new Error(j.error);
+				mealResults = j.items as Food[];
+				mealHasMore = !!(j as { hasMore?: boolean }).hasMore;
+				mealNextOffset = 25;
+			})
+			.then(() => null, (e) => e as Error);
+		const ciq = fetch(`/api/foods/ciqual?q=${encodeURIComponent(q)}`)
+			.then(async (r) => {
+				const j = await r.json();
+				mealCiqualResults = j.error ? [] : (j as { label: string; kcal: number; protein?: number; carbs?: number; fat?: number }[]).map(ciqualToFood);
+			})
+			.then(() => null, () => 'ciqual' as const);
+		const err = await req;
+		await ciq;
+		if (err) {
+			mealSearchError = err instanceof Error ? err.message : String(err);
 			mealResults = [];
-		} finally {
-			mealSearching = false;
+			mealHasMore = false;
+			mealNextOffset = 0;
+			mealNextOffset = 0;
+			mealHasMore = false;
 		}
+		mealSearching = false;
+	}
+
+	/** Page suivante de produits OFF dans la recherche ingrédient (+25). */
+	async function loadMoreMeal() {
+		const q = mealSearchQ.trim();
+		if (mealLoadingMore || !mealHasMore || q.length < 2) return;
+		mealLoadingMore = true;
+		try {
+			const r = await fetch(`/api/foods/search?q=${encodeURIComponent(q)}&offset=${mealNextOffset}&limit=25`);
+			const j = await r.json();
+			if (!j.error) {
+				const items = (j.items ?? []) as Food[];
+				const seen = new Set(mealResults.map((f) => f._id));
+				mealResults = [...mealResults, ...items.filter((f) => !seen.has(f._id))];
+				mealHasMore = !!(j as { hasMore?: boolean }).hasMore;
+				mealNextOffset += 25;
+			}
+		} catch {
+			// réseau indisponible : on réessayera au prochain déclenchement
+		}
+		mealLoadingMore = false;
 	}
 	function onMealSearchInput() {
 		clearTimeout(mealSearchTimer);
@@ -828,15 +983,32 @@
 		mealSearchMode = 'search';
 		openMealIngredientSheet(food);
 	}
+	/** Clic fiche Ciqual dans la recherche : exactement le même parcours que
+	 *  pour un produit OFF — fenêtre refermée, même feuille de quantité. */
+	function openCiqualIngredientPortion(hitIdx: number) {
+		const food = mealCiqualResults[hitIdx];
+		if (!food) return;
+		mealSearchOpen = false;
+		mealSearchMode = 'search';
+		openMealIngredientSheet(food);
+	}
 	/** Sauvegarde depuis la feuille : ajout si un produit de la recherche est en attente, édition sinon. */
 	function saveIngredientQty2(qtyGrams: number) {
 		if (mealPickedFood) {
 			mealItems = [
 				...mealItems,
-				{ food: mealPickedFood, qty: qtyGrams, custom: mealPickedFood.custom, customFoodId: mealPickedFood.custom ? mealPickedFood._id : undefined },
+				{
+					food: mealPickedFood,
+					qty: qtyGrams,
+					custom: mealPickedFood.custom,
+					customFoodId: mealPickedFood.custom ? mealPickedFood._id : undefined,
+					ciqualLabel: mealPickedFood.ciqual ? mealPickedFood._id : undefined,
+				},
 			];
 			mealSearchQ = '';
 			mealResults = [];
+			mealHasMore = false;
+			mealNextOffset = 0;
 			mealSearchOpen = false; // déjà refermée au clic — filet de sécurité
 			mealPickedFood = null;
 			ingEdit = null;
@@ -880,10 +1052,14 @@
 				body: JSON.stringify({
 					name: mealName,
 					description: mealDesc.trim() || undefined,
-					ingredients: mealItems.map((it) => ({
-						...(it.custom ? { customFoodId: it.food._id } : { foodId: it.food._id }),
-						qtyGrams: it.qty,
-					})),
+				ingredients: mealItems.map((it) => ({
+					...(it.ciqualLabel
+						? { ciqualLabel: it.ciqualLabel } // fiche de référence Ciqual (ANSES)
+						: it.custom
+							? { customFoodId: it.food._id }
+							: { foodId: it.food._id }),
+					qtyGrams: it.qty,
+				})),
 				}),
 			});
 			const j = await r.json();
@@ -919,12 +1095,16 @@
 			const r = await fetch('/api/journal', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					date,
-					meal,
-					...(qtyFood.custom ? { customFoodId: qtyFood._id } : { foodId: qtyFood._id }),
-					qtyGrams,
-				}),
+			body: JSON.stringify({
+				date,
+				meal,
+				...(qtyFood.ciqual
+					? { ciqualLabel: qtyFood._id } // fiche de référence : libellé officiel, valeurs résolues par le serveur
+					: qtyFood.custom
+						? { customFoodId: qtyFood._id }
+						: { foodId: qtyFood._id }),
+				qtyGrams,
+			}),
 			});
 			const j = await r.json();
 			if (j.error) throw new Error(j.error);
@@ -932,6 +1112,8 @@
 			logOpen = false;
 			searchQ = '';
 			results = [];
+			hasMore = false;
+			nextOffset = 0;
 			await setDate(date);
 		} catch (e) {
 			qtyError = e instanceof Error ? e.message : String(e);
@@ -1263,6 +1445,7 @@
 		mealSearchMode = 'search';
 		mealSearchQ = '';
 		mealResults = [];
+		mealHasMore = false;
 		mealSearching = false;
 		barcodeStatus = 'idle';
 		barcodeError = '';
@@ -1629,7 +1812,7 @@
 								type="button"
 								class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-line/70 text-mist transition hover:bg-line"
 								aria-label="Effacer la recherche"
-								onclick={() => { searchQ = ''; results = []; }}
+								onclick={() => { searchQ = ''; results = []; hasMore = false; nextOffset = 0; ciqualResults = []; }}
 							><Icon name="x" size={13} /></button>
 						{/if}
 					</div>
@@ -1880,15 +2063,48 @@
 								<p class="mx-auto mt-1 max-w-xs text-xs text-mist">Base G-Flux (780 000 aliments), code-barres, ou « Créés par moi » pour un plat avec étiquette.</p>
 							</div>
 						{/if}
-					{:else if results.length === 0}
+					{:else if results.length === 0 && ciqualResults.length === 0}
 						<p class="py-10 text-center text-sm text-mist">Aucun résultat pour « {searchQ.trim()} ».</p>
 					{:else}
-						<!-- Résultats : conservés pendant une nouvelle recherche (pas de flash blanc) -->
-						<ul class="flex flex-col divide-y divide-line/50 transition-opacity {searching ? 'opacity-50' : ''}">
-							{#each results as food (food._id)}
-								{@render foodRow(food)}
-							{/each}
-						</ul>
+						<!-- ═══ ALIMENTS DE RÉFÉRENCE (Ciqual – ANSES) : toujours en tête,
+						     strictement séparés des produits ; icône générique unique,
+						     aucune photo produit, fiche entièrement cliquable. ═══ -->
+						{#if ciqualResults.length > 0}
+							<div class="flex items-baseline justify-between px-1 pb-1 pt-1.5">
+								<h3 class="text-[11px] font-bold uppercase tracking-widest text-mist">Aliments de référence</h3>
+								<span class="text-[10px] text-mist">Ciqual – ANSES</span>
+							</div>
+							<ul class="mb-2 flex flex-col gap-1.5">
+								{#each ciqualResults as cfood (cfood._id)}
+									<li>
+										<button type="button" class="flex w-full items-center gap-2.5 rounded-2xl border border-line bg-white p-2 text-left shadow-sm transition hover:border-brand" onclick={() => openQty(cfood)}>
+											<span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand-light"><Icon name="salad" size={20} class="text-brand" /></span>
+										<span class="min-w-0 flex-1">
+											<span class="block truncate text-[14px] font-semibold text-ink">{cfood.name}</span>
+											<span class="block text-[12px] text-mist tabular-nums"><strong class="font-bold text-brand">{fmt(cfood.kcal100)} kcal</strong> · 100 g · Idéal pour un suivi précis</span>
+										</span>
+											<span class="shrink-0 rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>
+										</button>
+									</li>
+								{/each}
+							</ul>
+						{/if}
+						{#if results.length > 0}
+							<div class="flex items-baseline justify-between px-1 pb-1 pt-1.5">
+								<h3 class="text-[11px] font-bold uppercase tracking-widest text-mist">Produits</h3>
+								<span class="text-[10px] text-mist">Open Food Facts</span>
+							</div>
+							<!-- Résultats : conservés pendant une nouvelle recherche (pas de flash blanc) -->
+							<ul class="flex flex-col divide-y divide-line/50 transition-opacity {searching ? 'opacity-50' : ''}">
+								{#each results as food (food._id)}
+									{@render foodRow(food)}
+								{/each}
+							</ul>
+							{#if hasMore}
+								<div bind:this={sentinelEl} class="h-px w-full"></div>
+								{#if loadingMore}<p class="py-3 text-center text-xs text-mist">Chargement…</p>{/if}
+							{/if}
+						{/if}
 					{/if}
 				</div>
 			{:else}
@@ -1953,6 +2169,7 @@
 		mealDefs={[]}
 		initialQtyGrams={ingEdit.qty}
 		mode={mealPickedFood ? 'add' : 'edit'}
+		source={mealPickedFood?.ciqual ? 'ciqual' : undefined}
 		saving={false}
 		saveLabel={mealPickedFood ? 'Ajouter au repas' : undefined}
 		onSave={saveIngredientQty2}
@@ -1987,7 +2204,7 @@
 							oninput={onMealSearchInput}
 						/>
 						{#if mealSearchQ}
-							<button type="button" class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-line/70 text-mist transition hover:bg-line" aria-label="Effacer la recherche" onclick={() => { mealSearchQ = ''; mealResults = []; }}><Icon name="x" size={13} /></button>
+							<button type="button" class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-line/70 text-mist transition hover:bg-line" aria-label="Effacer la recherche"								onclick={() => { mealSearchQ = ''; mealResults = []; mealHasMore = false; mealNextOffset = 0; mealCiqualResults = []; }}><Icon name="x" size={13} /></button>
 						{/if}
 					</div>
 				</div>
@@ -1998,27 +2215,57 @@
 						<p class="rounded-xl border-2 border-danger bg-danger-light px-3 py-3 text-sm text-danger">{mealSearchError}</p>
 					{:else if mealSearchQ.trim().length < 2}
 						<p class="py-10 text-center text-sm text-mist">Recherche un produit — base G-Flux (780 000 aliments) et tes aliments « Créés par moi ».</p>
-					{:else if mealResults.length === 0}
+					{:else if mealResults.length === 0 && mealCiqualResults.length === 0}
 						<p class="py-10 text-center text-sm text-mist">Aucun résultat pour « {mealSearchQ.trim()} ».</p>
 					{:else}
-						<ul class="flex flex-col divide-y divide-line/50 transition-opacity {mealSearching ? 'opacity-50' : ''}">
-							{#each mealResults as food, i (food._id)}
-								<li>
-									<button type="button" class="flex w-full items-center gap-2 px-1 py-2 text-left transition hover:opacity-70" onclick={() => openIngredientPortion(i)}>
-										{#if food.imageUrl}
-											<FoodImg src={food.imageUrl} alt="" class="h-10 w-10 rounded-lg" />
-										{:else}
-											<div class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={18} class="text-brand" /></div>
-										{/if}
+						{#if mealCiqualResults.length > 0}
+							<div class="flex items-baseline justify-between px-1 pb-1 pt-1.5">
+								<h3 class="text-[11px] font-bold uppercase tracking-widest text-mist">Aliments de référence</h3>
+								<span class="text-[10px] text-mist">Ciqual – ANSES</span>
+							</div>
+							<ul class="mb-2 flex flex-col gap-1.5">
+								{#each mealCiqualResults as cfood, ci (cfood._id)}
+									<li>
+										<button type="button" class="flex w-full items-center gap-2.5 rounded-2xl border border-line bg-white p-2 text-left shadow-sm transition hover:border-brand" onclick={() => openCiqualIngredientPortion(ci)}>
+											<span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand-light"><Icon name="salad" size={20} class="text-brand" /></span>
 										<span class="min-w-0 flex-1">
-											<span class="block truncate text-sm font-semibold text-ink">{food.name}</span>
-											<span class="block text-xs text-mist"><strong class="font-bold text-brand">{fmt(food.kcal100)} kcal</strong> / 100 g{#if food.brand} · {food.brand}{/if}</span>
+											<span class="block truncate text-[14px] font-semibold text-ink">{cfood.name}</span>
+											<span class="block text-[12px] text-mist tabular-nums"><strong class="font-bold text-brand">{fmt(cfood.kcal100)} kcal</strong> · 100 g · Idéal pour un suivi précis</span>
 										</span>
-										<span class="text-brand">＋</span>
-									</button>
-								</li>
-							{/each}
-						</ul>
+											<span class="shrink-0 rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>
+										</button>
+									</li>
+								{/each}
+							</ul>
+						{/if}
+						{#if mealResults.length > 0}
+							<div class="flex items-baseline justify-between px-1 pb-1 pt-1.5">
+								<h3 class="text-[11px] font-bold uppercase tracking-widest text-mist">Produits</h3>
+								<span class="text-[10px] text-mist">Open Food Facts</span>
+							</div>
+							<ul class="flex flex-col divide-y divide-line/50 transition-opacity {mealSearching ? 'opacity-50' : ''}">
+								{#each mealResults as food, i (food._id)}
+									<li>
+										<button type="button" class="flex w-full items-center gap-2 px-1 py-2 text-left transition hover:opacity-70" onclick={() => openIngredientPortion(i)}>
+											{#if food.imageUrl}
+												<FoodImg src={food.imageUrl} alt="" class="h-10 w-10 rounded-lg" />
+											{:else}
+												<div class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={18} class="text-brand" /></div>
+											{/if}
+											<span class="min-w-0 flex-1">
+												<span class="block truncate text-sm font-semibold text-ink">{food.name}</span>
+												<span class="block text-xs text-mist"><strong class="font-bold text-brand">{fmt(food.kcal100)} kcal</strong> / 100 g{#if food.brand} · {food.brand}{/if}</span>
+											</span>
+											<span class="text-brand">＋</span>
+										</button>
+									</li>
+								{/each}
+								</ul>
+								{#if mealHasMore}
+									<div bind:this={mealSentinelEl} class="h-px w-full"></div>
+									{#if mealLoadingMore}<p class="py-3 text-center text-xs text-mist">Chargement…</p>{/if}
+								{/if}
+						{/if}
 					{/if}
 				</div>
 			{:else}
@@ -2150,7 +2397,8 @@
 		mealDefs={MEAL_DEFS}
 		initialQtyGrams={qtyGrams}
 		initialMeal={qtyMeal}
-		showFav={!qtyFood.custom}
+		source={qtyFood.ciqual ? 'ciqual' : undefined}
+		showFav={!qtyFood.custom && !qtyFood.ciqual}
 		favActive={favSet.has(qtyFood._id)}
 		onToggleFav={() => { if (qtyFood) toggleFav(qtyFood); }}
 		saving={qtySaving}

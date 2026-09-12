@@ -1,7 +1,9 @@
 import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { getSessionUser } from "./helpers";
+import { FOOD_SEARCH_CANDIDATES, rankFoods } from "./foodRanking";
 import { resolveCoachPlanForDate } from "./mealPlans";
+import { ciqualFoodSource } from "./ciqualSource";
 import type { QueryCtx } from "./_generated/server";
 import type { Id, Doc } from "./_generated/dataModel";
 
@@ -107,8 +109,13 @@ export const searchForCoach = query({
 		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (CRM).");
 		const term = query.trim().toLowerCase();
 		if (term.length < 2) return [] as FoodHit[];
-		const foods = await ctx.db.query("foods").withSearchIndex("by_name", (sb) => sb.search("name", term)).take(25);
-		return foods.map(toHit);
+		// Candidats élargis puis re-tri (foodRanking) : l'aliment brut (« tomate »,
+		// « riz ») doit passer devant les produits de marque du classement BM25.
+		const foods = await ctx.db
+			.query("foods")
+			.withSearchIndex("by_name", (sb) => sb.search("name", term))
+			.take(FOOD_SEARCH_CANDIDATES);
+		return rankFoods(foods.map(toHit), term).slice(0, 25);
 	},
 });
 
@@ -120,32 +127,62 @@ export const addEntryForCoach = mutation({
 		date: v.string(),
 		meal: v.string(),
 		foodId: v.optional(v.id("foods")),
+		/** Fiche de RÉFÉRENCE Ciqual (ANSES) : libellé officiel exact — exclusif avec foodId. */
+		ciqualLabel: v.optional(v.string()),
 		qtyGrams: v.number(),
 	},
-	handler: async (ctx, { sessionToken, userId, date, meal, foodId, qtyGrams }) => {
+	handler: async (ctx, { sessionToken, userId, date, meal, foodId, ciqualLabel, qtyGrams }) => {
 		await resolveCoachTarget(ctx, sessionToken, userId);
 		if (!isValidDateISO(date)) throw new ConvexError("Date invalide.");
 		if (!isMeal(meal)) throw new ConvexError("Repas invalide.");
 		if (!isFinite(qtyGrams) || qtyGrams <= 0 || qtyGrams > 5000) {
 			throw new ConvexError("Quantité invalide (entre 1 et 5000 g).");
 		}
-		if (!foodId) throw new ConvexError("Aucun aliment fourni.");
-		const food = await ctx.db.get(foodId);
-		if (!food) throw new ConvexError("Cet aliment n'existe plus dans la base.");
+		// Fiche de référence Ciqual (additif) : valeurs résolues côté serveur,
+		// aucune donnée OFF lue ou fusionnée.
+		const ciqualRef = ciqualLabel ? ciqualFoodSource(ciqualLabel) : null;
+		if (ciqualLabel && !ciqualRef) throw new ConvexError("Cette référence Ciqual n'existe plus.");
+		if (!foodId && !ciqualRef) throw new ConvexError("Aucun aliment fourni.");
+
+		let name: string;
+		let brand: string | undefined;
+		let imageUrl: string | undefined;
+		let kcal100: number;
+		let carbs100: number;
+		let protein100: number;
+		let fat100: number;
+		if (ciqualRef) {
+			name = ciqualRef.name;
+			kcal100 = ciqualRef.kcal100;
+			carbs100 = ciqualRef.carbs100;
+			protein100 = ciqualRef.protein100;
+			fat100 = ciqualRef.fat100;
+		} else {
+			const food = await ctx.db.get(foodId as Id<"foods">);
+			if (!food) throw new ConvexError("Cet aliment n'existe plus dans la base.");
+			name = food.name;
+			brand = food.brand;
+			imageUrl = food.imageUrl;
+			kcal100 = food.kcal100;
+			carbs100 = food.carbs100;
+			protein100 = food.protein100;
+			fat100 = food.fat100;
+		}
+
 		const k = qtyGrams / 100;
 		await ctx.db.insert("diaryEntries", {
 			userId,
 			date,
 			meal,
-			foodId,
-			name: food.name,
-			brand: food.brand,
-			imageUrl: food.imageUrl,
+			foodId: ciqualRef ? undefined : foodId,
+			name,
+			brand,
+			imageUrl,
 			qtyGrams,
-			kcal: Math.round(food.kcal100 * k),
-			carbs: Math.round(food.carbs100 * k * 10) / 10,
-			protein: Math.round(food.protein100 * k * 10) / 10,
-			fat: Math.round(food.fat100 * k * 10) / 10,
+			kcal: Math.round(kcal100 * k),
+			carbs: Math.round(carbs100 * k * 10) / 10,
+			protein: Math.round(protein100 * k * 10) / 10,
+			fat: Math.round(fat100 * k * 10) / 10,
 			createdAt: Date.now(),
 		});
 		return { ok: true };
@@ -256,22 +293,48 @@ export const checkSession = query({
 	},
 });
 
+/**
+ * Forme de réponse de la recherche paginée : les produits arrivent par
+ * tranches de 25 (le client charge la suite au défilement). `hasMore` dit
+ * s'il reste des produits au-delà de la tranche renvoyée.
+ */
+export type SearchPage = { items: FoodHit[]; hasMore: boolean };
+
 /** Recherche plein texte : base OFF + aliments personnels du client. */
 export const searchLocal = query({
-	args: { sessionToken: v.optional(v.string()), query: v.string() },
-	handler: async (ctx, { sessionToken, query }) => {
+	args: {
+		sessionToken: v.optional(v.string()),
+		query: v.string(),
+		/** Décalage dans le classement (0 = première page de 25). */
+		offset: v.optional(v.number()),
+		/** Taille de tranche (défaut 25 — l'UI charge 25 par 25). */
+		limit: v.optional(v.number()),
+	},
+	handler: async (ctx, { sessionToken, query, offset = 0, limit = 25 }) => {
 		const user = await requireClient(ctx, sessionToken);
 		const term = query.trim().toLowerCase();
-		if (term.length < 2) return [] as FoodHit[];
+		if (term.length < 2) return { items: [] as FoodHit[], hasMore: false } as SearchPage;
+		// Candidats élargis puis re-tri (foodRanking) : les aliments bruts passent
+		// devant les produits de marque, sans modifier la base.
 		const [foods, customs] = await Promise.all([
-			ctx.db.query("foods").withSearchIndex("by_name", (sb) => sb.search("name", term)).take(25),
+			ctx.db
+				.query("foods")
+				.withSearchIndex("by_name", (sb) => sb.search("name", term))
+				.take(FOOD_SEARCH_CANDIDATES),
 			ctx.db
 				.query("customFoods")
 				.withSearchIndex("by_name", (sb) => sb.search("name", term))
 				.filter((q) => q.eq(q.field("userId"), user._id))
 				.take(10),
 		]);
-		return [...foods.map(toHit), ...customs.map(toCustomHit)];
+		// Les aliments « Créés par moi » restent en fin de PREMIÈRE page (ordre
+		// historique, pas paginés) : la pagination ne s'applique qu'aux produits
+		// de la base OFF, sans jamais les dupliquer.
+		const ranked = rankFoods(foods.map(toHit), term);
+		return {
+			items: [...ranked.slice(offset, offset + limit), ...(offset === 0 ? customs.map(toCustomHit) : [])],
+			hasMore: offset + limit < ranked.length,
+		};
 	},
 });
 
@@ -579,16 +642,27 @@ export const addEntry = mutation({
 		meal: v.string(),
 		foodId: v.optional(v.id("foods")),
 		customFoodId: v.optional(v.id("customFoods")),
+		/** Fiche de RÉFÉRENCE Ciqual (ANSES) : libellé officiel EXACT — exclusif avec foodId/customFoodId. */
+		ciqualLabel: v.optional(v.string()),
 		qtyGrams: v.number(),
 	},
-	handler: async (ctx, { sessionToken, date, meal, foodId, customFoodId, qtyGrams }) => {
+	handler: async (ctx, { sessionToken, date, meal, foodId, customFoodId, ciqualLabel, qtyGrams }) => {
 		const user = await requireClient(ctx, sessionToken);
 		if (!isValidDateISO(date)) throw new ConvexError("Date invalide.");
 		if (!isMeal(meal)) throw new ConvexError("Repas invalide.");
 		if (!isFinite(qtyGrams) || qtyGrams <= 0 || qtyGrams > 5000) {
 			throw new ConvexError("Quantité invalide (entre 1 et 5000 g).");
 		}
-		if (!foodId && !customFoodId) {
+		// Fiche de RÉFÉRENCE Ciqual (additif, jamais destructif) : le client ne
+		// transmet qu'un LIBELLÉ officiel exact — le serveur résout les valeurs
+		// /100 g depuis la table embarquée (jamais depuis le client). Aucune
+		// donnée OFF n'est lue, modifiée ou fusionnée : uniquement un snapshot
+		// journal comme pour tout autre aliment.
+		const ciqualRef = ciqualLabel ? ciqualFoodSource(ciqualLabel) : null;
+		if (ciqualLabel && !ciqualRef) {
+			throw new ConvexError("Cette référence Ciqual n'existe plus.");
+		}
+		if (!foodId && !customFoodId && !ciqualRef) {
 			throw new ConvexError("Aucun aliment fourni.");
 		}
 
@@ -603,7 +677,13 @@ export const addEntry = mutation({
 		let carbs100 = 0;
 		let protein100 = 0;
 		let fat100 = 0;
-		if (foodId) {
+		if (ciqualRef) {
+			name = ciqualRef.name;
+			kcal100 = ciqualRef.kcal100;
+			carbs100 = ciqualRef.carbs100;
+			protein100 = ciqualRef.protein100;
+			fat100 = ciqualRef.fat100;
+		} else if (foodId) {
 			const food = await ctx.db.get(foodId);
 			if (!food) throw new ConvexError("Cet aliment n'existe plus dans la base.");
 			name = food.name;

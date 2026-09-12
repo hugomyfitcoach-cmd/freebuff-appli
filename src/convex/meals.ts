@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { getSessionUser } from "./helpers";
+import { ciqualFoodSource } from "./ciqualSource";
 import type { QueryCtx } from "./_generated/server";
 import type { Id, Doc } from "./_generated/dataModel";
 
@@ -44,6 +45,8 @@ const round1 = (n: number) => Math.round(n * 10) / 10;
 const ingredientInput = v.object({
 	foodId: v.optional(v.id("foods")),
 	customFoodId: v.optional(v.id("customFoods")),
+	/** Fiche de RÉFÉRENCE Ciqual (libellé officiel exact) — exclusif avec foodId/customFoodId. */
+	ciqualLabel: v.optional(v.string()),
 	qtyGrams: v.number(),
 });
 
@@ -56,7 +59,12 @@ async function buildMealData(
 	userId: Id<"users">,
 	name: string,
 	description: string | undefined,
-	ingredients: { foodId?: Id<"foods">; customFoodId?: Id<"customFoods">; qtyGrams: number }[],
+	ingredients: {
+		foodId?: Id<"foods">;
+		customFoodId?: Id<"customFoods">;
+		ciqualLabel?: string;
+		qtyGrams: number;
+	}[],
 ) {
 	const clean = name.trim();
 	if (clean.length < 2 || clean.length > 80) {
@@ -83,11 +91,19 @@ async function buildMealData(
 		if (!isFinite(ing.qtyGrams) || ing.qtyGrams <= 0 || ing.qtyGrams > 5000) {
 			throw new ConvexError("Quantité d'ingrédient invalide (entre 1 et 5000 g).");
 		}
-		if (!ing.foodId && !ing.customFoodId) {
+		// Fiche de RÉFÉRENCE Ciqual (additif) : valeurs officielles /100 g résolues
+		// côté serveur depuis la table embarquée — aucune donnée OFF lue ni fusionnée.
+		const ciqualFood = ing.ciqualLabel ? ciqualFoodSource(ing.ciqualLabel) : null;
+		if (ing.ciqualLabel && !ciqualFood) {
+			throw new ConvexError("Une référence Ciqual n'existe plus. Retire-la et réessaie.");
+		}
+		if (!ing.foodId && !ing.customFoodId && !ciqualFood) {
 			throw new ConvexError("Un ingrédient est invalide : aliment introuvable.");
 		}
 		let food: { name: string; brand?: string; imageUrl?: string; kcal100: number; carbs100: number; protein100: number; fat100: number } | null = null;
-		if (ing.foodId) {
+		if (ciqualFood) {
+			food = ciqualFood;
+		} else if (ing.foodId) {
 			const f = await ctx.db.get(ing.foodId);
 			if (!f) throw new ConvexError("Un ingrédient n'existe plus dans la base. Retire-le et réessaie.");
 			food = f;
@@ -101,8 +117,9 @@ async function buildMealData(
 		if (!food) throw new ConvexError("Ingrédient invalide : aliment introuvable.");
 		const k = ing.qtyGrams / 100;
 		const row = {
-			foodId: ing.foodId ?? undefined,
-			customFoodId: ing.customFoodId ?? undefined,
+			foodId: ciqualFood ? undefined : (ing.foodId ?? undefined),
+			customFoodId: ciqualFood ? undefined : (ing.customFoodId ?? undefined),
+			ciqualLabel: ciqualFood ? ing.ciqualLabel : undefined,
 			name: food.name,
 			brand: food.brand,
 			imageUrl: food.imageUrl,

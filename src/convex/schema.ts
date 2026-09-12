@@ -246,6 +246,8 @@ export default defineSchema({
 			v.object({
 				foodId: v.optional(v.id("foods")),
 				customFoodId: v.optional(v.id("customFoods")),
+				/** Fiche de RÉFÉRENCE Ciqual (ANSES) — libellé officiel exact ; les valeurs nutritionnelles restent un snapshot. */
+				ciqualLabel: v.optional(v.string()),
 				name: v.string(),
 				brand: v.optional(v.string()),
 				imageUrl: v.optional(v.string()),
@@ -484,6 +486,8 @@ export default defineSchema({
 				meal: v.string(),
 				foodId: v.optional(v.id("foods")),
 				customFoodId: v.optional(v.id("customFoods")),
+				/** Fiche de RÉFÉRENCE Ciqual (ANSES) — libellé officiel exact ; snapshot nutritionnel inchangé. */
+				ciqualLabel: v.optional(v.string()),
 				name: v.string(),
 				brand: v.optional(v.string()),
 				imageUrl: v.optional(v.string()),
@@ -567,6 +571,8 @@ export default defineSchema({
 		/** Aliment d'origine (pour éditer la quantité avec la bonne portion). */
 		foodId: v.optional(v.id("foods")),
 		customFoodId: v.optional(v.id("customFoods")),
+		/** Fiche de RÉFÉRENCE Ciqual (ANSES) d'origine — info de source, valeurs en snapshot. */
+		ciqualLabel: v.optional(v.string()),
 		createdAt: v.number(),
 	})
 		.index("by_user_date", ["userId", "date"])

@@ -24,8 +24,12 @@ export const POST: RequestHandler = async (event) => {
 	try {
 		const body = await event.request.json();
 		const ingredients = Array.isArray(body.ingredients)
-			? body.ingredients.map((i: { foodId?: string; customFoodId?: string; qtyGrams: number }) => ({
-					...(i.customFoodId ? { customFoodId: String(i.customFoodId) } : { foodId: String(i.foodId ?? '') }),
+			? body.ingredients.map((i: { foodId?: string; customFoodId?: string; ciqualLabel?: string; qtyGrams: number }) => ({
+					...(i.ciqualLabel
+						? { ciqualLabel: String(i.ciqualLabel) } // fiche de référence Ciqual (ANSES)
+						: i.customFoodId
+							? { customFoodId: String(i.customFoodId) }
+							: { foodId: String(i.foodId ?? '') }),
 					qtyGrams: Number(i.qtyGrams),
 				}))
 			: [];

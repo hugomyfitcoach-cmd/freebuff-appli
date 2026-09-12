@@ -3,6 +3,7 @@ import { v, ConvexError } from "convex/values";
 import { api } from "./_generated/api";
 import type { Id, Doc } from "./_generated/dataModel";
 import type { FoodHit } from "./journal";
+import { rankFoods } from "./foodRanking";
 
 /**
  * Recherche Open Food Facts (action).
@@ -86,7 +87,7 @@ async function fetchOffSearch(q: string): Promise<ReturnType<typeof parseProduct
 			const text = await res.text();
 			try {
 				const data = JSON.parse(text) as { products?: OffProduct[] };
-				return parseProducts(data.products);
+				return rankFoods(parseProducts(data.products), q);
 			} catch {
 				// Réponse HTML (page indisponible / rate-limit) : on retente.
 			}
@@ -160,12 +161,22 @@ export const barcodeLookup = action({
 	},
 });
 
+/**
+ * Forme de réponse : tranches de 25 produits classés (scroll infini) + flag
+ * de suite. Import du type depuis journal.ts (source de FoodHit).
+ */
+export type SearchPage = { items: FoodHit[]; hasMore: boolean };
+
 /** Recherche par nom (base locale + aliments personnels d'abord, OFF en secours). */
 export const searchFoods = action({
 	args: {
 		sessionToken: v.optional(v.string()),
 		query: v.string(),
-	},		handler: async (ctx, { sessionToken, query }): Promise<FoodHit[]> => {
+		/** Décalage dans le classement (0 = première page de 25). */
+		offset: v.optional(v.number()),
+		/** Taille de tranche (défaut 25 — l'UI charge 25 par 25). */
+		limit: v.optional(v.number()),
+	},		handler: async (ctx, { sessionToken, query, offset = 0, limit = 25 }): Promise<SearchPage> => {
 			// Annotations explicites : `api` référence ce module (cycle
 			// d'inférence TS), on ne laisse donc rien s'inférer via lui.
 			const user: { _id: Id<"users">; role: "coach" | "client" } | null = await ctx.runQuery(
@@ -177,32 +188,42 @@ export const searchFoods = action({
 				throw new ConvexError("Seuls les comptes clients peuvent utiliser le journal alimentaire.");
 			}
 			const q = normalizeQuery(query);
-			if (!q || q.length < 2) return [];
+			if (!q || q.length < 2) return { items: [], hasMore: false };
 
-			// 1) Base locale + aliments personnels d'abord.
-			const local: FoodHit[] = await ctx.runQuery(api.journal.searchLocal, {
+			// 1) Base locale + aliments personnels d'abord (pagination côté serveur).
+			const local: SearchPage = await ctx.runQuery(api.journal.searchLocal, {
 				sessionToken,
 				query: q,
+				offset,
+				limit,
 			});
-			if (local.length > 0) return local;
+			if (local.items.length > 0 || local.hasMore) return local;
 
-			// 2) Sinon : appel OFF + upsert dans `foods` (la base locale s'enrichit).
+			// 2) Sinon : appel OFF (seulement pour la première page — l'API v1
+			// publique renvoie 25 produits par appel, pager au-delà n'apporte rien)
+			// + upsert dans `foods` (la base locale s'enrichit).
+			if (offset > 0) return { items: [], hasMore: false };
 			const products = await fetchOffSearch(q);
 			const ids: Id<"foods">[] = await ctx.runMutation(api.journal.cacheFoods, { sessionToken, products });
 			const foods = await ctx.runQuery(api.journal.foodsByIds, { sessionToken, ids });
-			return foods.map((f) => ({
-				_id: f._id,
-				custom: false,
-				offId: f.offId,
-				name: f.name,
-				brand: f.brand,
-				kcal100: f.kcal100,
-				carbs100: f.carbs100,
-				protein100: f.protein100,
-				fat100: f.fat100,
-				imageUrl: f.imageUrl,
-				servingQty: f.servingQty,
-				servingUnit: f.servingUnit,
-			}));
+			// Re-tri identique à la recherche locale : aliments bruts d'abord.
+			const items = rankFoods(
+				foods.map((f) => ({
+					_id: f._id,
+					custom: false,
+					offId: f.offId,
+					name: f.name,
+					brand: f.brand,
+					kcal100: f.kcal100,
+					carbs100: f.carbs100,
+					protein100: f.protein100,
+					fat100: f.fat100,
+					imageUrl: f.imageUrl,
+					servingQty: f.servingQty,
+					servingUnit: f.servingUnit,
+				})),
+				q
+			).slice(0, limit);
+			return { items, hasMore: false };
 		},
 });
