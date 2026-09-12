@@ -622,6 +622,36 @@ export const setCoachMessage = mutation({
  * nouvel envoi tant qu'il n'est pas retiré.
  */
 
+/**
+ * Retire les demi-couples UTF-16 orphelins (surrogates isolés) d'une chaîne.
+ *
+ * Un texte tronqué en plein emoji (ex. `slice(0, 500)` au milieu d'un couple
+ * de surrogates) laisse un code unit orphelin : JSON.stringify le sérialise
+ * en escape `\uD83D` sans demi-compagnon, que le parseur strict du backend
+ * refuse au moment de l'écriture — « Received invalid json: unexpected end
+ * of hex escape » (plantage production 12/09/2026, request 1ca78ef51d8c18a4).
+ * Le demi-caractère orphelin est simplement retiré : la chaîne redevient
+ * sérialisable en JSON strict, contenu inchangé par ailleurs.
+ */
+function stripLoneSurrogates(s: string): string {
+	let out = "";
+	for (let i = 0; i < s.length; i++) {
+		const c = s.charCodeAt(i);
+		if (c >= 0xd800 && c <= 0xdbff) {
+			// High surrogate : gardé uniquement s'il ouvre un couple complet.
+			const next = i + 1 < s.length ? s.charCodeAt(i + 1) : 0;
+			if (next >= 0xdc00 && next <= 0xdfff) {
+				out += s[i] + s[i + 1];
+				i++;
+			}
+		} else if (c < 0xdc00 || c > 0xdfff) {
+			out += s[i];
+		}
+		// Low surrogate orpheline (c dans DC00-DFFF sans high devant) : retirée.
+	}
+	return out;
+}
+
 /** Ligne de journal CRM du message global (une par destinataire, étiquetée). */
 type BroadcastLogInsert = {
 	userId: Id<"users">;
@@ -695,7 +725,11 @@ export const sendCoachBroadcast = mutation({
 		if (!coach || coach.role !== "coach") {
 			throw new ConvexError("Réservé à la coach (CRM).");
 		}
-		const trimmed = message.trim().slice(0, 500);
+		// Slicing puis assainissement : un emoji coupé à la limite des 500
+		// caractères laissait un surrogate orphelin qui faisait planter l'insert
+		// (voir stripLoneSurrogates). Transactionnel : rien n'était écrit, mais
+		// l'envoi entier échouait côté CRM.
+		const trimmed = stripLoneSurrogates(message.trim().slice(0, 500));
 		if (!trimmed) throw new ConvexError("Le message est vide.");
 
 		const now = Date.now();
