@@ -501,6 +501,9 @@
 	let nextOffset = $state(0);
 	/** Garde-fou : une seule requête « page suivante » en vol à la fois. */
 	let loadingMore = $state(false);
+	/** Indication « Fais défiler pour voir plus » : visible seulement s'il
+	 *  existe réellement des résultats plus bas, masquée dès le 1er scroll. */
+	let showScrollHint = $state(false);
 	let searching = $state(false);
 	let searchError = $state('');
 	let searchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -528,10 +531,9 @@
 		}
 		searching = true;
 		searchError = '';
-		// Les deux sources sont interrogées en parallèle mais restent STRICTEMENT
-		// séparées : Ciqual en tête (référence, fixe), produits OFF ensuite
-		// par tranches de 25. Un échec Ciqual est silencieux (bloc simplement
-		// absent) — jamais bloquant.
+		showScrollHint = false;
+		// Nouvelle recherche : l'indication de scroll repart (elle ne se montrent
+		// que s'il existe des résultats plus bas — decided par hasMore).
 		const req = fetch(`/api/foods/search?q=${encodeURIComponent(q)}`)
 			.then(async (r) => {
 				const j = await r.json();
@@ -539,6 +541,7 @@
 				results = j.items as Food[];
 				hasMore = !!(j as { hasMore?: boolean }).hasMore;
 				nextOffset = 25;
+				showScrollHint = hasMore; // il existe des résultats plus bas
 			})
 			.then(() => null, (e) => e as Error);
 		const ciq = fetch(`/api/foods/ciqual?q=${encodeURIComponent(q)}`)
@@ -568,6 +571,7 @@
 	async function loadMore() {
 		const q = searchQ.trim();
 		if (loadingMore || !hasMore || q.length < 2) return;
+		showScrollHint = false; // l'utilisateur a fait défiler : plus besoin de l'indication
 		loadingMore = true;
 		try {
 			const r = await fetch(`/api/foods/search?q=${encodeURIComponent(q)}&offset=${nextOffset}&limit=25`);
@@ -593,9 +597,20 @@
 	 * Un sentinel invisible en bas de liste : dès qu'il devient visible, on
 	 * charge la tranche suivante. Observateur re-créé à chaque apparition du
 	 * sentinel (nouvelle recherche = reset de pagination). Le bloc Ciqual est
-	 * FIXE en tête : il ne fait jamais partie de la pagination. */
+	 * FIXE en tête : il ne fait jamais partie de la pagination.
+	 * L'indication « Fais défiler » disparaît au PREMIER geste de scroll de
+	 * la liste (pas seulement au chargement effectif). */
 	let sentinelEl = $state<HTMLElement | undefined>();
 	let mealSentinelEl = $state<HTMLElement | undefined>();
+	/** Ancêtre scrollable d'un élément (le conteneur de liste). */
+	function scrollParentOf(el: HTMLElement): HTMLElement | null {
+		let cur: HTMLElement | null = el;
+		while ((cur = cur.parentElement)) {
+			const st = getComputedStyle(cur);
+			if (st.overflowY === 'auto' || st.overflowY === 'scroll') return cur;
+		}
+		return null;
+	}
 	$effect(() => {
 		if (!sentinelEl) return;
 		const obs = new IntersectionObserver(
@@ -605,7 +620,13 @@
 			{ rootMargin: '300px 0px' }
 		);
 		obs.observe(sentinelEl);
-		return () => obs.disconnect();
+		const list = scrollParentOf(sentinelEl);
+		const hideHint = () => (showScrollHint = false);
+		list?.addEventListener('scroll', hideHint, { passive: true, once: true });
+		return () => {
+			obs.disconnect();
+			list?.removeEventListener('scroll', hideHint);
+		};
 	});
 	$effect(() => {
 		if (!mealSentinelEl) return;
@@ -616,7 +637,13 @@
 			{ rootMargin: '300px 0px' }
 		);
 		obs.observe(mealSentinelEl);
-		return () => obs.disconnect();
+		const list = scrollParentOf(mealSentinelEl);
+		const hideHint = () => (mealShowScrollHint = false);
+		list?.addEventListener('scroll', hideHint, { passive: true, once: true });
+		return () => {
+			obs.disconnect();
+			list?.removeEventListener('scroll', hideHint);
+		};
 	});
 
 	/* ————— Aliments fréquents (suggestions avant recherche) ————— */
@@ -641,7 +668,7 @@
 		results = [];
 		hasMore = false;
 		nextOffset = 0;
-		ciqualResults = [];
+		showScrollHint = false;
 		searchError = '';
 		searchTab = 'produits';
 		favOnly = false;
@@ -826,6 +853,8 @@
 	let mealHasMore = $state(false);
 	let mealNextOffset = $state(0);
 	let mealLoadingMore = $state(false);
+	/** Indication de scroll de la fenêtre produit (éditeur de repas). */
+	let mealShowScrollHint = $state(false);
 	let mealSearching = $state(false);
 	let mealSearchTimer: ReturnType<typeof setTimeout> | undefined;
 	/** Fenêtre de recherche d'aliments DANS l'éditeur de repas (bouton « Ajouter un produit »). */
@@ -844,6 +873,7 @@
 			mealResults = [];
 			mealHasMore = false;
 			mealNextOffset = 0;
+			mealShowScrollHint = false;
 			mealCiqualResults = [];
 			mealError = '';
 		}
@@ -875,6 +905,7 @@
 			mealResults = [];
 			mealHasMore = false;
 			mealNextOffset = 0;
+			mealShowScrollHint = false;
 			mealCiqualResults = [];
 			mealError = '';
 		}
@@ -884,12 +915,13 @@
 		mealEditingId = null;
 	}	let mealSearchError = $state('');
 	/** Fiches Ciqual (ANSES) du bloc « Aliments de référence » — séparées des produits OFF. */
-	let mealCiqualResults = $state<Food[]>([]);
-	async function runMealSearch(q: string) {
-		if (q.length < 2) {			mealResults = [];
+	let mealCiqualResults = $state<Food[]>([]);	async function runMealSearch(q: string) {
+		if (q.length < 2) {
+			mealResults = [];
 			mealCiqualResults = [];
 			mealHasMore = false;
 			mealNextOffset = 0;
+			mealShowScrollHint = false;
 			return;
 		}
 		mealSearching = true;
@@ -903,6 +935,7 @@
 				mealResults = j.items as Food[];
 				mealHasMore = !!(j as { hasMore?: boolean }).hasMore;
 				mealNextOffset = 25;
+				mealShowScrollHint = mealHasMore;
 			})
 			.then(() => null, (e) => e as Error);
 		const ciq = fetch(`/api/foods/ciqual?q=${encodeURIComponent(q)}`)
@@ -918,8 +951,7 @@
 			mealResults = [];
 			mealHasMore = false;
 			mealNextOffset = 0;
-			mealNextOffset = 0;
-			mealHasMore = false;
+			mealShowScrollHint = false;
 		}
 		mealSearching = false;
 	}
@@ -928,6 +960,7 @@
 	async function loadMoreMeal() {
 		const q = mealSearchQ.trim();
 		if (mealLoadingMore || !mealHasMore || q.length < 2) return;
+		mealShowScrollHint = false; // l'utilisateur a fait défiler
 		mealLoadingMore = true;
 		try {
 			const r = await fetch(`/api/foods/search?q=${encodeURIComponent(q)}&offset=${mealNextOffset}&limit=25`);
@@ -1009,6 +1042,7 @@
 			mealResults = [];
 			mealHasMore = false;
 			mealNextOffset = 0;
+			mealShowScrollHint = false;
 			mealSearchOpen = false; // déjà refermée au clic — filet de sécurité
 			mealPickedFood = null;
 			ingEdit = null;
@@ -1812,7 +1846,7 @@
 								type="button"
 								class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-line/70 text-mist transition hover:bg-line"
 								aria-label="Effacer la recherche"
-								onclick={() => { searchQ = ''; results = []; hasMore = false; nextOffset = 0; ciqualResults = []; }}
+								onclick={() => { searchQ = ''; results = []; hasMore = false; nextOffset = 0; showScrollHint = false; ciqualResults = []; }}
 							><Icon name="x" size={13} /></button>
 						{/if}
 					</div>
@@ -2099,15 +2133,23 @@
 								{#each results as food (food._id)}
 									{@render foodRow(food)}
 								{/each}
-							</ul>
-							{#if hasMore}
-								<div bind:this={sentinelEl} class="h-px w-full"></div>
-								{#if loadingMore}<p class="py-3 text-center text-xs text-mist">Chargement…</p>{/if}
+							</ul>								{#if hasMore}
+									<div bind:this={sentinelEl} class="h-px w-full"></div>
+									{#if loadingMore}<p class="py-3 text-center text-xs text-mist">Chargement…</p>{/if}
+								{/if}
 							{/if}
 						{/if}
+					</div>
+					<!-- Indication de scroll : discrète, non cliquable, disparaît dès
+					     que l'utilisateur a fait défiler (voir loadMore). -->
+					{#if showScrollHint}
+						<div class="pointer-events-none absolute inset-x-0 bottom-[calc(5.3rem+env(safe-area-inset-bottom))] z-10 flex justify-center">
+							<span class="flex items-center gap-1 rounded-full bg-white/90 px-3 py-1 text-[11px] text-mist shadow-sm">
+								<Icon name="chevronDown" size={12} class="animate-bounce" /> Fais défiler pour voir plus
+							</span>
+						</div>
 					{/if}
-				</div>
-			{:else}
+				{:else}
 				<!-- ═══════ Scanner code-barres (cadre portrait stable) ═══════ -->
 				<div bind:this={bcListEl} class="flex-1 overflow-y-auto overscroll-contain px-3 pb-24 pt-3">
 					<p class="mb-2.5 text-center text-xs text-mist">Scanne le code-barres du produit (ça marche même à distance) ou saisis-le à la main : on le retrouve dans la base G-Flux.</p>
@@ -2204,7 +2246,7 @@
 							oninput={onMealSearchInput}
 						/>
 						{#if mealSearchQ}
-							<button type="button" class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-line/70 text-mist transition hover:bg-line" aria-label="Effacer la recherche"								onclick={() => { mealSearchQ = ''; mealResults = []; mealHasMore = false; mealNextOffset = 0; mealCiqualResults = []; }}><Icon name="x" size={13} /></button>
+							<button type="button" class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-line/70 text-mist transition hover:bg-line" aria-label="Effacer la recherche"								onclick={() => { mealSearchQ = ''; mealResults = []; mealHasMore = false; mealNextOffset = 0; mealShowScrollHint = false; mealCiqualResults = []; }}><Icon name="x" size={13} /></button>
 						{/if}
 					</div>
 				</div>
@@ -2268,6 +2310,13 @@
 						{/if}
 					{/if}
 				</div>
+				{#if mealShowScrollHint}
+					<div class="pointer-events-none absolute inset-x-0 bottom-[calc(5.3rem+env(safe-area-inset-bottom))] z-10 flex justify-center">
+						<span class="flex items-center gap-1 rounded-full bg-white/90 px-3 py-1 text-[11px] text-mist shadow-sm">
+							<Icon name="chevronDown" size={12} class="animate-bounce" /> Fais défiler pour voir plus
+						</span>
+					</div>
+				{/if}
 			{:else}
 				<!-- ═══════ Scanner code-barres de la fenêtre produit (même rendu que « Ajouter un aliment ») ═══════ -->
 				<div bind:this={mealBcListEl} class="flex-1 overflow-y-auto overscroll-contain px-3 pb-24 pt-3">

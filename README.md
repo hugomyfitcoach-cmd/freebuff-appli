@@ -217,7 +217,10 @@ Tracking de calories fidèle à l'appli de référence (FR) :
   suivants affinent, ils ne remplacent pas). Cliquer ouvre exactement la
   même feuille quantité/portion qu'un produit : badge « Référence Ciqual –
   ANSES » avec mention grise "Idéal pour un suivi précis", icône générique
-  (pas de photo), kcal/macros 100 % Ciqual. À l'ajout, le client ne
+  (pas de photo), kcal/macros 100 % Ciqual. Recherche générique : les
+  formes SIMPLES passent d'abord (cru, eau/vapeur/bouilli, noms courts) —
+  dauphine, duchesse, frites, gratin, purée, sauce… après ; une requête
+  précise ("pomme de terre dauphine") remonte normalement. À l'ajout, le client ne
   transmet que le libellé officiel (`ciqualLabel`) — les valeurs sont
   résolues côté serveur (`src/convex/ciqualSource.ts`), snapshot classique
   dans `diaryEntries` / `meals` / `mealPlanTemplates`. Additif et séparé :
@@ -227,7 +230,10 @@ Tracking de calories fidèle à l'appli de référence (FR) :
   `searchFoods`) renvoie des tranches classées de 25 (`{ items, hasMore }`,
   args `offset`/`limit`) ; le client charge la suite via un sentinel
   `IntersectionObserver` (~300 px avant le bas), nouvelle recherche = reset
-  de la pagination. Jamais tous les résultats d'un coup.
+  de la pagination. Jamais tous les résultats d'un coup. Indication
+  discrète « Fais défiler pour voir plus » (chevron animé, non cliquable)
+  au-dessus de la capsule Recherche/Code-barres, affichée seulement s'il
+  reste des résultats plus bas, disparaît au premier scroll.
 - **Backend** : action `searchFoods` et journal (`src/convex/journal.ts` :
   `getDay`, `addEntry`, `updateEntryQty`, `removeEntry`, objectifs,
   `searchLocal`). BFF : `src/routes/api/journal/+server.ts`,
