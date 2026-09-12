@@ -2367,7 +2367,7 @@
 									<div class="mt-2">
 										<div class="font-display text-2xl font-semibold text-ink">{String(bfLast).replace('.', ',')} %</div>
 										{#if bfDelta !== null}
-											<div class="text-[11px] font-medium text-mist">{fmtSigned(bfDelta)} point{Math.abs(bfDelta) > 1 ? 's' : ''} depuis le démarrage</div>
+											<div class="text-[11px] font-medium text-mist">{bfDelta <= 0 ? '↓' : '↑'} {String(Math.abs(bfDelta)).replace('.', ',')} % depuis le démarrage</div>
 										{/if}
 									</div>
 									<div class="mt-2 rounded-lg bg-line/40 px-3 py-2">
@@ -2466,7 +2466,7 @@
 										<div class="min-w-0">
 											<div class="font-display text-xl font-semibold text-ink">{String(bfLast).replace('.', ',')} %</div>
 											{#if bfDelta !== null}
-												<div class="text-[11px] font-medium text-mist">{fmtSigned(bfDelta)} point{Math.abs(bfDelta) > 1 ? 's' : ''} depuis le démarrage</div>
+												<div class="text-[11px] font-medium text-mist">{bfDelta <= 0 ? '↓' : '↑'} {String(Math.abs(bfDelta)).replace('.', ',')} % depuis le démarrage</div>
 											{/if}
 										</div>
 										<div class="w-28 shrink-0 sm:w-36">

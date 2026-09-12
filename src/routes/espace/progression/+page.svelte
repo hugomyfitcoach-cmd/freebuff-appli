@@ -463,7 +463,7 @@
 			<div class="mt-4 text-center">
 				<p class="font-display text-4xl font-semibold text-ink">{fmt(bfLast)} <span class="text-base font-semibold text-mist">%</span></p>
 				{#if bfDelta !== null}
-					<p class="mt-1 text-sm text-mist">{bfDelta <= 0 ? '↓' : '↑'} {fmt(Math.abs(bfDelta))} % depuis ta première estimation</p>
+					<p class="mt-1 text-sm text-mist">{bfDelta <= 0 ? '↓' : '↑'} {fmt(Math.abs(bfDelta))} % depuis le démarrage</p>
 				{/if}
 			</div>
 		{/if}
@@ -569,13 +569,13 @@
 				<div class="flex items-start justify-between gap-3">
 					<div>
 						<p class="text-[11px] font-bold uppercase tracking-wide text-mist">% de masse grasse estimé</p>
-						<div class="mt-1 flex items-center gap-2">
+							<div class="mt-1 flex flex-wrap items-center gap-2">
 							<span class="font-display text-3xl font-semibold text-ink">
 								{bfLast !== null ? `${fmt(bfLast)} %` : '—'}
 							</span>
 							{#if bfDelta !== null}
 								<span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold {bfDelta <= 0 ? 'bg-brand-light text-brand-dark' : 'bg-warn-light text-warn'}">
-									{bfDelta <= 0 ? '↓' : '↑'} {fmt(Math.abs(bfDelta))} %
+									{bfDelta <= 0 ? '↓' : '↑'} {fmt(Math.abs(bfDelta))} % depuis le démarrage
 								</span>
 							{/if}
 						</div>
