@@ -35,6 +35,8 @@ export const POST: RequestHandler = async (event) => {
 			date: String(body.date ?? ''),
 			meal: String(body.meal ?? ''),
 			foodId: body.foodId as never,
+			/** Fiche de référence Ciqual (ANSES) — libellé officiel exact. */
+			ciqualLabel: body.ciqualLabel ? String(body.ciqualLabel) : undefined,
 			qtyGrams: Number(body.qtyGrams),
 		});
 		return json(res);

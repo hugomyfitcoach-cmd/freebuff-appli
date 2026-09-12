@@ -66,17 +66,18 @@ export const PATCH: RequestHandler = async (event) => {
 	}
 };
 
-function sanitizeItems(raw: unknown): { meal: string; foodId?: string; customFoodId?: string; qtyGrams: number }[] {
+function sanitizeItems(raw: unknown): { meal: string; foodId?: string; customFoodId?: string; ciqualLabel?: string; qtyGrams: number }[] {
 	if (!Array.isArray(raw)) return [];
 	return raw
 		.filter((it): it is Record<string, unknown> => !!it && typeof it === 'object')
 		.map((it) => {
-			const out: { meal: string; foodId?: string; customFoodId?: string; qtyGrams: number } = {
+			const out: { meal: string; foodId?: string; customFoodId?: string; ciqualLabel?: string; qtyGrams: number } = {
 				meal: String(it.meal ?? ''),
 				qtyGrams: Number(it.qtyGrams ?? 0),
 			};
 			if (it.foodId) out.foodId = String(it.foodId);
 			if (it.customFoodId) out.customFoodId = String(it.customFoodId);
+			if (typeof it.ciqualLabel === 'string' && it.ciqualLabel) out.ciqualLabel = it.ciqualLabel;
 			return out;
 		});
 }

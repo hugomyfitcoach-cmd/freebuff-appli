@@ -20,6 +20,8 @@
 		error = '',
 		/** Libellé du bouton principal (défaut : « Ajouter au journal » / « Enregistrer »). */
 		saveLabel = undefined,
+		/** « ciqual » : fiche de référence ANSES (badge officiel, pas de photo produit). */
+		source,
 		showFav = false,
 		favActive = false,
 		onToggleFav,
@@ -48,6 +50,8 @@
 		saving?: boolean;
 		error?: string;
 		saveLabel?: string;
+		/** « ciqual » : fiche de référence ANSES (badge officiel, pas de photo produit). */
+		source?: 'ciqual';
 		showFav?: boolean;
 		favActive?: boolean;
 		onToggleFav?: () => void;
@@ -146,6 +150,10 @@
 				<p class="text-xs text-mist">
 					{fmtQty(food.kcal100)} kcal pour 100 g{#if hasServing} · 1 portion = {fmtQty(servingQty)} g{/if}
 				</p>
+				{#if source === 'ciqual'}
+					<span class="mt-0.5 inline-flex items-center gap-1 rounded-full bg-brand-light px-2 py-0.5 text-[10px] font-bold text-brand">Référence Ciqual – ANSES</span>
+					<p class="mt-0.5 text-xs text-mist">Idéal pour un suivi précis</p>
+				{/if}
 			</div>
 			{#if showFav}
 				<button

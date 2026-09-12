@@ -32,6 +32,8 @@
 		imageUrl?: string;
 		servingQty?: number;
 		custom?: boolean;
+		/** Fiche de RÉFÉRENCE Ciqual (ANSES) — _id = libellé officiel exact. */
+		ciqual?: boolean;
 	};
 	type DraftItem = {
 		key: string;
@@ -44,6 +46,7 @@
 		meal: string;
 		foodId?: string;
 		customFoodId?: string;
+		ciqualLabel?: string;
 		name: string;
 		brand?: string;
 		imageUrl?: string;
@@ -81,22 +84,45 @@
 	let searchQ = $state('');
 	let searchBusy = $state(false);
 	let searchHits = $state<Food[]>([]);
+	/** Fiches de référence Ciqual (ANSES) — bloc séparé, toujours au-dessus des produits. */
+	let ciqualHits = $state<Food[]>([]);
 	/** Repas ciblé par l'ajout en cours (défini par « + Ajouter » du repas ou la barre de recherche). */
 	let searchForMeal = $state<string>('petit-dej');
 
 	function openSearch() {
 		searchQ = '';
 		searchHits = [];
+		ciqualHits = [];
 		searchOpen = true;
 	}
 	async function doSearch() {
 		if (searchQ.trim().length < 2) return;
 		searchBusy = true;
 		try {
-			const res = await fetch(`/api/coach/search?q=${encodeURIComponent(searchQ.trim())}`);
-			const data = await res.json();
-			if (!res.ok) throw new Error(data.error ?? 'Recherche impossible.');
+			// Sources STRICTEMENT séparées : Ciqual (référence ANSES) en tête,
+			// produits OFF ensuite ; échec Ciqual silencieux (bloc absent).
+			const res = fetch(`/api/coach/search?q=${encodeURIComponent(searchQ.trim())}`);
+			const ciq = fetch(`/api/foods/ciqual?q=${encodeURIComponent(searchQ.trim())}`)
+				.then(async (r) => {
+					const j = await r.json();
+					ciqualHits = j.error
+						? []
+						: (j as { label: string; kcal: number; protein?: number; carbs?: number; fat?: number }[]).map((h) => ({
+								_id: h.label,
+								name: h.label,
+								kcal100: h.kcal,
+								carbs100: h.carbs ?? 0,
+								protein100: h.protein ?? 0,
+								fat100: h.fat ?? 0,
+								ciqual: true,
+							}));
+				})
+				.catch(() => {});
+			const r = await res;
+			const data = await r.json();
+			if (!r.ok) throw new Error(data.error ?? 'Recherche impossible.');
 			searchHits = data;
+			await ciq;
 		} catch (e) {
 			editorErr = e instanceof Error ? e.message : 'Recherche impossible.';
 		} finally {
@@ -143,6 +169,7 @@
 		editorErr = '';
 		searchQ = '';
 		searchHits = [];
+		ciqualHits = [];
 		editKey = null;
 		editorOpen = true;
 	}
@@ -159,7 +186,7 @@
 				meal: it.meal,
 				qty: it.qtyGrams,
 				food: {
-					_id: it.foodId ?? it.customFoodId ?? `x${i}`,
+					_id: it.foodId ?? it.customFoodId ?? it.ciqualLabel ?? `x${i}`,
 					name: it.name,
 					brand: it.brand,
 					kcal100: it.qtyGrams > 0 ? (it.kcal / it.qtyGrams) * 100 : 0,
@@ -167,11 +194,13 @@
 					protein100: it.qtyGrams > 0 ? (it.protein / it.qtyGrams) * 100 : 0,
 					fat100: it.qtyGrams > 0 ? (it.fat / it.qtyGrams) * 100 : 0,
 					imageUrl: it.imageUrl,
+					ciqual: !!it.ciqualLabel,
 				},
 			}));
 			editorErr = '';
 			searchQ = '';
 			searchHits = [];
+			ciqualHits = [];
 			editKey = null;
 			editorOpen = true;
 		} catch (e) {
@@ -183,6 +212,7 @@
 	function addItem(food: Food) {
 		searchQ = '';
 		searchHits = [];
+		ciqualHits = [];
 		pendingFood = food;
 		editKey = ''; // feuille en mode « ajout »
 	}
@@ -240,11 +270,15 @@
 			const body = {
 				name: planName.trim(),
 				description: planDesc.trim() || undefined,
-				items: items.map((it) => ({
-					meal: it.meal,
-					...(it.food.custom ? { customFoodId: it.food._id } : { foodId: it.food._id }),
-					qtyGrams: it.qty,
-				})),
+			items: items.map((it) => ({
+				meal: it.meal,
+				...(it.food.ciqual
+					? { ciqualLabel: it.food._id } // fiche de référence Ciqual (ANSES)
+					: it.food.custom
+						? { customFoodId: it.food._id }
+						: { foodId: it.food._id }),
+				qtyGrams: it.qty,
+			})),
 			};
 			const r = editingId
 				? await fetch('/api/coach/meal-plans', {
@@ -505,27 +539,47 @@
 			<button type="button" onclick={doSearch} disabled={searchBusy} class="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-50">{searchBusy ? '…' : 'Chercher'}</button>
 		</div>
 		<div class="mt-3 max-h-[50vh] space-y-1 overflow-y-auto">
-			{#if searchHits.length === 0}
+			{#if searchHits.length === 0 && ciqualHits.length === 0}
 				<p class="py-6 text-center text-xs text-mist">Tape au moins 2 lettres pour chercher dans la base.</p>
 			{:else}
-				{#each searchHits as hit (hit._id)}
-					<button
-						type="button"
-						onclick={() => addItem(hit)}
-						class="flex w-full items-center gap-3 rounded-xl border border-line bg-white px-3 py-2 text-left transition hover:border-brand"
-					>
-						{#if hit.imageUrl}
-							<FoodImg src={hit.imageUrl} alt="" class="h-9 w-9 shrink-0 rounded-lg" />
-						{:else}
-							<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-line/60"><Icon name="apple" size={16} class="text-mist" /></div>
-						{/if}
-						<div class="min-w-0 flex-1">
-							<div class="truncate text-sm font-semibold text-ink">{hit.name}</div>
-							<div class="text-[11px] text-mist">{hit.kcal100} kcal/100 g{hit.brand ? ` · ${hit.brand}` : ''}</div>
-						</div>
-						<span class="text-brand">＋</span>
-					</button>
-				{/each}
+				{#if ciqualHits.length > 0}
+					<p class="px-1 pb-1 pt-1 text-[10px] font-bold uppercase tracking-widest text-mist">Aliments de référence · Ciqual – ANSES</p>
+					{#each ciqualHits as hit (hit._id)}
+						<button
+							type="button"
+							onclick={() => addItem(hit)}
+							class="flex w-full items-center gap-3 rounded-xl border border-brand/30 bg-brand-light/40 px-3 py-2 text-left transition hover:border-brand"
+						>
+							<span class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-light"><Icon name="salad" size={18} class="text-brand" /></span>
+							<div class="min-w-0 flex-1">
+								<div class="truncate text-sm font-semibold text-ink">{hit.name}</div>
+								<div class="text-[11px] text-mist">{hit.kcal100} kcal/100 g · <span class="font-bold text-brand">Référence Ciqual – ANSES</span> · Idéal pour un suivi précis</div>
+							</div>
+							<span class="text-brand">＋</span>
+						</button>
+					{/each}
+				{/if}
+				{#if searchHits.length > 0}
+					<p class="px-1 pb-1 pt-2 text-[10px] font-bold uppercase tracking-widest text-mist">Produits · Open Food Facts</p>
+					{#each searchHits as hit (hit._id)}
+						<button
+							type="button"
+							onclick={() => addItem(hit)}
+							class="flex w-full items-center gap-3 rounded-xl border border-line bg-white px-3 py-2 text-left transition hover:border-brand"
+						>
+							{#if hit.imageUrl}
+								<FoodImg src={hit.imageUrl} alt="" class="h-9 w-9 shrink-0 rounded-lg" />
+							{:else}
+								<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-line/60"><Icon name="apple" size={16} class="text-mist" /></div>
+							{/if}
+							<div class="min-w-0 flex-1">
+								<div class="truncate text-sm font-semibold text-ink">{hit.name}</div>
+								<div class="text-[11px] text-mist">{hit.kcal100} kcal/100 g{hit.brand ? ` · ${hit.brand}` : ''}</div>
+							</div>
+							<span class="text-brand">＋</span>
+						</button>
+					{/each}
+				{/if}
 			{/if}
 		</div>
 	</div>
@@ -539,6 +593,7 @@
 		initialQtyGrams={sheetQty}
 		initialMeal={sheetMeal}
 		mode="add"
+		source={sheetFood.ciqual ? 'ciqual' : undefined}
 		saveLabel={editKey === '' ? 'Ajouter au plan' : 'Enregistrer'}
 		saving={editSaving}
 		onSave={applySheet}

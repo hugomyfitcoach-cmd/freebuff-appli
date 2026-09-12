@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { getSessionUser } from "./helpers";
+import { ciqualFoodSource } from "./ciqualSource";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Id, Doc } from "./_generated/dataModel";
 
@@ -115,6 +116,8 @@ type ItemInput = {
 	meal: string;
 	foodId?: Id<"foods">;
 	customFoodId?: Id<"customFoods">;
+	/** Fiche de RÉFÉRENCE Ciqual (ANSES) : libellé officiel exact — exclusif. */
+	ciqualLabel?: string;
 	qtyGrams: number;
 };
 
@@ -126,6 +129,7 @@ async function buildSnapshot(ctx: QueryCtx, items: ItemInput[]) {
 		meal: string;
 		foodId?: Id<"foods">;
 		customFoodId?: Id<"customFoods">;
+		ciqualLabel?: string;
 		name: string;
 		brand?: string;
 		imageUrl?: string;
@@ -144,12 +148,19 @@ async function buildSnapshot(ctx: QueryCtx, items: ItemInput[]) {
 		if (!isFinite(it.qtyGrams) || it.qtyGrams <= 0 || it.qtyGrams > 5000) {
 			throw new ConvexError("Quantité invalide (entre 1 et 5000 g).");
 		}
-		const food = await resolveItemFood(ctx, it.foodId, it.customFoodId);
+		// Fiche de RÉFÉRENCE Ciqual (additif) : valeurs officielles /100 g résolues
+		// côté serveur — aucune donnée OFF lue, modifiée ou fusionnée.
+		const ciqualFood = it.ciqualLabel ? ciqualFoodSource(it.ciqualLabel) : null;
+		if (it.ciqualLabel && !ciqualFood) {
+			throw new ConvexError("Une référence Ciqual du plan n'existe plus.");
+		}
+		const food = ciqualFood ?? (await resolveItemFood(ctx, it.foodId, it.customFoodId));
 		const k = it.qtyGrams / 100;
 		const row = {
 			meal: it.meal,
-			foodId: it.foodId ?? undefined,
-			customFoodId: it.customFoodId ?? undefined,
+			foodId: ciqualFood ? undefined : (it.foodId ?? undefined),
+			customFoodId: ciqualFood ? undefined : (it.customFoodId ?? undefined),
+			ciqualLabel: ciqualFood ? it.ciqualLabel : undefined,
 			name: food.name,
 			brand: food.brand,
 			imageUrl: food.imageUrl,
@@ -185,6 +196,7 @@ export const createTemplate = mutation({
 				meal: v.string(),
 				foodId: v.optional(v.id("foods")),
 				customFoodId: v.optional(v.id("customFoods")),
+				ciqualLabel: v.optional(v.string()),
 				qtyGrams: v.number(),
 			})
 		),
@@ -224,6 +236,7 @@ export const updateTemplate = mutation({
 				meal: v.string(),
 				foodId: v.optional(v.id("foods")),
 				customFoodId: v.optional(v.id("customFoods")),
+				ciqualLabel: v.optional(v.string()),
 				qtyGrams: v.number(),
 			})
 		),
@@ -520,6 +533,7 @@ export async function resolveCoachPlanForDate(
 			fat: item.fat,
 			foodId: item.foodId,
 			customFoodId: item.customFoodId,
+			ciqualLabel: item.ciqualLabel,
 			createdAt: Date.now(),
 		});
 	}

@@ -191,6 +191,43 @@ Tracking de calories fidèle à l'appli de référence (FR) :
   **locale d'abord** (index plein texte `by_name`, ~150 ms), avec l'API
   OFF en secours quand un produit n'existe pas (`src/convex/off.ts`,
   endpoint v1 `cgi/search.pl` : la v2 ne fait pas de recherche par nom).
+- **Pertinence** : les aliments bruts passent devant les produits de marque
+  (`src/convex/foodRanking.ts`) — la recherche remonte 150 candidats de
+  l'index plein texte puis les re-trie (correspondance exacte > famille
+  « tomates cerises » > mot entier > sous-chaîne, sans marque puis nom le
+  plus court). À niveau égal, un produit dont le nom est le préfixe mot à
+  mot d'un libellé officiel de la **table Ciqual 2025 (ANSES)** passe
+  devant — signal 100 % local : les 3 484 libellés français sont embarqués
+  dans `src/convex/ciqualNames.ts` (régénération : `node scripts/gen-ciqual.mjs`,
+  un seul téléchargement à la génération, **aucun appel réseau à la recherche**).
+- **Cohérence nutritionnelle Ciqual** : les références kcal + macros /100 g
+  (`src/convex/ciqualNutrients.ts`, même générateur) servent de garde-fou —
+  une fiche reconnue générique mais nutritionnellement aberrante (ex. une
+  « Prune » séchée vendue comme fraîche à 226 kcal/100 g, ou une « Tomate »
+  à 195 kcal) est rejetée derrière toutes les fiches cohérentes. Ciqual est
+  uniquement un signal de confiance : les données OFF ne sont jamais
+  modifiées, les fiches non reconnues ne sont pas pénalisées.
+- **Fiches de référence Ciqual (bloc « Aliments de référence »)** : dans la
+  recherche texte (cliente + coach), un bloc distinct affiche jusqu'à 3
+  fiches Ciqual pertinentes (`src/convex/ciqual.ts`, variantes d'état
+  réellement présentes : cru/cuit/bouilli/rôti…, jamais de variante
+  inventée, aucun remplissage artificiel) AU-DESSUS des produits OFF —
+  fixes en tête, hors pagination. Requête multi-mots : le premier aliment
+  est OBLIGATOIRE ("poulet cuit au four" n'exige que "poulet" ; les mots
+  suivants affinent, ils ne remplacent pas). Cliquer ouvre exactement la
+  même feuille quantité/portion qu'un produit : badge « Référence Ciqual –
+  ANSES » avec mention grise "Idéal pour un suivi précis", icône générique
+  (pas de photo), kcal/macros 100 % Ciqual. À l'ajout, le client ne
+  transmet que le libellé officiel (`ciqualLabel`) — les valeurs sont
+  résolues côté serveur (`src/convex/ciqualSource.ts`), snapshot classique
+  dans `diaryEntries` / `meals` / `mealPlanTemplates`. Additif et séparé :
+  aucune donnée OFF lue, modifiée ou fusionnée, aucune migration ; le
+  **scan code-barres reste 100 % OFF** (aucun Ciqual dans le scan).
+- **Scroll infini produits** : la recherche OFF (`searchLocal` +
+  `searchFoods`) renvoie des tranches classées de 25 (`{ items, hasMore }`,
+  args `offset`/`limit`) ; le client charge la suite via un sentinel
+  `IntersectionObserver` (~300 px avant le bas), nouvelle recherche = reset
+  de la pagination. Jamais tous les résultats d'un coup.
 - **Backend** : action `searchFoods` et journal (`src/convex/journal.ts` :
   `getDay`, `addEntry`, `updateEntryQty`, `removeEntry`, objectifs,
   `searchLocal`). BFF : `src/routes/api/journal/+server.ts`,
