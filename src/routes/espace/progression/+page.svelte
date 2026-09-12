@@ -134,11 +134,12 @@
 		detailKey = key;
 	}
 
-	/* ————— Masse grasse estimée (US Navy femme — lecture seule) —————
-	   Les points viennent du calcul CENTRALISÉ côté Convex (metrics.list) :
-	   exactement la même source que la Vision 360 du CRM. Un point n'existe
-	   que lorsqu'un MÊME relevé contient tour de taille + fessiers + tour de
-	   cou + la taille du profil — une pesée seule ne crée jamais d'estimation. */
+/* ————— Masse grasse estimée (US Navy femme — lecture seule) —————
+   Les points viennent du calcul CENTRALISÉ côté Convex (metrics.list) :
+   exactement la même source que la Vision 360 du CRM. À chaque jour où
+   une mesure est ajoutée ou modifiée, l'estimation est recalculée avec
+   les dernières valeurs connues de chaque mesure (report en avant) —
+   aucune exigence qu'elles aient été prises le même jour. */
 	const BF_COLOR = '#a855f7';
 
 	const bfRows = $derived(bodyFat);
@@ -471,7 +472,7 @@
 		<section class="mt-5 rounded-2xl border border-line bg-card shadow-sm">
 			<h2 class="border-b border-line px-4 py-3 font-display text-sm font-semibold text-ink">Historique des estimations</h2>
 			{#if bfRows.length === 0}
-				<p class="px-4 py-8 text-center text-sm text-mist">Aucune estimation pour l'instant — elle apparaîtra dès qu'un relevé de mensurations complet (taille, tour de taille, fessiers, tour de cou) est enregistré.</p>
+				<p class="px-4 py-8 text-center text-sm text-mist">Aucune estimation pour l'instant — elle apparaîtra dès que ta taille et au moins un tour de taille, fessiers ou tour de cou seront enregistrés.</p>
 			{:else}
 				<ul class="divide-y divide-line/70 px-2 py-1">
 					{#each bfRows as r (r.date)}

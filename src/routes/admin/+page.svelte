@@ -601,7 +601,8 @@
 	   SON champ sur la ligne de la date (upsert), une modification ne touche
 	   que la métrique ciblée (updateOne), une suppression ne retire que cette
 	   valeur. Le % de masse grasse est dérivé côté Convex (même source que
-	   l'espace cliente) — jamais saisi à la main. */
+	   l'espace cliente) avec les dernières valeurs connues de chaque mesure —
+	   jamais saisi à la main. */
 	type Measurement = {
 		_id: string;
 		date: string;
@@ -2379,9 +2380,9 @@
 											</li>
 										{/each}
 									</ul>
-									<p class="mt-1 text-[11px] text-mist">Calculée depuis tour de taille + fessiers + tour de cou (même date) et la taille du profil — même valeur que dans l'espace cliente.</p>
+									<p class="mt-1 text-[11px] text-mist">Calculée avec les dernières valeurs connues de tour de taille, fessiers, tour de cou et taille — même valeur que dans l'espace cliente.</p>
 								{:else}
-									<p class="mt-2 text-xs italic text-mist">Renseigne tour de taille + fessiers + tour de cou (même date) et la taille pour obtenir une estimation.</p>
+									<p class="mt-2 text-xs italic text-mist">Renseigne la taille et au moins un tour de taille, fessiers ou tour de cou pour obtenir une estimation (les autres mesures se complètent au fil des saisies).</p>
 								{/if}
 							</div>
 						{/if}

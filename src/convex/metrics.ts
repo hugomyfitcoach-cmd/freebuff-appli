@@ -48,9 +48,10 @@ const round1 = (n: number) => Math.round(n * 10) / 10;
 /* ───────────────── Masse grasse estimée (US Navy femme) ─────────────────
    SOURCE DE VÉRITÉ UNIQUE : ce calcul alimente l'espace cliente
    (Ma progression) ET le CRM (Vision 360) — les deux ne peuvent pas
-   diverger. Rien n'est stocké : chaque point d'historique est dérivé d'un
-   relevé de mensurations (tour de taille + fessiers + tour de cou, même
-   date/session) + la taille (hauteur) du profil. */
+   diverger. Rien n'est stocké : chaque point d'historique est dérivé des
+   DERNIÈRES valeurs connues des mensurations (tour de taille, fessiers,
+   tour de cou) et de la taille (hauteur) — les mesures n'ont pas besoin
+   d'avoir été prises le même jour. */
 
 const CM_PER_INCH = 2.54;
 
@@ -71,19 +72,40 @@ export function usNavyBodyFat(
 	return isFinite(pct) && pct >= 2 && pct <= 70 ? round1(pct) : null;
 }
 
-/** Historique dérivé : un point par relevé contenant les 3 mensurations. */
+/**
+ * Historique dérivé : à chaque jour où UNE mesure (taille, fessiers, cou ou
+ * hauteur) est ajoutée ou modifiée, on recalcule la masse grasse avec les
+ * DERNIÈRES valeurs connues à cette date des autres mesures (report en
+ * avant). Aucune exigence que les mesures partagent la même date : dès
+ * qu'une valeur change, un nouveau point apparaît (ou est recalculé).
+ */
 export function bodyFatSeries(
-	rows: Pick<Doc<"bodyMetrics">, "date" | "waistCm" | "hipCm" | "neckCm">[],
+	rows: Pick<Doc<"bodyMetrics">, "date" | "waistCm" | "hipCm" | "neckCm" | "heightCm">[],
 	heightCm: number | null
 ): { date: string; value: number }[] {
-	if (heightCm === null) return [];
+	const sorted = [...rows].sort((a, b) => a.date.localeCompare(b.date));
+	/* Dernières valeurs connues (report en avant) ; la hauteur part de la
+	   valeur du profil puis suit l'historique journalisé de la taille. */
+	let waist: number | undefined;
+	let hip: number | undefined;
+	let neck: number | undefined;
+	let height: number | undefined = heightCm ?? undefined;
 	const out: { date: string; value: number }[] = [];
-	for (const m of rows) {
-		if (m.waistCm === undefined || m.hipCm === undefined || m.neckCm === undefined) continue;
-		const v = usNavyBodyFat(m.waistCm, m.hipCm, m.neckCm, heightCm);
+	for (const m of sorted) {
+		/* Une ligne « poids seul » ne crée jamais de point : seules les mesures
+		   entrant dans le calcul (taille, fessiers, cou, hauteur) le déclenchent. */
+		const relevant =
+			m.waistCm !== undefined || m.hipCm !== undefined || m.neckCm !== undefined || m.heightCm !== undefined;
+		if (m.waistCm !== undefined) waist = m.waistCm;
+		if (m.hipCm !== undefined) hip = m.hipCm;
+		if (m.neckCm !== undefined) neck = m.neckCm;
+		if (m.heightCm !== undefined) height = m.heightCm;
+		if (!relevant) continue;
+		if (waist === undefined || hip === undefined || neck === undefined || height === undefined) continue;
+		const v = usNavyBodyFat(waist, hip, neck, height);
 		if (v !== null) out.push({ date: m.date, value: v });
 	}
-	return out.sort((a, b) => a.date.localeCompare(b.date));
+	return out;
 }
 
 /** Journalise la taille (cm) dans bodyMetrics — historique daté de la taille. */

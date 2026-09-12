@@ -64,7 +64,7 @@ export type MetricsShared = {
 	/** Moment (ms) de la dernière mise à jour — posé automatiquement. */
 	savedAt: number;
 	heightCm: number | null;
-	measurements: { _id: string; date: string; weightKg?: number; neckCm?: number; waistCm?: number; hipCm?: number }[];
+	measurements: { _id: string; date: string; weightKg?: number; neckCm?: number; waistCm?: number; hipCm?: number; heightCm?: number }[];
 	bodyFat: { date: string; value: number }[];
 };
 
