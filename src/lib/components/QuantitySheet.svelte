@@ -41,6 +41,8 @@
 			fat100: number;
 			servingQty?: number;
 			custom?: boolean;
+			/** Garde-fou kcal↔macros : kcal OFF incohérentes, valeur recalculée affichée. */
+			kcalRecalculated?: boolean;
 		};
 		mealDefs: readonly MealDef[];
 		initialQtyGrams: number;
@@ -150,6 +152,10 @@
 				<p class="text-xs text-mist">
 					{fmtQty(food.kcal100)} kcal pour 100 g{#if hasServing} · 1 portion = {fmtQty(servingQty)} g{/if}
 				</p>
+				{#if food.kcalRecalculated}
+					<!-- Garde-fou kcal↔macros : kcal OFF aberrantes → calculées depuis les macros. -->
+					<span class="mt-0.5 inline-block rounded-full bg-line/70 px-2 py-0.5 text-[9px] font-semibold tracking-wide text-mist">Valeur recalculée</span>
+				{/if}
 				{#if source === 'ciqual'}
 					<span class="mt-0.5 inline-flex items-center gap-1 rounded-full bg-brand-light px-2 py-0.5 text-[10px] font-bold text-brand">Référence Ciqual – ANSES</span>
 					<p class="mt-0.5 text-xs text-mist">Idéal pour un suivi précis</p>

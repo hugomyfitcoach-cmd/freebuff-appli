@@ -38,6 +38,8 @@ async function requireClient(ctx: Pick<QueryCtx, "db">, sessionToken: string | u
 	return user;
 }
 
+import { guardedKcal100 } from "../lib/nutritionGuard";
+
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
 /* ─────────────────────────── Repas personnalisés ─────────────────────────── */
@@ -115,6 +117,11 @@ async function buildMealData(
 			food = f;
 		}
 		if (!food) throw new ConvexError("Ingrédient invalide : aliment introuvable.");
+		// Garde-fou kcal ↔ macros (lecture seule) : kcal OFF aberrantes → théoriques
+		// au snapshot ; la fiche en base n'est jamais modifiée. Ciqual (officielle)
+		// et aliments personnels (étiquette saisie) ne passent JAMAIS par le
+		// garde-fou — le 4/4/9 y serait trompeur (vins Ciqual, produits allégés).
+		const kcal100 = ciqualFood || ing.customFoodId ? food.kcal100 : guardedKcal100(food);
 		const k = ing.qtyGrams / 100;
 		const row = {
 			foodId: ciqualFood ? undefined : (ing.foodId ?? undefined),
@@ -124,7 +131,7 @@ async function buildMealData(
 			brand: food.brand,
 			imageUrl: food.imageUrl,
 			qtyGrams: ing.qtyGrams,
-			kcal: Math.round(food.kcal100 * k),
+			kcal: Math.round(kcal100 * k),
 			carbs: round1(food.carbs100 * k),
 			protein: round1(food.protein100 * k),
 			fat: round1(food.fat100 * k),
@@ -358,8 +365,11 @@ export const listFavorites = query({
 			.query("favorites")
 			.withIndex("by_user", (q) => q.eq("userId", user._id))
 			.order("desc")
-			.collect();
-		const foods = await Promise.all(rows.map((r) => ctx.db.get(r.foodId)));
-		return foods.filter((f): f is Doc<"foods"> => f !== null);
-	},
+			.collect();	const foods = await Promise.all(rows.map((r) => ctx.db.get(r.foodId)));
+	// Garde-fou kcal ↔ macros (lecture seule) : kcal aberrantes corrigées à la
+	// volée, jamais en base.
+	return foods
+		.filter((f): f is Doc<"foods"> => f !== null)
+		.map((f) => ({ ...f, kcal100: guardedKcal100(f) }));
+},
 });

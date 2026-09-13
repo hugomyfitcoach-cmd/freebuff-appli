@@ -476,6 +476,8 @@
 		carbs100: number;
 		protein100: number;
 		fat100: number;
+		/** Garde-fou kcal↔macros : kcal OFF incohérentes, valeur recalculée affichée. */
+		kcalRecalculated?: boolean;
 		imageUrl?: string;
 		/** Fiche de RÉFÉRENCE Ciqual (ANSES) — _id = libellé officiel exact. */
 		ciqual?: boolean;
@@ -2382,7 +2384,7 @@
 											{/if}
 											<div class="min-w-0 flex-1">
 												<div class="truncate text-sm font-semibold text-ink">{hit.name}</div>
-												<div class="text-[11px] text-mist">{hit.kcal100} kcal/100 g{hit.brand ? ` · ${hit.brand}` : ''}</div>
+												<div class="text-[11px] text-mist">{hit.kcal100} kcal/100 g{#if hit.kcalRecalculated}<span class="ml-1 rounded bg-line/70 px-1 py-px text-[9px] font-semibold text-mist">Valeur recalculée</span>{/if}{hit.brand ? ` · ${hit.brand}` : ''}</div>
 											</div>
 											<span class="text-brand">＋</span>
 										</button>

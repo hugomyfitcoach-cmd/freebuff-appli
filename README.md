@@ -230,6 +230,24 @@ Tracking de calories fidèle à l'appli de référence (FR) :
   dans `diaryEntries` / `meals` / `mealPlanTemplates`. Additif et séparé :
   aucune donnée OFF lue, modifiée ou fusionnée, aucune migration ; le
   **scan code-barres reste 100 % OFF** (aucun Ciqual dans le scan).
+- **Garde-fou kcal ↔ macros (produits OFF)** : à la lecture d'une fiche OFF
+  (recherche, scan, favoris, fréquent, plan, repas, snapshot d'entrée), les kcal
+  théoriques « protéines×4 + glucides×4 + lipides×9 » sont comparées aux kcal
+  OFF ; si l'écart dépasse **À LA FOIS 25 % ET 30 kcal/100 g**, la valeur
+  recalculée est utilisée pour l'affichage et le tracking, avec la mention
+  discrète « Valeur recalculée ». Le calcul intègre les composés à coefficient
+  ≠ 4 quand la fiche les fournit (fibres +2 kcal/g, petits polyols +2,4,
+  alcool 7 kcal/g converti du % vol) et ne recalcule JAMAIS automatiquement les
+  familles où le 4/4/9 est trompeur : polyols ≥ 5 g/100 g (coefficient réel
+  0–3), boissons alcoolisées et vinaigres sans champ alcool OFF (reconnus au
+  libellé : catégorie, appellation/cépage type « Bordeaux », « Merlot », degré
+  « 5 % vol » — les recettes type « sauce au vin » ou « gâteau au rhum »
+  restent éligibles). Ciqual et aliments personnels ne passent jamais par le
+  garde-fou.
+  `src/lib/nutritionGuard.ts` (pur, partagé client/serveur) ; la donnée OFF en
+  base n'est jamais modifiée (trois colonnes optionnelles `fiber100`,
+  `polyols100`, `alcohol100` ajoutées au cache, sans migration), et les entrées
+  déjà enregistrées ne sont jamais réécrites.
 - **Scroll infini produits** : la recherche OFF (`searchLocal` +
   `searchFoods`) renvoie des tranches classées de 25 (`{ items, hasMore }`,
   args `offset`/`limit`) ; le client charge la suite via un sentinel

@@ -67,6 +67,8 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 		carbs100: number;
 		protein100: number;
 		fat100: number;
+		/** Garde-fou kcal↔macros : kcal OFF incohérentes, valeur recalculée affichée. */
+		kcalRecalculated?: boolean;
 		imageUrl?: string;
 		servingQty?: number;
 		/** Aliment personnel créé par le client (base « Créés par moi »). */
@@ -1820,7 +1822,7 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 					{#if !food.custom}<span class="shrink-0 text-[9px] font-bold text-brand" title="Vérifié Open Food Facts">✓</span>{/if}
 				</span>
 				<span class="block text-[12px] text-mist tabular-nums">
-					<strong class="font-bold text-brand">{fmt(food.kcal100)} kcal</strong> · 100 g{#if food.brand && food.brand !== 'null'} · {food.brand}{/if}
+					<strong class="font-bold text-brand">{fmt(food.kcal100)} kcal</strong> · 100 g{#if food.kcalRecalculated}<span class="ml-1 rounded bg-line/70 px-1 py-px text-[9px] font-semibold text-mist">Valeur recalculée</span>{/if}{#if food.brand && food.brand !== 'null'} · {food.brand}{/if}
 				</span>
 			</span>
 		</button>
@@ -1936,10 +1938,10 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 														{:else}
 															<div class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={18} class="text-brand" /></div>
 														{/if}
-											<span class="min-w-0 flex-1">
-												<span class="block truncate text-xs font-semibold text-ink">{it.food.name}</span>
-												<span class="block text-[11px] text-mist">{fmt(Math.round((it.food.kcal100 * it.qty) / 100))} kcal</span>
-											</span>
+							<span class="min-w-0 flex-1">
+								<span class="block truncate text-xs font-semibold text-ink">{it.food.name}</span>
+								<span class="block text-[11px] text-mist">{fmt(Math.round((it.food.kcal100 * it.qty) / 100))} kcal{#if it.food.kcalRecalculated}<span class="ml-1 rounded bg-line/70 px-1 py-px text-[9px] font-semibold text-mist">Valeur recalculée</span>{/if}</span>
+							</span>
 											<span class="shrink-0 text-sm font-bold text-brand">{fmt(it.qty)} g</span>
 											<Icon name="chevronRight" size={16} class="shrink-0 text-mist" />
 										</li>
@@ -2323,8 +2325,8 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 												<div class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={18} class="text-brand" /></div>
 											{/if}
 											<span class="min-w-0 flex-1">
-												<span class="block truncate text-sm font-semibold text-ink">{food.name}</span>
-												<span class="block text-xs text-mist"><strong class="font-bold text-brand">{fmt(food.kcal100)} kcal</strong> / 100 g{#if food.brand} · {food.brand}{/if}</span>
+										<span class="block truncate text-sm font-semibold text-ink">{food.name}</span>
+										<span class="block text-xs text-mist"><strong class="font-bold text-brand">{fmt(food.kcal100)} kcal</strong> / 100 g{#if food.kcalRecalculated}<span class="ml-1 rounded bg-line/70 px-1 py-px text-[9px] font-semibold text-mist">Valeur recalculée</span>{/if}{#if food.brand} · {food.brand}{/if}</span>
 											</span>
 											<span class="text-brand">＋</span>
 										</button>

@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { getSessionUser } from "./helpers";
 import { ciqualFoodSource } from "./ciqualSource";
+import { applyKcalGuard } from "../lib/nutritionGuard";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Id, Doc } from "./_generated/dataModel";
 
@@ -102,7 +103,10 @@ async function resolveItemFood(
 	if (foodId) {
 		const f = await ctx.db.get(foodId);
 		if (!f) throw new ConvexError("Un aliment du plan n'existe plus dans la base.");
-		return { name: f.name, brand: f.brand, imageUrl: f.imageUrl, kcal100: f.kcal100, carbs100: f.carbs100, protein100: f.protein100, fat100: f.fat100 };
+		// Garde-fou kcal ↔ macros (lecture seule) : kcal OFF aberrantes → théoriques,
+		// sans jamais modifier la fiche en base.
+		const kcal100 = applyKcalGuard(f).kcal100;
+		return { name: f.name, brand: f.brand, imageUrl: f.imageUrl, kcal100, carbs100: f.carbs100, protein100: f.protein100, fat100: f.fat100 };
 	}
 	if (customFoodId) {
 		const f = await ctx.db.get(customFoodId);

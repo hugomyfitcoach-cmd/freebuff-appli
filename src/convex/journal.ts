@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { getSessionUser } from "./helpers";
 import { FOOD_SEARCH_CANDIDATES, rankFoods } from "./foodRanking";
+import { applyKcalGuard, guardedKcal100, kcalNeedsRecalc } from "../lib/nutritionGuard";
 import { resolveCoachPlanForDate } from "./mealPlans";
 import { ciqualFoodSource } from "./ciqualSource";
 import type { QueryCtx } from "./_generated/server";
@@ -163,10 +164,11 @@ export const addEntryForCoach = mutation({
 			name = food.name;
 			brand = food.brand;
 			imageUrl = food.imageUrl;
-			kcal100 = food.kcal100;
-			carbs100 = food.carbs100;
-			protein100 = food.protein100;
-			fat100 = food.fat100;
+			const g = guardedFood100(food);
+			kcal100 = g.kcal100;
+			carbs100 = g.carbs100;
+			protein100 = g.protein100;
+			fat100 = g.fat100;
 		}
 
 		const k = qtyGrams / 100;
@@ -236,6 +238,21 @@ export const removeEntryForCoach = mutation({
 	},
 });
 
+/**
+ * Garde-fou kcal ↔ macros (lecture seule) appliqué à une fiche OFF avant
+ * snapshot dans le journal : si les kcal s'écartent trop des macros
+ * (25 % ET 30 kcal/100 g), on enregistre les kcal théoriques — la donnée OFF
+ * en base n'est jamais modifiée.
+ */
+function guardedFood100(food: Doc<"foods">): { kcal100: number; carbs100: number; protein100: number; fat100: number } {
+	return {
+		kcal100: guardedKcal100(food),
+		carbs100: food.carbs100,
+		protein100: food.protein100,
+		fat100: food.fat100,
+	};
+}
+
 /* ─────────────────────────── Queries du journal ─────────────────────────── */
 
 /** Résultat de recherche unifié : aliment de la base OFF ou aliment personnel. */
@@ -249,19 +266,25 @@ export type FoodHit = {
 	carbs100: number;
 	protein100: number;
 	fat100: number;
+	/** Garde-fou kcal↔macros : kcal OFF incohérentes, valeur théorique affichée. */
+	kcalRecalculated?: boolean;
 	imageUrl?: string;
 	servingQty?: number;
 	servingUnit?: string;
 };
 
 export function toHit(f: Doc<"foods">): FoodHit {
+	// Garde-fou kcal ↔ macros (lecture seule) : les kcal aberrantes d'une fiche
+	// OFF sont remplacées par les kcal théoriques macros — sans toucher la base.
+	const g = applyKcalGuard(f);
 	return {
 		_id: f._id,
 		custom: false,
 		offId: f.offId,
 		name: f.name,
 		brand: f.brand,
-		kcal100: f.kcal100,
+		kcal100: g.kcal100,
+		kcalRecalculated: g.kcalRecalculated || undefined,
 		carbs100: f.carbs100,
 		protein100: f.protein100,
 		fat100: f.fat100,
@@ -348,12 +371,14 @@ export const foodByBarcode = query({
 		await requireClient(ctx, sessionToken);
 		const code = barcode.replace(/\D/g, "");
 		if (!code) return null;
-		return (
-			(await ctx.db
-				.query("foods")
-				.withIndex("by_offId", (q) => q.eq("offId", code))
-				.first()) ?? null
-		);
+		const food = await ctx.db
+			.query("foods")
+			.withIndex("by_offId", (q) => q.eq("offId", code))
+			.first();
+		if (!food) return null;
+		// Garde-fou kcal ↔ macros (lecture seule) : la fiche en base reste intacte,
+		// seules les kcal servies au client peuvent être recalculées.
+		return { ...food, kcal100: guardedKcal100(food), kcalRecalculated: kcalNeedsRecalc(food) || undefined };
 	},
 });
 
@@ -363,7 +388,9 @@ export const foodsByIds = query({
 	handler: async (ctx, { sessionToken, ids }) => {
 		await requireClient(ctx, sessionToken);
 		const foods = await Promise.all(ids.map((id) => ctx.db.get(id)));
-		return foods.filter((f): f is Doc<"foods"> => f !== null);
+		return foods
+			.filter((f): f is Doc<"foods"> => f !== null)
+			.map((f) => ({ ...f, kcal100: guardedKcal100(f), kcalRecalculated: kcalNeedsRecalc(f) || undefined }));
 	},
 });
 
@@ -380,6 +407,11 @@ export const cacheFoods = mutation({
 				carbs100: v.number(),
 				protein100: v.number(),
 				fat100: v.number(),
+				// Composés à coefficient kcal ≠ 4 — nécessaires au garde-fou
+				// kcal↔macros lors des lectures suivantes (sinon perdus au cache).
+				fiber100: v.optional(v.number()),
+				polyols100: v.optional(v.number()),
+				alcohol100: v.optional(v.number()),
 				imageUrl: v.optional(v.string()),
 				servingQty: v.optional(v.number()),
 				servingUnit: v.optional(v.string()),
@@ -689,10 +721,11 @@ export const addEntry = mutation({
 			name = food.name;
 			brand = food.brand;
 			imageUrl = food.imageUrl;
-			kcal100 = food.kcal100;
-			carbs100 = food.carbs100;
-			protein100 = food.protein100;
-			fat100 = food.fat100;
+			const g = guardedFood100(food);
+			kcal100 = g.kcal100;
+			carbs100 = g.carbs100;
+			protein100 = g.protein100;
+			fat100 = g.fat100;
 		} else if (customFoodId) {
 			const food = await ctx.db.get(customFoodId);
 			if (!food) throw new ConvexError("Cet aliment n'existe plus dans ta base.");
@@ -971,10 +1004,11 @@ export const replacePlanned = mutation({
 			name = food.name;
 			brand = food.brand;
 			imageUrl = food.imageUrl;
-			kcal100 = food.kcal100;
-			carbs100 = food.carbs100;
-			protein100 = food.protein100;
-			fat100 = food.fat100;
+			const g = guardedFood100(food);
+			kcal100 = g.kcal100;
+			carbs100 = g.carbs100;
+			protein100 = g.protein100;
+			fat100 = g.fat100;
 		} else if (customFoodId) {
 			const food = await ctx.db.get(customFoodId);
 			if (!food || food.userId !== user._id) throw new ConvexError("Cet aliment ne t'appartient pas.");

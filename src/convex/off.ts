@@ -4,6 +4,7 @@ import { api } from "./_generated/api";
 import type { Id, Doc } from "./_generated/dataModel";
 import type { FoodHit } from "./journal";
 import { rankFoods } from "./foodRanking";
+import { applyKcalGuard } from "../lib/nutritionGuard";
 
 /**
  * Recherche Open Food Facts (action).
@@ -25,6 +26,12 @@ type OffProduct = {
 		"carbohydrates_100g"?: number;
 		"proteins_100g"?: number;
 		"fat_100g"?: number;
+		// Composés à coefficient kcal ≠ 4 (garde-fou kcal↔macros) : fibres 2,
+		// polyols 0–3, alcool 7 kcal/g — présents sur les fiches complètes.
+		"fiber_100g"?: number;
+		"polyols_100g"?: number;
+		// Convention OFF : % vol (ex. vin 12,5 → « 12.5 »).
+		"alcohol_100g"?: number;
 	};
 };
 
@@ -48,6 +55,9 @@ function parseProducts(products: OffProduct[] | undefined) {
 		carbs100: number;
 		protein100: number;
 		fat100: number;
+		fiber100?: number;
+		polyols100?: number;
+		alcohol100?: number;
 		imageUrl?: string;
 		servingQty?: number;
 		servingUnit?: string;
@@ -56,16 +66,21 @@ function parseProducts(products: OffProduct[] | undefined) {
 		if (!p.code || !p.product_name) continue;
 		const kcal = p.nutriments?.["energy-kcal_100g"];
 		if (typeof kcal !== "number" || !isFinite(kcal) || kcal <= 0) continue;
-		const round1 = (n: number | undefined) => (typeof n === "number" && isFinite(n) ? Math.round(n * 10) / 10 : 0);
+		const round1 = (n: number | undefined) => (typeof n === "number" && isFinite(n) && n > 0 ? Math.round(n * 10) / 10 : undefined);
 		const qty = p.serving_quantity && isFinite(p.serving_quantity) ? p.serving_quantity : null;
 		out.push({
 			offId: p.code,
 			name: p.product_name.trim(),
 			brand: p.brands?.trim() ? p.brands.trim() : undefined,
 			kcal100: Math.round(kcal),
-			carbs100: round1(p.nutriments?.["carbohydrates_100g"]),
-			protein100: round1(p.nutriments?.["proteins_100g"]),
-			fat100: round1(p.nutriments?.["fat_100g"]),
+			carbs100: round1(p.nutriments?.["carbohydrates_100g"]) ?? 0,
+			protein100: round1(p.nutriments?.["proteins_100g"]) ?? 0,
+			fat100: round1(p.nutriments?.["fat_100g"]) ?? 0,
+			// Gardés pour le garde-fou kcal↔macros (jamais affichés) : fibres,
+			// polyols, alcool — n'entrent ni dans les macros ni dans les totaux.
+			fiber100: round1(p.nutriments?.["fiber_100g"]),
+			polyols100: round1(p.nutriments?.["polyols_100g"]),
+			alcohol100: round1(p.nutriments?.["alcohol_100g"]),
 			imageUrl: p.image_front_small_url || undefined,
 			servingQty: qty ?? undefined,
 			servingUnit: p.quantity ? "g" : undefined,
@@ -207,21 +222,27 @@ export const searchFoods = action({
 			const ids: Id<"foods">[] = await ctx.runMutation(api.journal.cacheFoods, { sessionToken, products });
 			const foods = await ctx.runQuery(api.journal.foodsByIds, { sessionToken, ids });
 			// Re-tri identique à la recherche locale : aliments bruts d'abord.
+			// Garde-fou kcal ↔ macros (lecture seule) : kcal aberrantes → théoriques,
+			// la fiche fraîchement mise en cache reste intacte en base.
 			const items = rankFoods(
-				foods.map((f) => ({
-					_id: f._id,
-					custom: false,
-					offId: f.offId,
-					name: f.name,
-					brand: f.brand,
-					kcal100: f.kcal100,
-					carbs100: f.carbs100,
-					protein100: f.protein100,
-					fat100: f.fat100,
-					imageUrl: f.imageUrl,
-					servingQty: f.servingQty,
-					servingUnit: f.servingUnit,
-				})),
+				foods.map((f) => {
+					const g = applyKcalGuard(f);
+					return {
+						_id: f._id,
+						custom: false,
+						offId: f.offId,
+						name: f.name,
+						brand: f.brand,
+						kcal100: g.kcal100,
+						kcalRecalculated: g.kcalRecalculated || undefined,
+						carbs100: f.carbs100,
+						protein100: f.protein100,
+						fat100: f.fat100,
+						imageUrl: f.imageUrl,
+						servingQty: f.servingQty,
+						servingUnit: f.servingUnit,
+					};
+				}),
 				q
 			).slice(0, limit);
 			return { items, hasMore: false };

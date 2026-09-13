@@ -146,6 +146,11 @@ export default defineSchema({
 		carbs100: v.number(),
 		protein100: v.number(),
 		fat100: v.number(),
+		/** Composés à coefficient kcal ≠ 4 — garde-fou kcal↔macros (jamais affichés). */
+		fiber100: v.optional(v.number()),
+		polyols100: v.optional(v.number()),
+		/** Alcool /100 g — convention OFF : % vol. */
+		alcohol100: v.optional(v.number()),
 		imageUrl: v.optional(v.string()),
 		/** Portion suggérée par OFF (g/ml), quand elle existe. */
 		servingQty: v.optional(v.number()),
