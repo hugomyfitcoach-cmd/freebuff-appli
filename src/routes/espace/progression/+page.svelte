@@ -6,6 +6,7 @@
 	import MetricTrend from '../../../lib/components/MetricTrend.svelte';
 	import BackToHome from '../../../lib/components/BackToHome.svelte';
 	import Icon from '../../../lib/components/Icon.svelte';
+	import { KEY_MEASURES, MEASURE_IMAGES, MEASURE_TIPS, PHOTO_EXAMPLES, PHOTO_PROTOCOL } from '../../../lib/data/guide';
 
 	type Metric = MetricKey;
 	type Group = 'weight' | 'mensurations';
@@ -146,6 +147,15 @@
 	const bfLast = $derived(bodyFat.length ? bodyFat[bodyFat.length - 1].value : null);
 	const bfDelta = $derived(delta(bodyFat));
 	let bfDetail = $state(false);
+
+	/* ————— Guide « Mesures & photos » (pédagogique, lecture seule) ————— */
+	let guideOpen = $state(false);
+	function openGuide() {
+		guideOpen = true;
+		/* Le DOM se met à jour après le flush Svelte : on remonte en haut une
+		   fois la vue guide montée (même logique que restoreScroll). */
+		setTimeout(() => window.scrollTo(0, 0), 0);
+	}
 
 	/* ————— Feuilles d'enregistrement (poids seul / mensurations groupées) ————— */
 	let logType = $state<Group | null>(null);
@@ -486,6 +496,109 @@
 			{/if}
 		</section>
 	</div>
+	{:else if guideOpen}
+	<!-- ═══════════ Vue guide : Comment bien prendre mes mesures & mes photos (lecture seule) ═══════════ -->
+	<div class="mx-auto w-full max-w-xl px-4 pb-28 sm:px-6">
+		<div class="mb-3 flex items-center gap-1 text-sm font-semibold text-mist">
+			<button type="button" class="flex min-h-9 items-center gap-1 rounded-lg pr-2 transition hover:text-ink" onclick={() => (guideOpen = false)}><Icon name="chevronLeft" size={16} /> Retour</button>
+			<span class="text-mist/50" aria-hidden="true">·</span>
+			<a href="/espace" class="flex min-h-9 items-center gap-1 rounded-lg px-1 transition hover:text-ink"><Icon name="arrowLeft" size={16} /> Accueil</a>
+		</div>
+		<h1 class="font-display text-2xl font-semibold text-ink">Bien prendre tes mesures &amp; tes photos</h1>
+		<p class="mt-1 text-sm text-mist">Le guide complet — à lire avant ta première prise, puis à chaque semaine de suivi.</p>
+
+		<!-- Mensurations : les 3 mesures clés -->
+		<section class="mt-5 rounded-2xl border border-line bg-card shadow-sm">
+			<h2 class="flex items-center gap-2 border-b border-line px-4 py-3 font-display text-sm font-semibold text-ink">
+				<Icon name="ruler" size={16} class="text-brand" />
+				Les 3 mesures clés
+				<span class="ml-auto rounded-full bg-brand-light px-2 py-0.5 text-[11px] font-bold text-brand-dark">Essentiel</span>
+			</h2>
+			<ul class="divide-y divide-line/70">
+				{#each KEY_MEASURES as m (m.key)}
+					<li class="px-4 py-3">
+						<p class="text-sm font-semibold text-ink">{m.name}</p>
+						<p class="mt-0.5 text-xs text-mist">{m.how}</p>
+					</li>
+				{/each}
+			</ul>
+			<div class="px-4 pb-4">
+				<div class="flex items-start gap-1.5 rounded-xl bg-brand-light/40 px-3 py-2.5 text-xs leading-relaxed text-ink">
+					<Icon name="lightbulb" size={13} class="mt-0.5 shrink-0" />
+					<span>Ces 3 mesures alimentent la <strong>formule US Navy</strong> pour estimer ton taux de masse grasse chaque semaine.</span>
+				</div>
+			</div>
+		</section>
+
+		<!-- Visuels : points de mesure + technique mètre ruban -->
+		<section class="mt-4 rounded-2xl border border-line bg-card p-3 shadow-sm">
+			{#each MEASURE_IMAGES as img (img.alt)}
+				<figure class="mb-3 last:mb-0">
+					<img src={img.src} alt={img.alt} loading="lazy" class="w-full rounded-xl border border-line" />
+					<figcaption class="mt-1.5 px-1 text-center text-xs text-mist">{img.caption}</figcaption>
+				</figure>
+			{/each}
+		</section>
+
+		<!-- Conseils pour bien mesurer -->
+		<section class="mt-4 rounded-2xl border border-warn/30 bg-warn-light p-4 shadow-sm">
+			<h2 class="flex items-center gap-2 font-display text-sm font-semibold text-ink">
+				<Icon name="triangleAlert" size={16} class="text-warn" />
+				Conseils pour bien mesurer
+			</h2>
+			<ul class="mt-2.5 space-y-1.5">
+				{#each MEASURE_TIPS as tip (tip.strong)}
+					<li class="flex items-start gap-1.5 text-sm leading-relaxed text-ink">
+						<span class="mt-2 h-1 w-1 shrink-0 rounded-full bg-warn" aria-hidden="true"></span>
+						<span><strong>{tip.strong}</strong>{tip.rest}</span>
+					</li>
+				{/each}
+			</ul>
+		</section>
+
+		<!-- Photos : pourquoi c'est essentiel -->
+		<section class="mt-5 rounded-2xl border border-line bg-card shadow-sm">
+			<h2 class="flex items-center gap-2 border-b border-line px-4 py-3 font-display text-sm font-semibold text-ink">
+				<Icon name="camera" size={16} class="text-brand" />
+				Les photos avant
+			</h2>
+			<p class="px-4 py-3 text-sm leading-relaxed text-ink">La balance ne dit pas tout. Les photos <strong>révèlent ce que les chiffres cachent</strong> — et beaucoup regrettent de ne pas en avoir pris au départ.</p>
+		</section>
+
+		<!-- Exemple : face · profil · dos -->
+		<section class="mt-4 rounded-2xl border border-line bg-card p-3 shadow-sm">
+			<h2 class="px-1 pb-2 text-[11px] font-bold uppercase tracking-wide text-mist">Exemple · face · profil · dos</h2>
+			<div class="grid grid-cols-3 gap-2">
+				{#each PHOTO_EXAMPLES as p (p.label)}
+					<figure>
+						<img src={p.src} alt={p.alt} loading="lazy" class="aspect-[5/12] w-full rounded-xl border border-line object-cover object-top" />
+						<figcaption class="mt-1 text-center text-xs font-semibold text-ink">{p.label}</figcaption>
+					</figure>
+				{/each}
+			</div>
+			<p class="mt-2 px-1 text-xs text-mist">↑ Feuille A4 avec prénom + date + « G-Flux » · position naturelle sans rentrer le ventre.</p>
+		</section>
+
+		<!-- Protocole photos -->
+		<section class="mt-4 rounded-2xl border border-line bg-card shadow-sm">
+			<h2 class="flex items-center gap-2 border-b border-line px-4 py-3 font-display text-sm font-semibold text-ink">
+				<Icon name="listChecks" size={16} class="text-brand" />
+				Protocole photos
+				<span class="ml-auto rounded-full bg-warn-light px-2 py-0.5 text-[11px] font-bold text-warn">Important</span>
+			</h2>
+			<ol class="divide-y divide-line/70">
+				{#each PHOTO_PROTOCOL as step, i (step.title)}
+					<li class="flex items-start gap-3 px-4 py-3">
+						<span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand-light text-xs font-bold text-brand-dark">{i + 1}</span>
+						<div>
+							<p class="text-sm font-semibold text-ink">{step.title}</p>
+							<p class="mt-0.5 text-xs leading-relaxed text-mist">{step.desc}</p>
+						</div>
+					</li>
+				{/each}
+			</ol>
+		</section>
+	</div>
 	{:else}
 	<!-- ═══════════ Vue principale ═══════════ -->
 	<div class="mx-auto w-full max-w-xl px-4 pb-28 sm:px-6">
@@ -619,6 +732,21 @@
 				<span class="text-lg text-mist">›</span>
 			</a>
 			<p class="mt-2 text-xs text-mist">Une série de photos par mois, pour voir les changements invisibles sur la balance. Une fois tes photos envoyées à chaque évolution, ton coach t'enverra la comparaison avant-après.</p>
+		</section>
+
+		<!-- Guide pédagogique : comment bien prendre ses mesures & ses photos (lecture seule) -->
+		<section class="mt-4 rounded-2xl border border-line bg-card p-4 shadow-sm">
+			<button type="button" class="flex w-full items-center justify-between gap-3 text-left" onclick={openGuide}>
+				<div class="flex items-center gap-3">
+					<div class="grid h-11 w-11 place-items-center rounded-xl bg-brand-light"><Icon name="ruler" size={22} class="text-brand" /></div>
+					<div>
+						<p class="text-[11px] font-bold uppercase tracking-wide text-mist">Le guide</p>
+						<p class="font-display text-lg font-semibold text-ink">Comment bien prendre mes mesures &amp; mes photos</p>
+					</div>
+				</div>
+				<span class="text-lg text-mist">›</span>
+			</button>
+			<p class="mt-2 text-xs text-mist">Points de mesure, technique du mètre ruban et protocole photos — tout ce qu'il faut pour des données fiables.</p>
 		</section>
 	</div>
 {/if}
