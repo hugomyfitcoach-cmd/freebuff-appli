@@ -12,7 +12,7 @@
 
 	const METRIC_META: { key: Metric; label: string; sub: string; unit: string; icon: string; color: string; group: Group }[] = [
 		{ key: 'weightKg', label: 'POIDS', sub: 'Poids', unit: 'kg', icon: 'scale', color: '#1db954', group: 'weight' },
-		{ key: 'waistCm', label: 'TOUR DE TAILLE', sub: 'Partie la plus fine', unit: 'cm', icon: 'ruler', color: '#f97316', group: 'mensurations' },
+		{ key: 'waistCm', label: 'TOUR DE TAILLE FINE', sub: 'Partie la plus fine', unit: 'cm', icon: 'ruler', color: '#f97316', group: 'mensurations' },
 		{ key: 'hipCm', label: 'FESSIERS', sub: 'Circonférence', unit: 'cm', icon: 'ruler', color: '#ec4899', group: 'mensurations' },
 		{ key: 'neckCm', label: 'TOUR DE COU', sub: 'Circonférence', unit: 'cm', icon: 'ruler', color: '#3b82f6', group: 'mensurations' },
 	];
@@ -472,7 +472,7 @@
 		<section class="mt-5 rounded-2xl border border-line bg-card shadow-sm">
 			<h2 class="border-b border-line px-4 py-3 font-display text-sm font-semibold text-ink">Historique des estimations</h2>
 			{#if bfRows.length === 0}
-				<p class="px-4 py-8 text-center text-sm text-mist">Aucune estimation pour l'instant — elle apparaîtra dès que ta taille et au moins un tour de taille, fessiers ou tour de cou seront enregistrés.</p>
+				<p class="px-4 py-8 text-center text-sm text-mist">Aucune estimation pour l'instant — elle apparaîtra dès que ta taille et au moins un tour de taille fine, fessiers ou tour de cou seront enregistrés.</p>
 			{:else}
 				<ul class="divide-y divide-line/70 px-2 py-1">
 					{#each bfRows as r (r.date)}
@@ -596,7 +596,7 @@
 			{:else}
 				<div class="px-3 pt-2">
 					<div class="rounded-xl border-2 border-dashed border-line px-4 py-8 text-center">
-						<p class="text-sm text-mist">Renseigne ta taille et tes mensurations (tour de taille, fessiers, tour de cou) pour obtenir ton estimation.</p>
+						<p class="text-sm text-mist">Renseigne ta taille et tes mensurations (tour de taille fine, fessiers, tour de cou) pour obtenir ton estimation.</p>
 					</div>
 				</div>
 				<p class="mt-2 flex items-start gap-1.5 border-t border-line px-4 py-3 text-xs text-mist"><Icon name="lightbulb" size={13} class="mt-0.5 shrink-0" /> <span>Estimation indicative — méthode US Navy, calculée automatiquement.</span></p>
@@ -677,7 +677,7 @@
 				<label class="rounded-xl border-2 border-line bg-white p-3">
 					<div class="flex items-center gap-2">
 						<Icon name="ruler" size={18} class="shrink-0 text-brand" />
-						<span class="min-w-0 flex-1 text-sm font-semibold text-ink">Tour de taille</span>
+						<span class="min-w-0 flex-1 text-sm font-semibold text-ink">Tour de taille fine</span>
 						<div class="w-24 text-center">
 							<input type="text" inputmode="decimal" class="w-full bg-transparent text-center font-display text-xl font-semibold text-ink outline-none" placeholder="—" bind:value={mWaist} />
 						</div>

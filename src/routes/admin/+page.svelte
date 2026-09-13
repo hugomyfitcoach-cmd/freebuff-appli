@@ -640,7 +640,7 @@
 	type BodyMetricKey = 'weightKg' | 'waistCm' | 'hipCm' | 'neckCm';
 	const BODY_METRICS: { key: BodyMetricKey; label: string; unit: string; icon: string; color: string; min: number; max: number }[] = [
 		{ key: 'weightKg', label: 'Poids', unit: 'kg', icon: 'scale', color: '#1db954', min: 30, max: 350 },
-		{ key: 'waistCm', label: 'Tour de taille', unit: 'cm', icon: 'ruler', color: '#f97316', min: 40, max: 250 },
+		{ key: 'waistCm', label: 'Tour de taille fine', unit: 'cm', icon: 'ruler', color: '#f97316', min: 40, max: 250 },
 		{ key: 'hipCm', label: 'Fessiers', unit: 'cm', icon: 'ruler', color: '#ec4899', min: 50, max: 300 },
 		{ key: 'neckCm', label: 'Tour de cou', unit: 'cm', icon: 'ruler', color: '#3b82f6', min: 20, max: 80 },
 	];
@@ -1796,7 +1796,7 @@
 						<div class="mt-1 grid grid-cols-3 gap-2 text-center">
 							<div>
 								<div class="font-display text-lg font-semibold text-ink">{latestAny.waistCm != null ? fmtCm(latestAny.waistCm.value) : '—'}</div>
-								<div class="text-[10px] text-mist">taille</div>
+								<div class="text-[10px] text-mist">taille fine</div>
 							</div>
 							<div>
 								<div class="font-display text-lg font-semibold text-ink">{latestAny.hipCm != null ? fmtCm(latestAny.hipCm.value) : '—'}</div>
@@ -2642,9 +2642,9 @@
 											</li>
 										{/each}
 									</ul>
-									<p class="mt-1 text-[11px] text-mist">Calculée avec les dernières valeurs connues de tour de taille, fessiers, tour de cou et taille — même valeur que dans l'espace cliente.</p>
+									<p class="mt-1 text-[11px] text-mist">Calculée avec les dernières valeurs connues de tour de taille fine, fessiers, tour de cou et taille — même valeur que dans l'espace cliente.</p>
 								{:else}
-									<p class="mt-2 text-xs italic text-mist">Renseigne la taille et au moins un tour de taille, fessiers ou tour de cou pour obtenir une estimation (les autres mesures se complètent au fil des saisies).</p>
+									<p class="mt-2 text-xs italic text-mist">Renseigne la taille et au moins un tour de taille fine, fessiers ou tour de cou pour obtenir une estimation (les autres mesures se complètent au fil des saisies).</p>
 								{/if}
 							</div>
 						{/if}
@@ -2736,7 +2736,7 @@
 										</div>
 									</div>
 								{:else}
-									<p class="mt-2 text-xs italic text-mist">Aucune estimation pour l'instant — renseigne tour de taille + fessiers + cou.</p>
+									<p class="mt-2 text-xs italic text-mist">Aucune estimation pour l'instant — renseigne tour de taille fine + fessiers + cou.</p>
 								{/if}
 								<span class="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-brand">Voir le détail <Icon name="chevronRight" size={12} /></span>
 							</button>
@@ -2903,7 +2903,7 @@
 									{#if cockpit.measurements.fresh && cockpit.measurements.date}
 										<p class="mt-1 text-sm font-semibold text-ink">Mises à jour {fmtDaysAgo(cockpit.measurements.daysAgo ?? 0)}</p>
 										{#if cockpit.measurements.deltas.waistCm !== null}
-											<p class="mt-0.5 text-xs text-ink">Tour de taille : {fmtSigned(cockpit.measurements.deltas.waistCm)} cm</p>
+											<p class="mt-0.5 text-xs text-ink">Tour de taille fine : {fmtSigned(cockpit.measurements.deltas.waistCm)} cm</p>
 										{/if}
 										{#if cockpit.measurements.deltas.hipCm !== null}
 											<p class="mt-0.5 text-xs text-ink">Fessiers : {fmtSigned(cockpit.measurements.deltas.hipCm)} cm</p>

@@ -141,7 +141,7 @@ type MetricKey = "weightKg" | "neckCm" | "waistCm" | "hipCm";
 const METRIC_RANGE: Record<MetricKey, [number, number, string]> = {
 	weightKg: [30, 350, "Le poids"],
 	neckCm: [20, 80, "Le tour de cou"],
-	waistCm: [40, 250, "Le tour de taille"],
+	waistCm: [40, 250, "Le tour de taille fine"],
 	hipCm: [50, 300, "La circonférence des fessiers"],
 };
 
@@ -156,7 +156,7 @@ function poidsDescription(kg: number): string {
 function mesuresDescription(m: { neckCm?: number; waistCm?: number; hipCm?: number }): string {
 	const parts: string[] = [];
 	if (m.neckCm !== undefined) parts.push(`cou ${fmtMesure(m.neckCm)} cm`);
-	if (m.waistCm !== undefined) parts.push(`taille ${fmtMesure(m.waistCm)} cm`);
+	if (m.waistCm !== undefined) parts.push(`taille fine ${fmtMesure(m.waistCm)} cm`);
 	if (m.hipCm !== undefined) parts.push(`fessiers ${fmtMesure(m.hipCm)} cm`);
 	return `Mensurations : ${parts.join(", ")}`;
 }
@@ -228,7 +228,7 @@ export const upsertForCoach = mutation({
 		const patch: Partial<Doc<"bodyMetrics">> = {};
 		if (weightKg !== undefined) patch.weightKg = clampValue(weightKg, 30, 350, "Le poids");
 		if (neckCm !== undefined) patch.neckCm = clampValue(neckCm, 20, 80, "Le tour de cou");
-		if (waistCm !== undefined) patch.waistCm = clampValue(waistCm, 40, 250, "Le tour de taille");
+		if (waistCm !== undefined) patch.waistCm = clampValue(waistCm, 40, 250, "Le tour de taille fine");
 		if (hipCm !== undefined) patch.hipCm = clampValue(hipCm, 50, 300, "La circonférence des fessiers");
 		if (Object.keys(patch).length === 0) throw new ConvexError("Saisis au moins une mesure.");
 		const existing = await ctx.db.query("bodyMetrics").withIndex("by_user_date", (q) => q.eq("userId", userId).eq("date", date)).first();
@@ -335,7 +335,7 @@ export const upsert = mutation({
 		const patch: Partial<Doc<"bodyMetrics">> = {};
 		if (weightKg !== undefined) patch.weightKg = clampValue(weightKg, 30, 350, "Le poids");
 		if (neckCm !== undefined) patch.neckCm = clampValue(neckCm, 20, 80, "Le tour de cou");
-		if (waistCm !== undefined) patch.waistCm = clampValue(waistCm, 40, 250, "Le tour de taille");
+		if (waistCm !== undefined) patch.waistCm = clampValue(waistCm, 40, 250, "Le tour de taille fine");
 		if (hipCm !== undefined) patch.hipCm = clampValue(hipCm, 50, 300, "La circonférence des fessiers");
 		if (Object.keys(patch).length === 0) {
 			throw new ConvexError("Saisis au moins une mesure.");
