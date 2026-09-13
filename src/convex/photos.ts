@@ -47,6 +47,39 @@ export const generateUploadUrl = mutation({
 	},
 });
 
+/**
+ * Enregistre UNE photo (les fichiers ont déjà été uploadés via l'URL) —
+ * appelée par le serveur pour l'envoi photo par photo (une requête par photo,
+ * jamais de lot > 6 Mo refusé silencieusement par l'hébergeur). Mêmes règles
+ * que `submit` : cliente connectée, moment valide, 1 à 6 photos au total pour
+ * la série. La table et le schéma sont inchangés — une série mono-photo est
+ * une ligne `progressPhotos` ordinaire avec une seule photo.
+ */
+export const submitOne = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		step: v.string(),
+		storageId: v.id("_storage"),
+		label: v.string(),
+	},
+	handler: async (ctx, { sessionToken, step, storageId, label }) => {
+		const user = await requireClient(ctx, sessionToken);
+		if (!isPhotoStep(step)) throw new ConvexError("Moment invalide.");
+		const now = new Date();
+		const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+		await ctx.db.insert("progressPhotos", {
+			userId: user._id,
+			step,
+			date,
+			photos: [{ storageId, label: label.slice(0, 200) }],
+			createdAt: Date.now(),
+		});
+		// Journal CRM : une photo réellement reçue (événement réel).
+		await recordEvent(ctx, user._id, "nouvelles_photos", `1 photo envoyée — ${PHOTO_STEP_LABELS[step]}`);
+		return { ok: true, count: 1 };
+	},
+});
+
 /** Enregistre une série de photos (les fichiers ont déjà été uploadés via l'URL). */
 export const submit = mutation({
 	args: {
