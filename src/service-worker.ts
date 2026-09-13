@@ -42,6 +42,16 @@ self.addEventListener('activate', (event) => {
 	);
 });
 
+/* ── Activation immédiate d'une nouvelle version ──
+ * Le client (lib/swUpdate.ts : forceAppUpdate) envoie SKIP_WAITING au worker
+ * en attente ; il saute la phase « waiting » et prend le contrôle sans attendre
+ * la fermeture des onglets — le reload déclenché ensuite par la page sert la
+ * nouvelle version immédiatement. Aucun cache client (localStorage, session)
+ * n'est effacé ici : seul le cache applicatif change de nom par build. */
+self.addEventListener('message', (event) => {
+	if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
 /* ── Push : notification du message du coach / retour de bilan ── */
 self.addEventListener('push', (event) => {
 	let payload: { title?: string; body?: string; url?: string; tag?: string } = {};

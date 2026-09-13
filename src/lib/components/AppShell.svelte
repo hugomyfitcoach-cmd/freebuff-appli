@@ -5,6 +5,8 @@
 	import Icon from './Icon.svelte';
 	import { noteSync } from '../navMemory';
 	import { isStandalone } from '../pwa';
+	import { forceAppUpdate, onUpdateState, startCompatWatch } from '../swUpdate';
+	import { registerServiceWorker } from '../push';
 
 	type Role = 'client' | 'coach';
 	type SessionUser = { prenom: string; email: string; role: Role };
@@ -49,6 +51,54 @@
 		refreshing = true;
 		window.dispatchEvent(new CustomEvent('gflux:journal-refresh'));
 		setTimeout(() => (refreshing = false), 900);
+	}
+
+	/* ————— Version obsolète (déploiement récent) —————
+	   Une PWA laissée ouverte peut servir un ancien bundle incompatible avec le
+	   backend fraîchement déployé (incident du 13/09/2026 : écran de recherche
+	   vide). La veille (startCompatWatch) interroge /api/app/version au
+	   démarrage, au retour dans l'app et toutes les 5 min ; onUpdateState
+	   reflète l'état partagé (SW en attente + compat). Le Refresh et le
+	   bandeau appliquent la même mise à jour forcée. Aucune donnée cliente
+	   n'est touchée : uniquement service worker + reload. */
+	let updateReady = $state(false);
+	let updating = $state(false);
+	let compatOutdated = $state(false);
+
+	$effect(() => {
+		if (typeof window === 'undefined') return;
+		startCompatWatch();
+		// SW enregistré dès l'entrée dans l'app (idempotent) : la détection de
+		// mise à jour fonctionne même sans notifications push acceptées.
+		void registerServiceWorker();
+		return onUpdateState((s) => {
+			updateReady = s.updateReady;
+			updating = s.updating;
+			compatOutdated = s.compatOutdated;
+		});
+	});
+
+	/** Mise à jour disponible : SW en attente OU backend incompatible. */
+	const needsUpdate = $derived(updateReady || compatOutdated);
+
+	/* Refresh unifié : mise à jour dispo → charge la DERNIÈRE version (SW en
+	   attente activé, puis reload) ; sinon re-fetch des données de la page
+	   (comportement historique, sans perte de saisie). */
+	async function handleRefresh() {
+		if (refreshing || updating) return;
+		if (needsUpdate) {
+			refreshing = true;
+			await forceAppUpdate(); // termine par location.reload()
+			return;
+		}
+		if (path === '/espace/journal') refreshJournal();
+		else refreshPage();
+	}
+
+	/** Bouton « Actualiser maintenant » du bandeau : même mécanique que le Refresh. */
+	function applyUpdateNow() {
+		if (updating) return;
+		void forceAppUpdate();
 	}
 
 	/* Logo affiché uniquement là où il apporte de la valeur (Accueil + CRM).
@@ -180,6 +230,27 @@
 </script>
 
 <div class="flex min-h-screen">
+	<!-- Bandeau « nouvelle version » : déploiement récent détecté (backend
+	     incompatible ou service worker en attente). Au-dessus de tout, visible
+	     même sur le Journal plein écran. Disparaît après le reload. -->
+	{#if needsUpdate}
+		<div
+			class="fixed inset-x-0 top-0 z-[60] border-b border-brand/30 bg-brand-light/95 px-3 pb-2 pt-[max(env(safe-area-inset-top),10px)] backdrop-blur"
+			role="alert"
+		>
+			<div class="mx-auto flex max-w-3xl items-center justify-between gap-3">
+				<p class="min-w-0 text-xs font-semibold text-ink sm:text-sm">Une nouvelle version de G-FLUX est disponible</p>
+				<button
+					type="button"
+					onclick={applyUpdateNow}
+					disabled={updating}
+					class="shrink-0 rounded-full bg-brand px-3 py-1.5 text-xs font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
+				>
+					{updating ? 'Mise à jour…' : 'Actualiser maintenant'}
+				</button>
+			</div>
+		</div>
+	{/if}
 	<!-- Sidebar desktop -->
 	<aside class="fixed inset-y-0 left-0 z-50 hidden w-64 flex-col border-r border-line bg-cream md:flex">
 		<div class="flex items-center gap-3 border-b border-line px-5 py-4">
@@ -247,12 +318,12 @@
 					{#if role === 'client'}
 						<button
 							type="button"
-							onclick={path === '/espace/journal' ? refreshJournal : refreshPage}
+							onclick={handleRefresh}
 							class="grid h-10 w-10 place-items-center rounded-full text-ink transition hover:bg-line/40 active:scale-95"
-							title={path === '/espace/journal' ? 'Recharger la journée' : 'Actualiser les données'}
-							aria-label={path === '/espace/journal' ? 'Recharger la journée' : 'Actualiser les données'}
+							title={needsUpdate ? 'Nouvelle version disponible — actualiser' : path === '/espace/journal' ? 'Recharger la journée' : 'Actualiser les données'}
+							aria-label={needsUpdate ? 'Nouvelle version disponible — actualiser' : path === '/espace/journal' ? 'Recharger la journée' : 'Actualiser les données'}
 						>
-							<Icon name="refreshCw" size={18} class={refreshing ? 'animate-spin' : ''} />
+							<Icon name="refreshCw" size={18} class={refreshing || updating ? 'animate-spin' : ''} />
 						</button>
 					{/if}
 					<div class="relative">

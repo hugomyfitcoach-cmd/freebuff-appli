@@ -65,6 +65,21 @@ if (!key.includes(PROD_NAME)) {
 
 console.log(`🚀 Déploiement PRODUCTION → ${publicUrl || `https://${PROD_NAME}.convex.cloud`}`);
 console.log(`   (clé prod: ${PROD_NAME} présente, cible verrouillée)`);
+console.log(
+	'ℹ️  Rappel ordre des déploiements (compat frontend/backend) :'
+);
+console.log(
+	'   1) backend d\'abord (ce script) — il doit rester COMPATIBLE avec les clients déjà en ligne ;'
+);
+console.log(
+	'   2) frontend ensuite (push GitHub → build Netlify) — il porte la NOUVELLE version du contrat.'
+);
+console.log(
+	'   Les PWA ouvertes détectent le changement via /api/app/version et affichent'
+);
+console.log(
+	'   le bandeau « Une nouvelle version de G-FLUX est disponible ».'
+);
 
 const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 const result = spawnSync(npx, ['convex', 'deploy', ...process.argv.slice(2)], {

@@ -8,6 +8,8 @@
 	import QuantitySheet from '$lib/components/QuantitySheet.svelte';
 	import FoodImg from '$lib/components/FoodImg.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import { forceAppUpdate, needsAppUpdate } from '$lib/swUpdate';
+import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 
 	type Goals = { kcal: number; carbs: number; protein: number; fat: number; maintenanceKcal?: number };
 	type Entry = {
@@ -534,10 +536,15 @@
 		showScrollHint = false;
 		// Nouvelle recherche : l'indication de scroll repart (elle ne se montrent
 		// que s'il existe des résultats plus bas — decided par hasMore).
-		const req = fetch(`/api/foods/search?q=${encodeURIComponent(q)}`)
+		// ⚠ Garde-fou contrat : le serveur renvoie { items, hasMore }. Un payload
+		// inattendu (ex. ancien bundle + backend paginé pendant un déploiement,
+		// ou réponse tronquée) est traité comme une ERREUR avec réessai —
+		// jamais comme une liste vide silencieuse.
+		const req = fetch(`/api/foods/search?q=${encodeURIComponent(q)}&v=${FRONTEND_API_VERSION}`, { signal: AbortSignal.timeout(15_000) })
 			.then(async (r) => {
 				const j = await r.json();
 				if (j.error) throw new Error(j.error);
+				if (!Array.isArray(j.items)) throw new Error('Recherche momentanément indisponible — réessaie dans un instant.');
 				results = j.items as Food[];
 				hasMore = !!(j as { hasMore?: boolean }).hasMore;
 				nextOffset = 25;
@@ -928,16 +935,18 @@
 		mealSearchError = '';
 		// Même séparation stricte que la recherche principale : Ciqual en tête,
 		// produits OFF ensuite ; échec Ciqual silencieux.
-		const req = fetch(`/api/foods/search?q=${encodeURIComponent(q)}`)
-			.then(async (r) => {
-				const j = await r.json();
-				if (j.error) throw new Error(j.error);
-				mealResults = j.items as Food[];
-				mealHasMore = !!(j as { hasMore?: boolean }).hasMore;
-				mealNextOffset = 25;
-				mealShowScrollHint = mealHasMore;
-			})
-			.then(() => null, (e) => e as Error);
+		// ⚠ Garde-fou contrat identique à la recherche principale (voir runSearch).
+		const req = fetch(`/api/foods/search?q=${encodeURIComponent(q)}&v=${FRONTEND_API_VERSION}`, { signal: AbortSignal.timeout(15_000) })
+				.then(async (r) => {
+					const j = await r.json();
+					if (j.error) throw new Error(j.error);
+					if (!Array.isArray(j.items)) throw new Error('Recherche momentanément indisponible — réessaie dans un instant.');
+					mealResults = j.items as Food[];
+					mealHasMore = !!(j as { hasMore?: boolean }).hasMore;
+					mealNextOffset = 25;
+					mealShowScrollHint = mealHasMore;
+				})
+				.then(() => null, (e) => e as Error);
 		const ciq = fetch(`/api/foods/ciqual?q=${encodeURIComponent(q)}`)
 			.then(async (r) => {
 				const j = await r.json();
@@ -1423,10 +1432,17 @@
 	}
 
 	/* ————— Sélecteur de date natif ————— */
-	/** Refresh local (non destructif) : re-fetch du jour affiché — ne change ni la date, ni les saisies. */
+	/** Refresh local (non destructif) : re-fetch du jour affiché — ne change ni la date, ni les saisies.
+	 *  Mise à jour d'app disponible (SW en attente ou backend incompatible) → force la DERNIÈRE version
+	 *  (même mécanique que le bandeau « nouvelle version ») au lieu d'un simple re-fetch. */
 	let refreshingDay = $state(false);
 	async function refreshDay() {
 		if (refreshingDay) return;
+		if (needsAppUpdate()) {
+			refreshingDay = true;
+			await forceAppUpdate(); // termine par location.reload()
+			return;
+		}
 		refreshingDay = true;
 		try {
 			await setDate(date);
@@ -2075,9 +2091,16 @@
 											</ul>
 						{/if}
 					{:else if searching && results.length === 0}
-						<p class="py-10 text-center text-sm text-mist">Recherche…</p>
+						<div class="py-10 text-center" role="status">
+							<div class="mx-auto mb-3 grid h-12 w-12 animate-pulse place-items-center rounded-full bg-brand-light"><Icon name="search" size={22} class="text-brand" /></div>
+							<p class="text-sm font-semibold text-ink">Recherche « {searchQ.trim()} »…</p>
+							<p class="mx-auto mt-1 max-w-xs text-xs text-mist">On fouille la base (780 000 aliments) — ça ne prend que quelques secondes.</p>
+						</div>
 					{:else if searchError}
-						<p class="rounded-xl border-2 border-danger bg-danger-light px-3 py-3 text-sm text-danger">{searchError}</p>
+						<div class="rounded-xl border-2 border-danger bg-danger-light px-3 py-3 text-sm text-danger">
+							<p>{searchError}</p>
+							<button type="button" class="mt-2 w-full rounded-full bg-danger py-2 text-xs font-bold text-white transition hover:opacity-90" onclick={() => runSearch(searchQ.trim())}>Réessayer</button>
+						</div>
 					{:else if searchQ.trim().length < 2}
 						<!-- Suggestions avant toute saisie : aliments réellement utilisés (jamais inventés) -->
 						{#if recentFoods.length > 0}
@@ -2252,9 +2275,14 @@
 				</div>
 				<div bind:this={mealSearchListEl} class="flex-1 overflow-y-auto overscroll-contain px-2.5 pb-24">
 					{#if mealSearching && mealResults.length === 0}
-						<p class="py-10 text-center text-sm text-mist">Recherche…</p>
+						<p class="flex items-center justify-center gap-2 py-10 text-sm text-mist" role="status">
+							<Icon name="search" size={16} class="animate-pulse text-mist" /> Recherche « {mealSearchQ.trim()} »…
+						</p>
 					{:else if mealSearchError}
-						<p class="rounded-xl border-2 border-danger bg-danger-light px-3 py-3 text-sm text-danger">{mealSearchError}</p>
+						<div class="rounded-xl border-2 border-danger bg-danger-light px-3 py-3 text-sm text-danger">
+							<p>{mealSearchError}</p>
+							<button type="button" class="mt-2 w-full rounded-full bg-danger py-2 text-xs font-bold text-white transition hover:opacity-90" onclick={() => runMealSearch(mealSearchQ.trim())}>Réessayer</button>
+						</div>
 					{:else if mealSearchQ.trim().length < 2}
 						<p class="py-10 text-center text-sm text-mist">Recherche un produit — base G-Flux (780 000 aliments) et tes aliments « Créés par moi ».</p>
 					{:else if mealResults.length === 0 && mealCiqualResults.length === 0}

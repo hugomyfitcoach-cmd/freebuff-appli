@@ -711,4 +711,20 @@ export default defineSchema({
 		.index("by_user", ["userId"])
 		.index("by_read", ["read"])
 		.index("by_dedup", ["dedupKey"]),
+
+	/** Clé→valeur d'infrastructure (jamais de données métier). Version
+	 *  sémantique du backend : `appVersion = { key: 'api', version: '3' }`.
+	 *  Lue par le BFF à chaque déploiement (voir src/routes/api/app/version).
+	 *  Un ancien bundle frontend qui parle à un backend plus récent est
+	 *  détecté → bandeau « Une nouvelle version de G-FLUX est disponible »
+	 *  au lieu d'un écran vide silencieux. */
+	meta: defineTable({
+		key: v.string(),
+		/** Version sémantique du CONTRAT API backend (entier, incrémenté à chaque
+		 *  breaking change volontaire, supportée par l'ancien client pendant la
+		 *  fenêtre de migration). */
+		version: v.number(),
+		/** Libellé lisible (facultatif) — ex. « paginated food search ». */
+		note: v.optional(v.string()),
+	})		.index("by_key", ["key"]),
 });

@@ -1,5 +1,6 @@
 import { dev } from '$app/environment';
 import { base } from '$app/paths';
+import { attachUpdateWatcher } from './swUpdate';
 
 /**
  * Notifications push Web côté cliente.
@@ -16,11 +17,17 @@ export function pushSupported(): boolean {
 	return !dev && typeof navigator !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 }
 
-/** Enregistre le service worker (idempotent). */
+/**
+ * Enregistre le service worker (idempotent) et branche la détection des
+ * mises à jour (bandeau « nouvelle version », bouton Refresh — voir
+ * lib/swUpdate.ts). Aucun impact si le SW est indisponible.
+ */
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
 	if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return null;
 	try {
-		return await navigator.serviceWorker.register(`${base}/service-worker.js`);
+		const reg = await navigator.serviceWorker.register(`${base}/service-worker.js`);
+		attachUpdateWatcher(reg);
+		return reg;
 	} catch {
 		return null;
 	}

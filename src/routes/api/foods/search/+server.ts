@@ -4,6 +4,7 @@ import { convex } from '$lib/server/convex';
 import { api } from '../../../../convex/_generated/api.js';
 import { SESSION_COOKIE, requireRole } from '$lib/server/session';
 import { errMsg } from '$lib/errors.js';
+import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 
 /**
  * Recherche d'aliments (Open Food Facts, mis en cache côté Convex).
@@ -20,6 +21,13 @@ export const GET: RequestHandler = async (event) => {
 	if (q.length < 2) return json({ items: [], hasMore: false });
 	const offset = Math.max(0, Math.floor(Number(event.url.searchParams.get('offset') ?? 0) || 0));
 	const limit = Math.min(50, Math.max(1, Math.floor(Number(event.url.searchParams.get('limit') ?? 25) || 25)));
+	// Télémétrie de compat (sans donnée personnelle) : un client qui annonce
+	// une version de contrat ≠ celle de ce BFF est un bundle PWA resté ouvert
+	// pendant un déploiement — utile pour mesurer la fenêtre résiduelle.
+	const clientV = Math.floor(Number(event.url.searchParams.get('v') ?? 0) || 0);
+	if (clientV && clientV !== FRONTEND_API_VERSION) {
+		console.warn(`[compat] client v${clientV} ≠ BFF v${FRONTEND_API_VERSION} (PWA non rechargée)`);
+	}
 	try {
 		const page = await convex.action(api.off.searchFoods, {
 			sessionToken: token,

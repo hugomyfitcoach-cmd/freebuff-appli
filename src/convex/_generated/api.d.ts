@@ -9,6 +9,7 @@
  */
 
 import type * as answers from "../answers.js";
+import type * as appVersion from "../appVersion.js";
 import type * as appointments from "../appointments.js";
 import type * as checkins from "../checkins.js";
 import type * as ciqual from "../ciqual.js";
@@ -47,6 +48,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   answers: typeof answers;
+  appVersion: typeof appVersion;
   appointments: typeof appointments;
   checkins: typeof checkins;
   ciqual: typeof ciqual;

@@ -262,6 +262,31 @@ Déploiement **verrouillé sur la production** `calm-jaguar-475` :
 | `npm run dev` | dev serveur + push auto **production** à chaque sauvegarde |
 | `npx convex env set NOM valeur --prod` | variable d'env du déploiement |
 
+### ⚠️ Compatibilité frontend / backend (à lire avant tout deploy)
+
+Un changement de contrat API (forme de réponse, args) ne doit JAMAIS être
+déployé brutalement : les PWA déjà ouvertes tournent encore sur l'ancien
+bundle et peuvent afficher un écran vide silencieux (incident du 13/09/2026,
+recherche « Concombre »). Ordre à respecter :
+
+1. **Backend d'abord** (`npm run deploy`) : il doit rester compatible avec
+   les bundles déjà en ligne (garder l'ancien format ou accepter les deux) ;
+2. **Frontend ensuite** (push GitHub → build Netlify) : il porte le nouveau
+   contrat + l'incrément de `FRONTEND_API_VERSION` (`src/lib/apiVersion.ts`)
+   et `CURRENT_API_VERSION` (`src/convex/appVersion.ts`) — toujours
+   incrémentés ENSEMBLE, dans le même commit ;
+3. Les PWA ouvertes détectent le changement (veille `/api/app/version`,
+   toutes les 5 min et au retour dans l'app) → bandeau « Une nouvelle
+   version de G-FLUX est disponible » + bouton « Actualiser maintenant »
+   (ou bouton Refresh) → service worker activé + reload. Aucune donnée
+   cliente n'est effacée.
+
+Tant que le frontend n'est pas redéployé, l'ancien bundle reste fonctionnel :
+c'est la fenêtre de compatibilité volontaire, pas un bug.
+
+⚠️ `npm run dev` pousse chaque sauvegarde **en production** : ne développe
+un changement de contrat qu'avec la compatibilité déjà en place.
+
 Variables d'environnement Convex utilisées : `COACH_BOOTSTRAP_CODE`.
 
 ### Reconstruire / étendre la base alimentaire
