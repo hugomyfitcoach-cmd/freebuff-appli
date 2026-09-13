@@ -1,12 +1,14 @@
 <script lang="ts">
 	import Icon from './Icon.svelte';
 	import FoodImg from './FoodImg.svelte';
+	import { reperesForFood, unitWord } from '$lib/data/gfluxReperes';
 
 	/* Feuille de quantité partagée AJOUT / MODIFICATION d'un aliment.
 	   Une seule source de vérité : la quantité finale en grammes (qtyGrams),
-	   envoyée à l'API à la sauvegarde. Le mode « Portion » (quand une portion
-	   OFF fiable existe) est une aide de saisie : nombre de portions → grammes
-	   → le moteur nutritionnel existant (kcal/100 g) fait le reste. */
+	   envoyée à l'API à la sauvegarde. Les modes « Portion » (portion OFF
+	   fiable) et « Repère G-FLUX » (portion usuelle interne, whitelist) sont
+	   des aides de saisie : nombre de portions/repères → grammes → le moteur
+	   nutritionnel existant (kcal/100 g) fait le reste. */
 
 	type MealDef = { id: string; label: string; icon: string };
 
@@ -72,10 +74,25 @@
 	const hasServing = !!food.servingQty && food.servingQty > 0 && food.servingQty <= 2000;
 	const servingQty = hasServing ? (food.servingQty ?? 0) : 0;
 
-	let unitMode = $state<'g' | 'portion'>('g');
+	/* Repères G-FLUX : whitelist interne — vide si rien de fiable ne correspond
+	   (aucun repère inventé, l'onglet n'est alors pas affiché). */
+	const repereList = reperesForFood(food.name);
+	const hasRepere = repereList.length > 0;
+
+	let unitMode = $state<'g' | 'portion' | 'repere'>('g');
 	let gramsText = $state(fmtQty(initialQtyGrams));
 	let servingsText = $state(fmtQty(initialQtyGrams / (servingQty || 1)));
+	let repereIdx = $state(0);
+	/* Nouvel aliment → 1 repère par défaut (pas de conversion des 100 g
+	   d'affichage) ; quantité existante (edit/planned) → conservée. */
+	let repereText = $state(fmtQty(mode === 'add' ? 1 : initialQtyGrams / (repereList[0]?.grams || 1)));
 	let meal = $state(initialMeal);
+	/* Saisies délibérées dans cette ouverture de feuille : une quantité
+	   volontairement entrée (g/portion/repère) n'est jamais écrasée en
+	   changeant d'onglet. */
+	let gramsTouched = $state(false);
+	let servingsTouched = $state(false);
+	let repereTouched = $state(false);
 
 	function parseNum(s: string): number | null {
 		const t = s.trim().replace(',', '.');
@@ -90,12 +107,18 @@
 	}
 
 	const servingsNum = $derived(parseNum(servingsText));
+	const repere = $derived(repereList[repereIdx] ?? null);
+	const repsNum = $derived(parseNum(repereText));
 	const gramsNum = $derived(
 		unitMode === 'portion'
 			? servingsNum == null
 				? null
 				: servingsNum * servingQty
-			: parseNum(gramsText)
+			: unitMode === 'repere'
+				? repsNum == null || !repere
+					? null
+					: repsNum * repere.grams
+				: parseNum(gramsText)
 	);
 	const valid = $derived(gramsNum != null && gramsNum > 0 && gramsNum <= 5000);
 	const effGrams = $derived(valid ? (gramsNum ?? 0) : 0);
@@ -104,24 +127,71 @@
 	const protein = $derived(Math.round((food.protein100 * effGrams) / 100));
 	const fat = $derived(Math.round((food.fat100 * effGrams) / 100));
 
+	/* Unité affichée à côté de la quantité centrale (accord singulier/pluriel). */
+	const unitLabel = $derived(
+		unitMode === 'g'
+			? 'g'
+			: unitMode === 'portion'
+				? (servingsNum ?? 0) > 1
+					? 'portions'
+					: 'portion'
+				: repere
+					? unitWord(repsNum ?? 0, repere)
+					: ''
+	);
+	const tabCount = $derived(1 + (hasServing ? 1 : 0) + (hasRepere ? 1 : 0));
+
 	function stepGrams(d: number) {
+		gramsTouched = true;
 		const cur = gramsNum ?? initialQtyGrams;
 		gramsText = fmtQty(Math.min(5000, Math.max(1, cur + d)));
 	}
 	function stepServings(d: number) {
+		servingsTouched = true;
 		const cur = servingsNum ?? 1;
 		servingsText = fmtQty(Math.max(0.5, cur + d));
 	}
+	function stepReperes(d: number) {
+		repereTouched = true;
+		const cur = repsNum ?? 1;
+		repereText = fmtQty(Math.max(0.5, cur + d));
+	}
 	function setGrams(g: number) {
+		gramsTouched = true;
 		gramsText = fmtQty(g);
 	}
 	function setServings(p: number) {
+		servingsTouched = true;
 		servingsText = fmtQty(p);
 	}
-	function switchMode(m: 'g' | 'portion') {
+	function setReperes(p: number) {
+		repereTouched = true;
+		repereText = fmtQty(p);
+	}
+	/* Change de repère usuel : la quantité (en repères) est recalculée pour
+	   conserver le même poids en grammes. */
+	function selectRepere(i: number) {
+		repereTouched = true;
+		repereIdx = i;
+		if (unitMode === 'repere') repereText = fmtQty((gramsNum ?? initialQtyGrams) / (repere?.grams || 1));
+	}
+	function switchMode(m: 'g' | 'portion' | 'repere') {
+		// Grammes AU moment du switch, lus AVANT de changer de mode :
+		// gramsNum dépend de unitMode — lu après, il refléterait l'ancien
+		// champ du nouveau mode (quantité conservée fausse).
+		const g = gramsNum ?? initialQtyGrams;
 		unitMode = m;
-		if (m === 'portion') servingsText = fmtQty((gramsNum ?? initialQtyGrams) / servingQty);
-		else gramsText = fmtQty(gramsNum ?? initialQtyGrams);
+		if (m === 'portion') servingsText = fmtQty(g / servingQty);
+		else if (m === 'repere') {
+			// Quantité déjà choisie (saisie volontaire ou entrée existante) :
+			// conservée et convertie. Sinon, nouvel aliment → 1 repère.
+			if (!repereTouched) {
+				repereText =
+					mode !== 'add' || gramsTouched || servingsTouched
+						? fmtQty(g / (repere?.grams || 1))
+						: fmtQty(1);
+			}
+		} else gramsText = fmtQty(g);
 	}
 	function save() {
 		if (!valid || gramsNum == null || saving) return;
@@ -150,7 +220,7 @@
 			<div class="min-w-0 flex-1">
 				<p class="truncate font-semibold text-ink">{food.name}</p>
 				<p class="text-xs text-mist">
-					{fmtQty(food.kcal100)} kcal pour 100 g{#if hasServing} · 1 portion = {fmtQty(servingQty)} g{/if}
+					{fmtQty(food.kcal100)} kcal pour 100 g{#if hasServing} · 1 portion = {fmtQty(servingQty)} g{/if}{#if repere && unitMode === 'repere'} · 1 {unitWord(1, repere)} ≈ {fmtQty(repere.grams)} {repere.unit}{/if}
 				</p>
 				{#if food.kcalRecalculated}
 					<!-- Garde-fou kcal↔macros : kcal OFF aberrantes → calculées depuis les macros. -->
@@ -171,19 +241,29 @@
 			{/if}
 		</div>
 
-		<!-- Bascule Grammes / Portions (seulement si une portion OFF fiable existe) -->
-		{#if hasServing}
-			<div class="mt-4 flex items-center justify-center gap-1 rounded-full bg-line/50 p-1 text-xs font-bold">
+		<!-- Bascule Grammes / Portions (si portion OFF fiable) / Repères G-FLUX
+		     (si un repère usuel correspond) — onglets dynamiques. -->
+		{#if tabCount > 1}
+			<div class="mt-4 flex items-center justify-center gap-1 rounded-full bg-line/50 p-1 text-xs font-bold {tabCount > 2 ? 'gap-0.5 px-0.5' : ''}">
 				<button
 					type="button"
 					class="rounded-full px-5 py-1.5 transition {unitMode === 'g' ? 'bg-brand text-white shadow-sm' : 'text-mist hover:text-ink'}"
 					onclick={() => switchMode('g')}
 				>Grammes</button>
-				<button
-					type="button"
-					class="rounded-full px-5 py-1.5 transition {unitMode === 'portion' ? 'bg-brand text-white shadow-sm' : 'text-mist hover:text-ink'}"
-					onclick={() => switchMode('portion')}
-				>Portions</button>
+				{#if hasServing}
+					<button
+						type="button"
+						class="rounded-full px-5 py-1.5 transition {unitMode === 'portion' ? 'bg-brand text-white shadow-sm' : 'text-mist hover:text-ink'}"
+						onclick={() => switchMode('portion')}
+					>Portions</button>
+				{/if}
+				{#if hasRepere}
+					<button
+						type="button"
+						class="rounded-full px-5 py-1.5 transition {unitMode === 'repere' ? 'bg-brand text-white shadow-sm' : 'text-mist hover:text-ink'}"
+						onclick={() => switchMode('repere')}
+					>Repères G-FLUX</button>
+				{/if}
 			</div>
 		{/if}
 
@@ -193,7 +273,7 @@
 				type="button"
 				class="grid h-12 w-12 place-items-center rounded-xl border-2 border-line text-xl font-bold text-ink active:border-brand"
 				aria-label="Moins"
-				onclick={() => (unitMode === 'portion' ? stepServings(-1) : stepGrams(-10))}
+				onclick={() => (unitMode === 'portion' ? stepServings(-1) : unitMode === 'repere' ? stepReperes(-1) : stepGrams(-10))}
 			>−</button>
 			<div class="flex min-w-0 flex-1 items-end justify-center gap-1">
 				{#if unitMode === 'portion'}
@@ -203,8 +283,19 @@
 						aria-label="Nombre de portions"
 						class="w-32 bg-transparent text-center text-4xl font-bold text-ink outline-none placeholder:text-mist"
 						bind:value={servingsText}
+						oninput={() => (servingsTouched = true)}
 					/>
-					<span class="pb-1 text-sm text-mist">{(servingsNum ?? 0) > 1 ? 'portions' : 'portion'}</span>
+					<span class="pb-1 text-sm text-mist">{unitLabel}</span>
+				{:else if unitMode === 'repere'}
+					<input
+						type="text"
+						inputmode="decimal"
+						aria-label="Nombre de repères"
+						class="w-32 bg-transparent text-center text-4xl font-bold text-ink outline-none placeholder:text-mist"
+						bind:value={repereText}
+						oninput={() => (repereTouched = true)}
+					/>
+					<span class="pb-1 text-sm text-mist">{unitLabel}</span>
 				{:else}
 					<input
 						type="text"
@@ -212,6 +303,7 @@
 						aria-label="Quantité en grammes"
 						class="w-32 bg-transparent text-center text-4xl font-bold text-ink outline-none placeholder:text-mist"
 						bind:value={gramsText}
+						oninput={() => (gramsTouched = true)}
 					/>
 					<span class="pb-1 text-sm text-mist">g</span>
 				{/if}
@@ -220,15 +312,21 @@
 				type="button"
 				class="grid h-12 w-12 place-items-center rounded-xl border-2 border-line text-xl font-bold text-ink active:border-brand"
 				aria-label="Plus"
-				onclick={() => (unitMode === 'portion' ? stepServings(1) : stepGrams(10))}
+				onclick={() => (unitMode === 'portion' ? stepServings(1) : unitMode === 'repere' ? stepReperes(1) : stepGrams(10))}
 			>+</button>
 		</div>
 
-		<!-- Équivalence portions → grammes -->
+		<!-- Équivalence portions / repères → grammes (+ mention indicative) -->
 		{#if unitMode === 'portion' && valid}
 			<p class="mt-2 text-center text-xs text-mist">
 				{fmtQty(servingsNum ?? 0)} portion{(servingsNum ?? 0) > 1 ? 's' : ''} × {fmtQty(servingQty)} g =
 				<strong class="font-bold text-ink">{fmtQty(gramsNum ?? 0)} g</strong>
+			</p>
+		{:else if unitMode === 'repere' && repere && valid}
+			<p class="mt-2 text-center text-xs text-mist">
+				{fmtQty(repsNum ?? 0)} {unitWord(repsNum ?? 1, repere)} × {fmtQty(repere.grams)} {repere.unit} =
+				<strong class="font-bold text-ink">{fmtQty(gramsNum ?? 0)} {repere.unit}</strong>
+				<span class="mt-0.5 block text-[10px]">Valeur indicative</span>
 			</p>
 		{/if}
 
@@ -242,6 +340,25 @@
 						onclick={() => setServings(p)}
 					>{fmtQty(p)} portion{p > 1 ? 's' : ''}</button>
 				{/each}
+			{:else if unitMode === 'repere'}
+				{#if repereList.length > 1}
+					<!-- Sélecteur du repère usuel (même style que les raccourcis) -->
+					{#each repereList as r, i (r.label)}
+						<button
+							type="button"
+							class="rounded-full px-3.5 py-1.5 text-xs font-bold transition {i === repereIdx ? 'bg-brand text-white shadow-sm' : 'border-2 border-line text-ink hover:border-brand hover:text-brand'}"
+							onclick={() => selectRepere(i)}
+						>{r.label}</button>
+					{/each}
+				{:else if repere}
+					{#each [1, 2, 3, 4] as p (p)}
+						<button
+							type="button"
+							class="rounded-full border-2 border-line px-3 py-1.5 text-xs font-semibold text-ink {repsNum === p ? '!border-brand !text-brand' : ''}"
+							onclick={() => setReperes(p)}
+						>{fmtQty(p)} {unitWord(p, repere)}</button>
+					{/each}
+				{/if}
 			{:else}
 				{#each [50, 100, 150, 200] as g (g)}
 					<button
@@ -282,8 +399,8 @@
 		<!-- Actions -->
 		{#if mode === 'planned'}
 			<!-- Item PLANIFIÉ : Mangé = action principale (bascule immédiate vers
-		     consommé) ; la quantité s'enregistre sans consommer ; Remplacer et
-		     Supprimer ne touchent que CE jour (jamais le template coach). -->
+	     consommé) ; la quantité s'enregistre sans consommer ; Remplacer et
+	     Supprimer ne touchent que CE jour (jamais le template coach). -->
 			<div class="mt-4 flex gap-2">
 				<button
 					type="button"
@@ -345,7 +462,7 @@
 			</div>
 			{#if mode === 'edit' && onUnEat}
 				<!-- Décocher un « Mangé » validé par erreur : retire immédiatement
-			     kcal/macros des totaux (recalcul parfaitement réversible). -->
+		     kcal/macros des totaux (recalcul parfaitement réversible). -->
 				<button
 					type="button"
 					class="mt-2 w-full rounded-full border-2 border-line px-3 py-2.5 text-sm font-bold text-mist transition hover:border-brand hover:text-brand"
