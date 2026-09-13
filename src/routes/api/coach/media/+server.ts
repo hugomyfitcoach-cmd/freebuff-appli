@@ -23,8 +23,13 @@ const AUDIO_TYPES = new Set(['audio/webm', 'audio/mp4', 'audio/ogg', 'audio/mpeg
 function kindOf(mime: string, name: string): 'audio' | 'image' | 'pdf' | null {
 	const lower = name.toLowerCase();
 	if (mime === 'application/pdf' || lower.endsWith('.pdf')) return 'pdf';
-	if (AUDIO_TYPES.has(mime)) return 'audio';
-	if (mime.startsWith('image/') || IMAGE_TYPES.has(mime)) return 'image';
+	// Les navigateurs produisent des MIME avec paramètres de codecs
+	// (« audio/webm;codecs=opus » sur Chrome/Edge, « audio/mp4;codecs=mp4a.40.2 »
+	// sur Safari) : on compare la whitelist sur la partie avant « ; » — sinon
+	// tout enregistrement Chrome est rejeté à tort (« Format non accepté »).
+	const base = mime.split(';')[0].trim().toLowerCase();
+	if (AUDIO_TYPES.has(base)) return 'audio';
+	if (base.startsWith('image/') || IMAGE_TYPES.has(mime)) return 'image';
 	return null;
 }
 
