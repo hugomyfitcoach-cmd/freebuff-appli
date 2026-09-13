@@ -677,8 +677,10 @@ export const addEntry = mutation({
 		/** Fiche de RÉFÉRENCE Ciqual (ANSES) : libellé officiel EXACT — exclusif avec foodId/customFoodId. */
 		ciqualLabel: v.optional(v.string()),
 		qtyGrams: v.number(),
+		/** Date ISO locale du navigateur — frontière « futur » (fuseau client ≠ serveur UTC). */
+		clientDate: v.optional(v.string()),
 	},
-	handler: async (ctx, { sessionToken, date, meal, foodId, customFoodId, ciqualLabel, qtyGrams }) => {
+	handler: async (ctx, { sessionToken, date, meal, foodId, customFoodId, ciqualLabel, qtyGrams, clientDate }) => {
 		const user = await requireClient(ctx, sessionToken);
 		if (!isValidDateISO(date)) throw new ConvexError("Date invalide.");
 		if (!isMeal(meal)) throw new ConvexError("Repas invalide.");
@@ -739,7 +741,7 @@ export const addEntry = mutation({
 		}
 
 		const k = qtyGrams / 100;
-		const today = localTodayOfTs();
+		const today = trustedClientToday(clientDate);
 		const future = date > today;
 		if (future) {
 			// JOUR FUTUR → PLANNED (client_planned) : jamais compté comme consommé.
@@ -787,6 +789,32 @@ export const addEntry = mutation({
 function localTodayOfTs(): string {
 	const d = new Date();
 	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Écart en jours entiers entre deux dates ISO (a → b). */
+function daysBetween(a: string, b: string): number {
+	const [ay, am, ad] = a.split('-').map(Number);
+	const [by, bm, bd] = b.split('-').map(Number);
+	return Math.round((Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / 86_400_000);
+}
+
+/**
+ * « Aujourd'hui » de la cliente — frontière « futur » du journal.
+ *
+ * L'app est utilisée en France (UTC+1/+2) alors que le serveur vit en UTC :
+ * à 00 h 41 à Paris le serveur est encore sur la veille, et la journée locale
+ * fraîchement commencée passait à tort pour « future » — « Impossible de
+ * valider « Mangé » sur une date future », items basculés en planifié au lieu
+ * de consommés. Le navigateur envoie donc sa date ISO locale ; on ne l'accepte
+ * que si elle est PLAUSIBLE : format ISO valide et à ±1 jour de la date
+ * serveur (horloge manipulée ou client taré → repli sur la date serveur).
+ */
+function trustedClientToday(clientDate?: string): string {
+	const serverToday = localTodayOfTs();
+	if (clientDate && isValidDateISO(clientDate) && Math.abs(daysBetween(serverToday, clientDate)) <= 1) {
+		return clientDate;
+	}
+	return serverToday;
 }
 
 /** Modifie la quantité (et éventuellement le repas) d'une entrée — les macros sont recalculées. */
@@ -867,13 +895,18 @@ async function requireOwnPlanned(
 
 /** Validation d'un item planifié : planned → diaryEntries (consommé). */
 export const eatPlanned = mutation({
-	args: { sessionToken: v.optional(v.string()), plannedId: v.id("plannedEntries") },
-	handler: async (ctx, { sessionToken, plannedId }) => {
+	args: {
+		sessionToken: v.optional(v.string()),
+		plannedId: v.id("plannedEntries"),
+		/** Date ISO locale du navigateur — frontière « futur » (fuseau client ≠ serveur UTC). */
+		clientDate: v.optional(v.string()),
+	},
+	handler: async (ctx, { sessionToken, plannedId, clientDate }) => {
 		const user = await requireClient(ctx, sessionToken);
 		const p = await requireOwnPlanned(ctx, user._id, plannedId);
 		if (!isValidDateISO(p.date)) throw new ConvexError("Date invalide.");
 		if (!isMeal(p.meal)) throw new ConvexError("Repas invalide.");
-		const today = localTodayOfTs();
+		const today = trustedClientToday(clientDate);
 		if (p.date > today) {
 			throw new ConvexError("Impossible de valider « Mangé » sur une date future.");
 		}
@@ -901,12 +934,17 @@ export const eatPlanned = mutation({
 
 /** Annulation : consommé → planifié (retrait immédiat des totaux, réversible). */
 export const uneatEntry = mutation({
-	args: { sessionToken: v.optional(v.string()), entryId: v.id("diaryEntries") },
-	handler: async (ctx, { sessionToken, entryId }) => {
+	args: {
+		sessionToken: v.optional(v.string()),
+		entryId: v.id("diaryEntries"),
+		/** Date ISO locale du navigateur — frontière « futur » (fuseau client ≠ serveur UTC). */
+		clientDate: v.optional(v.string()),
+	},
+	handler: async (ctx, { sessionToken, entryId, clientDate }) => {
 		const user = await requireClient(ctx, sessionToken);
 		const entry = await ctx.db.get(entryId);
 		if (!entry || entry.userId !== user._id) throw new ConvexError("Entrée introuvable.");
-		const today = localTodayOfTs();
+		const today = trustedClientToday(clientDate);
 		// Une journée passée verrouille l'historique : on ne réécrit pas le passé.
 		if (entry.date < today) throw new ConvexError("Impossible de dé-valider un jour passé.");
 		await ctx.db.insert("plannedEntries", {
@@ -1038,10 +1076,15 @@ export const replacePlanned = mutation({
 
 /** Validation en masse : plusieurs items planifiés → consommés (jour uniquement). */
 export const eatManyPlanned = mutation({
-	args: { sessionToken: v.optional(v.string()), plannedIds: v.array(v.id("plannedEntries")) },
-	handler: async (ctx, { sessionToken, plannedIds }) => {
+	args: {
+		sessionToken: v.optional(v.string()),
+		plannedIds: v.array(v.id("plannedEntries")),
+		/** Date ISO locale du navigateur — frontière « futur » (fuseau client ≠ serveur UTC). */
+		clientDate: v.optional(v.string()),
+	},
+	handler: async (ctx, { sessionToken, plannedIds, clientDate }) => {
 		const user = await requireClient(ctx, sessionToken);
-		const today = localTodayOfTs();
+		const today = trustedClientToday(clientDate);
 		let eaten = 0;
 		for (const plannedId of plannedIds.slice(0, 60)) {
 			const p = await ctx.db.get(plannedId);

@@ -269,7 +269,7 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 			const r = await fetch('/api/journal/planned', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ plannedId: p._id }),
+				body: JSON.stringify({ plannedId: p._id, clientDate: currentLocalDay() }),
 			});
 			const j = await r.json();
 			if (j.error) throw new Error(j.error);
@@ -290,7 +290,7 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 			const r = await fetch('/api/journal/planned', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ plannedIds: ids }),
+				body: JSON.stringify({ plannedIds: ids, clientDate: currentLocalDay() }),
 			});
 			const j = await r.json();
 			if (j.error) throw new Error(j.error);
@@ -387,7 +387,7 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 			const r = await fetch('/api/journal/planned', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ plannedId: editPlanned._id }),
+				body: JSON.stringify({ plannedId: editPlanned._id, clientDate: currentLocalDay() }),
 			});
 			const j = await r.json();
 			if (j.error) throw new Error(j.error);
@@ -1149,6 +1149,9 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 						? { customFoodId: qtyFood._id }
 						: { foodId: qtyFood._id }),
 				qtyGrams,
+				/** Date locale du navigateur — frontière « futur » fiable la nuit
+				 *  (00 h 41 à Paris = veille côté serveur UTC). */
+				clientDate: currentLocalDay(),
 			}),
 			});
 			const j = await r.json();
@@ -1405,7 +1408,7 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 			const r = await fetch(`/api/journal/${editEntry._id}`, {
 				method: 'PATCH',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ unEat: true }),
+				body: JSON.stringify({ unEat: true, clientDate: currentLocalDay() }),
 			});
 			const j = await r.json();
 			if (j.error) throw new Error(j.error);

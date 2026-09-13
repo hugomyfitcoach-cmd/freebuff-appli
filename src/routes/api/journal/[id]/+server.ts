@@ -16,6 +16,9 @@ export const PATCH: RequestHandler = async (event) => {
 			const res = await convex.mutation(api.journal.uneatEntry, {
 				sessionToken: token,
 				entryId: event.params.id as never,
+				// ⚠️ clientDate désactivé tant que le backend n'est pas poussé
+				// (voir /api/journal POST) — réactiver après `npx convex push` :
+				// clientDate: /^\d{4}-\d{2}-\d{2}$/.test(String(body.clientDate ?? '')) ? String(body.clientDate) : undefined,
 			});
 			return json(res);
 		}

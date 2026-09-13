@@ -22,12 +22,17 @@ export const POST: RequestHandler = async (event) => {
 			const res = await convex.mutation(api.journal.eatManyPlanned, {
 				sessionToken: token,
 				plannedIds: body.plannedIds as never,
+				// ⚠️ clientDate désactivé tant que le backend n'est pas poussé
+				// (voir /api/journal POST) — réactiver après `npx convex push` :
+				// clientDate: /^\d{4}-\d{2}-\d{2}$/.test(String(body.clientDate ?? '')) ? String(body.clientDate) : undefined,
 			});
 			return json(res);
 		}
 		const res = await convex.mutation(api.journal.eatPlanned, {
 			sessionToken: token,
 			plannedId: String(body.plannedId ?? '') as never,
+			// ⚠️ idem — réactiver après `npx convex push` :
+			// clientDate: /^\d{4}-\d{2}-\d{2}$/.test(String(body.clientDate ?? '')) ? String(body.clientDate) : undefined,
 		});
 		return json(res);
 	} catch (e) {

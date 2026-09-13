@@ -26,7 +26,7 @@ export const GET: RequestHandler = async (event) => {
 	}
 };
 
-/** Ajout : aujourd'hui → consommé ; date future → planifié (client_planned). */
+/** Ajout : aujourd'hui (client) → consommé ; date future → planifié (client_planned). */
 export const POST: RequestHandler = async (event) => {
 	await requireRole(event, 'client', { next: '/espace/journal' });
 	const token = event.cookies.get(SESSION_COOKIE);
@@ -41,6 +41,11 @@ export const POST: RequestHandler = async (event) => {
 			/** Fiche de référence Ciqual (ANSES) — libellé officiel exact. */
 			ciqualLabel: body.ciqualLabel ? String(body.ciqualLabel) : undefined,
 			qtyGrams: Number(body.qtyGrams),
+			// ⚠️ clientDate (date locale navigateur, fix « date future » la nuit)
+			// DÉSACTIVÉ tant que la mutation `addEntry` n'a pas été poussée sur
+			// Convex prod : l'ancien backend rejette les arguments inconnus.
+			// Réactiver après `npx convex push` :
+			// clientDate: /^\d{4}-\d{2}-\d{2}$/.test(String(body.clientDate ?? '')) ? String(body.clientDate) : undefined,
 		});
 		return json(res);
 	} catch (e) {
