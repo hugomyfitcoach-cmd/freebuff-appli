@@ -12,10 +12,16 @@ export const PATCH: RequestHandler = async (event) => {
 	try {
 		const body = await event.request.json();
 		const ingredients = Array.isArray(body.ingredients)
-			? body.ingredients.map((i: { foodId?: string; customFoodId?: string; qtyGrams: number }) => ({
-					...(i.customFoodId ? { customFoodId: String(i.customFoodId) } : { foodId: String(i.foodId ?? '') }),
-					qtyGrams: Number(i.qtyGrams),
-				}))
+			? body.ingredients.map((i: { foodId?: string; customFoodId?: string; ciqualLabel?: string; qtyGrams: number }) => {
+					// Même mapping que POST /api/meals : fiche de RÉFÉRENCE Ciqual
+					// (ANSES), puis aliment personnel, puis produit OFF — sans
+					// JAMAIS envoyer de foodId vide (sinon Convex rejette le
+					// payload avant la mutation : ArgumentValidationError).
+					if (i.ciqualLabel) return { ciqualLabel: String(i.ciqualLabel), qtyGrams: Number(i.qtyGrams) };
+					if (i.customFoodId) return { customFoodId: String(i.customFoodId), qtyGrams: Number(i.qtyGrams) };
+					const foodId = String(i.foodId ?? '');
+					return foodId ? { foodId, qtyGrams: Number(i.qtyGrams) } : { qtyGrams: Number(i.qtyGrams) };
+				})
 			: [];
 		const res = await convex.mutation(api.meals.updateMeal, {
 			sessionToken: token,
