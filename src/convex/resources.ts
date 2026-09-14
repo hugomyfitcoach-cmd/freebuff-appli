@@ -10,8 +10,10 @@ import type { Doc } from "./_generated/dataModel";
  *  - « private » (défaut) : note / document privé coach — jamais envoyé ;
  *  - « shared »          : partagé avec la cliente → visible dans « Ressources ».
  *
- * Aucune duplication physique : le fichier vit une seule fois sur le storage ;
- * seule la visibilité détermine qui peut y accéder. La cliente ne peut ni
+ * Aucune duplication physique : les fichiers vivent une seule fois sur le
+ * storage ; seule la visibilité détermine qui peut y accéder. Une entrée
+ * fichier peut porter 1 à 5 pièces jointes (attachments) — une seule entrée
+ * Drive pour plusieurs fichiers envoyés ensemble. La cliente ne peut ni
  * modifier, ni supprimer, ni changer la visibilité.
  */
 
@@ -38,16 +40,31 @@ async function targetClient(ctx: { db: import("./_generated/server").QueryCtx["d
 	return target;
 }
 
-/** Ajoute l'URL de lecture aux entrées fichier (storage) — tri : plus récent d'abord. */
+/**
+ * Ajoute l'URL de lecture aux entrées fichier (storage) — tri : plus récent
+ * d'abord. Une entrée peut porter plusieurs pièces jointes (attachments, 1 à 5)
+ * ou le champ historique storageId (ancien fichier unique) — les deux formes
+ * coexistent, chaque pièce jointe reste ouvable individuellement.
+ */
 async function withUrls(
 	ctx: { db: import("./_generated/server").QueryCtx["db"]; storage: { getUrl(storageId: import("./_generated/dataModel").Id<"_storage">): Promise<string | null> } },
 	rows: Resource[]
 ) {
-	const out: (Resource & { url: string | null })[] = [];
+	const out: (Resource & { url: string | null; attachmentsWithUrls: { storageId: string; mime: string; name: string; size: number; url: string | null }[] })[] = [];
 	for (const r of rows) {
 		let url: string | null = null;
 		if (r.kind === "file" && r.storageId) url = await ctx.storage.getUrl(r.storageId);
-		out.push({ ...r, url });
+		const attachmentsWithUrls: { storageId: string; mime: string; name: string; size: number; url: string | null }[] = [];
+		for (const a of r.attachments ?? []) {
+			attachmentsWithUrls.push({
+				storageId: String(a.storageId),
+				mime: a.mime,
+				name: a.name,
+				size: a.size,
+				url: await ctx.storage.getUrl(a.storageId),
+			});
+		}
+		out.push({ ...r, url, attachmentsWithUrls });
 	}
 	out.sort((a, b) => b.createdAt - a.createdAt);
 	return out;
@@ -78,7 +95,13 @@ export const clientResources = query({
 	},
 });
 
-/** Crée une entrée du Dossier (note ou fichier déjà uploadé sur le storage). Visibilité par défaut : privée coach. */
+/**
+ * Crée une entrée du Dossier (note ou fichier(s) déjà uploadés sur le storage).
+ * Visibilité par défaut : privée coach. Une entrée fichier porte SOIT la forme
+ * historique (un seul fichier : storageId/mime/name/size), SOIT une liste de
+ * 1 à 5 pièces jointes (attachments) — plusieurs fichiers envoyés ensemble
+ * appartiennent à la même entrée, jamais à 5 entrées séparées.
+ */
 export const addResource = mutation({
 	args: {
 		sessionToken: v.optional(v.string()),
@@ -90,13 +113,29 @@ export const addResource = mutation({
 		mime: v.optional(v.string()),
 		name: v.optional(v.string()),
 		size: v.optional(v.number()),
+		attachments: v.optional(
+			v.array(
+				v.object({
+					storageId: v.id("_storage"),
+					mime: v.string(),
+					name: v.string(),
+					size: v.number(),
+				})
+			)
+		),
 	},
-	handler: async (ctx, { sessionToken, userId, kind, title, body, storageId, mime, name, size }) => {
+	handler: async (ctx, { sessionToken, userId, kind, title, body, storageId, mime, name, size, attachments }) => {
 		await requireCoach(ctx, sessionToken);
 		await targetClient(ctx, userId);
 		const titleClean = title.trim().slice(0, 120);
 		if (!titleClean) throw new ConvexError("Donne un titre à cette entrée.");
-		if (kind === "file" && (!storageId || !mime || !name || !size)) {
+		const attachmentsClean = (attachments ?? []).slice(0, 5).map((a) => ({
+			storageId: a.storageId,
+			mime: a.mime.slice(0, 120),
+			name: a.name.slice(0, 200),
+			size: a.size,
+		}));
+		if (kind === "file" && attachmentsClean.length === 0 && (!storageId || !mime || !name || !size)) {
 			throw new ConvexError("Fichier incomplet (upload requis d'abord).");
 		}
 		if (kind === "note") {
@@ -112,12 +151,18 @@ export const addResource = mutation({
 			// Défaut : privé coach — le partage est un choix explicite du coach.
 			visibility: "private",
 			...(kind === "file"
-				? {
-						storageId: storageId as never,
-						mime: (mime ?? "").slice(0, 120),
-						name: (name ?? "").slice(0, 200),
-						size: size ?? 0,
-					}
+				? attachmentsClean.length > 0
+					? {
+							attachments: attachmentsClean,
+							// Légende facultative de l'entrée fichier.
+							...(body?.trim() ? { body: body.trim().slice(0, 20_000) } : {}),
+						}
+					: {
+							storageId: storageId as never,
+							mime: (mime ?? "").slice(0, 120),
+							name: (name ?? "").slice(0, 200),
+							size: size ?? 0,
+						}
 				: {}),
 			createdAt: now,
 			updatedAt: now,
@@ -156,20 +201,31 @@ export const updateResource = mutation({
 	},
 });
 
-/** Supprime définitivement une entrée (fichier du storage inclus) — réservé à la coach. */
+/** Supprime définitivement une entrée (fichiers du storage inclus) — réservé à la coach. */
 export const deleteResource = mutation({
 	args: { sessionToken: v.optional(v.string()), resourceId: v.id("coachResources") },
 	handler: async (ctx, { sessionToken, resourceId }) => {
 		await requireCoach(ctx, sessionToken);
 		const row = await ctx.db.get(resourceId);
 		if (!row) return { ok: true };
-		if (row.kind === "file" && row.storageId) {
-			await ctx.storage.delete(row.storageId).catch(() => {});
-		}
+		await deleteResourceStorage(ctx, row);
 		await ctx.db.delete(resourceId);
 		return { ok: true };
 	},
 });
+
+/** Supprime les blobs storage d'une entrée (fichier unique historique + pièces jointes). */
+async function deleteResourceStorage(
+	ctx: { storage: { delete(storageId: import("./_generated/dataModel").Id<"_storage">): Promise<void> } },
+	row: Resource
+) {
+	if (row.kind === "file" && row.storageId) {
+		await ctx.storage.delete(row.storageId).catch(() => {});
+	}
+	for (const a of row.attachments ?? []) {
+		await ctx.storage.delete(a.storageId).catch(() => {});
+	}
+}
 
 /** Suppression définitive de la cliente : vide son Dossier (fichiers compris). */
 export async function deleteAllResourcesForUser(
@@ -178,7 +234,7 @@ export async function deleteAllResourcesForUser(
 ) {
 	const rows = await ctx.db.query("coachResources").withIndex("by_user", (q) => q.eq("userId", userId)).collect();
 	for (const r of rows) {
-		if (r.kind === "file" && r.storageId) await ctx.storage.delete(r.storageId).catch(() => {});
+		await deleteResourceStorage(ctx, r);
 		await ctx.db.delete(r._id);
 	}
 }

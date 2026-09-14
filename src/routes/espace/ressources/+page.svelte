@@ -4,6 +4,13 @@
 
 	let { data } = $props();
 
+	type Attachment = {
+		storageId: string;
+		mime: string;
+		name: string;
+		size: number;
+		url: string | null;
+	};
 	type Resource = {
 		_id: string;
 		kind: 'note' | 'file';
@@ -13,6 +20,7 @@
 		name?: string | null;
 		mime?: string | null;
 		size?: number | null;
+		attachmentsWithUrls?: Attachment[] | null;
 		createdAt: number;
 		updatedAt: number;
 		url: string | null;
@@ -34,14 +42,24 @@
 		if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} Ko`;
 		return `${(bytes / (1024 * 1024)).toFixed(1).replace('.', ',')} Mo`;
 	}
-	function fileKind(r: Resource): string {
-		const m = (r.mime ?? '').toLowerCase();
+	function fileKind(mime?: string | null): string {
+		const m = (mime ?? '').toLowerCase();
 		if (m.startsWith('image/')) return 'image';
 		if (m === 'application/pdf') return 'pdf';
 		return 'file';
 	}
 	const kindIcon = (kind: string) =>
 		kind === 'note' ? 'fileText' : kind === 'image' ? 'image' : kind === 'pdf' ? 'fileText' : 'fileText';
+	/** Pièces jointes de l'entrée : forme historique (1 fichier) ou attachments. */
+	function rowFiles(r: Resource): Attachment[] {
+		if (r.kind !== 'file') return [];
+		const atts = r.attachmentsWithUrls ?? [];
+		if (atts.length > 0) return atts;
+		if (r.url && r.name) {
+			return [{ storageId: '', mime: r.mime ?? '', name: r.name, size: r.size ?? 0, url: r.url }];
+		}
+		return [];
+	}
 </script>
 
 <svelte:head><title>Drive — G-Flux</title></svelte:head>
@@ -64,39 +82,49 @@
 {:else}
 	<ul class="space-y-3">
 		{#each rows as row (row._id)}
-			{@const kind = fileKind(row)}
+			{@const files = rowFiles(row)}
 			<li class="overflow-hidden rounded-3xl border border-line bg-card shadow-sm">
 				<div class="flex items-start gap-3 px-5 py-4">
 					<span class="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-brand-light">
-						<Icon name={kindIcon(kind)} size={18} class="text-brand" />
+						<Icon name={row.kind === 'note' ? 'fileText' : files.length > 1 ? 'images' : kindIcon(fileKind(files[0]?.mime))} size={18} class="text-brand" />
 					</span>
 					<div class="min-w-0 flex-1">
 						<p class="text-[11px] font-bold uppercase tracking-wide text-mist">{dateLabel(row.createdAt)}</p>
 						<h2 class="mt-0.5 break-words text-[15px] font-bold leading-snug text-ink">{row.title}</h2>
-						{#if row.kind === 'note' && row.body}
+						{#if row.body}
 							<p class="mt-1.5 whitespace-pre-line text-sm leading-relaxed text-ink/80">{row.body}</p>
-						{:else if row.name}
-							<p class="mt-1 truncate text-xs text-mist">
-								{row.name}{row.size ? ` · ${sizeLabel(row.size)}` : ''}
-							</p>
 						{/if}
 					</div>
 				</div>
 
-				{#if row.kind === 'file' && row.url}
-					<div class="border-t border-line px-5 py-3">
-						<a
-							href={row.url}
-							target="_blank"
-							rel="noopener noreferrer"
-							download={row.name ?? undefined}
-							class="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-ink px-4 py-2.5 text-sm font-bold text-white transition hover:bg-brand"
-						>
-							<Icon name={kind === 'image' ? 'eye' : 'download'} size={15} class="shrink-0" />
-							{kind === 'image' ? 'Voir le document' : 'Ouvrir le document'}
-							<Icon name="externalLink" size={14} class="shrink-0 opacity-70" />
-						</a>
-					</div>
+				{#if files.length > 0}
+					<ul class="space-y-1.5 border-t border-line px-5 py-3">
+						{#each files as f, i (f.storageId + f.name + i)}
+							{@const kind = fileKind(f.mime)}
+							<li>
+								{#if f.url}
+									<a
+										href={f.url}
+										target="_blank"
+										rel="noopener noreferrer"
+										download={f.name}
+										class="flex w-full items-center gap-2.5 rounded-xl border border-line px-3 py-2.5 transition hover:border-brand"
+									>
+										<Icon name={kindIcon(kind)} size={15} class="shrink-0 text-mist" />
+										<span class="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{f.name}</span>
+										{#if f.size}<span class="shrink-0 text-[11px] text-mist">{sizeLabel(f.size)}</span>{/if}
+										<Icon name={kind === 'image' ? 'eye' : 'download'} size={15} class="shrink-0 text-brand" />
+									</a>
+								{:else}
+									<div class="flex w-full items-center gap-2.5 rounded-xl border border-line px-3 py-2.5">
+										<Icon name={kindIcon(kind)} size={15} class="shrink-0 text-mist" />
+										<span class="min-w-0 flex-1 truncate text-sm font-semibold text-mist">{f.name}</span>
+										{#if f.size}<span class="shrink-0 text-[11px] text-mist">{sizeLabel(f.size)}</span>{/if}
+									</div>
+								{/if}
+							</li>
+						{/each}
+					</ul>
 				{/if}
 			</li>
 		{/each}

@@ -459,12 +459,22 @@ export default defineSchema({
 		/** Corps de la note (kind = "note"). */
 		body: v.optional(v.string()),
 		/** Visibilité : « private » = note/doc privé coach ; « shared » = visible cliente. */
-		visibility: v.union(v.literal("private"), v.literal("shared")),
-		/** Fichier (kind = "file") — pointe vers le storage Convex. */
-		storageId: v.optional(v.id("_storage")),
-		mime: v.optional(v.string()),
-		name: v.optional(v.string()),
-		size: v.optional(v.number()),
+		visibility: v.union(v.literal("private"), v.literal("shared")),						/** Fichier (kind = "file") — pointe vers le storage Convex. */
+						storageId: v.optional(v.id("_storage")),
+						mime: v.optional(v.string()),
+						name: v.optional(v.string()),
+						size: v.optional(v.number()),
+						/** Pièces jointes (kind = "file", 1 à 5 fichiers dans la même entrée). */
+						attachments: v.optional(
+							v.array(
+								v.object({
+									storageId: v.id("_storage"),
+									mime: v.string(),
+									name: v.string(),
+									size: v.number(),
+								})
+							)
+						),
 		createdAt: v.number(),
 		updatedAt: v.number(),
 	})
