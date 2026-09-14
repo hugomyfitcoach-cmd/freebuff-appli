@@ -638,8 +638,10 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 	/** Position verticale : juste sous le header mobile (mesuré), 16 px sur desktop. */
 	let barTop = $state(56);
 
+	/** Pourcentage réel consommé/objectif — jamais plafonné à 100 (l'anneau,
+	 *  lui, reste plafonné visuellement). */
 	function macroPct(eaten: number, goal: number) {
-		return goal > 0 ? Math.min(100, (eaten / goal) * 100) : 0;
+		return goal > 0 ? (eaten / goal) * 100 : 0;
 	}
 	function fmt(n: number) {
 		return n.toLocaleString('fr-FR');
