@@ -73,6 +73,8 @@
 		tip = null,
 		onAdd,
 		onEntryClick,
+		/** Clic sur une carte macro (Glucides / Protéines / Lipides — jamais Calories) → vue détail. */
+		onMacroClick,
 		onPlannedClick,
 		onToggleEat,
 		onEatAllMeal,
@@ -91,6 +93,8 @@
 		tip?: string | null;
 		onAdd?: (meal: string) => void;
 		onEntryClick?: (e: Entry) => void;
+		/** Clic sur une carte macro (Glucides / Protéines / Lipides — jamais Calories) → vue détail. */
+		onMacroClick?: (macro: 'carbs' | 'protein' | 'fat') => void;
 		onPlannedClick?: (p: Planned) => void;
 		/** Cercle « Mangé » d'un item planifié (planned → consommé). */
 		onToggleEat?: (p: Planned) => void;
@@ -257,7 +261,16 @@
 	{#each rings as ring (ring.label)}
 		{@const pct = macroPct(ring.eaten, ring.goal)}
 		{@const circ = 2 * Math.PI * 22}
-		<div class="rounded-2xl border border-line bg-card text-center {compact ? 'px-1.5 pb-2 pt-2' : 'px-2 pb-2.5 pt-2.5'}">
+		{@const macroKey = ring.label === 'Glucides' ? 'carbs' : ring.label === 'Protéines' ? 'protein' : 'fat'}
+		{@const clickable = mode === 'client' && !!onMacroClick}
+		<div
+			class="rounded-2xl border border-line bg-card text-center {compact ? 'px-1.5 pb-2 pt-2' : 'px-2 pb-2.5 pt-2.5'} {clickable ? 'cursor-pointer outline-none transition duration-150 hover:shadow-sm active:scale-[0.97]' : ''}"
+			role={clickable ? 'button' : undefined}
+			tabindex={clickable ? 0 : undefined}
+			aria-label={clickable ? `Voir le détail des ${ring.label.toLowerCase()}` : undefined}
+			onclick={clickable ? () => onMacroClick?.(macroKey) : undefined}
+			onkeydown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onMacroClick?.(macroKey); } } : undefined}
+		>
 			<div class="mb-2 flex items-center justify-between px-0.5">
 				<span class="font-bold text-ink {compact ? 'text-[10px]' : 'text-[10px]'}">{ring.label}</span>
 				<Icon name={ring.icon} size={compact ? 12 : 14} class="shrink-0" style="color:{ring.color}" />
