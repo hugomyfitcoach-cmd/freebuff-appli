@@ -228,6 +228,12 @@ export const upsertSettings = mutation({
 					/^\d{2}:\d{2}$/.test(r.end) &&
 					toMin(r.end) > toMin(r.start)
 			)
+			// Anti-doublon EXACT (même jour + mêmes heures) : une plage saisie
+			// deux fois ne doit jamais être enregistrée deux fois — sinon la
+			// grille des créneaux produit deux blocs identiques par clé et fait
+			// planter le rendu (each_key_duplicate). Les plages qui se chevauchent
+			// partiellement restent acceptées (déjà fusionnées à l'affichage).
+			.filter((r, i, arr) => arr.findIndex((x) => x.day === r.day && x.start === r.start && x.end === r.end) === i)
 			.sort((a, b) => a.day - b.day || toMin(a.start) - toMin(b.start));
 		const existing = await ctx.db
 			.query("bookingSettings")

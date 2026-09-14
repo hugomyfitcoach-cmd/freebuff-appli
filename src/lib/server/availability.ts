@@ -252,13 +252,20 @@ export async function computeAvailability(opts: {
 	// filtrée par tout le busy réel (buffers compris).
 	const result = daysList.map((dt) => {
 		const slots: { start: string; end: string }[] = [];
+		const seen = new Set<number>();
 		for (const r of ranges.filter((x) => x.day === isoDay(dt))) {
 			for (let m = toMin(r.start); m + rule.durationMin <= toMin(r.end); m += 15) {
+				// Anti-doublon : une plage enregistrée deux fois (même jour +
+				// mêmes heures) ne doit jamais produire deux fois le même
+				// créneau — les clients associent chaque créneau à une clé
+				// unique (heure de début) et un doublon casse leur rendu.
+				if (seen.has(m)) continue;
 				const startMs = dayMinuteToMs(dt, m);
 				const endMs = startMs + rule.durationMin * 60000;
 				// Passé (aujourd'hui : créneau déjà commencé).
 				if (startMs <= now) continue;
 				if (hitsBusy(startMs, endMs, allBusy)) continue;
+				seen.add(m);
 				slots.push({ start: fromMin(m), end: fromMin(m + rule.durationMin) });
 			}
 		}
