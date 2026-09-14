@@ -175,8 +175,10 @@
 	function mealPct(meal: string) {
 		return day.goals.kcal > 0 ? Math.round((mealKcal(meal) / day.goals.kcal) * 100) : 0;
 	}
+	/** Pourcentage réel consommé/objectif — jamais plafonné à 100 (l'anneau,
+	 *  lui, reste plafonné visuellement). */
 	function macroPct(eaten: number, goal: number) {
-		return goal > 0 ? Math.min(100, (eaten / goal) * 100) : 0;
+		return goal > 0 ? (eaten / goal) * 100 : 0;
 	}
 	function fmt(n: number) {
 		return n.toLocaleString('fr-FR');
@@ -260,6 +262,7 @@
 <section class="grid grid-cols-3 {compact ? 'mb-1.5 gap-1.5' : 'mb-2.5 gap-2'}">
 	{#each rings as ring (ring.label)}
 		{@const pct = macroPct(ring.eaten, ring.goal)}
+		{@const ringFill = Math.min(100, pct)}
 		{@const circ = 2 * Math.PI * 22}
 		{@const macroKey = ring.label === 'Glucides' ? 'carbs' : ring.label === 'Protéines' ? 'protein' : 'fat'}
 		{@const clickable = mode === 'client' && !!onMacroClick}
@@ -287,7 +290,7 @@
 						stroke-width={compact ? 4 : 6}
 						stroke-linecap="round"
 						stroke-dasharray={circ}
-						stroke-dashoffset={circ * (1 - pct / 100)}
+						stroke-dashoffset={circ * (1 - ringFill / 100)}
 						style="transition: stroke-dashoffset .5s"
 					/>
 				</svg>
