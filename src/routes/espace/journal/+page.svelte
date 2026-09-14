@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, tick, untrack } from 'svelte';
 	import { beforeNavigate } from '$app/navigation';
-	import { startBarcodeScanner, type BarcodeScannerHandle } from '$lib/barcodeScanner';
+	import { startBarcodeScanner, CameraPermissionError, type BarcodeScannerHandle } from '$lib/barcodeScanner';
 	import { currentLocalDay } from '$lib/currentDay.svelte';
 	import { appWarm, firstVisit, isFresh, noteSync, restoreScroll, saveScroll } from '$lib/navMemory';
 	import JournalDay from '$lib/components/JournalDay.svelte';
@@ -891,6 +891,7 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 		customEditor = false;
 		barcodeStatus = 'idle';
 		barcodeError = '';
+		barcodePermBlocked = false;
 		barcodeManual = '';
 		logMode = 'search';
 		logOpen = true;
@@ -1457,10 +1458,12 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 	}
 
 	/* ————— Code-barres ————— */
-	let barcodeStatus = $state<'idle' | 'scanning' | 'notfound' | 'error'>('idle');
+	let barcodeStatus = $state<'idle' | 'scanning' | 'notfound' | 'error' | 'perm'>('idle');
 	let barcodeManual = $state('');
 	let barcodeBusy = $state(false);
 	let barcodeError = $state('');
+	/* Caméra refusée/bloquée : message dédié + « Réessayer » (voir startScanner). */
+	let barcodePermBlocked = $state(false);
 	let scanner: BarcodeScannerHandle | null = null;
 	let scannerBusy = false;
 
@@ -1477,9 +1480,16 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 			scanner = await startBarcodeScanner(el, (decoded) => {
 				void handleScan(decoded, target);
 			});
-		} catch {
-			barcodeStatus = 'error';
-			barcodeError = 'Caméra indisponible — saisis le code-barres à la main ci-dessous.';
+		} catch (e) {
+			if (e instanceof CameraPermissionError) {
+				/* Refus/blocage caméra : message clair + « Réessayer » + comment
+				   réautoriser. La saisie manuelle reste utilisable en dessous. */
+				barcodeStatus = 'perm';
+				barcodePermBlocked = true;
+			} else {
+				barcodeStatus = 'error';
+			}
+			barcodeError = e instanceof Error ? e.message : 'Caméra indisponible — saisis le code-barres à la main ci-dessous.';
 			if (scanner) {
 				try {
 					await scanner.stop();
@@ -1502,12 +1512,22 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 			scanner = null;
 		}
 	}
+	/** « Réessayer » après un refus/blocage caméra : relance le scan sur le bon
+	 *  lecteur (fenêtre produit si elle est ouverte, sinon « Ajouter un aliment »). */
+	function retryScanner() {
+		barcodeStatus = 'idle';
+		barcodeError = '';
+		barcodePermBlocked = false;
+		if (mealSearchOpen) void startScanner('meal-bc-reader', 'meal');
+		else void startScanner();
+	}
 	async function switchMode(m: 'search' | 'barcode') {
 		if (m === logMode) return;
 		if (m === 'barcode') {
 			logMode = 'barcode';
 			barcodeStatus = 'idle';
 			barcodeError = '';
+			barcodePermBlocked = false;
 			barcodeManual = '';
 			await tick();
 			void startScanner();
@@ -1563,6 +1583,7 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 			mealSearchMode = 'barcode';
 			barcodeStatus = 'idle';
 			barcodeError = '';
+			barcodePermBlocked = false;
 			barcodeManual = '';
 			await tick();
 			void startScanner('meal-bc-reader', 'meal');
@@ -1785,6 +1806,7 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 		mealSearching = false;
 		barcodeStatus = 'idle';
 		barcodeError = '';
+		barcodePermBlocked = false;
 		barcodeManual = '';
 		const el = document.getElementById('meal-picker-input');
 		el?.focus();
@@ -2487,7 +2509,16 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 					</div>
 
 					{#if barcodeError}
-						<p class="mx-auto mt-3 w-full max-w-sm rounded-xl bg-danger-light px-3 py-2.5 text-center text-sm text-danger">{barcodeError}</p>
+						<div class="mx-auto mt-3 w-full max-w-sm rounded-xl bg-danger-light px-3 py-2.5 text-center text-sm text-danger">
+							{#if barcodePermBlocked}
+								<span class="mb-1 flex items-center justify-center gap-1.5 font-bold"><Icon name="lock" size={15} /> Accès caméra désactivé</span>
+							{/if}
+							<p>{barcodeError}</p>
+							{#if barcodePermBlocked}
+								<p class="mt-1.5 text-[11px] leading-snug text-danger/80">Si tu as refusé l'accès, réautorise la caméra dans les réglages du navigateur ou de l'appareil : icône caméra/cadenas dans la barre d'adresse, Réglages iOS → Safari (iPhone) ou Paramètres du site Chrome (Android). Le scan doit rester autorisé ensuite, sans nouvelle demande à chaque scan.</p>
+								<button type="button" class="mt-2 w-full rounded-full bg-danger py-2 text-xs font-bold text-white transition hover:opacity-90" onclick={() => retryScanner()}>Réessayer</button>
+							{/if}
+						</div>
 					{:else if barcodeStatus === 'scanning'}
 						<p class="mt-3 text-center text-xs text-mist">Caméra active — présente le code-barres à plat devant l'objectif, même à distance : dès qu'il est lu, l'encadré passe au vert.</p>
 					{/if}
@@ -2663,7 +2694,16 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 					</div>
 
 					{#if barcodeError}
-						<p class="mx-auto mt-3 w-full max-w-sm rounded-xl bg-danger-light px-3 py-2.5 text-center text-sm text-danger">{barcodeError}</p>
+						<div class="mx-auto mt-3 w-full max-w-sm rounded-xl bg-danger-light px-3 py-2.5 text-center text-sm text-danger">
+							{#if barcodePermBlocked}
+								<span class="mb-1 flex items-center justify-center gap-1.5 font-bold"><Icon name="lock" size={15} /> Accès caméra désactivé</span>
+							{/if}
+							<p>{barcodeError}</p>
+							{#if barcodePermBlocked}
+								<p class="mt-1.5 text-[11px] leading-snug text-danger/80">Si tu as refusé l'accès, réautorise la caméra dans les réglages du navigateur ou de l'appareil : icône caméra/cadenas dans la barre d'adresse, Réglages iOS → Safari (iPhone) ou Paramètres du site Chrome (Android). Le scan doit rester autorisé ensuite, sans nouvelle demande à chaque scan.</p>
+								<button type="button" class="mt-2 w-full rounded-full bg-danger py-2 text-xs font-bold text-white transition hover:opacity-90" onclick={() => retryScanner()}>Réessayer</button>
+							{/if}
+						</div>
 					{:else if barcodeStatus === 'scanning'}
 						<p class="mt-3 text-center text-xs text-mist">Caméra active — présente le code-barres à plat devant l'objectif : dès qu'il est lu, la feuille de portion s'ouvre.</p>
 					{/if}
