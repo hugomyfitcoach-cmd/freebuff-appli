@@ -27,6 +27,9 @@
 		showFav = false,
 		favActive = false,
 		onToggleFav,
+		/** Positionne la feuille dans la zone visible (clavier mobile iOS). */
+		sheetTop = 0,
+		sheetHeight,
 		onSave,
 		onEat,
 		onReplace,
@@ -59,6 +62,9 @@
 		showFav?: boolean;
 		favActive?: boolean;
 		onToggleFav?: () => void;
+		/** Positionne la feuille dans la zone visible (clavier mobile iOS). */
+		sheetTop?: number;
+		sheetHeight?: number;
 		onSave: (qtyGrams: number, meal: string) => void;
 		/** Mode planned uniquement : valider « Mangé » (planned → consommé). */
 		onEat?: () => void;
@@ -202,6 +208,8 @@
 <div
 	role="presentation"
 	class="fixed inset-0 z-[60] flex items-end justify-center bg-ink/40 backdrop-blur-sm sm:items-center sm:p-6"
+	style:top={sheetTop ? `${sheetTop}px` : undefined}
+	style:height={sheetHeight ? `${sheetHeight}px` : undefined}
 	onclick={(e) => {
 		if (e.target === e.currentTarget && !saving) onClose();
 	}}
@@ -209,7 +217,7 @@
 		if (e.key === 'Escape' && !saving) onClose();
 	}}
 >
-	<div class="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
+	<div class="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl" style:max-height={sheetHeight ? `min(92dvh, ${sheetHeight}px)` : undefined}>
 		<!-- En-tête : photo + nom + portion OFF -->
 		<div class="flex items-center gap-3">
 		{#if food.imageUrl}

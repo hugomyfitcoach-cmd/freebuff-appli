@@ -30,47 +30,73 @@ function clamp(n: number, min: number, max: number, label: string): number {
 	return round1(n);
 }
 
+/** Champs communs création / édition (validés une seule fois, mêmes règles). */
+const foodFields = {
+	name: v.string(),
+	brand: v.optional(v.string()),
+	kcal100: v.number(),
+	carbs100: v.number(),
+	protein100: v.number(),
+	fat100: v.number(),
+	servingQty: v.optional(v.number()),
+};
+
+/** Valide et normalise les champs saisies (identique à la création). */
+function normalizeFields(fields: {
+	name: string;
+	brand?: string;
+	kcal100: number;
+	carbs100: number;
+	protein100: number;
+	fat100: number;
+	servingQty?: number;
+}) {
+	const clean = fields.name.trim();
+	if (clean.length < 2 || clean.length > 80) {
+		throw new ConvexError("Donne un nom à ton aliment (entre 2 et 80 caractères).");
+	}
+	const kcal = clamp(fields.kcal100, 0, 900, "Les calories");
+	const carbs = clamp(fields.carbs100, 0, 100, "Les glucides");
+	const protein = clamp(fields.protein100, 0, 100, "Les protéines");
+	const fat = clamp(fields.fat100, 0, 100, "Les lipides");
+	if (kcal === 0 && carbs === 0 && protein === 0 && fat === 0) {
+		throw new ConvexError("Renseigne au moins une valeur nutritionnelle.");
+	}
+	let qty: number | undefined;
+	if (fields.servingQty !== undefined && fields.servingQty !== null) {
+		qty = clamp(fields.servingQty, 1, 2000, "La portion");
+	}
+	return { name: clean, brand: fields.brand?.trim() || undefined, kcal100: kcal, carbs100: carbs, protein100: protein, fat100: fat, servingQty: qty };
+}
+
 /** Crée un aliment personnel (valeurs pour 100 g). */
 export const create = mutation({
-	args: {
-		sessionToken: v.optional(v.string()),
-		name: v.string(),
-		brand: v.optional(v.string()),
-		kcal100: v.number(),
-		carbs100: v.number(),
-		protein100: v.number(),
-		fat100: v.number(),
-		servingQty: v.optional(v.number()),
-	},
-	handler: async (ctx, { sessionToken, name, brand, kcal100, carbs100, protein100, fat100, servingQty }) => {
+	args: { sessionToken: v.optional(v.string()), ...foodFields },
+	handler: async (ctx, { sessionToken, ...fields }) => {
 		const user = await requireClient(ctx, sessionToken);
-		const clean = name.trim();
-		if (clean.length < 2 || clean.length > 80) {
-			throw new ConvexError("Donne un nom à ton aliment (entre 2 et 80 caractères).");
-		}
-		const kcal = clamp(kcal100, 0, 900, "Les calories");
-		const carbs = clamp(carbs100, 0, 100, "Les glucides");
-		const protein = clamp(protein100, 0, 100, "Les protéines");
-		const fat = clamp(fat100, 0, 100, "Les lipides");
-		if (kcal === 0 && carbs === 0 && protein === 0 && fat === 0) {
-			throw new ConvexError("Renseigne au moins une valeur nutritionnelle.");
-		}
-		let qty: number | undefined;
-		if (servingQty !== undefined && servingQty !== null) {
-			qty = clamp(servingQty, 1, 2000, "La portion");
-		}
+		const clean = normalizeFields(fields);
 		const id = await ctx.db.insert("customFoods", {
 			userId: user._id,
-			name: clean,
-			brand: brand?.trim() || undefined,
-			kcal100: kcal,
-			carbs100: carbs,
-			protein100: protein,
-			fat100: fat,
-			servingQty: qty,
+			...clean,
 			createdAt: Date.now(),
 		});
 		return { ok: true, customFoodId: id };
+	},
+});
+
+/**
+ * Modifie un aliment personnel existant (propriétaire uniquement).
+ * Ne touche qu'à la fiche : les entrées du journal déjà enregistrées
+ * conservent leur snapshot (nom, marque, valeurs) tel quel.
+ */
+export const update = mutation({
+	args: { sessionToken: v.optional(v.string()), customFoodId: v.id("customFoods"), ...foodFields },
+	handler: async (ctx, { sessionToken, customFoodId, ...fields }) => {
+		const user = await requireClient(ctx, sessionToken);
+		const food = await ctx.db.get(customFoodId);
+		if (!food || food.userId !== user._id) throw new ConvexError("Aliment introuvable.");
+		await ctx.db.patch(customFoodId, normalizeFields(fields));
+		return { ok: true, customFoodId };
 	},
 });
 

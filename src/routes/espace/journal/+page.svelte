@@ -767,6 +767,8 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 	let customFoods = $state<Food[]>([]);
 	let customFoodsError = $state('');
 	let customEditor = $state(false);
+	/** Aliment en cours de modification (null = création d'un nouvel aliment). */
+	let cfEditingId = $state<string | null>(null);
 	let cfName = $state('');
 	let cfBrand = $state('');
 	let cfKcal = $state('');
@@ -790,6 +792,7 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 	}
 	function openCustomEditor() {
 		customEditor = true;
+		cfEditingId = null;
 		cfName = '';
 		cfBrand = '';
 		cfKcal = '';
@@ -797,6 +800,19 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 		cfProtein = '';
 		cfFat = '';
 		cfServing = '';
+		cfError = '';
+	}
+	/** Édition : pré-remplit le formulaire avec la fiche existante (sauvegarde → mise à jour). */
+	function openCustomEditorFor(food: Food) {
+		customEditor = true;
+		cfEditingId = food._id;
+		cfName = food.name;
+		cfBrand = food.brand ?? '';
+		cfKcal = String(food.kcal100);
+		cfCarbs = String(food.carbs100);
+		cfProtein = String(food.protein100);
+		cfFat = String(food.fat100);
+		cfServing = food.servingQty !== undefined ? String(food.servingQty) : '';
 		cfError = '';
 	}
 	function closeCustomEditor() {
@@ -814,8 +830,9 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 		cfSaving = true;
 		cfError = '';
 		try {
-			const r = await fetch('/api/foods/custom', {
-				method: 'POST',
+			/* Édition → PUT sur la fiche existante (pas de doublon, journal intact). */
+			const r = await fetch(cfEditingId ? `/api/foods/custom?id=${cfEditingId}` : '/api/foods/custom', {
+				method: cfEditingId ? 'PUT' : 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					name: cfName,
@@ -1459,12 +1476,16 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 	/* Hauteur visible (visualViewport) — dimensionne l'écran « Ajouter un aliment »
 	   en px réels : fiable iOS avec clavier ouvert (contrairement aux unités dvh). */
 	let vvH = $state(typeof window !== 'undefined' ? Math.round(window.visualViewport?.height ?? window.innerHeight) : 700);
+	/** Décalage vertical du visualViewport (clavier iOS : l'overlay reste dans la zone visible). */
+	let vvTop = $state(0);
 	let mobile = $state(typeof window !== 'undefined' ? window.matchMedia('(max-width: 639px)').matches : true);
 	let refreshing = $state(false);
 
 	/* Listes scrollables de l'écran « Ajouter un aliment » (recherche + code-barres)
 	   et de la fenêtre produit de l'éditeur de repas (mêmes deux modes).
 	   $state : l'$effect de fermeture du clavier doit se rattacher à chaque montage. */
+	/** Formulaire « Créer / modifier un aliment » (scroll-to-focus clavier mobile). */
+	let customFormEl = $state<HTMLElement | undefined>();
 	let logListEl = $state<HTMLElement | undefined>();
 	let bcListEl = $state<HTMLElement | undefined>();
 	let mealSearchListEl = $state<HTMLElement | undefined>();
@@ -1474,17 +1495,33 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 	   sans vider la recherche ni perdre les résultats ; le geste continue.
 	   Seuil : ignore les micro-mouvements et les taps sur un produit. */
 	function attachScrollDismiss(el: HTMLElement) {
-		let lastTop = el.scrollTop;
+		/* On ne ferme le clavier QUE sur un geste doigt (touchstart → momentum
+		   ≤ 1 s). Le défilement automatique qu'iOS applique au conteneur pour
+		   révéler le champ focalisé ne doit PAS fermer le clavier. */
+		let touchActive = false;
+		let lastTouchEnd = 0;
+		const onTouchStart = () => (touchActive = true);
+		const onTouchEnd = () => {
+			touchActive = false;
+			lastTouchEnd = performance.now();
+		};
 		const onScroll = () => {
-			const top = el.scrollTop;
-			const dy = Math.abs(top - lastTop);
-			lastTop = top;
-			if (top < 8) return;
+			if (el.scrollTop < 8) return;
+			const recentGesture = touchActive || performance.now() - lastTouchEnd < 1000;
+			if (!recentGesture) return;
 			const active = document.activeElement;
 			if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) active.blur();
 		};
 		el.addEventListener('scroll', onScroll, { passive: true });
-		return () => el.removeEventListener('scroll', onScroll);
+		el.addEventListener('touchstart', onTouchStart, { passive: true });
+		el.addEventListener('touchend', onTouchEnd, { passive: true });
+		el.addEventListener('touchcancel', onTouchEnd, { passive: true });
+		return () => {
+			el.removeEventListener('scroll', onScroll);
+			el.removeEventListener('touchstart', onTouchStart);
+			el.removeEventListener('touchend', onTouchEnd);
+			el.removeEventListener('touchcancel', onTouchEnd);
+		};
 	}
 	$effect(() => {
 		const els = [logListEl, bcListEl, mealSearchListEl, mealBcListEl].filter((e): e is HTMLElement => !!e);
@@ -1492,6 +1529,44 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 		const cleanups = els.map(attachScrollDismiss);
 		return () => cleanups.forEach((c) => c());
 	});
+
+	/* Clavier mobile : le champ qui reçoit le focus doit rester visible au-dessus
+	   du clavier. Les overlays suivent déjà le visualViewport (top/height) ; on
+	   scrolle ensuite le conteneur scrollable pour amener le champ dans la zone
+	   utile — au-dessus de la capsule flottante « Recherche / Code-barres » et
+	   du clavier. Sans ça, iOS garde le champ sous le clavier sur les champs du bas. */
+	function scrollFocusedIntoView(el: HTMLElement) {
+		const vv = window.visualViewport;
+		const overlayTop = mobile ? (vv?.offsetTop ?? 0) : 0;
+		const visibleH = mobile ? Math.round(vv?.height ?? window.innerHeight) : window.innerHeight;
+		/* Marge basse : capsule flottante (~56 px) + sécurité clavier (iOS ancre
+		   la saisie ~40 px au-dessus de son bord) + aire de respiration. */
+		const bottomMargin = 56 + 40 + 12;
+		const r = el.getBoundingClientRect();
+		const targetBottom = overlayTop + visibleH - bottomMargin;
+		const targetTop = overlayTop + 8;
+		/* Cherche le conteneur scrollable (la liste de l'écran « Ajouter »). */
+		let scroller: HTMLElement | null = el.parentElement;
+		while (scroller && getComputedStyle(scroller).overflowY !== 'auto' && getComputedStyle(scroller).overflowY !== 'scroll') {
+			scroller = scroller.parentElement;
+		}
+		if (!scroller) return;
+		const delta = r.bottom - targetBottom;
+		if (delta > 0) scroller.scrollTop += delta;
+		else if (r.top < targetTop) scroller.scrollTop += r.top - targetTop;
+	}
+	/** Champ focalisé de l'éditeur « Créés par moi » : re-positionné quand le
+	    clavier s'ouvre (le visualViewport change APRÈS le focus). */
+	let focusedFieldEl: HTMLElement | null = null;
+	function focusScroll(form: HTMLElement, target: EventTarget | null) {
+		if (target instanceof HTMLElement && target !== form) {
+			focusedFieldEl = target;
+			scrollFocusedIntoView(target);
+		}
+	}
+	function blurScroll(e: Event) {
+		if (e.target === focusedFieldEl) focusedFieldEl = null;
+	}
 
 	/* Recherche ingrédient ouverte : pré-remplit le champ et lance la recherche
 	   initiale, puis focalise le champ (clavier immédiat, comme « Ajouter un aliment »). */
@@ -1518,8 +1593,18 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 
 		/* Clavier mobile : la hauteur de l'écran Ajouter suit le visualViewport. */
 		const vv = window.visualViewport;
+		let prevVvH = Math.round((vv?.height ?? window.innerHeight) ?? 0);
 		const setVh = () => {
 			vvH = Math.round((vv?.height ?? window.innerHeight) ?? 0);
+			vvTop = vv?.offsetTop ?? 0;
+			const opened = vvH < prevVvH - 4;
+			prevVvH = vvH;
+			/* Le clavier vient de s'ouvrir / se déplacer : replace le champ focalisé
+			   dans la zone visible (le scroll fait au focusin ne suffisait pas,
+			   la hauteur visible n'était pas encore réduite). Clavier qui se ferme :
+			   on arrête de suivre le champ (pas de scroll parasite au retour). */
+			if (!opened) focusedFieldEl = null;
+			else if (focusedFieldEl?.isConnected) scrollFocusedIntoView(focusedFieldEl);
 		};
 		if (vv) {
 			vv.addEventListener('resize', setVh);
@@ -1840,8 +1925,8 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
      ouvert) ; header + recherche + onglets fixes, seule la liste défile.
      Desktop : même panneau, centré et arrondi. -->
 {#if logOpen}
-	<div role="presentation" class="fixed inset-0 z-50 bg-soft sm:flex sm:items-center sm:justify-center sm:bg-ink/40 sm:p-6" onclick={(e) => { if (e.target === e.currentTarget) closeLog(); }} onkeydown={(e) => { if (e.key === 'Escape') closeLog(); }}>
-		<div class="relative flex w-full flex-col overflow-hidden bg-soft sm:h-[min(92dvh,720px)] sm:max-w-lg sm:rounded-3xl sm:bg-white sm:shadow-2xl" style:height={mobile ? `${vvH}px` : undefined}>
+	<div role="presentation" class="fixed inset-0 z-50 bg-soft sm:flex sm:items-center sm:justify-center sm:bg-ink/40 sm:p-6" style:top={mobile ? `${vvTop}px` : undefined} style:height={mobile ? `${vvH}px` : undefined} onclick={(e) => { if (e.target === e.currentTarget) closeLog(); }} onkeydown={(e) => { if (e.key === 'Escape') closeLog(); }}>
+		<div class="relative flex h-full w-full flex-col overflow-hidden bg-soft sm:h-[min(92dvh,720px)] sm:max-w-lg sm:rounded-3xl sm:bg-white sm:shadow-2xl">
 			<!-- En-tête fixe (respire sous l'encoche en PWA installée, cf. convention safe-area de l'app) -->
 			<div class="flex shrink-0 items-center justify-between border-b border-line bg-white/95 px-3 pt-[max(env(safe-area-inset-top),10px)] pb-2.5 backdrop-blur">
 				<button type="button" class="grid h-9 w-9 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={() => closeLog()}><Icon name="x" size={20} /></button>
@@ -2014,9 +2099,11 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 					{:else if searchTab === 'crees'}
 						<!-- ═══════ Créés par moi : aliments personnels ═══════ -->
 						{#if customEditor}
+							<!-- focusin (capture) : chaque champ du formulaire reste au-dessus du clavier. -->
+							<div bind:this={customFormEl} onfocusin={(e) => focusScroll(e.currentTarget, e.target)} onfocusout={blurScroll}>
 							<button type="button" class="mb-3 flex items-center gap-1 text-sm font-semibold text-mist hover:text-ink" onclick={closeCustomEditor}>← Retour à mes aliments</button>
-							<p class="mb-1 text-sm font-semibold text-ink">Nouvel aliment</p>
-							<p class="mb-3 text-xs text-mist">Reçois-tu un plat avec une étiquette nutritionnelle ? Saisis les valeurs pour 100 g : l'aliment sera ajouté à ta base.</p>
+							<p class="mb-1 text-sm font-semibold text-ink">{cfEditingId ? 'Modifier l\'aliment' : 'Nouvel aliment'}</p>
+							<p class="mb-3 text-xs text-mist">{cfEditingId ? 'Mets à jour les valeurs pour 100 g : les prochains ajouts au journal utiliseront les nouvelles valeurs.' : 'Reçois-tu un plat avec une étiquette nutritionnelle ? Saisis les valeurs pour 100 g : l\'aliment sera ajouté à ta base.'}</p>
 
 							<input type="text" class="w-full rounded-xl border-2 border-line bg-cream px-3 py-2.5 text-sm font-semibold text-ink outline-none focus:border-brand" placeholder="Nom (ex. Hachis parmentier)" bind:value={cfName} />
 							<input type="text" class="mt-2 w-full rounded-xl border-2 border-line bg-cream px-3 py-2.5 text-sm text-ink outline-none focus:border-brand" placeholder="Marque (optionnel)" bind:value={cfBrand} />
@@ -2050,8 +2137,9 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 							{/if}
 
 							<button type="button" class="mt-4 w-full rounded-full bg-brand py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={cfSaving || cfName.trim().length < 2} onclick={saveCustomFood}>
-								{cfSaving ? 'Enregistrement…' : 'Créer mon aliment'}
+								{cfSaving ? 'Enregistrement…' : cfEditingId ? 'Enregistrer les modifications' : 'Créer mon aliment'}
 							</button>
+							</div>
 						{:else}
 							<button type="button" class="mb-3 flex w-full items-center gap-2 rounded-xl bg-brand-light px-3 py-2.5 text-sm font-semibold text-brand transition hover:bg-brand/15" onclick={openCustomEditor}>
 								<span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand text-white">＋</span>
@@ -2073,10 +2161,11 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 												<div class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name="soup" size={20} class="text-brand" /></div>
 												<span class="min-w-0 flex-1">
 													<span class="block truncate text-sm font-semibold text-ink">{food.name}</span>
-													<span class="block text-xs text-mist"><strong class="font-bold text-brand">{fmt(food.kcal100)} kcal</strong> · 100 g{#if food.brand} · {food.brand}{/if}</span>
-												</span>
-											</button>
-											<button type="button" class="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-mist transition hover:bg-danger-light hover:text-danger" aria-label={`Supprimer ${food.name}`} onclick={() => deleteCustomFood(food)}><Icon name="trash" size={16} /></button>
+												<span class="block text-xs text-mist"><strong class="font-bold text-brand">{fmt(food.kcal100)} kcal</strong> · 100 g{#if food.brand} · {food.brand}{/if}</span>
+											</span>
+										</button>
+										<button type="button" class="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-mist transition hover:bg-line/70 hover:text-ink" aria-label={`Modifier ${food.name}`} onclick={() => openCustomEditorFor(food)}><Icon name="pencil" size={15} /></button>
+										<button type="button" class="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-mist transition hover:bg-danger-light hover:text-danger" aria-label={`Supprimer ${food.name}`} onclick={() => deleteCustomFood(food)}><Icon name="trash" size={16} /></button>
 										</li>
 									{/each}
 								</ul>
@@ -2237,6 +2326,8 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 	<QuantitySheet
 		food={ingEdit.food}
 		mealDefs={[]}
+		sheetTop={mobile ? vvTop : 0}
+		sheetHeight={mobile ? vvH : undefined}
 		initialQtyGrams={ingEdit.qty}
 		mode={mealPickedFood ? 'add' : 'edit'}
 		source={mealPickedFood?.ciqual ? 'ciqual' : undefined}
@@ -2252,8 +2343,8 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 	<!-- Fenêtre « Ajouter un produit » DANS l'éditeur de repas : mêmes résultats,
 	     même scanner et même feuille de quantité que l'ajout au journal. Le clic
 	     produit ou un scan referme CETTE fenêtre et ouvre la feuille existante. -->
-	<div role="presentation" class="fixed inset-0 z-[70] bg-soft sm:flex sm:items-center sm:justify-center sm:bg-ink/40 sm:p-6" onclick={(e) => { if (e.target === e.currentTarget) void closeMealSearch(); }} onkeydown={(e) => { if (e.key === 'Escape') void closeMealSearch(); }}>
-		<div class="relative flex w-full flex-col overflow-hidden bg-soft sm:h-[min(92dvh,720px)] sm:max-w-lg sm:rounded-3xl sm:bg-white sm:shadow-2xl" style:height={mobile ? `${vvH}px` : undefined}>
+	<div role="presentation" class="fixed inset-0 z-[70] bg-soft sm:flex sm:items-center sm:justify-center sm:bg-ink/40 sm:p-6" style:top={mobile ? `${vvTop}px` : undefined} style:height={mobile ? `${vvH}px` : undefined} onclick={(e) => { if (e.target === e.currentTarget) void closeMealSearch(); }} onkeydown={(e) => { if (e.key === 'Escape') void closeMealSearch(); }}>
+		<div class="relative flex h-full w-full flex-col overflow-hidden bg-soft sm:h-[min(92dvh,720px)] sm:max-w-lg sm:rounded-3xl sm:bg-white sm:shadow-2xl">
 			<!-- En-tête fixe (safe-area top, cf. « Ajouter un aliment ») -->
 			<div class="flex shrink-0 items-center justify-between border-b border-line bg-white/95 px-3 pt-[max(env(safe-area-inset-top),10px)] pb-2.5 backdrop-blur">
 				<button type="button" class="grid h-9 w-9 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={() => void closeMealSearch()}><Icon name="x" size={20} /></button>
@@ -2459,6 +2550,8 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 	<QuantitySheet
 		food={editPlannedFood}
 		mealDefs={MEAL_DEFS}
+		sheetTop={mobile ? vvTop : 0}
+		sheetHeight={mobile ? vvH : undefined}
 		initialQtyGrams={editPlanned.qtyGrams}
 		initialMeal={editPlanned.meal}
 		mode="planned"
@@ -2477,6 +2570,8 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 	<QuantitySheet
 		food={qtyFood}
 		mealDefs={MEAL_DEFS}
+		sheetTop={mobile ? vvTop : 0}
+		sheetHeight={mobile ? vvH : undefined}
 		initialQtyGrams={qtyGrams}
 		initialMeal={qtyMeal}
 		source={qtyFood.ciqual ? 'ciqual' : undefined}
@@ -2569,6 +2664,8 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 	<QuantitySheet
 		food={editFood}
 		mealDefs={MEAL_DEFS}
+		sheetTop={mobile ? vvTop : 0}
+		sheetHeight={mobile ? vvH : undefined}
 		initialQtyGrams={editEntry.qtyGrams}
 		initialMeal={editEntry.meal}
 		mode="edit"
