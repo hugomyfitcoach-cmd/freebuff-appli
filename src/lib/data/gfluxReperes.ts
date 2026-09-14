@@ -15,6 +15,12 @@
  * Correspondance volontairement prudente :
  * - comparaison sans accents / majuscules / ponctuation (œ → oe) ;
  * - mots entiers uniquement (tokenisation, pas de sous-chaîne) ;
+ * - la NATURE PRINCIPALE d'abord : la partie secondaire du nom (parenthèses,
+ *   compléments « au miel », « à la farine T150 »…) n'est PAS la nature de
+ *   l'aliment. « Pain complet (à la farine T150) » est du PAIN (tranche),
+ *   pas de la farine ; « yaourt au miel » est un yaourt ; « tarte aux
+ *   pommes » une part de tarte. Cuillères et verres ne sortent que si
+ *   l'aliment LUI-MÊME se mesure ainsi (huile, miel, farine, jus…) ;
  * - le TYPE d'aliment principal prime sur les adjectifs : « yaourt sucré »
  *   → pot de yaourt, « purée d'amande » → c. à soupe (pas 1 amande) ;
  * - exclusions par règle (« pain au chocolat » n'est pas une tranche de
@@ -195,15 +201,25 @@ function looksLikeChocolateTablet(name: string): boolean {
 	return false;
 }
 
-/** Règle de correspondance nom de produit → repères. */
+/** Règle de correspondance nom de produit → repères.
+ *  Les mots-clés (`any`, `all`, `head`) sont évalués sur la NATURE
+ *  PRINCIPALE de l'aliment (voir mainName) ; `phrases` (expressions
+ *  choisies qui NOMMENT le produit : « pain au chocolat », « yaourt à
+ *  boire »…) sont cherchées dans le nom sans parenthèses ; `never` garde
+ *  un droit de veto sur le nom complet (partie secondaire incluse). */
 type GFluxRule = {
-	/** Le nom doit COMMENCER par l'un de ces mots (ex. « sucre blanc »). */
+	/** Le nom doit COMMENCER par l'un de ces mots — 1er mot de la nature
+	 *  principale (ex. « sucre blanc », « huile d'olive »). Pour une cuillère
+	 *  ou un verre, `head` + `any` exigent que l'aliment LUI-MÊME soit de
+	 *  cette nature (« Poulet à l'huile d'olive » n'est pas une huile). */
 	head?: string[];
 	/** Mots-clés normalisés (sans accents) : au moins UN requis. */
 	any?: string[];
 	/** Mots-clés normalisés : TOUS requis (ordre indifférent). */
 	all?: string[];
-	/** Expressions consécutives (normalisées automatiquement) : au moins UNE. */
+	/** Expressions consécutives (normalisées automatiquement) : au moins UNE.
+	 *  Cherchées dans le nom SANS parenthèses (une expression choisie nomme
+	 *  le produit, même avec complément : « yaourt à boire »). */
 	phrases?: string[];
 	/** Prédicat ad hoc sur le nom complet (cas particuliers). */
 	custom?: (name: string) => boolean;
@@ -233,7 +249,7 @@ const RULES: GFluxRule[] = [
 	{ any: ['oeuf'], never: ['caille'], reperes: [OEUF] },
 	{ phrases: ['yaourt à boire', 'yaourts à boire', 'boisson lactée', 'boissons lactées', 'lait ribot', 'lait fermenté'], never: ['poudre'], reperes: [VERRE, CANETTE, BOUTEILLE] },
 	{ any: ['kéfir', 'kefir'], never: ['poudre'], reperes: [VERRE, CANETTE, BOUTEILLE] },
-	{ any: ['yaourt'], never: ['boire'], reperes: [POT_YAOURT, C_A_SOUPLE] },
+	{ any: ['yaourt'], never: ['boire', 'poudre'], reperes: [POT_YAOURT, C_A_SOUPLE] },
 	{ any: ['skyr'], reperes: [SKYR_POT, C_A_SOUPLE] },
 	{ any: ['faisselle'], reperes: [FB_POT, C_A_SOUPLE] },
 	{ phrases: ['fromage blanc', 'fromages blancs', 'fromage frais', 'fromages frais', 'fromage battu'], any: ['faisselle'], never: ['individuel', 'individuels'], reperes: [FB_POT, C_A_SOUPLE] },
@@ -251,15 +267,18 @@ const RULES: GFluxRule[] = [
 	{
 		phrases: ['farine de blé', 'farine complète', "farine d'avoine", 'farine de riz', 'farine de maïs', 'farine de sarrasin', 'farine de seigle', 'farine d épeautre'],
 		any: ['farine'],
-		never: ['levure', 'levain'],
+		// Un PAIN n'est jamais de la farine, même si le nom la cite :
+		// « Pain complet ou intégral (à la farine T150) » → tranche de pain.
+		never: ['levure', 'levain', 'pain'],
 		reperes: [C_S_FARINE],
 	},
 	{
 		phrases: ['fécule de maïs', 'maïzena', 'fécule de pomme de terre', 'fécule de tapioca'],
 		any: ['fécule', 'maïzena'],
+		never: ['pain'],
 		reperes: [C_S_FARINE],
 	},
-	{ phrases: ["poudre d'amande", 'poudre d amandes', 'poudre amande'], reperes: [C_S_FARINE] },
+	{ phrases: ["poudre d'amande", 'poudre d amandes', 'poudre amande'], never: ['pain'], reperes: [C_S_FARINE] },
 	{ phrases: ['cacao en poudre', 'chocolat en poudre'], any: ['cacao'], never: ['beurre'], reperes: [C_S_CACAO] },
 	{ any: ['chapelure'], reperes: [C_S_FLOCONS] },
 
@@ -274,9 +293,9 @@ const RULES: GFluxRule[] = [
 	{ any: ['avocat'], never: ['huile'], reperes: [AVOCAT] },
 	{ phrases: ['demi mangue', 'moitié mangue'], reperes: [DEMI_MANGUE] },
 	{ any: ['mangue'], never: ['seche'], reperes: [DEMI_MANGUE] },
-	{ any: ['pomme'], never: ['terre'], reperes: [POMME] },
-	{ any: ['banane'], never: ['seche'], reperes: [BANANE] },
-	{ any: ['poire'], never: ['poireau', 'belle'], reperes: [POIRE] },
+	{ any: ['pomme'], never: ['terre', 'pain'], reperes: [POMME] },
+	{ any: ['banane'], never: ['seche', 'pain'], reperes: [BANANE] },
+	{ any: ['poire'], never: ['poireau', 'belle', 'pain'], reperes: [POIRE] },
 	{ any: ['orange'], never: ['amère', 'jus'], reperes: [ORANGE] },
 	{ any: ['mandarine', 'clémentine'], never: ['cédrat'], reperes: [CLEMENTINE] },
 	{ any: ['kiwi'], reperes: [KIWI] },
@@ -327,7 +346,7 @@ const RULES: GFluxRule[] = [
 	{ any: ['sésame'], never: ['huile', 'pain'], reperes: [C_S_SESAME] },
 	{ phrases: ['noix de coco râpée', 'coco râpée', 'noix de coco rapée'], never: ['huile', 'lait', 'crème'], reperes: [C_S_COCO_RAPEE] },
 
-	{ any: ['olive'], never: ['huile', 'tapenade', 'pate'], reperes: [OLIVE] },
+	{ any: ['olive'], never: ['huile', 'tapenade', 'pate', 'pain'], reperes: [OLIVE] },
 	{ any: ['cornichon'], reperes: [CORNICHON] },
 
 	/* — Purées d'oléagineux / tartinables (AVANT oléagineux :
@@ -357,9 +376,9 @@ const RULES: GFluxRule[] = [
 	{ any: ['cajou'], never: ['purée'], reperes: [NOIX_CAJOU] },
 	{ any: ['macadamia'], reperes: [NOIX_MACADAMIA] },
 	{ phrases: ['noix du Brésil'], any: ['brésil'], reperes: [NOIX_BRESIL] },
-	{ any: ['noix'], never: ['cajou', 'coco', 'muscade', 'brésil', 'macadamia', 'jacques', 'purée', 'beurre', 'tablette'], reperes: [CERNEAU] },
-	{ any: ['amande'], never: ['terre', 'lait', 'poudre', 'purée', 'tablette'], reperes: [AMANDE] },
-	{ any: ['noisette'], never: ['lait', 'poudre', 'purée', 'tartiner', 'chocolat', 'tablette'], reperes: [NOISETTE] },
+	{ any: ['noix'], never: ['cajou', 'coco', 'muscade', 'brésil', 'macadamia', 'jacques', 'purée', 'beurre', 'tablette', 'pain'], reperes: [CERNEAU] },
+	{ any: ['amande'], never: ['terre', 'lait', 'poudre', 'purée', 'tablette', 'pain'], reperes: [AMANDE] },
+	{ any: ['noisette'], never: ['lait', 'poudre', 'purée', 'tartiner', 'chocolat', 'tablette', 'pain'], reperes: [NOISETTE] },
 	{ any: ['pistache'], never: ['poudre', 'purée', 'tablette'], reperes: [PISTACHE] },
 	{ any: ['cacahuète'], never: ['beurre', 'poudre', 'purée', 'huile', 'tablette'], reperes: [CACAHUETE] },
 
@@ -469,16 +488,20 @@ const RULES: GFluxRule[] = [
 	{ any: ['baguette'], reperes: [QUART_BAGUETTE, DEMI_BAGUETTE] },
 	{ any: ['pain'], never: ['chocolat'], reperes: [TRANCHE] },
 
-	/* — Cuillères (liquides et sauces) — */
-	{ any: ['vinaigre'], reperes: [ML_SOUPLE] },
+	/* — Cuillères (liquides et sauces) —
+	     head obligatoire : la cuillère ne vaut que si L'ALIMENT est lui-même
+	     de cette nature (« Huile d'olive » → oui ; « Poulet à l'huile
+	     d'olive » → non, c'est du poulet ; « Yaourt au miel » → non). — */
+	{ head: ['vinaigre'], any: ['vinaigre'], reperes: [ML_SOUPLE] },
 	{ phrases: ['jus de citron', 'jus de citron vert', 'jus de lime'], never: ['sirop'], reperes: [ML_CAFE, ML_SOUPLE] },
-	{ phrases: ["sirop d'érable", 'sirop érable', "sirop d'agave", 'sirop agave'], never: ['verre'], reperes: [C_A_CAFE, C_A_SOUPLE] },
-	{ any: ['huile'], reperes: [C_A_CAFE, C_A_SOUPLE] },
-	{ any: ['miel'], reperes: [C_A_CAFE, C_A_SOUPLE] },
-	{ any: ['sauce', 'ketchup', 'mayonnaise', 'moutarde', 'tapenade'], reperes: [C_A_CAFE, C_A_SOUPLE] },
+	{ head: ['sirop'], phrases: ["sirop d'érable", 'sirop érable', "sirop d'agave", 'sirop agave'], never: ['verre'], reperes: [C_A_CAFE, C_A_SOUPLE] },
+	{ head: ['huile'], any: ['huile'], reperes: [C_A_CAFE, C_A_SOUPLE] },
+	{ head: ['miel'], any: ['miel'], reperes: [C_A_CAFE, C_A_SOUPLE] },
+	{ head: ['sauce', 'ketchup', 'mayonnaise', 'moutarde', 'tapenade'], any: ['sauce', 'ketchup', 'mayonnaise', 'moutarde', 'tapenade'], reperes: [C_A_CAFE, C_A_SOUPLE] },
 
 	/* — Boissons — */
 	{
+		head: ['boisson', 'soda', 'cola', 'coca', 'limonade', 'sirop', 'jus', 'lait', 'the', 'tea', 'eau'],
 		any: ['boisson', 'soda', 'cola', 'coca', 'limonade', 'sirop', 'jus', 'lait', 'thé', 'tea', 'eau'],
 		// « laitue » n'est pas du lait, « poudre » / « riz » ≠ boisson liquide ;
 		// « sirop d'érable / d'agave » → règle cuillères (au-dessus).
@@ -560,20 +583,50 @@ function stateOf(name: string): 'cooked' | 'dry' | null {
 }
 
 /**
+ * Nature PRINCIPALE du nom : sans la partie secondaire qui décrit la
+ * COMPOSITION, pas l'aliment. Deux retraits, dans l'ordre :
+ *  1. les parenthèses (« (à la farine T150) », « (au miel) »…) ;
+ *  2. le complément « au/à la/à l'/aux + ingrédient » en QUEUE de nom
+ *     (« yaourt au miel » → « yaourt », « poulet à l'huile d'olive » →
+ *     « poulet »). « à la » ouvre aussi les modes de préparation Ciqual
+ *     (« à la vapeur ») : la nature ne change pas non plus.
+ * Le complément n'est coupé qu'en FIN de nom : « jus de citron », « huile
+ * d'olive » ou « pâte à tartiner » restent intacts (le complément y porte
+ * la nature elle-même). Le mot-clé ne doit donc JAMAIS être détecté seul,
+ * n'importe où dans le nom — c'est cette partie qui déterminait à tort
+ * « Pain complet ou intégral (à la farine T150) » comme de la farine.
+ */
+function mainName(name: string): string {
+	let s = name.replace(/\([^)]*\)/g, ' ');
+	s = s.replace(/\s+\b(aux?|à|a|dans)\s+(la|l'|le|les|un|une|mon|ma|mes)?\s*[^,;()]+$/i, ' ');
+	return s.trim();
+}
+
+/**
  * Repères G-FLUX applicables à un produit (nom tel qu'affiché).
  * Retourne une liste vide si aucun repère fiable ne correspond — on
  * n'invente rien, la feuille masquera simplement l'onglet.
  */
 export function reperesForFood(name: string): readonly GFluxRepere[] {
-	const toks = tokenize(name);
-	if (toks.length === 0) return [];
+	const all = tokenize(name);
+	if (all.length === 0) return [];
 	const st = stateOf(name);
+	// Deux périmètres : les EXPRESSIONS choisies (`phrases`) nomment le
+	// produit et restent cherchées sans les parenthèses seulement ; les
+	// MOTS-CLÉS isolés ne voient que la nature principale. Fallback sur le
+	// nom complet si l'un des périmètres se réduit à néant.
+	const phraseToks = tokenize(name.replace(/\([^)]*\)/g, ' '));
+	const main = tokenize(mainName(name));
+	const toks = main.length > 0 ? main : all;
+	const scopePhrases = phraseToks.length > 0 ? phraseToks : all;
 	for (const rule of RULES) {
-		if (rule.never?.some((w) => toks.includes(normalize(w)))) continue;
+		// Veto sur le nom COMPLET (partie secondaire incluse), avec pluriels /
+		// radicaux (« séchée » ↔ « seche ») : plus prudent.
+		if (rule.never?.some((w) => matchWord(all, w))) continue;
 		if (rule.head && !rule.head.includes(toks[0] ?? '')) continue;
 		const triggered =
 			rule.custom?.(name) ||
-			rule.phrases?.some((p) => hasPhrase(toks, p)) ||
+			rule.phrases?.some((p) => hasPhrase(scopePhrases, p)) ||
 			rule.any?.some((w) => matchWord(toks, w)) ||
 			(!!rule.all?.length && rule.all.every((w) => matchWord(toks, w)));
 		// Règle à head seul (ex. sucre) : le 1er mot EST le déclencheur.
