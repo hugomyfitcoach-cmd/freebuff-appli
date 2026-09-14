@@ -248,6 +248,60 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 	/** Teinte contextuelle des calories (filet de sécurité compris). */
 	const kcalTone = $derived(overMaintenance ? '#ef4444' : overGoal ? '#f59e0b' : '#1db954');
 
+	/* ————— Vue détail macro (clic carte Glucides / Protéines / Lipides) —————
+	   Principe fonctionnel FOOD, rendu 100 % G-FLUX : mêmes couleurs
+	   (#ec4899 / #3b82f6 / #f97316) et mêmes icônes (wheat / drumstick /
+	   droplet) que les cartes du Journal. Données = entrées DÉJÀ enregistrées
+	   du jour (snapshots du Journal) : aucune recherche OFF/Ciqual à
+	   l'ouverture, et la somme des valeurs par aliment = total de la carte.
+	   La carte Calories n'est PAS concernée — aucun détail n'existe pour elle. */
+	const MACRO_LIST = [
+		{ key: 'carbs', label: 'Glucides', icon: 'wheat', color: '#ec4899', field: 'carbs' },
+		{ key: 'protein', label: 'Protéines', icon: 'drumstick', color: '#3b82f6', field: 'protein' },
+		{ key: 'fat', label: 'Lipides', icon: 'droplet', color: '#f97316', field: 'fat' },
+	] as const;
+	type MacroKey = (typeof MACRO_LIST)[number]['key'];
+	const MACRO_DEFS = { carbs: MACRO_LIST[0], protein: MACRO_LIST[1], fat: MACRO_LIST[2] };
+	let macroDetail = $state<MacroKey | null>(null);
+	/** Jamais null : fallback neutre tant que la vue est fermée (évitement de
+	 *  narrowing fragile dans le template). Ne s'affiche que si `macroDetail`. */
+	const macroMeta = $derived(macroDetail ? MACRO_DEFS[macroDetail] : MACRO_LIST[0]);
+	const macroGoal = $derived(macroDetail ? day.goals[macroDetail] : 0);
+	const macroEaten = $derived(macroDetail ? totals[macroDetail] : 0);
+	const macroDetailPct = $derived(macroGoal > 0 ? Math.min(100, (macroEaten / macroGoal) * 100) : 0);
+	const macroCirc = 2 * Math.PI * 22;
+	/** Grammes avec 1 décimale max, virgule française (« 54,6 g »). */
+	function fmtG(n: number) {
+		return fmt(Math.round(n * 10) / 10);
+	}
+	/** Aliments consommés du jour regroupés par repas (ordre du Journal) ;
+	 *  seuls les repas réellement consommés apparaissent — repas vides masqués. */
+	const macroMealGroups = $derived.by(() => {
+		const key = macroDetail;
+		if (!key) return [];
+		const field = MACRO_DEFS[key].field;
+		return MEAL_DEFS.map((m) => {
+			const entries = day.entries.filter((e) => e.meal === m.id);
+			return { id: m.id, label: m.label, entries, total: entries.reduce((s, e) => s + e[field], 0) };
+		}).filter((g) => g.entries.length > 0);
+	});
+	function openMacroDetail(m: MacroKey) {
+		macroDetail = m;
+		window.scrollTo(0, 0);
+	}
+	function closeMacroDetail() {
+		macroDetail = null;
+	}
+	/* Changement de journée (swipe, calendrier, minuit) : le détail suit le jour
+	   affiché → on le ferme, la cliente retrouve le Journal du nouveau jour. */
+	let macroDay = date;
+	$effect.pre(() => {
+		if (date !== macroDay) {
+			macroDay = date;
+			macroDetail = null;
+		}
+	});
+
 	/* ————— Items PLANIFIÉS (plan coach + préparation cliente) —————
 	   PLANIFIÉ ≠ CONSOMMÉ : ces items sont grisés et n'impactent RIEN dans le
 	   header tant qu'ils ne sont pas validés « Mangé ». Les totaux consommés
@@ -668,7 +722,7 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 	let swipe = $state<{ x: number; y: number; t: number } | null>(null);
 	let slideDir = $state<'left' | 'right' | null>(null); // micro-transition
 	function onTouchStart(e: TouchEvent) {
-		if (logOpen || qtyFood || editEntry || qtyMealSel || dupOpen || mealCreateOpen) return;
+		if (logOpen || qtyFood || editEntry || qtyMealSel || dupOpen || mealCreateOpen || macroDetail) return;
 		const t = e.touches[0];
 		swipe = { x: t.clientX, y: t.clientY, t: Date.now() };
 	}
@@ -1792,7 +1846,7 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 
 	onMount(() => {
 		document.addEventListener('keydown', (e) => {
-			if (logOpen || qtyFood || editEntry || qtyMealSel) return;
+			if (logOpen || qtyFood || editEntry || qtyMealSel || macroDetail) return;
 			if (e.key === 'ArrowLeft') shiftDay(-1);
 			if (e.key === 'ArrowRight') shiftDay(1);
 		});
@@ -1916,13 +1970,128 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 
 <svelte:head><title>Journal — G-Flux</title></svelte:head>
 
-<svelte:window ontouchstart={onTouchStart} ontouchend={onTouchEnd} />
+<svelte:window ontouchstart={onTouchStart} ontouchend={onTouchEnd} onkeydown={(e) => { if (macroDetail && !logOpen && !qtyFood && !editEntry && !qtyMealSel && !dupOpen && !mealCreateOpen && e.key === 'Escape') closeMacroDetail(); }} />
 	<!-- VUE PLEIN ÉCRAN : le gradient appartient au VIEWPORT (pas au container).
 	     Halo menthe très pâle, diffus, très large — jamais une bande verte. -->
 	<div
 		aria-hidden="true"
 		class="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(120%_55%_at_50%_0%,#ddefe4_0%,#e7f2ea_38%,rgba(244,246,244,0)_78%)]"
 	></div>
+	{#if macroDetail}
+		<!-- ═══════ VUE DÉTAIL MACRO (clic carte Glucides / Protéines / Lipides) ═══════
+		     Principe fonctionnel FOOD, rendu 100 % G-FLUX : mêmes couleurs et
+		     icônes que le Journal, résumé + cercle + restant en haut, aliments
+		     regroupés par repas. Données = entrées déjà enregistrées du jour. -->
+		<div class="relative z-10 mx-auto w-full px-4 pb-32 pt-[max(env(safe-area-inset-top),14px)] sm:px-8 md:max-w-3xl md:pt-6">
+			<!-- En-tête : retour au Journal du même jour + titre -->
+			<header class="mb-3 flex items-center justify-between gap-2">
+				<button
+					type="button"
+					class="grid h-11 w-11 place-items-center rounded-full text-mist transition hover:bg-line/40 hover:text-ink active:scale-95"
+					aria-label="Retour au Journal"
+					title="Retour au Journal"
+					onclick={closeMacroDetail}
+				><Icon name="chevronLeft" size={20} /></button>
+				<h1 class="font-display text-[15px] font-semibold text-ink">Détail {macroMeta.label}</h1>
+				<span class="w-11" aria-hidden="true"></span>
+			</header>
+
+			<!-- Résumé : cercle de progression + restant + consommé (couleur de la macro) -->
+			<section class="rounded-2xl border border-line bg-card px-3 py-3">
+				<div class="flex items-center gap-4">
+					<div class="relative h-[96px] w-[96px] shrink-0">
+						<svg viewBox="0 0 64 64" class="h-[96px] w-[96px] -rotate-90">
+							<circle cx="32" cy="32" r="22" fill="none" stroke="#eef0ec" stroke-width="6" />
+							<circle
+								cx="32"
+								cy="32"
+								r="22"
+								fill="none"
+								stroke={macroMeta.color}
+								stroke-width="6"
+								stroke-linecap="round"
+								stroke-dasharray={macroCirc}
+								stroke-dashoffset={macroCirc * (1 - macroDetailPct / 100)}
+								style="transition: stroke-dashoffset .5s"
+							/>
+						</svg>
+						<span class="absolute inset-0 grid place-items-center font-bold leading-none tabular-nums" style:color={macroMeta.color}>
+							<!-- Chiffre + % sur la MÊME baseline, groupés en un seul item
+							     centré : sinon place-items-center empile les deux spans
+							     sur deux lignes (chiffre au-dessus, % en dessous). -->
+							<span class="flex items-baseline">
+								<span class="text-[17px]">{Math.round(macroDetailPct)}</span><span class="text-[10px]">%</span>
+							</span>
+						</span>
+					</div>
+					<div class="min-w-0 flex-1">
+						<p class="flex items-baseline gap-1.5">
+							<span class="text-3xl font-bold leading-none tabular-nums text-ink">{fmtG(Math.max(0, macroGoal - macroEaten))}</span>
+							<span class="text-[13px] font-semibold text-mist">g restants</span>
+						</p>
+						<p class="mt-1.5 text-[13px] font-semibold tabular-nums" style:color={macroMeta.color}>{fmtG(macroEaten)}/{fmtG(macroGoal)} g consommés</p>
+					</div>
+					<Icon name={macroMeta.icon} size={26} class="shrink-0" style="color:{macroMeta.color}" />
+				</div>
+			</section>
+
+			<!-- Sélecteur Glucides / Protéines / Lipides -->
+			<div class="mt-3 flex items-center gap-1 rounded-full bg-line/50 p-1 text-xs font-bold">
+				{#each MACRO_LIST as m (m.key)}
+					<button
+						type="button"
+						class="flex-1 rounded-full px-3 py-1.5 transition {macroDetail === m.key ? 'text-white shadow-sm' : 'text-mist hover:text-ink'}"
+						style:background={macroDetail === m.key ? m.color : undefined}
+						onclick={() => openMacroDetail(m.key)}
+					>{m.label}</button>
+				{/each}
+			</div>
+
+			<!-- Aliments regroupés par repas — uniquement les repas réellement consommés -->
+			{#each macroMealGroups as group (group.id)}
+				<section class="mt-4">
+					<div class="flex items-baseline justify-between gap-2 px-1">
+						<h2 class="text-[18px] font-bold tracking-tight text-ink">{group.label}</h2>
+						<p class="text-[13px] font-semibold tabular-nums" style:color={macroMeta.color}>
+							{fmtG(group.total)} g ({macroGoal > 0 ? Math.round((group.total / macroGoal) * 100) : 0} %)
+						</p>
+					</div>
+					<div class="mt-1.5 overflow-hidden rounded-2xl border border-line bg-card">
+						<div class="divide-y divide-line/60">
+							{#each group.entries as e (e._id)}
+								<div class="flex items-center gap-2 px-2 py-1.5">
+									{#if e.imageUrl}
+										<FoodImg src={e.imageUrl} alt="" eager={false} class="h-[52px] w-[52px] rounded-xl" />
+									{:else}
+										<div class="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name="utensils" size={18} class="text-brand" /></div>
+									{/if}
+									<span class="min-w-0 flex-1">
+										<span class="flex min-w-0 items-baseline gap-1.5">
+											<span class="truncate text-[14px] font-semibold text-ink">{e.name}</span>
+											{#if e.brand}<span class="truncate text-[12px] text-mist">{e.brand}</span>{/if}
+										</span>
+										<span class="mt-0.5 block text-[11px] tabular-nums text-mist">
+											<strong class="font-bold" style:color={macroMeta.color}>{fmtG(e[macroMeta.field])} g</strong>
+											{#if e.portions}
+												· {String(e.portions).replace('.', ',')} {e.portions === 1 ? 'portion' : 'portions'}
+											{:else}
+												· {fmt(e.qtyGrams)} g
+											{/if}
+										</span>
+									</span>
+								</div>
+							{/each}
+						</div>
+					</div>
+				</section>
+			{:else}
+				<div class="mt-4 rounded-2xl border border-dashed border-line bg-card/60 px-4 py-10 text-center">
+					<Icon name={macroMeta.icon} size={22} class="mx-auto text-mist" />
+					<p class="mt-2 text-sm text-mist">Rien de consommé sur cette journée.</p>
+				</div>
+			{/each}
+		</div>
+	{:else}
 	<div
 		bind:this={pageWrap}
 		class="relative z-10 mx-auto w-full px-4 pb-32 pt-[max(env(safe-area-inset-top),14px)] sm:px-8 md:max-w-5xl md:pt-6 lg:max-w-6xl"
@@ -2005,6 +2174,7 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 			tip={tipDismissed || isFuture ? null : tip}
 			onAdd={(meal) => openLog(meal as 'petit-dej' | 'dejeuner' | 'diner' | 'collation')}
 			onEntryClick={openEdit}
+			onMacroClick={openMacroDetail}
 			onPlannedClick={(p) => {
 				editPlanned = p;
 				plannedSheetErr = '';
@@ -2016,9 +2186,10 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 			onToggleSel={toggleSel}
 			onCalCardMount={(el) => (calCardEl = el)}
 			onTipDismiss={() => (tipDismissed = true)}
-		/>
+			/>
+		</div>
 	</div>
-</div>
+	{/if}
 
 <!-- Sélecteur de date natif : sheet compacte, <input type="date">,
      max = aujourd'hui local → aucune date future possible. -->
@@ -2062,7 +2233,7 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 	</svg>
 {/snippet}
 
-{#if stickyBar && !logOpen}
+{#if stickyBar && !logOpen && !macroDetail}
 	<div
 		class="pointer-events-none fixed z-30 transition-opacity duration-200"
 		style:top="{barTop}px"
@@ -2085,12 +2256,14 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 {/if}
 
 <!-- Bouton flottant + (au-dessus de la barre flottante, avec respiration) -->
+{#if !macroDetail}
 <button
 	type="button"
 	class="fixed bottom-[calc(6.5rem+env(safe-area-inset-bottom))] right-4 z-40 grid h-14 w-14 place-items-center rounded-full bg-brand text-white shadow-lg shadow-brand/30 transition hover:scale-105 hover:bg-brand-dark active:scale-95 md:bottom-6 md:right-6 md:h-16 md:w-16"
 	aria-label="Ajouter un aliment"
 	onclick={() => openLog()}
 ><Icon name="plus" size={26} /></button>
+{/if}
 
 <!-- Ligne produit compacte (style FOOD) : image · nom · kcal · cœur -->
 {#snippet foodRow(food: Food)}
@@ -2930,9 +3103,16 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 				</div>
 			{/if}
 
-			<p class="mt-3 text-center text-sm">
+			<!-- Code couleur du Journal : kcal vert · glucides rose ·
+			     protéines bleu · lipides orange, séparateurs gris. -->
+			<p class="mt-3 flex flex-wrap items-baseline justify-center gap-x-1 text-center text-sm">
 				<strong class="text-lg font-bold text-brand">{fmt(portionKcal)} kcal</strong>
-				<span class="text-mist"> · {fmt(portionMacros?.carbs ?? 0)} g glucides · {fmt(portionMacros?.protein ?? 0)} g protéines · {fmt(portionMacros?.fat ?? 0)} g lipides</span>
+				<span class="text-mist">·</span>
+				<span class="font-bold tabular-nums" style:color="#ec4899">{fmt(portionMacros?.carbs ?? 0)} g glucides</span>
+				<span class="text-mist">·</span>
+				<span class="font-bold tabular-nums" style:color="#3b82f6">{fmt(portionMacros?.protein ?? 0)} g protéines</span>
+				<span class="text-mist">·</span>
+				<span class="font-bold tabular-nums" style:color="#f97316">{fmt(portionMacros?.fat ?? 0)} g lipides</span>
 			</p>
 
 			<div class="mt-3 grid grid-cols-4 gap-1.5">				{#each MEAL_DEFS as meal (meal.id)}

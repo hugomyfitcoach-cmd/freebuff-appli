@@ -378,11 +378,28 @@
 			{/if}
 		</div>
 
-		<!-- Macros recalculées en direct -->
-		<p class="mt-3 text-center text-sm">
-			<strong class="text-lg font-bold text-brand">{valid ? fmtQty(kcal) : '—'} kcal</strong>
-			<span class="text-mist">
-				· {valid ? fmtQty(carbs) : '—'} g glucides · {valid ? fmtQty(protein) : '—'} g protéines · {valid ? fmtQty(fat) : '—'} g lipides
+		<!-- Macros recalculées en direct — code couleur + icônes du Journal :
+	     flamme verte kcal · wheat rose · drumstick bleu · droplet orange,
+	     séparateurs gris. Les icônes héritent de la couleur du segment. -->
+		<p class="mt-3 flex flex-wrap items-center justify-center gap-x-1 text-center text-sm">
+			<span class="flex items-center gap-0.5">
+				<Icon name="flame" size={13} class="shrink-0 text-brand" />
+				<strong class="text-lg font-bold text-brand">{valid ? fmtQty(kcal) : '—'} kcal</strong>
+			</span>
+			<span class="text-mist">·</span>
+			<span class="flex items-center gap-0.5 font-bold tabular-nums" style:color="#ec4899">
+				<Icon name="wheat" size={13} class="shrink-0" />
+				{valid ? fmtQty(carbs) : '—'} g glucides
+			</span>
+			<span class="text-mist">·</span>
+			<span class="flex items-center gap-0.5 font-bold tabular-nums" style:color="#3b82f6">
+				<Icon name="drumstick" size={13} class="shrink-0" />
+				{valid ? fmtQty(protein) : '—'} g protéines
+			</span>
+			<span class="text-mist">·</span>
+			<span class="flex items-center gap-0.5 font-bold tabular-nums" style:color="#f97316">
+				<Icon name="droplet" size={13} class="shrink-0" />
+				{valid ? fmtQty(fat) : '—'} g lipides
 			</span>
 		</p>
 
