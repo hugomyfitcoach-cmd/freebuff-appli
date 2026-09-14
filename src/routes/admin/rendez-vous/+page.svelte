@@ -61,6 +61,11 @@
 	let availLoading = $state(false);
 	let availErr = $state('');
 
+	/** Erreur de rendu du planning (boundary) : message lisible + « Réessayer ». */
+	function handleRenderError(e: unknown) {
+		pageErr = e instanceof Error ? e.message : 'Erreur d\'affichage du planning.';
+	}
+
 	function mondayOf(d: Date): string {
 		const dt = new Date(d.getFullYear(), d.getMonth(), d.getDate());
 		const day = (dt.getDay() + 6) % 7; // 0 = lundi
@@ -158,10 +163,19 @@
 	 */
 	function slotsFor(iso: string): { start: string; end: string }[] {
 		const dayIdx = (new Date(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10))).getDay() + 6) % 7 + 1;
+		const seen = new Set<string>();
 		const out: { start: string; end: string }[] = [];
 		for (const r of settings.filter((x) => x.day === dayIdx)) {
 			for (let m = toMin(r.start); m + SLOT_GRID_STEP_MIN <= toMin(r.end); m += SLOT_GRID_STEP_MIN) {
-				out.push({ start: fromMin(m), end: fromMin(m + SLOT_GRID_STEP_MIN) });
+				const hhmm = fromMin(m);
+				// Une plage saisie en double (même jour + mêmes heures, comme
+				// enregistré un temps en production) produirait deux fois chaque
+				// créneau → clé dupliquée dans le keyed each → rendu cassé.
+				// L'union des plages est la bonne sémantique : un créneau affiché
+				// une seule fois, quel que soit le nombre de plages qui l'ouvrent.
+				if (seen.has(hhmm)) continue;
+				seen.add(hhmm);
+				out.push({ start: hhmm, end: fromMin(m + SLOT_GRID_STEP_MIN) });
 			}
 		}
 		return out;
@@ -311,6 +325,27 @@
 	{#if loading}
 		<p class="py-16 text-center text-sm text-mist">Chargement…</p>
 	{:else}
+		<!-- Garde-fou UI : si le rendu plante (donnée inattendue, bug d'affichage),
+		     on affiche l'erreur + un bouton « Réessayer » — jamais un « Chargement… »
+		     bloqué éternellement (production, sept. 2026 : clé dupliquée). -->
+		<svelte:boundary onerror={handleRenderError}>
+			{#snippet failed(error: unknown, reset: () => void)}
+				<section class="rounded-2xl border-2 border-danger bg-danger-light p-6 text-center">
+					<p class="font-display text-lg font-semibold text-ink">Impossible d'afficher le planning.</p>
+					<p class="mx-auto mt-1 max-w-lg text-sm text-danger">{error instanceof Error ? error.message : 'Erreur inattendue.'}</p>
+					<button
+						type="button"
+						class="mt-4 rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white transition hover:bg-brand-dark"
+						onclick={() => {
+							reset();
+							void loadAll();
+						}}
+					>
+						Réessayer
+					</button>
+				</section>
+			{/snippet}
+
 		<!-- ── Éditeur de disponibilités ── -->
 		{#if editing}
 			<section class="mb-6 rounded-2xl border border-line bg-card p-4">
@@ -462,6 +497,7 @@
 				{/each}
 			</div>
 		</section>
+		</svelte:boundary>
 	{/if}
 </div>
 
