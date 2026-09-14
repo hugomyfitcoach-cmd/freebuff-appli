@@ -133,6 +133,70 @@ export const mySubmissions = query({
 	},
 });
 
+/**
+ * Timeline CRM — tous les dépôts de photos, toutes clientes confondues, du
+ * plus récent au plus ancien. Lit la table EXISTANTE `progressPhotos` (aucune
+ * nouvelle écriture) : les dépôts déjà en base y apparaissent immédiatement,
+ * et chaque nouveau dépôt — enregistré par `submit` / `submitOne` — remonte
+ * tout en haut automatiquement.
+ *
+ * Regroupement propre : les envois successifs d'une même cliente effectués
+ * à quelques minutes d'intervalle (l'upload passe par `submitOne`, photo par
+ * photo) sont fusionnés en un seul dépôt — même userId, même moment. Les
+ * autres dépôts restent des lignes distinctes.
+ */
+export const coachTimeline = query({
+	args: { sessionToken: v.optional(v.string()) },
+	handler: async (ctx, { sessionToken }) => {
+		const coach = await getSessionUser(ctx, sessionToken);
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach.");
+
+		// Fenêtre large : tout l'historique existant jusqu'à la limite de lecture.
+		const rows = await ctx.db.query("progressPhotos").withIndex("by_creation_time").order("desc").take(2000);
+
+		/** Regroupement : ~10 min entre deux envois d'une même cliente = un dépôt. */
+		const GROUP_WINDOW_MS = 10 * 60 * 1000;
+		const deposits: {
+			_id: Id<"progressPhotos">;
+			userId: Id<"users">;
+			prenom: string;
+			nom: string | null;
+			step: string;
+			count: number;
+			createdAt: number;
+			date: string;
+			ids: Id<"progressPhotos">[];
+		}[] = [];
+		for (const row of rows) {
+			const last = deposits[deposits.length - 1];
+			if (
+				last &&
+				last.userId === row.userId &&
+				last.step === row.step &&
+				row.createdAt - last.createdAt <= GROUP_WINDOW_MS
+			) {
+				// Envoi rapproché du même moment → fusionné dans le dépôt précédent.
+				last.ids.push(row._id);
+				last.count += row.photos.length;
+				continue;
+			}
+			const user = await ctx.db.get(row.userId);
+			deposits.push({
+				_id: row._id,
+				userId: row.userId,
+				prenom: user ? user.prenom : "Cliente",
+				nom: user?.nom ?? null,
+				step: row.step,
+				count: row.photos.length,
+				createdAt: row.createdAt,
+				date: row.date,
+				ids: [row._id],
+			});
+		}
+		return deposits;
+	},
+});
+
 /** Toutes les photos d'un client avec leurs URL — réservé à la coach (CRM). */
 export const listForCoach = query({
 	args: {
