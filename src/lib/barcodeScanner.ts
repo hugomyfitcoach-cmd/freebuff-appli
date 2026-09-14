@@ -22,6 +22,14 @@ export type BarcodeScannerHandle = {
 	stop: () => Promise<void>;
 };
 
+/**
+ * La caméra est refusée / bloquée / absente (permission refusée dans le
+ * navigateur, réglage iOS ou Android, aucune caméra dispo). L'appelant
+ * affiche alors un message clair + « Réessayer » au lieu du générique
+ * « caméra indisponible ». Les autres erreurs restent des Error classiques.
+ */
+export class CameraPermissionError extends Error {}
+
 type NativeDetector = {
 	detect(source: CanvasImageSource | HTMLVideoElement): Promise<{ rawValue: string }[]>;
 };
@@ -86,14 +94,32 @@ export async function startBarcodeScanner(
 	let nativeDetector: NativeDetector | null = null;
 
 	// -- Caméra : recule (résolution native) pour maximiser la portée. ------
-	stream = await navigator.mediaDevices.getUserMedia({
-		audio: false,
-		video: {
-			facingMode: 'environment',
-			width: { ideal: 1920 },
-			height: { ideal: 1080 },
-		},
-	});
+	// UN SEUL getUserMedia par scan : si la permission est déjà accordée, le
+	// navigateur répond immédiatement SANS redemander (autorisation persistante
+	// sur Chrome/Android ; sur iOS/Safari c'est l'OS qui re-consulte à chaque
+	// session — l'app ne peut ni l'éviter ni la contourner). Pas de query
+	// `permissions` préalable : inutile quand c'est déjà accordé, non fiable
+	// sur Safari, et le prompt DOIT partir d'un geste utilisateur (le clic).
+	try {
+		stream = await navigator.mediaDevices.getUserMedia({
+			audio: false,
+			video: {
+				facingMode: 'environment',
+				width: { ideal: 1920 },
+				height: { ideal: 1080 },
+			},
+		});
+	} catch (e) {
+		const name = e instanceof DOMException ? e.name : '';
+		if (name === 'NotAllowedError' || name === 'SecurityError' || name === 'NotFoundError') {
+			throw new CameraPermissionError(
+				name === 'NotFoundError'
+					? "Aucune caméra accessible n'a été trouvée sur cet appareil."
+					: "L'accès à la caméra est refusé ou bloqué pour ce site."
+			);
+		}
+		throw e;
+	}
 	if (stopped) {
 		for (const t of stream.getTracks()) t.stop();
 		return { stop: async () => {} };
