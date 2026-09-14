@@ -2,10 +2,11 @@
  * Domaine rendez-vous — partagé par l'espace cliente et le CRM coach.
  *
  * TYPES AUTORISÉS pour toute NOUVELLE réservation (§6) :
- *   - Suivi     : 15 minutes réelles + buffer 5 min avant / 5 min après ;
+ *   - Suivi     : 15 minutes réelles, AUCUN buffer avant / après ;
  *   - Démarrage : 60 minutes réelles + buffer 5 min avant / 5 min après.
- * Le buffer sert UNIQUEMENT au calcul de disponibilité : l'événement Google
- * reste à la durée réelle (ex. Suivi 10:00 → 10:15, indisponible 09:55 → 10:20).
+ * Le buffer (Démarrage uniquement) sert UNIQUEMENT au calcul de disponibilité :
+ * l'événement Google reste à la durée réelle (ex. Suivi 10:00 → 10:15, un autre
+ * Suivi peut démarrer à 10:15 pile).
  * Les anciens types historiques (Bilan, Visio…) restent affichés sur les vieux
  * rendez-vous — aucune migration destructive.
  */
@@ -21,7 +22,7 @@ export type AppointmentKind = (typeof APPOINTMENT_KINDS)[number];
 export const CLIENT_BOOKING_KINDS = ['Suivi'] as const;
 
 export const KIND_RULES: Record<string, { durationMin: number; bufferMin: number }> = {
-	Suivi: { durationMin: 15, bufferMin: 5 },
+	Suivi: { durationMin: 15, bufferMin: 0 },
 	Démarrage: { durationMin: 60, bufferMin: 5 },
 };
 

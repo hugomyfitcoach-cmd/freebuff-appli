@@ -16,7 +16,7 @@ import { SLOT_TAKEN_MESSAGE } from '$lib/appointments';
  *   1. disponibilités coach (le créneau entier tient dans une plage ouverte) ;
  *   2. les rendez-vous G-FLUX déjà réservés (toutes clientes) ;
  *   3. les événements Google Calendar (freebusy du compte du coach) ;
- *   4. les buffers 5 min avant / après ;
+ *   4. les buffers par type (Démarrage : 5 min avant / après ; Suivi : aucun) ;
  *   5. la durée complète du rendez-vous, jamais dans le passé.
  *
  * Appelé par le client juste avant le clic final « Réserver » ET en amont
