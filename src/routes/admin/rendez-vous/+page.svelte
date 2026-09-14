@@ -148,13 +148,20 @@
 		viewKind = r.kind;
 	}
 
-	/** Créneaux (grille 30 min) d'un jour, déduits des disponibilités. */
+	/** Grille des créneaux : 15 minutes (même grille que le moteur serveur). */
+	const SLOT_GRID_STEP_MIN = 15;
+
+	/**
+	 * Créneaux (grille 15 min) d'un jour, déduits des disponibilités. C'est la
+	 * GRILLE D'AFFICHAGE — l'état réservable de chaque créneau vient du moteur
+	 * serveur (`avail`), qui filtre déjà durée + buffers + Google + RDV.
+	 */
 	function slotsFor(iso: string): { start: string; end: string }[] {
 		const dayIdx = (new Date(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10))).getDay() + 6) % 7 + 1;
 		const out: { start: string; end: string }[] = [];
 		for (const r of settings.filter((x) => x.day === dayIdx)) {
-			for (let m = toMin(r.start); m + 30 <= toMin(r.end); m += 30) {
-				out.push({ start: fromMin(m), end: fromMin(m + 30) });
+			for (let m = toMin(r.start); m + SLOT_GRID_STEP_MIN <= toMin(r.end); m += SLOT_GRID_STEP_MIN) {
+				out.push({ start: fromMin(m), end: fromMin(m + SLOT_GRID_STEP_MIN) });
 			}
 		}
 		return out;
@@ -314,9 +321,9 @@
 							<select class="rounded-lg border border-line bg-white px-2 py-1.5" bind:value={draft[i].day}>
 								{#each DAYS as d, di}<option value={di + 1}>{d}</option>{/each}
 							</select>
-							<input type="time" class="rounded-lg border border-line bg-white px-2 py-1.5" step={1800} bind:value={draft[i].start} />
+							<input type="time" class="rounded-lg border border-line bg-white px-2 py-1.5" step={900} bind:value={draft[i].start} />
 							<span class="text-mist">→</span>
-							<input type="time" class="rounded-lg border border-line bg-white px-2 py-1.5" step={1800} bind:value={draft[i].end} />
+							<input type="time" class="rounded-lg border border-line bg-white px-2 py-1.5" step={900} bind:value={draft[i].end} />
 							<button type="button" class="ml-1 text-mist transition hover:text-danger" onclick={() => (draft = draft.filter((_, k) => k !== i))} aria-label="Retirer cette plage"><Icon name="trash" size={15} /></button>
 						</div>
 					{/each}

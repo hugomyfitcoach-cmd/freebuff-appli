@@ -13,7 +13,7 @@ import { AvailabilityError, computeAvailability } from '$lib/server/availability
  * créneaux = plages autorisées (disponibilités coach)
  *          − événements Google Calendar (freebusy, compte du coach)
  *          − rendez-vous G-FLUX existants (toutes clientes)
- *          − buffers 5 min avant / 5 min après chaque RDV
+ *          − buffers par type (Démarrage : 5 min avant / après ; Suivi : aucun)
  *
  * La durée dépend du TYPE sélectionné : Suivi 15 min, Démarrage 60 min —
  * la durée COMPLÈTE doit tenir libre (buffers compris). Le calcul est refait

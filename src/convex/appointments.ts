@@ -42,7 +42,7 @@ const SLOT_GRID_STEP_MIN = 15;
 
 /** Durées réelles + buffers par type (le buffer sert UNIQUEMENT à la dispo). */
 export const KIND_RULES: Record<string, { durationMin: number; bufferMin: number }> = {
-	Suivi: { durationMin: 15, bufferMin: 5 },
+	Suivi: { durationMin: 15, bufferMin: 0 },
 	Démarrage: { durationMin: 60, bufferMin: 5 },
 };
 
@@ -72,7 +72,8 @@ function toMin(hhmm: string): number {
 /**
  * Chevauchement minute-minute sur le même jour (bornes exclusives : [s, e)).
  * Aligné sur le moteur BFF : deux plages qui se touchent exactement (fin =
- * début) ne se chevauchent PAS — le buffer 5 min garantit déjà l'aération.
+ * début) ne se chevauchent PAS — les buffers par type (Démarrage uniquement)
+ * garantissent déjà l'aération.
  */
 function overlaps(aStart: number, aEnd: number, bStart: number, bEnd: number): boolean {
 	return aStart < bEnd && aEnd > bStart;

@@ -13,7 +13,7 @@ import type { SlotCheck } from '$lib/appointments';
  *   1. les disponibilités coach (plages hebdo) ;
  *   2. les rendez-vous G-FLUX déjà réservés (toutes clientes, confirmés) ;
  *   3. les événements Google Calendar du coach (freebusy du compte connecté) ;
- *   4. les buffers 5 min avant / 5 min après chaque rendez-vous ;
+ *   4. les buffers (Démarrage uniquement : 5 min avant / après ; Suivi : aucun) ;
  *   5. la durée COMPLÈTE du rendez-vous demandé (type demandé).
  *
  * STRICT : si le freebusy Google ne peut pas être lu (non connecté exclu —
@@ -29,7 +29,7 @@ const TZ = 'Europe/Paris';
 export type KindRule = { durationMin: number; bufferMin: number };
 
 export const KIND_RULES: Record<string, KindRule> = {
-	Suivi: { durationMin: 15, bufferMin: 5 },
+	Suivi: { durationMin: 15, bufferMin: 0 },
 	Démarrage: { durationMin: 60, bufferMin: 5 },
 };
 /** Repli pour les anciens types historiques (aucune migration destructive). */
@@ -135,12 +135,14 @@ async function busyForWindow(opts: {
 	coachId: string;
 	daysList: string[];
 	excludeIds: string[];
+	/** Buffers du TYPE demandé (Démarrage : 5 ; Suivi : 0). */
+	bufferMin?: number;
 }): Promise<{ gfluxBusy: Busy[]; googleBusy: Busy[] }> {
-	const { sessionToken, coachId, daysList, excludeIds } = opts;
+	const { sessionToken, coachId, daysList, excludeIds, bufferMin = 0 } = opts;
 	const timeMinMs = dayMinuteToMs(daysList[0], 0);
 	const timeMaxMs = dayMinuteToMs(daysList[daysList.length - 1], 24 * 60);
 
-	// RDV G-FLUX confirmés du coach (toutes clientes) + buffers 5 min.
+	// RDV G-FLUX confirmés du coach (toutes clientes) + buffers par type.
 	const appts = (await convex.query(api.appointments.listForCoachInternal, {
 		sessionToken,
 		coachId: coachId as never,
@@ -163,8 +165,13 @@ async function busyForWindow(opts: {
 			};
 		});
 
-	// Événements Google Calendar du coach (freebusy) — STRICT.
-	const gBusy = await googleBusyStrict(sessionToken, coachId, timeMinMs, timeMaxMs);
+	// Événements Google Calendar du coach (freebusy) — STRICT. Les buffers du
+	// TYPE DEMANDÉ s'appliquent aussi aux événements Google : un Démarrage
+	// (±5 min) doit éviter un événement Google qui touche presque le créneau.
+	let gBusy = await googleBusyStrict(sessionToken, coachId, timeMinMs, timeMaxMs);
+	if (bufferMin > 0) {
+		gBusy = gBusy.map((b) => ({ ...b, startMs: b.startMs - bufferMin * 60000, endMs: b.endMs + bufferMin * 60000 }));
+	}
 
 	return { gfluxBusy, googleBusy: gBusy };
 }
@@ -237,6 +244,7 @@ export async function computeAvailability(opts: {
 		coachId: coachIdResolved,
 		daysList,
 		excludeIds: opts.excludeIds,
+		bufferMin: rule.bufferMin,
 	});
 	const allBusy = [...gfluxBusy, ...gBusy];
 
@@ -323,6 +331,7 @@ export async function verifySlotServer(opts: {
 		coachId,
 		daysList: [date],
 		excludeIds: opts.excludeIds ?? [],
+		bufferMin: rule.bufferMin,
 	});
 	if (hitsBusy(startMs, endMs, gfluxBusy)) {
 		return { ok: false, reason: 'overlap_gflux', durationMin, bufferMin: rule.bufferMin };
