@@ -30,9 +30,15 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 		servingUnit?: string;
 		/** « planned_eaten » : validé depuis un item planifié (cercle ✓ dans le Journal). */
 		source?: string;
+		/** Identité d'origine (duplication / création de repas) — snapshot sinon. */
+		foodId?: string;
+		customFoodId?: string;
+		ciqualLabel?: string;
 	};
 	/** Item PLANIFIÉ — plan coach ou préparation cliente : grisé, 0 impact header. */
 	type PlannedItem = {
+		/** Date "yyyy-mm-dd" de l'item (frontière « Mangé » : jamais au futur). */
+		date: string;
 		_id: string;
 		name: string;
 		brand?: string;
@@ -47,6 +53,10 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 		source: string;
 		servingQty?: number;
 		servingUnit?: string;
+		/** Identité d'origine (duplication / création de repas) — snapshot sinon. */
+		foodId?: string;
+		customFoodId?: string;
+		ciqualLabel?: string;
 	};
 	type DayData = {
 		date: string;
@@ -148,6 +158,21 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 		return `${d.toLocaleDateString('fr-FR', { weekday: 'long' })} · ${d.getDate()} ${MOIS_ABBR[d.getMonth()]}`;
 	});
 	const isToday = $derived(date === todayISO);
+	/** Demain (ISO local) — raccourci « Dupliquer ». */
+	const tomorrowISO = $derived.by(() => {
+		const d = new Date(todayISO + 'T12:00:00');
+		d.setDate(d.getDate() + 1);
+		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+	});
+	/** Libellé court d'une date ISO (« Demain », « Mer. 16 sept. »). */
+	function dupLabelOf(iso: string): string {
+		if (iso === todayISO) return "Aujourd'hui";
+		if (iso === tomorrowISO) return 'Demain';
+		const d = new Date(iso + 'T12:00:00');
+		const wd = d.toLocaleDateString('fr-FR', { weekday: 'short' });
+		return `${wd.charAt(0).toUpperCase()}${wd.slice(1)} ${d.getDate()} ${MOIS_ABBR[d.getMonth()]}`;
+	}
+
 	/** Jour FUTUR : préparation possible (ajouter/modifier/remplacer/supprimer),
 	 *  mais JAMAIS de validation « Mangé » — on ne mange pas demain. */
 	const isFuture = $derived(date > todayISO);
@@ -230,27 +255,44 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 	const plannedItems = $derived(day.planned ?? []);
 	const hasPlanned = $derived(plannedItems.length > 0);
 
-	/* ————— Sélection multiple (items planifiés) ————— */
-	let selMode = $state(false);
+	/* ————— Sélection type FOOD (tous les aliments du journal : consommés + planifiés) —————
+	   Rond TOUJOURS visible sur chaque ligne : vide → coché (vert). Sélection
+	   TEMPORAIRE uniquement — jamais un statut « mangé ». La barre d'actions
+	   apparaît dès le premier rond coché ; aucun mode « Sélectionner ». */
 	let selIds = $state<Set<string>>(new Set());
-	const allSel = $derived(hasPlanned && plannedItems.every((p) => selIds.has(p._id)));
-	function enterSelMode() {
-		selMode = true;
-		selIds = new Set();
-	}
-	function exitSelMode() {
-		selMode = false;
-		selIds = new Set();
-	}
+	/** Union consommés + planifiés : la sélection porte sur TOUTES les lignes du Journal. */
+	const allRows = $derived([...day.entries, ...plannedItems]);
+	const allSel = $derived(allRows.length > 0 && allRows.every((r) => selIds.has(r._id)));
 	function toggleSel(id: string) {
 		const next = new Set(selIds);
 		if (next.has(id)) next.delete(id);
 		else next.add(id);
 		selIds = next;
 	}
-	function toggleAllSel() {
-		selIds = allSel ? new Set() : new Set(plannedItems.map((p) => p._id));
+	function clearSel() {
+		selIds = new Set();
 	}
+	function toggleAllSel() {
+		selIds = allSel ? new Set() : new Set(allRows.map((r) => r._id));
+	}
+	/** La journée change (swipe, calendrier, minuit) → la sélection est obsolète.
+	 *  ⚠️ L'effet ne doit dépendre QUE de `date` : y lire `selIds` le relancerait
+	 *  à chaque clic sur un rond (le Set change) et effacerait la sélection
+	 *  immédiatement — le bug « sélection qui saute ». Un garde date le compare. */
+	let selDay = date;
+	$effect.pre(() => {
+		if (date !== selDay) {
+			selDay = date;
+			selIds = new Set();
+		}
+	});
+	/** Ids de la sélection, séparés par type de ligne (mêmes ids côté serveur). */
+	const selEntryIds = $derived([...day.entries.filter((e) => selIds.has(e._id)).map((e) => e._id)]);
+	const selPlannedIds = $derived([...plannedItems.filter((p) => selIds.has(p._id)).map((p) => p._id)]);
+	/** « Mangé » : uniquement une sélection 100 % planifiée arrivée à aujourd'hui (jamais au futur, jamais du consommé). */
+	const selAllEatable = $derived(
+		canEat && selEntryIds.length === 0 && selPlannedIds.length > 0 && plannedItems.filter((p) => selIds.has(p._id)).every((p) => p.date <= todayISO)
+	);
 
 	/* ————— Actions sur les items planifiés ————— */
 	let plannedBusy = $state(false);
@@ -294,7 +336,7 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 			});
 			const j = await r.json();
 			if (j.error) throw new Error(j.error);
-			exitSelMode();
+			clearSel();
 			await refreshAfterPlanned();
 		} catch (e) {
 			plannedErr = e instanceof Error ? e.message : String(e);
@@ -327,12 +369,176 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 			for (const id of ids) {
 				await fetch(`/api/journal/planned?plannedId=${id}`, { method: 'DELETE' });
 			}
-			exitSelMode();
+			clearSel();
 			await refreshAfterPlanned();
 		} catch (e) {
 			plannedErr = e instanceof Error ? e.message : String(e);
 		} finally {
 			plannedBusy = false;
+		}
+	}
+
+	/** Suppression de TOUTE la sélection : entrées via /api/journal/[id], planifiés via /api/journal/planned. */
+	async function deleteSelection() {
+		if (plannedBusy) return;
+		if (selEntryIds.length === 0 && selPlannedIds.length === 0) return;
+		plannedBusy = true;
+		plannedErr = '';
+		try {
+			for (const id of selEntryIds) {
+				await fetch(`/api/journal/${id}`, { method: 'DELETE' });
+			}
+			for (const id of selPlannedIds) {
+				await fetch(`/api/journal/planned?plannedId=${id}`, { method: 'DELETE' });
+			}
+			clearSel();
+			await refreshAfterPlanned();
+		} catch (e) {
+			plannedErr = e instanceof Error ? e.message : String(e);
+		} finally {
+			plannedBusy = false;
+		}
+	}
+
+	/* ————— Dupliquer / Planifier la sélection vers une autre date ————— */
+	let dupOpen = $state(false);
+	/** false = Dupliquer (copie, future → planifié) ; true = Planifier (future imposée). */
+	let planMode = $state(false);
+	let dupDate = $state('');
+	let dupBusy = $state(false);
+	let dupErr = $state('');
+	/** Libellé compact de la date choisie (« Demain », « Mer. 16 sept. »). */
+	const dupDateLabel = $derived(dupDate ? dupLabelOf(dupDate) : '—');
+	/** La date choisie est-elle bien future (exigé par « Planifier ») ? */
+	const dupDateIsFuture = $derived(dupDate !== '' && dupDate > todayISO);
+
+	/* Calendrier bottom-sheet type FOOD : grand mois + flèches, jour = cercle vert. */
+	const MOIS_CAL = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+	let calMonth = $state(0); // 0-11 : mois affiché
+	let calYear = $state(0); // année affichée
+	/** Grille du mois affiché (lundi → dimanche) ; null = case vide avant le 1er / après le dernier. */
+	const calCells = $derived.by(() => {
+		const offset = (new Date(calYear, calMonth, 1).getDay() + 6) % 7; // lundi = 0
+		const count = new Date(calYear, calMonth + 1, 0).getDate();
+		const cells: (number | null)[] = Array(offset).fill(null);
+		for (let d = 1; d <= count; d++) cells.push(d);
+		while (cells.length % 7 !== 0) cells.push(null);
+		return cells;
+	});
+	function openDupSheet(plan = false) {
+		planMode = plan;
+		const d = new Date(date + 'T12:00:00');
+		d.setDate(d.getDate() + 1);
+		dupDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+		dupErr = '';
+		calMonth = d.getMonth();
+		calYear = d.getFullYear();
+		dupOpen = true;
+	}
+	function closeDupSheet() {
+		dupOpen = false;
+	}
+	function shiftCalMonth(delta: number) {
+		let m = calMonth + delta;
+		let y = calYear;
+		if (m < 0) {
+			m = 11;
+			y--;
+		} else if (m > 11) {
+			m = 0;
+			y++;
+		}
+		calMonth = m;
+		calYear = y;
+	}
+	function calDayISO(day: number): string {
+		return `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+	}
+
+	async function duplicateSelection() {
+		// « Planifier » exige une date future ; « Dupliquer » accepte toute date.
+		if (dupBusy || !/^\d{4}-\d{2}-\d{2}$/.test(dupDate)) return;
+		if (planMode && !dupDateIsFuture) return;
+		dupBusy = true;
+		dupErr = '';
+		try {
+			const r = await fetch('/api/journal/duplicate', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					entryIds: selEntryIds,
+					plannedIds: selPlannedIds,
+					targetDate: dupDate,
+					clientDate: currentLocalDay(),
+				}),
+			});
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			dupOpen = false;
+			clearSel();
+			if (dupDate === date) await refreshAfterPlanned();
+		} catch (e) {
+			dupErr = e instanceof Error ? e.message : String(e);
+		} finally {
+			dupBusy = false;
+		}
+	}
+
+	/* ————— Créer un repas à partir de la sélection ————— */
+	let mealCreateOpen = $state(false);
+	let mealCreateName = $state('');
+	let mealCreateBusy = $state(false);
+	let mealCreateErr = $state('');
+
+	function openMealCreateSheet() {
+		mealCreateName = '';
+		mealCreateErr = '';
+		mealCreateOpen = true;
+	}
+	function closeMealCreateSheet() {
+		mealCreateOpen = false;
+	}
+
+	/** Enregistre la sélection dans « Mes Repas » (identités OFF / Ciqual / custom préservées). */
+	async function saveMealFromSelection() {
+		if (mealCreateBusy) return;
+		mealCreateBusy = true;
+		mealCreateErr = '';
+		try {
+			const selected = allRows.filter((r) => selIds.has(r._id));
+			const r = await fetch('/api/meals', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					fromSelection: true,
+					name: mealCreateName,
+					ingredients: selected.map((row) => {
+						const ciqual = 'ciqualLabel' in row ? row.ciqualLabel : undefined;
+						const foodId = 'foodId' in row ? row.foodId : undefined;
+						const customId = 'customFoodId' in row ? row.customFoodId : undefined;
+						return {
+							...(ciqual ? { ciqualLabel: ciqual } : foodId ? { foodId } : customId ? { customFoodId: customId } : {}),
+							qtyGrams: row.qtyGrams,
+							name: row.name,
+							brand: row.brand,
+							imageUrl: row.imageUrl,
+							kcal: row.kcal,
+							carbs: row.carbs,
+							protein: row.protein,
+							fat: row.fat,
+						};
+					}),
+				}),
+			});
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			mealCreateOpen = false;
+			clearSel();
+			await loadMeals(); // « Mes Repas » rechargé : le repas est utilisable comme les autres
+		} catch (e) {
+			mealCreateErr = e instanceof Error ? e.message : String(e);
+		} finally {
+			mealCreateBusy = false;
 		}
 	}
 
@@ -462,7 +668,7 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 	let swipe = $state<{ x: number; y: number; t: number } | null>(null);
 	let slideDir = $state<'left' | 'right' | null>(null); // micro-transition
 	function onTouchStart(e: TouchEvent) {
-		if (logOpen || qtyFood || editEntry || qtyMealSel) return;
+		if (logOpen || qtyFood || editEntry || qtyMealSel || dupOpen || mealCreateOpen) return;
 		const t = e.touches[0];
 		swipe = { x: t.clientX, y: t.clientY, t: Date.now() };
 	}
@@ -1618,7 +1824,7 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 
 	/* Verrouille le scroll du fond quand un panneau plein écran est ouvert. */
 	$effect(() => {
-		const locked = logOpen || !!qtyFood || !!editEntry || !!qtyMealSel;
+		const locked = logOpen || !!qtyFood || !!editEntry || !!qtyMealSel || calOpen || dupOpen || mealCreateOpen;
 		document.body.style.overflow = locked ? 'hidden' : '';
 	});
 </script>
@@ -1650,22 +1856,18 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 					<Icon name="chevronDown" size={16} class="shrink-0 text-mist" />
 				</button>
 				<div class="flex shrink-0 items-center gap-1">
-					{#if hasPlanned && !selMode}
-						<button
-							type="button"
-							onclick={enterSelMode}
-							class="rounded-full border border-line px-3 py-1.5 text-[12px] font-bold text-mist transition hover:border-brand hover:text-brand"
-						>Sélectionner</button>
-					{:else if selMode}
+					{#if selIds.size > 0}
+						<!-- Type FOOD : liens texte « Tout désélectionner » / « Annuler »
+						     pendant une sélection (les ronds sont toujours visibles). -->
 						<button
 							type="button"
 							onclick={toggleAllSel}
-							class="rounded-full border border-brand/40 bg-brand-light/50 px-3 py-1.5 text-[12px] font-bold text-brand-dark transition hover:bg-brand-light"
-						>{allSel ? 'Tout désélec.' : 'Tout sélec.'}</button>
+							class="rounded-full px-2 py-1.5 text-[13px] font-bold text-brand transition hover:bg-brand/10"
+						>{allSel ? 'Tout désélectionner' : 'Tout sélectionner'}</button>
 						<button
 							type="button"
-							onclick={exitSelMode}
-							class="rounded-full px-2.5 py-1.5 text-[12px] font-bold text-mist transition hover:text-ink"
+							onclick={clearSel}
+							class="rounded-full px-2 py-1.5 text-[13px] font-bold text-brand transition hover:bg-brand/10"
 						>Annuler</button>
 					{/if}
 					<button
@@ -1711,7 +1913,7 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 		<!-- Journée complète : carte calories + macros + astuce + repas.
 		     Composant partagé avec la Vision 360 coach (même rendu, une seule
 		     logique visuelle). Côté client : ligne cliquable → édition, items
-		     planifiés grisés (cercle = Mangé), navigation future autorisée. -->
+		     planifiés grisés (rond = sélection), navigation future autorisée. -->
 		<JournalDay
 			{day}
 			mode="client"
@@ -1719,16 +1921,12 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 			onAdd={(meal) => openLog(meal as 'petit-dej' | 'dejeuner' | 'diner' | 'collation')}
 			onEntryClick={openEdit}
 			onPlannedClick={(p) => {
-				if (selMode) toggleSel(p._id);
-				else {
-					editPlanned = p;
-					plannedSheetErr = '';
-				}
+				editPlanned = p;
+				plannedSheetErr = '';
 			}}
 			onToggleEat={eatPlanned}
 			onEatAllMeal={(meal) => eatMany(plannedItems.filter((p) => p.meal === meal).map((p) => p._id))}
 			{canEat}
-			selMode={selMode && hasPlanned}
 			selIds={selIds}
 			onToggleSel={toggleSel}
 			onCalCardMount={(el) => (calCardEl = el)}
@@ -2406,50 +2604,147 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 	</div>
 {/if}
 
-<!-- Barre d'actions de la sélection multiple (items planifiés) -->
-{#if selMode && hasPlanned && selIds.size > 0}
+<!-- Barre d'actions COMPACTE type FOOD : Dupliquer · Repas · Planifier · Mangé · Supprimer.
+     « Mangé » : uniquement si la sélection ne contient QUE des items planifiés arrivés
+     à aujourd'hui (jamais au futur, jamais sur du consommé). -->
+{#if selIds.size > 0}
 	<div class="fixed inset-x-0 bottom-[calc(5.25rem+env(safe-area-inset-bottom))] z-40 flex justify-center px-4">
 		<div class="flex w-full max-w-md items-center justify-around rounded-full border border-white/10 bg-ink/95 p-1.5 shadow-lg shadow-ink/30 backdrop-blur">
-			{#if canEat}
+			<button
+				type="button"
+				class="flex flex-1 flex-col items-center gap-0.5 rounded-full py-1.5 text-[11px] font-semibold text-white transition hover:bg-white/10"
+				onclick={() => openDupSheet(false)}
+			>
+				<Icon name="copy" size={17} />
+				Dupliquer
+			</button>
+			<button
+				type="button"
+				class="flex flex-1 flex-col items-center gap-0.5 rounded-full py-1.5 text-[11px] font-semibold text-white transition hover:bg-white/10"
+				onclick={openMealCreateSheet}
+			>
+				<Icon name="utensils" size={17} />
+				Repas
+			</button>
+			<button
+				type="button"
+				class="flex flex-1 flex-col items-center gap-0.5 rounded-full py-1.5 text-[11px] font-semibold text-white transition hover:bg-white/10"
+				onclick={() => openDupSheet(true)}
+			>
+				<Icon name="calendarClock" size={17} />
+				Planifier
+			</button>
+			{#if selAllEatable}
 				<button
 					type="button"
 					class="flex flex-1 flex-col items-center gap-0.5 rounded-full py-1.5 text-[11px] font-semibold text-white transition hover:bg-white/10"
 					disabled={plannedBusy}
-					onclick={() => eatMany([...selIds])}
+					onclick={() => eatMany(selPlannedIds)}
 				>
 					<Icon name="check" size={17} strokeWidth={3} />
 					Mangé
 				</button>
-			{:else}
-				<span class="flex flex-1 flex-col items-center gap-0.5 py-1.5 text-[10px] font-semibold text-white/50">
-					<Icon name="calendarClock" size={17} />
-					Jour futur
-				</span>
 			{/if}
-			<button
-				type="button"
-				class="flex flex-1 flex-col items-center gap-0.5 rounded-full py-1.5 text-[11px] font-semibold text-white transition hover:bg-white/10"
-				disabled={plannedBusy}
-				onclick={() => {
-					const first = plannedItems.find((p) => selIds.has(p._id));
-					if (first) {
-						exitSelMode();
-						editPlanned = first;
-					}
-				}}
-			>
-				<Icon name="edit" size={17} />
-				Modifier
-			</button>
 			<button
 				type="button"
 				class="flex flex-1 flex-col items-center gap-0.5 rounded-full py-1.5 text-[11px] font-semibold text-danger transition hover:bg-danger/20"
 				disabled={plannedBusy}
-				onclick={() => deleteManyPlanned([...selIds])}
+				onclick={deleteSelection}
 			>
 				<Icon name="trash" size={17} />
 				Supprimer
 			</button>
+		</div>
+	</div>
+{/if}
+
+<!-- ═══════════ Feuille « Dupliquer » (raccourci Demain + calendrier) ═══════════ -->
+{#if dupOpen}
+	<button type="button" class="fixed inset-0 z-[60] bg-ink/40" aria-label="Fermer" onclick={closeDupSheet}></button>
+	<div class="fixed inset-x-0 bottom-0 z-[70] rounded-t-3xl bg-white p-5 pb-[max(env(safe-area-inset-bottom),20px)] shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[360px] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-3xl">
+		<p class="mb-1 text-left font-display text-[26px] font-bold tracking-tight text-ink">{planMode ? 'Planifier' : 'Dupliquer'}</p>
+		<p class="mb-4 text-left text-[12px] font-semibold text-mist">
+			{selIds.size} aliment{selIds.size > 1 ? 's' : ''} · mêmes quantités, mêmes repas{#if planMode} · date future uniquement{/if}
+		</p>
+
+		<!-- Calendrier type FOOD : grand mois + flèches, semaine lundi→dimanche,
+		     jour choisi = cercle vert, gros bouton de confirmation en bas.
+		     « Planifier » : seuls les jours futurs sont cliquables. -->
+		<div class="mb-2 flex items-center justify-between">
+			<p class="text-[22px] font-bold text-ink">{MOIS_CAL[calMonth]} {calYear}</p>
+			<div class="flex items-center gap-1">
+				<button type="button" class="grid h-9 w-9 place-items-center rounded-full text-ink transition hover:bg-line/50" aria-label="Mois précédent" onclick={() => shiftCalMonth(-1)}>
+					<Icon name="chevronLeft" size={20} />
+				</button>
+				<button type="button" class="grid h-9 w-9 place-items-center rounded-full text-ink transition hover:bg-line/50" aria-label="Mois suivant" onclick={() => shiftCalMonth(1)}>
+					<Icon name="chevronRight" size={20} />
+				</button>
+			</div>
+		</div>
+		<div class="mb-1 grid grid-cols-7 text-center text-[13px] font-bold text-mist">
+			<span>Lun</span><span>Mar</span><span>Mer</span><span>Jeu</span><span>Ven</span><span>Sam</span><span>Dim</span>
+		</div>
+		<div class="grid grid-cols-7 gap-y-1">
+			{#each calCells as cell, i (i)}
+				<div class="grid place-items-center">
+					{#if cell}
+						{@const iso = calDayISO(cell)}
+						{@const isPlanBlocked = planMode && iso <= todayISO}
+						<button
+							type="button"
+							class="grid h-10 w-10 place-items-center rounded-full text-[15px] font-semibold transition {dupDate === iso
+								? 'bg-brand text-white'
+								: isPlanBlocked
+									? 'text-mist/50'
+									: 'text-ink hover:bg-brand/10'}"
+							disabled={isPlanBlocked}
+							aria-label={`Choisir le ${cell} ${MOIS_CAL[calMonth]}`}
+							aria-pressed={dupDate === iso}
+							onclick={() => (dupDate = iso)}
+						>{cell}</button>
+					{/if}
+				</div>
+			{/each}
+		</div>
+
+		{#if dupErr}
+			<p class="mt-2 rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{dupErr}</p>
+		{/if}
+		<button
+			type="button"
+			class="mt-5 flex w-full items-center justify-center gap-2 rounded-full bg-brand px-5 py-4 text-[17px] font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
+			disabled={dupBusy || (planMode ? !dupDateIsFuture : !dupDate)}
+			onclick={duplicateSelection}
+		>
+			{dupBusy ? (planMode ? 'Planification…' : 'Duplication…') : planMode ? 'Planifier' : 'Confirmer'} · {dupDateLabel}
+		</button>
+	</div>
+{/if}
+
+<!-- ═══════════ Feuille « Créer un repas » (nom → Mes Repas) ═══════════ -->
+{#if mealCreateOpen}
+	<button type="button" class="fixed inset-0 z-[60] bg-ink/40" aria-label="Fermer" onclick={closeMealCreateSheet}></button>
+	<div class="fixed inset-x-0 bottom-0 z-[70] rounded-t-3xl bg-white p-5 pb-[max(env(safe-area-inset-bottom),20px)] shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[360px] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-3xl">
+		<p class="mb-1 text-center text-[17px] font-bold text-ink">Créer un repas</p>
+		<p class="mb-4 text-center text-xs text-mist">{selIds.size} aliment{selIds.size > 1 ? 's' : ''} et leurs quantités seront enregistrés dans « Mes repas ».</p>
+		<input
+			type="text"
+			class="w-full rounded-xl border-2 border-line bg-cream px-3 py-2.5 text-sm font-semibold text-ink outline-none focus:border-brand"
+			placeholder="Nom du repas (ex. Mon dîner protéiné)"
+			bind:value={mealCreateName}
+			onkeydown={(e) => { if (e.key === 'Enter' && mealCreateName.trim().length >= 2 && !mealCreateBusy) void saveMealFromSelection(); }}
+		/>
+		{#if mealCreateErr}
+			<p class="mt-3 rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{mealCreateErr}</p>
+		{/if}
+		<div class="mt-4 flex items-center justify-between">
+			<button type="button" class="rounded-full px-3 py-2 text-[14px] font-semibold text-mist transition hover:text-ink" onclick={closeMealCreateSheet}>Annuler</button>
+			<button
+				type="button"
+				class="rounded-full bg-brand px-5 py-2 text-[14px] font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
+				disabled={mealCreateBusy || mealCreateName.trim().length < 2}
+				onclick={saveMealFromSelection}
+			>{mealCreateBusy ? 'Enregistrement…' : 'Enregistrer le repas'}</button>
 		</div>
 	</div>
 {/if}

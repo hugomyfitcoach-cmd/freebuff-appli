@@ -66,6 +66,17 @@ async function buildMealData(
 		customFoodId?: Id<"customFoods">;
 		ciqualLabel?: string;
 		qtyGrams: number;
+		/** Repli optionnel (création depuis une sélection journal) : snapshot exact de la ligne d'origine,
+		 *  utilisé si la fiche source n'existe plus — le repas reste fidèle au journal, jamais recalculé de travers. */
+		snapshot?: {
+			name?: string;
+			brand?: string;
+			imageUrl?: string;
+			kcal?: number;
+			carbs?: number;
+			protein?: number;
+			fat?: number;
+		};
 	}[],
 ) {
 	const clean = name.trim();
@@ -99,42 +110,45 @@ async function buildMealData(
 		if (ing.ciqualLabel && !ciqualFood) {
 			throw new ConvexError("Une référence Ciqual n'existe plus. Retire-la et réessaie.");
 		}
-		if (!ing.foodId && !ing.customFoodId && !ciqualFood) {
+		if (!ing.foodId && !ing.customFoodId && !ciqualFood && !ing.snapshot) {
 			throw new ConvexError("Un ingrédient est invalide : aliment introuvable.");
 		}
+		// Résolution de l'identité : fiche Ciqual, base OFF ou aliment personnel.
+		// Fiche introuvable mais snapshot du journal disponible (création depuis
+		// une sélection) : on garde la ligne EXACTE vue par la cliente — identité
+		// perdue assumée (la fiche source a disparu) — au lieu de rejeter tout.
 		let food: { name: string; brand?: string; imageUrl?: string; kcal100: number; carbs100: number; protein100: number; fat100: number } | null = null;
 		if (ciqualFood) {
 			food = ciqualFood;
 		} else if (ing.foodId) {
 			const f = await ctx.db.get(ing.foodId);
-			if (!f) throw new ConvexError("Un ingrédient n'existe plus dans la base. Retire-le et réessaie.");
+			if (!f && !ing.snapshot) throw new ConvexError("Un ingrédient n'existe plus dans la base. Retire-le et réessaie.");
 			food = f;
 		} else if (ing.customFoodId) {
 			const f = await ctx.db.get(ing.customFoodId);
-			if (!f || f.userId !== userId) {
+			if ((!f || f.userId !== userId) && !ing.snapshot) {
 				throw new ConvexError("Un ingrédient personnel n'existe plus. Retire-le et réessaie.");
 			}
-			food = f;
+			food = f && f.userId === userId ? f : null;
 		}
-		if (!food) throw new ConvexError("Ingrédient invalide : aliment introuvable.");
 		// Garde-fou kcal ↔ macros (lecture seule) : kcal OFF aberrantes → théoriques
 		// au snapshot ; la fiche en base n'est jamais modifiée. Ciqual (officielle)
 		// et aliments personnels (étiquette saisie) ne passent JAMAIS par le
 		// garde-fou — le 4/4/9 y serait trompeur (vins Ciqual, produits allégés).
-		const kcal100 = ciqualFood || ing.customFoodId ? food.kcal100 : guardedKcal100(food);
+		const kcal100 = food ? (ciqualFood || ing.customFoodId ? food.kcal100 : guardedKcal100(food)) : 0;
 		const k = ing.qtyGrams / 100;
 		const row = {
-			foodId: ciqualFood ? undefined : (ing.foodId ?? undefined),
-			customFoodId: ciqualFood ? undefined : (ing.customFoodId ?? undefined),
+			foodId: food && !ciqualFood ? (ing.foodId ?? undefined) : undefined,
+			customFoodId: food && !ciqualFood ? (ing.customFoodId ?? undefined) : undefined,
 			ciqualLabel: ciqualFood ? ing.ciqualLabel : undefined,
-			name: food.name,
-			brand: food.brand,
-			imageUrl: food.imageUrl,
+			name: food?.name ?? ing.snapshot?.name?.trim() ?? "Aliment",
+			brand: food?.brand ?? ing.snapshot?.brand,
+			imageUrl: food?.imageUrl ?? ing.snapshot?.imageUrl,
 			qtyGrams: ing.qtyGrams,
-			kcal: Math.round(kcal100 * k),
-			carbs: round1(food.carbs100 * k),
-			protein: round1(food.protein100 * k),
-			fat: round1(food.fat100 * k),
+			kcal: food ? Math.round(kcal100 * k) : Math.round(ing.snapshot?.kcal ?? 0),
+			carbs: food ? round1(food.carbs100 * k) : round1(ing.snapshot?.carbs ?? 0),
+			protein: food ? round1(food.protein100 * k) : round1(ing.snapshot?.protein ?? 0),
+			fat: food ? round1(food.fat100 * k) : round1(ing.snapshot?.fat ?? 0),
 		};
 		snapshot.push(row);
 		totalWeight += ing.qtyGrams;
@@ -167,6 +181,72 @@ export const createMeal = mutation({
 	handler: async (ctx, { sessionToken, name, description, ingredients }) => {
 		const user = await requireClient(ctx, sessionToken);
 		const data = await buildMealData(ctx, user._id, name, description, ingredients);
+		const mealId = await ctx.db.insert("meals", {
+			userId: user._id,
+			...data,
+			createdAt: Date.now(),
+		});
+		return { ok: true, mealId };
+	},
+});
+
+/**
+ * Crée un repas à partir d'une SÉLECTION du journal (« Créer un repas »).
+ *
+ * Chaque aliment est transmis avec son IDENTITÉ (foodId / customFoodId /
+ * ciqualLabel) et son snapshot nutritionnel tel qu'affiché dans le journal :
+ * buildMealData résout la fiche quand elle existe encore (totaux recalculés
+ * exactement comme une création classique) et retombe sur le snapshot du
+ * journal si la fiche a disparu entre-temps — le repas reste fidèle à ce que
+ * la cliente voit. Aucune entrée du journal n'est modifiée.
+ */
+export const createMealFromSelection = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		name: v.string(),
+		description: v.optional(v.string()),
+		ingredients: v.array(
+			v.object({
+				foodId: v.optional(v.id("foods")),
+				customFoodId: v.optional(v.id("customFoods")),
+				ciqualLabel: v.optional(v.string()),
+				qtyGrams: v.number(),
+				/** Snapshot journal (kcal/macros de la ligne exacte) — repli si la fiche n'existe plus. */
+				name: v.optional(v.string()),
+				brand: v.optional(v.string()),
+				imageUrl: v.optional(v.string()),
+				kcal: v.optional(v.number()),
+				carbs: v.optional(v.number()),
+				protein: v.optional(v.number()),
+				fat: v.optional(v.number()),
+			})
+		),
+	},
+	handler: async (ctx, { sessionToken, name, description, ingredients }) => {
+		const user = await requireClient(ctx, sessionToken);
+		if (ingredients.length === 0) throw new ConvexError("Sélectionne au moins un aliment du journal.");
+		const data = await buildMealData(
+			ctx,
+			user._id,
+			name,
+			description,
+			ingredients.map((ing) => ({
+				foodId: ing.foodId,
+				customFoodId: ing.customFoodId,
+				ciqualLabel: ing.ciqualLabel,
+				qtyGrams: ing.qtyGrams,
+				/** Snapshot de secours : la fiche source peut avoir disparu (OFF, custom supprimé). */
+				snapshot: {
+					name: ing.name,
+					brand: ing.brand,
+					imageUrl: ing.imageUrl,
+					kcal: ing.kcal,
+					carbs: ing.carbs,
+					protein: ing.protein,
+					fat: ing.fat,
+				},
+			}))
+		);
 		const mealId = await ctx.db.insert("meals", {
 			userId: user._id,
 			...data,

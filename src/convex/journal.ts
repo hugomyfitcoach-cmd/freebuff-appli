@@ -1114,3 +1114,132 @@ export const eatManyPlanned = mutation({
 		return { ok: true, eaten };
 	},
 });
+
+/* ═══════════════════ Duplication vers une autre date ═══════════════════
+ *
+ * Duplication SANS réécriture : les aliments d'origine (consommés ou
+ * planifiés) ne sont jamais modifiés ni supprimés — on insère une COPIE
+ * par item sélectionné sur la date cible.
+ *
+ * Identité préservée : foodId / customFoodId / ciqualLabel sont recopiés
+ * tels quels, avec le snapshot nutritionnel exact de la ligne d'origine
+ * (mêmes kcal/macros pour la même quantité — aucune valeur recalculée).
+ * Le nom/brand/imageUrl du snapshot sont conservés : la base peut avoir
+ * changé depuis (produit OFF retiré…), la copie reste fidèle au journal.
+ *
+ * Frontière « futur » : identique à `addEntry` — trustedClientToday().
+ * Une date future crée des `plannedEntries` (client_planned, gris, zéro
+ * impact header) ; le jour même ou le passé crée des `diaryEntries`.
+ */
+export const duplicateEntries = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		/** Ids des entrées consommées à dupliquer (diaryEntries). */
+		entryIds: v.array(v.id("diaryEntries")),
+		/** Ids des items planifiés à dupliquer (plannedEntries). */
+		plannedIds: v.array(v.id("plannedEntries")),
+		/** Date cible "yyyy-mm-dd" — n'importe quelle date future possible. */
+		targetDate: v.string(),
+		/** Date ISO locale du navigateur — frontière « futur » (fuseau client ≠ serveur UTC). */
+		clientDate: v.optional(v.string()),
+	},
+	handler: async (ctx, { sessionToken, entryIds, plannedIds, targetDate, clientDate }) => {
+		const user = await requireClient(ctx, sessionToken);
+		if (!isValidDateISO(targetDate)) throw new ConvexError("Date invalide.");
+		const today = trustedClientToday(clientDate);
+		const future = targetDate > today;
+
+		// Plan coach actif matérialisé avant l'ajout (copy-on-write), comme
+		// `addEntry` : les propositions apparaissent même si getDay n'a pas tourné.
+		if (future) await resolveCoachPlanForDate(ctx, user._id, targetDate);
+
+		let created = 0;
+
+		// 1) Consommés (diaryEntries) → copie fidèle sur la date cible.
+		for (const entryId of entryIds.slice(0, 60)) {
+			const e = await ctx.db.get(entryId);
+			if (!e || e.userId !== user._id) continue; // introuvable / pas à nous : silencieux
+			if (future) {
+				await ctx.db.insert("plannedEntries", {
+					userId: user._id,
+					date: targetDate,
+					meal: e.meal,
+					source: "client_planned",
+					name: e.name,
+					brand: e.brand,
+					imageUrl: e.imageUrl,
+					qtyGrams: e.qtyGrams,
+					kcal: e.kcal,
+					carbs: e.carbs,
+					protein: e.protein,
+					fat: e.fat,
+					foodId: e.foodId,
+					customFoodId: e.customFoodId,
+					createdAt: Date.now(),
+				});
+			} else {
+				await ctx.db.insert("diaryEntries", {
+					userId: user._id,
+					date: targetDate,
+					meal: e.meal,
+					foodId: e.foodId,
+					customFoodId: e.customFoodId,
+					name: e.name,
+					brand: e.brand,
+					imageUrl: e.imageUrl,
+					qtyGrams: e.qtyGrams,
+					kcal: e.kcal,
+					carbs: e.carbs,
+					protein: e.protein,
+					fat: e.fat,
+					createdAt: Date.now(),
+				});
+			}
+			created++;
+		}
+
+		// 2) Planifiés (plannedEntries) → copie fidèle sur la date cible.
+		for (const plannedId of plannedIds.slice(0, 60)) {
+			const p = await ctx.db.get(plannedId);
+			if (!p || p.userId !== user._id) continue;
+			if (future) {
+				await ctx.db.insert("plannedEntries", {
+					userId: user._id,
+					date: targetDate,
+					meal: p.meal,
+					source: "client_planned",
+					name: p.name,
+					brand: p.brand,
+					imageUrl: p.imageUrl,
+					qtyGrams: p.qtyGrams,
+					kcal: p.kcal,
+					carbs: p.carbs,
+					protein: p.protein,
+					fat: p.fat,				foodId: p.foodId,
+				customFoodId: p.customFoodId,
+				ciqualLabel: p.ciqualLabel,
+				createdAt: Date.now(),
+			});
+			} else {
+				await ctx.db.insert("diaryEntries", {
+					userId: user._id,
+					date: targetDate,
+					meal: p.meal,
+					foodId: p.foodId,
+					customFoodId: p.customFoodId,
+					name: p.name,
+					brand: p.brand,
+					imageUrl: p.imageUrl,
+					qtyGrams: p.qtyGrams,
+					kcal: p.kcal,
+					carbs: p.carbs,
+					protein: p.protein,
+					fat: p.fat,
+					createdAt: Date.now(),
+				});
+			}
+			created++;
+		}
+		return { ok: true, created };
+	},
+});

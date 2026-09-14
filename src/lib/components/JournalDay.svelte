@@ -33,9 +33,15 @@
 		portions?: number;
 		/** « planned_eaten » : validé depuis un item planifié (✓ vert discret + remettre en planifié). */
 		source?: string;
+		/** Identité d'origine (duplication / création de repas) — snapshot sinon. */
+		foodId?: string;
+		customFoodId?: string;
+		ciqualLabel?: string;
 	};
 	type Planned = {
 		_id: string;
+		/** Date "yyyy-mm-dd" de l'item (frontière « Mangé » : jamais au futur). */
+		date: string;
 		name: string;
 		brand?: string;
 		imageUrl?: string;
@@ -392,19 +398,33 @@
 
 {#snippet mealRow(e: Entry)}
 	{#if mode === 'client' && onEntryClick}
+		<div class="flex w-full items-center {compact ? 'gap-2 px-2 py-1.5' : 'gap-2.5 px-2 py-1.5'}">
 		<button
 			type="button"
-			class="flex w-full items-center text-left transition hover:bg-line/40 {compact ? 'gap-2 px-2 py-1.5' : 'gap-2.5 px-2 py-1.5'}"
+			class="flex min-w-0 flex-1 items-center text-left transition hover:bg-line/40 {compact ? 'gap-2' : 'gap-2.5'}"
 			onclick={() => onEntryClick(e)}
 		>
-			{@render entryBody(e)}
-			<!-- Item validé depuis un plan : check vert discret (état « Mangé ») -->
-			{#if compact && e.source === 'planned_eaten'}
-				<span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand/15 text-brand" title="Mangé">
-					<Icon name="check" size={13} strokeWidth={3} />
-				</span>
-			{/if}
-		</button>
+				{@render entryBody(e)}
+				<!-- Item validé depuis un plan : check vert discret (état « Mangé ») -->
+				{#if compact && e.source === 'planned_eaten'}
+					<span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand/15 text-brand" title="Mangé">
+						<Icon name="check" size={13} strokeWidth={3} />
+					</span>
+				{/if}
+			</button>
+			<!-- Rond de sélection type FOOD : TOUJOURS visible, vide → coché.
+			     Sélection TEMPORAIRE uniquement (jamais un statut « mangé ») ;
+			     le tap sur la ligne ouvre toujours la fiche de l'aliment.
+			     after:-inset-2 : zone tactile ~44 px sans changer l'apparence. -->
+			<button
+				type="button"
+				class="relative grid h-7 w-7 shrink-0 place-items-center rounded-full border-2 transition after:absolute after:-inset-2 after:rounded-full after:content-[''] {isSel(e._id) ? 'border-brand bg-brand text-white' : 'border-line bg-white text-transparent'}"
+				aria-label={isSel(e._id) ? 'Désélectionner' : 'Sélectionner'}
+				onclick={() => onToggleSel?.(e._id)}
+			>
+				<Icon name="check" size={13} strokeWidth={3} />
+			</button>
+		</div>
 	{:else}
 		<div class="flex w-full items-center {compact ? 'gap-2 px-2 py-1' : 'gap-2.5 px-2 py-1.5'}">
 			{@render entryBody(e)}
@@ -437,14 +457,14 @@
 {/snippet}
 
 <!-- Ligne PLANIFIÉE : grisée + cercle vide — zéro impact sur le header tant que
-     ce n'est pas validé « Mangé ». En sélection multiple, le cercle devient une
-     case à cocher (Tout sélectionner → Mangé / Modifier / Remplacer / Supprimer). -->
+     ce n'est pas validé « Mangé ». Rond à droite = sélection (Mangé / Supprimer
+     via la barre d'actions quand le jour est arrivé) ; tap ligne = édition. -->
 {#snippet plannedRow(p: Planned)}
 	<div class="flex w-full items-center {compact ? 'gap-2 px-2 py-1.5' : 'gap-2.5 px-2 py-1.5'} bg-line/20">
 		<button
 			type="button"
 			class="flex min-w-0 flex-1 items-center gap-2 text-left transition hover:bg-line/30 rounded-lg -mx-1 px-1 py-0.5"
-			onclick={() => (selMode ? onToggleSel?.(p._id) : onPlannedClick?.(p))}
+			onclick={() => onPlannedClick?.(p)}
 		>
 			{#if p.imageUrl}
 				<FoodImg src={p.imageUrl} alt="" eager={false} class="rounded-xl {compact ? 'h-[52px] w-[52px]' : 'h-9 w-9'} opacity-60 saturate-50" />
@@ -460,25 +480,17 @@
 				</span>
 			</span>
 		</button>
-		{#if selMode}
-			<button
-				type="button"
-				class="grid h-7 w-7 shrink-0 place-items-center rounded-full border-2 transition {isSel(p._id) ? 'border-brand bg-brand text-white' : 'border-line bg-white text-transparent'}"
-				aria-label={isSel(p._id) ? 'Désélectionner' : 'Sélectionner'}
-				onclick={() => onToggleSel?.(p._id)}
-			>
-				<Icon name="check" size={13} strokeWidth={3} />
-			</button>
-		{:else if canEat && onToggleEat}
-			<!-- Cercle vide = « pas encore mangé ». Tap → Mangé (impact immédiat header). -->
-			<button
-				type="button"
-				class="grid h-7 w-7 shrink-0 place-items-center rounded-full border-2 border-line bg-white transition hover:border-brand active:scale-90"
-				aria-label="Marquer comme mangé"
-				title="Mangé"
-				onclick={() => onToggleEat(p)}
-			></button>
-		{/if}
+		<!-- Rond de sélection type FOOD : TOUJOURS visible, vide → coché.
+		     « Mangé » est validé via la barre d'actions, jamais par ce rond.
+		     after:-inset-2 : zone tactile ~44 px sans changer l'apparence. -->
+		<button
+			type="button"
+			class="relative grid h-7 w-7 shrink-0 place-items-center rounded-full border-2 transition after:absolute after:-inset-2 after:rounded-full after:content-[''] {isSel(p._id) ? 'border-brand bg-brand text-white' : 'border-line bg-white text-transparent'}"
+			aria-label={isSel(p._id) ? 'Désélectionner' : 'Sélectionner'}
+			onclick={() => onToggleSel?.(p._id)}
+		>
+			<Icon name="check" size={13} strokeWidth={3} />
+		</button>
 	</div>
 {/snippet}
 
