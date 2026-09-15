@@ -80,6 +80,8 @@
 	import AudioPlayer from '$lib/components/AudioPlayer.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Sparkline from '$lib/components/Sparkline.svelte';
+	import PerformanceWeekCard from '$lib/components/PerformanceWeekCard.svelte';
+	import type { PerfDay, PerfGoals } from '$lib/perf';
 	import { fmtMs, type CoachMediaItem } from '$lib/media';
 	import {
 		CYCLE_LENGTH_OPTIONS,
@@ -521,6 +523,58 @@
 
 	/* Pas du jour : objectif atteint = validation verte discrète (texte secondaire). */
 	const stepsReached = $derived(stepGoal !== null && todaySteps !== null && todaySteps >= stepGoal);
+
+	/* ————— Carte Performance (aperçu compact de la semaine en cours) —————
+	   Aperçu 100 % G-FLUX : barre de calories par jour + 3 mini-anneaux macros,
+	   mêmes couleurs/icônes que le Journal. Données = journal existant via
+	   /api/journal/week (lecture pure — aucun recalcul, aucune écriture).
+	   Chargement async (non bloquant) : la carte reste la dernière section de
+	   l'Accueil ; tant que la réponse n'est pas là, rien n'est inventé. ————— */
+	let perfWeek = $state<{ days: PerfDay[]; goals: PerfGoals } | null>(null);
+	const perfToday = $derived(currentLocalDay());
+	const perfWeekStart = $derived.by(() => {
+		const m = localMonday(new Date(perfToday + 'T12:00:00'));
+		return `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, '0')}-${String(m.getDate()).padStart(2, '0')}`;
+	});
+	/** Jours consommés à ce jour (futurs exclus — jamais un 0 anticipé). */
+	const perfTracked = $derived(perfWeek?.days.filter((d) => d.tracked && d.date <= perfToday) ?? []);
+	/** Moyenne calorique à ce jour : uniquement les jours réellement renseignés. */
+	const perfKcalAvg = $derived(
+		perfTracked.length > 0 ? Math.round(perfTracked.reduce((s, d) => s + d.totals.kcal, 0) / perfTracked.length) : null
+	);
+	const perfKcalGoal = $derived(perfWeek?.goals.kcal ?? dash?.tracking.kcalGoal ?? null);
+	/** Déficit cumulé estimé sur la semaine à ce jour (0 si un jour dépasse sa cible). */
+	const perfDeficit = $derived.by(() => {
+		if (!perfWeek || perfTracked.length === 0) return null;
+		let deficit = 0;
+		for (const d of perfTracked) {
+			deficit += Math.max(0, perfWeek.goals.kcal - d.totals.kcal);
+		}
+		return deficit;
+	});
+	const perfLabel = $derived(
+		perfKcalAvg !== null && perfKcalGoal !== null
+			? `${fmt(perfKcalAvg)} kcal de moyenne · objectif ${fmt(perfKcalGoal)}`
+			: 'Ta semaine d\'un coup d\'œil'
+	);
+
+	/* Chargement (et rechargement au changement de jour local) : la date est
+	   lue dans l'effet (réactive), jamais capturée au montage. */
+	let perfLoadedFor = '';
+	$effect(() => {
+		const start = perfWeekStart;
+		if (perfLoadedFor === start) return;
+		perfLoadedFor = start;
+		void (async () => {
+			try {
+				const r = await fetch(`/api/journal/week?start=${start}`);
+				const j = await r.json();
+				if (!j.error) perfWeek = { days: j.days as PerfDay[], goals: j.goals as PerfGoals };
+			} catch {
+				/* silencieux : la carte reste en état neutre */
+			}
+		})();
+	});
 
 	/* ————— Navigation rapide + changement de journée —————
 	   L'Accueil est préchargé pendant la visite des autres onglets (cache
@@ -1008,6 +1062,52 @@
 		<span>Voir ma progression</span>
 		<span>→</span>
 	</p>
+</a>
+
+<!-- ═══════════ Performance — aperçu de la semaine (lundi → dimanche) ═══════════ -->
+<a
+	href="/espace/performance"
+	class="group mt-4 block rounded-3xl border border-line bg-card p-5 shadow-sm transition hover:border-brand"
+>
+	<div class="flex items-center justify-between gap-3">
+		<h2 class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-mist">
+			<Icon name="chartColumn" size={14} class="shrink-0 text-brand" /> Performance
+		</h2>
+		<Icon name="chevronRight" size={16} class="text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
+	</div>
+	{#if perfWeek}
+		<div class="mt-3">
+			<PerformanceWeekCard days={perfWeek.days} goals={perfWeek.goals} today={perfToday} compact />
+		</div>
+	{:else}
+		<!-- État neutre : aucune valeur inventée tant que la semaine n'est pas chargée -->
+		<div class="mt-3 grid grid-cols-7 gap-1.5">
+			{#each Array(7) as _, i (i)}
+				<div class="flex flex-col items-center gap-1">
+					<span class="h-2.5 w-2.5 animate-pulse rounded-full bg-line"></span>
+					<div class="h-14 w-full max-w-[14px] rounded-full bg-line/40"></div>
+					<div class="h-9 w-9 rounded-full border-2 border-dashed border-line/70"></div>
+					<span class="h-2 w-6 rounded bg-line/40"></span>
+				</div>
+			{/each}
+		</div>
+	{/if}
+	<div class="mt-3 flex items-center justify-between gap-2 border-t border-line pt-3">
+		<p class="min-w-0 text-xs font-semibold leading-snug {perfKcalAvg !== null ? 'text-brand-dark' : 'text-mist'}">
+			{#if perfKcalAvg !== null}
+				{fmt(perfKcalAvg)} kcal de moyenne · objectif {perfKcalGoal !== null ? fmt(perfKcalGoal) : '—'}
+				{#if perfDeficit !== null && perfDeficit > 0}
+					· déficit cumulé ~{fmt(perfDeficit)} kcal
+				{/if}
+				{#if perfTracked.length > 0}
+					<span class="whitespace-nowrap">sur {perfTracked.length} jour{perfTracked.length > 1 ? 's' : ''} renseigné{perfTracked.length > 1 ? 's' : ''}</span>
+				{/if}
+			{:else}
+				Ta semaine d'un coup d'œil
+			{/if}
+		</p>
+		<span class="shrink-0 rounded-xl bg-ink px-3 py-1.5 text-xs font-bold text-white transition group-hover:bg-brand">Voir</span>
+	</div>
 </a>
 
 <!-- ═══════════ Récap hebdo (samedi + dimanche uniquement) ═══════════ -->
