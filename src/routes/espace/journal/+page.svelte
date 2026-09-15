@@ -10,6 +10,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { forceAppUpdate, needsAppUpdate } from '$lib/swUpdate';
 import { FRONTEND_API_VERSION } from '$lib/apiVersion';
+import { journalTipForDay } from '$lib/data/journalTips';
 
 	type Goals = { kcal: number; carbs: number; protein: number; fat: number; maintenanceKcal?: number };
 	type Entry = {
@@ -137,14 +138,10 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 	let loadingDay = $state(false);
 	let error = $state('');
 	let tipDismissed = $state(false);
-	const TIPS = [
-		'Les protéines sont les briques de ton corps : elles participent à la construction et à la réparation des muscles, mais aussi des cheveux et de la peau. Chaque régime devrait en contenir en quantité suffisante.',
-		'Pèse tes aliments crus : c’est la valeur de référence des bases de données (Ciqual, Open Food Facts…).',
-		'Un filet d’huile, une poignée de fromage râpé ou une « petite bouchée » comptent : tracke aussi ce qui ne « compte pas ».',
-		'Ton déficit se calcule sur la semaine, pas sur la journée. Une journée haute n’annule rien.',
-		'Les légumes volume (courgettes, champignons, salade…) remplissent l’assiette pour très peu de calories.',
-	];
-	const tip = $derived(TIPS[new Date(date + 'T12:00:00').getDay() % TIPS.length]);
+	/* Astuce du jour : bibliothèque de 50 astuces G-FLUX (lib/data/journalTips.ts).
+	   Rotation déterministe par date → identique toute la journée et à chaque
+	   refresh, jamais deux jours de suite la même. */
+	const tip = $derived(journalTipForDay(date));
 
 	/* ————— Jour : navigation & chargement —————
 	   Date locale courante (source centrale, réactive) : au passage de minuit
