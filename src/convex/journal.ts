@@ -1,6 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
-import { getSessionUser } from "./helpers";
+import { addDaysISO, getSessionUser } from "./helpers";
 import { FOOD_SEARCH_CANDIDATES, rankFoods } from "./foodRanking";
 import { applyKcalGuard, guardedKcal100, kcalNeedsRecalc } from "../lib/nutritionGuard";
 import { resolveCoachPlanForDate } from "./mealPlans";
@@ -661,6 +661,79 @@ export const getDay = query({
 			totals,
 			planned: plannedOut,
 			plannedTotals,
+		};
+	},
+});
+
+/**
+ * Semaine complète (lundi → dimanche) — page « Performance » + carte Accueil.
+ *
+ * Lecture pure du journal : totaux CONSOMMÉS par jour + objectifs courants.
+ * Les items planifiés (non consommés) ne participent JAMAIS — même règle que
+ * le header du Journal. Un jour sans entrée n'est jamais un zéro : il est
+ * renvoyé `tracked: false` et les moyennes (côté client) ne comptent que les
+ * jours réellement renseignés.
+ */
+export const getWeek = query({
+	args: {
+		sessionToken: v.optional(v.string()),
+		/** Lundi de la semaine affichée, "yyyy-mm-dd" (date locale de la cliente). */
+		start: v.string(),
+	},
+	handler: async (ctx, { sessionToken, start }) => {
+		const user = await requireClient(ctx, sessionToken);
+		if (!isValidDateISO(start)) throw new ConvexError("Date invalide.");
+		const end = addDaysISO(start, 7); // exclusif
+
+		const [entries, goalsRow] = await Promise.all([
+			ctx.db
+				.query("diaryEntries")
+				.withIndex("by_user_date", (q) => q.eq("userId", user._id).gte("date", start).lt("date", end))
+				.collect(),
+			ctx.db.query("clientGoals").withIndex("by_userId", (q) => q.eq("userId", user._id)).first(),
+		]);
+
+		const byDay = new Map<string, { kcal: number; carbs: number; protein: number; fat: number }>();
+		for (const e of entries) {
+			const t = byDay.get(e.date) ?? { kcal: 0, carbs: 0, protein: 0, fat: 0 };
+			t.kcal += e.kcal;
+			t.carbs += e.carbs;
+			t.protein += e.protein;
+			t.fat += e.fat;
+			byDay.set(e.date, t);
+		}
+
+		const days: { date: string; tracked: boolean; totals: { kcal: number; carbs: number; protein: number; fat: number } }[] = [];
+		for (let i = 0; i < 7; i++) {
+			const date = addDaysISO(start, i);
+			const t = byDay.get(date);
+			days.push({
+				date,
+				tracked: !!t,
+				totals: t
+					? {
+							kcal: Math.round(t.kcal),
+							carbs: Math.round(t.carbs * 10) / 10,
+							protein: Math.round(t.protein * 10) / 10,
+							fat: Math.round(t.fat * 10) / 10,
+						}
+					: { kcal: 0, carbs: 0, protein: 0, fat: 0 },
+			});
+		}
+
+		const g: Partial<Doc<"clientGoals">> = goalsRow ?? { userId: user._id, ...DEFAULT_GOALS };
+		return {
+			start,
+			end: addDaysISO(start, 6),
+			goals: {
+				kcal: g.kcal ?? DEFAULT_GOALS.kcal,
+				carbs: g.carbs ?? DEFAULT_GOALS.carbs,
+				protein: g.protein ?? DEFAULT_GOALS.protein,
+				fat: g.fat ?? DEFAULT_GOALS.fat,
+				maintenanceKcal: g.maintenanceKcal ?? undefined,
+			},
+			goalsSet: !!goalsRow,
+			days,
 		};
 	},
 });
