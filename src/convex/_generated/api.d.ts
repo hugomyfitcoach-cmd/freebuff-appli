@@ -37,6 +37,7 @@ import type * as push from "../push.js";
 import type * as reminderPush from "../reminderPush.js";
 import type * as resources from "../resources.js";
 import type * as steps from "../steps.js";
+import type * as tools from "../tools.js";
 import type * as users from "../users.js";
 import type * as webPushVendors from "../webPushVendors.js";
 
@@ -76,6 +77,7 @@ declare const fullApi: ApiFromModules<{
   reminderPush: typeof reminderPush;
   resources: typeof resources;
   steps: typeof steps;
+  tools: typeof tools;
   users: typeof users;
   webPushVendors: typeof webPushVendors;
 }>;

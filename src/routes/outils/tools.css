@@ -592,18 +592,76 @@
 .tools-root .stat span {
 	color: var(--muted);
 }
-.tools-root .wkreset {
-	margin-top: 6px;
-	width: 100%;
-	background: transparent;
+.tools-root .wknav {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin: 2px 0 6px;
+}
+.tools-root .wknav .navbtn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 34px;
+	height: 34px;
+	flex-shrink: 0;
+	background: var(--surface2);
 	border: 1px solid var(--border);
-	color: var(--muted);
-	font-family: inherit;
-	font-size: 13px;
-	font-weight: 600;
-	padding: 11px;
-	border-radius: 9px;
+	color: var(--text);
+	border-radius: 10px;
 	cursor: pointer;
+	transition: background 0.15s ease, border-color 0.15s ease;
+}
+.tools-root .wknav .navbtn:hover:not(:disabled) {
+	background: var(--green-dim);
+	border-color: var(--green-mid);
+}
+.tools-root .wknav .navbtn:disabled {
+	opacity: 0.35;
+	cursor: default;
+}
+.tools-root .wknav .wklabel {
+	flex: 1;
+	text-align: center;
+	font-size: 13px;
+	font-weight: 700;
+	color: var(--text);
+}
+.tools-root .wkgrid .ddate {
+	display: block;
+	font-size: 10px;
+	font-weight: 600;
+	color: var(--muted);
+	letter-spacing: 0;
+}
+/* Champs préremplis en lecture seule — même style, fond distinct. */
+.tools-root input.ro {
+	background: var(--surface2);
+	color: var(--text);
+	opacity: 1;
+}
+/* Jours futurs : visuellement vides (jamais comptés comme 0). */
+.tools-root .wkgrid input.future {
+	background: transparent;
+	border-style: dashed;
+}
+/* Donnée réellement manquante : clairement signalée, jamais inventée. */
+.tools-root .missnote {
+	margin: -2px 0 10px;
+	font-size: 12px;
+	line-height: 1.5;
+	color: var(--amber);
+}
+.tools-root .horizon {
+	display: flex;
+	align-items: center;
+	padding: 13px 12px;
+	background: var(--green-dim);
+	border: 1px solid var(--green-mid);
+	border-radius: 12px;
+	font-size: 14px;
+	font-weight: 700;
+	color: var(--green-dark);
 }
 
 .tools-root footer {

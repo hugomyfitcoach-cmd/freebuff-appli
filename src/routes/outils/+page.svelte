@@ -3,6 +3,8 @@
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import Icon from '$lib/components/Icon.svelte';
+	import { errMsg } from '$lib/errors';
+	import { planifier, getCategorieFemmeMin25, getCategorieHommeMin15, type Cat } from '$lib/cyclage';
 
 	let { data } = $props();
 	/** Retour vers l'espace client uniquement pour la cliente (le CRM coach a sa sidebar). */
@@ -295,56 +297,213 @@
 	const STEPS_CAP_FACTOR = 1.4; /* rattrapage pas plafonné à +40% de l'objectif */
 	const todayIdx = $derived((new Date().getDay() + 6) % 7);
 
+	/* Préremplissage automatique — données réelles du suivi (api.tools.calibrage,
+	   LECTURE SEULE : ces outils ne modifient jamais les objectifs cliente).
+	   - Repères (maintenance / objectif / pas) : valeurs définies par la coach ;
+	   - Kcal mangées & pas : Journal et pas réels de chaque journée — une
+	     journée sans donnée reste VIDE (jamais comptée comme 0) ;
+	   - Semaines passées : les repères du moment sont FIGÉS à la première
+	     ouverture (stockage local) — un changement futur de la maintenance,
+	     de l'objectif ou des pas ne réécrit jamais une ancienne semaine. */
+	type CalDay = { date: string; kcal: number; steps: number };
+	type CalData = {
+		scoped: boolean;
+		today: string;
+		currentWeekStart: string;
+		earliestWeek: string;
+		profile: {
+			startDate: string | null;
+			weightRefKg: number | null;
+			weightRefDate: string | null;
+			weightRefSource: string | null;
+			bodyFatRef: number | null;
+			bodyFatRefDate: string | null;
+		};			goals: { kcal: number; maintenanceKcal: number | null; stepGoal: number | null; goalsSet: boolean } | null;
+			/** Présence du suivi de cycle — seul indicateur de sexe existant dans G-FLUX. */
+			cycle?: { contra?: string } | null;
+			days: CalDay[];
+		};
+	let calLoading = $state(true);
+	let calError = $state('');
+	let scoped = $state(false);
+	let calToday = $state('');
+	let weekStart = $state('');
+	let earliestWeek = $state('');
+	let liveDays = $state<CalDay[]>([]);
+	type WeekReperes = { maint: string; obj: string; steps: string; savedAt: number };
+	let snapshots = $state<Record<string, WeekReperes>>({});
+	const CAL_KEY = 'gflux_semaine_v2';
 	let wkMaint = $state('');
 	let wkObj = $state('');
 	let wkSteps = $state('');
 	let wkAdapt = $state(false);
-	let wkK = $state<string[]>(['', '', '', '', '', '', '']);
-	let wkS = $state<string[]>(['', '', '', '', '', '', '']);
 	let wkPlanVisible = $state(false);
 	let wkPlanKg = $state('');
 	let wkPlanNote = $state('');
 	let wkOutVisible = $state(false);
 	let wkStatsHtml = $state('');
 
-	const wkStore = {
-		load(): Record<string, unknown> {
-			try {
-				return JSON.parse(window.localStorage.getItem('gflux_semaine') || '{}');
-			} catch {
-				return {};
-			}
-		},
-		save(o: Record<string, unknown>) {
-			try {
-				window.localStorage.setItem('gflux_semaine', JSON.stringify(o));
-			} catch {
-				/* stockage indisponible */
-			}
-		},
-	};
-	function wkRead() {
-		return {
-			maint: wkMaint,
-			obj: wkObj,
-			steps: wkSteps,
-			adapt: wkAdapt,
-			k: [...wkK],
-			s: [...wkS],
-		};
+	function mondayOf(iso: string): string {
+		const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+		if (!m) return iso;
+		const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+		const day = d.getUTCDay();
+		d.setUTCDate(d.getUTCDate() + (day === 0 ? -6 : 1 - day));
+		return d.toISOString().slice(0, 10);
 	}
-	function wkRestore() {
-		const o = wkStore.load();
-		if (typeof o.maint === 'string') wkMaint = o.maint;
-		if (typeof o.obj === 'string') wkObj = o.obj;
-		if (typeof o.steps === 'string') wkSteps = o.steps;
-		if (o.adapt) wkAdapt = true;
-		if (Array.isArray(o.k)) (o.k as string[]).forEach((v, i) => { if (v) wkK[i] = v; });
-		if (Array.isArray(o.s)) (o.s as string[]).forEach((v, i) => { if (v) wkS[i] = v; });
+	function isoAddDays(iso: string, n: number): string {
+		const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+		if (!m) return iso;
+		const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + n));
+		return d.toISOString().slice(0, 10);
+	}
+	const isCurrentWeek = $derived(!!calToday && weekStart === mondayOf(calToday));
+	const weekDatesShown = $derived(weekStart ? Array.from({ length: 7 }, (_, i) => isoAddDays(weekStart, i)) : []);
+	const liveByDate = $derived(new Map(liveDays.map((d) => [d.date, d])));
+
+	function loadSnapshots() {
+		try {
+			const o = JSON.parse(window.localStorage.getItem(CAL_KEY) || 'null');
+			if (o && o.v === 2 && o.snapshots && typeof o.snapshots === 'object') snapshots = o.snapshots;
+		} catch {
+			/* stockage indisponible */
+		}
+	}
+	function persistSnapshots() {
+		/* Filet de sécurité : ne jamais écraser un repère figé par des valeurs
+		   vides (dernier état du WIP interrompu — un snapshot perdu était
+		   réécrit vide, puis plus jamais refigé). */
+		if (!snapshots || Object.keys(snapshots).length === 0) return;
+		try {
+			window.localStorage.setItem(CAL_KEY, JSON.stringify({ v: 2, snapshots }));
+		} catch {
+			/* stockage indisponible */
+		}
+	}
+	/** Repères d'une semaine passée, figés à la première ouverture. */
+	function snapshotFor(ws: string): WeekReperes {
+		const existing = snapshots[ws];
+		if (existing) return existing;
+		const snap: WeekReperes = { maint: wkMaint, obj: wkObj, steps: wkSteps, savedAt: Date.now() };
+		snapshots = { ...snapshots, [ws]: snap };
+		persistSnapshots();
+		return snap;
+	}
+	function shiftWeek(delta: number) {
+		if (!calToday || !weekStart) return;
+		const next = isoAddDays(weekStart, delta);
+		if (next < earliestWeek || next > mondayOf(calToday)) return;
+		weekStart = next;
+		if (!isCurrentWeek) snapshotFor(weekStart);
+		wkCompute();
+	}
+	const weekLabelShown = $derived.by(() => {
+		if (!weekStart) return '';
+		const s = new Date(weekStart + 'T00:00:00');
+		const e = new Date(isoAddDays(weekStart, 6) + 'T00:00:00');
+		const dayMonth = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long' });
+		if (s.getMonth() === e.getMonth()) return `Semaine du ${s.getDate()} au ${dayMonth.format(e)} ${e.getFullYear()}`;
+		return `Semaine du ${dayMonth.format(s)} au ${dayMonth.format(e)} ${e.getFullYear()}`;
+	});
+	function dayDateLabel(iso: string): string {
+		if (!iso) return '';
+		return new Date(iso + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+	}
+	function isFutureDay(iso: string): boolean {
+		return !!calToday && iso > calToday;
+	}
+	/** Valeurs réelles de la semaine affichée (Journal + pas) — vides si aucune donnée. */
+	const wkKShow = $derived(
+		weekDatesShown.map((date) => {
+			const d = liveByDate.get(date);
+			return d ? String(d.kcal) : '';
+		})
+	);
+	const wkSShow = $derived(
+		weekDatesShown.map((date) => {
+			const d = liveByDate.get(date);
+			return d ? String(d.steps) : '';
+		})
+	);
+	/* Repères EFFECTIFS : semaine en cours = valeurs actuelles du suivi ;
+	   semaine passée = repères figés à sa première ouverture. */
+	const effMaint = $derived(isCurrentWeek ? wkMaint : weekStart ? (snapshots[weekStart]?.maint ?? '') : '');
+	const effObj = $derived(isCurrentWeek ? wkObj : weekStart ? (snapshots[weekStart]?.obj ?? '') : '');
+	const effSteps = $derived(isCurrentWeek ? wkSteps : weekStart ? (snapshots[weekStart]?.steps ?? '') : '');
+
+	async function loadCalibrage() {
+		calLoading = true;
+		calError = '';
+		try {
+			/* Vue coach d'une cliente : /outils?client=<userId> transmis tel quel. */
+			const r = await fetch('/api/tools/calibrage' + window.location.search);
+			const j = (await r.json()) as Partial<CalData> & { error?: string };
+			if (!r.ok || j.error) throw new Error(j.error || 'Chargement des données impossible.');
+			scoped = !!j.scoped;
+			calToday = j.today ?? '';
+			earliestWeek = j.earliestWeek ?? '';
+			liveDays = Array.isArray(j.days) ? j.days : [];
+			if (scoped && j.goals) {
+				wkMaint = j.goals.maintenanceKcal != null ? String(j.goals.maintenanceKcal) : '';
+				wkObj = j.goals.goalsSet && j.goals.kcal ? String(j.goals.kcal) : '';
+				wkSteps = j.goals.stepGoal != null ? String(j.goals.stepGoal) : '';
+			}
+			weekStart = calToday ? mondayOf(calToday) : '';
+			prefillCyclage(j);
+			calLoading = false;
+			wkCompute();
+		} catch (e) {
+			calError = errMsg(e);
+			calLoading = false;
+			cyclageLoading = false;
+		}
+	}
+	/* Préremplissage du cyclage depuis les données réelles du suivi —
+	   aucune valeur inventée : ce qui manque est signalé comme manquant. */
+	function prefillCyclage(j: Partial<CalData>) {
+		cyclageLoading = false;
+		if (!j.scoped || !j.profile) {
+			/* Hors périmètre (coach sans cliente sélectionnée) : simulateur
+			   manuel — champs laissés vides, rien n'est inventé. */
+			cycSexeKnown = null;
+			cycPoidsKnown = null;
+			cycPctKnown = null;
+			cycApportKnown = null;
+			cycDateKnown = null;
+			return;
+		}
+		const p = j.profile;
+		/* Sexe : le seul indice fiable déjà présent dans G-FLUX est le suivi
+		   de cycle (exclusivement féminin). Sinon : champ laissé manuel, jamais
+		   déduit du prénom ou d'une supposition. */
+		if (j.cycle) {
+			sexe = 'femme';
+			cycSexeKnown = true;
+		} else {
+			cycSexeKnown = false;
+		}
+		poids = p.weightRefKg != null ? String(p.weightRefKg) : '';
+		cycPoidsKnown = p.weightRefKg != null;
+		pctGraisse = p.bodyFatRef != null ? String(Math.round(p.bodyFatRef * 10) / 10) : '';
+		cycPctKnown = p.bodyFatRef != null;
+		apport = j.goals && j.goals.goalsSet && j.goals.kcal ? String(j.goals.kcal) : '';
+		cycApportKnown = !!(j.goals && j.goals.goalsSet && j.goals.kcal);
+		dateDebut = p.startDate ?? '';
+		cycDateKnown = !!p.startDate;
+		/* Planification générée d'emblée si toutes les données sont déjà là. */
+		if (cyclageReady) generer();
 	}
 	function wkCompute() {
-		const o = wkRead();
-		wkStore.save(o);
+		/* La semaine en cours lit les repères actuels ; une semaine passée
+		   rejoue ses repères figés — jamais les valeurs d'aujourd'hui. */
+		const o = {
+			maint: effMaint,
+			obj: effObj,
+			steps: effSteps,
+			adapt: isCurrentWeek ? wkAdapt : false,
+			k: wkKShow,
+			s: wkSShow,
+		};
 		const maint = +o.maint;
 		const obj = +o.obj;
 		const stepsObj = +o.steps;
@@ -443,23 +602,29 @@
 		wkStatsHtml = rows;
 		wkOutVisible = true;
 	}
-	function wkReset() {
-		wkK = ['', '', '', '', '', '', ''];
-		wkS = ['', '', '', '', '', '', ''];
-		wkCompute();
-	}
 
 	/* ═══════════════════ PANEL 6 : CYCLAGE REFEED / DIET BREAK ═══════════════════ */
+	/* Prérempli depuis le profil réel (loadCalibrage → prefillCyclage) : sexe,
+	   poids et % de graisse de DÉPART (premier point de la série bodyFatSeries
+	   — même source de vérité que « Ma progression »), apport = objectif
+	   calorique du CRM, date de début = démarrage du coaching. Horizon FIXE :
+	   6 mois. Les champs restent éditables (simulation) mais rien n'est jamais
+	   écrit vers le suivi : l'outil n'est pas la source de vérité. */
 	let sexe = $state('femme');
 	let pctGraisse = $state('');
 	let poids = $state('');
 	let apport = $state('');
-	let depense = $state('0');
 	let methode = $state('alpert');
 	let dateDebut = $state('');
-	let dureeSemaines = $state('12');
+	let cyclageLoading = $state(true);
 	let cyclageErr = $state('');
 	let cyclageVisible = $state(false);
+	/* Provenance de chaque donnée préremplie (null = pas encore chargé). */
+	let cycSexeKnown = $state<boolean | null>(null);
+	let cycPoidsKnown = $state<boolean | null>(null);
+	let cycPctKnown = $state<boolean | null>(null);
+	let cycApportKnown = $state<boolean | null>(null);
+	let cycDateKnown = $state<boolean | null>(null);
 	let outMasseMaigre = $state('—');
 	let outEA = $state('—');
 	let outCategorie = $state('—');
@@ -468,17 +633,19 @@
 	let outOfGridWarn = $state(false);
 	let planTableHtml = $state('');
 	const showMethode = $derived(sexe === 'homme' && !isNaN(parseFloat(pctGraisse)) && parseFloat(pctGraisse) < 15);
-
-	type Cat = {
-		label: string;
-		refeedPlanned: boolean;
-		refeedNote: string | null;
-		breakWeeks: number;
-		breakRangeLabel: string;
-		refeedIntervalDays?: number | null;
-		refeedDurationDays?: number;
-		outOfGrid?: boolean;
-	};
+	/* Donnée manquante = réellement absente du profil de la cliente
+	   (null avant chargement — jamais signalée à tort). */
+	const cycSexeMissing = $derived(cycSexeKnown === false);
+	const cycPoidsMissing = $derived(cycPoidsKnown === false);
+	const cycPctMissing = $derived(cycPctKnown === false);
+	const cycApportMissing = $derived(cycApportKnown === false);
+	const cycDateMissing = $derived(cycDateKnown === false);
+	const dateDebutLabel = $derived(
+		dateDebut && /^\d{4}-\d{2}-\d{2}$/.test(dateDebut)
+			? new Date(dateDebut + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+			: '—'
+	);
+	const cyclageReady = $derived(!!poids && !!pctGraisse && !!apport && !!dateDebut);
 
 	/* Grille reprise telle quelle de la formation « La science de la perte de graisse rapide » */
 	function getCategorie(sexeV: string, pct: number, ea: number, methodeV: string): Cat {
@@ -501,31 +668,7 @@
 					breakRangeLabel: '6-10 semaines',
 				};
 			}
-			let refeedIntervalDays: number | null;
-			let refeedLabel: string | null;
-			if (ea > 30) {
-				refeedIntervalDays = 17;
-				refeedLabel = '2-3 jours tous les 14-21 jours (EA > 30 kcal/kg MM)';
-			} else if (ea >= 24) {
-				refeedIntervalDays = 10;
-				refeedLabel = '2-3 jours tous les 7-14 jours (EA 24-30 kcal/kg MM)';
-			} else if (ea >= 20) {
-				refeedIntervalDays = 7;
-				refeedLabel = '2-3 jours tous les 7 jours (grille : 5-7 jours, plancher de 7j appliqué)';
-			} else {
-				refeedIntervalDays = null;
-				refeedLabel = null;
-			}
-			return {
-				label: 'Femme <25% graisse',
-				refeedPlanned: refeedIntervalDays !== null,
-				refeedIntervalDays,
-				refeedDurationDays: 3,
-				refeedNote: refeedLabel,
-				breakWeeks: 5,
-				breakRangeLabel: '4-6 semaines',
-				outOfGrid: refeedIntervalDays === null,
-			};
+			return getCategorieFemmeMin25(ea);
 		} else {
 			if (pct > 25) {
 				return {
@@ -545,22 +688,10 @@
 					breakRangeLabel: '6-10 semaines',
 				};
 			}
-			const refeedIntervalDays = methodeV === 'alpert' ? 17 : 10;
-			const refeedLabel =
-				methodeV === 'alpert'
-					? '2-3 jours tous les 14-21 jours (déficit basé sur le calcul de Alpert)'
-					: '2-3 jours tous les 7-14 jours (déficit basé sur le calcul de Macdonald)';
-			return {
-				label: 'Homme <15% graisse',
-				refeedPlanned: true,
-				refeedIntervalDays,
-				refeedDurationDays: 3,
-				refeedNote: refeedLabel,
-				breakWeeks: 7,
-				breakRangeLabel: '6-8 semaines',
-			};
-		}
+		return getCategorieHommeMin15(methodeV);
 	}
+}
+
 	function fmtDate(d: Date) {
 		return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
 	}
@@ -569,27 +700,31 @@
 		d.setDate(d.getDate() + n);
 		return d;
 	}
+	/** Recalcul manuel (bouton) — la première génération part du préremplissage. */
+	function regenerer() {
+		cyclageVisible = false;
+		generer();
+	}
 	function generer() {
 		const sexeV = sexe;
 		const poidsV = parseFloat(poids);
 		const pct = parseFloat(pctGraisse);
 		const apportV = parseFloat(apport);
-		const depenseHebdo = parseFloat(depense) || 0;
-		const depenseJ = depenseHebdo / 7;
 		const methodeV = methode;
 		const dateDebutStr = dateDebut;
-		const duree = parseInt(dureeSemaines, 10);
 
-		if (!poidsV || !pct || !apportV || !dateDebutStr || !duree) {
-			cyclageErr = 'Merci de remplir tous les champs nécessaires (poids, % graisse, apport, date, durée).';
+		if (!poidsV || !pct || !apportV || !dateDebutStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateDebutStr)) {
+			cyclageErr = 'Donnée manquante pour générer la planification (poids de départ, % de graisse, apport calorique ou date de début).';
+			cyclageVisible = false;
 			return;
 		}
 		cyclageErr = '';
 
 		const masseMaigre = poidsV * (1 - pct / 100);
-		const ea = (apportV - depenseJ) / masseMaigre;
+		/* « Dépense totale de sport » retirée : EA = apport / masse maigre,
+		   exactement comme l'ancien défaut du champ (dépense = 0). */
+		const ea = apportV / masseMaigre;
 		const cat = getCategorie(sexeV, pct, ea, methodeV);
-		const refeedDur = cat.refeedDurationDays ?? 3;
 
 		outMasseMaigre = masseMaigre.toFixed(1) + ' kg';
 		outEA = ea.toFixed(1) + ' kcal/kg MM';
@@ -605,58 +740,8 @@
 		outBreakLine = '<b>Diet break :</b> 7 jours toutes les ' + cat.breakWeeks + ' semaines (plage de référence : ' + cat.breakRangeLabel + ')';
 
 		const dateDebutObj = new Date(dateDebutStr + 'T00:00:00');
-		const totalDays = duree * 7;
-		const phases = new Array<string>(totalDays);
 
-		for (let d = 0; d < totalDays; d++) {
-			const week = Math.floor(d / 7);
-			const isBreakWeek = cat.breakWeeks > 0 && (week + 1) % cat.breakWeeks === 0;
-			phases[d] = isBreakWeek ? 'break' : 'deficit';
-		}
-
-		function nextBreakStart(fromDay: number) {
-			for (let i = fromDay; i < totalDays; i++) {
-				if (phases[i] === 'break' && (i === 0 || phases[i - 1] !== 'break')) return i;
-			}
-			return Infinity;
-		}
-
-		if (cat.refeedPlanned && !cat.outOfGrid) {
-			let counter = 0;
-			let d = 0;
-			while (d < totalDays) {
-				if (phases[d] === 'break') {
-					counter = 0;
-					d++;
-					continue;
-				}
-				counter++;
-				const intervalApplique = Math.max(cat.refeedIntervalDays ?? 0, 7);
-				if (counter >= intervalApplique) {
-					const breakStart = nextBreakStart(d);
-					if (breakStart - d < refeedDur + 7) {
-						d++;
-						continue;
-					}
-					for (let k = 0; k < refeedDur && d + k < totalDays; k++) {
-						if (phases[d + k] !== 'break') phases[d + k] = 'refeed';
-					}
-					d += refeedDur;
-					counter = 0;
-					continue;
-				}
-				d++;
-			}
-		}
-
-		const blocks: { phase: string; startDay: number; endDay: number }[] = [];
-		let blockStart = 0;
-		for (let d = 1; d <= totalDays; d++) {
-			if (d === totalDays || phases[d] !== phases[blockStart]) {
-				blocks.push({ phase: phases[blockStart], startDay: blockStart, endDay: d - 1 });
-				blockStart = d;
-			}
-		}
+		const blocks = planifier(cat);
 
 		planTableHtml = blocks
 			.map((b) => {
@@ -674,11 +759,11 @@
 		cyclageVisible = true;
 	}
 
-	/* ————— Init : restauration de la semaine + état du cycle ————— */
+	/* ————— Init : données réelles du suivi + historique local des repères ————— */
 	onMount(() => {
 		if (browser) {
-			wkRestore();
-			wkCompute();
+			loadSnapshots();
+			void loadCalibrage();
 		}
 	});
 </script>
@@ -811,14 +896,24 @@
 				<Icon name="lightbulb" size={16} class="note-ic ic-amber" /><div><b>Une journée haute n'annule rien.</b> Ton déficit se calcule sur la semaine, pas sur la journée. Cet outil te dit comment moduler les jours restants — sans jamais descendre trop bas.</div>
 			</div>
 			<div class="card">
-				<h2>1 · Mes repères — définis avec Hugo</h2>
-				<p class="hint">Ces deux chiffres viennent de ton plan de démarrage. Pas sûre ? Demande à Hugo avant de remplir.</p>
-				<label for="wkMaint">Ma maintenance (kcal / jour)</label>
-				<input id="wkMaint" type="number" bind:value={wkMaint} inputmode="numeric" placeholder="ex. 2000" min="1200" max="4000" oninput={wkCompute} />
-				<label for="wkObj">Mon objectif (kcal / jour)</label>
-				<input id="wkObj" type="number" bind:value={wkObj} inputmode="numeric" placeholder="ex. 1500" min="1000" max="4000" oninput={wkCompute} />
-				<label for="wkSteps">Mon objectif de pas (par jour)</label>
-				<input id="wkSteps" type="number" bind:value={wkSteps} inputmode="numeric" placeholder="ex. 8000" min="2000" max="30000" oninput={wkCompute} />
+				<h2>1 · Mes repères — définis par Hugo</h2>
+				{#if calLoading}
+					<p class="hint">Chargement de tes données…</p>
+				{:else if calError}
+					<div class="note"><Icon name="triangleAlert" size={16} class="note-ic ic-amber" /><div>{calError}</div></div>
+				{:else}
+					{#if !scoped}<p class="hint">Vue coach générique — sélectionne une cliente depuis le CRM (?client=…) pour préremplir ses données réelles.</p>{/if}
+					<p class="hint">Lus automatiquement dans ton suivi G-FLUX (objectifs définis par Hugo dans le CRM). Pour changer un chiffre : demande à Hugo, il l'ajuste dans ton suivi.</p>
+					<label for="wkMaint">Ma maintenance (kcal / jour)</label>
+					<input id="wkMaint" type="number" class="ro" readonly bind:value={wkMaint} placeholder="—" />
+					{#if scoped && !wkMaint}<p class="missnote">Maintenance non définie — Hugo peut la renseigner dans le CRM (objectifs).</p>{/if}
+					<label for="wkObj">Mon objectif (kcal / jour)</label>
+					<input id="wkObj" type="number" class="ro" readonly bind:value={wkObj} placeholder="—" />
+					{#if scoped && !wkObj}<p class="missnote">Objectif calorique non défini — Hugo peut le renseigner dans le CRM (objectifs).</p>{/if}
+					<label for="wkSteps">Mon objectif de pas (par jour)</label>
+					<input id="wkSteps" type="number" class="ro" readonly bind:value={wkSteps} placeholder="—" />
+					{#if scoped && !wkSteps}<p class="missnote">Objectif de pas non défini — Hugo peut le renseigner dans le CRM (objectifs).</p>{/if}
+				{/if}
 				<div class="glabel">Adaptation métabolique</div>
 				<div class="checks">
 					<button type="button" class="chk" class:on={wkAdapt} onclick={() => { wkAdapt = !wkAdapt; wkCompute(); }}><Icon name="settings" size={16} class="shrink-0" /> Appliquer ~12% d'adaptation — uniquement si validé avec Hugo</button>
@@ -832,17 +927,23 @@
 				{/if}
 			</div>
 			<div class="card">
-				<h2>2 · Ma semaine en cours</h2>
-				<p class="hint">Remplis chaque jour passé avec tes calories réelles et tes pas. Laisse vide les jours à venir.</p>
+				<h2>{isCurrentWeek ? '2 · Ma semaine en cours' : '2 · Semaine historique'}</h2>
+				<div class="wknav">
+					<button type="button" class="navbtn" aria-label="Semaine précédente" disabled={!weekStart || weekStart <= earliestWeek} onclick={() => shiftWeek(-7)}><Icon name="chevronLeft" size={16} /></button>
+					<span class="wklabel">{weekLabelShown}</span>
+					<button type="button" class="navbtn" aria-label="Semaine suivante" disabled={!weekStart || isCurrentWeek} onclick={() => shiftWeek(7)}><Icon name="chevronRight" size={16} /></button>
+				</div>
+				<p class="hint">
+					{#if isCurrentWeek}Rempli automatiquement depuis ton Journal et tes pas de chaque journée. Les jours à venir restent vides.{:else}Semaine passée : calories et pas réels de l'époque, avec les repères qui étaient en vigueur. Jamais réécrite.{/if}
+				</p>
 				<div class="wkgrid">
 					<span class="h"></span><span class="h">Kcal mangées</span><span class="h">Pas faits</span>
 					{#each DAYS as d, i (d)}
-						<span class="d">{d}</span>
-						<input type="number" inputmode="numeric" placeholder="—" min="0" class:today={i === todayIdx} bind:value={wkK[i]} oninput={wkCompute} />
-						<input type="number" inputmode="numeric" placeholder="—" min="0" class:today={i === todayIdx} bind:value={wkS[i]} oninput={wkCompute} />
+						<span class="d">{d}<small class="ddate">{dayDateLabel(weekDatesShown[i] ?? '')}</small></span>
+						<input type="number" readonly class="ro" placeholder="—" min="0" class:today={isCurrentWeek && i === todayIdx} class:future={isFutureDay(weekDatesShown[i] ?? '')} value={wkKShow[i]} />
+						<input type="number" readonly class="ro" placeholder="—" min="0" class:today={isCurrentWeek && i === todayIdx} class:future={isFutureDay(weekDatesShown[i] ?? '')} value={wkSShow[i]} />
 					{/each}
 				</div>
-				<button type="button" class="wkreset" onclick={wkReset}>Nouvelle semaine (efface les saisies)</button>
 			</div>
 			{#if wkOutVisible}
 				<div class="card">
@@ -856,60 +957,66 @@
 		<section class="panel" class:active={panel === 'p6'}>
 			<div class="card">
 				<h2>Planification refeed / diet break</h2>
-				<p class="hint">Basé sur la grille de cyclage calorique selon le % de graisse et la disponibilité énergétique.</p>
+				<p class="hint">Basée sur la grille de cyclage calorique selon le % de graisse et la disponibilité énergétique — préremplie depuis le profil réel de la cliente.</p>
 
-				<label for="sexe">Sexe</label>
-				<select id="sexe" bind:value={sexe}>
-					<option value="femme">Femme</option>
-					<option value="homme">Homme</option>
-				</select>
+				{#if cyclageLoading}
+					<p class="hint">Chargement des données…</p>
+				{:else}
+					<div class="row">
+						<div class="field">
+							<label for="sexe">Sexe</label>
+							<select id="sexe" bind:value={sexe}>
+								<option value="femme">Femme</option>
+								<option value="homme">Homme</option>
+							</select>
+							{#if cycSexeMissing}<p class="missnote">Sexe non renseigné dans le profil — à sélectionner manuellement.</p>{/if}
+						</div>
+						<div class="field">
+							<label for="dateDebut">Date de début du coaching</label>
+							<input id="dateDebut" type="date" bind:value={dateDebut} />
+							{#if cycDateMissing}<p class="missnote">Date de démarrage du coaching non renseignée — Hugo peut la définir dans la fiche CRM de la cliente.</p>{/if}
+						</div>
+					</div>
 
-				<div class="row">
-					<div class="field">
-						<label for="poids">Poids de départ (kg)</label>
-						<input id="poids" type="number" bind:value={poids} placeholder="60" step="0.1" />
+					<div class="row">
+						<div class="field">
+							<label for="poids">Poids de départ (kg)</label>
+							<input id="poids" type="number" bind:value={poids} placeholder="—" step="0.1" />
+							{#if cycPoidsMissing}<p class="missnote">Aucune pesée enregistrée — Hugo peut ajouter les mensurations de départ dans le suivi de la cliente.</p>{/if}
+						</div>
+						<div class="field">
+							<label for="pctGraisse">% de graisse de départ</label>
+							<input id="pctGraisse" type="number" bind:value={pctGraisse} placeholder="—" step="0.1" />
+							{#if cycPctMissing}<p class="missnote">% de graisse de départ non calculable — mensurations de départ incomplètes (tour de cou / taille / fessiers attendus).</p>{/if}
+						</div>
 					</div>
-					<div class="field">
-						<label for="pctGraisse">% de graisse de départ</label>
-						<input id="pctGraisse" type="number" bind:value={pctGraisse} placeholder="23" step="0.1" />
-					</div>
-				</div>
 
-				<div class="row">
-					<div class="field">
-						<label for="apport">Apport calorique prévu (kcal/j)</label>
-						<input id="apport" type="number" bind:value={apport} placeholder="1450" step="10" />
+					<div class="row">
+						<div class="field">
+							<label for="apport">Apport calorique prévu (kcal/j)</label>
+							<input id="apport" type="number" bind:value={apport} placeholder="—" step="10" />
+							{#if cycApportMissing}<p class="missnote">Objectif calorique non défini — Hugo peut le renseigner dans le CRM (objectifs).</p>{/if}
+						</div>
+						<div class="field">
+							<label>Horizon de planification</label>
+							<div class="horizon">6 mois à partir du {dateDebutLabel}</div>
+						</div>
 					</div>
-					<div class="field">
-						<label for="depense">Dépense totale de sport / semaine (kcal)</label>
-						<input id="depense" type="number" bind:value={depense} placeholder="0" step="10" />
-					</div>
-				</div>
 
-				{#if showMethode}
-					<label for="methode">Méthode de calcul du déficit</label>
-					<select id="methode" bind:value={methode}>
-						<option value="alpert">Alpert</option>
-						<option value="macdonald">Macdonald</option>
-					</select>
+					{#if showMethode}
+						<label for="methode">Méthode de calcul du déficit</label>
+						<select id="methode" bind:value={methode}>
+							<option value="alpert">Alpert</option>
+							<option value="macdonald">Macdonald</option>
+						</select>
+					{/if}
+
+					{#if cyclageErr && !cyclageVisible}
+						<div class="note"><Icon name="triangleAlert" size={16} class="note-ic ic-amber" /><div>{cyclageErr}</div></div>
+					{/if}
+
+					<button type="button" class="cta" onclick={regenerer}>Recalculer la planification</button>
 				{/if}
-
-				<div class="row">
-					<div class="field">
-						<label for="dateDebut">Date de début</label>
-						<input id="dateDebut" type="date" bind:value={dateDebut} />
-					</div>
-					<div class="field">
-						<label for="dureeSemaines">Durée du programme (semaines)</label>
-						<input id="dureeSemaines" type="number" bind:value={dureeSemaines} placeholder="12" step="1" />
-					</div>
-				</div>
-
-				{#if cyclageErr}
-					<div class="note"><Icon name="triangleAlert" size={16} class="note-ic ic-amber" /><div>{cyclageErr}</div></div>
-				{/if}
-
-				<button type="button" class="cta" onclick={generer}>Générer la planification</button>
 			</div>
 
 			{#if cyclageVisible}
