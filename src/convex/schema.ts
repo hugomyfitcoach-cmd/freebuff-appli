@@ -95,6 +95,8 @@ export default defineSchema({
 		measurementsSnoozeUntil: v.optional(v.number()),
 		/** « Me le rappeler plus tard » carte Photos : masquée jusqu'à cet horodatage (ms) — 48 h par défaut. */
 		photosSnoozeUntil: v.optional(v.number()),
+		/** Dernière synchronisation Apple Santé réussie (ms) — état « connectée » du bouton de l'écran Pas. */
+		lastHealthSyncAt: v.optional(v.number()),
 		/** Suivi de cycle (carte Accueil cliente + Vision 360 coach) — mêmes questions et formule que l'outil historique. */
 		cycle: v.optional(
 			v.object({
@@ -225,11 +227,35 @@ export default defineSchema({
 		userId: v.id("users"),
 		/** Date "yyyy-mm-dd" (heure locale de la cliente). */
 		date: v.string(),
-		/** Nombre de pas réel de la journée. */
+		/** Valeur EFFECTIVE utilisée partout (stats, graphes, objectifs) : manualCount ?? healthCount. */
 		count: v.number(),
+		/** Valeur importée d'Apple Santé (raccourci iOS) — présente dès la première synchro du jour. */
+		healthCount: v.optional(v.number()),
+		/** Correction manuelle de la cliente — prioritaire sur healthCount, jamais écrasée par une synchro. */
+		manualCount: v.optional(v.number()),
 		createdAt: v.number(),
 	})
 		.index("by_user_date", ["userId", "date"])
+		.index("by_user", ["userId"]),
+
+	/**
+	 * Jetons courts pour la synchronisation Apple Santé via le raccourci iOS.
+	 * Le jeton brut n'est JAMAIS stocké (SHA-256 comme les sessions) ; il est
+	 * créé côté serveur (BFF, session cookie) puis transmis au raccourci par
+	 * l'appareil de la cliente. Expiration 15 min — aucune donnée sensible dans
+	 * une URL permanente, aucun appel navigateur → Convex direct.
+	 */
+	healthSyncTokens: defineTable({
+		userId: v.id("users"),
+		/** SHA-256 hex du jeton brut. */
+		tokenHash: v.string(),
+		createdAt: v.number(),
+		/** Jeton refusé après cette date (ms). */
+		expiresAt: v.number(),
+		/** Moment de la dernière utilisation réussie (info, pas un blocage : une réémission réseau est tolérée). */
+		usedAt: v.optional(v.number()),
+	})
+		.index("by_tokenHash", ["tokenHash"])
 		.index("by_user", ["userId"]),
 
 	/* ═══ Repas personnalisés & favoris ═══ */
