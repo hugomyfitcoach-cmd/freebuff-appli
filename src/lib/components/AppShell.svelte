@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { page, navigating } from '$app/state';
-	import { invalidateAll, preloadCode, preloadData, goto } from '$app/navigation';
+	import { afterNavigate, invalidateAll, preloadCode, preloadData, goto } from '$app/navigation';
 	import type { Snippet } from 'svelte';
 	import Icon from './Icon.svelte';
 	import { noteSync } from '../navMemory';
 	import { isStandalone } from '../pwa';
 	import { forceAppUpdate, onUpdateState, startCompatWatch } from '../swUpdate';
 	import { registerServiceWorker } from '../push';
+	import { onNotificationCounts, refreshNotificationsNow, startNotificationPolling } from '../notificationPoll';
 
 	type Role = 'client' | 'coach';
 	type SessionUser = { prenom: string; email: string; role: Role };
@@ -30,6 +31,8 @@
 			message?: number;
 			progression?: number;
 			reminder?: number;
+			/** Drive : contenus partagés non consultés (depuis la base). */
+			drive?: number;
 			/** CRM : notifications coach « à consulter ». */
 			notifications?: number;
 		};
@@ -54,16 +57,20 @@
 	}
 
 	/* ————— Version obsolète (déploiement récent) —————
-	   Une PWA laissée ouverte peut servir un ancien bundle incompatible avec le
-	   backend fraîchement déployé (incident du 13/09/2026 : écran de recherche
-	   vide). La veille (startCompatWatch) interroge /api/app/version au
-	   démarrage, au retour dans l'app et toutes les 5 min ; onUpdateState
-	   reflète l'état partagé (SW en attente + compat). Le Refresh et le
-	   bandeau appliquent la même mise à jour forcée. Aucune donnée cliente
-	   n'est touchée : uniquement service worker + reload. */
+	   Une PWA laissée ouverte peut servir un ancien bundle (backend fraîchement
+	   déployé incompatible : incident du 13/09/2026, écran de recherche vide ;
+	   ou simple nouveau frontend : clientes restées des JOURS sur l'ancienne
+	   version). La veille (startCompatWatch) interroge /api/app/version avec
+	   l'empreinte de build de la page : à l'ouverture, à chaque retour au
+	   premier plan (visibilitychange/focus/pageshow) et toutes les minutes.
+	   onUpdateState reflète l'état partagé (SW en attente + compat backend +
+	   build distant différent). Le Refresh et le bandeau appliquent la même
+	   mise à jour forcée. Aucune donnée cliente n'est touchée : uniquement
+	   service worker + reload. */
 	let updateReady = $state(false);
 	let updating = $state(false);
 	let compatOutdated = $state(false);
+	let buildOutdated = $state(false);
 
 	$effect(() => {
 		if (typeof window === 'undefined') return;
@@ -75,11 +82,56 @@
 			updateReady = s.updateReady;
 			updating = s.updating;
 			compatOutdated = s.compatOutdated;
+			buildOutdated = s.buildOutdated;
 		});
 	});
 
-	/** Mise à jour disponible : SW en attente OU backend incompatible. */
-	const needsUpdate = $derived(updateReady || compatOutdated);
+	/** Mise à jour disponible : SW en attente, backend OU build incompatible. */
+	const needsUpdate = $derived(updateReady || compatOutdated || buildOutdated);
+
+	/* ————— Notifications temps réel (cliente) —————
+	   LA BASE EST LA SOURCE DE VÉRITÉ — jamais le Web Push ni le service
+	   worker. Les compteurs (retours / message / drive) sont relus à
+	   l'ouverture, à chaque navigation, au retour au premier plan
+	   (visibilitychange/focus/pageshow) et toutes les 25 s si l'app est
+	   visible (voir lib/notificationPoll.ts). Fusion avec les badges SSR :
+	   au premier rendu la valeur serveur s'affiche instantanément, dès le
+	   premier tick la valeur base prend le dessus et reste vivante sans
+	   recharger la page. Rendu inchangé : mêmes icônes, mêmes endroits. */
+	let pollCounts = $state<{ retours: number; message: number; drive: number } | null>(null);
+
+	$effect(() => {
+		if (typeof window === 'undefined') return;
+		if (role !== 'client') return; // le coach a son propre badge CRM (layout admin)
+		startNotificationPolling();
+		return onNotificationCounts((c) => {
+			pollCounts = { retours: c.retours, message: c.message, drive: c.drive };
+		});
+	});
+
+	// Après chaque navigation, relecture forcée : les pages « de consultation »
+	// (Historique, Messages, Ressources) marquent lu côté serveur pendant leur
+	// chargement — le compteur doit retomber aussitôt, pas au prochain tick.
+	afterNavigate(() => {
+		if (role !== 'client') return;
+		refreshNotificationsNow();
+	});
+
+	/** Badges affichés : SSR au premier rendu, puis compteurs base en direct. */
+	const menuBadges = $derived.by(() => {
+		if (role !== 'client' || !pollCounts) return badges;
+		// Partie « à faire » du badge bilans (bilan hebdo dû) = SSR — elle ne
+		// vient pas du compteur ; les retours non lus, si, sont remplacés par
+		// la valeur base (toujours plus fraîche après une navigation).
+		const duePart = Math.max((badges.bilans ?? 0) - (badges.retours ?? 0), 0);
+		return {
+			...badges,
+			bilans: duePart + pollCounts.retours,
+			retours: pollCounts.retours,
+			message: pollCounts.message,
+			drive: pollCounts.drive,
+		};
+	});
 
 	/* Refresh unifié : mise à jour dispo → charge la DERNIÈRE version (SW en
 	   attente activé, puis reload) ; sinon re-fetch des données de la page
@@ -121,24 +173,24 @@
 	/** Badge de l'Accueil = actions bilans + message du coach non lu + rappel RDV 12 h.
 	    Le rappel compte pour 1 (point, §21) : une information importante est
 	    disponible sur l'Accueil — sans déformer l'icône ni agrandir le bouton. */
-	const homeBadge = $derived((badges.bilans ?? 0) + (badges.message ?? 0) + (badges.reminder ?? 0));
+	const homeBadge = $derived((menuBadges.bilans ?? 0) + (menuBadges.message ?? 0) + (menuBadges.reminder ?? 0));
 
 	const links = $derived<Link[]>(
 		role === 'client'
 			? [
 					{ href: '/espace', label: 'Accueil', icon: 'home', badge: homeBadge },
 					{ href: '/espace/journal', label: 'Journal', icon: 'notebook' },
-					{ href: '/espace/progression', label: 'Progression', icon: 'trendingUp', badge: badges.progression ?? 0 },
-					{ href: '/espace/messages', label: 'Messages', icon: 'messageCircle', badge: badges.message ?? 0 },
-					{ href: '/espace/historique', label: 'Bilans & retours', icon: 'clipboardCheck', badge: badges.retours ?? 0 },
+					{ href: '/espace/progression', label: 'Progression', icon: 'trendingUp', badge: menuBadges.progression ?? 0 },
+					{ href: '/espace/messages', label: 'Messages', icon: 'messageCircle', badge: menuBadges.message ?? 0 },
+					{ href: '/espace/historique', label: 'Bilans & retours', icon: 'clipboardCheck', badge: menuBadges.retours ?? 0 },
 					{ href: '/espace/rendez-vous', label: 'Rendez-vous', icon: 'calendarCheck' },
-					{ href: '/espace/ressources', label: 'Drive', icon: 'cloud' },
+					{ href: '/espace/ressources', label: 'Drive', icon: 'cloud', badge: menuBadges.drive ?? 0 },
 					{ href: '/recettes', label: 'Recettes & nutrition', icon: 'chefHat' },
 					{ href: '/outils', label: 'Outils & calibrage', icon: 'wrench' },
 				]
 			: [
 					{ href: '/admin', label: 'Tableau de bord', icon: 'chartBar' },
-					{ href: '/admin/notifications', label: 'Notifications', icon: 'bell', badge: badges.notifications ?? 0 },
+					{ href: '/admin/notifications', label: 'Notifications', icon: 'bell', badge: menuBadges.notifications ?? 0 },
 					{ href: '/admin/photos', label: 'Photos', icon: 'camera' },
 					{ href: '/admin/bilans', label: 'Bilans', icon: 'clipboardList' },
 					{ href: '/admin/plans', label: 'Plans de repas', icon: 'utensils' },
@@ -165,7 +217,7 @@
 			? ([
 					{ href: '/espace', label: 'Accueil', icon: 'home', badge: homeBadge },
 					{ href: '/espace/journal', label: 'Journal', icon: 'notebook' },
-					{ href: '/espace/progression', label: 'Progression', icon: 'trendingUp', badge: badges.progression ?? 0 },
+					{ href: '/espace/progression', label: 'Progression', icon: 'trendingUp', badge: menuBadges.progression ?? 0 },
 				] as Link[])
 			: []
 	);

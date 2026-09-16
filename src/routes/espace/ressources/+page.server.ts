@@ -12,6 +12,11 @@ import { SESSION_COOKIE, requireRole } from '$lib/server/session';
 export const load: PageServerLoad = async (event) => {
 	await requireRole(event, 'client', { next: '/espace/ressources' });
 	const token = event.cookies.get(SESSION_COOKIE);
+	// La cliente a réellement ouvert la section : tout contenu partagé avant
+	// cet instant cesse d'être un non-lu (badge Drive éteint) — même mécanique
+	// « lu au chargement » que Messages (markAllCoachMessagesRead) et Bilans
+	// (markFeedbackRead). À POSE TRANSACTIONNELLE avec la lecture.
+	await convex.mutation(api.resources.markResourcesSeen, { sessionToken: token }).catch(() => {});
 	const rows = await convex
 		.query(api.resources.clientResources, { sessionToken: token })
 		.catch(() => []);

@@ -3,3 +3,37 @@
 [build]
   command = "npm run build"
   publish = "build"
+
+# ── Politique de cache ─────────────────────────────────────────────────────
+# ROOT CAUSE corrigée (PWA restées des JOURS sur l'ancienne version) :
+# sans règles explicites, rien ne garantissait la fraîcheur de l'app shell.
+#
+# IMPORTANT (docs Netlify) : ces règles ne s'appliquent qu'aux fichiers
+# statiques servis du stockage Netlify. Les pages SSR (HTML) et les routes
+# /api/* passent par la fonction SvelteKit : leurs en-têtes sont posés par
+# le code lui-même — src/hooks.server.ts (HTML : no-cache must-revalidate)
+# et src/routes/api/app/version/+server.ts (no-store, signal de détection).
+#
+# - /_app/immutable/ : assets hashés par le build → cache IMMUTABLE d'un an
+#   (le HTML de la nouvelle version référence toujours de nouvelles
+#   empreintes ; les anciennes restent valides pour les pages déjà ouvertes,
+#   donc aucune PWA ne casse pendant la transition) ;
+# - /service-worker.js et les fichiers statiques (manifest, icônes…) :
+#   revalidation à chaque requête → le navigateur détecte toujours un nouveau
+#   worker dès qu'il existe ;
+# - la règle /api/app/version ci-dessous est un filet (le header réel vient
+#   du code, voir ci-dessus).
+[[headers]]
+  for = "/_app/immutable/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/api/app/version"
+  [headers.values]
+    Cache-Control = "no-store"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"

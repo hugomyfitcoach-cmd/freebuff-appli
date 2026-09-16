@@ -116,7 +116,19 @@ self.addEventListener('fetch', (event) => {
 	if (event.request.url.includes('/api/')) return;
 	if (event.request.mode === 'navigate') {
 		event.respondWith(
-			fetch(event.request).catch(() => caches.match(event.request).then((r) => r || caches.match('/')))
+			fetch(event.request)
+				.then((res) => {
+					// HTML frais obtenu : on rafraîchit l'entrée de repli hors-ligne.
+					// Sans ça, l'HTML caché ne servait qu'en cas d'échec réseau et
+					// pouvait rester sur une TRÈS vieille version (l'app shell
+					// redonné après des jours hors-ligne serait périmé).
+					if (res.ok) {
+						const copy = res.clone();
+						caches.open(CACHE).then((c) => c.put(event.request, copy)).catch(() => {});
+					}
+					return res;
+				})
+				.catch(() => caches.match(event.request).then((r) => r || caches.match('/')))
 		);
 		return;
 	}

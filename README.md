@@ -293,17 +293,55 @@ recherche « Concombre »). Ordre à respecter :
    contrat + l'incrément de `FRONTEND_API_VERSION` (`src/lib/apiVersion.ts`)
    et `CURRENT_API_VERSION` (`src/convex/appVersion.ts`) — toujours
    incrémentés ENSEMBLE, dans le même commit ;
-3. Les PWA ouvertes détectent le changement (veille `/api/app/version`,
-   toutes les 5 min et au retour dans l'app) → bandeau « Une nouvelle
-   version de G-FLUX est disponible » + bouton « Actualiser maintenant »
-   (ou bouton Refresh) → service worker activé + reload. Aucune donnée
-   cliente n'est effacée.
+3. Les PWA ouvertes détectent le changement IMMÉDIATEMENT (détection
+   « build fingerprint ») : à chaque ouverture, retour au premier plan
+   (`visibilitychange`, `focus`, `pageshow`) et toutes les minutes, la page
+   interroge `/api/app/version` avec `cache: no-store` et son empreinte de
+   build (en-tête `x-app-build`, hash généré par SvelteKit à chaque build).
+   Si un frontend plus récent est déployé, OU si le contrat API a changé,
+   le bandeau « Une nouvelle version de G-FLUX est disponible » apparaît
+   sur-le-champ et `registration.update()` télécharge le nouveau service
+   worker en parallèle. « Actualiser maintenant » (ou le bouton Refresh)
+   active le nouveau worker puis recharge. Aucune saisie en cours n'est
+   perdue : la détection ne touche ni le DOM ni les formulaires, seule
+   l'utilisatrice déclenche le reload.
+
+   Ne JAMAIS retirer `cache: no-store` ni le `no-store` du endpoint : c'est
+   le signal de détection lui-même — sans lui, une PWA rouverte après des
+   heures peut recevoir une copie en cache et ne jamais voir le bandeau.
 
 Tant que le frontend n'est pas redéployé, l'ancien bundle reste fonctionnel :
 c'est la fenêtre de compatibilité volontaire, pas un bug.
 
 ⚠️ `npm run dev` pousse chaque sauvegarde **en production** : ne développe
 un changement de contrat qu'avec la compatibilité déjà en place.
+
+### 🔔 Notifications temps réel (messages, retours, Drive)
+
+Trois canaux coach → cliente : **retour de bilan publié**, **message du
+du jour** (texte/audio, y compris global), **contenu Drive partagé**.
+Pour chacun : l'état « non lu » est posé DANS LA MÊME TRANSACTION que
+l'action (jamais après coup), le Web Push part immédiatement après le
+commit réussi — et reste un canal d'ALERTE supplémentaire, jamais une
+dépendance (iOS peut retarder un push de plusieurs minutes).
+
+La source de vérité du badge est LA BASE, jamais le service worker :
+`GET /api/client/notifications` (`no-store`) agrège les non-lus des trois
+canaux et est relu par la PWA à l'ouverture, à chaque navigation, au
+retour au premier plan (`visibilitychange`/`focus`/`pageshow`) et toutes
+les 25 s tant que l'app est visible (jamais en arrière-plan — au réveil,
+`visibilitychange` rattrape). Une action coach apparaît donc dans l'app
+ouverte en moins de 30 s, sans recharger la page.
+
+Le « lu » est posé au bon moment, côté serveur, au chargement de la page
+de consultation : Historique (`markFeedbackRead`), Messages
+(`markAllCoachMessagesRead`), Ressources (`markResourcesSeen`, comparé à
+`coachResources.sharedAt`). Le clic depuis le badge ouvre directement la
+section concernée ; le badge retombe au chargement de celle-ci.
+
+Pour le Drive, la notification interne vit dans les données elles-mêmes
+(`sharedAt` posé transactionnellement à la bascule privé → partagé) —
+un partage n'est plus jamais silencieux.
 
 Variables d'environnement Convex utilisées : `COACH_BOOTSTRAP_CODE`.
 

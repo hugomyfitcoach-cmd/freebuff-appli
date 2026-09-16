@@ -58,6 +58,10 @@ export default defineSchema({
 		coachMessageDate: v.optional(v.string()),
 		/** Horodatage (ms) de publication — le message est éphémère : il expire au minuit local de la cliente. */
 		coachMessageAt: v.optional(v.number()),
+	/** Dernière consultation de la section « Ressources » (Drive) par la
+	 *  cliente — comparé à coachResources.sharedAt pour le badge « Drive » :
+	 *  un contenu partagé APRÈS la dernière visite est un non-lu. */
+	resourcesSeenAt: v.optional(v.number()),
 		/** Minuit local (ms UTC) suivant la publication, dans le fuseau de la cliente — visibilité + nettoyage. */
 		coachMessageExpiresAt: v.optional(v.number()),
 		/** Dernière consultation réelle du message par la cliente ("Vu") — badge non lu tant que vide/antérieur à coachMessageAt. */
@@ -467,6 +471,11 @@ export default defineSchema({
 		size: v.optional(v.number()),
 		createdAt: v.number(),
 		updatedAt: v.number(),
+		/** Horodatage du partage (privé → partagé) — null si jamais partagé ou
+	 *  remis privé. Sert au badge « Drive » : tout contenu partagé après la
+	 *  dernière consultation cliente (users.resourcesSeenAt) est un non-lu.
+	 *  Posé dans la MÊME transaction que la bascule de visibilité. */
+		sharedAt: v.optional(v.number()),
 	})
 		.index("by_user", ["userId"]),
 
