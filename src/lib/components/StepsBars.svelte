@@ -62,6 +62,13 @@
 			.replace(/^./, (c) => c.toUpperCase());
 	}
 
+	/**
+	 * Marge verticale réservée AU-DESSUS de la zone de tracé : la ligne
+	 * d'objectif flotte dans cette bande au lieu de dépasser du graphique
+	 * (elle ne peut donc plus chevaucher le titre ni la légende du parent).
+	 */
+	const lineBandPx = $derived(compact ? 16 : 26);
+
 	/* ————— Sélection / survol ————— */
 	let selected = $state<number | null>(null);
 	let hovered = $state<number | null>(null);
@@ -90,15 +97,10 @@
 		}}
 	>
 	{#if goal !== null}
-		<!-- Ligne d'objectif : discrète, jamais au-dessus des barres. -->
-		<div
-			class="pointer-events-none absolute inset-x-0 z-[1]"
-			style="bottom: {barPct(goal)}%; margin-bottom: {compact ? 14 : 18}px"
-		>
-			<div class="flex items-center gap-1.5">
-				<div class="h-0 flex-1 border-t-2 border-dashed border-brand/50"></div>
-				<span class="shrink-0 rounded-full bg-brand/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-brand-dark">{goal.toLocaleString('fr-FR')}</span>
-			</div>
+		<!-- Ligne d'objectif : flotte DANS la bande de tête, jamais au-dessus des barres ni hors du composant. -->
+		<div class="pointer-events-none relative z-[1] flex items-center gap-1.5" style="height: {lineBandPx}px; margin-bottom: -{lineBandPx}px">
+			<div class="h-0 flex-1 border-t-2 border-dashed border-brand/50"></div>
+			<span class="shrink-0 rounded-full bg-brand/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-brand-dark">{goal.toLocaleString('fr-FR')}</span>
 		</div>
 	{/if}
 
