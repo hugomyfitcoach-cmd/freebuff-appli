@@ -26,6 +26,7 @@
  * Enregistrement unique : `registerServiceWorker()` (lib/push.ts) appelle
  * `attachUpdateWatcher` après l'inscription du worker.
  */
+import { BUILD_VERSION } from './buildVersion';
 
 export type UpdateState = {
 	/** Nouvelle version SW téléchargée et en attente d'activation. */
@@ -34,6 +35,10 @@ export type UpdateState = {
 	updating: boolean;
 	/** Backend incompatible avec ce bundle (détection /api/app/version). */
 	compatOutdated: boolean;
+	/** Nouveau frontend déployé : l'empreinte du bundle distant diffère de
+	 *  celle de la page qui tourne (détecté à l'ouverture, à chaque retour au
+	 *  premier plan, au focus et périodiquement — voir checkAppVersion). */
+	buildOutdated: boolean;
 };
 
 type Listener = (state: UpdateState) => void;
@@ -43,9 +48,10 @@ const listeners = new Set<Listener>();
 let updateReady = false;
 let updating = false;
 let compatOutdated = false;
+let buildOutdated = false;
 
 function emit() {
-	const snapshot: UpdateState = { updateReady, updating, compatOutdated };
+	const snapshot: UpdateState = { updateReady, updating, compatOutdated, buildOutdated };
 	for (const fn of listeners) {
 		try {
 			fn(snapshot);
@@ -58,7 +64,7 @@ function emit() {
 /** S'abonner aux changements d'état de mise à jour (retourne un désabonnement). */
 export function onUpdateState(fn: Listener): () => void {
 	listeners.add(fn);
-	fn({ updateReady, updating, compatOutdated });
+	fn({ updateReady, updating, compatOutdated, buildOutdated });
 	return () => listeners.delete(fn);
 }
 
@@ -160,41 +166,104 @@ export function updateErrorMessage(e: unknown): string {
 	return e instanceof Error ? e.message : String(e);
 }
 
-/* ───── Compatibilité frontend / backend ─────
- * Après un déploiement backend, un bundle frontend plus ancien peut parler un
- * contrat périmé. On interroge /api/app/version (public, sans donnée
- * personnelle) : au démarrage, à chaque retour dans l'app et toutes les
- * 5 minutes. Résultat partagé (module) : le bandeau de AppShell ET les
- * boutons Refresh (y compris celui du Journal plein écran) consultent le
- * même état — un seul appel réseau à la fois, jamais de martelage. */
+/* ───── Détection de mise à jour (build + compat backend) ─────
+ * PROBLÈME INITIAL : la détection reposait uniquement sur le service worker
+ * (updatefound) et sur /api/app/version SANS no-store — une PWA ouverte
+ * depuis des heures/jours ne voyait JAMAIS le bandeau (incident du 13/09
+ * et « clientes restées plusieurs jours sur l'ancienne version »).
+ *
+ * MAINTENANT : à chaque ouverture, retour au premier plan
+ * (visibilitychange), focus, pageshow (cache bfcache iOS/Android), et une
+ * fois par minute au maximum si l'app reste ouverte, on interroge
+ * /api/app/version avec `cache: 'no-store'` et l'empreinte de build de la
+ * page (en-tête `x-app-build`). Le serveur répond `buildOutdated` dès qu'un
+ * nouveau frontend est déployé — sans dépendre du cycle SW — et
+ * `requiresUpdate` si le contrat API a changé. Dès détection :
+ * - le bandeau existant s'affiche immédiatement ;
+ * - `registration.update()` est lancé EN PARALLÈLE pour télécharger le
+ *   nouveau SW tout de suite (il n'attendra plus « updatefound » spontané).
+ *
+ * Garde anti-doublon : un seul appel réseau à la fois (inflight partagé),
+ * et jamais plus d'une fois par 60 s (les événements se chevauchent au
+ * réveil de l'app : visibilitychange + focus + pageshow). Aucun risque de
+ * marteler le serveur, aucun risque de perdre une saisie : on ne touche
+ * qu'à l'état du bandeau et au service worker, jamais au DOM ni aux
+ * formulaires. */
 
 let compatWatchStarted = false;
+let inflight: Promise<void> | null = null;
+let lastCheckAt = 0;
+/** Anti-doublon : visibilitychange + focus + pageshow se déclenchent
+ *  ensemble au réveil — un seul appel réseau par minute suffit. */
+const MIN_CHECK_INTERVAL_MS = 60_000;
+/** Filet périodique si l'app reste ouverte des heures au premier plan. */
+const PERIODIC_CHECK_MS = 60_000;
 
+/** Vérifie le serveur : nouveau build déployé ? Contrat API périmé ? */
 async function checkCompatOnce(): Promise<void> {
 	try {
-		const r = await fetch('/api/app/version', { signal: AbortSignal.timeout(5000) });
-		const j = (await r.json()) as { requiresUpdate?: boolean };
-		const outdated = j.requiresUpdate === true;
-		if (outdated !== compatOutdated) {
-			compatOutdated = outdated;
+		const r = await fetch('/api/app/version', {
+			cache: 'no-store', // jamais depuis le cache HTTP/CDN — c'est LE signal
+			headers: { 'x-app-build': BUILD_VERSION },
+			signal: AbortSignal.timeout(5000),
+		});
+		if (!r.ok) return;
+		const j = (await r.json()) as {
+			requiresUpdate?: boolean;
+			buildOutdated?: boolean;
+		};
+		// Empreinte absente du backend déployé (ancien serveur) : pas de faux
+		// positif — seule la compat backend reste alors utilisée.
+		const buildDiff = j.buildOutdated === true;
+		const compat = j.requiresUpdate === true;
+		if (buildDiff !== buildOutdated || compat !== compatOutdated) {
+			buildOutdated = buildDiff;
+			compatOutdated = compat;
 			emit();
+		}
+		// Nouveau build détecté → on télécharge le nouveau service worker
+		// TOUT DE SUITE, en parallèle du bandeau. L'utilisatrice clique quand
+		// elle veut, mais la mise à jour est déjà prête.
+		if ((buildDiff || compat) && updateReady === false) {
+			void navigator.serviceWorker?.getRegistration().then((reg) => reg?.update().catch(() => {}));
 		}
 	} catch {
 		/* réseau indisponible : le statut courant reste affiché */
 	}
 }
 
-/** Démarre la veille de compatibilité (idempotent — appelé au montage AppShell). */
+/**
+ * Vérification avec anti-doublon : coalesce des appels simultanés et
+ * garde-fou de 60 s. Force=true court-circuite le garde-fou (au démarrage).
+ */
+function checkAppVersion(force = false): void {
+	if (typeof window === 'undefined') return;
+	if (document.hidden) return; // inutile en arrière-plan : au réveil, on checke
+	if (inflight) return;
+	if (!force && Date.now() - lastCheckAt < MIN_CHECK_INTERVAL_MS) return;
+	lastCheckAt = Date.now();
+	inflight = checkCompatOnce().finally(() => {
+		inflight = null;
+	});
+}
+
+/**
+ * Démarre la veille (idempotent — appelé au montage AppShell).
+ * Déclencheurs : ouverture, visibilitychange (retour au premier plan),
+ * focus, pageshow (bfcache), + filet périodique toutes les minutes.
+ */
 export function startCompatWatch(): void {
 	if (compatWatchStarted || typeof window === 'undefined') return;
 	compatWatchStarted = true;
-	void checkCompatOnce();
-	setInterval(() => {
-		if (!document.hidden) void checkCompatOnce();
-	}, 5 * 60 * 1000);
-	document.addEventListener('visibilitychange', () => {
-		if (!document.hidden) void checkCompatOnce();
+	checkAppVersion(true);
+	document.addEventListener('visibilitychange', () => checkAppVersion());
+	window.addEventListener('focus', () => checkAppVersion());
+	window.addEventListener('pageshow', (e) => {
+		// persisted=true → page restaurée depuis le cache bfcache (iOS/Android,
+		// navigations arrière/avant) : tout état de veille est donc périmé.
+		checkAppVersion(e.persisted);
 	});
+	setInterval(() => checkAppVersion(), PERIODIC_CHECK_MS);
 }
 
 /** Ce bundle est-il devenu incompatible avec le backend déployé ? */
@@ -202,7 +271,12 @@ export function isCompatOutdated(): boolean {
 	return compatOutdated;
 }
 
-/** Mise à jour disponible : SW en attente OU backend incompatible. */
+/** Un nouveau frontend est-il déployé (empreinte différente) ? */
+export function isBuildOutdated(): boolean {
+	return buildOutdated;
+}
+
+/** Mise à jour disponible : SW en attente OU backend OU build incompatible. */
 export function needsAppUpdate(): boolean {
-	return updateReady || compatOutdated;
+	return updateReady || compatOutdated || buildOutdated;
 }

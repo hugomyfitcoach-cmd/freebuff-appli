@@ -264,6 +264,15 @@ export const getDashboard = query({
 			};
 		}
 
+		/* ── Drive non lu : contenus partagés depuis la dernière consultation ──
+		   de la section Ressources. La comparaison sharedAt > resourcesSeenAt
+		   (et non la simple existence d'un contenu partagé) garantit que le
+		   compteur retombe à zéro dès que la cliente a ouvert la section. */
+		const sharedRows = await ctx.db
+			.query("coachResources")
+			.withIndex("by_user", (q) => q.eq("userId", user._id))
+			.collect();
+
 		/* ── Récap hebdo : samedi + dimanche de la semaine courante (sinon rien) ── */
 		// La carte « Ta semaine en un coup d'œil » n'apparaît que samedi et
 		// dimanche ; dès le lundi 00:00 elle disparaît (aucun résumé d'une
@@ -358,14 +367,69 @@ export const getDashboard = query({
 				// « progression » = échéances affichées (mensurations + photos) : les
 				// reports « Me le rappeler plus tard » (48 h) débranche aussi le badge.
 				progression: (measurementsDueShown ? 1 : 0) + (photosDueShown ? 1 : 0),
-				// « reminder » = information importante disponible sur l'Accueil
-				// (rappel rendez-vous dans la fenêtre 12 h) — badge Accueil (§21).
-				reminder: appointmentReminder ? 1 : 0,
-			},
+			// « reminder » = information importante disponible sur l'Accueil
+			// (rappel rendez-vous dans la fenêtre 12 h) — badge Accueil (§21).
+			reminder: appointmentReminder ? 1 : 0,
+			// « drive » = contenus du Dossier partagés depuis la dernière
+			// consultation de la section Ressources (sharedAt > resourcesSeenAt).
+			drive: sharedRows.filter((r) => (r.sharedAt ?? 0) > (user.resourcesSeenAt ?? 0)).length,
+		},
 		};
 	},
 });
 
+
+/**
+ * Compteurs de notifications de la cliente, agrégés depuis la base (source de
+ * vérité) — JAMAIS déduits du Web Push. Consommé par /api/client/notifications
+ * (polling léger quand l'app est visible, visibilitéchange/focus/pageshow) :
+ * la PWA ouverte reflète les actions du coach en moins de 30 s, sans attendre
+ * un push (retardable par iOS) ni un chargement SSR.
+ *
+ * Les trois canaux « coach → cliente » :
+ * - retours : bilans publiés non consultés (feedbackReadAt < feedbackAt) ;
+ * - message : message du jour non marqué « Vu » ;
+ * - drive : contenus partagés après la dernière visite de la section.
+ */
+export const notificationCounts = query({
+	args: { sessionToken: v.optional(v.string()) },
+	handler: async (ctx, { sessionToken }) => {
+		const user = await requireClient(ctx, sessionToken);
+
+		// Retours de bilan publiés non lus (même règle que getDashboard).
+		const checkins = await ctx.db
+			.query("checkins")
+			.withIndex("by_user_week", (q) => q.eq("userId", user._id))
+			.collect();
+		const retours = checkins.filter(
+			(c) =>
+				c.status === "retour_envoye" &&
+				(c.feedbackReadAt == null || c.feedbackReadAt < (c.feedbackAt ?? c._creationTime))
+		).length;
+
+		// Message du coach du jour : non lu seulement si encore frais (éphémère).
+		const msgAt = user.coachMessageAt ?? null;
+		const msgFresh = user.coachMessageExpiresAt
+			? Date.now() < user.coachMessageExpiresAt
+			: msgAt
+				? Date.now() - msgAt < 24 * 3600 * 1000
+				: user.coachMessageDate === localTodayISO(new Date());
+		const message = msgFresh && msgAt ? ((user.coachMessageReadAt ?? 0) < msgAt ? 1 : 0) : 0;
+
+		// Drive : contenus partagés après la dernière consultation de la section.
+		const shared = await ctx.db
+			.query("coachResources")
+			.withIndex("by_user", (q) => q.eq("userId", user._id))
+			.collect();
+		const drive = shared.filter(
+			(r) => r.visibility === "shared" && (r.sharedAt ?? 0) > (user.resourcesSeenAt ?? 0)
+		).length;
+		// (sharedAt est optionnel : les contenus jamais partagés ou partagés
+		// avant la migration n'en ont pas — ils ne comptent jamais comme non-lus.)
+
+		return { retours, message, drive, total: retours + message + drive };
+	},
+});
 
 /** Durée du « Me le rappeler plus tard » : 48 h. */
 const SNOOZE_MS = 48 * 60 * 60 * 1000;

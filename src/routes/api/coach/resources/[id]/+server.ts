@@ -4,6 +4,7 @@ import { convex } from '$lib/server/convex';
 import { api } from '../../../../../convex/_generated/api.js';
 import { SESSION_COOKIE, requireRole } from '$lib/server/session';
 import { errMsg } from '$lib/errors.js';
+import { sendPushToUser } from '$lib/server/push';
 
 /**
  * Une entrée du Dossier : PATCH pour modifier (titre, note, visibilité
@@ -22,6 +23,22 @@ export const PATCH: RequestHandler = async (event) => {
 			...(typeof body?.body === 'string' ? { body: body.body } : {}),
 			...(body?.visibility === 'private' || body?.visibility === 'shared' ? { visibility: body.visibility } : {}),
 		});
+		// Partage = « nouveau contenu envoyé à la cliente » : alerte push
+		// IMMÉDIATE après le commit réussi (même contrat que la publication d'un
+		// retour de bilan). Le badge interne, lui, est déjà en base — il n'attend
+		// jamais le push (canal d'alerte supplémentaire, jamais une dépendance).
+		if (res.justShared) {
+			void sendPushToUser(
+				res.userId,
+				{
+					title: 'Nouveau contenu partagé',
+					body: `${res.title} t'attend dans ton Drive G-FLUX.`,
+					url: '/espace/ressources',
+					tag: 'coach-resource',
+				},
+				token
+			).catch(() => {});
+		}
 		return json(res);
 	} catch (e) {
 		return json({ error: errMsg(e) }, { status: 400 });

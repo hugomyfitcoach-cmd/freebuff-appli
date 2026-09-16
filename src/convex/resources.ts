@@ -126,7 +126,16 @@ export const addResource = mutation({
 	},
 });
 
-/** Modifie titre / contenu / visibilité d'une entrée du Dossier (contrôle « Privé coach ⇄ Partager »). */
+/**
+ * Modifie titre / contenu / visibilité d'une entrée du Dossier (contrôle
+ * « Privé coach ⇄ Partager »).
+ *
+ * NOTIFICATION TEMPS RÉEL — la bascule privé → partagé est un « retour/contenu
+ * envoyé à la cliente » à part entière : le `sharedAt` est posé DANS LA MÊME
+ * TRANSACTION que la visibilité (jamais de partage sans notification), et
+ * `justShared` est retourné au BFF pour déclencher le Web Push immédiatement
+ * après le commit réussi (même contrat que setFeedback côté bilans).
+ */
 export const updateResource = mutation({
 	args: {
 		sessionToken: v.optional(v.string()),
@@ -151,7 +160,35 @@ export const updateResource = mutation({
 			patch.body = b;
 		}
 		if (visibility !== undefined) patch.visibility = visibility;
+		// Non-lu Drive : l'horodatage ne vit que pendant que le contenu est
+		// partagé ; un retour en privé éteint le badge. Il n'est posé que sur la
+		// TRANSITION réel privé → partagé — éditer un contenu déjà partagé ne
+		// relance jamais un non-lu que la cliente aurait déjà vu.
+		if (visibility === "shared" && row.visibility !== "shared") {
+			patch.sharedAt = Date.now();
+		} else if (visibility === "private") {
+			patch.sharedAt = undefined;
+		}
 		await ctx.db.patch(resourceId, patch);
+		// Geste « je partage » = transition privé → partagé (seul cas qui crée
+		// une nouvelle information chez la cliente).
+		const justShared = visibility === "shared" && row.visibility === "private";
+		// userId est retourné au BFF : c'est la destinataire du push d'alerte
+		// (envoyé APRÈS le commit réussi de la mutation — jamais avant).
+		return { ok: true, justShared, title: row.title, userId: row.userId };
+	},
+});
+
+/**
+ * La cliente consulte la section « Ressources » (Drive) : on étampe sa
+ * dernière consultation — tout contenu partagé AVANT cet instant cesse d'être
+ * un non-lu (badge éteint). Idempotent, appelé au chargement de la page.
+ */
+export const markResourcesSeen = mutation({
+	args: { sessionToken: v.optional(v.string()) },
+	handler: async (ctx, { sessionToken }) => {
+		const user = await requireClient(ctx, sessionToken);
+		await ctx.db.patch(user._id, { resourcesSeenAt: Date.now() });
 		return { ok: true };
 	},
 });

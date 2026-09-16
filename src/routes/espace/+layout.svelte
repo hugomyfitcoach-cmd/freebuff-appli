@@ -2,6 +2,7 @@
 	import AppShell from '$lib/components/AppShell.svelte';
 	import PushOptIn from '$lib/components/PushOptIn.svelte';
 	import { setAppBadgeFor } from '$lib/appBadge';
+	import { onNotificationCounts, startNotificationPolling } from '$lib/notificationPoll';
 	import { goto } from '$app/navigation';
 	import { isStandalone, wasOnboardingSeenLocally } from '$lib/pwa';
 
@@ -48,18 +49,31 @@
 
 	/**
 	 * Badge de l'icône installée (PWA) : synchronisé sur la source de vérité
-	 * interne (dashboard.badges = bilans à remplir + retours non lus +
-	 * mensurations/photos attendues). Recalculé à chaque navigation / action.
+	 * LA BASE (polling lib/notificationPoll.ts) quand elle est disponible —
+	 * sinon repli sur le snapshot SSR. La part « à faire » des bilans (bilan
+	 * hebdo dû) vient du SSR ; les parts retours/message/drive viennent de la
+	 * base en direct. Recalculé à chaque navigation / tick de polling.
 	 * Sans effet sur les plateformes sans Badging API.
 	 */
+	let pollCounts = $state<{ retours: number; message: number; drive: number } | null>(null);
+	$effect(() => {
+		if (typeof window === 'undefined') return;
+		startNotificationPolling();
+		return onNotificationCounts((c) => {
+			pollCounts = { retours: c.retours, message: c.message, drive: c.drive };
+		});
+	});
 	$effect(() => {
 		const badges = data.dashboard?.badges;
-		if (!badges) {
+		if (!badges && !pollCounts) {
 			setAppBadgeFor(0);
 			return;
 		}
-		const total = (badges.bilans ?? 0) + (badges.message ?? 0) + (badges.progression ?? 0);
-		setAppBadgeFor(total);
+		const duePart = pollCounts ? Math.max((badges?.bilans ?? 0) - (badges?.retours ?? 0), 0) : (badges?.bilans ?? 0);
+		const retours = pollCounts?.retours ?? (badges?.retours ?? 0);
+		const message = pollCounts?.message ?? (badges?.message ?? 0);
+		const drive = pollCounts?.drive ?? (badges?.drive ?? 0);
+		setAppBadgeFor(duePart + retours + message + drive + (badges?.progression ?? 0));
 	});
 </script>
 
