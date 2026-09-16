@@ -4,6 +4,7 @@
 	import { browser } from '$app/environment';
 	import Icon from '$lib/components/Icon.svelte';
 	import { errMsg } from '$lib/errors';
+	import { planifier, getCategorieFemmeMin25, getCategorieHommeMin15, type Cat } from '$lib/cyclage';
 
 	let { data } = $props();
 	/** Retour vers l'espace client uniquement pour la cliente (le CRM coach a sa sidebar). */
@@ -369,6 +370,10 @@
 		}
 	}
 	function persistSnapshots() {
+		/* Filet de sécurité : ne jamais écraser un repère figé par des valeurs
+		   vides (dernier état du WIP interrompu — un snapshot perdu était
+		   réécrit vide, puis plus jamais refigé). */
+		if (!snapshots || Object.keys(snapshots).length === 0) return;
 		try {
 			window.localStorage.setItem(CAL_KEY, JSON.stringify({ v: 2, snapshots }));
 		} catch {
@@ -642,17 +647,6 @@
 	);
 	const cyclageReady = $derived(!!poids && !!pctGraisse && !!apport && !!dateDebut);
 
-	type Cat = {
-		label: string;
-		refeedPlanned: boolean;
-		refeedNote: string | null;
-		breakWeeks: number;
-		breakRangeLabel: string;
-		refeedIntervalDays?: number | null;
-		refeedDurationDays?: number;
-		outOfGrid?: boolean;
-	};
-
 	/* Grille reprise telle quelle de la formation « La science de la perte de graisse rapide » */
 	function getCategorie(sexeV: string, pct: number, ea: number, methodeV: string): Cat {
 		if (sexeV === 'femme') {
@@ -674,31 +668,7 @@
 					breakRangeLabel: '6-10 semaines',
 				};
 			}
-			let refeedIntervalDays: number | null;
-			let refeedLabel: string | null;
-			if (ea > 30) {
-				refeedIntervalDays = 17;
-				refeedLabel = '2-3 jours tous les 14-21 jours (EA > 30 kcal/kg MM)';
-			} else if (ea >= 24) {
-				refeedIntervalDays = 10;
-				refeedLabel = '2-3 jours tous les 7-14 jours (EA 24-30 kcal/kg MM)';
-			} else if (ea >= 20) {
-				refeedIntervalDays = 7;
-				refeedLabel = '2-3 jours tous les 7 jours (grille : 5-7 jours, plancher de 7j appliqué)';
-			} else {
-				refeedIntervalDays = null;
-				refeedLabel = null;
-			}
-			return {
-				label: 'Femme <25% graisse',
-				refeedPlanned: refeedIntervalDays !== null,
-				refeedIntervalDays,
-				refeedDurationDays: 3,
-				refeedNote: refeedLabel,
-				breakWeeks: 5,
-				breakRangeLabel: '4-6 semaines',
-				outOfGrid: refeedIntervalDays === null,
-			};
+			return getCategorieFemmeMin25(ea);
 		} else {
 			if (pct > 25) {
 				return {
@@ -718,22 +688,10 @@
 					breakRangeLabel: '6-10 semaines',
 				};
 			}
-			const refeedIntervalDays = methodeV === 'alpert' ? 17 : 10;
-			const refeedLabel =
-				methodeV === 'alpert'
-					? '2-3 jours tous les 14-21 jours (déficit basé sur le calcul de Alpert)'
-					: '2-3 jours tous les 7-14 jours (déficit basé sur le calcul de Macdonald)';
-			return {
-				label: 'Homme <15% graisse',
-				refeedPlanned: true,
-				refeedIntervalDays,
-				refeedDurationDays: 3,
-				refeedNote: refeedLabel,
-				breakWeeks: 7,
-				breakRangeLabel: '6-8 semaines',
-			};
-		}
+		return getCategorieHommeMin15(methodeV);
 	}
+}
+
 	function fmtDate(d: Date) {
 		return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
 	}
@@ -762,15 +720,11 @@
 		}
 		cyclageErr = '';
 
-		/* Horizon FIXE : 6 mois (26 semaines) à partir de la date de début. */
-		const duree = 26;
-
 		const masseMaigre = poidsV * (1 - pct / 100);
 		/* « Dépense totale de sport » retirée : EA = apport / masse maigre,
 		   exactement comme l'ancien défaut du champ (dépense = 0). */
 		const ea = apportV / masseMaigre;
 		const cat = getCategorie(sexeV, pct, ea, methodeV);
-		const refeedDur = cat.refeedDurationDays ?? 3;
 
 		outMasseMaigre = masseMaigre.toFixed(1) + ' kg';
 		outEA = ea.toFixed(1) + ' kcal/kg MM';
@@ -786,58 +740,8 @@
 		outBreakLine = '<b>Diet break :</b> 7 jours toutes les ' + cat.breakWeeks + ' semaines (plage de référence : ' + cat.breakRangeLabel + ')';
 
 		const dateDebutObj = new Date(dateDebutStr + 'T00:00:00');
-		const totalDays = duree * 7;
-		const phases = new Array<string>(totalDays);
 
-		for (let d = 0; d < totalDays; d++) {
-			const week = Math.floor(d / 7);
-			const isBreakWeek = cat.breakWeeks > 0 && (week + 1) % cat.breakWeeks === 0;
-			phases[d] = isBreakWeek ? 'break' : 'deficit';
-		}
-
-		function nextBreakStart(fromDay: number) {
-			for (let i = fromDay; i < totalDays; i++) {
-				if (phases[i] === 'break' && (i === 0 || phases[i - 1] !== 'break')) return i;
-			}
-			return Infinity;
-		}
-
-		if (cat.refeedPlanned && !cat.outOfGrid) {
-			let counter = 0;
-			let d = 0;
-			while (d < totalDays) {
-				if (phases[d] === 'break') {
-					counter = 0;
-					d++;
-					continue;
-				}
-				counter++;
-				const intervalApplique = Math.max(cat.refeedIntervalDays ?? 0, 7);
-				if (counter >= intervalApplique) {
-					const breakStart = nextBreakStart(d);
-					if (breakStart - d < refeedDur + 7) {
-						d++;
-						continue;
-					}
-					for (let k = 0; k < refeedDur && d + k < totalDays; k++) {
-						if (phases[d + k] !== 'break') phases[d + k] = 'refeed';
-					}
-					d += refeedDur;
-					counter = 0;
-					continue;
-				}
-				d++;
-			}
-		}
-
-		const blocks: { phase: string; startDay: number; endDay: number }[] = [];
-		let blockStart = 0;
-		for (let d = 1; d <= totalDays; d++) {
-			if (d === totalDays || phases[d] !== phases[blockStart]) {
-				blocks.push({ phase: phases[blockStart], startDay: blockStart, endDay: d - 1 });
-				blockStart = d;
-			}
-		}
+		const blocks = planifier(cat);
 
 		planTableHtml = blocks
 			.map((b) => {
