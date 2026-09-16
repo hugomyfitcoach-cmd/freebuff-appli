@@ -264,6 +264,24 @@ Tracking de calories fidèle à l'appli de référence (FR) :
 - **Objectifs** : définis par la coach dans le CRM (carte « 🎯 Objectifs
   journaliers »), valeurs par défaut 2000 kcal / 250 g / 90 g / 65 g.
 
+## 🍎 Synchronisation Apple Santé (iPhone — raccourci iOS)
+
+Sur iPhone, l'écran « Mes pas » propose **« Connecter Apple Santé »**
+(première fois, installe/lance le raccourci) puis **« Synchroniser mes
+pas »** : le raccourci iOS lit les pas des **7 derniers jours** dans Apple
+Santé et les envoie au backend avec un **jeton court** (15 min, hashé en
+base — jamais l'ID cliente ni le cookie de session, jamais de lecture
+HealthKit par la PWA). Chaque journée reçoit une **valeur Apple Santé**
+(`healthCount`) qui **remplace** l'ancienne valeur Apple Santé du jour —
+sans jamais additionner, sans jamais écraser une **correction manuelle**
+(`manualCount`, prioritaire) et sans créer de faux « 0 » pour une journée
+sans donnée. La valeur **effective** reste `manualCount ?? healthCount`
+(`count`), donc **toutes** les statistiques, moyennes, graphiques et
+objectifs fonctionnent à l'identique. Action discrète « Revenir à la
+valeur Apple Santé » pour retirer une correction manuelle. Création et
+partage du raccourci : **docs/raccourci-ios.md** (lien iCloud à poser
+dans `PUBLIC_HEALTH_SHORTCUT_URL`, voir `.env.example`).
+
 ## 🗄️ Base Convex (déploiement production uniquement)
 
 Tables : `users` (email, hash, rôle coach/client, prénom),
