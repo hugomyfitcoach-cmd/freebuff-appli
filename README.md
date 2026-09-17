@@ -264,23 +264,20 @@ Tracking de calories fidèle à l'appli de référence (FR) :
 - **Objectifs** : définis par la coach dans le CRM (carte « 🎯 Objectifs
   journaliers »), valeurs par défaut 2000 kcal / 250 g / 90 g / 65 g.
 
-## 🍎 Synchronisation Apple Santé (iPhone — raccourci iOS)
+## 🚶 Pas (saisie manuelle)
 
-Sur iPhone, l'écran « Mes pas » propose **« Connecter Apple Santé »**
-(première fois, installe/lance le raccourci) puis **« Synchroniser mes
-pas »** : le raccourci iOS lit les pas des **7 derniers jours** dans Apple
-Santé et les envoie au backend avec un **jeton court** (15 min, hashé en
-base — jamais l'ID cliente ni le cookie de session, jamais de lecture
-HealthKit par la PWA). Chaque journée reçoit une **valeur Apple Santé**
-(`healthCount`) qui **remplace** l'ancienne valeur Apple Santé du jour —
-sans jamais additionner, sans jamais écraser une **correction manuelle**
-(`manualCount`, prioritaire) et sans créer de faux « 0 » pour une journée
-sans donnée. La valeur **effective** reste `manualCount ?? healthCount`
-(`count`), donc **toutes** les statistiques, moyennes, graphiques et
-objectifs fonctionnent à l'identique. Action discrète « Revenir à la
-valeur Apple Santé » pour retirer une correction manuelle. Création et
-partage du raccourci : **docs/raccourci-ios.md** (lien iCloud à poser
-dans `PUBLIC_HEALTH_SHORTCUT_URL`, voir `.env.example`).
+La cliente renseigne elle-même ses pas sur l'écran « Mes pas » : valeur du
+jour, ou mode édition pour corriger les **7 derniers jours**. Les données
+vivent dans `dailySteps` (`count` = valeur du jour, une seule ligne par
+cliente et par date) et alimentent directement les statistiques, la moyenne,
+le graphique 7 jours, l'objectif de pas défini par la coach (`clientGoals`),
+l'Accueil et le CRM coach. Une journée sans saisie n'est **jamais** comptée
+comme 0 pas. BFF : `src/routes/api/steps/+server.ts` → action Convex
+`steps.setSteps` ; lecture via `steps.myHistory` (page « Mes pas »).
+
+> La synchronisation automatique Apple Santé (raccourci iOS +
+> `/api/health/import`) a été retirée : l'application ne propose plus aucune
+> connexion Santé, quelle que soit la plateforme.
 
 ## 🗄️ Base Convex (déploiement production uniquement)
 

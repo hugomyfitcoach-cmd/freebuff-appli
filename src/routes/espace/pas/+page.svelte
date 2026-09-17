@@ -1,7 +1,5 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
-	import { onMount } from 'svelte';
-	import { env as publicEnv } from '$env/dynamic/public';
 	import BackToHome from '$lib/components/BackToHome.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import StepsBars from '$lib/components/StepsBars.svelte';
@@ -11,13 +9,8 @@
 	type Row = {
 		date: string;
 		count: number;
-		healthCount: number | null;
-		manualCount: number | null;
 	};
 	const rows = $derived<Row[]>(data.history.rows ?? []);
-	const healthSync = $derived<{ connected: boolean; lastSyncAt: number | null }>(
-		data.history.healthSync ?? { connected: false, lastSyncAt: null }
-	);
 
 	/* ————— Fenêtre locale (fuseau de la cliente) : aujourd'hui et les 6 jours précédents ————— */
 	function iso(d: Date): string {
@@ -27,8 +20,8 @@
 		const d = new Date();
 		return iso(d);
 	});
-	const windowDays = $derived.by<{ date: string; count: number | null; healthCount: number | null; manualCount: number | null }[]>(() => {
-		const out: { date: string; count: number | null; healthCount: number | null; manualCount: number | null }[] = [];
+	const windowDays = $derived.by<{ date: string; count: number | null }[]>(() => {
+		const out: { date: string; count: number | null }[] = [];
 		for (let i = 6; i >= 0; i--) {
 			const d = new Date();
 			d.setDate(d.getDate() - i);
@@ -37,8 +30,6 @@
 			out.push({
 				date: key,
 				count: hit ? hit.count : null,
-				healthCount: hit ? hit.healthCount : null,
-				manualCount: hit ? hit.manualCount : null,
 			});
 		}
 		return out;
@@ -153,106 +144,6 @@
 		}
 	}
 
-	/* ————— Apple Santé (raccourci iOS) ————— */
-	const isIOS = $derived.by(() => {
-		if (typeof navigator === 'undefined') return false;
-		const ua = navigator.userAgent;
-		return /iPad|iPhone|iPod/.test(ua) || (ua.includes('Macintosh') && 'ontouchend' in document);
-	});
-
-	let healthState = $state<'idle' | 'connecting' | 'waiting' | 'syncing'>('idle');
-	let healthError = $state('');
-	let healthToast = $state('');
-	let syncPoll: ReturnType<typeof setInterval> | undefined;
-
-	function fmtTime(ts: number): string {
-		return new Date(ts).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-	}
-	const lastSyncLabel = $derived(healthSync.lastSyncAt ? fmtTime(healthSync.lastSyncAt) : '');
-
-	async function openShortcut() {
-		if (healthState !== 'idle') return;
-		healthError = '';
-		healthToast = '';
-		healthState = 'connecting';
-		try {
-			const res = await fetch('/api/health/token', { method: 'POST' });
-			const body = await res.json();
-			if (!res.ok || body.error) throw new Error(body.error ?? 'Connexion impossible.');
-			// Jeton court → presse-papiers : le raccourci le lit (« Obtenir le
-			// presse-papiers ») — jamais d'ID cliente ni de cookie dans l'URL.
-			try {
-				await navigator.clipboard.writeText(String(body.token));
-			} catch {
-				healthState = 'idle';
-				healthError = 'Impossible de préparer la connexion (presse-papiers). Réessaie — la saisie manuelle reste disponible.';
-				return;
-			}
-			const shortcutLink = String(publicEnv.PUBLIC_HEALTH_SHORTCUT_URL ?? '').trim();
-			const shortcutUrl = shortcutLink
-				? `shortcuts://import-workflow/?url=${encodeURIComponent(shortcutLink)}&name=${encodeURIComponent('G-FLUX — Synchroniser mes pas')}`
-				: `shortcuts://run-shortcut?name=${encodeURIComponent('G-FLUX — Synchroniser mes pas')}`;
-			healthState = 'waiting';
-			window.location.href = shortcutUrl;
-			// Le raccourci importe les données en tâche de fond : on rafraîchit
-			// l'écran dès que le serveur confirme une synchro plus récente.
-			const baseline = healthSync.lastSyncAt ?? 0;
-			syncPoll = setInterval(async () => {
-				await invalidateAll();
-				if ((data.history.healthSync?.lastSyncAt ?? 0) > baseline) {
-					healthState = 'idle';
-					healthError = '';
-					healthToast = 'Pas synchronisés';
-					if (syncPoll) clearInterval(syncPoll);
-				}
-			}, 2500);
-		} catch (e) {
-			healthState = 'idle';
-			healthError = e instanceof Error ? e.message : 'Connexion impossible.';
-		}
-	}
-
-	function dismissHealthToast() {
-		healthToast = '';
-	}
-
-	/** Retour depuis Raccourcis : si aucune synchro n'arrive, on explique sans bloquer la saisie manuelle. */
-	function onVisibilityChange() {
-		if (document.visibilityState === 'visible' && healthState === 'waiting') {
-			healthState = 'idle';
-			healthError =
-				"La synchronisation n'est pas arrivée — vérifie que le raccourci « G-FLUX — Synchroniser mes pas » est installé et autorise Apple Santé, puis réessaie. Tu peux toujours saisir tes pas à la main.";
-		}
-	}
-
-	/** Revenir à la valeur Apple Santé (supprime la correction manuelle du jour). */
-	let revertDate = $state<string | null>(null);
-	async function revertToHealth(date: string) {
-		revertDate = date;
-		try {
-			const res = await fetch('/api/steps/revert', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ date }),
-			});
-			const body = await res.json();
-			if (!res.ok || body.error) throw new Error(body.error ?? 'Impossible de revenir à Apple Santé.');
-			await invalidateAll();
-		} catch (e) {
-			healthError = e instanceof Error ? e.message : 'Impossible de revenir à Apple Santé.';
-		} finally {
-			revertDate = null;
-		}
-	}
-
-	onMount(() => {
-		document.addEventListener('visibilitychange', onVisibilityChange);
-		return () => {
-			document.removeEventListener('visibilitychange', onVisibilityChange);
-			if (syncPoll) clearInterval(syncPoll);
-		};
-	});
-
 	const fmt = (n: number) => n.toLocaleString('fr-FR');
 </script>
 
@@ -275,39 +166,6 @@
 			><Icon name="pencil" size={18} /></button>
 		{/if}
 	</div>
-
-	<!-- Apple Santé (iPhone uniquement) — connexion une fois, puis synchronisation -->
-	{#if isIOS}
-		<section class="mt-4 rounded-3xl border border-line bg-card p-4 shadow-sm">
-			<button
-				type="button"
-				onclick={openShortcut}
-				disabled={healthState !== 'idle'}
-				class="flex w-full items-center justify-center gap-2.5 rounded-2xl border-2 border-line px-4 py-3 text-sm font-bold text-ink transition hover:border-brand hover:text-brand-dark disabled:opacity-60"
-			>
-				<img src="/apple-health.png" alt="" width={24} height={24} class="h-6 w-6 shrink-0 object-contain" />
-				{#if healthState === 'idle'}
-					{healthSync.connected ? 'Synchroniser mes pas' : 'Connecter Apple Santé'}
-				{:else}
-					Connexion en cours…
-				{/if}
-			</button>
-			{#if healthSync.connected && lastSyncLabel}
-				<p class="mt-2 text-center text-[11px] text-mist">Dernière synchro : {lastSyncLabel}</p>
-			{/if}
-			{#if healthToast}
-				<p class="mt-2 flex items-center justify-center gap-1.5 text-xs font-semibold text-brand-dark">
-					<Icon name="circleCheck" size={13} class="shrink-0" /> {healthToast}
-					<button type="button" onclick={dismissHealthToast} class="ml-1 text-mist transition hover:text-ink" aria-label="Masquer"><Icon name="x" size={12} /></button>
-				</p>
-			{/if}
-			{#if healthError}
-				<p class="mt-2 flex items-start justify-center gap-1.5 text-center text-xs font-semibold text-danger">
-					<Icon name="triangleAlert" size={13} class="mt-0.5 shrink-0" /> {healthError}
-				</p>
-			{/if}
-		</section>
-	{/if}
 
 	{#if editing}
 		<!-- Mode édition : tous les jours de la fenêtre, y compris rétroactifs -->
@@ -435,28 +293,6 @@
 						<span class="text-sm font-semibold tabular-nums text-ink">{fmt(goal)} pas / jour</span>
 					</div>
 				{/if}
-			</div>
-		{/if}
-
-		<!-- Provenance par jour : correction manuelle → retour possible à Apple Santé -->
-		{#if windowDays.some((d) => d.manualCount !== null && d.healthCount !== null)}
-			<div class="mt-3 border-t border-line pt-3">
-				<p class="text-[11px] font-bold uppercase tracking-widest text-mist">Corrections manuelles</p>
-				{#each windowDays.filter((d) => d.manualCount !== null && d.healthCount !== null) as d (d.date)}
-					{@const lbl = dayLabel(d.date)}
-					<div class="mt-2 flex items-center justify-between gap-2">
-						<span class="text-xs text-ink/85">
-							{lbl.day} {lbl.dateLabel} — <span class="font-semibold">{fmt(d.count ?? 0)} pas</span>
-							<span class="text-mist">(Apple Santé : {fmt(d.healthCount ?? 0)})</span>
-						</span>
-						<button
-							type="button"
-							onclick={() => revertToHealth(d.date)}
-							disabled={revertDate !== null}
-							class="shrink-0 rounded-lg px-2 py-1 text-[11px] font-semibold text-mist underline decoration-dotted underline-offset-2 transition hover:text-brand-dark disabled:opacity-60"
-						>{revertDate === d.date ? '…' : 'Revenir à la valeur Apple Santé'}</button>
-					</div>
-				{/each}
 			</div>
 		{/if}
 	</section>
