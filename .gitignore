@@ -30,3 +30,4 @@ vite.config.ts.timestamp-*
 
 # Outils internes de dev (contiennent des identifiants, logs, scripts locaux)
 .freebuff
+.media-cache/

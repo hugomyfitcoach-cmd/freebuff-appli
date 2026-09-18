@@ -20,6 +20,7 @@ import type * as coach from "../coach.js";
 import type * as crons from "../crons.js";
 import type * as customFoods from "../customFoods.js";
 import type * as dashboard from "../dashboard.js";
+import type * as exercises from "../exercises.js";
 import type * as foodRanking from "../foodRanking.js";
 import type * as googleCalendar from "../googleCalendar.js";
 import type * as helpers from "../helpers.js";
@@ -38,6 +39,7 @@ import type * as reminderPush from "../reminderPush.js";
 import type * as resources from "../resources.js";
 import type * as steps from "../steps.js";
 import type * as tools from "../tools.js";
+import type * as training from "../training.js";
 import type * as users from "../users.js";
 import type * as webPushVendors from "../webPushVendors.js";
 
@@ -60,6 +62,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   customFoods: typeof customFoods;
   dashboard: typeof dashboard;
+  exercises: typeof exercises;
   foodRanking: typeof foodRanking;
   googleCalendar: typeof googleCalendar;
   helpers: typeof helpers;
@@ -78,6 +81,7 @@ declare const fullApi: ApiFromModules<{
   resources: typeof resources;
   steps: typeof steps;
   tools: typeof tools;
+  training: typeof training;
   users: typeof users;
   webPushVendors: typeof webPushVendors;
 }>;
