@@ -264,6 +264,8 @@ export const programFull = query({
 										equipment: ex.equipment,
 										mediaUrl: ex.mediaUrl,
 										thumbnailUrl: ex.thumbnailUrl,
+										posterUrl: ex.posterUrl,
+										animationUrl: ex.animationUrl,
 										instructions: ex.instructions,
 									}
 								: null, // exercice supprimé de la bibliothèque : la ligne reste éditable/supprimable

@@ -1,0 +1,47 @@
+{
+  "slug": "mini-band-squat",
+  "nameFr": "Squat avec mini-bande",
+  "nameEn": "Mini Band Squat",
+  "category": "Bas du corps",
+  "primaryMuscleGroup": "Fessiers",
+  "primaryMuscles": ["Grand fessier", "Quadriceps"],
+  "secondaryMuscles": ["Moyen fessier", "Ischio-jambiers", "Adducteurs", "Abdominaux"],
+  "equipment": ["Mini-bande"],
+  "level": ["Débutant", "Intermédiaire", "Avancé"],
+  "description": "Un squat au poids du corps avec mini-bande au-dessus des genoux : la bande te pousse les genoux vers l’intérieur et tu dois lutter pour les garder écartés. Plus de fessiers, plus de contrôle, zéro matériel.",
+  "execution": [
+    "Place la mini-bande juste au-dessus de tes genoux, pieds largeur de hanches.",
+    "Garde les bras devant toi ou mains jointes pour l’équilibre.",
+    "Descends le bassin en arrière comme pour t’asseoir, genoux écartés contre la bande.",
+    "Descends jusqu’à cuisses parallèles au sol, ou plus bas si ta mobilité le permet.",
+    "Remonte en poussant dans tout le pied, en gardant les genoux écartés."
+  ],
+  "cues": [
+    "Pousse activement les genoux vers l’extérieur pendant toute la descente.",
+    "Garde le buste relativement droit et la poitrine ouverte.",
+    "Poids réparti sur tout le pied, talons ancrés.",
+    "Genoux dans l’axe des orteils, jamais rentrés vers l’intérieur.",
+    "Squeeze les fessiers en remontant à la fin du mouvement."
+  ],
+  "mistakes": [
+    "Laisser les genoux rentrer vers l’intérieur sous la tension de la bande.",
+    "Se pencher trop en avant et transformer le squat en good morning.",
+    "Monter sur la pointe des pieds en descendant.",
+    "Descendre trop vite sans contrôle avant la remontée.",
+    "Choisir une bande trop forte et sacrifier la profondeur."
+  ],
+  "breathing": {
+    "eccentric": "Inspire pendant la descente.",
+    "concentric": "Expire en remontant et en serrant les fessiers en haut."
+  },
+  "status": "validated",
+  "version": 1,
+  "assets": {
+    "poster": "poster.webp",
+    "animation": "animation.mp4"
+  },
+  "artDirection": {
+    "character": "female-athletic",
+    "style": "gflux-premium"
+  }
+}

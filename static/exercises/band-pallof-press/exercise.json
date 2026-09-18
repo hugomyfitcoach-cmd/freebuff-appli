@@ -1,0 +1,47 @@
+{
+  "slug": "band-pallof-press",
+  "nameFr": "Pallof press avec bande",
+  "nameEn": "Band Pallof Press",
+  "category": "Tronc",
+  "primaryMuscleGroup": "Abdominaux",
+  "primaryMuscles": ["Abdominaux", "Obliques"],
+  "secondaryMuscles": ["Grand fessier", "Épaules"],
+  "equipment": ["Élastiques"],
+  "level": ["Débutant", "Intermédiaire", "Avancé"],
+  "description": "L’exercice anti-rotation de référence, adaptable à la maison avec une bande élastique attachée. Ta sangle abdominale apprend à résister à la rotation : du gainage utile pour tout le reste de tes mouvements.",
+  "execution": [
+    "Attache la bande à hauteur de torse sur un point fixe et tiens-la à deux mains contre ta poitrine.",
+    "Place-toi de profil par rapport au point d’ancrage, pieds largeur de hanches, genoux légèrement fléchis.",
+    "Éloigne-toi de l’ancrage pour créer une tension, puis tends les bras devant toi.",
+    "Résiste à la rotation : la bande veut te faire pivoter, garde les hanches et les épaules face devant.",
+    "Tiens la position une à deux secondes, puis ramène les mains contre la poitrine en contrôlant."
+  ],
+  "cues": [
+    "Serre les fessiers et le ventre avant de tendre les bras.",
+    "Pousse les mains loin, sans laisser le buste tourner.",
+    "Hanches et épaules restent face à l’avant du mouvement.",
+    "Respire sans relâcher la sangle abdominale.",
+    "Plus tu t’éloignes de l’ancrage, plus la tension monte : ajuste la distance."
+  ],
+  "mistakes": [
+    "Laisser le buste pivoter vers la bande pendant la poussée.",
+    "Monter les épaules et tendre le cou pour retenir la tension.",
+    "Bloquer la respiration au lieu de rester gainé en respirant.",
+    "Vouloir trop de tension et compromettre la position des hanches.",
+    "Faire le mouvement uniquement avec les bras, sans engager le tronc."
+  ],
+  "breathing": {
+    "eccentric": "Inspire en ramenant les mains contre la poitrine.",
+    "concentric": "Expire en tendant les bras, sans relâcher les abdos."
+  },
+  "status": "validated",
+  "version": 1,
+  "assets": {
+    "poster": "poster.webp",
+    "animation": "animation.mp4"
+  },
+  "artDirection": {
+    "character": "female-athletic",
+    "style": "gflux-premium"
+  }
+}

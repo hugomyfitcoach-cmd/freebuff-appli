@@ -34,6 +34,8 @@ export type SessionExerciseView = {
 		mediaUrl?: string;
 		thumbnailUrl?: string;
 		sourceMediaUrl?: string;
+		posterUrl?: string;
+		animationUrl?: string;
 		instructions?: string[];
 	} | null;
 	sets: TrainingSetView[];

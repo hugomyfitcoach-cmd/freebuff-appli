@@ -307,7 +307,7 @@
 					class="flex flex-col overflow-hidden rounded-2xl border border-line bg-card text-left shadow-sm transition hover:border-brand"
 				>
 					<div class="relative aspect-[4/3] w-full bg-line/40">
-						<ExerciseMedia src={ex.thumbnailUrl} fallbackUrl={ex.mediaUrl} class="h-full w-full object-cover" />
+						<ExerciseMedia media={ex} class="h-full w-full object-cover" />
 						{#if ex.hidden}
 							<span class="absolute right-1.5 top-1.5 rounded-full bg-ink/80 px-1.5 py-0.5 text-[9px] font-bold text-white">masqué</span>
 						{/if}
@@ -360,11 +360,10 @@
 			</div>
 
 			<ExerciseMedia
-				src={detail.mediaUrl ?? detail.thumbnailUrl}
-				fallbackUrl={detail.sourceMediaUrl}
+				media={detail}
 				alt={`Illustration ${detail.name}`}
 				loading="eager"
-				class="mt-3 max-h-64 w-full rounded-xl border border-line object-contain"
+				class="mt-3 max-h-64 w-full rounded-xl border border-line object-cover"
 			/>
 
 			{#if detail.secondaryMuscles && detail.secondaryMuscles.length > 0}

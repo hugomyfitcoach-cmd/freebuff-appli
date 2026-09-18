@@ -25,6 +25,11 @@ export const FREE_SOURCE_ID = "free-exercise-db";
 /** Référentiel des sources connues — l'UI ne codes jamais une source en dur. */
 export const KNOWN_SOURCES: Record<string, string> = {
 	"free-exercise-db": "ExerciseDB (open data, domaine public)",
+	/** Source réellement importée en production (ExerciseDB V1 Free API). */
+	"exercisedb-v1": "ExerciseDB V1 (open data, domaine public)",
+	/** Exercices animés propriétaires produits dans le dépôt
+	 *  (static/exercises/<slug>/ — registre généré index.json). */
+	"gflux-official": "Bibliothèque officielle G-FLUX (animée, propriétaire)",
 	gflux: "Bibliothèque G-FLUX (exercices coach)",
 };
 
@@ -35,6 +40,38 @@ const LIST_LIMIT = 200;
 const FACETS_LIMIT = 50;
 /** Taille max d'un lot d'import (appelé en boucle par le script). */
 export const IMPORT_BATCH_SIZE = 100;
+
+/**
+ * Forme d'un item d'import/synchro (partagée par `importBatch` — banques
+ * externes et bibliothèque officielle G-FLUX — et `verifyGfluxOfficialSync`).
+ * Les champs posterUrl/animationUrl portent les médias de la bibliothèque
+ * officielle (fichiers servis par le dépôt, jamais de binaire en base).
+ */
+const importItemValidator = v.object({
+	sourceExerciseId: v.string(),
+	name: v.string(),
+	sourceName: v.optional(v.string()),
+	muscleGroup: v.optional(v.string()),
+	secondaryMuscles: v.optional(v.array(v.string())),
+	bodyPart: v.optional(v.string()),
+	equipment: v.optional(v.string()),
+	category: v.optional(v.string()),
+	instructions: v.optional(v.array(v.string())),
+	cues: v.optional(v.array(v.string())),
+	mistakes: v.optional(v.array(v.string())),
+	levels: v.optional(v.array(v.string())),
+	breathing: v.optional(
+		v.object({
+			eccentric: v.optional(v.string()),
+			concentric: v.optional(v.string()),
+		})
+	),
+	posterUrl: v.optional(v.string()),
+	animationUrl: v.optional(v.string()),
+	mediaUrl: v.optional(v.string()),
+	thumbnailUrl: v.optional(v.string()),
+	mediaUrls: v.optional(v.array(v.string())),
+});
 
 /** Garde un exercice importé (ou crée-le) dans le vocabulaire G-FLUX. */
 type ImportedExercise = {
@@ -47,6 +84,12 @@ type ImportedExercise = {
 	equipment?: string;
 	category?: string;
 	instructions?: string[];
+	cues?: string[];
+	mistakes?: string[];
+	levels?: string[];
+	breathing?: { eccentric?: string; concentric?: string };
+	posterUrl?: string;
+	animationUrl?: string;
 	mediaUrl?: string;
 	thumbnailUrl?: string;
 	mediaUrls?: string[];
@@ -65,6 +108,14 @@ export type ExerciseView = {
 	equipment?: string;
 	category?: string;
 	instructions?: string[];
+	cues?: string[];
+	mistakes?: string[];
+	levels?: string[];
+	breathing?: { eccentric?: string; concentric?: string };
+	/** Vignette statique (bibliothèque officielle G-FLUX : poster.webp). */
+	posterUrl?: string;
+	/** Animation du mouvement (bibliothèque officielle G-FLUX : animation.mp4). */
+	animationUrl?: string;
 	mediaUrl?: string;
 	sourceMediaUrl?: string;
 	mediaStorageId?: string;
@@ -97,6 +148,12 @@ function toView(e: {
 	equipment?: string;
 	category?: string;
 	instructions?: string[];
+	cues?: string[];
+	mistakes?: string[];
+	levels?: string[];
+	breathing?: { eccentric?: string; concentric?: string };
+	posterUrl?: string;
+	animationUrl?: string;
 	mediaUrl?: string;
 	sourceMediaUrl?: string;
 	mediaStorageId?: string;
@@ -123,6 +180,12 @@ function toView(e: {
 		equipment: e.equipment,
 		category: e.category,
 		instructions: e.instructions,
+		cues: e.cues,
+		mistakes: e.mistakes,
+		levels: e.levels,
+		breathing: e.breathing,
+		posterUrl: e.posterUrl,
+		animationUrl: e.animationUrl,
 		mediaUrl: e.mediaUrl,
 		sourceMediaUrl: e.sourceMediaUrl,
 		mediaStorageId: e.mediaStorageId,
@@ -462,22 +525,7 @@ export const importBatch = mutation({
 		/** Repère du lot ("source@yyyy-mm-dd") — traçabilité. */
 		importBatch: v.string(),
 		licenseNote: v.optional(v.string()),
-		items: v.array(
-			v.object({
-				sourceExerciseId: v.string(),
-				name: v.string(),
-				sourceName: v.optional(v.string()),
-				muscleGroup: v.optional(v.string()),
-				secondaryMuscles: v.optional(v.array(v.string())),
-				bodyPart: v.optional(v.string()),
-				equipment: v.optional(v.string()),
-				category: v.optional(v.string()),
-				instructions: v.optional(v.array(v.string())),
-				mediaUrl: v.optional(v.string()),
-				thumbnailUrl: v.optional(v.string()),
-				mediaUrls: v.optional(v.array(v.string())),
-			})
-		),
+		items: v.array(importItemValidator),
 	},
 	handler: async (ctx, { sessionToken, source, importBatch, licenseNote, items }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
@@ -514,6 +562,12 @@ export const importBatch = mutation({
 					...(item.equipment ? { equipment: item.equipment } : {}),
 					...(item.category ? { category: item.category } : {}),
 					...(item.instructions?.length ? { instructions: item.instructions } : {}),
+					...(item.cues?.length ? { cues: item.cues } : {}),
+					...(item.mistakes?.length ? { mistakes: item.mistakes } : {}),
+					...(item.levels?.length ? { levels: item.levels } : {}),
+					...(item.breathing ? { breathing: item.breathing } : {}),
+					...(item.posterUrl ? { posterUrl: item.posterUrl } : {}),
+					...(item.animationUrl ? { animationUrl: item.animationUrl } : {}),
 					...(item.mediaUrl ? { mediaUrl: item.mediaUrl } : {}),
 					...(item.thumbnailUrl ? { thumbnailUrl: item.thumbnailUrl } : {}),
 					...(item.mediaUrls?.length ? { mediaUrls: item.mediaUrls } : {}),
@@ -543,6 +597,20 @@ export const importBatch = mutation({
 					if (normalized.instructions && JSON.stringify(existing.instructions ?? []) !== JSON.stringify(normalized.instructions)) {
 						patch.instructions = normalized.instructions;
 					}
+					if (normalized.cues && JSON.stringify(existing.cues ?? []) !== JSON.stringify(normalized.cues)) {
+						patch.cues = normalized.cues;
+					}
+					if (normalized.mistakes && JSON.stringify(existing.mistakes ?? []) !== JSON.stringify(normalized.mistakes)) {
+						patch.mistakes = normalized.mistakes;
+					}
+					if (normalized.levels && JSON.stringify(existing.levels ?? []) !== JSON.stringify(normalized.levels)) {
+						patch.levels = normalized.levels;
+					}
+					if (normalized.breathing && JSON.stringify(existing.breathing ?? {}) !== JSON.stringify(normalized.breathing)) {
+						patch.breathing = normalized.breathing;
+					}
+					if (normalized.posterUrl && existing.posterUrl !== normalized.posterUrl) patch.posterUrl = normalized.posterUrl;
+					if (normalized.animationUrl && existing.animationUrl !== normalized.animationUrl) patch.animationUrl = normalized.animationUrl;
 					if (normalized.mediaUrl && existing.mediaUrl !== normalized.mediaUrl) patch.mediaUrl = normalized.mediaUrl;
 					if (normalized.thumbnailUrl && existing.thumbnailUrl !== normalized.thumbnailUrl) patch.thumbnailUrl = normalized.thumbnailUrl;
 					if (normalized.mediaUrls && JSON.stringify(existing.mediaUrls ?? []) !== JSON.stringify(normalized.mediaUrls)) {
@@ -586,6 +654,77 @@ export const importBatch = mutation({
 			}
 		}
 		return { imported, updated, unchanged, errors };
+	},
+});
+
+/* ═══════════ Bibliothèque officielle G-FLUX (source "gflux-official") ═══════════ */
+
+/**
+ * Vérification (script `sync-gflux-exercises.mjs --check`) : compare l'état
+ * de la base au registre généré — exercices absents, désactivés ou dont les
+ * données (nom, médias, pédagogie) diffèrent. Lecture seule : le script
+ * décide d'échouer ou de relancer une synchro complète.
+ */
+export const	verifyGfluxOfficialSync = query({
+	args: {
+		sessionToken: v.optional(v.string()),
+		items: v.array(importItemValidator),
+	},
+	handler: async (ctx, { sessionToken, items }) => {
+		const coach = await getSessionUser(ctx, sessionToken);
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (script authentifié).");
+
+		const missing: string[] = [];
+		const outdated: string[] = [];
+		const inactive: string[] = [];
+
+		for (const item of items) {
+			const existing = await ctx.db
+				.query("exercises")
+				.withIndex("by_source_id", (q) => q.eq("source", "gflux-official").eq("sourceExerciseId", item.sourceExerciseId))
+				.unique();
+			if (!existing) {
+				missing.push(item.sourceExerciseId);
+				continue;
+			}
+			if (!existing.active) inactive.push(item.sourceExerciseId);
+			// Mêmes comparaisons que l'upsert — un écart = données à resynchroniser.
+			const same =
+				existing.name === item.name &&
+				existing.muscleGroup === item.muscleGroup &&
+				existing.bodyPart === item.bodyPart &&
+				existing.equipment === item.equipment &&
+				(existing.posterUrl ?? undefined) === item.posterUrl &&
+				(existing.animationUrl ?? undefined) === item.animationUrl &&
+				JSON.stringify(existing.cues ?? []) === JSON.stringify(item.cues ?? []) &&
+				JSON.stringify(existing.mistakes ?? []) === JSON.stringify(item.mistakes ?? []);
+			if (!same) outdated.push(item.sourceExerciseId);
+		}
+		return { missing, outdated, inactive, checked: items.length };
+	},
+});
+
+/**
+ * Désactivation DOUCE des exercices officiels absents du registre (retirés
+ * du dépôt ou repassés en draft) — réversible, JAMAIS une suppression : les
+ * programmes qui référencent ces exercices restent intacts. Les exercices
+ * coach (source "gflux") et les autres sources ne sont JAMAIS touchés.
+ */
+export const deactivateMissingGfluxOfficial = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		keepSlugs: v.array(v.string()),
+	},
+	handler: async (ctx, { sessionToken, keepSlugs }) => {
+		const coach = await getSessionUser(ctx, sessionToken);
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (script authentifié).");
+		const keep = new Set(keepSlugs);
+		const rows = await ctx.db.query("exercises").collect();
+		const targets = rows.filter(
+			(e) => e.source === "gflux-official" && !keep.has(e.sourceExerciseId ?? "") && e.active
+		);
+		await Promise.all(targets.map((e) => ctx.db.patch(e._id, { active: false, updatedAt: Date.now() })));
+		return { deactivated: targets.length };
 	},
 });
 
