@@ -1,0 +1,47 @@
+{
+  "slug": "lateral-band-walk",
+  "nameFr": "Marche latérale avec mini-bande",
+  "nameEn": "Lateral Band Walk",
+  "category": "Bas du corps",
+  "primaryMuscleGroup": "Fessiers",
+  "primaryMuscles": ["Moyen fessier"],
+  "secondaryMuscles": ["Grand fessier", "Petit fessier"],
+  "equipment": ["Mini-bande"],
+  "level": ["Débutant", "Intermédiaire", "Avancé"],
+  "description": "Un exercice d’abduction de hanche simple et redoutablement efficace pour renforcer les fessiers moyens et stabiliser tes genoux. Parfait à la maison avec une simple mini-bande.",
+  "execution": [
+    "Place la mini-bande juste au-dessus de tes chevilles ou sous tes genoux.",
+    "Tiens-toi debout, pieds largeur de hanches, légère flexion des genoux.",
+    "Fais un grand pas latéral avec une jambe en gardant la tension sur la bande.",
+    "Ramène l’autre pied pour retrouver l’écart initial, sans laisser la bande te tirer.",
+    "Enchaîne plusieurs pas dans la même direction, puis reviens dans l’autre sens."
+  ],
+  "cues": [
+    "Garde le buste droit et le regard devant toi.",
+    "Reste légèrement fléchi, jamais les jambes verrouillées.",
+    "Travaille pieds parallèles, orteils vers l’avant.",
+    "Conserve la tension sur la bande pendant tout l’exercice.",
+    "Bouge du bassin, pas du buste."
+  ],
+  "mistakes": [
+    "Laisser le genou rentrer vers l’intérieur à chaque pas.",
+    "Ramener les pieds trop vite sans contrôler la bande.",
+    "Se pencher en avant ou balancer le bassin pour s’aider.",
+    "Faire des pas trop petits pour garder de la tension.",
+    "Monter sur la pointe des pieds entre chaque pas."
+  ],
+  "breathing": {
+    "eccentric": "Inspire de façon régulière pendant les pas.",
+    "concentric": "Expire en contrôlant le rappel du pied."
+  },
+  "status": "validated",
+  "version": 1,
+  "assets": {
+    "poster": "poster.webp",
+    "animation": "animation.mp4"
+  },
+  "artDirection": {
+    "character": "female-athletic",
+    "style": "gflux-premium"
+  }
+}

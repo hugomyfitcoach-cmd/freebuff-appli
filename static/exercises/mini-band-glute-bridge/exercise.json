@@ -1,0 +1,47 @@
+{
+  "slug": "mini-band-glute-bridge",
+  "nameFr": "Pont fessier avec mini-bande",
+  "nameEn": "Mini Band Glute Bridge",
+  "category": "Bas du corps",
+  "primaryMuscleGroup": "Fessiers",
+  "primaryMuscles": ["Grand fessier"],
+  "secondaryMuscles": ["Ischio-jambiers", "Moyen fessier", "Abdominaux"],
+  "equipment": ["Mini-bande"],
+  "level": ["Débutant", "Intermédiaire", "Avancé"],
+  "description": "La version maison du hip thrust : un pont fessier avec mini-bande au-dessus des genoux pour ajouter l’abduction et encore plus de contraction. Un essentiel pour des fessiers forts sans matériel.",
+  "execution": [
+    "Allonge-toi sur le dos, pieds à plat largeur de hanches, genoux fléchis.",
+    "Place la mini-bande juste au-dessus de tes genoux.",
+    "Écarte légèrement les genoux pour créer une tension sur la bande.",
+    "Pousse dans les talons pour monter le bassin jusqu’à l’alignement épaules–genoux.",
+    "Contracte fort les fessiers en haut, puis redescends lentement sans poser complètement."
+  ],
+  "cues": [
+    "Pousse dans les talons, pas dans la pointe des pieds.",
+    "Garde les genoux écartés contre la tension de la bande.",
+    "Rentre légèrement le bassin pour ne pas cambrer le bas du dos.",
+    "Serre les fessiers en haut, comme si tu voulais les verrouiller.",
+    "Contrôle la descente plutôt que de te laisser retomber."
+  ],
+  "mistakes": [
+    "Monter trop haut et hypercambrer le bas du dos.",
+    "Laisser les genoux rentrer vers l’intérieur sous la tension de la bande.",
+    "Pousser avec l’avant des pieds au lieu des talons.",
+    "Descendre trop vite en rebondissant sur le sol.",
+    "Pousser le bassin avec le bas du dos au lieu des fessiers."
+  ],
+  "breathing": {
+    "eccentric": "Inspire pendant la descente du bassin.",
+    "concentric": "Expire en poussant vers le haut et en serrant les fessiers."
+  },
+  "status": "validated",
+  "version": 1,
+  "assets": {
+    "poster": "poster.webp",
+    "animation": "animation.mp4"
+  },
+  "artDirection": {
+    "character": "female-athletic",
+    "style": "gflux-premium"
+  }
+}

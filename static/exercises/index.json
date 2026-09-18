@@ -1,0 +1,168 @@
+{
+  "generatedAt": "2026-09-18T21:07:32.902Z",
+  "standard": "docs/exercise-db-standard.md",
+  "count": 5,
+  "exercises": [
+    {
+      "slug": "band-pallof-press",
+      "nameFr": "Pallof press avec bande",
+      "nameEn": "Band Pallof Press",
+      "category": "Tronc",
+      "primaryMuscleGroup": "Abdominaux",
+      "primaryMuscles": [
+        "Abdominaux",
+        "Obliques"
+      ],
+      "secondaryMuscles": [
+        "Grand fessier",
+        "Épaules"
+      ],
+      "equipment": [
+        "Élastiques"
+      ],
+      "level": [
+        "Débutant",
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/band-pallof-press/poster.webp",
+      "animationUrl": "/exercises/band-pallof-press/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "lateral-band-walk",
+      "nameFr": "Marche latérale avec mini-bande",
+      "nameEn": "Lateral Band Walk",
+      "category": "Bas du corps",
+      "primaryMuscleGroup": "Fessiers",
+      "primaryMuscles": [
+        "Moyen fessier"
+      ],
+      "secondaryMuscles": [
+        "Grand fessier",
+        "Petit fessier"
+      ],
+      "equipment": [
+        "Mini-bande"
+      ],
+      "level": [
+        "Débutant",
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/lateral-band-walk/poster.webp",
+      "animationUrl": "/exercises/lateral-band-walk/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "machine-hip-thrust",
+      "nameFr": "Hip Thrust à la machine",
+      "nameEn": "Machine Hip Thrust",
+      "category": "Bas du corps",
+      "primaryMuscleGroup": "Fessiers",
+      "primaryMuscles": [
+        "Grand fessier"
+      ],
+      "secondaryMuscles": [
+        "Ischio-jambiers",
+        "Quadriceps",
+        "Adducteurs"
+      ],
+      "equipment": [
+        "Machine Hip Thrust"
+      ],
+      "level": [
+        "Débutant",
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/machine-hip-thrust/poster.webp",
+      "animationUrl": "/exercises/machine-hip-thrust/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "mini-band-glute-bridge",
+      "nameFr": "Pont fessier avec mini-bande",
+      "nameEn": "Mini Band Glute Bridge",
+      "category": "Bas du corps",
+      "primaryMuscleGroup": "Fessiers",
+      "primaryMuscles": [
+        "Grand fessier"
+      ],
+      "secondaryMuscles": [
+        "Ischio-jambiers",
+        "Moyen fessier",
+        "Abdominaux"
+      ],
+      "equipment": [
+        "Mini-bande"
+      ],
+      "level": [
+        "Débutant",
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/mini-band-glute-bridge/poster.webp",
+      "animationUrl": "/exercises/mini-band-glute-bridge/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "mini-band-squat",
+      "nameFr": "Squat avec mini-bande",
+      "nameEn": "Mini Band Squat",
+      "category": "Bas du corps",
+      "primaryMuscleGroup": "Fessiers",
+      "primaryMuscles": [
+        "Grand fessier",
+        "Quadriceps"
+      ],
+      "secondaryMuscles": [
+        "Moyen fessier",
+        "Ischio-jambiers",
+        "Adducteurs",
+        "Abdominaux"
+      ],
+      "equipment": [
+        "Mini-bande"
+      ],
+      "level": [
+        "Débutant",
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/mini-band-squat/poster.webp",
+      "animationUrl": "/exercises/mini-band-squat/animation.mp4",
+      "isNew": true
+    }
+  ]
+}

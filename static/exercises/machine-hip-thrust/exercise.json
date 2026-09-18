@@ -1,0 +1,58 @@
+{
+  "slug": "machine-hip-thrust",
+  "nameFr": "Hip Thrust à la machine",
+  "nameEn": "Machine Hip Thrust",
+  "category": "Bas du corps",
+  "primaryMuscleGroup": "Fessiers",
+  "primaryMuscles": ["Grand fessier"],
+  "secondaryMuscles": [
+    "Ischio-jambiers",
+    "Quadriceps",
+    "Adducteurs"
+  ],
+  "equipment": [
+    "Machine Hip Thrust"
+  ],
+  "level": [
+    "Débutant",
+    "Intermédiaire",
+    "Avancé"
+  ],
+  "description": "Un exercice d’extension de hanche qui permet de cibler fortement les fessiers tout en bénéficiant de la stabilité de la machine.",
+  "execution": [
+    "Place le haut du dos contre le dossier et positionne le pad au niveau du pli des hanches.",
+    "Place les pieds à largeur de bassin et bien à plat sur la plateforme.",
+    "Descends le bassin de manière contrôlée.",
+    "Pousse dans les pieds pour amener les hanches vers le haut.",
+    "Termine le mouvement en contractant fortement les fessiers.",
+    "Redescends lentement jusqu’à retrouver la position de départ."
+  ],
+  "cues": [
+    "Garde les pieds bien ancrés.",
+    "Cherche des tibias proches de la verticale en position haute.",
+    "Monte le bassin sans hypercambrer le bas du dos.",
+    "Contracte fortement les fessiers en haut.",
+    "Contrôle la descente."
+  ],
+  "mistakes": [
+    "Hypercambrer le bas du dos en position haute.",
+    "Placer les pieds trop loin ou trop près du bassin.",
+    "Pousser principalement avec l’avant des pieds.",
+    "Rebondir en position basse.",
+    "Sacrifier le contrôle pour augmenter l’amplitude."
+  ],
+  "breathing": {
+    "eccentric": "Inspire pendant la descente.",
+    "concentric": "Expire pendant la poussée et la contraction des fessiers."
+  },
+  "status": "validated",
+  "version": 1,
+  "assets": {
+    "poster": "poster.webp",
+    "animation": "animation.mp4"
+  },
+  "artDirection": {
+    "character": "female-athletic",
+    "style": "gflux-premium"
+  }
+}

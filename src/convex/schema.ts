@@ -779,6 +779,14 @@ export default defineSchema({
 	 *    aucune source externe (`source: "gflux"`), jamais touchés par un
 	 *    import.
 	 *
+	 * Troisième origine au sein de la famille système : la bibliothèque
+	 * OFFICIELLE G-FLUX (`source: "gflux-official"`) — les exercices animés
+	 * propriétaires produits dans le dépôt (`static/exercises/<slug>/`,
+	 * registre généré `static/exercises/index.json`) et poussés vers cette
+	 * table par `scripts/sync-gflux-exercises.mjs` (npm run exercises:sync).
+	 * Même modèle, même clé d'upsert (source + slug) : une seule bibliothèque
+	 * est exposée à l'application, aucune interface parallèle.
+	 *
 	 * Médias : pour le prototype, `mediaUrl` / `thumbnailUrl` conservent
 	 * l'URL de la source (aucun téléchargement massif). Au passage en
 	 * licence commerciale, ils pointeront vers notre stockage/CDN — le
@@ -804,6 +812,19 @@ export default defineSchema({
 		category: v.optional(v.string()),
 		/** Instructions d'exécution (étapes), si fournies par la source. */
 		instructions: v.optional(v.array(v.string())),
+		/** Repères techniques courts (bloc pédagogique G-FLUX officiel). */
+		cues: v.optional(v.array(v.string())),
+		/** Erreurs classiques à éviter (bloc pédagogique G-FLUX officiel). */
+		mistakes: v.optional(v.array(v.string())),
+		/** Niveaux conseillés (ex. ["Débutant", "Intermédiaire", "Avancé"]). */
+		levels: v.optional(v.array(v.string())),
+		/** Respiration pédagogique (excentrique / concentrique). */
+		breathing: v.optional(
+			v.object({
+				eccentric: v.optional(v.string()),
+				concentric: v.optional(v.string()),
+			})
+		),
 		/** Média principal (GIF/image) — URL interne G-FLUX une fois auto-hébergé,
 		 *  sinon URL source (prototype). Le binaire ne vit JAMAIS ici. */
 		mediaUrl: v.optional(v.string()),
@@ -819,6 +840,11 @@ export default defineSchema({
 		thumbnailUrl: v.optional(v.string()),
 		/** Médias complémentaires (vues multiples), si la source en fournit. */
 		mediaUrls: v.optional(v.array(v.string())),
+		/** Vignette statique (bibliothèque officielle G-FLUX : poster.webp). */
+		posterUrl: v.optional(v.string()),
+		/** Animation du mouvement (bibliothèque officielle G-FLUX : animation.mp4,
+		 *  servie depuis le dépôt) — le GIF/vidéo reste hors de la table. */
+		animationUrl: v.optional(v.string()),
 		/** Origine : "gflux" (exercice coach) ou identifiant de source externe
 		 *  (ex. "free-exercise-db"). Jamais un id de la source. */
 		source: v.string(),

@@ -24,6 +24,12 @@
 		equipment?: string;
 		category?: string;
 		instructions?: string[];
+		cues?: string[];
+		mistakes?: string[];
+		levels?: string[];
+		breathing?: { eccentric?: string; concentric?: string };
+		posterUrl?: string;
+		animationUrl?: string;
 		mediaUrl?: string;
 		thumbnailUrl?: string;
 		sourceMediaUrl?: string;
@@ -250,7 +256,7 @@
 			{#each items as ex (ex._id)}
 				<li class="flex items-center gap-3 px-3 py-2 transition hover:bg-brand-light/40">
 					<button type="button" class="flex min-w-0 flex-1 items-center gap-3 text-left" onclick={() => openDetail(ex)}>							<span class="relative block h-11 w-14 shrink-0 overflow-hidden rounded-lg bg-line/40">
-								<ExerciseMedia src={ex.thumbnailUrl} fallbackUrl={ex.mediaUrl} class="h-full w-full object-cover" />
+								<ExerciseMedia media={ex} class="h-full w-full object-cover" />
 							</span>
 						<span class="min-w-0">
 							<span class="block truncate text-[13px] font-semibold text-ink">{ex.name}</span>
@@ -283,7 +289,7 @@
 					class="flex flex-col overflow-hidden rounded-2xl border border-line bg-card text-left shadow-sm transition hover:border-brand"
 				>
 					<div class="relative aspect-[4/3] w-full bg-line/40">
-						<ExerciseMedia src={ex.thumbnailUrl} fallbackUrl={ex.mediaUrl} class="h-full w-full object-cover" />
+						<ExerciseMedia media={ex} class="h-full w-full object-cover" />
 					</div>
 					<div class="flex min-w-0 flex-1 flex-col gap-0.5 p-2.5">
 						<span class="line-clamp-2 text-[13px] font-semibold leading-tight text-ink">{ex.name}</span>
@@ -327,12 +333,13 @@
 					<Icon name="x" size={18} />
 				</button>
 			</div>
+			<!-- Média principal UNIQUE en haut de fiche : animation.mp4 G-FLUX
+			     (ou GIF ExerciseDB) — même média que la recherche, aucun doublon. -->
 			<ExerciseMedia
-				src={detail.mediaUrl ?? detail.thumbnailUrl}
-				fallbackUrl={detail.sourceMediaUrl}
-				alt={`Illustration ${detail.name}`}
+				media={detail}
+				alt={`Animation ${detail.name}`}
 				loading="eager"
-				class="mb-3 max-h-72 w-full rounded-2xl bg-line/30 object-contain"
+				class="mb-3 max-h-72 w-full rounded-2xl bg-line/30 object-cover"
 			/>
 			<div class="mb-3 flex flex-wrap gap-1.5">
 				{#if detail.muscleGroup}<span class="rounded-full bg-brand-light px-2.5 py-1 text-[11px] font-semibold text-brand">{detail.muscleGroup}</span>{/if}
@@ -342,6 +349,33 @@
 			</div>
 			{#if detail.secondaryMuscles?.length}
 				<p class="mb-2 text-xs text-mist"><span class="font-semibold text-ink">Muscles secondaires :</span> {detail.secondaryMuscles.join(', ')}</p>
+			{/if}
+			{#if detail.levels?.length}
+				<p class="mb-2 text-xs text-mist"><span class="font-semibold text-ink">Niveaux :</span> {detail.levels.join(' · ')}</p>
+			{/if}
+			{#if detail.cues?.length}
+				<p class="mb-1 text-[10px] font-bold uppercase tracking-widest text-mist">Repères</p>
+				<ul class="mb-3 list-disc space-y-1 pl-5 text-sm text-ink">
+					{#each detail.cues as cue}
+						<li>{cue}</li>
+					{/each}
+				</ul>
+			{/if}
+			{#if detail.mistakes?.length}
+				<p class="mb-1 text-[10px] font-bold uppercase tracking-widest text-mist">Erreurs à éviter</p>
+				<ul class="mb-3 list-disc space-y-1 pl-5 text-sm text-ink">
+					{#each detail.mistakes as mistake}
+						<li>{mistake}</li>
+					{/each}
+				</ul>
+			{/if}
+			{#if detail.breathing?.eccentric || detail.breathing?.concentric}
+				<p class="mb-3 rounded-xl bg-line/30 px-3 py-2 text-xs text-ink">
+					<span class="font-semibold">Respiration :</span>
+					{#if detail.breathing.eccentric} inspiration — {detail.breathing.eccentric}{/if}
+					{#if detail.breathing.eccentric && detail.breathing.concentric} · {/if}
+					{#if detail.breathing.concentric} expiration — {detail.breathing.concentric}{/if}
+				</p>
 			{/if}
 			{#if detail.instructions?.length}
 				<p class="mb-1 text-[10px] font-bold uppercase tracking-widest text-mist">Exécution</p>

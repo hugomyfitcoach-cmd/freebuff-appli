@@ -469,10 +469,9 @@
 						>
 							<div class="flex items-center gap-2.5 px-2 py-2">
 								<Icon name="rows3" size={13} class="cursor-grab shrink-0 text-mist" />
-								<button type="button" class="flex min-w-0 flex-1 items-center gap-2.5 text-left" onclick={() => (selectedExerciseId = ex._id)}>
-									<span class="relative block h-10 w-14 shrink-0 overflow-hidden rounded-lg bg-line/40">
-										<ExerciseMedia src={ex.exercise?.thumbnailUrl} fallbackUrl={ex.exercise?.mediaUrl} class="h-full w-full object-cover" />
-									</span>
+								<button type="button" class="flex min-w-0 flex-1 items-center gap-2.5 text-left" onclick={() => (selectedExerciseId = ex._id)}>										<span class="relative block h-10 w-14 shrink-0 overflow-hidden rounded-lg bg-line/40">
+											<ExerciseMedia media={ex.exercise ?? undefined} class="h-full w-full object-cover" />
+										</span>
 									<span class="min-w-0">
 										<span class="block truncate text-[13px] font-semibold text-ink">{ex.exercise?.name ?? 'Exercice supprimé'}</span>
 										<span class="block truncate text-[11px] text-mist">{exercisePreview(ex)}</span>
@@ -519,8 +518,7 @@
 					<div class="mb-3 flex items-start gap-3">
 					<span class="relative block h-16 w-24 shrink-0 overflow-hidden rounded-xl bg-line/40">
 						<ExerciseMedia
-							src={selectedExercise.exercise?.mediaUrl ?? selectedExercise.exercise?.thumbnailUrl}
-							fallbackUrl={selectedExercise.exercise?.sourceMediaUrl}
+							media={selectedExercise.exercise ?? undefined}
 							loading="eager"
 							class="h-full w-full object-cover"
 						/>
