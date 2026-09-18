@@ -194,6 +194,7 @@
 					{ href: '/admin/photos', label: 'Photos', icon: 'camera' },
 					{ href: '/admin/bilans', label: 'Bilans', icon: 'clipboardList' },
 					{ href: '/admin/plans', label: 'Plans de repas', icon: 'utensils' },
+					{ href: '/admin/entrainement', label: 'Entraînement', icon: 'dumbbell' },
 					{ href: '/admin/rendez-vous', label: 'Rendez-vous', icon: 'calendarCheck' },
 					{ href: '/recettes', label: 'Guide nutrition & recettes', icon: 'chefHat' },
 					{ href: '/outils', label: 'Outils & calibrage', icon: 'wrench' },

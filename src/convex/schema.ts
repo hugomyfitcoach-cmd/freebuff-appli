@@ -12,6 +12,21 @@ import { answersValidator } from "./answers";
  *                avec l'état du retour coach (feedback).
  */
 export const checkinStatus = v.union(v.literal("nouveau"), v.literal("retour_envoye"));
+
+/** Objectifs de programme (module Entraînement) — liste fermée FR. */
+export const programGoal = v.union(
+	v.literal("hypertrophie"),
+	v.literal("perte_de_gras"),
+	v.literal("remise_en_forme"),
+	v.literal("force"),
+	v.literal("autre")
+);
+/** Niveaux de programme (module Entraînement) — liste fermée FR. */
+export const programLevel = v.union(
+	v.literal("debutante"),
+	v.literal("intermediaire"),
+	v.literal("avancee")
+);
 export const userRole = v.union(v.literal("coach"), v.literal("client"));
 /**
  * Types d'événements du journal d'activité cliente (onglet Notifications du
@@ -751,6 +766,178 @@ export default defineSchema({
 		.index("by_user", ["userId"])
 		.index("by_read", ["read"])
 		.index("by_dedup", ["dedupKey"]),
+
+	/* ═══ Module Entraînement — bibliothèque d'exercices G-FLUX ═══ */
+
+	/**
+	 * BIBLIOTHÈQUE INTERNE G-FLUX d'exercices — socle du futur module
+	 * Entraînement (bibliothèque coach, programmes, séances).
+	 *
+	 * Principe fort : le modèle est G-FLUX, JAMAIS la structure d'une source
+	 * externe. Les banques tierces (ExerciseDB gratuit aujourd'hui, dataset
+	 * commercial demain) sont importées via `source` + `sourceExerciseId`
+	 * (clé d'import anti-doublon, idempotent) et normalisées vers le
+	 * vocabulaire G-FLUX (muscles / équipements en français). Remplacer la
+	 * source = réécrire le convertisseur du script d'import, rien d'autre :
+	 * ni le schéma, ni les fonctions, ni le frontend ne dépendent des ids
+	 * externes.
+	 *
+	 * Deux familles coexistent :
+	 *  - `system: true`  → bibliothèque système (imports + futur dataset
+	 *    commercial) — l'import met à jour, ne supprime JAMAIS ;
+	 *  - `system: false` → exercices créés par la coach (`coachId`), sans
+	 *    aucune source externe (`source: "gflux"`), jamais touchés par un
+	 *    import.
+	 *
+	 * Médias : pour le prototype, `mediaUrl` / `thumbnailUrl` conservent
+	 * l'URL de la source (aucun téléchargement massif). Au passage en
+	 * licence commerciale, ils pointeront vers notre stockage/CDN — le
+	 * frontend ne lit que ces champs, jamais une URL codée en dur.
+	 */
+	exercises: defineTable({
+		/** Identifiant G-FLUX portatif ("ex_" + hex déterministe) — stable même
+		 *  si la source externe change, référencé par les futurs programmes. */
+		gfluxExerciseId: v.string(),
+		/** Nom d'affichage G-FLUX (éditable par la coach, survit aux imports). */
+		name: v.string(),
+		/** Nom original dans la source externe (traçabilité, si renommé). */
+		sourceName: v.optional(v.string()),
+		/** Groupe musculaire principal — vocabulaire G-FLUX FR (ex. "Pectoraux"). */
+		muscleGroup: v.optional(v.string()),
+		/** Muscles secondaires — même vocabulaire G-FLUX. */
+		secondaryMuscles: v.optional(v.array(v.string())),
+		/** Partie du corps — vocabulaire G-FLUX (ex. "Haut du corps"). */
+		bodyPart: v.optional(v.string()),
+		/** Équipement — vocabulaire G-FLUX (ex. "Haltères", "Poids du corps"). */
+		equipment: v.optional(v.string()),
+		/** Catégorie d'effort — vocabulaire G-FLUX (ex. "Renforcement", "Cardio"). */
+		category: v.optional(v.string()),
+		/** Instructions d'exécution (étapes), si fournies par la source. */
+		instructions: v.optional(v.array(v.string())),
+		/** Média principal (GIF/image) — URL interne G-FLUX une fois auto-hébergé,
+		 *  sinon URL source (prototype). Le binaire ne vit JAMAIS ici. */
+		mediaUrl: v.optional(v.string()),
+		/** URL du média ORIGINAL chez la source (traçabilité, re-téléchargement,
+		 *  bascule CDN) — conservée même après hébergement interne. */
+		sourceMediaUrl: v.optional(v.string()),
+		/** Média hébergé dans le file storage Convex — source de vérité du
+		 *  binaire ; `mediaUrl` est son URL résolue. */
+		mediaStorageId: v.optional(v.id("_storage")),
+		/** Taille du média hébergé (octets) — info de volume. */
+		mediaSizeBytes: v.optional(v.number()),
+		/** Miniature si disponible. */
+		thumbnailUrl: v.optional(v.string()),
+		/** Médias complémentaires (vues multiples), si la source en fournit. */
+		mediaUrls: v.optional(v.array(v.string())),
+		/** Origine : "gflux" (exercice coach) ou identifiant de source externe
+		 *  (ex. "free-exercise-db"). Jamais un id de la source. */
+		source: v.string(),
+		/** Identifiant de l'exercice DANS la source — absent pour "gflux". */
+		sourceExerciseId: v.optional(v.string()),
+		/** Note de licence du média/des données (ex. "Domaine public"). */
+		licenseNote: v.optional(v.string()),
+		/** Actif (prêt à être proposé) — l'import ne le touche jamais. */
+		active: v.boolean(),
+		/** Masqué manuellement par la coach — préservé par les imports. */
+		hidden: v.optional(v.boolean()),
+		/** Bibliothèque système (imports) vs exercice personnalisé coach. */
+		system: v.boolean(),
+		/** Coach créatrice (system: false uniquement). */
+		coachId: v.optional(v.id("users")),
+		/** Lot d'import ("source@date") — repère de traçabilité, info. */
+		importBatch: v.optional(v.string()),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	})
+		.index("by_source_id", ["source", "sourceExerciseId"])
+		.index("by_gfluxId", ["gfluxExerciseId"])
+		.index("by_muscleGroup", ["muscleGroup"])
+		.index("by_equipment", ["equipment"])
+		.index("by_name", ["name"])
+		.searchIndex("name_search", { searchField: "name" }),
+
+	/* ═══ Module Entraînement — programmes, séances, prescription ═══ */
+
+	/**
+	 * PROGRAMME d'entraînement créé par la coach (CRM). Indépendant des
+	 * clientes (l'assignation sera une table séparée, mission future) —
+	 * un même programme réutilisable plusieurs fois, comme les plans de
+	 * repas. Objectif et niveau : vocabulaire fermé FR affiché tel quel.
+	 */
+	trainingPrograms: defineTable({
+		coachId: v.id("users"),
+		name: v.string(),
+		description: v.optional(v.string()),
+		/** "hypertrophie" | "perte_de_gras" | "remise_en_forme" | "force" | "autre". */
+		goal: v.optional(programGoal),
+		/** "debutante" | "intermediaire" | "avancee". */
+		level: v.optional(programLevel),
+		/** Image de couverture (Convex file storage) — optionnelle. */
+		imageStorageId: v.optional(v.id("_storage")),
+		/** Séances par semaine visées (ex. 3) — info de cadrage, indépendante du nombre de jours créés. */
+		sessionsPerWeek: v.optional(v.number()),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	})
+		.index("by_coach", ["coachId"])
+		.index("by_coach_updated", ["coachId", "updatedAt"]),
+
+	/**
+	 * SÉANCE (jour) d'un programme — ordre porté par le champ `order`
+	 * (réordonnancement drag & drop : patch des ordres en un lot).
+	 */
+	trainingSessions: defineTable({
+		programId: v.id("trainingPrograms"),
+		/** Nom affiché ("Jour 1 — Bas du corps"), éditable. */
+		name: v.string(),
+		order: v.number(),
+		createdAt: v.number(),
+	}).index("by_program", ["programId"]),
+
+	/**
+	 * EXERCICE posé dans une séance — référence la bibliothèque interne
+	 * (`exercises.gfluxExerciseId` via `exerciseId`), jamais une source
+	 * externe. La prescription vit sur cette ligne (mode, tempo, notes) et
+	 * les séries dans `trainingSets` : remplacer la banque d'exercices ne
+	 * touche pas les programmes.
+	 */
+	trainingSessionExercises: defineTable({
+		sessionId: v.id("trainingSessions"),
+		/** Exercice de la bibliothèque G-FLUX (system ou personnalisé coach). */
+		exerciseId: v.id("exercises"),
+		order: v.number(),
+		/** "reps" (défaut) ou "time" (circuit/cardio). */
+		mode: v.union(v.literal("reps"), v.literal("time")),
+		/** Tempo facultatif (ex. "3-1-1-0"). */
+		tempo: v.optional(v.string()),
+		/** Note coach spécifique à cet exercice dans cette séance. */
+		coachNote: v.optional(v.string()),
+		/** Consigne technique affichée avec la prescription. */
+		techniqueNote: v.optional(v.string()),
+		createdAt: v.number(),
+	}).index("by_session", ["sessionId"]),
+
+	/**
+	 * SÉRIE prescrite d'un exercice de séance. Mode reps : repsMin/repsMax
+	 * (plage 8–12 = deux champs ; valeur fixe = min = max), charge cible kg
+	 * libre et facultative, RIR 0–5 facultatif, repos en secondes.
+	 * Mode time : durationSeconds (+ restSeconds = repos après l'exercice).
+	 * Pas de %1RM en V1 (choix produit).
+	 */
+	trainingSets: defineTable({
+		sessionExerciseId: v.id("trainingSessionExercises"),
+		order: v.number(),
+		repsMin: v.optional(v.number()),
+		repsMax: v.optional(v.number()),
+		/** Charge cible kg — valeur libre, facultative. */
+		targetWeight: v.optional(v.number()),
+		/** RIR cible 0–5, facultatif. */
+		targetRir: v.optional(v.number()),
+		/** Repos en secondes. */
+		restSeconds: v.optional(v.number()),
+		/** Durée en secondes (mode time). */
+		durationSeconds: v.optional(v.number()),
+	}).index("by_sessionExercise", ["sessionExerciseId"]),
 
 	/** Clé→valeur d'infrastructure (jamais de données métier). Version
 	 *  sémantique du backend : `appVersion = { key: 'api', version: '3' }`.
