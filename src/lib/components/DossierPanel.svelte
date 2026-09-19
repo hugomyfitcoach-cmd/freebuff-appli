@@ -2,10 +2,14 @@
 	/**
 	 * Dossier de la cliente (CRM coach) — notes privées et ressources partagées.
 	 *
-	 * Une entrée par note ou fichier, rattachée au clientId. La visibilité est
+	 * Une entrée par note ou document, rattachée au clientId. La visibilité est
 	 * par entrée : « Privé coach » (défaut, jamais envoyé) ou « Partager avec la
-	 * cliente » (visible immédiatement dans sa page « Ressources »). Un seul
-	 * fichier physique — la visibilité détermine simplement qui y accède.
+	 * cliente » (visible immédiatement dans sa page « Ressources »).
+	 *
+	 * Une entrée « Document » peut porter 1 à 5 fichiers/photos envoyés ensemble
+	 * (même carte, chaque pièce jointe reste ouvable individuellement) plus une
+	 * description facultative. Les anciennes entrées à un fichier unique restent
+	 * affichées et fonctionnelles à l'identique.
 	 */
 	import Icon from './Icon.svelte';
 
@@ -14,6 +18,13 @@
 		clientName = '',
 	}: { clientId: string; clientName?: string } = $props();
 
+	type Attachment = {
+		storageId: string;
+		mime: string;
+		name: string;
+		size: number;
+		url: string | null;
+	};
 	type Resource = {
 		_id: string;
 		kind: 'note' | 'file';
@@ -23,6 +34,7 @@
 		name?: string | null;
 		mime?: string | null;
 		size?: number | null;
+		attachmentsWithUrls?: Attachment[] | null;
 		createdAt: number;
 		updatedAt: number;
 		url: string | null;
@@ -92,15 +104,36 @@
 		}
 	}
 
-	/* ————— Nouveau fichier ————— */
+	/* ————— Nouveau document (1 à 5 fichiers/photos + description facultative) ————— */
+	const MAX_FILES = 5;
 	let fileOpen = $state(false);
 	let fileTitle = $state('');
+	let fileDesc = $state('');
 	let fileInput: HTMLInputElement | undefined = $state();
+	let pickedFiles = $state<File[]>([]);
 	let fileBusy = $state(false);
+
+	function syncPicked() {
+		const list = Array.from(fileInput?.files ?? []);
+		pickedFiles = list.slice(0, MAX_FILES);
+		if (list.length > MAX_FILES) {
+			// Le navigateur n'autorise pas d'écraser l'input à la volée sans perdre
+			// la sélection : on garde les 5 premiers et on prévient.
+			err = '5 fichiers maximum — seuls les 5 premiers ont été gardés.';
+			ok = '';
+		}
+	}
+	function removePicked(index: number) {
+		pickedFiles = pickedFiles.filter((_, i) => i !== index);
+		if (fileInput) fileInput.value = '';
+		// Reconstruit une DataTransfer pour garder des File réels dans l'input.
+		const dt = new DataTransfer();
+		for (const f of pickedFiles) dt.items.add(f);
+		if (fileInput && dt.files.length > 0) fileInput.files = dt.files;
+	}
 	async function uploadFile() {
-		const file = fileInput?.files?.[0];
-		if (!fileTitle.trim() || !file) {
-			err = 'Donne un titre et choisis un fichier.';
+		if (!fileTitle.trim() || pickedFiles.length === 0) {
+			err = 'Donne un titre et choisis au moins un fichier.';
 			return;
 		}
 		fileBusy = true;
@@ -109,11 +142,14 @@
 			const fd = new FormData();
 			fd.append('userId', clientId);
 			fd.append('title', fileTitle);
-			fd.append('file', file);
+			if (fileDesc.trim()) fd.append('description', fileDesc);
+			for (const f of pickedFiles) fd.append('file', f);
 			const r = await fetch('/api/coach/resources', { method: 'POST', body: fd });
 			const j = await r.json();
-			if (!r.ok || j.error) throw new Error(j.error || "Impossible d'ajouter le fichier.");
+			if (!r.ok || j.error) throw new Error(j.error || "Impossible d'ajouter le document.");
 			fileTitle = '';
+			fileDesc = '';
+			pickedFiles = [];
 			if (fileInput) fileInput.value = '';
 			fileOpen = false;
 			flashOk('Document ajouté au Drive (privé coach par défaut).');
@@ -171,8 +207,18 @@
 		if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} Ko`;
 		return `${(bytes / (1024 * 1024)).toFixed(1).replace('.', ',')} Mo`;
 	}
-	const fileKind = (r: Resource) => ((r.mime ?? '').startsWith('image/') ? 'image' : (r.mime ?? '') === 'application/pdf' ? 'pdf' : 'file');
-	const kindIcon = (r: Resource) => (r.kind === 'note' ? 'fileText' : fileKind(r) === 'image' ? 'image' : 'fileText');
+	/** Pièces jointes « aplaties » : forme historique (1 fichier) + attachments. */
+	function rowFiles(r: Resource): Attachment[] {
+		if (r.kind !== 'file') return [];
+		const atts = r.attachmentsWithUrls ?? [];
+		if (atts.length > 0) return atts;
+		if (r.url && r.name) {
+			return [{ storageId: '', mime: r.mime ?? '', name: r.name, size: r.size ?? 0, url: r.url }];
+		}
+		return [];
+	}
+	const isImage = (mime?: string | null) => (mime ?? '').startsWith('image/');
+	const kindIcon = (r: Resource) => (r.kind === 'note' || !isImage(r.mime) ? 'fileText' : 'image');
 </script>
 
 <div class="rounded-2xl border border-line bg-card p-4 shadow-sm">
@@ -227,16 +273,42 @@
 		<div class="mt-3 space-y-2 rounded-xl border border-line bg-cream/50 p-3">
 			<input
 				type="text"
-				placeholder="Titre (ex. Comparaison avant / après — 8 septembre)"
+				placeholder="Titre (ex. Comparaison photos septembre)"
 				bind:value={fileTitle}
 				class="w-full rounded-lg border-2 border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-brand"
 			/>
 			<input
 				type="file"
+				multiple
+				accept=".pdf,.jpg,.jpeg,.png,.webp,.gif,.heic,.txt,.md,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,image/*"
 				bind:this={fileInput}
+				onchange={syncPicked}
 				class="block w-full text-sm text-mist file:mr-3 file:rounded-lg file:border-0 file:bg-ink file:px-3 file:py-2 file:text-xs file:font-bold file:text-white"
 			/>
-			<p class="text-[11px] text-mist">PDF, image ou document (Word, Excel, PowerPoint…) — 25 Mo max.</p>
+			{#if pickedFiles.length > 0}
+				<ul class="space-y-1">
+					{#each pickedFiles as f, i (f.name + f.size + i)}
+						<li class="flex items-center gap-2 rounded-lg border border-line bg-white px-2.5 py-1.5">
+							<Icon name="fileText" size={13} class="shrink-0 text-mist" />
+							<span class="min-w-0 flex-1 truncate text-xs text-ink">{f.name}</span>
+							<span class="shrink-0 text-[11px] text-mist">{sizeLabel(f.size)}</span>
+							<button
+								type="button"
+								onclick={() => removePicked(i)}
+								class="shrink-0 rounded p-0.5 text-mist transition hover:text-danger"
+								aria-label={`Retirer ${f.name}`}
+							><Icon name="x" size={13} /></button>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+			<textarea
+				placeholder="Description (facultatif) — ex. Comparaison face / profil / dos, 92 kg"
+				rows="2"
+				bind:value={fileDesc}
+				class="w-full rounded-lg border-2 border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-brand"
+			></textarea>
+			<p class="text-[11px] text-mist">PDF, image ou document (Word, Excel, PowerPoint…) — 25 Mo max par fichier · 5 fichiers maximum par entrée.</p>
 			<div class="flex justify-end">
 				<button
 					type="button"
@@ -261,16 +333,17 @@
 			</div>
 		{:else}
 			{#each rows as row (row._id)}
-				{@const isFile = row.kind === 'file'}
+				{@const files = rowFiles(row)}
+				{@const totalSize = files.reduce((s, f) => s + (f.size || 0), 0)}
 				<div class="rounded-xl border border-line bg-white p-3 transition {row.visibility === 'shared' ? 'border-brand/40' : ''}">
 					<div class="flex items-start gap-2.5">
 						<span class="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-line/60"><Icon name={kindIcon(row)} size={15} class="text-mist" /></span>
 						<div class="min-w-0 flex-1">
 							<p class="break-words text-sm font-bold leading-snug text-ink">{row.title}</p>
 							<p class="mt-0.5 text-[11px] text-mist">
-								{isFile ? (row.name ?? 'Document') : 'Note'} · {dateShort(row.createdAt)}{isFile && row.size ? ` · ${sizeLabel(row.size)}` : ''}
+								{row.kind === 'note' ? 'Note' : files.length > 1 ? `${files.length} fichiers` : 'Document'} · {dateShort(row.createdAt)}{totalSize ? ` · ${sizeLabel(totalSize)}` : ''}
 							</p>
-							{#if !isFile && row.body}
+							{#if row.body}
 								<p class="mt-1 whitespace-pre-line text-xs leading-relaxed text-ink/75">{row.body}</p>
 							{/if}
 						</div>
@@ -279,10 +352,34 @@
 						</span>
 					</div>
 
-					{#if isFile && row.url}
-						<a href={row.url} target="_blank" rel="noopener noreferrer" class="mt-2 inline-flex items-center gap-1 rounded-lg border-2 border-line px-2.5 py-1.5 text-xs font-bold text-ink transition hover:border-brand hover:text-brand">
-							<Icon name="eye" size={13} class="shrink-0" /> Ouvrir
-						</a>
+					{#if files.length > 0}
+						<ul class="mt-2 space-y-1">
+							{#each files as f, i (f.storageId + f.name + i)}
+								{@const img = isImage(f.mime)}
+								<li>
+									{#if f.url}
+										<a
+											href={f.url}
+											target="_blank"
+											rel="noopener noreferrer"
+											download={f.name}
+											class="flex w-full items-center gap-2 rounded-lg border-2 border-line px-2.5 py-1.5 text-left transition hover:border-brand"
+										>
+											<Icon name={img ? 'image' : 'fileText'} size={13} class="shrink-0 text-mist" />
+											<span class="min-w-0 flex-1 truncate text-xs font-semibold text-ink">{f.name}</span>
+											{#if f.size}<span class="shrink-0 text-[11px] text-mist">{sizeLabel(f.size)}</span>{/if}
+											<Icon name="eye" size={13} class="shrink-0 text-mist" />
+										</a>
+									{:else}
+										<div class="flex w-full items-center gap-2 rounded-lg border-2 border-line px-2.5 py-1.5">
+											<Icon name={img ? 'image' : 'fileText'} size={13} class="shrink-0 text-mist" />
+											<span class="min-w-0 flex-1 truncate text-xs font-semibold text-mist">{f.name}</span>
+											{#if f.size}<span class="shrink-0 text-[11px] text-mist">{sizeLabel(f.size)}</span>{/if}
+										</div>
+									{/if}
+								</li>
+							{/each}
+						</ul>
 					{/if}
 
 					<div class="mt-2.5 flex flex-wrap items-center gap-1.5 border-t border-line/70 pt-2.5">

@@ -2769,7 +2769,7 @@
 										<figure class="relative overflow-hidden rounded-xl border border-line bg-white">
 											{#if photo.url}
 												<a href={photo.url} target="_blank" rel="noreferrer" aria-label={`Voir ${photo.label}`}>
-													<img src={photo.url} alt={photo.label} class="h-44 w-full object-cover transition hover:scale-105" loading="lazy" />
+													<img src={photo.url} alt={photo.label} class="h-44 w-full object-contain" loading="lazy" />
 												</a>
 												<button
 													type="button"

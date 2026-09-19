@@ -12,11 +12,13 @@ import { errMsg } from '$lib/errors.js';
  * POST : ajoute une entrée. Par défaut la visibilité est « Privé coach » ;
  *        le partage avec la cliente se fait via PATCH (visibilité = shared).
  *        Deux formes :
- *          - multipart/form-data : fichier (PDF, image, document…) → stocké sur
- *            le storage Convex, une seule copie physique ;
+ *          - multipart/form-data : fichier(s) (PDF, image, document…) → 1 à 5
+ *            fichiers dans la MÊME entrée Drive, stockés sur le storage Convex
+ *            (une seule copie physique chacun) ;
  *          - application/json     : note textuelle { kind:'note', title, body }.
  */
-const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25 Mo
+const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25 Mo par fichier
+const MAX_FILES = 5; // pièces jointes par entrée Drive
 const FILE_TYPES = new Set([
 	'application/pdf',
 	'image/jpeg',
@@ -61,39 +63,45 @@ export const POST: RequestHandler = async (event) => {
 			const form = await event.request.formData();
 			const userId = String(form.get('userId') ?? '');
 			const title = String(form.get('title') ?? '').trim();
-			const file = form.getAll('file').find((f): f is File => f instanceof File);
+			const description = String(form.get('description') ?? '').trim();
+			const files = form.getAll('file').filter((f): f is File => f instanceof File && f.size > 0);
 			if (!userId || !title) return json({ error: 'Titre et cliente requis.' }, { status: 400 });
-			if (!file || file.size === 0) return json({ error: 'Aucun fichier reçu.' }, { status: 400 });
-			const typeOk = FILE_TYPES.has(file.type) || EXT_OK.test(file.name);
-			if (!typeOk) {
-				return json(
-					{ error: 'Format non accepté pour le Drive : PDF, image ou document (Word, Excel, PowerPoint, texte…).' },
-					{ status: 400 }
-				);
+			if (files.length === 0) return json({ error: 'Aucun fichier reçu.' }, { status: 400 });
+			if (files.length > MAX_FILES) return json({ error: `5 fichiers maximum par entrée Drive.` }, { status: 400 });
+			for (const file of files) {
+				const typeOk = FILE_TYPES.has(file.type) || EXT_OK.test(file.name);
+				if (!typeOk) {
+					return json(
+						{ error: `« ${file.name} » : format non accepté pour le Drive (PDF, image ou document Word, Excel, PowerPoint, texte…).` },
+						{ status: 400 }
+					);
+				}
+				if (file.size > MAX_FILE_BYTES) return json({ error: `« ${file.name} » dépasse 25 Mo.` }, { status: 400 });
 			}
-			if (file.size > MAX_FILE_BYTES) return json({ error: `« ${file.name} » dépasse 25 Mo.` }, { status: 400 });
 
-			// 1) Upload du fichier → storage Convex (une seule copie physique).
-			const uploadUrl = await convex.mutation(api.media.generateUploadUrl, { sessionToken: token });
-			const bytes = new Uint8Array(await file.arrayBuffer());
-			const up = await fetch(uploadUrl, {
-				method: 'POST',
-				headers: { 'Content-Type': file.type || 'application/octet-stream' },
-				body: bytes,
-			});
-			if (!up.ok) return json({ error: `Échec de l'upload de « ${file.name} ».` }, { status: 502 });
-			const { storageId } = (await up.json()) as { storageId: string };
+			// 1) Upload de chaque fichier → storage Convex (une seule copie physique chacun).
+			const attachments: { storageId: string; mime: string; name: string; size: number }[] = [];
+			for (const file of files) {
+				const uploadUrl = await convex.mutation(api.media.generateUploadUrl, { sessionToken: token });
+				const bytes = new Uint8Array(await file.arrayBuffer());
+				const up = await fetch(uploadUrl, {
+					method: 'POST',
+					headers: { 'Content-Type': file.type || 'application/octet-stream' },
+					body: bytes,
+				});
+				if (!up.ok) return json({ error: `Échec de l'upload de « ${file.name} ».` }, { status: 502 });
+				const { storageId } = (await up.json()) as { storageId: string };
+				attachments.push({ storageId, mime: file.type || 'application/octet-stream', name: file.name.slice(0, 200), size: file.size });
+			}
 
-			// 2) Entrée du Dossier (visibilité par défaut : privée coach).
+			// 2) UNE seule entrée du Dossier pour l'ensemble (visibilité par défaut : privée coach).
 			const res = await convex.mutation(api.resources.addResource, {
 				sessionToken: token,
 				userId: userId as never,
 				kind: 'file',
 				title,
-				storageId: storageId as never,
-				mime: file.type || 'application/octet-stream',
-				name: file.name.slice(0, 200),
-				size: file.size,
+				...(description ? { body: description } : {}),
+				attachments: attachments as never,
 			});
 			return json({ ok: true, resourceId: res.resourceId });
 		}
