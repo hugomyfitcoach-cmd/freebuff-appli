@@ -1,0 +1,38 @@
+{
+  "slug": "swiss-ball-wall-squat",
+  "nameFr": "Squat mural avec Swiss Ball",
+  "nameEn": "Swiss Ball Wall Squat",
+  "category": "Bas du corps",
+  "primaryMuscleGroup": "Quadriceps",
+  "primaryMuscles": ["Quadriceps"],
+  "secondaryMuscles": ["Grand fessier", "Ischio-jambiers", "Mollets"],
+  "equipment": ["Swiss Ball"],
+  "level": ["Débutant", "Intermédiaire", "Avancé"],
+  "description": "Le squat guidé par le mur : le ballon glisse entre ton dos et le mur et impose une trajectoire parfaite. L'exercice idéal pour apprendre le squat ou renforcer les jambes en douceur.",
+  "execution": [
+    "Place le ballon entre le mur et le bas de ton dos, pieds légèrement devant, largeur de hanches.",
+    "Appuie-toi dans le ballon et verrouille le gainage.",
+    "Descends en squat en laissant le ballon rouler le long du mur, jusqu'à cuisses parallèles au sol.",
+    "Garde les genoux dans l'axe des pieds et le poids sur les talons.",
+    "Pousse dans le sol pour remonter, sans décoller le dos du ballon."
+  ],
+  "cues": [
+    "Le contact dos-ballon reste constant pendant toute la descente.",
+    "Genoux vers l'avant, jamais rentrés vers l'intérieur.",
+    "Poids réparti sur tout le pied, talons ancrés.",
+    "Regard droit, poitrine ouverte.",
+    "Descends lentement, remonte de la même façon."
+  ],
+  "mistakes": [
+    "Décoller le bas du dos du ballon.",
+    "Descendre plus bas que son niveau de mobilité.",
+    "Laisser les genoux partir vers l'intérieur.",
+    "Se servir des mains sur les cuisses pour remonter.",
+    "Descendre trop vite en se laissant tomber."
+  ],
+  "breathing": { "eccentric": "Inspire pendant la descente.", "concentric": "Expire en poussant vers le haut." },
+  "status": "validated",
+  "version": 1,
+  "assets": { "poster": "poster.webp", "animation": "animation.mp4" },
+  "artDirection": { "character": "female-athletic", "style": "gflux-premium" }
+}

@@ -1,0 +1,38 @@
+{
+  "slug": "swiss-ball-hip-thrust",
+  "nameFr": "Hip thrust sur Swiss Ball",
+  "nameEn": "Swiss Ball Hip Thrust",
+  "category": "Bas du corps",
+  "primaryMuscleGroup": "Fessiers",
+  "primaryMuscles": ["Grand fessier"],
+  "secondaryMuscles": ["Ischio-jambiers", "Abdominaux", "Mollets"],
+  "equipment": ["Swiss Ball"],
+  "level": ["Débutant", "Intermédiaire", "Avancé"],
+  "description": "Le hip thrust à la maison : épaules au sol, talons sur le ballon, tu montes le bassin vers l'alignement épaules-genoux. Le ballon ajoute l'instabilité pour des fessiers qui doivent rester engagés du début à la fin.",
+  "execution": [
+    "Allonge-toi sur le dos, épaules au sol, bras le long du corps.",
+    "Place les talons sur le ballon, jambes fléchies à environ 90°.",
+    "Pousse dans les talons pour monter le bassin jusqu'à l'alignement épaules-genoux.",
+    "Serre fort les fessiers en haut, une à deux secondes.",
+    "Redescends lentement le bassin sans poser complètement."
+  ],
+  "cues": [
+    "Le ballon doit rester immobile : pieds bien ancrés dessus.",
+    "Pousse dans les talons, pas dans la pointe des pieds.",
+    "Bassin neutre en haut : serre les fessiers, ne cambr pas.",
+    "Menton légèrement rentré, nuque relâchée.",
+    "Descente contrôlée, sans se laisser retomber."
+  ],
+  "mistakes": [
+    "Laisser le ballon rouler pendant la poussée.",
+    "Cambrer le bas du dos en haut du mouvement.",
+    "Monter trop haut avec le bas du dos au lieu des fessiers.",
+    "Pousser avec l'avant du pied.",
+    "Descendre trop vite en rebondissant."
+  ],
+  "breathing": { "eccentric": "Inspire pendant la descente du bassin.", "concentric": "Expire en poussant le bassin vers le haut." },
+  "status": "validated",
+  "version": 1,
+  "assets": { "poster": "poster.webp", "animation": "animation.mp4" },
+  "artDirection": { "character": "female-athletic", "style": "gflux-premium" }
+}

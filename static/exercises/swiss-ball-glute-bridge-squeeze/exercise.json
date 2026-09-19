@@ -1,0 +1,38 @@
+{
+  "slug": "swiss-ball-glute-bridge-squeeze",
+  "nameFr": "Pont fessier avec Swiss Ball et squeeze des adducteurs",
+  "nameEn": "Swiss Ball Glute Bridge with Adductor Squeeze",
+  "category": "Bas du corps",
+  "primaryMuscleGroup": "Fessiers",
+  "primaryMuscles": ["Grand fessier", "Adducteurs"],
+  "secondaryMuscles": ["Ischio-jambiers", "Abdominaux", "Mollets"],
+  "equipment": ["Swiss Ball"],
+  "level": ["Débutant", "Intermédiaire", "Avancé"],
+  "description": "Un pont fessier avec le ballon serré entre les genoux : fessiers et adducteurs travaillent ensemble pendant que le bassin monte. Parfait pour reconnecter fessiers et intérieur de cuisse.",
+  "execution": [
+    "Allonge-toi sur le dos, genoux fléchis, ballon serré entre tes genoux, pieds au sol.",
+    "Serre le ballon avec les genoux et garde cette pression constante.",
+    "Pousse dans les talons pour monter le bassin jusqu'à l'alignement épaules-genoux.",
+    "Serre fort les fessiers en haut, sans relâcher la pression sur le ballon.",
+    "Redescends lentement sans poser complètement ni lâcher le ballon."
+  ],
+  "cues": [
+    "La pression sur le ballon ne baisse jamais, même en haut.",
+    "Pousse dans les talons, pas dans la pointe des pieds.",
+    "Bassin neutre : pas de cambrure en haut du mouvement.",
+    "Serre les fessiers comme pour verrouiller en haut.",
+    "Descente contrôlée, vertèbre par vertèbre."
+  ],
+  "mistakes": [
+    "Lâcher la pression sur le ballon en montant.",
+    "Cambrer le bas du dos en haut du pont.",
+    "Pousser le ballon d'un côté : les genoux restent dans l'axe.",
+    "Monter trop haut et perdre les fessiers.",
+    "Descendre en se laissant tomber."
+  ],
+  "breathing": { "eccentric": "Inspire pendant la descente du bassin.", "concentric": "Expire en montant le pont et en serrant." },
+  "status": "validated",
+  "version": 1,
+  "assets": { "poster": "poster.webp", "animation": "animation.mp4" },
+  "artDirection": { "character": "female-athletic", "style": "gflux-premium" }
+}

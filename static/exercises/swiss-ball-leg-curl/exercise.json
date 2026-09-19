@@ -1,0 +1,38 @@
+{
+  "slug": "swiss-ball-leg-curl",
+  "nameFr": "Leg curl sur Swiss Ball",
+  "nameEn": "Swiss Ball Leg Curl",
+  "category": "Bas du corps",
+  "primaryMuscleGroup": "Ischio-jambiers",
+  "primaryMuscles": ["Ischio-jambiers"],
+  "secondaryMuscles": ["Grand fessier", "Mollets", "Abdominaux"],
+  "equipment": ["Swiss Ball"],
+  "level": ["Débutant", "Intermédiaire", "Avancé"],
+  "description": "L'exercice roi des ischio-jambiers sans machine : en pont, tu enroules le ballon vers tes fessiers en fléchissant les genoux, puis tu reviens. Fessiers et core travaillent pour maintenir le bassin haut.",
+  "execution": [
+    "Allonge-toi sur le dos, les deux talons posés sur le ballon, bras le long du corps.",
+    "Monte en pont en poussant les talons, hanches alignées épaules-genoux.",
+    "Fléchis les genoux pour enrouler le ballon vers tes fessiers.",
+    "Garde le bassin haut et stable pendant toute la flexion.",
+    "Retends les jambes en contrôlant le retour du ballon, sans poser le bassin."
+  ],
+  "cues": [
+    "Le bassin reste haut du début à la fin de la série.",
+    "Serre les fessiers pour verrouiller la position.",
+    "Enroule le ballon avec les talons, pas avec les pointes.",
+    "Le ballon roule dans l'axe, ni à gauche ni à droite.",
+    "Descente plus lente que la flexion."
+  ],
+  "mistakes": [
+    "Laisser le bassin retomber dès que le ballon roule.",
+    "Pousser avec les bras pour s'aider.",
+    "Faire des à-coups au lieu d'un mouvement contrôlé.",
+    "Laisser le ballon partir de côté.",
+    "Creuser le bas du dos pour compenser."
+  ],
+  "breathing": { "eccentric": "Inspire en retendant les jambes.", "concentric": "Expire en enroulant le ballon vers les fessiers." },
+  "status": "validated",
+  "version": 1,
+  "assets": { "poster": "poster.webp", "animation": "animation.mp4" },
+  "artDirection": { "character": "female-athletic", "style": "gflux-premium" }
+}

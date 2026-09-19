@@ -1,0 +1,38 @@
+{
+  "slug": "swiss-ball-reverse-hyperextension",
+  "nameFr": "Extension de hanche inversée sur Swiss Ball",
+  "nameEn": "Swiss Ball Reverse Hyperextension",
+  "category": "Bas du corps",
+  "primaryMuscleGroup": "Fessiers",
+  "primaryMuscles": ["Grand fessier"],
+  "secondaryMuscles": ["Ischio-jambiers", "Érecteurs du rachis", "Abdominaux"],
+  "equipment": ["Swiss Ball"],
+  "level": ["Débutant", "Intermédiaire", "Avancé"],
+  "description": "Bassin sur le ballon, jambes qui montent vers le plafond : une extension de hanche qui cible fessiers et bas du dos sans charge, avec un excellent contrôle de l'amplitude.",
+  "execution": [
+    "Couché sur le ventre, bassin calé sur le sommet du ballon, mains au sol sous les épaules.",
+    "Jambes tendues, pointes proches du sol au départ.",
+    "Monte les deux jambes en extension de hanche, jusqu'à l'alignement du corps.",
+    "Serre les fessiers en haut une seconde, sans cambrer excessivement.",
+    "Redescends lentement les jambes vers le sol en contrôlant."
+  ],
+  "cues": [
+    "Le mouvement part des hanches, pas du bas du dos.",
+    "Serre le ventre pour protéger les lombaires.",
+    "Amplitude confortable : pas besoin de monter très haut.",
+    "Jambes tendues mais détendues.",
+    "Descente deux fois plus lente que la montée."
+  ],
+  "mistakes": [
+    "Cambrer le bas du dos en cherchant de la hauteur.",
+    "Donner de l'élan en rebondissant sur le sol.",
+    "Monter une jambe plus haut que l'autre.",
+    "Pousser avec les mains pour s'aider.",
+    "Descendre trop vite et perdre la tension."
+  ],
+  "breathing": { "eccentric": "Inspire en redescendant les jambes.", "concentric": "Expire en montant les jambes et en serrant les fessiers." },
+  "status": "validated",
+  "version": 1,
+  "assets": { "poster": "poster.webp", "animation": "animation.mp4" },
+  "artDirection": { "character": "female-athletic", "style": "gflux-premium" }
+}

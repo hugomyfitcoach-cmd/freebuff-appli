@@ -1,0 +1,38 @@
+{
+  "slug": "swiss-ball-stir-the-pot",
+  "nameFr": "Stir the Pot sur Swiss Ball",
+  "nameEn": "Swiss Ball Stir the Pot",
+  "category": "Tronc",
+  "primaryMuscleGroup": "Abdominaux",
+  "primaryMuscles": ["Abdominaux", "Obliques"],
+  "secondaryMuscles": ["Grand dorsal", "Épaules", "Érecteurs du rachis"],
+  "equipment": ["Swiss Ball"],
+  "level": ["Intermédiaire", "Avancé"],
+  "description": "La planche sur ballon nivelée au dessus : avant-bras sur le ballon, tu dessines de grands cercles contrôlés sans laisser le bassin bouger. Un anti-extension et anti-rotation redoutable pour un core solide.",
+  "execution": [
+    "Mets-toi en planche avant, avant-bras posés sur le ballon, corps aligné de la tête aux talons.",
+    "Garde les pieds écartés pour la stabilité et serre abdos et fessiers.",
+    "Fais tourner les avant-bras pour dessiner un grand cercle avec le ballon, dans un sens.",
+    "Le bassin reste immobile : seul le ballon bouge sous tes avant-bras.",
+    "Après quelques cercles, change de sens et garde la même qualité d'exécution."
+  ],
+  "cues": [
+    "Corps rigide : le mouvement vient des épaules et des avant-bras, jamais du bassin.",
+    "Cercles lents et grands : la vitesse dégrade la position.",
+    "Serre les fessiers pour verrouiller le bassin.",
+    "Respire régulièrement, sans relâcher le ventre.",
+    "Réduis le diamètre des cercles si le bassin part en rotation."
+  ],
+  "mistakes": [
+    "Laisser le bassin pivoter ou se cambrer pendant les cercles.",
+    "Monter les hanches et transformer l'exercice en pike.",
+    "Aller trop vite et perdre le contrôle du ballon.",
+    "Bloquer la respiration au lieu de rester gainé.",
+    "Faire des cercles trop petits en compensant avec les épaules hautes."
+  ],
+  "breathing": { "eccentric": "Inspire sur la moitié du cercle qui t'éloigne du centre.", "concentric": "Expire en ramenant le cercle vers le centre." },
+  "status": "validated",
+  "version": 1,
+  "assets": { "poster": "poster.webp", "animation": "animation.mp4" },
+  "artDirection": { "character": "female-athletic", "style": "gflux-premium" }
+}

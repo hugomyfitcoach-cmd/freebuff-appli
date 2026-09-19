@@ -1,0 +1,38 @@
+{
+  "slug": "swiss-ball-knee-tuck",
+  "nameFr": "Knee Tuck sur Swiss Ball",
+  "nameEn": "Swiss Ball Knee Tuck",
+  "category": "Tronc",
+  "primaryMuscleGroup": "Abdominaux",
+  "primaryMuscles": ["Abdominaux"],
+  "secondaryMuscles": ["Obliques", "Quadriceps", "Épaules"],
+  "equipment": ["Swiss Ball"],
+  "level": ["Intermédiaire", "Avancé"],
+  "description": "En planche, tibias sur le ballon : tu ramènes les genoux vers la poitrine enroulant le bassin, puis tu reviens en planche. Une flexion de tronc complète qui gagne en stabilité sur surface instable.",
+  "execution": [
+    "Mets-toi en position de planche haute, mains sous les épaules, tibias posés sur le ballon.",
+    "Corps aligné, serre le ventre et les fessiers pour verrouiller le bassin.",
+    "Ramène les genoux vers la poitrine en laissant le ballon rouler sous les tibias.",
+    "Monte les hanches au passage des genoux, sans les laisser s'effondrer.",
+    "Tends à nouveau les jambes pour revenir en planche, sans creuser le bas du dos."
+  ],
+  "cues": [
+    "Le retour se fait par le bassin : enroule-le vers la poitrine.",
+    "Épaules au-dessus des mains, bras fixes.",
+    "Évite de laisser le ventre s'affaisser au départ.",
+    "Genoux centrés : pas de rotation du bassin.",
+    "Contrôle la phase de retour autant que la montée."
+  ],
+  "mistakes": [
+    "Creuser le bas du dos en position de départ.",
+    "Monter les fesses très haut sans ramener les genoux (compensation).",
+    "Laisser le ballon partir sur le côté.",
+    "Descendre les épaules derrière les mains.",
+    "Revenir en planche en tombant au lieu de contrôler."
+  ],
+  "breathing": { "eccentric": "Inspire en revenant à la planche.", "concentric": "Expire en ramenant les genoux vers la poitrine." },
+  "status": "validated",
+  "version": 1,
+  "assets": { "poster": "poster.webp", "animation": "animation.mp4" },
+  "artDirection": { "character": "female-athletic", "style": "gflux-premium" }
+}

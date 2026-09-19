@@ -1,0 +1,38 @@
+{
+  "slug": "swiss-ball-pike",
+  "nameFr": "Pike sur Swiss Ball",
+  "nameEn": "Swiss Ball Pike",
+  "category": "Tronc",
+  "primaryMuscleGroup": "Abdominaux",
+  "primaryMuscles": ["Abdominaux"],
+  "secondaryMuscles": ["Épaules", "Grand dorsal", "Quadriceps"],
+  "equipment": ["Swiss Ball"],
+  "level": ["Intermédiaire", "Avancé"],
+  "description": "La version athlétique du jackknife : en planche, tibias sur le ballon, tu montes les hanches très haut vers le plafond, jambes tendues, jusqu'à former un V inversé parfait. Épaules et abdos travaillent ensemble sur toute l'amplitude.",
+  "execution": [
+    "Mets-toi en planche haute, mains sous les épaules, tibias sur le ballon.",
+    "Corps aligné, ventre et fessiers serrés.",
+    "Monte les hanches vers le plafond en laissant le ballon rouler vers les pointes de pieds.",
+    "Jambes tendues pendant toute la montée : le corps forme un V inversé.",
+    "Redescends en contrôlant jusqu'à la planche de départ."
+  ],
+  "cues": [
+    "Jambes TENDUES : c'est la différence avec le jackknife (genoux fléchis).",
+    "Le mouvement part des hanches, pas des bras.",
+    "Épaules stables, bras fixes.",
+    "Serre les abdos pour piloter la montée.",
+    "Retour lent jusqu'à la planche, sans s'effondrer."
+  ],
+  "mistakes": [
+    "Fléchir les genoux (c'est alors un jackknife).",
+    "Descendre les épaules derrière les mains.",
+    "Creuser le bas du dos au retour.",
+    "Ballon qui part de côté.",
+    "Montée avec élan, sans contrôle."
+  ],
+  "breathing": { "eccentric": "Inspire en revenant vers la planche.", "concentric": "Expire en montant les hanches." },
+  "status": "validated",
+  "version": 1,
+  "assets": { "poster": "poster.webp", "animation": "animation.mp4" },
+  "artDirection": { "character": "female-athletic", "style": "gflux-premium" }
+}

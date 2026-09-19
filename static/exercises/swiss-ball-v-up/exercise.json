@@ -1,0 +1,38 @@
+{
+  "slug": "swiss-ball-v-up",
+  "nameFr": "V-Up avec Swiss Ball",
+  "nameEn": "Swiss Ball V-Up",
+  "category": "Tronc",
+  "primaryMuscleGroup": "Abdominaux",
+  "primaryMuscles": ["Abdominaux"],
+  "secondaryMuscles": ["Obliques", "Quadriceps", "Épaules"],
+  "equipment": ["Swiss Ball"],
+  "level": ["Intermédiaire", "Avancé"],
+  "description": "Le V-up le plus exigeant : tu transfères le ballon entre pieds et mains, en V complet. Un mouvement dynamique qui enchaîne flexion et gainage, très complet pour le tronc.",
+  "execution": [
+    "Allongé sur le dos, ballon serré entre les pieds, bras tendus derrière la tête au sol.",
+    "Monte simultanément jambes et buste en formant un V.",
+    "Saisis le ballon avec les mains, puis redescends en contrôlant.",
+    "Au sol, le ballon passe des mains vers les pieds pour la répétition suivante.",
+    "Enchaîne les répétitions en gardant le bas du dos collé au sol."
+  ],
+  "cues": [
+    "Bas du dos collé au sol pendant toute l'amplitude.",
+    "Membres tendus : jambes et bras restent droits.",
+    "Saisis le ballon avec les mains, ne le lances pas.",
+    "Descente lente des membres, sans lâcher la tension.",
+    "Respire à chaque transfert."
+  ],
+  "mistakes": [
+    "Décoller le bas du dos du sol.",
+    "Genoux fléchis : le V perd sa forme.",
+    "Balancer les jambes avec de l'élan.",
+    "Lâcher le ballon en plein mouvement.",
+    "Descendre trop vite et se laisser tomber."
+  ],
+  "breathing": { "eccentric": "Inspire en redescendant membres et ballon.", "concentric": "Expire en montant en V." },
+  "status": "validated",
+  "version": 1,
+  "assets": { "poster": "poster.webp", "animation": "animation.mp4" },
+  "artDirection": { "character": "female-athletic", "style": "gflux-premium" }
+}

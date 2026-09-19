@@ -1,0 +1,38 @@
+{
+  "slug": "swiss-ball-side-plank",
+  "nameFr": "Side plank sur Swiss Ball",
+  "nameEn": "Swiss Ball Side Plank",
+  "category": "Tronc",
+  "primaryMuscleGroup": "Obliques",
+  "primaryMuscles": ["Obliques"],
+  "secondaryMuscles": ["Abdominaux", "Moyen fessier", "Épaules"],
+  "equipment": ["Swiss Ball"],
+  "level": ["Intermédiaire", "Avancé"],
+  "description": "Le gainage latéral sur surface instable : pieds sur le ballon, tu maintiens un alignement parfait sur le côté. Les obliques et les hanches travaillent deux fois plus pour compenser le ballon.",
+  "execution": [
+    "Allonge-toi sur le côté, coude sous l'épaule, les deux pieds posés sur le ballon.",
+    "Monte les hanches jusqu'à l'alignement épaules-chevilles.",
+    "Serre les obliques et les fessiers pour verrouiller la position.",
+    "Épaule active : pousse dans le sol, ne t'affaisse pas.",
+    "Tiens la position, puis change de côté."
+  ],
+  "cues": [
+    "Corps en ligne : ni hanches basses, ni fesses en arrière.",
+    "Pieds joints ou l'un devant l'autre sur le ballon.",
+    "Pousse le ballon légèrement vers le sol pour le contrôler.",
+    "Respire calmement, sans lâcher la contraction.",
+    "Bras libre le long du corps ou tendu vers le plafond."
+  ],
+  "mistakes": [
+    "Laisser les hanches tomber vers le sol.",
+    "Pivoter le buste vers l'avant.",
+    "Monter l'épaule vers l'oreille.",
+    "Laisser le ballon rouler vers l'avant.",
+    "Tenir trop longtemps au prix de l'alignement."
+  ],
+  "breathing": { "eccentric": "Respiration continue et contrôlée pendant la tenue.", "concentric": "Respiration continue et contrôlée pendant la tenue." },
+  "status": "validated",
+  "version": 1,
+  "assets": { "poster": "poster.webp", "animation": "animation.mp4" },
+  "artDirection": { "character": "female-athletic", "style": "gflux-premium" }
+}

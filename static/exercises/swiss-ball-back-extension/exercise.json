@@ -1,0 +1,38 @@
+{
+  "slug": "swiss-ball-back-extension",
+  "nameFr": "Extension lombaire sur Swiss Ball",
+  "nameEn": "Swiss Ball Back Extension",
+  "category": "Tronc",
+  "primaryMuscleGroup": "Érecteurs du rachis",
+  "primaryMuscles": ["Érecteurs du rachis"],
+  "secondaryMuscles": ["Grand fessier", "Ischio-jambiers", "Grand dorsal"],
+  "equipment": ["Swiss Ball"],
+  "level": ["Débutant", "Intermédiaire", "Avancé"],
+  "description": "Le bas du dos soutenu par le ballon, pieds calés : tu montes le buste en extension contrôlée pour renforcer la chaîne postérieure. Le ballon soutient et sécurise toute l'amplitude.",
+  "execution": [
+    "Couché sur le ventre sur le ballon, bassin calé sur le sommet, pieds calés contre un mur ou tenus au sol.",
+    "Mains aux tempes ou croisées sur la poitrine, nuque dans l'alignement.",
+    "Monte le buste jusqu'à l'alignement du corps, en serrant les fessiers.",
+    "Ne dépasse pas légèrement l'alignement : pas d'hyperextension forcée.",
+    "Redescends lentement en contrôlant, sans se laisser tomber."
+  ],
+  "cues": [
+    "Le mouvement part des hanches, pas du bas du dos.",
+    "Serre les fessiers pour verrouiller le bassin.",
+    "Monte le buste comme un bloc, sans cassure.",
+    "Amplitude maîtrisée : la qualité avant la hauteur.",
+    "Nuque relâchée, regard au sol."
+  ],
+  "mistakes": [
+    "Hyperextendre le bas du dos en haut du mouvement.",
+    "Donner de l'élan en rebondissant sur le ballon.",
+    "Pousser avec les mains pour monter plus haut.",
+    "Monter la tête et la nuque en premier.",
+    "Aller trop vite et perdre le contrôle du ballon."
+  ],
+  "breathing": { "eccentric": "Inspire en redescendant le buste.", "concentric": "Expire en montant le buste." },
+  "status": "validated",
+  "version": 1,
+  "assets": { "poster": "poster.webp", "animation": "animation.mp4" },
+  "artDirection": { "character": "female-athletic", "style": "gflux-premium" }
+}

@@ -1,0 +1,38 @@
+{
+  "slug": "swiss-ball-push-up",
+  "nameFr": "Pompes mains sur Swiss Ball",
+  "nameEn": "Swiss Ball Push-up (Hands on Ball)",
+  "category": "Haut du corps",
+  "primaryMuscleGroup": "Pectoraux",
+  "primaryMuscles": ["Grand pectoral"],
+  "secondaryMuscles": ["Triceps", "Deltoïde antérieur", "Abdominaux"],
+  "equipment": ["Swiss Ball"],
+  "level": ["Débutant", "Intermédiaire", "Avancé"],
+  "description": "Les mains posées sur le ballon : la pompe devient un exercice de stabilité où pectoraux, triceps et core doivent contrôler le ballon qui veut rouler. Le bas du mouvement gagne en profondeur.",
+  "execution": [
+    "Mains posées sur les côtés du ballon, corps en planche, pieds au sol largeur de hanches.",
+    "Corps aligné de la tête aux talons, ventre et fessiers serrés.",
+    "Descends la poitrine vers le ballon en contrôlant la stabilité des épaules.",
+    "Descends jusqu'à ce que la poitrine frôle le ballon.",
+    "Pousse pour remonter sans laisser le ballon rouler de côté."
+  ],
+  "cues": [
+    "Serre le ballon entre les mains pour le verrouiller.",
+    "Épaules actives, omoplates légèrement serrées.",
+    "Corps en planche : bassin ni qui tombe, ni qui monte.",
+    "Descends lentement, la stabilité d'abord.",
+    "Regard au sol, nuque alignée."
+  ],
+  "mistakes": [
+    "Laisser le ballon rouler vers l'avant ou l'arrière.",
+    "Monter les fesses ou laisser le bassin tomber.",
+    "Coudes totalement écartés (position d'épaule fragile).",
+    "Tête qui plonge avant la poitrine.",
+    "Amplitude trop réduite par peur du glissement."
+  ],
+  "breathing": { "eccentric": "Inspire pendant la descente.", "concentric": "Expire en poussant vers le haut." },
+  "status": "validated",
+  "version": 1,
+  "assets": { "poster": "poster.webp", "animation": "animation.mp4" },
+  "artDirection": { "character": "female-athletic", "style": "gflux-premium" }
+}

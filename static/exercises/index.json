@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-09-18T22:28:25.260Z",
+  "generatedAt": "2026-09-19T15:21:07.291Z",
   "standard": "docs/exercise-db-standard.md",
-  "count": 15,
+  "count": 34,
   "exercises": [
     {
       "slug": "band-external-rotation",
@@ -446,6 +446,605 @@
       },
       "posterUrl": "/exercises/standing-mini-band-hip-abduction/poster.webp",
       "animationUrl": "/exercises/standing-mini-band-hip-abduction/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "swiss-ball-back-extension",
+      "nameFr": "Extension lombaire sur Swiss Ball",
+      "nameEn": "Swiss Ball Back Extension",
+      "category": "Tronc",
+      "primaryMuscleGroup": "Érecteurs du rachis",
+      "primaryMuscles": [
+        "Érecteurs du rachis"
+      ],
+      "secondaryMuscles": [
+        "Grand fessier",
+        "Ischio-jambiers",
+        "Grand dorsal"
+      ],
+      "equipment": [
+        "Swiss Ball"
+      ],
+      "level": [
+        "Débutant",
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/swiss-ball-back-extension/poster.webp",
+      "animationUrl": "/exercises/swiss-ball-back-extension/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "swiss-ball-body-saw",
+      "nameFr": "Body saw sur Swiss Ball",
+      "nameEn": "Swiss Ball Body Saw",
+      "category": "Tronc",
+      "primaryMuscleGroup": "Abdominaux",
+      "primaryMuscles": [
+        "Abdominaux"
+      ],
+      "secondaryMuscles": [
+        "Obliques",
+        "Épaules",
+        "Quadriceps"
+      ],
+      "equipment": [
+        "Swiss Ball"
+      ],
+      "level": [
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/swiss-ball-body-saw/poster.webp",
+      "animationUrl": "/exercises/swiss-ball-body-saw/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "swiss-ball-crunch",
+      "nameFr": "Crunch sur Swiss Ball",
+      "nameEn": "Swiss Ball Crunch",
+      "category": "Tronc",
+      "primaryMuscleGroup": "Abdominaux",
+      "primaryMuscles": [
+        "Abdominaux"
+      ],
+      "secondaryMuscles": [
+        "Obliques",
+        "Quadriceps"
+      ],
+      "equipment": [
+        "Swiss Ball"
+      ],
+      "level": [
+        "Débutant",
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/swiss-ball-crunch/poster.webp",
+      "animationUrl": "/exercises/swiss-ball-crunch/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "swiss-ball-glute-bridge-march",
+      "nameFr": "Pont fessier en marche sur Swiss Ball",
+      "nameEn": "Swiss Ball Glute Bridge March",
+      "category": "Bas du corps",
+      "primaryMuscleGroup": "Fessiers",
+      "primaryMuscles": [
+        "Grand fessier"
+      ],
+      "secondaryMuscles": [
+        "Ischio-jambiers",
+        "Abdominaux",
+        "Mollets"
+      ],
+      "equipment": [
+        "Swiss Ball"
+      ],
+      "level": [
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/swiss-ball-glute-bridge-march/poster.webp",
+      "animationUrl": "/exercises/swiss-ball-glute-bridge-march/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "swiss-ball-glute-bridge-squeeze",
+      "nameFr": "Pont fessier avec Swiss Ball et squeeze des adducteurs",
+      "nameEn": "Swiss Ball Glute Bridge with Adductor Squeeze",
+      "category": "Bas du corps",
+      "primaryMuscleGroup": "Fessiers",
+      "primaryMuscles": [
+        "Grand fessier",
+        "Adducteurs"
+      ],
+      "secondaryMuscles": [
+        "Ischio-jambiers",
+        "Abdominaux",
+        "Mollets"
+      ],
+      "equipment": [
+        "Swiss Ball"
+      ],
+      "level": [
+        "Débutant",
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/swiss-ball-glute-bridge-squeeze/poster.webp",
+      "animationUrl": "/exercises/swiss-ball-glute-bridge-squeeze/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "swiss-ball-hip-thrust",
+      "nameFr": "Hip thrust sur Swiss Ball",
+      "nameEn": "Swiss Ball Hip Thrust",
+      "category": "Bas du corps",
+      "primaryMuscleGroup": "Fessiers",
+      "primaryMuscles": [
+        "Grand fessier"
+      ],
+      "secondaryMuscles": [
+        "Ischio-jambiers",
+        "Abdominaux",
+        "Mollets"
+      ],
+      "equipment": [
+        "Swiss Ball"
+      ],
+      "level": [
+        "Débutant",
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/swiss-ball-hip-thrust/poster.webp",
+      "animationUrl": "/exercises/swiss-ball-hip-thrust/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "swiss-ball-jackknife",
+      "nameFr": "Jackknife sur Swiss Ball",
+      "nameEn": "Swiss Ball Jackknife",
+      "category": "Tronc",
+      "primaryMuscleGroup": "Abdominaux",
+      "primaryMuscles": [
+        "Abdominaux"
+      ],
+      "secondaryMuscles": [
+        "Obliques",
+        "Épaules",
+        "Quadriceps"
+      ],
+      "equipment": [
+        "Swiss Ball"
+      ],
+      "level": [
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/swiss-ball-jackknife/poster.webp",
+      "animationUrl": "/exercises/swiss-ball-jackknife/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "swiss-ball-knee-tuck",
+      "nameFr": "Knee Tuck sur Swiss Ball",
+      "nameEn": "Swiss Ball Knee Tuck",
+      "category": "Tronc",
+      "primaryMuscleGroup": "Abdominaux",
+      "primaryMuscles": [
+        "Abdominaux"
+      ],
+      "secondaryMuscles": [
+        "Obliques",
+        "Quadriceps",
+        "Épaules"
+      ],
+      "equipment": [
+        "Swiss Ball"
+      ],
+      "level": [
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/swiss-ball-knee-tuck/poster.webp",
+      "animationUrl": "/exercises/swiss-ball-knee-tuck/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "swiss-ball-kneeling-rollout",
+      "nameFr": "Rollout à genoux sur Swiss Ball",
+      "nameEn": "Swiss Ball Kneeling Rollout",
+      "category": "Tronc",
+      "primaryMuscleGroup": "Abdominaux",
+      "primaryMuscles": [
+        "Abdominaux"
+      ],
+      "secondaryMuscles": [
+        "Grand dorsal",
+        "Épaules",
+        "Érecteurs du rachis"
+      ],
+      "equipment": [
+        "Swiss Ball"
+      ],
+      "level": [
+        "Débutant",
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/swiss-ball-kneeling-rollout/poster.webp",
+      "animationUrl": "/exercises/swiss-ball-kneeling-rollout/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "swiss-ball-leg-curl",
+      "nameFr": "Leg curl sur Swiss Ball",
+      "nameEn": "Swiss Ball Leg Curl",
+      "category": "Bas du corps",
+      "primaryMuscleGroup": "Ischio-jambiers",
+      "primaryMuscles": [
+        "Ischio-jambiers"
+      ],
+      "secondaryMuscles": [
+        "Grand fessier",
+        "Mollets",
+        "Abdominaux"
+      ],
+      "equipment": [
+        "Swiss Ball"
+      ],
+      "level": [
+        "Débutant",
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/swiss-ball-leg-curl/poster.webp",
+      "animationUrl": "/exercises/swiss-ball-leg-curl/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "swiss-ball-pike",
+      "nameFr": "Pike sur Swiss Ball",
+      "nameEn": "Swiss Ball Pike",
+      "category": "Tronc",
+      "primaryMuscleGroup": "Abdominaux",
+      "primaryMuscles": [
+        "Abdominaux"
+      ],
+      "secondaryMuscles": [
+        "Épaules",
+        "Grand dorsal",
+        "Quadriceps"
+      ],
+      "equipment": [
+        "Swiss Ball"
+      ],
+      "level": [
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/swiss-ball-pike/poster.webp",
+      "animationUrl": "/exercises/swiss-ball-pike/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "swiss-ball-push-up",
+      "nameFr": "Pompes mains sur Swiss Ball",
+      "nameEn": "Swiss Ball Push-up (Hands on Ball)",
+      "category": "Haut du corps",
+      "primaryMuscleGroup": "Pectoraux",
+      "primaryMuscles": [
+        "Grand pectoral"
+      ],
+      "secondaryMuscles": [
+        "Triceps",
+        "Deltoïde antérieur",
+        "Abdominaux"
+      ],
+      "equipment": [
+        "Swiss Ball"
+      ],
+      "level": [
+        "Débutant",
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/swiss-ball-push-up/poster.webp",
+      "animationUrl": "/exercises/swiss-ball-push-up/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "swiss-ball-push-up-feet",
+      "nameFr": "Pompes pieds sur Swiss Ball",
+      "nameEn": "Swiss Ball Push-up (Feet on Ball)",
+      "category": "Haut du corps",
+      "primaryMuscleGroup": "Pectoraux",
+      "primaryMuscles": [
+        "Grand pectoral"
+      ],
+      "secondaryMuscles": [
+        "Triceps",
+        "Deltoïde antérieur",
+        "Abdominaux"
+      ],
+      "equipment": [
+        "Swiss Ball"
+      ],
+      "level": [
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/swiss-ball-push-up-feet/poster.webp",
+      "animationUrl": "/exercises/swiss-ball-push-up-feet/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "swiss-ball-reverse-hyperextension",
+      "nameFr": "Extension de hanche inversée sur Swiss Ball",
+      "nameEn": "Swiss Ball Reverse Hyperextension",
+      "category": "Bas du corps",
+      "primaryMuscleGroup": "Fessiers",
+      "primaryMuscles": [
+        "Grand fessier"
+      ],
+      "secondaryMuscles": [
+        "Ischio-jambiers",
+        "Érecteurs du rachis",
+        "Abdominaux"
+      ],
+      "equipment": [
+        "Swiss Ball"
+      ],
+      "level": [
+        "Débutant",
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/swiss-ball-reverse-hyperextension/poster.webp",
+      "animationUrl": "/exercises/swiss-ball-reverse-hyperextension/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "swiss-ball-side-plank",
+      "nameFr": "Side plank sur Swiss Ball",
+      "nameEn": "Swiss Ball Side Plank",
+      "category": "Tronc",
+      "primaryMuscleGroup": "Obliques",
+      "primaryMuscles": [
+        "Obliques"
+      ],
+      "secondaryMuscles": [
+        "Abdominaux",
+        "Moyen fessier",
+        "Épaules"
+      ],
+      "equipment": [
+        "Swiss Ball"
+      ],
+      "level": [
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/swiss-ball-side-plank/poster.webp",
+      "animationUrl": "/exercises/swiss-ball-side-plank/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "swiss-ball-single-leg-curl",
+      "nameFr": "Leg curl unilatéral sur Swiss Ball",
+      "nameEn": "Swiss Ball Single Leg Curl",
+      "category": "Bas du corps",
+      "primaryMuscleGroup": "Ischio-jambiers",
+      "primaryMuscles": [
+        "Ischio-jambiers"
+      ],
+      "secondaryMuscles": [
+        "Grand fessier",
+        "Mollets",
+        "Abdominaux"
+      ],
+      "equipment": [
+        "Swiss Ball"
+      ],
+      "level": [
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/swiss-ball-single-leg-curl/poster.webp",
+      "animationUrl": "/exercises/swiss-ball-single-leg-curl/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "swiss-ball-stir-the-pot",
+      "nameFr": "Stir the Pot sur Swiss Ball",
+      "nameEn": "Swiss Ball Stir the Pot",
+      "category": "Tronc",
+      "primaryMuscleGroup": "Abdominaux",
+      "primaryMuscles": [
+        "Abdominaux",
+        "Obliques"
+      ],
+      "secondaryMuscles": [
+        "Grand dorsal",
+        "Épaules",
+        "Érecteurs du rachis"
+      ],
+      "equipment": [
+        "Swiss Ball"
+      ],
+      "level": [
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/swiss-ball-stir-the-pot/poster.webp",
+      "animationUrl": "/exercises/swiss-ball-stir-the-pot/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "swiss-ball-v-up",
+      "nameFr": "V-Up avec Swiss Ball",
+      "nameEn": "Swiss Ball V-Up",
+      "category": "Tronc",
+      "primaryMuscleGroup": "Abdominaux",
+      "primaryMuscles": [
+        "Abdominaux"
+      ],
+      "secondaryMuscles": [
+        "Obliques",
+        "Quadriceps",
+        "Épaules"
+      ],
+      "equipment": [
+        "Swiss Ball"
+      ],
+      "level": [
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/swiss-ball-v-up/poster.webp",
+      "animationUrl": "/exercises/swiss-ball-v-up/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "swiss-ball-wall-squat",
+      "nameFr": "Squat mural avec Swiss Ball",
+      "nameEn": "Swiss Ball Wall Squat",
+      "category": "Bas du corps",
+      "primaryMuscleGroup": "Quadriceps",
+      "primaryMuscles": [
+        "Quadriceps"
+      ],
+      "secondaryMuscles": [
+        "Grand fessier",
+        "Ischio-jambiers",
+        "Mollets"
+      ],
+      "equipment": [
+        "Swiss Ball"
+      ],
+      "level": [
+        "Débutant",
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/swiss-ball-wall-squat/poster.webp",
+      "animationUrl": "/exercises/swiss-ball-wall-squat/animation.mp4",
       "isNew": true
     },
     {

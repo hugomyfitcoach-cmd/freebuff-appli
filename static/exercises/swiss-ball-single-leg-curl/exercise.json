@@ -1,0 +1,38 @@
+{
+  "slug": "swiss-ball-single-leg-curl",
+  "nameFr": "Leg curl unilatéral sur Swiss Ball",
+  "nameEn": "Swiss Ball Single Leg Curl",
+  "category": "Bas du corps",
+  "primaryMuscleGroup": "Ischio-jambiers",
+  "primaryMuscles": ["Ischio-jambiers"],
+  "secondaryMuscles": ["Grand fessier", "Mollets", "Abdominaux"],
+  "equipment": ["Swiss Ball"],
+  "level": ["Intermédiaire", "Avancé"],
+  "description": "Le leg curl sur ballon à une jambe : la version la plus exigeante pour les ischio-jambiers à la maison, sans aucune charge. La jambe d'appui gère le pont, la jambe active enroule le ballon.",
+  "execution": [
+    "Allonge-toi sur le dos, un talon posé au centre du ballon, l'autre jambe tendue en l'air.",
+    "Pousse dans le talon pour monter en pont, hanches alignées épaules-genoux.",
+    "Fléchis le genou pour enrouler le ballon vers tes fessiers.",
+    "Garde le bassin haut pendant toute la flexion.",
+    "Retends la jambe en contrôlant le retour du ballon, sans poser le bassin."
+  ],
+  "cues": [
+    "Bassin verrouillé : il ne doit ni tourner ni retomber pendant la flexion.",
+    "Pousse le talon dans le ballon pour garder la tension.",
+    "La jambe en l'air reste stable, elle ne sert pas de contrepoids.",
+    "Flexion complète, retour lent.",
+    "Serre les fessiers dès la montée en pont."
+  ],
+  "mistakes": [
+    "Laisser le bassin retomber dès que le genou fléchit.",
+    "Pousser avec la pointe des pieds au lieu du talon.",
+    "Faire l'exercice trop vite par rebond.",
+    "Perdre l'alignement du ballon qui part de côté.",
+    "Creuser le bas du dos pour compenser la perte de tension."
+  ],
+  "breathing": { "eccentric": "Inspire en retendant la jambe.", "concentric": "Expire en enroulant le ballon vers les fessiers." },
+  "status": "validated",
+  "version": 1,
+  "assets": { "poster": "poster.webp", "animation": "animation.mp4" },
+  "artDirection": { "character": "female-athletic", "style": "gflux-premium" }
+}

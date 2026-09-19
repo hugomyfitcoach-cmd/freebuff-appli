@@ -1,0 +1,38 @@
+{
+  "slug": "swiss-ball-body-saw",
+  "nameFr": "Body saw sur Swiss Ball",
+  "nameEn": "Swiss Ball Body Saw",
+  "category": "Tronc",
+  "primaryMuscleGroup": "Abdominaux",
+  "primaryMuscles": ["Abdominaux"],
+  "secondaryMuscles": ["Obliques", "Épaules", "Quadriceps"],
+  "equipment": ["Swiss Ball"],
+  "level": ["Intermédiaire", "Avancé"],
+  "description": "Une planche avant-bras qui devient une scie : tibias sur le ballon, tu tires ton corps vers l'arrière comme une scie, en résistant à l'extension. L'un des meilleurs anti-extension qui existe.",
+  "execution": [
+    "Mets-toi en planche sur les avant-bras, tibias posés sur le ballon, coudes sous les épaules.",
+    "Corps parfaitement aligné, ventre et fessiers serrés.",
+    "Pousse avec les avant-bras pour faire rouler le ballon vers l'arrière et tirer ton corps.",
+    "Étire-toi le plus loin possible SANS laisser le bas du dos se creuser.",
+    "Ramène le ballon vers la position de départ en contrôlant."
+  ],
+  "cues": [
+    "Le bassin avance et recule comme un bloc, sans bouger.",
+    "Stoppe le mouvement dès que le bas du dos veut creuser.",
+    "Serre les fessiers en permanence.",
+    "Petites amplitudes d'abord : la qualité avant la distance.",
+    "Épaules actives, loin des oreilles."
+  ],
+  "mistakes": [
+    "Laisser le bas du dos se creuser en s'étirant.",
+    "Monter les hanches pour faciliter le mouvement.",
+    "Aller trop loin et perdre le contrôle du ballon.",
+    "Bouger la tête et la nuque.",
+    "Oublier de respirer pendant l'effort."
+  ],
+  "breathing": { "eccentric": "Inspire en te laissant tirer vers l'arrière.", "concentric": "Expire en ramenant le ballon." },
+  "status": "validated",
+  "version": 1,
+  "assets": { "poster": "poster.webp", "animation": "animation.mp4" },
+  "artDirection": { "character": "female-athletic", "style": "gflux-premium" }
+}

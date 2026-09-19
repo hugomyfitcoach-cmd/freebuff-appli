@@ -1,0 +1,38 @@
+{
+  "slug": "swiss-ball-crunch",
+  "nameFr": "Crunch sur Swiss Ball",
+  "nameEn": "Swiss Ball Crunch",
+  "category": "Tronc",
+  "primaryMuscleGroup": "Abdominaux",
+  "primaryMuscles": ["Abdominaux"],
+  "secondaryMuscles": ["Obliques", "Quadriceps"],
+  "equipment": ["Swiss Ball"],
+  "level": ["Débutant", "Intermédiaire", "Avancé"],
+  "description": "Le crunch déployé : bas du dos soutenu par le ballon, tu gagnes en amplitude et en étirement pour des abdominaux qui travaillent sur toute la longueur. La version la plus confortable du crunch.",
+  "execution": [
+    "Assieds-toi sur le ballon puis avance les pieds pour faire rouler le ballon sous ton bas du dos.",
+    "Genoux à 90°, pieds à plat, mains le long de la tête sans tirer sur la nuque.",
+    "Enroule le buste vers l'avant en contractant les abdominaux.",
+    "Monte jusqu'à ce que les épaules se soulèvent du ballon.",
+    "Redescends lentement en étirant les abdos sur le ballon."
+  ],
+  "cues": [
+    "Le mouvement part des côtes, pas de la tête.",
+    "Enroule la colonne vertèbre par vertèbre.",
+    "Le bassin reste stable sur le ballon.",
+    "Garde un espace entre menton et poitrine.",
+    "Étirement complet en bas, contraction complète en haut."
+  ],
+  "mistakes": [
+    "Tirer sur la nuque avec les mains.",
+    "Descendre tout le buste vers l'arrière (perte de tension).",
+    "Pousser avec les jambes pour monter.",
+    "Aller trop vite sans contrôler.",
+    "Bloquer la respiration pendant l'effort."
+  ],
+  "breathing": { "eccentric": "Inspire en te déroulant vers l'arrière.", "concentric": "Expire en enroulant le buste vers l'avant." },
+  "status": "validated",
+  "version": 1,
+  "assets": { "poster": "poster.webp", "animation": "animation.mp4" },
+  "artDirection": { "character": "female-athletic", "style": "gflux-premium" }
+}

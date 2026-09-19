@@ -1,0 +1,38 @@
+{
+  "slug": "swiss-ball-push-up-feet",
+  "nameFr": "Pompes pieds sur Swiss Ball",
+  "nameEn": "Swiss Ball Push-up (Feet on Ball)",
+  "category": "Haut du corps",
+  "primaryMuscleGroup": "Pectoraux",
+  "primaryMuscles": ["Grand pectoral"],
+  "secondaryMuscles": ["Triceps", "Deltoïde antérieur", "Abdominaux"],
+  "equipment": ["Swiss Ball"],
+  "level": ["Intermédiaire", "Avancé"],
+  "description": "La pompe déstabilisée : pieds posés sur le ballon, tout le core doit travailler pour garder le corps aligné pendant que la poitrine descend. Plus dur qu'une pompe classique, sans charge supplémentaire.",
+  "execution": [
+    "Mets-toi en planche haute, mains au sol sous les épaules, tibias ou cou-de-pied posés sur le ballon.",
+    "Corps aligné de la tête aux talons, serre le ventre et les fessiers.",
+    "Descends la poitrine vers le sol, coudes à environ 45° du buste.",
+    "Descends jusqu'à ce que la poitrine soit proche du sol, sans laisser le bassin s'affaisser.",
+    "Pousse pour remonter en gardant le ballon immobile."
+  ],
+  "cues": [
+    "Le ballon ne doit ni rouler ni bouger latéralement.",
+    "Corps gainé comme une planche : aucune flexion des hanches.",
+    "Coudes ni totalement écartés ni collés au corps.",
+    "Regard au sol, nuque dans l'alignement du dos.",
+    "Si le ballon bouge trop, écarte légèrement les pieds."
+  ],
+  "mistakes": [
+    "Laisser le bassin descendre pendant la descente.",
+    "Monter les fesses : c'est un pike, plus une pompe.",
+    "Descendre trop vite et perdre le contrôle du ballon.",
+    "Tête qui rentre entre les épaules.",
+    "Amplitude réduite par peur de l'instabilité."
+  ],
+  "breathing": { "eccentric": "Inspire pendant la descente.", "concentric": "Expire en poussant vers le haut." },
+  "status": "validated",
+  "version": 1,
+  "assets": { "poster": "poster.webp", "animation": "animation.mp4" },
+  "artDirection": { "character": "female-athletic", "style": "gflux-premium" }
+}

@@ -1,0 +1,38 @@
+{
+  "slug": "swiss-ball-jackknife",
+  "nameFr": "Jackknife sur Swiss Ball",
+  "nameEn": "Swiss Ball Jackknife",
+  "category": "Tronc",
+  "primaryMuscleGroup": "Abdominaux",
+  "primaryMuscles": ["Abdominaux"],
+  "secondaryMuscles": ["Obliques", "Épaules", "Quadriceps"],
+  "equipment": ["Swiss Ball"],
+  "level": ["Intermédiaire", "Avancé"],
+  "description": "La version explosive du knee tuck : en planche, tibias sur le ballon, tu piques les hanches vers le plafond en ramenant les genoux. Un mouvement complet qui sculpte les abdos et renforce les épaules.",
+  "execution": [
+    "Mets-toi en planche haute, mains sous les épaules, tibias sur le ballon.",
+    "Corps aligné, ventre et fessiers serrés.",
+    "Monte les hanches vers le plafond en laissant le ballon rouler vers les chevilles.",
+    "Le corps forme un V inversé en haut du mouvement.",
+    "Redescends en contrôlant jusqu'à la planche de départ."
+  ],
+  "cues": [
+    "Le mouvement part des hanches, pas des bras.",
+    "Bras fixes, épaules au-dessus des mains.",
+    "Serre les abdos pendant toute la montée.",
+    "Le ballon roule, il ne glisse pas.",
+    "Retour lent : ne t'effondre pas vers la planche."
+  ],
+  "mistakes": [
+    "Descendre les épaules derrière les mains (position cassée).",
+    "Creuser le bas du dos au retour.",
+    "Monter trop vite avec de l'élan.",
+    "Laisser le ballon partir de côté.",
+    "Hanches trop basses : c'est un knee tuck, pas un jackknife."
+  ],
+  "breathing": { "eccentric": "Inspire en revenant vers la planche.", "concentric": "Expire en montant les hanches vers le plafond." },
+  "status": "validated",
+  "version": 1,
+  "assets": { "poster": "poster.webp", "animation": "animation.mp4" },
+  "artDirection": { "character": "female-athletic", "style": "gflux-premium" }
+}

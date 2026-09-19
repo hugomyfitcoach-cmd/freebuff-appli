@@ -1,0 +1,38 @@
+{
+  "slug": "swiss-ball-glute-bridge-march",
+  "nameFr": "Pont fessier en marche sur Swiss Ball",
+  "nameEn": "Swiss Ball Glute Bridge March",
+  "category": "Bas du corps",
+  "primaryMuscleGroup": "Fessiers",
+  "primaryMuscles": ["Grand fessier"],
+  "secondaryMuscles": ["Ischio-jambiers", "Abdominaux", "Mollets"],
+  "equipment": ["Swiss Ball"],
+  "level": ["Intermédiaire", "Avancé"],
+  "description": "Un pont fessier pieds sur ballon, avec montée de genou alternée : fessiers et core doivent gérer la stabilité pendant que le bassin reste haut. Un excellent test de contrôle avant les exercices plus poussés.",
+  "execution": [
+    "Allonge-toi sur le dos, les deux pieds posés sur le ballon, jambes à peu près tendues.",
+    "Monte en pont en poussant les talons dans le ballon, hanches hautes.",
+    "Ramène un genou vers la poitrine sans laisser le bassin bouger.",
+    "Retends la jambe sur le ballon, puis alterne avec l'autre.",
+    "Le bassin reste aligné épaules-genoux pendant toute la série."
+  ],
+  "cues": [
+    "Hanches hautes et immobiles : c'est le critère principal.",
+    "Serre les fessiers en continu.",
+    "Ramène le genou lentement, sans faire basculer le bassin.",
+    "Pieds bien centrés sur le ballon.",
+    "Respire à chaque montée de genou."
+  ],
+  "mistakes": [
+    "Laisser le bassin pencher d'un côté à chaque montée de genou.",
+    "Poser les hanches entre deux répétitions.",
+    "Pousser le ballon vers l'avant au lieu de rester stable.",
+    "Creuser le bas du dos.",
+    "Aller trop vite et perdre le contact pieds-ballon."
+  ],
+  "breathing": { "eccentric": "Inspire en retendant la jambe sur le ballon.", "concentric": "Expire en ramenant le genou vers la poitrine." },
+  "status": "validated",
+  "version": 1,
+  "assets": { "poster": "poster.webp", "animation": "animation.mp4" },
+  "artDirection": { "character": "female-athletic", "style": "gflux-premium" }
+}

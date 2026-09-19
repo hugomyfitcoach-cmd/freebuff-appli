@@ -1,0 +1,38 @@
+{
+  "slug": "swiss-ball-kneeling-rollout",
+  "nameFr": "Rollout à genoux sur Swiss Ball",
+  "nameEn": "Swiss Ball Kneeling Rollout",
+  "category": "Tronc",
+  "primaryMuscleGroup": "Abdominaux",
+  "primaryMuscles": ["Abdominaux"],
+  "secondaryMuscles": ["Grand dorsal", "Épaules", "Érecteurs du rachis"],
+  "equipment": ["Swiss Ball"],
+  "level": ["Débutant", "Intermédiaire", "Avancé"],
+  "description": "L'anti-extension fondamentale à la maison : à genoux, avant-bras sur le ballon, tu déroules le corps vers l'avant en résistant à l'ouverture. Plus accessible que la wheel, tout aussi efficace.",
+  "execution": [
+    "Mets-toi à genoux, avant-bras posés sur le ballon, coudes fléchis à 90°.",
+    "Corps gainé, bassin légèrement rentré, fessiers serrés.",
+    "Fais rouler le ballon vers l'avant en étirant tout le corps.",
+    "Descends aussi loin que tu peux SANS creuser le bas du dos.",
+    "Tire le ballon vers toi avec les abdos pour revenir au départ."
+  ],
+  "cues": [
+    "Le bassin avance avec le buste : pas de séparation.",
+    "Stoppe dès que le bas du dos veut creuser.",
+    "Serre les fessiers pendant toute la durée.",
+    "Le retour se fait par les abdos, pas par les bras.",
+    "Petites amplitudes au début, tu étends progressivement."
+  ],
+  "mistakes": [
+    "Laisser le bas du dos se creuser en s'étirant.",
+    "Descendre trop loin et perdre le contrôle.",
+    "Pousser le bassin en arrière au retour.",
+    "Monter les épaules vers les oreilles.",
+    "Retenir sa respiration pendant le mouvement."
+  ],
+  "breathing": { "eccentric": "Inspire en déroulant vers l'avant.", "concentric": "Expire en ramenant le ballon vers toi." },
+  "status": "validated",
+  "version": 1,
+  "assets": { "poster": "poster.webp", "animation": "animation.mp4" },
+  "artDirection": { "character": "female-athletic", "style": "gflux-premium" }
+}
