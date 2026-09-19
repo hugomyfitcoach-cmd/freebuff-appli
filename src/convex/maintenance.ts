@@ -50,7 +50,7 @@ export const deleteOrphanStorage = internalMutation({
 			if (!referenced) {
 				const resources = await ctx.db.query("coachResources").collect();
 				for (const row of resources) {
-					if (row.storageId === storageId) {
+					if (row.storageId === storageId || row.attachments?.some((a) => a.storageId === storageId)) {
 						referenced = true;
 						break;
 					}
