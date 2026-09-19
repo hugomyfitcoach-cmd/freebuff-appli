@@ -1,0 +1,58 @@
+{
+  "slug": "mini-band-fire-hydrant",
+  "nameFr": "Fire hydrant avec mini-bande",
+  "nameEn": "Mini Band Fire Hydrant",
+  "category": "Bas du corps",
+  "primaryMuscleGroup": "Fessiers",
+  "primaryMuscles": [
+    "Moyen fessier"
+  ],
+  "secondaryMuscles": [
+    "Grand fessier",
+    "Abdominaux"
+  ],
+  "equipment": [
+    "Mini-bande"
+  ],
+  "level": [
+    "Débutant",
+    "Intermédiaire",
+    "Avancé"
+  ],
+  "description": "À quatre pattes, tu ouvres la jambe sur le côté comme une petite fontaine : d’où son nom. Avec la mini-bande au-dessus des genoux, le moyen fessier brûle vite et ton bassin apprend à rester stable.",
+  "execution": [
+    "Mets-toi à quatre pattes, mains sous les épaules, genoux sous les hanches.",
+    "Place la mini-bande juste au-dessus de tes genoux.",
+    "Garde le dos plat et le regard vers le sol.",
+    "Ouvre une jambe sur le côté à hauteur de hanche, genou fléchi à 90°, sans tourner le bassin.",
+    "Referme lentement sans poser le genou, et enchaîne avant de changer de jambe."
+  ],
+  "cues": [
+    "Bassin carré face au sol, jamais de torsion.",
+    "Le genou monte sur le côté, le pied suit passivement.",
+    "Dos neutre : garde les abdos gainés pour verrouiller la colonne.",
+    "Amplitude jusqu’à hauteur de hanche, pas plus.",
+    "Mouvement lent : la bande fait tout le travail de résistance."
+  ],
+  "mistakes": [
+    "Pivoter le bassin vers le haut pendant l’ouverture.",
+    "Creuser le bas du dos et perdre le gainage.",
+    "Monter la jambe trop haut en tordant la hanche.",
+    "Relever la tête et casser la nuque.",
+    "Aller trop vite en rebondissant au retour."
+  ],
+  "breathing": {
+    "eccentric": "Inspire en ramenant le genou.",
+    "concentric": "Expire en ouvrant la jambe sur le côté."
+  },
+  "status": "validated",
+  "version": 1,
+  "assets": {
+    "poster": "poster.webp",
+    "animation": "animation.mp4"
+  },
+  "artDirection": {
+    "character": "female-athletic",
+    "style": "gflux-premium"
+  }
+}

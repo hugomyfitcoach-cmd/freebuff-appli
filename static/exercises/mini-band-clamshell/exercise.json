@@ -1,0 +1,58 @@
+{
+  "slug": "mini-band-clamshell",
+  "nameFr": "Coquille avec mini-bande",
+  "nameEn": "Mini Band Clamshell",
+  "category": "Bas du corps",
+  "primaryMuscleGroup": "Fessiers",
+  "primaryMuscles": [
+    "Moyen fessier"
+  ],
+  "secondaryMuscles": [
+    "Grand fessier",
+    "Petit fessier"
+  ],
+  "equipment": [
+    "Mini-bande"
+  ],
+  "level": [
+    "Débutant",
+    "Intermédiaire",
+    "Avancé"
+  ],
+  "description": "Le clamshell est le mouvement roi pour réveiller le moyen fessier en profondeur, allongée sur le côté. Avec la mini-bande, l’ouverture devient plus résistante : parfait pour stabiliser ton bassin et protéger tes genoux.",
+  "execution": [
+    "Allonge-toi sur le côté, tête appuyée, jambes fléchies empilées à environ 45°.",
+    "Place la mini-bande juste au-dessus de tes genoux.",
+    "Garde les hanches empilées et le bassin immobile : c’est la clé de l’exercice.",
+    "Ouvre le genou du dessus contre la tension de la bande, sans décoller les pieds.",
+    "Referme lentement en contrôlant la bande, sans relâcher la tension entre les répétitions."
+  ],
+  "cues": [
+    "Pieds collés du début à la fin, seul le genou bouge.",
+    "Bassin verrouillé : ne bascule jamais en arrière.",
+    "Le mouvement part de la hanche, pas du bas du dos.",
+    "Ouvre petit mais propre plutôt que grand mais de travers.",
+    "Garde une tension constante sur la bande, même en refermant."
+  ],
+  "mistakes": [
+    "Basculer le bassin en arrière pour ouvrir plus loin.",
+    "Décoller les pieds l’un de l’autre pendant l’ouverture.",
+    "Aller trop vite avec des à-coups au lieu de contrôler.",
+    "Cambrer le bas du dos pour gagner de l’amplitude.",
+    "Utiliser une bande trop dure qui force la compensation du buste."
+  ],
+  "breathing": {
+    "eccentric": "Inspire en refermant le genou.",
+    "concentric": "Expire en ouvrant contre la bande."
+  },
+  "status": "validated",
+  "version": 1,
+  "assets": {
+    "poster": "poster.webp",
+    "animation": "animation.mp4"
+  },
+  "artDirection": {
+    "character": "female-athletic",
+    "style": "gflux-premium"
+  }
+}

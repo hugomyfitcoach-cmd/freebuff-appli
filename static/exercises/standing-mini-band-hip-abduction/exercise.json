@@ -1,0 +1,58 @@
+{
+  "slug": "standing-mini-band-hip-abduction",
+  "nameFr": "Abduction de hanche debout avec mini-bande",
+  "nameEn": "Standing Hip Abduction with Mini Band",
+  "category": "Bas du corps",
+  "primaryMuscleGroup": "Fessiers",
+  "primaryMuscles": [
+    "Moyen fessier"
+  ],
+  "secondaryMuscles": [
+    "Grand fessier",
+    "Petit fessier"
+  ],
+  "equipment": [
+    "Mini-bande"
+  ],
+  "level": [
+    "Débutant",
+    "Intermédiaire",
+    "Avancé"
+  ],
+  "description": "Un travail ciblé du moyen fessier, debout, avec juste une mini-bande autour des chevilles. Idéal pour muscler le haut des fessiers et gagner en stabilité de bassin, sans aucun autre matériel.",
+  "execution": [
+    "Place la mini-bande autour de tes chevilles.",
+    "Tiens-toi debout, pieds largeur de hanches, mains sur les hanches pour l’équilibre.",
+    "Transfère ton poids sur une jambe, genou légèrement fléchi.",
+    "Ouvre l’autre jambe sur le côté contre la bande, en gardant le bassin de face.",
+    "Remonte la jambe lentement sans la poser, et enchaîne tes répétitions avant de changer de côté."
+  ],
+  "cues": [
+    "Buste droit : ne te penche pas du côté opposé.",
+    "Bassin immobile : la jambe bouge, rien d’autre.",
+    "Pointe du pied vers l’avant, pas vers le plafond.",
+    "Amplitude moyenne et contrôle constant de la bande.",
+    "Garde les abdos gainés pour rester stable sur ta jambe d’appui."
+  ],
+  "mistakes": [
+    "Pencher le buste à l’opposé pour monter plus haut.",
+    "Tourner le bassin ou la pointe du pied vers le plafond.",
+    "Lancer la jambe avec un à-coup au lieu de contrôler.",
+    "Amplitude trop grande qui dérègle la position.",
+    "Perdre la tension en ramenant la jambe trop vite."
+  ],
+  "breathing": {
+    "eccentric": "Inspire en ramenant la jambe.",
+    "concentric": "Expire en ouvrant la jambe contre la bande."
+  },
+  "status": "validated",
+  "version": 1,
+  "assets": {
+    "poster": "poster.webp",
+    "animation": "animation.mp4"
+  },
+  "artDirection": {
+    "character": "female-athletic",
+    "style": "gflux-premium"
+  }
+}

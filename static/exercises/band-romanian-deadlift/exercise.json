@@ -1,0 +1,60 @@
+{
+  "slug": "band-romanian-deadlift",
+  "nameFr": "Soulevé de terre roumain avec bande",
+  "nameEn": "Resistance Band Romanian Deadlift",
+  "category": "Bas du corps",
+  "primaryMuscleGroup": "Ischio-jambiers",
+  "primaryMuscles": [
+    "Ischio-jambiers",
+    "Grand fessier"
+  ],
+  "secondaryMuscles": [
+    "Lombaires",
+    "Abdominaux",
+    "Moyen fessier"
+  ],
+  "equipment": [
+    "Élastiques"
+  ],
+  "level": [
+    "Débutant",
+    "Intermédiaire",
+    "Avancé"
+  ],
+  "description": "Le RDL est LE mouvement de charnière de hanche : dos plat, tu descends le buste en poussant les fessiers en arrière, puis tu reviens debout. Avec une bande sous les pieds, la tension monte au retour — parfait pour l’arrière des cuisses à la maison.",
+  "execution": [
+    "Pose la bande sous tes deux pieds, pieds largeur de hanches.",
+    "Tiens la bande à deux mains devant tes cuisses, bras tendus.",
+    "Garde le dos plat, les épaules basses et le regard devant toi.",
+    "Pousse les fessiers en arrière et descends le buste jusqu’à mi-tibia, jambes légèrement fléchies.",
+    "Remonte en poussant le sol avec les talons et en serrant les fessiers en haut."
+  ],
+  "cues": [
+    "La hanche pivote en arrière : le buste descend, il ne s’arrondit pas.",
+    "Genoux légèrement fléchis, jamais verrouillés.",
+    "La bande reste contre tes jambes, pas devant.",
+    "Descends lentement, remonte plus vite mais contrôlé.",
+    "Serre les fessiers en haut sans pousser le bassin trop loin."
+  ],
+  "mistakes": [
+    "Arrondir le bas du dos pendant la descente.",
+    "Transformer le mouvement en squat : les hanches descendent au lieu de reculer.",
+    "Tirer avec les bras au lieu de dérouler depuis la hanche.",
+    "Trop descendre et perdre le dos neutre.",
+    "Verrouiller les genoux et tendre les ischio-jambiers sans contrôle."
+  ],
+  "breathing": {
+    "eccentric": "Inspire en descendant le buste.",
+    "concentric": "Expire en remontant à la verticale."
+  },
+  "status": "validated",
+  "version": 1,
+  "assets": {
+    "poster": "poster.webp",
+    "animation": "animation.mp4"
+  },
+  "artDirection": {
+    "character": "female-athletic",
+    "style": "gflux-premium"
+  }
+}

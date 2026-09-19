@@ -153,6 +153,25 @@ npm run exercises:sync -- --dry-run # aperçu de la conversion, aucun envoi
 - Workflow d'un nouvel exercice : `npm run exercises` puis
   `npm run exercises:sync` — aucune intervention manuelle.
 
+### Règle anti-doublon (sept. 2026) — signaler, jamais supprimer
+
+Le contrôle des doublons **signale** : il ne supprime, ne fusionne et ne
+remplace JAMAIS automatiquement une entrée existante.
+
+| Situation | Traitement |
+| --- | --- |
+| Même slug, même ID ou même identité normalisée (nameFr / nameEn) | **BLOQUÉ** par `npm run exercises` (doublon technique, exit 1) |
+| Nom proche ou mouvement similaire (identités FR↔EN croisées, vocabulaire matériel retiré) | **Warning informatif** — validation humaine conseillée, jamais bloquant |
+| Variante de prise, d'angle, de position, d'amplitude, de matériel ou d'exécution | **Autorisée** — c'est une vraie variante, pas un doublon |
+| Exercice historique ExerciseDB ressemblant à un exercice G-FLUX | **Toujours conservé** — l'entrée G-FLUX s'ajoute en parallèle si elle est pertinente |
+
+Le registre et son validateur ne portent que la bibliothèque officielle
+G-FLUX : ils n'ont **aucun pouvoir de suppression** sur l'ExerciseDB
+historique (table `exercises`, sources externes). Les GIFs et données
+d'ExerciseDB restent intacts. Les masquages éventuels sont des décisions
+humaines, réversibles, prises exercice par exercice — jamais une
+conséquence automatique d'une ressemblance.
+
 ## 7. Template `README.md` (à copier pour chaque nouvel exercice)
 
 ```markdown

@@ -20,15 +20,15 @@
 
 | Fichier | Rôle |
 | --- | --- |
-| `poster.webp` | Vignette statique (frame 3 — squat profond, genoux écartés). |
-| `animation.mp4` | Animation officielle du mouvement (720×720, boucle 1→2→3→4→1, 3 s). |
+| `poster.webp` | Vignette statique (position de fin = squat profond). |
+| `animation.mp4` | Animation officielle : boucle **départ → fin → départ** (720×720, 2,8 s). |
 | `exercise.json` | Données structurées (exécution, cues, erreurs, respiration). |
-| `source/` | Working files de production (grille 2×2 validée). |
+| `source/` | Working files de production (grille 2 panneaux : départ à gauche, fin à droite). |
 
 ## État de validation
 
 - **Statut** : validé ✅
-- **Version du rendu** : v1
+- **Version du rendu** : v2 (standard 2 positions — remplace la v1 en 4 frames)
 - **Personnage** : femme athlétique (standard G-FLUX) — cohérence de marque
   de toute la bibliothèque, indépendamment de l'Exercise DB importée.
 - **Série** : mini-bandes — exercices à domicile (lot 1, 2026).
@@ -36,11 +36,12 @@
 ## Contrôle qualité
 
 - [x] 4 fichiers livrables présents, aucun fichier temporaire.
-- [x] Extraction des 4 quadrants avec cadrage commun (aucune ligne de grille
-      résiduelle, aucun personnage coupé, échelle identique entre les frames).
-- [x] Poster = position clé du mouvement (squat profond).
-- [x] Animation en boucle fluide (fondus 0,25 s), sans son, H.264 faststart.
-- [x] Bande visible et tendue au-dessus des genoux sur les 4 frames.
+- [x] Source = 2 panneaux (départ à gauche, fin à droite), séparateur détecté
+      et exclu — même échelle/cadrage entre les 2 frames.
+- [x] Animation dans le bon sens (départ → fin → retour départ), sans inversion.
+- [x] Boucle propre (dernière image = première), fondus progressifs, sans son.
+- [x] Poster = position de fin (conservé pour les vignettes, hors pipeline).
+- [x] Bande visible et tendue au-dessus des genoux sur les 2 positions.
 - [x] Données complètes dans `exercise.json`.
 - [x] Enregistré dans le registre (`static/exercises/index.json`).
 - [x] Anti-doublon : `band squat` importé (bande longue sous les pieds,

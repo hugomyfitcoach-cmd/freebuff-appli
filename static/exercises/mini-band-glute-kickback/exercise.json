@@ -1,0 +1,59 @@
+{
+  "slug": "mini-band-glute-kickback",
+  "nameFr": "Kickback fessier à quatre pattes avec mini-bande",
+  "nameEn": "Mini Band Glute Kickback",
+  "category": "Bas du corps",
+  "primaryMuscleGroup": "Fessiers",
+  "primaryMuscles": [
+    "Grand fessier"
+  ],
+  "secondaryMuscles": [
+    "Ischio-jambiers",
+    "Moyen fessier",
+    "Lombaires"
+  ],
+  "equipment": [
+    "Mini-bande"
+  ],
+  "level": [
+    "Débutant",
+    "Intermédiaire",
+    "Avancé"
+  ],
+  "description": "Le donkey kick version maison : à quatre pattes, tu pousses une jambe vers le plafond contre la résistance de la mini-bande. Le grand fessier travaille en profondeur sans charger le bas du dos.",
+  "execution": [
+    "Mets-toi à quatre pattes, mains sous les épaules, genoux sous les hanches.",
+    "Place la mini-bande autour de tes chevilles ou au creux des genoux.",
+    "Garde le dos plat et le bassin carré face au sol.",
+    "Pousse une jambe vers le plafond, genou fléchi à 90°, talon vers le ciel.",
+    "Contracte le fessier en haut une seconde, puis redescends sans poser le genou avant la fin de la série."
+  ],
+  "cues": [
+    "La poussée part du fessier, pas du bas du dos.",
+    "Bassin immobile : ne tourne pas la hanche vers le haut.",
+    "Talons vers le plafond, orteils relâchés.",
+    "Amplitude moyenne, contraction maximale en haut.",
+    "Dos neutre du début à la fin : les abdos restent gainés."
+  ],
+  "mistakes": [
+    "Creuser les lombaires pour monter plus haut.",
+    "Pivoter le bassin et perdre le carré des hanches.",
+    "Lancer la jambe avec un à-coup.",
+    "Monter trop haut en cassant l’alignement.",
+    "Oublier la contraction en haut du mouvement."
+  ],
+  "breathing": {
+    "eccentric": "Inspire en redescendant la jambe.",
+    "concentric": "Expire en poussant la jambe vers le plafond."
+  },
+  "status": "validated",
+  "version": 1,
+  "assets": {
+    "poster": "poster.webp",
+    "animation": "animation.mp4"
+  },
+  "artDirection": {
+    "character": "female-athletic",
+    "style": "gflux-premium"
+  }
+}

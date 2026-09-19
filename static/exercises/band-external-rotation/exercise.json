@@ -1,0 +1,59 @@
+{
+  "slug": "band-external-rotation",
+  "nameFr": "Rotation externe des épaules avec bande",
+  "nameEn": "Band External Rotation",
+  "category": "Tronc",
+  "primaryMuscleGroup": "Épaules",
+  "primaryMuscles": [
+    "Coiffe des rotateurs",
+    "Deltoïde postérieur"
+  ],
+  "secondaryMuscles": [
+    "Trapèzes",
+    "Rhomboïdes"
+  ],
+  "equipment": [
+    "Élastiques"
+  ],
+  "level": [
+    "Débutant",
+    "Intermédiaire",
+    "Avancé"
+  ],
+  "description": "Petit mouvement, gros effet : coudes collés au corps, tu ouvres les avant-bras vers l’extérieur contre la bande. Les rotateurs externes se renforcent, tes épaules gagnent en santé et en posture — idéal en échauffement comme en renforcement.",
+  "execution": [
+    "Tiens la bande à deux mains, coudes pliés à 90°, collés contre ton corps.",
+    "Avance d’un pas pour créer une légère tension sur la bande.",
+    "Garde les coudes verrouillés contre tes côtes pendant tout le mouvement.",
+    "Ouvre les avant-bras vers l’extérieur en rotant les épaules, sans décoller les coudes.",
+    "Reviens lentement au centre en contrôlant la bande, et enchaîne."
+  ],
+  "cues": [
+    "Coudes collés aux côtes du début à la fin.",
+    "Angles à 90° : coude plié, avant-bras horizontal.",
+    "Épaules basses, loin des oreilles.",
+    "Le mouvement vient des épaules, pas des coudes ni du buste.",
+    "Amplitude confortable : mieux vaut petit et propre que grand et tordu."
+  ],
+  "mistakes": [
+    "Décoller les coudes du corps pendant l’ouverture.",
+    "Monter les épaules vers les oreilles.",
+    "Basculer le buste en arrière pour aider.",
+    "Utiliser une bande trop raide qui casse la position.",
+    "Aller trop vite sans sentir la coiffe travailler."
+  ],
+  "breathing": {
+    "eccentric": "Inspire en revenant au centre.",
+    "concentric": "Expire en ouvrant les avant-bras."
+  },
+  "status": "validated",
+  "version": 1,
+  "assets": {
+    "poster": "poster.webp",
+    "animation": "animation.mp4"
+  },
+  "artDirection": {
+    "character": "female-athletic",
+    "style": "gflux-premium"
+  }
+}

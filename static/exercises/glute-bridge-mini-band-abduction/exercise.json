@@ -1,0 +1,59 @@
+{
+  "slug": "glute-bridge-mini-band-abduction",
+  "nameFr": "Pont fessier avec abduction et mini-bande",
+  "nameEn": "Glute Bridge with Mini Band Abduction",
+  "category": "Bas du corps",
+  "primaryMuscleGroup": "Fessiers",
+  "primaryMuscles": [
+    "Grand fessier"
+  ],
+  "secondaryMuscles": [
+    "Moyen fessier",
+    "Ischio-jambiers",
+    "Abdominaux"
+  ],
+  "equipment": [
+    "Mini-bande"
+  ],
+  "level": [
+    "Débutant",
+    "Intermédiaire",
+    "Avancé"
+  ],
+  "description": "Deux mouvements en un : tu montes un pont fessier, puis tu écartes les genoux en haut contre la bande. Grand fessier et moyen fessier travaillent ensemble — l’un des meilleurs combos maison pour les fessiers.",
+  "execution": [
+    "Allonge-toi sur le dos, pieds à plat, genoux fléchis.",
+    "Place la mini-bande juste au-dessus de tes genoux.",
+    "Pousse dans les talons pour monter le bassin jusqu’à l’alignement épaules–genoux.",
+    "En haut du pont, écarte les genoux contre la bande sans descendre le bassin.",
+    "Referme les genoux puis redescends lentement : c’est une répétition."
+  ],
+  "cues": [
+    "Monte le pont avec les fessiers, pas avec le bas du dos.",
+    "Le bassin reste haut pendant toute l’abduction.",
+    "Pousse dans les talons, orteils relâchés.",
+    "Rentre légèrement le bassin pour ne pas cambrer.",
+    "Contrôle la descente, ne te laisse pas retomber."
+  ],
+  "mistakes": [
+    "Descendre le bassin pendant l’ouverture des genoux.",
+    "Hypercambrer le bas du dos en haut du pont.",
+    "Laisser les genoux rentrer sous la tension de la bande.",
+    "Pousser avec la pointe des pieds.",
+    "Enchaîner trop vite sans contraction en haut."
+  ],
+  "breathing": {
+    "eccentric": "Inspire en redescendant le bassin.",
+    "concentric": "Expire en montant le pont puis en écartant les genoux."
+  },
+  "status": "validated",
+  "version": 1,
+  "assets": {
+    "poster": "poster.webp",
+    "animation": "animation.mp4"
+  },
+  "artDirection": {
+    "character": "female-athletic",
+    "style": "gflux-premium"
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "slug": "mini-band-monster-walk",
+  "nameFr": "Monster Walk avec mini-bande",
+  "nameEn": "Mini Band Monster Walk",
+  "category": "Bas du corps",
+  "primaryMuscleGroup": "Fessiers",
+  "primaryMuscles": [
+    "Moyen fessier"
+  ],
+  "secondaryMuscles": [
+    "Grand fessier",
+    "Quadriceps"
+  ],
+  "equipment": [
+    "Mini-bande"
+  ],
+  "level": [
+    "Débutant",
+    "Intermédiaire",
+    "Avancé"
+  ],
+  "description": "Le monster walk est la version avancée de la marche latérale : tu avances en diagonale en restant en demi-squat. Fessiers moyens et grands fessiers travaillent en continu — un vrai activateur avant toute séance jambes.",
+  "execution": [
+    "Place la mini-bande au-dessus de tes genoux ou de tes chevilles.",
+    "Descends en demi-squat, buste légèrement penché, poids sur les talons.",
+    "Fais un grand pas en diagonale vers l’avant avec une jambe.",
+    "Ramène l’autre jambe dans le même axe en gardant la tension sur la bande.",
+    "Enchaîne les pas dans un sens, puis repars dans l’autre, sans te redresser."
+  ],
+  "cues": [
+    "Reste en demi-squat du premier au dernier pas.",
+    "Pieds toujours parallèles, orteils vers l’avant.",
+    "Genoux poussés vers l’extérieur, jamais rentrés.",
+    "Passe par des pas larges : la bande doit rester tendue.",
+    "Bouge des jambes, le buste reste stable."
+  ],
+  "mistakes": [
+    "Se redresser entre chaque pas et perdre la tension.",
+    "Faire des pas trop petits pour économiser l’effort.",
+    "Laisser les genoux rentrer vers l’intérieur.",
+    "Tourner les pieds vers l’extérieur au lieu de rester parallèle.",
+    "Foncer en vitesse au lieu de contrôler chaque appui."
+  ],
+  "breathing": {
+    "eccentric": "Inspire de façon régulière pendant les pas.",
+    "concentric": "Expire en poussant chaque pas vers l’extérieur."
+  },
+  "status": "validated",
+  "version": 1,
+  "assets": {
+    "poster": "poster.webp",
+    "animation": "animation.mp4"
+  },
+  "artDirection": {
+    "character": "female-athletic",
+    "style": "gflux-premium"
+  }
+}

@@ -66,7 +66,8 @@ const REPORT = args.includes('--report');
 if (!existsSync(DIR)) fail(`Dossier introuvable : ${DIR}`);
 
 const rows = [];
-const seenSlugs = new Map();
+/** Identités normalisées du registre (nameFr + nameEn) pour l'anti-doublon. */
+const registryIdentities = [];
 
 for (const entry of readdirSync(DIR, { withFileTypes: true }).filter((d) => d.isDirectory() && !d.name.startsWith('.'))) {
 	const slug = entry.name;
@@ -132,14 +133,60 @@ for (const entry of readdirSync(DIR, { withFileTypes: true }).filter((d) => d.is
 		if (!readme.trim()) problems.push('README.md vide');
 	}
 
-	// ── 5. Unicité des slugs (nameFr) dans tout le registre
-	if (ex?.nameFr) {
-		const key = slugify(ex.nameFr);
-		if (seenSlugs.has(key)) problems.push(`nameFr déjà utilisé par « ${seenSlugs.get(key)} »`);
-		else seenSlugs.set(key, slug);
-	}
+	// ── 5. Identités collectées — les contrôles anti-doublon s'exécutent en
+	// fin de passe, une fois le registre entier connu (voir bloc ci-dessous).
+	if (ex?.nameFr) registryIdentities.push({ slug, field: 'nameFr', value: ex.nameFr });
+	if (ex?.nameEn && ex.nameEn !== ex.nameFr) registryIdentities.push({ slug, field: 'nameEn', value: ex.nameEn });
 
-	if (REPORT) {
+	rows.push({ slug, ex, problems, notes, files });
+}
+
+/* ── Contrôle anti-doublon à l'échelle du registre ──
+ *
+ * POLITIQUE (sept. 2026) : le contrôle SIGNALE, il ne supprime jamais.
+ *   - BLOQUANT (doublon technique uniquement) : même slug ou même identité
+ *     normalisée — deux nameFr identiques ou deux nameEn identiques ;
+ *   - WARNING informatif (validation humaine conseillée, JAMAIS bloquant) :
+ *     identités FR↔EN croisées, noms « proches » une fois le vocabulaire
+ *     matériel retiré (mini band, bande, dumbbell…) ;
+ *   - une variante de prise, d'angle, de position, d'amplitude, de matériel
+ *     ou d'exécution est AUTORISÉE ;
+ *   - ce contrôle porte sur le registre local G-FLUX uniquement : il ne
+ *     touche JAMAIS l'ExerciseDB historique (aucune suppression, fusion ou
+ *     remplacement automatique d'une entrée existante).
+ */
+const byIdentity = new Map();
+for (const it of registryIdentities) {
+	const key = `${it.field}:${slugify(it.value)}`;
+	const prev = byIdentity.get(key);
+	const row = rows.find((r) => r.slug === it.slug);
+	if (prev && prev.slug !== it.slug) {
+		row?.problems.push(`${it.field} « ${it.value} » déjà utilisé par « ${prev.slug} » (doublon technique)`);
+	} else {
+		byIdentity.set(key, { slug: it.slug, value: it.value });
+	}
+}
+
+/** Nom « cœur » : vocabulaire générique de matériel retiré (détection souple). */
+const FILLER = new Set(['band', 'bande', 'mini', 'with', 'avec', 'resistance', 'dumbbell', 'halteres']);
+const coreOf = (value) => slugify(value).split('-').filter((t) => t && !FILLER.has(t)).join('-');
+const byCore = new Map();
+for (const it of registryIdentities) {
+	const core = coreOf(it.value);
+	if (!core) continue;
+	const prev = byCore.get(core);
+	const row = rows.find((r) => r.slug === it.slug);
+	if (prev && prev.slug !== it.slug) {
+		row?.notes.push(
+			`« ${it.value} » proche de « ${prev.value} » (${prev.slug}) — variante autorisée, validation humaine conseillée (jamais bloquante)`
+		);
+	} else {
+		byCore.set(core, { slug: it.slug, value: it.value });
+	}
+}
+
+if (REPORT) {
+	for (const { slug, ex, problems, notes, files } of rows) {
 		console.log(`\n${slug}`);
 		console.log(`  statut       : ${ex?.status ?? 'draft (implicite)'}`);
 		console.log(`  version      : ${ex?.version ?? '—'}`);
@@ -148,8 +195,6 @@ for (const entry of readdirSync(DIR, { withFileTypes: true }).filter((d) => d.is
 		if (notes.length) for (const n of notes) console.log(`  ⚠️  ${n}`);
 		if (!problems.length && !notes.length) console.log('  ✅ conforme au standard');
 	}
-
-	rows.push({ slug, ex, problems, notes });
 }
 
 // ── Résultat global + écriture du registre

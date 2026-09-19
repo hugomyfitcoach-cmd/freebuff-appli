@@ -1,0 +1,58 @@
+{
+  "slug": "seated-mini-band-hip-abduction",
+  "nameFr": "Abduction de hanche assise avec mini-bande",
+  "nameEn": "Seated Hip Abduction with Mini Band",
+  "category": "Bas du corps",
+  "primaryMuscleGroup": "Fessiers",
+  "primaryMuscles": [
+    "Moyen fessier"
+  ],
+  "secondaryMuscles": [
+    "Grand fessier",
+    "Petit fessier"
+  ],
+  "equipment": [
+    "Mini-bande"
+  ],
+  "level": [
+    "Débutant",
+    "Intermédiaire",
+    "Avancé"
+  ],
+  "description": "Assise sur un banc ou une chaise, tu écartes les genoux contre la bande : discret, sûr et étonnamment efficace. Parfait pour activer le moyen fessier quand tu veux éviter les appuis debout.",
+  "execution": [
+    "Assieds-toie au bord d’un banc ou d’une chaise, dos droit.",
+    "Place la mini-bande juste au-dessus de tes genoux.",
+    "Pieds à plat, largeur de hanches, mains posées sur tes cuisses.",
+    "Écarte les genoux vers l’extérieur contre la bande, sans basculer le bassin.",
+    "Referme lentement en gardant la tension, puis enchaîne tes répétitions."
+  ],
+  "cues": [
+    "Buste droit, assise haute : ne t’affaisse pas.",
+    "Les genoux s’écartent, les pieds restent à plat.",
+    "Bassin immobile, pas de bascule avant-arrière.",
+    "Amplitude moyenne et contrôle constant.",
+    "Garde la tension même en refermant."
+  ],
+  "mistakes": [
+    "Se pencher en avant pour forcer l’écart.",
+    "Décoller les talons ou la pointe des pieds.",
+    "Bascule le bassin pendant l’ouverture.",
+    "Aller trop vite sans sentir le moyen fessier.",
+    "Bande trop haute sur les cuisses : résistance trop faible."
+  ],
+  "breathing": {
+    "eccentric": "Inspire en refermant les genoux.",
+    "concentric": "Expire en écartant les genoux contre la bande."
+  },
+  "status": "validated",
+  "version": 1,
+  "assets": {
+    "poster": "poster.webp",
+    "animation": "animation.mp4"
+  },
+  "artDirection": {
+    "character": "female-athletic",
+    "style": "gflux-premium"
+  }
+}

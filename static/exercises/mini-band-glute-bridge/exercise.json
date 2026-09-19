@@ -4,10 +4,22 @@
   "nameEn": "Mini Band Glute Bridge",
   "category": "Bas du corps",
   "primaryMuscleGroup": "Fessiers",
-  "primaryMuscles": ["Grand fessier"],
-  "secondaryMuscles": ["Ischio-jambiers", "Moyen fessier", "Abdominaux"],
-  "equipment": ["Mini-bande"],
-  "level": ["Débutant", "Intermédiaire", "Avancé"],
+  "primaryMuscles": [
+    "Grand fessier"
+  ],
+  "secondaryMuscles": [
+    "Ischio-jambiers",
+    "Moyen fessier",
+    "Abdominaux"
+  ],
+  "equipment": [
+    "Mini-bande"
+  ],
+  "level": [
+    "Débutant",
+    "Intermédiaire",
+    "Avancé"
+  ],
   "description": "La version maison du hip thrust : un pont fessier avec mini-bande au-dessus des genoux pour ajouter l’abduction et encore plus de contraction. Un essentiel pour des fessiers forts sans matériel.",
   "execution": [
     "Allonge-toi sur le dos, pieds à plat largeur de hanches, genoux fléchis.",
@@ -35,7 +47,7 @@
     "concentric": "Expire en poussant vers le haut et en serrant les fessiers."
   },
   "status": "validated",
-  "version": 1,
+  "version": 2,
   "assets": {
     "poster": "poster.webp",
     "animation": "animation.mp4"

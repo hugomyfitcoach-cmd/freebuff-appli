@@ -1,8 +1,40 @@
 {
-  "generatedAt": "2026-09-18T21:07:32.902Z",
+  "generatedAt": "2026-09-18T22:28:25.260Z",
   "standard": "docs/exercise-db-standard.md",
-  "count": 5,
+  "count": 15,
   "exercises": [
+    {
+      "slug": "band-external-rotation",
+      "nameFr": "Rotation externe des épaules avec bande",
+      "nameEn": "Band External Rotation",
+      "category": "Tronc",
+      "primaryMuscleGroup": "Épaules",
+      "primaryMuscles": [
+        "Coiffe des rotateurs",
+        "Deltoïde postérieur"
+      ],
+      "secondaryMuscles": [
+        "Trapèzes",
+        "Rhomboïdes"
+      ],
+      "equipment": [
+        "Élastiques"
+      ],
+      "level": [
+        "Débutant",
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/band-external-rotation/poster.webp",
+      "animationUrl": "/exercises/band-external-rotation/animation.mp4",
+      "isNew": true
+    },
     {
       "slug": "band-pallof-press",
       "nameFr": "Pallof press avec bande",
@@ -26,13 +58,78 @@
         "Avancé"
       ],
       "status": "validated",
-      "version": 1,
+      "version": 2,
       "assets": {
         "animation": "animation.mp4",
         "poster": "poster.webp"
       },
       "posterUrl": "/exercises/band-pallof-press/poster.webp",
       "animationUrl": "/exercises/band-pallof-press/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "band-romanian-deadlift",
+      "nameFr": "Soulevé de terre roumain avec bande",
+      "nameEn": "Resistance Band Romanian Deadlift",
+      "category": "Bas du corps",
+      "primaryMuscleGroup": "Ischio-jambiers",
+      "primaryMuscles": [
+        "Ischio-jambiers",
+        "Grand fessier"
+      ],
+      "secondaryMuscles": [
+        "Lombaires",
+        "Abdominaux",
+        "Moyen fessier"
+      ],
+      "equipment": [
+        "Élastiques"
+      ],
+      "level": [
+        "Débutant",
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/band-romanian-deadlift/poster.webp",
+      "animationUrl": "/exercises/band-romanian-deadlift/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "glute-bridge-mini-band-abduction",
+      "nameFr": "Pont fessier avec abduction et mini-bande",
+      "nameEn": "Glute Bridge with Mini Band Abduction",
+      "category": "Bas du corps",
+      "primaryMuscleGroup": "Fessiers",
+      "primaryMuscles": [
+        "Grand fessier"
+      ],
+      "secondaryMuscles": [
+        "Moyen fessier",
+        "Ischio-jambiers",
+        "Abdominaux"
+      ],
+      "equipment": [
+        "Mini-bande"
+      ],
+      "level": [
+        "Débutant",
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/glute-bridge-mini-band-abduction/poster.webp",
+      "animationUrl": "/exercises/glute-bridge-mini-band-abduction/animation.mp4",
       "isNew": true
     },
     {
@@ -57,7 +154,7 @@
         "Avancé"
       ],
       "status": "validated",
-      "version": 1,
+      "version": 2,
       "assets": {
         "animation": "animation.mp4",
         "poster": "poster.webp"
@@ -99,6 +196,68 @@
       "isNew": true
     },
     {
+      "slug": "mini-band-clamshell",
+      "nameFr": "Coquille avec mini-bande",
+      "nameEn": "Mini Band Clamshell",
+      "category": "Bas du corps",
+      "primaryMuscleGroup": "Fessiers",
+      "primaryMuscles": [
+        "Moyen fessier"
+      ],
+      "secondaryMuscles": [
+        "Grand fessier",
+        "Petit fessier"
+      ],
+      "equipment": [
+        "Mini-bande"
+      ],
+      "level": [
+        "Débutant",
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/mini-band-clamshell/poster.webp",
+      "animationUrl": "/exercises/mini-band-clamshell/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "mini-band-fire-hydrant",
+      "nameFr": "Fire hydrant avec mini-bande",
+      "nameEn": "Mini Band Fire Hydrant",
+      "category": "Bas du corps",
+      "primaryMuscleGroup": "Fessiers",
+      "primaryMuscles": [
+        "Moyen fessier"
+      ],
+      "secondaryMuscles": [
+        "Grand fessier",
+        "Abdominaux"
+      ],
+      "equipment": [
+        "Mini-bande"
+      ],
+      "level": [
+        "Débutant",
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/mini-band-fire-hydrant/poster.webp",
+      "animationUrl": "/exercises/mini-band-fire-hydrant/animation.mp4",
+      "isNew": true
+    },
+    {
       "slug": "mini-band-glute-bridge",
       "nameFr": "Pont fessier avec mini-bande",
       "nameEn": "Mini Band Glute Bridge",
@@ -121,13 +280,76 @@
         "Avancé"
       ],
       "status": "validated",
-      "version": 1,
+      "version": 2,
       "assets": {
         "animation": "animation.mp4",
         "poster": "poster.webp"
       },
       "posterUrl": "/exercises/mini-band-glute-bridge/poster.webp",
       "animationUrl": "/exercises/mini-band-glute-bridge/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "mini-band-glute-kickback",
+      "nameFr": "Kickback fessier à quatre pattes avec mini-bande",
+      "nameEn": "Mini Band Glute Kickback",
+      "category": "Bas du corps",
+      "primaryMuscleGroup": "Fessiers",
+      "primaryMuscles": [
+        "Grand fessier"
+      ],
+      "secondaryMuscles": [
+        "Ischio-jambiers",
+        "Moyen fessier",
+        "Lombaires"
+      ],
+      "equipment": [
+        "Mini-bande"
+      ],
+      "level": [
+        "Débutant",
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/mini-band-glute-kickback/poster.webp",
+      "animationUrl": "/exercises/mini-band-glute-kickback/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "mini-band-monster-walk",
+      "nameFr": "Monster Walk avec mini-bande",
+      "nameEn": "Mini Band Monster Walk",
+      "category": "Bas du corps",
+      "primaryMuscleGroup": "Fessiers",
+      "primaryMuscles": [
+        "Moyen fessier"
+      ],
+      "secondaryMuscles": [
+        "Grand fessier",
+        "Quadriceps"
+      ],
+      "equipment": [
+        "Mini-bande"
+      ],
+      "level": [
+        "Débutant",
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/mini-band-monster-walk/poster.webp",
+      "animationUrl": "/exercises/mini-band-monster-walk/animation.mp4",
       "isNew": true
     },
     {
@@ -155,13 +377,108 @@
         "Avancé"
       ],
       "status": "validated",
-      "version": 1,
+      "version": 2,
       "assets": {
         "animation": "animation.mp4",
         "poster": "poster.webp"
       },
       "posterUrl": "/exercises/mini-band-squat/poster.webp",
       "animationUrl": "/exercises/mini-band-squat/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "seated-mini-band-hip-abduction",
+      "nameFr": "Abduction de hanche assise avec mini-bande",
+      "nameEn": "Seated Hip Abduction with Mini Band",
+      "category": "Bas du corps",
+      "primaryMuscleGroup": "Fessiers",
+      "primaryMuscles": [
+        "Moyen fessier"
+      ],
+      "secondaryMuscles": [
+        "Grand fessier",
+        "Petit fessier"
+      ],
+      "equipment": [
+        "Mini-bande"
+      ],
+      "level": [
+        "Débutant",
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/seated-mini-band-hip-abduction/poster.webp",
+      "animationUrl": "/exercises/seated-mini-band-hip-abduction/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "standing-mini-band-hip-abduction",
+      "nameFr": "Abduction de hanche debout avec mini-bande",
+      "nameEn": "Standing Hip Abduction with Mini Band",
+      "category": "Bas du corps",
+      "primaryMuscleGroup": "Fessiers",
+      "primaryMuscles": [
+        "Moyen fessier"
+      ],
+      "secondaryMuscles": [
+        "Grand fessier",
+        "Petit fessier"
+      ],
+      "equipment": [
+        "Mini-bande"
+      ],
+      "level": [
+        "Débutant",
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/standing-mini-band-hip-abduction/poster.webp",
+      "animationUrl": "/exercises/standing-mini-band-hip-abduction/animation.mp4",
+      "isNew": true
+    },
+    {
+      "slug": "wall-slide-mini-band",
+      "nameFr": "Wall slide avec mini-bande",
+      "nameEn": "Wall Slide with Mini Band",
+      "category": "Tronc",
+      "primaryMuscleGroup": "Épaules",
+      "primaryMuscles": [
+        "Trapèzes inférieurs",
+        "Rotateurs externes"
+      ],
+      "secondaryMuscles": [
+        "Rhomboïdes",
+        "Deltoïde postérieur",
+        "Coiffe des rotateurs"
+      ],
+      "equipment": [
+        "Mini-bande"
+      ],
+      "level": [
+        "Débutant",
+        "Intermédiaire",
+        "Avancé"
+      ],
+      "status": "validated",
+      "version": 1,
+      "assets": {
+        "animation": "animation.mp4",
+        "poster": "poster.webp"
+      },
+      "posterUrl": "/exercises/wall-slide-mini-band/poster.webp",
+      "animationUrl": "/exercises/wall-slide-mini-band/animation.mp4",
       "isNew": true
     }
   ]

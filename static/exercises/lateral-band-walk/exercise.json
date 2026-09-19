@@ -4,10 +4,21 @@
   "nameEn": "Lateral Band Walk",
   "category": "Bas du corps",
   "primaryMuscleGroup": "Fessiers",
-  "primaryMuscles": ["Moyen fessier"],
-  "secondaryMuscles": ["Grand fessier", "Petit fessier"],
-  "equipment": ["Mini-bande"],
-  "level": ["Débutant", "Intermédiaire", "Avancé"],
+  "primaryMuscles": [
+    "Moyen fessier"
+  ],
+  "secondaryMuscles": [
+    "Grand fessier",
+    "Petit fessier"
+  ],
+  "equipment": [
+    "Mini-bande"
+  ],
+  "level": [
+    "Débutant",
+    "Intermédiaire",
+    "Avancé"
+  ],
   "description": "Un exercice d’abduction de hanche simple et redoutablement efficace pour renforcer les fessiers moyens et stabiliser tes genoux. Parfait à la maison avec une simple mini-bande.",
   "execution": [
     "Place la mini-bande juste au-dessus de tes chevilles ou sous tes genoux.",
@@ -35,7 +46,7 @@
     "concentric": "Expire en contrôlant le rappel du pied."
   },
   "status": "validated",
-  "version": 1,
+  "version": 2,
   "assets": {
     "poster": "poster.webp",
     "animation": "animation.mp4"

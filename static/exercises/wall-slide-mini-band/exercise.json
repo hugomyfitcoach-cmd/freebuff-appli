@@ -1,0 +1,60 @@
+{
+  "slug": "wall-slide-mini-band",
+  "nameFr": "Wall slide avec mini-bande",
+  "nameEn": "Wall Slide with Mini Band",
+  "category": "Tronc",
+  "primaryMuscleGroup": "Épaules",
+  "primaryMuscles": [
+    "Trapèzes inférieurs",
+    "Rotateurs externes"
+  ],
+  "secondaryMuscles": [
+    "Rhomboïdes",
+    "Deltoïde postérieur",
+    "Coiffe des rotateurs"
+  ],
+  "equipment": [
+    "Mini-bande"
+  ],
+  "level": [
+    "Débutant",
+    "Intermédiaire",
+    "Avancé"
+  ],
+  "description": "Face au mur, avant-bras posés avec la bande autour des poignets : tu glisses les bras vers le haut tout en gardant les avant-bras contre le mur. C’est l’exercice de référence pour une posture ouverte et des épaules solides.",
+  "execution": [
+    "Place-toi face au mur, à un pas de distance, avant-bras posés à hauteur d’épaules.",
+    "Mets la mini-bande autour de tes poignets.",
+    "Pousse légèrement tes avant-bras dans le mur et tire la bande vers l’extérieur.",
+    "Glisse les bras vers le haut le plus loin possible sans décoller les avant-bras ni cambrer.",
+    "Redescends lentement au point de départ en gardant la tension sur la bande."
+  ],
+  "cues": [
+    "Avant-bras toujours en contact avec le mur.",
+    "Pousse la bande vers l’extérieur pendant toute la montée.",
+    "Côtes vers le bas : pas de cambrure du bas du dos.",
+    "Descends aussi lentement que tu montes.",
+    "Amplitude progressive : va vers le haut sans forcer l’épaule."
+  ],
+  "mistakes": [
+    "Décoller les avant-bras ou les mains du mur.",
+    "Cambrer le bas du dos pour monter plus haut.",
+    "Relâcher la tension de la bande pendant la descente.",
+    "Monter les épaules vers les oreilles.",
+    "Aller trop haut trop vite au prix de la position."
+  ],
+  "breathing": {
+    "eccentric": "Inspire en descendant les bras.",
+    "concentric": "Expire en glissant vers le haut."
+  },
+  "status": "validated",
+  "version": 1,
+  "assets": {
+    "poster": "poster.webp",
+    "animation": "animation.mp4"
+  },
+  "artDirection": {
+    "character": "female-athletic",
+    "style": "gflux-premium"
+  }
+}

@@ -4,10 +4,24 @@
   "nameEn": "Mini Band Squat",
   "category": "Bas du corps",
   "primaryMuscleGroup": "Fessiers",
-  "primaryMuscles": ["Grand fessier", "Quadriceps"],
-  "secondaryMuscles": ["Moyen fessier", "Ischio-jambiers", "Adducteurs", "Abdominaux"],
-  "equipment": ["Mini-bande"],
-  "level": ["Débutant", "Intermédiaire", "Avancé"],
+  "primaryMuscles": [
+    "Grand fessier",
+    "Quadriceps"
+  ],
+  "secondaryMuscles": [
+    "Moyen fessier",
+    "Ischio-jambiers",
+    "Adducteurs",
+    "Abdominaux"
+  ],
+  "equipment": [
+    "Mini-bande"
+  ],
+  "level": [
+    "Débutant",
+    "Intermédiaire",
+    "Avancé"
+  ],
   "description": "Un squat au poids du corps avec mini-bande au-dessus des genoux : la bande te pousse les genoux vers l’intérieur et tu dois lutter pour les garder écartés. Plus de fessiers, plus de contrôle, zéro matériel.",
   "execution": [
     "Place la mini-bande juste au-dessus de tes genoux, pieds largeur de hanches.",
@@ -35,7 +49,7 @@
     "concentric": "Expire en remontant et en serrant les fessiers en haut."
   },
   "status": "validated",
-  "version": 1,
+  "version": 2,
   "assets": {
     "poster": "poster.webp",
     "animation": "animation.mp4"
