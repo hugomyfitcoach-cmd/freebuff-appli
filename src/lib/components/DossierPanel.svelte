@@ -45,12 +45,27 @@
 	let err = $state('');
 	let ok = $state('');
 
+	/**
+	 * Lit un corps JSON en tolérant une réponse vide / non-JSON (couche hébergeur :
+	 * fonction tuée avant toute réponse → corps vide, crash « Unexpected end of
+	 * JSON input » sur response.json()). Renvoie un objet neutre : l'appelant
+	 * affiche son message d'erreur propre au lieu de planter sur le parsing.
+	 */
+	async function readJson<T = Record<string, unknown>>(r: Response): Promise<T> {
+		try {
+			const text = await r.text();
+			return (text ? JSON.parse(text) : {}) as T;
+		} catch {
+			return {} as T;
+		}
+	}
+
 	async function load() {
 		loading = true;
 		err = '';
 		try {
 			const r = await fetch(`/api/coach/resources?client=${encodeURIComponent(clientId)}`);
-			const j = await r.json();
+			const j = await readJson<{ rows?: Resource[]; error?: string }>(r);
 			if (!r.ok || j.error) throw new Error(j.error || 'Chargement impossible.');
 			rows = j.rows ?? [];
 		} catch (e) {
@@ -90,7 +105,7 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ userId: clientId, kind: 'note', title: noteTitle, body: noteBody }),
 			});
-			const j = await r.json();
+			const j = await readJson<{ error?: string }>(r);
 			if (!r.ok || j.error) throw new Error(j.error || "Impossible d'ajouter la note.");
 			noteTitle = '';
 			noteBody = '';
@@ -139,13 +154,44 @@
 		fileBusy = true;
 		err = '';
 		try {
-			const fd = new FormData();
-			fd.append('userId', clientId);
-			fd.append('title', fileTitle);
-			if (fileDesc.trim()) fd.append('description', fileDesc);
-			for (const f of pickedFiles) fd.append('file', f);
-			const r = await fetch('/api/coach/resources', { method: 'POST', body: fd });
-			const j = await r.json();
+			// ROOT CAUSE corrigée : le POST multipart historique envoyait TOUS les
+			// fichiers d'un coup PAR la fonction serveur (BFF). Au-delà de quelques
+			// Mo, Netlify tuait la requête avant toute réponse → corps vide → crash
+			// « Unexpected end of JSON input » sur response.json(). Désormais chaque
+			// fichier part DIRECTEMENT vers le storage Convex (byte-passing, une
+			// requête = un fichier, jamais la limite de la fonction), puis UNE seule
+			// entrée Drive est créée avec les storageIds (JSON minuscule).
+			const uploaded: { storageId: string; mime: string; name: string; size: number }[] = [];
+			for (const f of pickedFiles) {
+				const urlRes = await fetch('/api/coach/resources/upload-url', { method: 'POST' });
+				const urlJ = await readJson<{ error?: string; uploadUrl?: string }>(urlRes);
+				if (!urlRes.ok || !urlJ.uploadUrl) {
+					throw new Error(urlJ.error || "Préparation de l'envoi impossible. Réessaie dans quelques instants.");
+				}
+				const up = await fetch(urlJ.uploadUrl, {
+					method: 'POST',
+					headers: { 'Content-Type': f.type || 'application/octet-stream' },
+					body: f,
+				});
+				const upJ = await readJson<{ error?: string; storageId?: string }>(up);
+				if (!up.ok || !upJ.storageId) {
+					throw new Error(upJ.error || `Échec de l'envoi de « ${f.name} ». Réessaie dans quelques instants.`);
+				}
+				uploaded.push({ storageId: upJ.storageId, mime: f.type || 'application/octet-stream', name: f.name, size: f.size });
+			}
+			// UNE seule entrée pour l'ensemble (visibilité par défaut : privée coach).
+			const r = await fetch('/api/coach/resources', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					userId: clientId,
+					kind: 'file',
+					title: fileTitle,
+					...(fileDesc.trim() ? { description: fileDesc } : {}),
+					attachments: uploaded,
+				}),
+			});
+			const j = await readJson<{ error?: string; ok?: boolean }>(r);
 			if (!r.ok || j.error) throw new Error(j.error || "Impossible d'ajouter le document.");
 			fileTitle = '';
 			fileDesc = '';
@@ -172,7 +218,7 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ visibility }),
 			});
-			const j = await r.json();
+			const j = await readJson<{ error?: string }>(r);
 			if (!r.ok || j.error) throw new Error(j.error || 'Mise à jour impossible.');
 			flashOk(visibility === 'shared' ? 'Visible par la cliente dans « Drive ». ✔' : 'Repassée en privé — plus visible côté cliente.');
 			await load();
@@ -188,7 +234,7 @@
 		err = '';
 		try {
 			const r = await fetch(`/api/coach/resources/${id}`, { method: 'DELETE' });
-			const j = await r.json();
+			const j = await readJson<{ error?: string; ok?: boolean }>(r);
 			if (!r.ok || j.error) throw new Error(j.error || 'Suppression impossible.');
 			flashOk('Entrée supprimée.');
 			await load();
