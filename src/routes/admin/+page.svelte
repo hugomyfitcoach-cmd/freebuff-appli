@@ -9,7 +9,6 @@
 	import Icon from '../../lib/components/Icon.svelte';
 	import JournalDay from '../../lib/components/JournalDay.svelte';
 	import MetricTrend from '../../lib/components/MetricTrend.svelte';
-	import StepsBars from '../../lib/components/StepsBars.svelte';
 	import WeeklyTrendChart from '../../lib/components/WeeklyTrendChart.svelte';
 	import { cycleState } from '../../lib/cycle.js';
 	import { kindRule, SLOT_TAKEN_MESSAGE, toISO } from '../../lib/appointments.js';
@@ -965,6 +964,8 @@
 	const cockpit = $derived(view?.cockpit ?? null);
 	/** Série des 7 derniers jours (pas) pour le mini-graphique — mêmes données que la cliente. */
 	const stepsLast7 = $derived((view?.stepsLast7 ?? []) as { date: string; count: number | null }[]);
+	/** Initiales L→D de la série (lundi → dimanche de la fenêtre affichée). */
+	const stepsLetters = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
 	const weekPhotos = $derived.by(() => {
 		if (!cockpit) return null;
 		const groups = (photos ?? []).filter(
@@ -972,6 +973,25 @@
 		);
 		const n = groups.reduce((s: number, g: { photos: unknown[] }) => s + g.photos.length, 0);
 		return n > 0 ? { count: n } : null;
+	});
+	/** Protéines du cockpit — même agrégation que la carte Calories.
+	    Le calcul SOURCE (Convex) est déjà correct : `proteinByDay` est remplie
+	    dans la même boucle que `kcalByDay` (mêmes diaryEntries, même « jour
+	    suivi » = jour avec ≥ 1 aliment enregistré, moyenne ÷ jours suivis).
+	    Tant que le backend déployé n'expose pas `cockpit.protein` (push Convex
+	    pending), la carte recompose ce résultat à partir de `view.week` —
+	    la somme par jour des MÊMES diaryEntries, déjà servie en prod (les 7
+	    derniers jours glissants ≈ semaine du bilan en cours). Dès le push,
+	    la valeur servie (identique) reprend la main. */
+	const proteinCard = $derived.by(() => {
+		const served = cockpit?.protein;
+		const goal = served?.goal ?? view?.goals?.protein ?? 90;
+		if (served) return { avg: served.avg, goal, trackedDays: served.trackedDays };
+		const week = (view?.week ?? []) as { protein: number; count: number }[];
+		const tracked = week.filter((d) => d.count > 0);
+		if (tracked.length === 0) return { avg: null, goal, trackedDays: 0 };
+		const sum = tracked.reduce((s, d) => s + d.protein, 0);
+		return { avg: Math.round(sum / tracked.length), goal, trackedDays: tracked.length };
 	});
 	const cockpitPill = $derived.by(() => {
 		const b = cockpit?.bilan ?? null;
@@ -1000,6 +1020,20 @@
 	function fmtDateTime(ts: number): string {
 		return new Date(ts).toLocaleString('fr-FR', { weekday: 'long', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 	}
+	/** Date ISO courte pour un RDV (date seule, sans heure) — ex. « ven. 25 sept. ». */
+	function fmtRdvDate(iso: string): string {
+		return new Date(iso + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
+	}
+	/** Date ISO décalée de n jours (même clé locale que le reste de la page). */
+	function addDaysISO(n: number): string {
+		const d = new Date();
+		d.setDate(d.getDate() + n);
+		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+	}
+	/** Date du dernier envoi photo (toutes périodes) — « Dernier envoi : le … ». */
+	const lastPhotoDate = $derived(
+		(photos as { date: string }[]).reduce<string | null>((max, g) => (max === null || g.date > max ? g.date : max), null)
+	);
 
 	/* Quand on ouvre le tiroir 360°, on précharge le journal + les mesures. */
 	$effect(() => {
@@ -2837,113 +2871,176 @@
 								</span>
 							</div>
 
-							<div class="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
-								<!-- POIDS -->
-								<div class="rounded-xl border border-line bg-cream/40 p-3">
-									<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="scale" size={12} /> Poids</div>
+							<!-- Vision 360 compacte : 3+3 cartes pilotage + 2 cartes repères larges.
+							     Cartes « chiffres » (Poids, Calories, Pas, Protéines) → nombre fort +
+							     repères secondaires en petit ; cartes « repères » (Cycle, RDV,
+							     Mensurations, Photos) → une info par ligne, hauteur minimale,
+							     jamais de grande carte vide quand la donnée manque. -->
+							<div class="grid grid-cols-1 gap-2 p-3 sm:grid-cols-2 xl:grid-cols-3">
+								{#snippet cardHead(icon: string, label: string, right?: string)}
+									<div class="flex items-center justify-between gap-2">
+										<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name={icon} size={12} /> {label}</div>
+										{#if right}<span class="text-[10px] font-semibold tabular-nums text-mist">{right}</span>{/if}
+									</div>
+								{/snippet}
+
+								<!-- POIDS — moyenne, évolution vs semaine précédente, pesées -->
+								<div class="flex flex-col rounded-xl border border-line bg-cream/40 p-3">
+									{@render cardHead('scale', 'Poids', cockpit.weight.count > 0 ? `${cockpit.weight.count} pesée${cockpit.weight.count > 1 ? 's' : ''}` : undefined)}
 									{#if cockpit.weight.avg !== null}
-										<div class="mt-1 font-display text-2xl font-semibold text-ink">{fmtVal(cockpit.weight.avg)} kg</div>
-										<p class="text-[11px] text-mist">Moyenne de la semaine</p>
-										{#if cockpit.weight.delta !== null}
-											<p class="mt-1 text-sm font-semibold text-ink">{fmtSigned(cockpit.weight.delta)} kg vs semaine précédente</p>
-										{:else}
-											<p class="mt-1 text-xs italic text-mist">Pas de semaine précédente à comparer</p>
-										{/if}
+										<div class="mt-1 flex flex-wrap items-baseline gap-x-2">
+											<span class="font-display text-2xl font-semibold text-ink">{fmtVal(cockpit.weight.avg)} kg</span>
+											{#if cockpit.weight.delta !== null}
+												<span class="rounded-full bg-soft px-1.5 py-0.5 text-[10px] font-bold text-ink">{fmtSigned(cockpit.weight.delta)} kg vs sem. préc.</span>
+											{:else}
+												<span class="text-[10px] italic text-mist">pas de semaine précédente</span>
+											{/if}
+										</div>
+										<p class="mt-0.5 text-[11px] text-mist">Moyenne de la semaine</p>
 									{:else}
-										<p class="mt-1 text-sm italic text-mist">Aucune pesée cette semaine</p>
+										<div class="mt-1 font-display text-2xl font-semibold text-mist/50">—</div>
+										<p class="mt-0.5 text-[11px] italic text-mist">Aucune pesée cette semaine</p>
 									{/if}
-									<p class="mt-1 text-[11px] text-mist">
-										{cockpit.weight.count} pesée{cockpit.weight.count > 1 ? 's' : ''} enregistrée{cockpit.weight.count > 1 ? 's' : ''} cette semaine
-									</p>
 								</div>
 
-								<!-- CALORIES -->
-								<div class="rounded-xl border border-line bg-cream/40 p-3">
-									<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="flame" size={12} /> Calories</div>
+								<!-- CALORIES — moyenne, objectif, jours suivis -->
+								<div class="flex flex-col rounded-xl border border-line bg-cream/40 p-3">
+									{@render cardHead('flame', 'Calories', `${cockpit.calories.trackedDays}/7 j suivis`)}
 									{#if cockpit.calories.avg !== null}
 										<div class="mt-1 font-display text-2xl font-semibold text-ink">{cockpit.calories.avg.toLocaleString('fr-FR')} kcal</div>
-										<p class="text-[11px] text-mist">en moyenne / jour suivi</p>
+										<p class="mt-0.5 text-[11px] text-mist">en moyenne / jour suivi · objectif {cockpit.calories.goal.toLocaleString('fr-FR')} kcal</p>
 									{:else}
-										<p class="mt-1 text-sm italic text-mist">Aucun jour suivi cette semaine</p>
+										<div class="mt-1 font-display text-2xl font-semibold text-mist/50">—</div>
+										<p class="mt-0.5 text-[11px] italic text-mist">Aucun jour suivi cette semaine · objectif {cockpit.calories.goal.toLocaleString('fr-FR')} kcal</p>
 									{/if}
-									<p class="mt-1 text-xs text-ink">Objectif : {cockpit.calories.goal.toLocaleString('fr-FR')} kcal</p>
-									<p class="text-[11px] text-mist">{cockpit.calories.trackedDays} / 7 jours suivis</p>
 								</div>
 
-								<!-- PAS : moyenne réelle des jours renseignés (sinon déclaration au bilan) + 7 derniers jours -->
+								<!-- PAS — moyenne, objectif, jours renseignés + mini tendance 7 jours -->
 								{#if cockpit.steps.avg !== null || cockpit.steps.declared || stepsLast7.some((d) => d.count !== null)}
-									<div class="rounded-xl border border-line bg-cream/40 p-3">
-										<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="footprints" size={13} class="shrink-0 text-brand" /> Pas</div>
+									<div class="flex flex-col rounded-xl border border-line bg-cream/40 p-3">
+										{@render cardHead('footprints', 'Pas')}
 										{#if cockpit.steps.avg !== null}
-											<div class="mt-1 font-display text-2xl font-semibold text-ink">
-												{cockpit.steps.avg.toLocaleString('fr-FR')} <span class="text-xs font-semibold text-mist">/ jour</span>
-											</div>
-											<p class="text-[11px] text-mist">en moyenne sur les jours renseignés</p>
+											<div class="mt-1 flex flex-wrap items-baseline gap-x-2">
+												<span class="font-display text-2xl font-semibold text-ink">{cockpit.steps.avg.toLocaleString('fr-FR')}</span>
+												<span class="text-xs font-semibold text-mist">/ jour</span>
 											{#if cockpit.steps.goal !== null}
-												<p class="mt-1 text-xs font-semibold text-ink">Objectif : {cockpit.steps.goal.toLocaleString('fr-FR')} pas</p>
+												<span class="rounded-full bg-soft px-1.5 py-0.5 text-[10px] font-bold text-ink">objectif {cockpit.steps.goal.toLocaleString('fr-FR')}</span>
 											{/if}
-											<p class="text-[11px] text-mist">{cockpit.steps.trackedDays} / 7 jours renseignés</p>
+											</div>
+											<p class="mt-0.5 text-[11px] text-mist">{cockpit.steps.trackedDays} / 7 jours renseignés</p>
 											{#if cockpit.steps.declared}
-												<p class="mt-1 text-[11px] italic text-mist">Déclaré au bilan : {labelFor('pas', cockpit.steps.declared)} pas/jour</p>
+												<p class="text-[11px] italic text-mist">Déclaré au bilan : {labelFor('pas', cockpit.steps.declared)} pas/jour</p>
 											{/if}
 										{:else if cockpit.steps.declared}
 											<div class="mt-1 text-sm font-semibold text-ink">{labelFor('pas', cockpit.steps.declared ?? '')} pas / jour</div>
-											<p class="mt-1 text-[11px] text-mist">Déclaré par la cliente dans son bilan — pas de saisie quotidienne cette semaine</p>
+											<p class="mt-0.5 text-[11px] italic text-mist">Déclaré au bilan — pas de saisie quotidienne cette semaine</p>
 										{/if}
 										{#if stepsLast7.some((d) => d.count !== null)}
-											<div class="mt-2 rounded-lg bg-white/60 p-2">
-												<p class="mb-1 text-[9px] font-bold uppercase tracking-wider text-mist">7 derniers jours</p>
-												<StepsBars days={stepsLast7} goal={cockpit.steps.goal} height={64} compact />
+											<!-- Mini-tendance 7 jours : présentation uniquement — données
+											     et logique métier inchangées (mêmes `stepsLast7` que la cliente).
+											     7 mini-barres L→D à hauteur proportionnelle, ligne d'objectif
+											     discrète en fond (sous les barres), jours sans donnée en
+											     tiret court — pas de cadre ni de badge, hauteur minimale. -->
+											{@const chartH = 26}
+											{@const goal7 = cockpit.steps.goal}
+											{@const yMax7 = Math.max(1, ...stepsLast7.map((d) => d.count ?? 0), goal7 ?? 0) * 1.08}
+											<div class="mt-1.5">
+												<div class="relative" style="height: {chartH}px">
+													{#if goal7 !== null}
+														<div class="absolute inset-x-0 z-0 border-t border-dashed border-ink/20" style="bottom: {(goal7 / yMax7) * chartH}px"></div>
+													{/if}
+													<div class="absolute inset-0 z-[1] flex items-end gap-1.5">
+														{#each stepsLast7 as day, i (day.date)}
+															<div class="flex h-full flex-1 items-end justify-center">
+																{#if day.count !== null}
+																	<div class="w-[6px] rounded-full bg-ink/85" style="height: {Math.max(3, ((day.count as number) / yMax7) * chartH)}px"></div>
+																{:else}
+																	<div class="w-[6px] border-t border-dotted border-mist/70"></div>
+																{/if}
+															</div>
+														{/each}
+													</div>
+												</div>
+												<div class="mt-1 flex gap-1.5">
+													{#each stepsLast7 as day, i (day.date)}
+														<span class="flex-1 text-center text-[8px] font-bold uppercase leading-none {day.count !== null ? 'text-mist' : 'text-mist/50'}">{stepsLetters[i]}</span>
+													{/each}
+												</div>
 											</div>
 										{/if}
 									</div>
 								{/if}
 
-								<!-- MENSURATIONS -->
-								<div class="rounded-xl border border-line bg-cream/40 p-3">
-									<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="ruler" size={12} /> Mensurations</div>
-									{#if cockpit.measurements.fresh && cockpit.measurements.date}
-										<p class="mt-1 text-sm font-semibold text-ink">Mises à jour {fmtDaysAgo(cockpit.measurements.daysAgo ?? 0)}</p>
-										{#if cockpit.measurements.deltas.waistCm !== null}
-											<p class="mt-0.5 text-xs text-ink">Tour de taille fine : {fmtSigned(cockpit.measurements.deltas.waistCm)} cm</p>
-										{/if}
-										{#if cockpit.measurements.deltas.hipCm !== null}
-											<p class="mt-0.5 text-xs text-ink">Fessiers : {fmtSigned(cockpit.measurements.deltas.hipCm)} cm</p>
-										{/if}
-										{#if cockpit.measurements.deltas.neckCm !== null}
-											<p class="mt-0.5 text-xs text-ink">Tour de cou : {fmtSigned(cockpit.measurements.deltas.neckCm)} cm</p>
-										{/if}
-										{#if cockpit.measurements.deltas.waistCm === null && cockpit.measurements.deltas.hipCm === null && cockpit.measurements.deltas.neckCm === null}
-											<p class="mt-0.5 text-xs text-mist">Nouveau relevé enregistré</p>
-										{/if}
-										<p class="mt-1 text-[11px] text-mist">Relevé du {fmtDateShort(cockpit.measurements.date)}</p>
-										<button
-											type="button"
-											onclick={() => (section = 'corps')}
-											class="mt-2 rounded-lg bg-ink px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand"
-										>Voir les mensurations →</button>
+								<!-- PROTÉINES — moyenne, objectif, jours suivis, indication vs objectif -->
+								<div class="flex flex-col rounded-xl border border-line bg-cream/40 p-3">
+									{@render cardHead('beef', 'Protéines', `${proteinCard.trackedDays}/7 j suivis`)}
+									{#if proteinCard.avg !== null}
+										<div class="mt-1 flex flex-wrap items-baseline gap-x-2">
+											<span class="font-display text-2xl font-semibold text-ink">{fmtVal(proteinCard.avg)} g</span>
+											<span class="rounded-full px-1.5 py-0.5 text-[10px] font-bold {proteinCard.avg >= proteinCard.goal ? 'bg-brand-light text-brand-dark' : 'bg-warn-light text-warn'}">
+												{proteinCard.avg >= proteinCard.goal ? 'objectif atteint' : `objectif ${fmtVal(proteinCard.goal)} g`}
+											</span>
+										</div>
+										<p class="mt-0.5 text-[11px] text-mist">en moyenne / jour suivi</p>
 									{:else}
-										<p class="mt-1 text-sm italic text-mist">Pas de nouvelles mensurations cette semaine</p>
-										{#if cockpit.measurements.date}
-											<p class="mt-1 text-[11px] text-mist">Dernier relevé : le {fmtDateShort(cockpit.measurements.date)}</p>
-										{:else}
-											<p class="mt-1 text-[11px] text-mist">Aucune mensuration enregistrée pour l’instant</p>
-										{/if}
+										<div class="mt-1 font-display text-2xl font-semibold text-mist/50">—</div>
+										<p class="mt-0.5 text-[11px] italic text-mist">Aucun jour suivi cette semaine · objectif {fmtVal(proteinCard.goal)} g</p>
 									{/if}
 								</div>
 
-								<!-- PHOTOS de la semaine -->
-								<div class="rounded-xl border border-line bg-cream/40 p-3">
-									<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="camera" size={12} /> Photos</div>
+								<!-- CYCLE — lecture seule, mêmes données que l'Accueil cliente -->
+								<div class="flex flex-col rounded-xl border border-line bg-cream/40 p-3">
+									{@render cardHead('flower2', 'Cycle')}
+									{#if selCycleState.kind === 'tracked'}
+										<div class="mt-1 font-display text-lg font-semibold text-ink">Jour {selCycleState.cycleDay} / {selCycleState.cycleLength}</div>
+										<p class="mt-0.5 text-xs text-ink">Phase : {selCycleState.label}</p>
+										<p class="mt-0.5 text-[11px] text-mist">Prochaines règles estimées : {fmtDateShort(addDaysISO(selCycleState.cycleLength - selCycleState.cycleDay + 1))}</p>
+									{:else if selCycleState.kind === 'hormonal'}
+										<p class="mt-1 text-sm font-semibold text-ink">Non concernée</p>
+										<p class="mt-0.5 text-[11px] text-mist">Suivi adapté à sa contraception</p>
+									{:else if selCycleState.kind === 'nodate'}
+										<p class="mt-1 text-sm font-semibold text-ink">Règles irrégulières</p>
+										<p class="mt-0.5 text-[11px] text-mist">Aucune estimation affichée</p>
+									{:else}
+										<p class="mt-1 text-sm italic text-mist">Aucune donnée cycle</p>
+									{/if}
+								</div>
+
+								<!-- RENDEZ-VOUS — prochain RDV futur (module RDV existant) -->
+								<div class="flex flex-col rounded-xl border border-line bg-cream/40 p-3">
+									{@render cardHead('calendarClock', 'Rendez-vous', rdvNext ? (rdvNext.googleEventId ? 'Google ✓' : undefined) : undefined)}
+									{#if rdvNext}
+										<div class="mt-1 text-sm font-semibold text-ink">{fmtRdvDate(rdvNext.date)} · {rdvNext.time}</div>
+										<p class="mt-0.5 text-xs text-ink">{rdvNext.kind}{rdvNext.rescheduleCount > 0 ? ` · replanifié ×${rdvNext.rescheduleCount}` : ''}</p>
+									{:else}
+										<p class="mt-1 text-sm italic text-mist">Aucun rendez-vous prévu</p>
+									{/if}
+								</div>
+
+								<!-- MENSURATIONS — carte compacte : fraîcheur + dernier relevé -->
+								<div class="flex flex-col rounded-xl border border-line bg-cream/40 p-3">
+									{@render cardHead('ruler', 'Mensurations', cockpit.measurements.fresh ? 'nouveau' : undefined)}
+									{#if cockpit.measurements.date}
+										<p class="mt-1 text-sm font-semibold text-ink">
+											{cockpit.measurements.fresh ? `Nouvelles mesures ${fmtDaysAgo(cockpit.measurements.daysAgo ?? 0)}` : 'Pas de nouvelles mensurations cette semaine'}
+										</p>
+										<p class="mt-0.5 text-[11px] text-mist">Dernier relevé : le {fmtDateShort(cockpit.measurements.date)}</p>
+									{:else}
+										<p class="mt-1 text-sm italic text-mist">Aucune mensuration enregistrée</p>
+									{/if}
+								</div>
+
+								<!-- PHOTOS — carte compacte : fraîcheur + dernière date -->
+								<div class="flex flex-col rounded-xl border border-line bg-cream/40 p-3">
+									{@render cardHead('camera', 'Photos', weekPhotos ? 'nouveau' : undefined)}
 									{#if weekPhotos}
 										<p class="mt-1 text-sm font-semibold text-ink">{weekPhotos.count} nouvelle{weekPhotos.count > 1 ? 's' : ''} photo{weekPhotos.count > 1 ? 's' : ''} cette semaine</p>
-										<button
-											type="button"
-											onclick={() => (section = 'photos')}
-											class="mt-2 rounded-lg bg-ink px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand"
-										>Voir les photos →</button>
+										{#if lastPhotoDate}<p class="mt-0.5 text-[11px] text-mist">Dernier envoi : le {fmtDateShort(lastPhotoDate)}</p>{/if}
+									{:else if lastPhotoDate}
+										<p class="mt-1 text-sm text-ink">Aucune nouvelle photo cette semaine</p>
+										<p class="mt-0.5 text-[11px] text-mist">Dernier envoi : le {fmtDateShort(lastPhotoDate)}</p>
 									{:else}
-										<p class="mt-1 text-sm italic text-mist">Aucune nouvelle photo cette semaine</p>
+										<p class="mt-1 text-sm italic text-mist">Aucune photo pour l’instant</p>
 									{/if}
 								</div>
 							</div>
