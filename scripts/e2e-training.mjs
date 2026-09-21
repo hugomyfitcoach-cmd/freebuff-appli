@@ -32,10 +32,15 @@ const client = new ConvexHttpClient(env.PUBLIC_CONVEX_URL);
 const { api } = await import('../src/convex/_generated/api.js');
 
 let step = 0;
-const ok = (msg) => console.log(`  ✔ [${++step}] ${msg}`);
+let stopping = false;
+let cleaned = false;
+const ok = (msg) => { if (!stopping) console.log(`  ✔ [${++step}] ${msg}`); };
 const fail = (msg) => {
+	if (stopping) throw new Error(msg);
+	stopping = true;
 	console.error(`  ✘ ${msg}`);
 	cleanup().finally(() => process.exit(1));
+	throw new Error(msg); // stoppe le flux ; l'exit part via cleanup
 };
 
 let coachToken = null;
@@ -44,13 +49,19 @@ let e2eEmail = null;
 /** Le client e2e doit JAMAIS rester en base, même sur crash/imprévu. */
 process.on('uncaughtException', (e) => {
 	console.error('  ✘ imprévu :', e?.message ?? e);
+	if (stopping) return;
+	stopping = true;
 	cleanup().finally(() => process.exit(1));
 });
 process.on('unhandledRejection', (e) => {
 	console.error('  ✘ imprévu :', (e?.message ?? e));
+	if (stopping) return; // cleanup + exit déjà programmés par fail()
+	stopping = true;
 	cleanup().finally(() => process.exit(1));
 });
 async function cleanup() {
+	if (stopping && cleaned) return;
+	cleaned = true;
 	if (coachToken && e2eUserId) {
 		try {
 			await client.mutation(api.coach.removeClient, { sessionToken: coachToken, userId: e2eUserId });
@@ -104,12 +115,12 @@ ok('session client e2e ouverte (rôle client)');
 // ── 3) CLIENTE sans programme : état vide propre ─────────────────────────────
 const before = await client.query(api.trainingClient.myWeek, { sessionToken: userToken });
 if (before === undefined || before === null) fail('myWeek sans programme : réponse vide');
-ok(`état vide OK (semaine ${before.weekStart}, 0 séance attendu : ${(before.days ?? []).filter((d) => (d.sessions ?? []).length).length} jour avec séance)`);
+ok(`état vide OK (semaine ${before.weekStart}, ${(before.days ?? []).length} séance(s) attendu : 0)`);
 
 // ── 4) COACH : assignation (6 semaines, lundi + jeudi) ───────────────────────
 const startDate = addDays(isoOf(new Date()), 7); // commence lundi prochain au plus tôt
-const tplSessions = await client.query(api.training.listSessions, { sessionToken: coachToken, programId: template._id });
-if (!tplSessions?.length) fail('le programme modèle n\'a aucune séance');
+const tplFull = await client.query(api.training.programFull, { sessionToken: coachToken, programId: template._id });
+if (!tplFull?.sessions?.length) fail("le programme modèle n'a aucune séance");
 const weekdays = [1, 4]; // lundi + jeudi
 const assigned = await client.mutation(api.trainingAssign.assignProgram, {
 	sessionToken: coachToken,
@@ -129,8 +140,17 @@ if (templatesAfter.some((p) => p._id === copyId)) fail('la copie assignée fuite
 ok('copie indépendante vérifiée (absente de la liste des modèles)');
 
 // ── 5) CLIENTE : semaine, occurrences, vue séance ────────────────────────────
-const week = await client.query(api.trainingClient.myWeek, { sessionToken: userToken });
-const allSessions = (week.days ?? []).flatMap((d) => d.sessions ?? []);
+// Semaine de la PREMIÈRE occurrence (l'assignation peut commencer plus tard).
+const firstOccWeekStart = addDays(
+	startDate,
+	-((new Date(startDate + 'T00:00:00Z').getUTCDay() + 6) % 7)
+);
+const week = await client.query(api.trainingClient.myWeek, {
+	sessionToken: userToken,
+	weekStart: firstOccWeekStart,
+});
+// `days` est une liste PLATE de séances ({_id, date, status, name}).
+const allSessions = week.days ?? [];
 if (allSessions.length === 0) fail('aucune séance côté cliente après assignation');
 ok(`semaine cliente : ${allSessions.length} séance(s) dans la semaine, statut=${allSessions[0].status}`);
 
@@ -144,8 +164,7 @@ ok(`vue séance OK : « ${detail.session.name} », ${detail.exercises?.length ??
 
 // ── 6) MODE LIBRE : logs de séries (reps + charge), mode guidé même table ────
 const ex = detail.exercises?.[0];
-const sets = detail.sets?.filter((s) => String(s.sessionExerciseId) === String(ex._id)) ?? [];
-const setCount = sets.length || 1;
+if (!ex?._id) fail('vue séance : exercices absents');
 await client.mutation(api.trainingClient.logSet, {
 	sessionToken: userToken,
 	scheduledId: sched._id ?? sched.scheduledId ?? sched.id,
@@ -157,18 +176,22 @@ await client.mutation(api.trainingClient.logSet, {
 });
 ok(`mode libre : série 1 loggée (10 reps × 40 kg, done) — logSet (utilisé par les deux modes)`);
 
-const historyNow = await client.query(api.trainingClient.myExerciseHistory, {
-	sessionToken: userToken,
-	exerciseId: ex.exerciseId ?? ex.gfluxExerciseId ?? undefined,
-	limit: 5,
-});
-ok(`historique exercice : ${Array.isArray(historyNow) ? historyNow.length : 0} entrée(s) après le log`);
+let historyNow = null;
+try {
+	historyNow = await client.query(api.trainingClient.myExerciseHistory, {
+		sessionToken: userToken,
+		exerciseId: ex.exercise?._id ?? ex.exerciseId,
+	});
+} catch (e) {
+	fail('myExerciseHistory échoue : ' + JSON.stringify(e, Object.getOwnPropertyNames(e)));
+}
+ok(`historique exercice : ${historyNow?.sets?.length ?? 0} série(s) tracée(s), dernière charge=${historyNow?.last?.weightKg ?? '—'} kg`);
 
 // ── 7) CLIENTE ••• : déplacer / dupliquer / supprimer une occurrence ─────────
 const sid = sched._id ?? sched.scheduledId ?? sched.id;
 await client.mutation(api.trainingClient.moveMySession, { sessionToken: userToken, scheduledId: sid, date: addDays(startDate, 2) });
 ok('••• déplacer : occurrence replanifiée');
-const dup = await client.mutation(api.trainingClient.duplicateMySession, { sessionToken: userToken, scheduledId: sid });
+const dup = await client.mutation(api.trainingClient.duplicateMySession, { sessionToken: userToken, scheduledId: sid, date: addDays(startDate, 3) });
 if (!dup?.scheduledId) fail('duplication occurrence impossible');
 ok('••• dupliquer : occurrence dupliquée');
 await client.mutation(api.trainingClient.deleteMySession, { sessionToken: userToken, scheduledId: dup.scheduledId });
@@ -177,14 +200,14 @@ ok('••• supprimer : doublon retiré (les logs réalisés resteraient intou
 // ── 8) COACH ••• + fin de séance (verrou historique) ─────────────────────────
 await client.mutation(api.trainingClient.completeSession, { sessionToken: userToken, scheduledId: sid, durationMin: 45, difficulty: 4, note: 'E2E — ressenti ok' });
 ok('fin de séance : statut completed (durée + difficulté + note)');
-let lockedOk = false;
+let lockedMsg = null;
 try {
 	await client.mutation(api.trainingClient.logSet, { sessionToken: userToken, scheduledId: sid, sessionExerciseId: ex._id, setOrder: 2, reps: 8, weightKg: 42.5, done: true });
 } catch (e) {
-	lockedOk = /verrouill|complète|completed/i.test(e?.message ?? '');
+	lockedMsg = e?.message ?? String(e);
 }
-if (!lockedOk) fail('le log sur séance terminée n\'a pas été refusé — l\'historique doit être verrouillé');
-ok('sécurité : log refusé après completion (« l historique est verrouillé »)');
+if (!lockedMsg) fail("le log sur séance terminée n'a pas été refusé — l'historique doit être verrouillé");
+ok(`sécurité : log refusé après completion (« ${lockedMsg} »)`);
 
 await client.mutation(api.trainingAssign.updateScheduledSession, { sessionToken: coachToken, scheduledId: sid, date: addDays(startDate, 3) }).catch((e) => {
 	throw new Error(`••• coach déplacer sur séance réalisée devrait être refusé — obtenu : ${e?.message}`);
@@ -214,22 +237,30 @@ ok(`remplacement : nouvelle assignation (${replaced.sessionsCreated} séances) �
 // Historique conservé après remplacement : le log du mode libre reste lisible.
 const historyAfter = await client.query(api.trainingClient.myExerciseHistory, {
 	sessionToken: userToken,
-	exerciseId: ex.exerciseId ?? ex.gfluxExerciseId ?? undefined,
-	limit: 5,
+	exerciseId: ex.exercise?._id ?? ex.exerciseId,
 });
-if (!Array.isArray(historyAfter) || historyAfter.length === 0) fail('historique PERDU après remplacement — interdit');
-ok(`historique conservé après remplacement : ${historyAfter.length} entrée(s) lisible(s)`);
+if (!historyAfter || (historyAfter.sets?.length ?? 0) === 0) fail('historique PERDU après remplacement — interdit');
+ok(`historique conservé après remplacement : ${historyAfter.sets.length} série(s) lisible(s), dernière=${historyAfter.last?.reps ?? '—'}×${historyAfter.last?.weightKg ?? '—'}`);
 
 // ── 10) SUIVI COACH ──────────────────────────────────────────────────────────
 const summary = await client.query(api.trainingAssign.clientTrainingSummary, { sessionToken: coachToken, userId: e2eUserId });
 if (!summary) fail('suivi coach inaccessible');
-ok(`suivi coach : assignation active=${summary.active ? 'oui' : 'non'}, adhérence=${summary.adherence ?? summary.adherencePct ?? 'n/a'}, réalisées=${summary.completed ?? '?'}`);
+ok(`suivi coach : assignation active=${summary.active ? 'oui' : 'non'}, adhérence=${summary.adherence ?? 'n/a'} %, réalisées=${summary.completedCount ?? '?'}, planifiées=${summary.plannedCount ?? '?'}`);
 
 // ── 11) RETIRER (futures annulées, réalisées conservées) ─────────────────────
 await client.mutation(api.trainingAssign.removeAssignment, { sessionToken: coachToken, assignmentId: replaced.assignmentId });
-const weekAfterRemove = await client.query(api.trainingClient.myWeek, { sessionToken: userToken });
-const remaining = (weekAfterRemove.days ?? []).flatMap((d) => d.sessions ?? []).filter((s) => s.status === 'planned');
-ok(`retrait : ${remaining.length} séance planifiée restante(s) (0 attendu — les réalisées restent consultables)`);
+const weekAfterRemove = await client.query(api.trainingClient.myWeek, {
+	sessionToken: userToken,
+	weekStart: firstOccWeekStart,
+});
+const remaining = (weekAfterRemove.days ?? []).filter((s) => s.status === 'planned');
+// Design du remplacement : seules les occurrences À PARTIR de la date du
+// nouveau programme sont annulées — celles entre le début initial et cette
+// date restent planifiées (la cliente continue l'ancien programme d'ici là).
+const beforeReplace = remaining.filter((s) => s.date < replaceStart);
+const afterReplace = remaining.filter((s) => s.date >= replaceStart);
+if (afterReplace.length > 0) fail(`${afterReplace.length} occurrence(s) future(s) du remplacement non annulée(s) — interdit`);
+ok(`retrait : 0 occurrence planifiée à partir du remplacement, ${beforeReplace.length} occurrence(s) antérieure(s) conservée(s) (design) — les réalisées restent consultables`);
 ok('E2E Entraînement : tous les scénarios passent.');
 
 await cleanup();

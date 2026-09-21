@@ -191,8 +191,12 @@ export const listPrograms = query({
 			.withIndex("by_coach_updated", (q) => q.eq("coachId", coach._id))
 			.order("desc")
 			.collect();
+		// Les copies assignées (clientId présent) n'appartiennent qu'à leur
+		// cliente (séances planifiées + historique) : jamais dans la liste des
+		// modèles éditables — elles se gèrent via la Vision 360 (trainingAssign).
+		const templates = rows.filter((p) => !p.clientId);
 		return Promise.all(
-			rows.map(async (p) => {
+			templates.map(async (p) => {
 				const sessions = await ctx.db
 					.query("trainingSessions")
 					.withIndex("by_program", (q) => q.eq("programId", p._id))
