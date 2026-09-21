@@ -634,6 +634,7 @@ export const client360 = query({
 			weekLabel: string;
 			weight: { avg: number | null; count: number; prevAvg: number | null; delta: number | null };
 			calories: { avg: number | null; goal: number; trackedDays: number };
+			protein: { avg: number | null; goal: number; trackedDays: number };
 			steps: {
 				avg: number | null;
 				goal: number | null;
@@ -678,15 +679,21 @@ export const client360 = query({
 			const weightDelta =
 				weightAvg !== null && prevWeightAvg !== null ? round1(weightAvg - prevWeightAvg) : null;
 
-			// Calories : moyenne sur les seuls jours possédant des données +
-			// couverture — une journée vide n'est jamais comptée comme 0 kcal.
+			// Calories & protéines : moyenne sur les seuls jours possédant des
+			// données + couverture — une journée vide n'est jamais comptée comme 0.
 			const kcalByDay = new Map<string, number>();
+			const proteinByDay = new Map<string, number>();
 			for (const e of entries) {
-				if (inWeek(e.date)) kcalByDay.set(e.date, (kcalByDay.get(e.date) ?? 0) + e.kcal);
+				if (inWeek(e.date)) {
+					kcalByDay.set(e.date, (kcalByDay.get(e.date) ?? 0) + e.kcal);
+					proteinByDay.set(e.date, (proteinByDay.get(e.date) ?? 0) + e.protein);
+				}
 			}
 			const trackedDays = kcalByDay.size;
 			const kcalSum = [...kcalByDay.values()].reduce((s, x) => s + x, 0);
 			const kcalAvg = trackedDays > 0 ? Math.round(kcalSum / trackedDays) : null;
+			const proteinSum = [...proteinByDay.values()].reduce((s, x) => s + x, 0);
+			const proteinAvg = trackedDays > 0 ? Math.round(proteinSum / trackedDays) : null;
 
 			// Pas : comptage quotidien quand il existe (moyenne sur les jours
 			// renseignés, jamais divisée par 7) ; sinon la déclaration du bilan.
@@ -739,6 +746,7 @@ export const client360 = query({
 					delta: weightDelta,
 				},
 				calories: { avg: kcalAvg, goal: goalsRow?.kcal ?? DEFAULT_GOALS.kcal, trackedDays },
+				protein: { avg: proteinAvg, goal: goalsRow?.protein ?? DEFAULT_GOALS.protein, trackedDays },
 				steps: {
 					avg: stepsAvg,
 					goal: goalsRow?.stepGoal ?? null,
