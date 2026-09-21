@@ -49,11 +49,12 @@
 
 	/**
 	 * Badge de l'icône installée (PWA) : synchronisé sur la source de vérité
-	 * LA BASE (polling lib/notificationPoll.ts) quand elle est disponible —
-	 * sinon repli sur le snapshot SSR. La part « à faire » des bilans (bilan
-	 * hebdo dû) vient du SSR ; les parts retours/message/drive viennent de la
-	 * base en direct. Recalculé à chaque navigation / tick de polling.
-	 * Sans effet sur les plateformes sans Badging API.
+	 * LA BASE (mécanisme central lib/notificationPoll.ts → /api/live, 5 s au
+	 * premier plan + immédiat au focus) quand elle est disponible — sinon repli
+	 * sur le snapshot SSR. La part « à faire » des bilans (bilan hebdo dû) vient
+	 * du SSR ; les parts retours/message/drive viennent de la base en direct.
+	 * Recalculé à chaque navigation / tick de polling. Sans effet sur les
+	 * plateformes sans Badging API.
 	 */
 	let pollCounts = $state<{ retours: number; message: number; drive: number } | null>(null);
 	$effect(() => {

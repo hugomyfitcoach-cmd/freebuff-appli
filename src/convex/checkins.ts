@@ -3,6 +3,7 @@ import { v, ConvexError } from "convex/values";
 import { answersValidator } from "./answers";
 import { formatWeekLabel, getSessionUser, isMondayISO } from "./helpers";
 import type { QueryCtx } from "./_generated/server";
+import { recordEvent } from "./notifications";
 
 /**
  * Bilan hebdo côté client — tout est rattaché au compte connecté
@@ -48,17 +49,24 @@ export const submit = mutation({
 			}
 			const weekLabel = formatWeekLabel(weekStart);
 			await ctx.db.patch(existing._id, { answers, weekLabel });
+			// Journal CRM : le bilan (re)soumis avant retour est une activité réelle
+			// de la cliente — même mécanisme central que les autres événements.
+			await recordEvent(ctx, user._id, "bilan_envoye", `Bilan mis à jour — ${weekLabel}`, { weekStart });
 			return { checkinId: existing._id, weekLabel, updated: true };
 		}
 
+		const weekLabelNew = formatWeekLabel(weekStart);
 		const checkinId = await ctx.db.insert("checkins", {
 			userId: user._id,
 			weekStart,
-			weekLabel: formatWeekLabel(weekStart),
+			weekLabel: weekLabelNew,
 			answers,
 			status: "nouveau",
 		});
-		return { checkinId, weekLabel: formatWeekLabel(weekStart), updated: false };
+		// Journal CRM : « Bilan hebdo envoyé » — le coach le voit live dans son
+		// journal (badge temps réel), sans attendre le tick ni un refresh.
+		await recordEvent(ctx, user._id, "bilan_envoye", `Bilan hebdo envoyé — ${weekLabelNew}`, { weekStart });
+		return { checkinId, weekLabel: weekLabelNew, updated: false };
 	},
 });
 

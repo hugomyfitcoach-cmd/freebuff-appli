@@ -341,12 +341,25 @@ commit réussi — et reste un canal d'ALERTE supplémentaire, jamais une
 dépendance (iOS peut retarder un push de plusieurs minutes).
 
 La source de vérité du badge est LA BASE, jamais le service worker :
-`GET /api/client/notifications` (`no-store`) agrège les non-lus des trois
-canaux et est relu par la PWA à l'ouverture, à chaque navigation, au
-retour au premier plan (`visibilitychange`/`focus`/`pageshow`) et toutes
-les 25 s tant que l'app est visible (jamais en arrière-plan — au réveil,
-`visibilitychange` rattrape). Une action coach apparaît donc dans l'app
-ouverte en moins de 30 s, sans recharger la page.
+`GET /api/live` (`no-store`) est l'UNIQUE signal, partagé par la cliente
+(compteurs retours/message/drive + delta d'événements) et le coach (badge
+CRM + version du journal). Il est relu par la PWA à l'ouverture, à chaque
+navigation, au retour au premier plan (`visibilitychange`/`focus`/
+`pageshow`) et toutes les 5 s tant que l'app est visible (jamais en
+arrière-plan — au réveil, `visibilitychange` rattrape). Une action coach
+apparaît dans l'app ouverte en quelques secondes (mesuré : ~0,3 s en local,
+script `scripts/e2e-notif-latency.mjs`), sans recharger la page.
+
+MÉCANISME CENTRAL (lib/notificationPoll.ts) : un seul module pour les deux
+rôles, un seul endpoint pour tout le système de notifications. Toute future
+fonctionnalité qui doit « remonter » chez l'autre partie (1) écrit sa donnée
+métier, (2) si un badge suffit : rien d'autre (côté coach, `recordEvent`
+bump automatiquement le compteur meta `coach_events` ; côté cliente, les
+compteurs dérivés font foi), (3) si la PAGE doit se mettre à jour :
+`recordClientEvent(ctx, userId, "mon_kind", label)` puis écouter
+`gflux:live-event` (détail `{ kind, label }`) dans la page concernée pour
+s'y revalider. Web Push en alerte complémentaire au même endroit que
+l'action (contrat existant : commit réussi → push, jamais bloquant).
 
 Le « lu » est posé au bon moment, côté serveur, au chargement de la page
 de consultation : Historique (`markFeedbackRead`), Messages

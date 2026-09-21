@@ -1,10 +1,23 @@
 <script lang="ts">
+	import { invalidateAll } from '$app/navigation';
 	import Icon from '$lib/components/Icon.svelte';
 	import BackToHome from '$lib/components/BackToHome.svelte';
 	import RecapBilan from '../../../lib/components/RecapBilan.svelte';
 	import { mondayISO } from '$lib/week.js';
+	import { onNotificationCounts } from '$lib/notificationPoll';
 
 	let { data } = $props();
+
+	/* Mécanisme central de propagation : si le coach publie un retour pendant
+	   que la cliente est déjà sur cette page (compteur « retours » qui monte),
+	   la liste se revalide toute seule — aucun refresh manuel. */
+	let prevRetours: number | null = null;
+	$effect(() => {
+		return onNotificationCounts((c) => {
+			if (prevRetours != null && c.retours > prevRetours) void invalidateAll().catch(() => {});
+			prevRetours = c.retours;
+		});
+	});
 	const checkins = $derived(data.checkins ?? []);
 	const media = $derived((data.media ?? {}) as Record<string, unknown[]>);
 	const done = $derived(checkins.filter((c: { status: string }) => c.status === 'retour_envoye').length);

@@ -8,6 +8,8 @@ export type CoachNotifKind =
 	| 'nouveau_poids'
 	| 'nouvelles_mesures'
 	| 'nouvelles_photos'
+	| 'bilan_envoye'
+	| 'plan_assigned'
 	| 'rdv_pris'
 	| 'rdv_annule'
 	| 'rdv_replanifie'
@@ -19,6 +21,8 @@ const SECTION_BY_KIND: Record<CoachNotifKind, string> = {
 	nouveau_poids: 'corps',
 	nouvelles_mesures: 'corps',
 	nouvelles_photos: 'photos',
+	bilan_envoye: 'bilans',
+	plan_assigned: 'plan',
 	rdv_pris: 'rdv',
 	rdv_annule: 'rdv',
 	rdv_replanifie: 'rdv',
@@ -31,6 +35,8 @@ const LABEL_BY_KIND: Record<CoachNotifKind, string> = {
 	nouveau_poids: 'Nouveau poids',
 	nouvelles_mesures: 'Nouvelles mensurations',
 	nouvelles_photos: 'Nouvelles photos',
+	bilan_envoye: 'Bilan hebdo envoyé',
+	plan_assigned: 'Plan de repas assigné',
 	rdv_pris: 'Rendez-vous pris',
 	rdv_annule: 'Rendez-vous annulé',
 	rdv_replanifie: 'Rendez-vous replanifié',
@@ -43,6 +49,8 @@ const STYLE_BY_KIND: Record<CoachNotifKind, { icon: string; text: string; bg: st
 	nouveau_poids: { icon: 'scale', text: 'text-brand-dark', bg: 'bg-brand-light' },
 	nouvelles_mesures: { icon: 'ruler', text: 'text-brand-dark', bg: 'bg-brand-light' },
 	nouvelles_photos: { icon: 'camera', text: 'text-brand-dark', bg: 'bg-brand-light' },
+	bilan_envoye: { icon: 'clipboardCheck', text: 'text-brand-dark', bg: 'bg-brand-light' },
+	plan_assigned: { icon: 'utensils', text: 'text-brand-dark', bg: 'bg-brand-light' },
 	rdv_pris: { icon: 'calendarCheck', text: 'text-brand-dark', bg: 'bg-brand-light' },
 	rdv_annule: { icon: 'calendarX', text: 'text-danger', bg: 'bg-danger-light' },
 	rdv_replanifie: { icon: 'calendarClock', text: 'text-warn', bg: 'bg-warn-light' },

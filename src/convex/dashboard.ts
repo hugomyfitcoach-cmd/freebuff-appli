@@ -381,10 +381,11 @@ export const getDashboard = query({
 
 /**
  * Compteurs de notifications de la cliente, agrégés depuis la base (source de
- * vérité) — JAMAIS déduits du Web Push. Consommé par /api/client/notifications
- * (polling léger quand l'app est visible, visibilitéchange/focus/pageshow) :
- * la PWA ouverte reflète les actions du coach en moins de 30 s, sans attendre
- * un push (retardable par iOS) ni un chargement SSR.
+ * vérité) — JAMAIS déduits du Web Push. Consommé par /api/live (mécanisme
+ * central de propagation : polling 5 s au premier plan + immédiat au retour
+ * de focus/visibilité/pageshow, via lib/notificationPoll.ts) : la PWA ouverte
+ * reflète les actions du coach en quelques secondes, sans attendre un push
+ * (retardable par iOS) ni un chargement SSR.
  *
  * Les trois canaux « coach → cliente » :
  * - retours : bilans publiés non consultés (feedbackReadAt < feedbackAt) ;

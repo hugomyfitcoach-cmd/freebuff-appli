@@ -7,7 +7,7 @@
 	import { isStandalone } from '../pwa';
 	import { forceAppUpdate, onUpdateState, startCompatWatch } from '../swUpdate';
 	import { registerServiceWorker } from '../push';
-	import { onNotificationCounts, refreshNotificationsNow, startNotificationPolling } from '../notificationPoll';
+	import { onCoachState, onNotificationCounts, refreshNotificationsNow, startNotificationPolling } from '../notificationPoll';
 
 	type Role = 'client' | 'coach';
 	type SessionUser = { prenom: string; email: string; role: Role };
@@ -89,23 +89,29 @@
 	/** Mise à jour disponible : SW en attente, backend OU build incompatible. */
 	const needsUpdate = $derived(updateReady || compatOutdated || buildOutdated);
 
-	/* ————— Notifications temps réel (cliente) —————
+	/* ————— Notifications temps réel (cliente ET coach) —————
 	   LA BASE EST LA SOURCE DE VÉRITÉ — jamais le Web Push ni le service
-	   worker. Les compteurs (retours / message / drive) sont relus à
-	   l'ouverture, à chaque navigation, au retour au premier plan
-	   (visibilitychange/focus/pageshow) et toutes les 25 s si l'app est
-	   visible (voir lib/notificationPoll.ts). Fusion avec les badges SSR :
-	   au premier rendu la valeur serveur s'affiche instantanément, dès le
-	   premier tick la valeur base prend le dessus et reste vivante sans
-	   recharger la page. Rendu inchangé : mêmes icônes, mêmes endroits. */
+	   worker. MÉCANISME CENTRAL UNIQUE (lib/notificationPoll.ts → /api/live) :
+	   - cliente : compteurs (retours / message / drive) relus toutes les 5 s
+	     au premier plan, immédiatement au retour de focus/visibilité ;
+	   - coach : badge CRM relu sur le même rythme — la cloche s'allume sans
+	     aucun refresh ni navigation.
+	   Fusion avec les badges SSR : au premier rendu la valeur serveur s'affiche
+	   instantanément, dès le premier tick la valeur base prend le dessus et
+	   reste vivante. Rendu inchangé : mêmes icônes, mêmes endroits. */
 	let pollCounts = $state<{ retours: number; message: number; drive: number } | null>(null);
+	let liveNotifications = $state<number | null>(null);
 
 	$effect(() => {
 		if (typeof window === 'undefined') return;
-		if (role !== 'client') return; // le coach a son propre badge CRM (layout admin)
 		startNotificationPolling();
-		return onNotificationCounts((c) => {
-			pollCounts = { retours: c.retours, message: c.message, drive: c.drive };
+		if (role === 'client') {
+			return onNotificationCounts((c) => {
+				pollCounts = { retours: c.retours, message: c.message, drive: c.drive };
+			});
+		}
+		return onCoachState((s) => {
+			liveNotifications = s.notifications;
 		});
 	});
 
@@ -117,9 +123,14 @@
 		refreshNotificationsNow();
 	});
 
-	/** Badges affichés : SSR au premier rendu, puis compteurs base en direct. */
+	/** Badges affichés : SSR au premier rendu, puis compteurs base en direct
+	    (cliente comme coach — même mécanisme central). */
 	const menuBadges = $derived.by(() => {
-		if (role !== 'client' || !pollCounts) return badges;
+		if (role === 'coach') {
+			if (liveNotifications == null) return badges;
+			return { ...badges, notifications: liveNotifications };
+		}
+		if (!pollCounts) return badges;
 		// Partie « à faire » du badge bilans (bilan hebdo dû) = SSR — elle ne
 		// vient pas du compteur ; les retours non lus, si, sont remplacés par
 		// la valeur base (toujours plus fraîche après une navigation).

@@ -631,9 +631,20 @@
 			void syncDay();
 		};
 		document.addEventListener('gflux:day-changed', onDayChanged);
+		/* Mécanisme central de propagation : un événement porteur (ex. plan de
+		   repas assigné par le coach) revalide l'Accueil — les propositions du
+		   plan apparaissent sans aucune action de la cliente (polling /api/live). */
+		const onLiveEvent = (e: Event) => {
+			const kind = (e as CustomEvent<{ kind?: string }>).detail?.kind;
+			if (kind === 'plan_assigned') void invalidateAll().catch(() => {});
+		};
+		document.addEventListener('gflux:live-event', onLiveEvent);
 		const y = restoreScroll(ROUTE);
 		if (y > 0) setTimeout(() => window.scrollTo(0, y), 0);
-		return () => document.removeEventListener('gflux:day-changed', onDayChanged);
+		return () => {
+			document.removeEventListener('gflux:day-changed', onDayChanged);
+			document.removeEventListener('gflux:live-event', onLiveEvent);
+		};
 	});
 	/* Sauvegarde de la position de scroll AVANT la navigation : à ce moment le
 	   scroll est encore celui de l'utilisateur (le réajustement de transition

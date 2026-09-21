@@ -50,6 +50,8 @@ export const coachNotifKind = v.union(
 	v.literal("nouveau_poids"),
 	v.literal("nouvelles_mesures"),
 	v.literal("nouvelles_photos"),
+	v.literal("bilan_envoye"),
+	v.literal("plan_assigned"),
 	v.literal("rdv_pris"),
 	v.literal("rdv_annule"),
 	v.literal("rdv_replanifie"),
@@ -777,6 +779,25 @@ export default defineSchema({
 		.index("by_user", ["userId"])
 		.index("by_read", ["read"])
 		.index("by_dedup", ["dedupKey"]),
+
+	/**
+	 * Événements « push » destinés à la cliente — signal du mécanisme central
+	 * de propagation (polling 5 s, src/lib/notificationPoll.ts). Une ligne par
+	 * événement nécessitant plus qu'un simple compteur de badge : la page
+	 * concernée doit être rafraîchie automatiquement (ex. plan de repas assigné
+	 * → propositions du Journal). Le poller relit les lignes créées depuis son
+	 * dernier check (?since=) et invalide la donnée concernée — aucune action
+	 * de la coach ne dépend plus d'une navigation. Purge : 7 jours (tick CRM).
+	 */
+	clientEvents: defineTable({
+		/** Cliente destinataire. */
+		userId: v.id("users"),
+		/** Type d'événement ("plan_assigned" aujourd'hui — liste ouverte). */
+		kind: v.string(),
+		/** Libellé court (ex. nom du plan assigné). */
+		label: v.optional(v.string()),
+		createdAt: v.number(),
+	}).index("by_user", ["userId"]),
 
 	/* ═══ Module Entraînement — bibliothèque d'exercices G-FLUX ═══ */
 
