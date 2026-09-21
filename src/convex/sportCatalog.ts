@@ -253,6 +253,19 @@ export function sportHasIntensity(entry: SportCatalogEntry): boolean {
 /** Terme recherché → message pédagogique marche (jamais de Marche standard). */
 export const WALKING_BLOCKED_RE =
 	/march(e|er|es|ons|ez|ent)|promenade|promener|balade|ballade|randonn/i;
+/** IDs sanctionnés EXCLUS du blocage : la marche INCLINÉE sur tapis est une
+ *  vraie séance cardio VOLONTAIRE (jamais de la marche quotidienne) — c'est la
+ *  seule suggestion proposée quand la cliente cherche « marche ». */
+const WALKING_SANCTIONED_RE = /^marche-inclinee(-.*)?$/;
+/**
+ * Garde-fou anti double comptage : vrai si l'identifiant désigne une marche
+ * QUOTIDIENNE (marche, marche rapide, promenade, balade, randonnée…) — mais
+ * JAMAIS la séance cardio volontaire du tapis incliné, sanctionnée elle.
+ */
+export function isDailyWalkingBlocked(activityId: string): boolean {
+	if (WALKING_SANCTIONED_RE.test(activityId)) return false;
+	return WALKING_BLOCKED_RE.test(activityId);
+}
 export const WALKING_PEDAGOGY_MESSAGE =
 	"La marche quotidienne est déjà prise en compte dans ton suivi. Tes pas et déplacements habituels ne doivent pas être ajoutés ici.";
 /** Seule suggestion si recherche « marche » : la séance cardio volontaire. */

@@ -126,7 +126,9 @@ ok('cartes [Dépense sportive | Entraînement] côte à côte dans la même gril
 // Position : Performance AVANT la section des deux cartes (et Pas/Calories avant Performance).
 const perfPos = html.indexOf('href="/espace/performance"');
 const stepsPos = html.indexOf('href="/espace/pas"');
-const progressionPos = html.indexOf('/espace/progression');
+// Ancre de CARTE (le lien de navigation latérale porte des attributs
+// data-sveltekit-* entre href et class — on ne veut que les cartes).
+const progressionPos = html.indexOf('/espace/progression" class="group');
 if (perfPos === -1) fail('carte Performance introuvable');
 if (stepsPos === -1 || progressionPos === -1) fail('cartes Pas/Progression introuvables (régression ?)');
 if (!(stepsPos < progressionPos && progressionPos < perfPos && perfPos < sectionStart)) {
@@ -135,7 +137,9 @@ if (!(stepsPos < progressionPos && progressionPos < perfPos && perfPos < section
 ok('ordre global intact : Aujourd hui → Ma progression → Performance → [Dépense sportive | Entraînement]');
 
 // Aucune régression : cartes Pas/Calories/Poids/Cycle toujours présentes.
-for (const marker of ['>Pas</span>', '>Calories</span>', '>Poids</span>', '>Cycle</span>']) {
+// Marqueurs de label « icône + texte » (l'icône SVG est suivie d'une espace
+// dans le SSR — jamais de chevron collé au texte).
+for (const marker of [' Pas</span>', ' Calories</span>', ' Poids</span>', ' Cycle</span>']) {
 	if (!html.includes(marker)) fail(`carte existante modifiée involontairement : ${marker} absente`);
 }
 ok('cartes existantes (Pas, Calories, Poids, Cycle) inchangées');
@@ -145,8 +149,13 @@ const page = await fetch(`${BASE}/espace/depense-sportive`, { headers: cookie, r
 const pageHtml = await page.text();
 if (page.status !== 200) fail(`GET /espace/depense-sportive → ${page.status}`);
 if (!pageHtml.includes('Dépense sportive')) fail('titre de la page introuvable');
-if (!pageHtml.includes('Ajouter')) fail('CTA Ajouter introuvable');
-ok('page /espace/depense-sportive servie (résumé, navigation semaine, Ajouter)');
+// Le contenu interactif (CTA « Ajouter », feuille d'ajout) est rendu APRÈS
+// hydratation (fetch onMount) — le SSR ne sert que le squelette : on vérifie
+// donc le CTA dans le source de la page (contrat statique, comme
+// verify-food-images.mjs).
+const depenseSource = readFileSync('src/routes/espace/depense-sportive/+page.svelte', 'utf8');
+if (!depenseSource.includes('> Ajouter')) fail('CTA Ajouter introuvable dans la page (source)');
+ok('page /espace/depense-sportive servie (titre SSR + CTA Ajouter dans la page)');
 
 // ── 5) Sécurité métier : AUCUN impact alimentaire ───────────────────────────
 const dashBefore = await client.query(api.dashboard.getDashboard, { sessionToken: user.token });

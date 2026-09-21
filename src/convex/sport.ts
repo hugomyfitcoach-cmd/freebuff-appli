@@ -23,7 +23,7 @@ import {
 	SPORT_CATALOG_VERSION,
 	SPORT_INTENSITY_LABELS,
 	WALKING_PEDAGOGY_MESSAGE,
-	WALKING_BLOCKED_RE,
+	isDailyWalkingBlocked,
 	WALKING_SUGGESTION_ID,
 	clampSportDuration,
 	estimateSportActivity,
@@ -74,7 +74,7 @@ function buildEstimation(args: {
 	durationMinutes: number;
 	weightKg: number | null;
 }) {
-	if (WALKING_BLOCKED_RE.test(args.activityId)) {
+	if (isDailyWalkingBlocked(args.activityId)) {
 		throw new ConvexError(WALKING_PEDAGOGY_MESSAGE);
 	}
 	const entry = getSportEntry(args.activityId);
@@ -309,7 +309,7 @@ export const updateActivity = mutation({
 			intensity !== undefined ? intensity : row.intensity !== undefined ? row.intensity : undefined;
 		const newDuration = durationMinutes !== undefined ? durationMinutes : row.durationMinutes;
 
-		if (WALKING_BLOCKED_RE.test(newActivityRef)) {
+		if (isDailyWalkingBlocked(newActivityRef)) {
 			throw new ConvexError(WALKING_PEDAGOGY_MESSAGE);
 		}
 		const entry = getSportEntry(newActivityRef);
