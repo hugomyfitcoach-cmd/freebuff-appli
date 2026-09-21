@@ -9,9 +9,19 @@
 	 */
 	import { onMount } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import BackToHome from '$lib/components/BackToHome.svelte';
 	import SessionRunner from '$lib/components/SessionRunner.svelte';
 
-	type DaySession = { _id: string; date: string; status: 'planned' | 'completed' | 'cancelled'; name: string };
+	type DaySession = {
+		_id: string;
+		date: string;
+		status: 'planned' | 'completed' | 'cancelled';
+		/** Commencée (bouton « Commencer la séance ») mais pas finalisée. */
+		startedAt: number | null;
+		/** Clôturée sans réalisation (« Je n'ai pas réalisé cette séance »). */
+		skippedAt: number | null;
+		name: string;
+	};
 	type NextSession = { _id: string; date: string; name: string } | null;
 
 	let loading = $state(true);
@@ -82,7 +92,11 @@
 		if (r.error) throw new Error(r.error);
 		weekStart = r.weekStart as string;
 		today = r.today as string;
-		days = r.days as DaySession[];
+		days = (r.days ?? []).map((d: Record<string, unknown>) => ({
+			...(d as unknown as DaySession),
+			startedAt: (d.startedAt as number | null) ?? null,
+			skippedAt: (d.skippedAt as number | null) ?? null,
+		}));
 		nextSession = (r.nextSession ?? null) as NextSession;
 		// Sélection par défaut : la prochaine séance si elle est dans la semaine,
 		// sinon aujourd'hui (même sans séance), sinon le 1er jour.
@@ -125,6 +139,11 @@
 		openSessionId = s._id;
 		runnerKey += 1;
 	}
+
+	/** Séance à finaliser : commencée, jamais finalisée, à jour ou passée. */
+	const toFinalize = $derived(
+		days.find((d) => d.status === 'planned' && d.startedAt != null && d.date <= today) ?? null
+	);
 
 	/* ── Menu ••• d'une séance programmée (déplacer / dupliquer / supprimer) ── */
 	let menuFor = $state<string | null>(null);
@@ -223,6 +242,7 @@
 	</div>
 {:else}
 	<div class="mx-auto w-full max-w-md px-4 pb-6 pt-1">
+		<BackToHome label="Entraînement" />
 		<header class="mb-4">
 			<h1 class="flex items-center gap-2 font-display text-2xl font-semibold text-ink">
 				<Icon name="dumbbell" size={22} class="text-brand" /> Entraînement
@@ -237,14 +257,28 @@
 		{#if loading}
 			<p class="py-16 text-center text-sm text-mist">Chargement…</p>
 		{:else if days.length === 0 && !nextSession && history.length === 0}
-			<!-- État vide propre : aucun programme pour l'instant -->
+			<!-- État vide propre : aucun programme pour l'instant (neutre, jamais une erreur) -->
 			<div class="rounded-3xl border border-dashed border-line bg-card px-6 py-14 text-center">
 				<div class="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-brand-light">
 					<Icon name="dumbbell" size={26} class="text-brand" />
 				</div>
 				<p class="font-display text-lg font-semibold text-ink">Aucune séance programmée pour le moment</p>
-				<p class="mx-auto mt-1 max-w-xs text-sm text-mist">Ton coach te prépare un programme — il apparaîtra ici dès qu'il sera assigné.</p>
+				<p class="mx-auto mt-1 max-w-xs text-sm text-mist">Ton coach ajoutera ici tes séances si ton accompagnement en prévoit.</p>
 			</div>
+		{:else if toFinalize}
+			<!-- ── Séance à finaliser : discret, jamais bloquant ── -->
+			<button
+				type="button"
+				onclick={() => openSession(toFinalize)}
+				class="mb-5 flex w-full items-center justify-between gap-3 rounded-3xl border border-warn/50 bg-warn-light/60 p-4 text-left shadow-sm transition hover:shadow"
+			>
+				<span class="min-w-0">
+					<span class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-warn"><Icon name="clock" size={13} /> Séance à finaliser</span>
+					<span class="mt-0.5 block truncate font-display text-lg font-semibold text-ink">{toFinalize.name}</span>
+					<span class="block text-xs font-semibold capitalize text-mist">{nextLabel(toFinalize.date)} · reprendre, terminer ou corriger</span>
+				</span>
+				<Icon name="chevronRight" size={16} class="shrink-0 text-mist" />
+			</button>
 		{:else}
 			<!-- ── Prochaine séance ── -->
 			{#if nextSession}
@@ -253,7 +287,15 @@
 					onclick={() => {
 						const s = days.find((d) => d._id === nextSession!._id);
 						if (s) openSession(s);
-						else openSession({ _id: nextSession!._id, date: nextSession!.date, status: 'planned', name: nextSession!.name });
+						else
+							openSession({
+								_id: nextSession!._id,
+								date: nextSession!.date,
+								status: 'planned',
+								startedAt: null,
+								skippedAt: null,
+								name: nextSession!.name,
+							});
 					}}
 					class="mb-5 w-full overflow-hidden rounded-3xl border border-brand/40 bg-gradient-to-br from-brand-light via-brand-light/60 to-white p-5 text-left shadow-sm transition hover:shadow"
 				>
@@ -321,7 +363,7 @@
 							>
 								<span class="min-w-0">
 									<span class="block truncate text-sm font-bold text-ink">{s.name}</span>
-									<span class="text-xs text-mist">{s.status === 'completed' ? 'Séance réalisée ✓' : 'À faire'}</span>
+									<span class="text-xs text-mist">{s.status === 'completed' ? (s.skippedAt != null ? 'Non réalisée' : 'Séance réalisée ✓') : s.startedAt != null ? 'Séance en cours' : 'À faire'}</span>
 								</span>
 								{#if s.status === 'completed'}
 									<span class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brand text-white">

@@ -52,7 +52,16 @@
 		isFirstTime: boolean;
 	};
 	type Data = {
-		scheduled: { _id: string; date: string; status: string; completedAt: number | null; durationMin: number | null };
+		scheduled: {
+			_id: string;
+			date: string;
+			status: string;
+			completedAt: number | null;
+			durationMin: number | null;
+			startedAt: number | null;
+			skippedAt: number | null;
+			durationSource: string | null;
+		};
 		session: { _id: string; name: string };
 		programName: string | null;
 		estimatedMin: number;
@@ -168,6 +177,39 @@
 	let finishing = $state(false);
 	let confirmPartial = $state(false);
 
+	/* ── Démarrage RÉEL (bouton « Commencer la séance ») — ouvrir/consulter
+	   la séance ne démarre RIEN. startedAt est persisté backend (survit au
+	   verrouillage iPhone / PWA en arrière-plan) ; côté front, il sert à
+	   afficher le temps écoulé. Séance déjà commencée → reprise. ── */
+	let sessionStarted = $state(false);
+	async function startRealSession() {
+		try {
+			const r = await fetch('/api/training', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ scheduledId }),
+			}).then((x) => x.json());
+			if (!r.error && r.startedAt) {
+				sessionStarted = true;
+				// L'horloge locale repart de l'horodatage PERSISTÉ (jamais d'un
+				// chrono dépendant du cycle de vie de la page).
+				startedAt = r.startedAt;
+			}
+		} catch {
+			/* silencieux : la séance reste utilisable, la durée sera déclinée
+			   au moment de « Terminer » (saisie manuelle possible) */
+				sessionStarted = false;
+		}
+	}
+
+	/* ── Confirmation de durée (uniquement après « Terminer la séance ») ──
+	   Durée manifestement étrange (< 10 min ou > 150 min) → panneau léger,
+	   fermable, ne bloque JAMAIS l'app, aucune perte de données. ── */
+	let durationConfirm = $state<null | { detectedMin: number }>(null);
+	let manualDurationInput = $state('');
+	const DURATION_MIN_THRESHOLD = 10;
+	const DURATION_MAX_THRESHOLD = 150;
+
 	/* ── Chargement ── */
 	onMount(async () => {
 		try {
@@ -179,6 +221,11 @@
 				alreadyCompleted = true;
 				mode = 'recap';
 				buildRecap(data.scheduled.durationMin ?? null);
+			} else if (data.scheduled.startedAt) {
+				// Reprise d'une séance commencée (app fermée, verrouillage…) :
+				// l'état backend est retrouvé, aucun chronomètre n'est perdu.
+				sessionStarted = true;
+				startedAt = data.scheduled.startedAt;
 			}
 		} catch (e) {
 			err = e instanceof Error ? e.message : 'Chargement impossible.';
@@ -244,6 +291,9 @@
 		gSetIdx = 0;
 		guidedDone = 0;
 		loadGuidedDraft();
+		// Le mode guidé démarre aussi la séance RÉELLE (même logique métier :
+		// startedAt persisté backend, durée partagée entre les deux modes).
+		if (!sessionStarted) void startRealSession();
 	}
 	function loadGuidedDraft() {
 		if (!gEx) return;
@@ -366,15 +416,68 @@
 			confirmPartial = true;
 			return;
 		}
+		openRecap();
+	}
+	function confirmFinishPartial() {
+		confirmPartial = false;
+		openRecap();
+	}
+
+	/** Ouvre le récap — avec confirmation si la durée détectée est étrange. */
+	function openRecap() {
+		const detected = detectedDurationMin();
+		if (detected < DURATION_MIN_THRESHOLD || detected > DURATION_MAX_THRESHOLD) {
+			// Panneau léger, uniquement à ce moment — jamais bloquant, fermable.
+			durationConfirm = { detectedMin: detected };
+			return;
+		}
 		buildRecap(null);
 		mode = 'recap';
 		stopTimer();
 	}
-	function confirmFinishPartial() {
-		confirmPartial = false;
+	/** Durée détectée : timestamps persistés si démarrage réel, sinon local. */
+	function detectedDurationMin(): number {
+		const ms = sessionStarted ? Date.now() - startedAt : Date.now() - startedAt;
+		return Math.max(1, Math.round(ms / 60000));
+	}
+	function acceptDetectedDuration() {
+		durationConfirm = null;
 		buildRecap(null);
 		mode = 'recap';
 		stopTimer();
+	}
+	function chooseSuggestedDuration(min: number) {
+		durationConfirm = null;
+		buildRecap(min);
+		mode = 'recap';
+		stopTimer();
+	}
+	function applyManualDuration() {
+		const n = Math.round(Number(manualDurationInput.replace(',', '.')));
+		if (!Number.isFinite(n) || n < 1 || n > 600) return;
+		durationConfirm = null;
+		buildRecap(n);
+		mode = 'recap';
+		stopTimer();
+	}
+
+	/** « Je n'ai pas réalisé cette séance » — clôture sans dépense sportive. */
+	async function skipSession() {
+		finishing = true;
+		err = '';
+		try {
+			durationConfirm = null;
+			await fetch(`/api/training/session/${scheduledId}`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ skipped: true }),
+			});
+			onFinished?.();
+		} catch {
+			err = "Impossible d'enregistrer — réessaie.";
+		} finally {
+			finishing = false;
+		}
 	}
 
 	/** Étape 2 : « Enregistrer et fermer » → POST unique (durée + difficulté + note). */
@@ -477,6 +580,17 @@
 			{/if}
 
 			{#if !alreadyCompleted}
+				<!-- Durée : modifiable avant validation (durée cohérente = aucune friction) -->
+				<button
+					type="button"
+					onclick={() => {
+						manualDurationInput = String(recap?.durationMin ?? '');
+						durationConfirm = { detectedMin: recap?.durationMin ?? 0 };
+					}}
+					class="mx-auto mt-2 block text-xs font-semibold text-mist transition hover:text-ink"
+				>
+					Modifier la durée
+				</button>
 				<!-- Option légère : difficulté ressentie + note -->
 				<div class="mt-5 rounded-2xl border border-line bg-card p-4 text-left">
 					<p class="text-[11px] font-bold uppercase tracking-widest text-mist">Difficulté ressentie</p>
@@ -661,14 +775,26 @@
 
 			<!-- Barre d'actions mode libre -->
 			<div class="sticky bottom-3 z-10 mt-2 grid gap-2">
-				<button
-					type="button"
-					disabled={saving}
-					onclick={requestFinish}
-					class="w-full rounded-2xl bg-brand px-5 py-3.5 text-sm font-bold text-white shadow-lg transition hover:bg-brand-dark disabled:opacity-60"
-				>
-					Terminer la séance
-				</button>
+				{#if sessionStarted}
+					<button
+						type="button"
+						disabled={saving}
+						onclick={requestFinish}
+						class="w-full rounded-2xl bg-brand px-5 py-3.5 text-sm font-bold text-white shadow-lg transition hover:bg-brand-dark disabled:opacity-60"
+					>
+						Terminer la séance
+					</button>
+				{:else}
+					<!-- Démarrage RÉEL : un tap explicite (consulter ne démarre rien) →
+					     startedAt persisté backend (survit au verrouillage/fond). -->
+					<button
+						type="button"
+						onclick={startRealSession}
+						class="w-full rounded-2xl bg-brand px-5 py-3.5 text-sm font-bold text-white shadow-lg transition hover:bg-brand-dark"
+					>
+						<Icon name="play" size={14} class="mr-1 inline" /> Commencer la séance
+					</button>
+				{/if}
 				<button
 					type="button"
 					onclick={startGuided}
@@ -809,17 +935,65 @@
 				{/if}
 			</div>
 
-			<button
-				type="button"
-				onclick={requestFinish}
-				class="mt-4 w-full rounded-xl border-2 border-line bg-card px-5 py-3 text-sm font-semibold text-ink transition hover:border-brand"
-			>
-				Terminer la séance
-			</button>
+			{#if sessionStarted}
+				<button
+					type="button"
+					onclick={requestFinish}
+					class="mt-4 w-full rounded-xl border-2 border-line bg-card px-5 py-3 text-sm font-semibold text-ink transition hover:border-brand"
+				>
+					Terminer la séance
+				</button>
+			{:else}
+				<button
+					type="button"
+					onclick={startRealSession}
+					class="mt-4 w-full rounded-xl border-2 border-brand bg-brand px-5 py-3 text-sm font-bold text-white transition hover:bg-brand-dark"
+				>
+					<Icon name="play" size={14} class="mr-1 inline" /> Commencer la séance
+				</button>
+			{/if}
 			<p class="mt-2 text-center text-[11px] text-mist">{guidedDone}/{guidedTotal} séries validées en mode guidé</p>
 		{/if}
 	{/if}
 </div>
+
+<!-- ═══ Confirmation de durée (uniquement après « Terminer la séance », si durée étrange). Panneau léger : fermable, ne bloque JAMAIS l'app, aucune perte de données, jamais une notification globale. ═══ -->
+{#if durationConfirm}
+	<div
+		class="fixed inset-0 z-[65] grid place-items-end bg-ink/50 p-4 sm:place-items-center"
+		role="presentation"
+		onclick={(e) => {
+			if (e.target === e.currentTarget) durationConfirm = null;
+		}}
+	>
+		<div class="w-full max-w-sm rounded-3xl bg-white p-5 shadow-xl">
+			<h3 class="font-display text-lg font-semibold text-ink">Confirmer la durée</h3>
+			<p class="mt-1 text-sm text-mist">
+				G-FLUX a détecté {durationConfirm.detectedMin} min. Ça te semble juste ?
+			</p>
+			<div class="mt-4 grid grid-cols-2 gap-2">
+				<button type="button" onclick={() => chooseSuggestedDuration(45)} class="rounded-xl border-2 border-line px-4 py-2.5 text-sm font-bold text-ink transition hover:border-brand">45 min</button>
+				<button type="button" onclick={() => chooseSuggestedDuration(60)} class="rounded-xl border-2 border-line px-4 py-2.5 text-sm font-bold text-ink transition hover:border-brand">60 min</button>
+			</div>
+			<label class="mt-3 block">
+				<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Modifier la durée (min)</span>
+				<input
+					type="number"
+					inputmode="numeric"
+					min="1"
+					max="600"
+					bind:value={manualDurationInput}
+					class="w-full rounded-xl border-2 border-line px-3 py-2.5 text-sm tabular-nums outline-none focus:border-brand"
+				/>
+			</label>
+			<div class="mt-4 grid gap-2">
+				<button type="button" onclick={applyManualDuration} disabled={!manualDurationInput} class="rounded-xl bg-brand px-5 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60">Valider cette durée</button>
+				<button type="button" onclick={acceptDetectedDuration} class="rounded-xl border-2 border-line px-5 py-2.5 text-sm font-semibold text-ink transition hover:border-brand">Garder {durationConfirm.detectedMin} min</button>
+				<button type="button" disabled={finishing} onclick={skipSession} class="rounded-xl px-5 py-2.5 text-sm font-semibold text-mist transition hover:text-danger disabled:opacity-60">Je n'ai pas réalisé cette séance</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <!-- Confirmation « terminer partiellement » -->
 {#if confirmPartial && data}
