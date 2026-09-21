@@ -244,6 +244,7 @@
 	/** Raccourcis horizontaux de l'Accueil (désengorgent le dashboard).
 	    « Rendez-vous » : libellé INVARIABLE, même gabarit que les autres (§16). */
 	const chips = $derived([
+		{ href: '/espace/entrainement', label: 'Entraînement', icon: 'dumbbell', badge: 0 },
 		{ href: '/espace/rendez-vous', label: 'Rendez-vous', icon: 'calendarCheck', badge: 0 },
 		{ href: '/recettes', label: 'Recettes', icon: 'chefHat', badge: 0 },
 		{ href: '/espace/ressources', label: 'Drive', icon: 'cloud', badge: 0 },

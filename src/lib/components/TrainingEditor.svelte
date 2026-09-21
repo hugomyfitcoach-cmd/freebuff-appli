@@ -682,6 +682,25 @@
 						</button>
 					{/if}
 
+					<!-- Phase du parcours (échauffement / principal / finisher) -->
+					<label class="mb-2 block">
+						<span class="mb-1 block text-[10px] font-bold uppercase tracking-widest text-mist">Phase du parcours</span>
+						<select
+							value={selectedExercise.phase ?? 'principal'}
+							onchange={(e) => {
+								const v = (e.currentTarget as HTMLSelectElement).value as 'echauffement' | 'principal' | 'finisher';
+								if (selectedExercise) selectedExercise.phase = v;
+								patchExercise(selectedExercise!._id, { phase: v === 'principal' ? null : v });
+							}}
+							class="w-full rounded-xl border border-line bg-white px-3 py-2 text-sm outline-none focus:border-brand"
+						>
+							<option value="echauffement">🔥 Échauffement</option>
+							<option value="principal">💪 Entraînement principal</option>
+							<option value="finisher">⚡ Finisher / mobilité</option>
+						</select>
+						<p class="mt-0.5 text-[10px] text-mist">Un seul parcours côté cliente : les phases s'affichent dans l'ordre (échauffement → principal → finisher).</p>
+					</label>
+
 					<!-- Tempo + notes -->
 					<label class="mb-2 block">
 						<span class="mb-1 block text-[10px] font-bold uppercase tracking-widest text-mist">Tempo (facultatif, ex. 3-1-1-0)</span>

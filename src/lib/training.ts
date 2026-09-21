@@ -24,6 +24,8 @@ export type SessionExerciseView = {
 	tempo?: string;
 	coachNote?: string;
 	techniqueNote?: string;
+	/** Phase du parcours (échauffement / principal / finisher) — défaut : principal. */
+	phase?: 'echauffement' | 'principal' | 'finisher';
 	exercise: {
 		_id: string;
 		gfluxExerciseId: string;

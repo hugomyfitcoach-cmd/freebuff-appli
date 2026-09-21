@@ -29,6 +29,17 @@ export const programLevel = v.union(
 );
 export const userRole = v.union(v.literal("coach"), v.literal("client"));
 /**
+ * PHASES d'une séance (module Entraînement) — un seul parcours, plusieurs
+ * blocs affichés dans l'ordre : échauffement → principal → finisher.
+ * Champ optionnel sur `trainingSessionExercises` : absent = "principal"
+ * (compatibilité totale avec les programmes existants).
+ */
+export const trainingPhase = v.union(
+	v.literal("echauffement"),
+	v.literal("principal"),
+	v.literal("finisher")
+);
+/**
  * Types d'événements du journal d'activité cliente (onglet Notifications du
  * CRM). Liste fermée : chaque type a son libellé, son icône et la section de
  * la Vision 360 qu'il ouvre (miroir côté client : src/lib/notifications.ts).
@@ -893,6 +904,15 @@ export default defineSchema({
 	trainingPrograms: defineTable({
 		coachId: v.id("users"),
 		name: v.string(),
+		/**
+		 * PROGRAMME ASSIGNÉ (copie indépendante) : présence de `clientId` ⇔ cette
+		 * ligne est la copie d'un programme modèle pour UNE cliente. Les champs
+		 * sont absents (undefined) sur les programmes modèles — modifier le modèle
+		 * ne modifie JAMAIS rétroactivement une copie (duplication intégrale à
+		 * l'assignation). `sourceProgramId` = traçabilité vers le modèle d'origine.
+		 */
+		clientId: v.optional(v.id("users")),
+		sourceProgramId: v.optional(v.id("trainingPrograms")),
 		description: v.optional(v.string()),
 		/** "hypertrophie" | "perte_de_gras" | "remise_en_forme" | "force" | "autre". */
 		goal: v.optional(programGoal),
@@ -938,6 +958,11 @@ export default defineSchema({
 		tempo: v.optional(v.string()),
 		/** Note coach spécifique à cet exercice dans cette séance. */
 		coachNote: v.optional(v.string()),
+		/**
+		 * Phase du parcours (échauffement → principal → finisher) — optionnel :
+		 * absent = "principal" (les séances existantes restent inchangées).
+		 */
+		phase: v.optional(trainingPhase),
 		/** Consigne technique affichée avec la prescription. */
 		techniqueNote: v.optional(v.string()),
 		createdAt: v.number(),
@@ -964,6 +989,111 @@ export default defineSchema({
 		/** Durée en secondes (mode time). */
 		durationSeconds: v.optional(v.number()),
 	}).index("by_sessionExercise", ["sessionExerciseId"]),
+
+	/* ═══ Module Entraînement — assignation & suivi d'exécution ═══ */
+
+	/**
+	 * ASSIGNATION d'un programme à une cliente. Le programme assigné est une
+	 * COPIE indépendante (trainingPrograms.clientId présent) — retirer
+	 * l'assignation n'efface jamais l'historique sportif déjà réalisé.
+	 * Les séances planifiées vivent dans `trainingScheduledSessions`.
+	 */
+	trainingAssignments: defineTable({
+		coachId: v.id("users"),
+		userId: v.id("users"),
+		/** Programme COPIE indépendante créée à l'assignation. */
+		programId: v.id("trainingPrograms"),
+		/** Programme MODÈLE d'origine (traçabilité — peut être supprimé ensuite). */
+		sourceProgramId: v.optional(v.id("trainingPrograms")),
+		/** Premier jour "yyyy-mm-dd" (heure locale de la cliente). */
+		startDate: v.string(),
+		/** Dernier jour couvert "yyyy-mm-dd" (borne inclus, ≤ 366 jours). */
+		endDate: v.string(),
+		/** Jours de semaine des séances : [1..7] = lundi..dimanche. */
+		weekdays: v.array(v.number()),
+		/** Retrait par la coach (ms) — l'historique réalisé reste intact. */
+		removedAt: v.optional(v.number()),
+		createdAt: v.number(),
+	})
+		.index("by_user", ["userId"])
+		.index("by_coach", ["coachId"])
+		.index("by_program", ["programId"]),
+
+	/**
+	 * SÉANCE PROGRAMMÉE — occurrence datée d'une séance du programme assigné
+	 * pour UNE cliente. C'est la ligne que manipulent déplacer / dupliquer /
+	 * supprimer (menu •••) et que la cliente voit dans son espace Entraînement.
+	 * Annulée ≠ supprimée : une occurrence passée n'est JAMAIS détruite.
+	 */
+	trainingScheduledSessions: defineTable({
+		userId: v.id("users"),
+		assignmentId: v.id("trainingAssignments"),
+		/** Séance du programme COPIE (trainingSessions._id). */
+		sessionId: v.id("trainingSessions"),
+		/** Date de la séance "yyyy-mm-dd" (heure locale de la cliente). */
+		date: v.string(),
+		/** "planned" | "completed" | "cancelled" (annulée = masquée, jamais détruite). */
+		status: v.union(
+			v.literal("planned"),
+			v.literal("completed"),
+			v.literal("cancelled")
+		),
+		/** Fin réelle (ms) — posée par completeScheduledSession. */
+		completedAt: v.optional(v.number()),
+		/** Durée réelle de la séance (min) — saisie/consolidée à la fin. */
+		durationMin: v.optional(v.number()),
+		/** Difficulté ressentie 1–5 (option légère, posée par la cliente). */
+		difficulty: v.optional(v.number()),
+		/** Note libre de la cliente (option légère). */
+		note: v.optional(v.string()),
+		createdAt: v.number(),
+	})
+		.index("by_user_date", ["userId", "date"])
+		.index("by_user", ["userId"])
+		.index("by_assignment", ["assignmentId"])
+		.index("by_session", ["sessionId"]),
+
+	/**
+	 * LOG DE SÉRIE — l'HISTORIQUE SPORTIF, autonome et intouchable. Écrit par
+	 * les deux modes (libre et guidé) via les MÊMES mutations. Tout est en
+	 * snapshot : remplacer/supprimer/éditer un programme ne réécrit jamais ces
+	 * lignes. L'identité d'exercice (`exerciseId` + `gfluxExerciseId` + nom +
+	 * médias) est copiée au moment de la log → progression et historique restent
+	 * fiables même si la bibliothèque évolue.
+	 */
+	trainingSetLogs: defineTable({
+		userId: v.id("users"),
+		/** Occurrence réalisée (null si ligne annulée manuellement). */
+		scheduledSessionId: v.optional(v.id("trainingScheduledSessions")),
+		/** Exercice de la bibliothèque G-FLUX (référence vivante). */
+		exerciseId: v.id("exercises"),
+		/** Identité portable + snapshot d'affichage (jamais recalculeés). */
+		gfluxExerciseId: v.optional(v.string()),
+		exerciseName: v.string(),
+		mediaUrl: v.optional(v.string()),
+		posterUrl: v.optional(v.string()),
+		/** "reps" | "time". */
+		mode: v.union(v.literal("reps"), v.literal("time")),
+		/** Prescription au moment de la séance (snapshot). */
+		targetReps: v.optional(v.number()),
+		targetWeight: v.optional(v.number()),
+		targetDurationSeconds: v.optional(v.number()),
+		/** Réalisé — reps et charge pour un exercice en reps ; durée pour "time". */
+		reps: v.optional(v.number()),
+		weightKg: v.optional(v.number()),
+		durationSeconds: v.optional(v.number()),
+		/** Série validée (faite) — false = ligne saisie non validée. */
+		done: v.boolean(),
+		/** Numéro de série au sein de l'exercice (0-based, ordre de prescription). */
+		setOrder: v.number(),
+		/** Date de la séance "yyyy-mm-dd" (heure locale de la cliente). */
+		date: v.string(),
+		createdAt: v.number(),
+	})
+		.index("by_user_exercise", ["userId", "exerciseId"])
+		.index("by_user_date", ["userId", "date"])
+		.index("by_session", ["scheduledSessionId"])
+		.index("by_user", ["userId"]),
 
 	/** Clé→valeur d'infrastructure (jamais de données métier). Version
 	 *  sémantique du backend : `appVersion = { key: 'api', version: '3' }`.

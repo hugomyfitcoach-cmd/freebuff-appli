@@ -70,6 +70,10 @@ async function requireProgram(
 ): Promise<Doc<"trainingPrograms">> {
 	const p = await ctx.db.get(programId);
 	if (!p || p.coachId !== coachId) throw new ConvexError("Programme introuvable.");
+	// Les copies assignées (clientId présent) ne sont JAMAIS éditées ici : leur
+	// contenu appartient à la cliente (séances planifiées + historique). Toute
+	// modification passe par un remplacement de programme (voir trainingAssign).
+	if (p.clientId) throw new ConvexError("Ce programme est une copie assignée à une cliente — il n'est pas éditable.");
 	return p;
 }
 
@@ -247,13 +251,14 @@ export const programFull = query({
 							.withIndex("by_sessionExercise", (q) => q.eq("sessionExerciseId", se._id))
 							.collect();
 						sets.sort((a, b) => a.order - b.order);
-						return {
-							_id: se._id,
-							order: se.order,
-							mode: se.mode,
-							tempo: se.tempo,
-							coachNote: se.coachNote,
-							techniqueNote: se.techniqueNote,
+				return {
+					_id: se._id,
+					order: se.order,
+					mode: se.mode,
+					tempo: se.tempo,
+					coachNote: se.coachNote,
+					techniqueNote: se.techniqueNote,
+					phase: se.phase,
 							exercise: ex
 								? {
 										_id: ex._id,
@@ -384,73 +389,107 @@ export const updateProgram = mutation({
 	},
 });
 
+/**
+ * COPIE INTÉGRALE d'un programme (séances → exercices → séries) vers un
+ * nouveau programme. Utilisé par la duplication coach ET par l'assignation
+ * à une cliente (trainingAssign) : une seule mécanique de copie, éprouvée,
+ * jamais deux. La copie est indépendante : modifier la source ne la touche
+ * jamais (aucun champ partagé, les médias storage sont référencés tels quels).
+ */
+export async function copyProgramInto(
+	ctx: MutationCtx,
+	opts: {
+		/** Programme source (modèle). */
+		sourceProgramId: Id<"trainingPrograms">;
+		/** Coach propriétaire de la copie. */
+		coachId: Id<"users">;
+		/** Nom de la copie (défaut : nom source). */
+		name?: string;
+		/** Cliente destinataire (présent UNIQUEMENT pour une copie assignée). */
+		clientId?: Id<"users">;
+		/** Programme modèle d'origine (traçabilité d'une copie assignée). */
+		sourceProgramIdForCopy?: Id<"trainingPrograms">;
+	}
+): Promise<Id<"trainingPrograms">> {
+	const src = await ctx.db.get(opts.sourceProgramId);
+	if (!src) throw new ConvexError("Programme introuvable.");
+	const now = Date.now();
+	const newId = await ctx.db.insert("trainingPrograms", {
+		coachId: opts.coachId,
+		name: (opts.name ?? src.name).slice(0, 120),
+		description: src.description,
+		goal: src.goal,
+		level: src.level,
+		sessionsPerWeek: src.sessionsPerWeek,
+		imageStorageId: src.imageStorageId, // le même blob storage peut être référencé deux fois
+		...(opts.clientId ? { clientId: opts.clientId } : {}),
+		...(opts.sourceProgramIdForCopy ? { sourceProgramId: opts.sourceProgramIdForCopy } : {}),
+		createdAt: now,
+		updatedAt: now,
+	});
+
+	const sessions = await ctx.db
+		.query("trainingSessions")
+		.withIndex("by_program", (q) => q.eq("programId", src._id))
+		.collect();
+	sessions.sort((a, b) => a.order - b.order);
+	for (const s of sessions) {
+		const newSessionId = await ctx.db.insert("trainingSessions", {
+			programId: newId,
+			name: s.name,
+			order: s.order,
+			createdAt: now,
+		});
+		const ses = await ctx.db
+			.query("trainingSessionExercises")
+			.withIndex("by_session", (q) => q.eq("sessionId", s._id))
+			.collect();
+		ses.sort((a, b) => a.order - b.order);
+		for (const se of ses) {
+			const newSeId = await ctx.db.insert("trainingSessionExercises", {
+				sessionId: newSessionId,
+				exerciseId: se.exerciseId,
+				order: se.order,
+				mode: se.mode,
+				tempo: se.tempo,
+				coachNote: se.coachNote,
+				techniqueNote: se.techniqueNote,
+				...(se.phase ? { phase: se.phase } : {}),
+				createdAt: now,
+			});
+			const sets = await ctx.db
+				.query("trainingSets")
+				.withIndex("by_sessionExercise", (q) => q.eq("sessionExerciseId", se._id))
+				.collect();
+			sets.sort((a, b) => a.order - b.order);
+			for (const st of sets) {
+				await ctx.db.insert("trainingSets", {
+					sessionExerciseId: newSeId,
+					order: st.order,
+					repsMin: st.repsMin,
+					repsMax: st.repsMax,
+					targetWeight: st.targetWeight,
+					targetRir: st.targetRir,
+					restSeconds: st.restSeconds,
+					durationSeconds: st.durationSeconds,
+				});
+			}
+		}
+	}
+	return newId;
+}
+
 /** Duplique un programme (séances, exercices et séries compris) — « (copie) ». */
 export const duplicateProgram = mutation({
 	args: { sessionToken: v.optional(v.string()), programId: v.id("trainingPrograms") },
 	handler: async (ctx, { sessionToken, programId }) => {
 		const coach = await requireCoach(ctx, sessionToken);
 		const src = await requireProgram(ctx, coach._id, programId);
-		const now = Date.now();
-
-		const newId = await ctx.db.insert("trainingPrograms", {
+		const newId = await copyProgramInto(ctx, {
+			sourceProgramId: src._id,
 			coachId: coach._id,
-			name: `${src.name} (copie)`.slice(0, 120),
-			description: src.description,
-			goal: src.goal,
-			level: src.level,
-			sessionsPerWeek: src.sessionsPerWeek,
-			imageStorageId: src.imageStorageId, // le même blob storage peut être référencé deux fois
-			createdAt: now,
-			updatedAt: now,
+			name: `${src.name} (copie)`,
 		});
-
-		const sessions = await ctx.db
-			.query("trainingSessions")
-			.withIndex("by_program", (q) => q.eq("programId", src._id))
-			.collect();
-		sessions.sort((a, b) => a.order - b.order);
-		for (const s of sessions) {
-			const newSessionId = await ctx.db.insert("trainingSessions", {
-				programId: newId,
-				name: s.name,
-				order: s.order,
-				createdAt: now,
-			});
-			const ses = await ctx.db
-				.query("trainingSessionExercises")
-				.withIndex("by_session", (q) => q.eq("sessionId", s._id))
-				.collect();
-			ses.sort((a, b) => a.order - b.order);
-			for (const se of ses) {
-				const newSeId = await ctx.db.insert("trainingSessionExercises", {
-					sessionId: newSessionId,
-					exerciseId: se.exerciseId,
-					order: se.order,
-					mode: se.mode,
-					tempo: se.tempo,
-					coachNote: se.coachNote,
-					techniqueNote: se.techniqueNote,
-					createdAt: now,
-				});
-				const sets = await ctx.db
-					.query("trainingSets")
-					.withIndex("by_sessionExercise", (q) => q.eq("sessionExerciseId", se._id))
-					.collect();
-				sets.sort((a, b) => a.order - b.order);
-				for (const st of sets) {
-					await ctx.db.insert("trainingSets", {
-						sessionExerciseId: newSeId,
-						order: st.order,
-						repsMin: st.repsMin,
-						repsMax: st.repsMax,
-						targetWeight: st.targetWeight,
-						targetRir: st.targetRir,
-						restSeconds: st.restSeconds,
-						durationSeconds: st.durationSeconds,
-					});
-				}
-			}
-		}
 		return { programId: newId };
 	},
 });
@@ -766,12 +805,20 @@ export const updateSessionExercise = mutation({
 		tempo: v.optional(v.union(v.string(), v.null())),
 		coachNote: v.optional(v.union(v.string(), v.null())),
 		techniqueNote: v.optional(v.union(v.string(), v.null())),
+		/** Phase du parcours (échauffement / principal / finisher). */
+		phase: v.optional(v.union(
+			v.literal("echauffement"),
+			v.literal("principal"),
+			v.literal("finisher"),
+			v.null()
+		)),
 	},
-	handler: async (ctx, { sessionToken, sessionExerciseId, mode, tempo, coachNote, techniqueNote }) => {
+	handler: async (ctx, { sessionToken, sessionExerciseId, mode, tempo, coachNote, techniqueNote, phase }) => {
 		const coach = await requireCoach(ctx, sessionToken);
 		const se = await requireSessionExercise(ctx, coach._id, sessionExerciseId);
 		const patch: Record<string, unknown> = {};
 		if (mode !== undefined) patch.mode = mode;
+		if (phase !== undefined) patch.phase = phase ?? undefined;
 		if (tempo !== undefined) {
 			const t = tempo?.trim() || undefined;
 			if (t && !/^[0-9]{1,2}(-[0-9xX]{1,2}){0,3}$/.test(t)) {

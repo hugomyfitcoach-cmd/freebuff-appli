@@ -40,6 +40,8 @@ import type * as resources from "../resources.js";
 import type * as steps from "../steps.js";
 import type * as tools from "../tools.js";
 import type * as training from "../training.js";
+import type * as trainingAssign from "../trainingAssign.js";
+import type * as trainingClient from "../trainingClient.js";
 import type * as users from "../users.js";
 import type * as webPushVendors from "../webPushVendors.js";
 
@@ -82,6 +84,8 @@ declare const fullApi: ApiFromModules<{
   steps: typeof steps;
   tools: typeof tools;
   training: typeof training;
+  trainingAssign: typeof trainingAssign;
+  trainingClient: typeof trainingClient;
   users: typeof users;
   webPushVendors: typeof webPushVendors;
 }>;

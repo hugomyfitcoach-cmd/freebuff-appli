@@ -11,6 +11,7 @@
 	import MetricTrend from '../../lib/components/MetricTrend.svelte';
 	import StepsBars from '../../lib/components/StepsBars.svelte';
 	import WeeklyTrendChart from '../../lib/components/WeeklyTrendChart.svelte';
+	import TrainingPanel from '../../lib/components/TrainingPanel.svelte';
 	import { cycleState } from '../../lib/cycle.js';
 	import { kindRule, SLOT_TAKEN_MESSAGE, toISO } from '../../lib/appointments.js';
 	import { fmtMs } from '../../lib/media.js';
@@ -1121,6 +1122,7 @@
 		{ id: 'apercu', label: 'Aperçu' },
 		{ id: 'journal', label: 'Journal' },
 		{ id: 'plan', label: 'Plan de repas' },
+		{ id: 'entrainement', label: 'Entraînement' },
 		{ id: 'corps', label: 'Poids & mesures' },
 		{ id: 'photos', label: `Photos (${totalPhotos})` },
 		{ id: 'bilans', label: 'Bilans' },
@@ -2394,6 +2396,12 @@
 						</div>
 					</div>
 				{/if}
+
+			{:else if section === 'entrainement'}
+			<!-- ═══ Entraînement : assignation & suivi (module dédié) ═══ -->
+			{#if selectedId}
+				<TrainingPanel userId={selectedId} />
+			{/if}
 
 			{:else if section === 'plan'}
 			<!-- ═══ Plan de repas : assignation coach → cliente ═══ -->
