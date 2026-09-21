@@ -577,6 +577,64 @@
 		})();
 	});
 
+	/* ————— Carte DÉPENSE SPORTIVE (semaine en cours, chargement async non
+	   bloquant — même pattern que la carte Performance) ————— */
+	let sportWeek = $state<{ totals: { count: number; durationMin: number; kcal: number } } | null>(null);
+	let trainingWeek = $state<{
+		days: { _id: string; date: string; status: string; startedAt: number | null; skippedAt: number | null; name: string }[];
+		nextSession: { _id: string; date: string; name: string } | null;
+		hasAnySession: boolean;
+	} | null>(null);
+	let cardsLoadedFor = '';
+	$effect(() => {
+		const start = perfWeekStart;
+		if (cardsLoadedFor === start) return;
+		cardsLoadedFor = start;
+		void (async () => {
+			try {
+				const [sr, tr] = await Promise.all([
+					fetch(`/api/sport?weekStart=${start}`).then((x) => x.json()),
+					fetch(`/api/training?weekStart=${start}`).then((x) => x.json()),
+				]);
+				if (!sr.error) sportWeek = { totals: sr.totals };
+				else
+					// Backend sans le module (fonctions Convex pas encore déployées) :
+					// repli gracieux = état vide propre, jamais de crash ni de « — » figé.
+					sportWeek = { totals: { count: 0, durationMin: 0, kcal: 0 } };
+				if (!tr.error)
+					trainingWeek = {
+						days: (tr.days ?? []) as never,
+						nextSession: tr.nextSession ?? null,
+						hasAnySession: (tr.days ?? []).length > 0 || tr.nextSession != null,
+					};
+				else
+					// Repli gracieux : l'Accueil n'est JAMAIS bloqué par une erreur
+					// Entraînement — état neutre « aucun programme ».
+					trainingWeek = { days: [], nextSession: null, hasAnySession: false };
+			} catch {
+				/* silencieux : les cartes restent en état neutre */
+			}
+		})();
+	});
+	function durationShort(min: number): string {
+		const h = Math.floor(min / 60);
+		const m = min % 60;
+		if (h === 0) return `${m} min`;
+		return m === 0 ? `${h} h` : `${h} h ${String(m).padStart(2, '0')}`;
+	}
+	/** Séance à finaliser : commencée (startedAt) mais jamais finalisée, à jour ou passée. */
+	const trainingToFinalize = $derived(
+		trainingWeek?.days.find(
+			(d) => d.status === 'planned' && d.startedAt != null && d.date <= currentLocalDay()
+		) ?? null
+	);
+	const trainingTodaySession = $derived(
+		trainingWeek?.days.find((d) => d.status === 'planned' && d.date === currentLocalDay()) ?? null
+	);
+	const trainingTodayCompleted = $derived(
+		trainingWeek?.days.find((d) => d.status === 'completed' && d.date === currentLocalDay()) ?? null
+	);
+
 	/* ————— Navigation rapide + changement de journée —————
 	   L'Accueil est préchargé pendant la visite des autres onglets (cache
 	   SvelteKit) : au tap, le rendu est immédiat. Les cartes quotidiennes
@@ -1121,6 +1179,72 @@
 		<span class="shrink-0 rounded-xl bg-ink px-3 py-1.5 text-xs font-bold text-white transition group-hover:bg-brand">Voir</span>
 	</div>
 </a>
+
+<!-- ═══════════ Dépense sportive | Entraînement (côte à côte, même grille que Pas/Calories) ═══════════ -->
+<section aria-label="Dépense sportive et Entraînement" class="mt-4 grid grid-cols-2 gap-3">
+	<!-- DÉPENSE SPORTIVE → page dédiée -->
+	<a
+		href="/espace/depense-sportive"
+		class="group rounded-3xl border border-line bg-card p-4 text-left shadow-sm transition hover:border-brand/50 active:scale-[0.99]"
+	>
+		<div class="flex items-center justify-between gap-1">
+			<span class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-mist"><Icon name="zap" size={14} class="shrink-0 text-brand" /> Dépense sportive</span>
+			<Icon name="chevronRight" size={15} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
+		</div>
+		{#if sportWeek && sportWeek.totals.count > 0}
+			<p class="mt-2 font-display text-2xl font-bold leading-none tracking-tight text-ink tabular-nums">
+				≈ {fmt(sportWeek.totals.kcal)} <span class="text-sm font-semibold text-mist">kcal</span>
+			</p>
+			<p class="mt-1.5 min-w-0 truncate text-xs font-semibold text-mist">
+				{sportWeek.totals.count} activité{sportWeek.totals.count > 1 ? 's' : ''} · {durationShort(sportWeek.totals.durationMin)}
+			</p>
+		{:else if sportWeek}
+			<!-- Semaine sans activité (ou module backend pas encore déployé) : état vide compact, CTA discret -->
+			<p class="mt-2 font-display text-xl font-bold leading-tight text-ink">Aucune activité</p>
+			<p class="mt-1 flex items-center gap-1 text-xs font-semibold text-brand-dark">
+				<span class="min-w-0 truncate">cette semaine · ajouter</span>
+				<Icon name="plus" size={12} class="shrink-0" />
+			</p>
+		{:else}
+			<!-- Chargement : rien d'inventé -->
+			<p class="mt-2 font-display text-2xl font-bold leading-none text-mist/50">—</p>
+			<p class="mt-1.5 text-xs font-semibold text-mist">Cette semaine</p>
+		{/if}
+	</a>
+
+	<!-- ENTRAÎNEMENT → module existant -->
+	<a
+		href="/espace/entrainement"
+		class="group rounded-3xl border border-line bg-card p-4 text-left shadow-sm transition hover:border-brand/50 active:scale-[0.99]"
+	>
+		<div class="flex items-center justify-between gap-1">
+			<span class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-mist"><Icon name="dumbbell" size={14} class="shrink-0 text-brand" /> Entraînement</span>
+			<Icon name="chevronRight" size={15} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
+		</div>
+		{#if trainingToFinalize}
+			<p class="mt-2 font-display text-lg font-bold leading-tight text-warn">Séance à finaliser</p>
+			<p class="mt-1 min-w-0 truncate text-xs font-semibold text-mist">{trainingToFinalize.name}</p>
+		{:else if trainingTodaySession}
+			<p class="mt-2 font-display text-lg font-bold leading-tight text-ink">Séance aujourd'hui</p>
+			<p class="mt-1 min-w-0 truncate text-xs font-semibold text-mist">{trainingTodaySession.name}</p>
+		{:else if trainingTodayCompleted}
+			<p class="mt-2 font-display text-lg font-bold leading-tight text-ink">Séance faite ✓</p>
+			<p class="mt-1 min-w-0 truncate text-xs font-semibold text-mist">{trainingTodayCompleted.name}</p>
+		{:else if trainingWeek?.nextSession}
+			<p class="mt-2 font-display text-lg font-bold leading-tight text-ink">Prochaine séance</p>
+			<p class="mt-1 min-w-0 truncate text-xs font-semibold text-mist">
+				{new Date(trainingWeek.nextSession.date + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long' })}{#if trainingWeek.nextSession.name} · {trainingWeek.nextSession.name}{/if}
+			</p>
+		{:else if trainingWeek && !trainingWeek.hasAnySession}
+			<!-- Aucun programme : état neutre (pas une erreur, pas de gros CTA) -->
+			<p class="mt-2 font-display text-lg font-bold leading-tight text-ink">Aucun programme</p>
+			<p class="mt-1 text-xs font-semibold text-mist">prévu</p>
+		{:else}
+			<p class="mt-2 font-display text-lg font-bold leading-tight text-mist/50">—</p>
+			<p class="mt-1.5 text-xs font-semibold text-mist">Chargement…</p>
+		{/if}
+	</a>
+</section>
 
 <!-- ═══════════ Récap hebdo (samedi + dimanche uniquement) ═══════════ -->
 {#if recap}

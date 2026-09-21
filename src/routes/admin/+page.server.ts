@@ -40,6 +40,16 @@ import { api } from '../../convex/_generated/api.js';	import { SESSION_COOKIE, r
 	const messageLog = selectedId
 		? await convex.query(api.coach.messageLog, { sessionToken: token, userId: selectedId as never })
 		: [];
+	// Dépense sportive — lecture rapide des 5 dernières semaines (S, S-1…S-4)
+	// pour l'encart de l'onglet « Aperçu ». Semaine CALENDAIRE courante (le
+	// cockpit de l'onglet Bilans reste, lui, lié à la semaine du bilan).
+	// Non bloquant : ancien backend sans ce module → null (encart masqué,
+	// jamais d'erreur bloquante — règle « ne jamais empêcher l'utilisation »).
+	const sport360Overview = selectedId
+		? await convex
+				.query(api.coach.sport360, { sessionToken: token, userId: selectedId as never })
+				.catch(() => null)
+		: null;
 
 	// Message global (Tableau de bord) : état actif, destinataires et lectures —
 	// null quand aucun message global n'est en cours.
@@ -65,6 +75,7 @@ import { api } from '../../convex/_generated/api.js';	import { SESSION_COOKIE, r
 		media,
 		onboardingView,
 		messageLog,
+		sport360Overview,
 		globalMessage,
 		google,
 		googleBanner,

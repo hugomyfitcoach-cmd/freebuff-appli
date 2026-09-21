@@ -38,6 +38,8 @@ import type * as photos from "../photos.js";
 import type * as push from "../push.js";
 import type * as reminderPush from "../reminderPush.js";
 import type * as resources from "../resources.js";
+import type * as sport from "../sport.js";
+import type * as sportCatalog from "../sportCatalog.js";
 import type * as steps from "../steps.js";
 import type * as tools from "../tools.js";
 import type * as training from "../training.js";
@@ -83,6 +85,8 @@ declare const fullApi: ApiFromModules<{
   push: typeof push;
   reminderPush: typeof reminderPush;
   resources: typeof resources;
+  sport: typeof sport;
+  sportCatalog: typeof sportCatalog;
   steps: typeof steps;
   tools: typeof tools;
   training: typeof training;

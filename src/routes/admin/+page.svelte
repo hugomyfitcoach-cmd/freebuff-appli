@@ -971,6 +971,24 @@
 
 	/* ── Cockpit hebdo de l'onglet Bilans (calculé côté Convex, même période que le bilan) ── */
 	const cockpit = $derived(view?.cockpit ?? null);
+	/** Bloc Dépense sportive (source : client360.sport) — nullable-safe :
+	 *  les anciens cachets serveur sans ce bloc sont tolérés. */
+	type SportBlock = {
+		weekStart: string;
+		activities: number;
+		durationMin: number;
+		kcal: number;
+		metMinutes: number;
+		manualCount: number;
+		trainingCount: number;
+		trend: 'up' | 'down' | 'stable' | null;
+		previous: { weekStart: string; durationMin: number; kcal: number }[];
+	};
+	const sport360 = $derived(((cockpit as Record<string, unknown> | null)?.sport ?? null) as SportBlock | null);
+	/** Encart « Aperçu » : mêmes données que la carte Bilans, mais semaine
+	 *  calendaire courante (indépendante du dernier bilan). La carte Bilans
+	 *  garde `sport360` (semaine du bilan) — les deux se complètent. */
+	const sportOverview = $derived((data.sport360Overview ?? null) as SportBlock | null);
 	/** Série des 7 derniers jours (pas) pour le mini-graphique — mêmes données que la cliente. */
 	const stepsLast7 = $derived((view?.stepsLast7 ?? []) as { date: string; count: number | null }[]);
 	/** Initiales L→D de la série (lundi → dimanche de la fenêtre affichée). */
@@ -1882,6 +1900,52 @@
 							<div class="mt-1 text-[11px] leading-snug text-mist">règles : {selCycle?.lmp ? fmtDateShort(selCycle.lmp) : '—'} · durée {selCycle?.len ?? '—'} j · ovulation ~ J{selCycleState.ovulationDay}</div>
 						{/if}
 					</div>
+				</div>
+
+				<!-- DÉPENSE SPORTIVE — même encart que l'onglet Bilans, mais sur la
+			     semaine CALENDAIRE courante (indépendante du dernier bilan).
+			     kcal = REPÈRE, jamais un crédit calorique. Tendance calculée sur
+			     les semaines closes uniquement (jamais la semaine partielle). -->
+				<div class="rounded-2xl border border-line bg-card p-4 shadow-sm">
+					<div class="flex items-center justify-between gap-2">
+						<div class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="zap" size={13} class="shrink-0 text-brand" /> Dépense sportive</div>
+						{#if sportOverview?.trainingCount}
+							<span class="rounded-full bg-soft px-2 py-0.5 text-[10px] font-semibold text-mist">{sportOverview.trainingCount} séance{sportOverview.trainingCount > 1 ? 's' : ''} G-FLUX</span>
+						{:else if sportOverview?.manualCount}
+							<span class="rounded-full bg-soft px-2 py-0.5 text-[10px] font-semibold text-mist">{sportOverview.manualCount} manuelle{sportOverview.manualCount > 1 ? 's' : ''}</span>
+						{/if}
+					</div>
+					{#if sportOverview && (sportOverview.activities > 0 || sportOverview.previous.some((p) => p.durationMin > 0))}
+						<div class="mt-1 flex flex-wrap items-baseline gap-x-2">
+							<span class="font-display text-3xl font-semibold text-ink">≈ {sportOverview.kcal.toLocaleString('fr-FR')} kcal</span>
+							{#if sportOverview.trend === 'up'}
+								<span class="rounded-full bg-brand-light px-1.5 py-0.5 text-[10px] font-bold text-brand-dark">↑ Volume sportif</span>
+							{:else if sportOverview.trend === 'down'}
+								<span class="rounded-full bg-warn-light px-1.5 py-0.5 text-[10px] font-bold text-warn">↓ Volume sportif</span>
+							{:else if sportOverview.trend === 'stable'}
+								<span class="rounded-full bg-soft px-1.5 py-0.5 text-[10px] font-bold text-ink">Volume stable</span>
+							{/if}
+						</div>
+						<p class="mt-0.5 text-[11px] text-mist">
+							{sportOverview.activities} activité{sportOverview.activities > 1 ? 's' : ''}
+							· {Math.floor(sportOverview.durationMin / 60)} h {String(sportOverview.durationMin % 60).padStart(2, '0')} cette semaine
+						</p>
+						{#if sportOverview.previous.some((p) => p.durationMin > 0)}
+							<!-- Lecture rapide : semaines closes précédentes (S-1 à S-4) —
+							     numérotation réelle même si une semaine intermédiaire est vide. -->
+							<div class="mt-2 space-y-0.5 border-t border-line/60 pt-2">
+								{#each sportOverview.previous as pw, i (pw.weekStart)}
+									{#if pw.durationMin > 0}
+										<p class="text-[11px] text-mist tabular-nums">
+											S-{i + 1} · {Math.floor(pw.durationMin / 60)} h {String(pw.durationMin % 60).padStart(2, '0')} · ≈ {pw.kcal.toLocaleString('fr-FR')} kcal
+										</p>
+									{/if}
+								{/each}
+							</div>
+						{/if}
+					{:else}
+						<p class="mt-1 text-sm italic text-mist">Aucune activité cette semaine</p>
+					{/if}
 				</div>
 
 				<!-- Ajout rapide depuis l'Aperçu : même endpoint que « Poids & mesures »,
@@ -2986,6 +3050,41 @@
 										{/if}
 									</div>
 								{/if}
+
+								<!-- DÉPENSE SPORTIVE — semaine en cours + tendance (semaines closes,
+								     MET-minutes) — repère, jamais un crédit calorique. -->
+								<div class="flex flex-col rounded-xl border border-line bg-cream/40 p-3">
+									{@render cardHead('zap', 'Dépense sportive', sport360 ? (sport360.trainingCount > 0 ? `${sport360.trainingCount} séance${sport360.trainingCount > 1 ? 's' : ''} G-FLUX` : sport360.manualCount > 0 ? `${sport360.manualCount} manuelle${sport360.manualCount > 1 ? 's' : ''}` : undefined) : undefined)}
+									{#if sport360 && (sport360.activities > 0 || sport360.previous.some((p) => p.durationMin > 0))}
+										<div class="mt-1 flex flex-wrap items-baseline gap-x-2">
+											<span class="font-display text-2xl font-semibold text-ink">≈ {sport360.kcal.toLocaleString('fr-FR')} kcal</span>
+											{#if sport360.trend === 'up'}
+												<span class="rounded-full bg-brand-light px-1.5 py-0.5 text-[10px] font-bold text-brand-dark">↑ Volume sportif</span>
+											{:else if sport360.trend === 'down'}
+												<span class="rounded-full bg-warn-light px-1.5 py-0.5 text-[10px] font-bold text-warn">↓ Volume sportif</span>
+											{:else if sport360.trend === 'stable'}
+												<span class="rounded-full bg-soft px-1.5 py-0.5 text-[10px] font-bold text-ink">Volume stable</span>
+											{/if}
+										</div>
+										<p class="mt-0.5 text-[11px] text-mist">
+											{sport360.activities} activité{sport360.activities > 1 ? 's' : ''}
+											· {Math.floor(sport360.durationMin / 60)} h {String(sport360.durationMin % 60).padStart(2, '0')} cette semaine
+										</p>
+										{#if sport360.previous.some((p) => p.durationMin > 0)}
+										<!-- Lecture rapide : semaines closes précédentes (jamais la semaine partielle) -->
+										<div class="mt-1.5 space-y-0.5 border-t border-line/60 pt-1.5">
+											{#each sport360.previous.filter((p) => p.durationMin > 0) as pw (pw.weekStart)}
+												<p class="text-[10px] text-mist tabular-nums">
+													S-{sport360!.previous.indexOf(pw) + 1} · {Math.floor(pw.durationMin / 60)} h {String(pw.durationMin % 60).padStart(2, '0')} · ≈ {pw.kcal.toLocaleString('fr-FR')} kcal
+												</p>
+											{/each}
+										</div>
+										{/if}
+									{:else}
+										<div class="mt-1 font-display text-2xl font-semibold text-mist/50">—</div>
+										<p class="mt-0.5 text-[11px] italic text-mist">Aucune activité cette semaine</p>
+									{/if}
+								</div>
 
 								<!-- PROTÉINES — moyenne, objectif, jours suivis, indication vs objectif -->
 								<div class="flex flex-col rounded-xl border border-line bg-cream/40 p-3">

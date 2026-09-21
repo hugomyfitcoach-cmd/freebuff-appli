@@ -20,3 +20,22 @@ export const GET: RequestHandler = async (event) => {
 		return json({ error: errMsg(e) }, { status: 400 });
 	}
 };
+
+/**
+ * « Commencer la séance » — pose startedAt (persisté backend). Ouvrir la
+ * séance ne démarre RIEN : seul ce geste explicite lance la mesure.
+ */
+export const POST: RequestHandler = async (event) => {
+	await requireRole(event, 'client', { next: '/espace/entrainement' });
+	const token = event.cookies.get(SESSION_COOKIE);
+	try {
+		const body = await event.request.json();
+		const res = await convex.mutation(api.trainingClient.startSession, {
+			sessionToken: token,
+			scheduledId: String(body.scheduledId) as never,
+		});
+		return json(res);
+	} catch (e) {
+		return json({ error: errMsg(e) }, { status: 400 });
+	}
+};

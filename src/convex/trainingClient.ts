@@ -15,6 +15,12 @@
 import { query, mutation } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { getSessionUser, localTodayISO, mondayISOof, addDaysISO } from "./helpers";
+import { lastKnownWeight } from "./sport";
+import {
+	GFLUX_SESSION_ACTIVITY_ID,
+	GFLUX_SESSION_INTENSITY,
+	estimateSportActivity,
+} from "./sportCatalog";
 
 /* ── Phases ── */
 
@@ -80,6 +86,10 @@ export const myWeek = query({
 					_id: s._id,
 					date: s.date,
 					status: s.status,
+					/** Commencée (bouton « Commencer la séance ») mais non finalisée. */
+					startedAt: s.startedAt ?? null,
+					/** « Je n'ai pas réalisé cette séance » — terminée sans dépense. */
+					skippedAt: s.skippedAt ?? null,
 					name: ses?.name ?? "Séance",
 				};
 			})
@@ -238,6 +248,11 @@ export const scheduledSession = query({
 				status: s.status,
 				completedAt: s.completedAt ?? null,
 				durationMin: s.durationMin ?? null,
+				/** Démarrage réel (bouton « Commencer ») — base de la durée mesurée. */
+				startedAt: s.startedAt ?? null,
+				/** Clôturée sans réalisation (« Je n'ai pas réalisé cette séance »). */
+				skippedAt: s.skippedAt ?? null,
+				durationSource: s.durationSource ?? null,
 				difficulty: s.difficulty ?? null,
 				note: s.note ?? null,
 			},
@@ -412,12 +427,48 @@ export const deleteMySession = mutation({
 	},
 });
 
-/* ═══════════ Fin de séance ═══════════ */
+/* ═══════════ Début & fin de séance ═══════════ */
+
+/**
+ * COMMENCE RÉELLEMENT la séance (bouton « Commencer la séance »).
+ *
+ * Ouvrir/consulter la séance ne fait RIEN :startedAt n'est posé que par ce
+ * geste explicite — une séance simplement consultée ou aux séries cochées
+ * sans démarrage n'est pas une séance en cours. Persisté côté backend : la
+ * durée réelle (completedAt − startedAt) survit au verrouillage iPhone / PWA
+ * en arrière-plan — jamais dépendante d'un chrono JavaScript.
+ * Réidempotent : un second appel ne réarme pas le chronomètre.
+ */
+export const startSession = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		scheduledId: v.id("trainingScheduledSessions"),
+	},
+	handler: async (ctx, { sessionToken, scheduledId }) => {
+		const user = await requireClient(ctx, sessionToken);
+		const s = await ctx.db.get(scheduledId);
+		if (!s || s.userId !== user._id) throw new ConvexError("Séance introuvable.");
+		if (s.status === "completed") throw new ConvexError("Séance déjà terminée.");
+		if (s.startedAt) return { ok: true, startedAt: s.startedAt };
+		const now = Date.now();
+		await ctx.db.patch(scheduledId, { startedAt: now });
+		return { ok: true, startedAt: now };
+	},
+});
 
 /**
  * TERMINE la séance (depuis le mode libre ou le guidé) : statut completed +
  * durée réelle + difficulté/note optionnelles. Autorisé même partiellement
  * renseignée — c'est la règle, pas une exception.
+ *
+ * NOUVEAU (module Dépense sportive) :
+ * - `skipped: true` → « Je n'ai pas réalisé cette séance » : séance clôturée
+ *   SANS dépense sportive (consultée / séries cochées, mais pas faite) ;
+ * - sinon, et une seule fois : upsert idempotent de la dépense sportive
+ *   (index by_trainingSession relu DANS la même transaction) — correction de
+ *   durée → mise à jour de la ligne existante, JAMAIS un doublon. Une erreur
+ *   de calcul de dépense ne bloque JAMAIS la fin de séance (écriture
+ *   défensive) : Entraînement reste utilisable quoi qu'il arrive.
  */
 export const completeSession = mutation({
 	args: {
@@ -426,8 +477,13 @@ export const completeSession = mutation({
 		durationMin: v.optional(v.number()),
 		difficulty: v.optional(v.number()),
 		note: v.optional(v.string()),
+		/** « Je n'ai pas réalisé cette séance » — clôture sans dépense sportive. */
+		skipped: v.optional(v.boolean()),
 	},
-	handler: async (ctx, { sessionToken, scheduledId, durationMin, difficulty, note }) => {
+	handler: async (
+		ctx,
+		{ sessionToken, scheduledId, durationMin, difficulty, note, skipped }
+	) => {
 		const user = await requireClient(ctx, sessionToken);
 		const s = await ctx.db.get(scheduledId);
 		if (!s || s.userId !== user._id) throw new ConvexError("Séance introuvable.");
@@ -437,8 +493,19 @@ export const completeSession = mutation({
 			status: "completed",
 			completedAt: Date.now(),
 		};
+		// Démarrage réel absent → durée inconnue : la valeur passée est la saisie
+		// MANUELLE de la cliente. startedAt présent → durée mesurée, la valeur
+		// passée ne peut être qu'une CORRECTION (durationSource reste "tracked").
 		if (durationMin !== undefined) {
 			patch.durationMin = Math.round(Math.min(Math.max(durationMin, 0), 600));
+			patch.durationSource = s.startedAt ? "tracked" : "manual";
+		} else if (s.startedAt) {
+			// Aucune durée passée mais un démarrage persisté : durée mesurée.
+			patch.durationMin = Math.max(1, Math.round((Date.now() - s.startedAt) / 60000));
+			patch.durationSource = "tracked";
+		}
+		if (skipped) {
+			patch.skippedAt = Date.now();
 		}
 		if (difficulty !== undefined) {
 			patch.difficulty = Math.round(Math.min(Math.max(difficulty, 1), 5));
@@ -447,6 +514,101 @@ export const completeSession = mutation({
 			patch.note = note.trim().slice(0, MAX_NOTES_LENGTH) || undefined;
 		}
 		await ctx.db.patch(scheduledId, patch as never);
+
+		// ── Dépense sportive automatique (jamais bloquante, jamais en doublon) ──
+		if (!skipped && !patch.skippedAt) {
+			try {
+				const existing = await ctx.db
+					.query("sportActivities")
+					.withIndex("by_trainingSession", (q) => q.eq("trainingSessionId", scheduledId))
+					.first();
+				if (!existing) {
+					const durationSource = (patch.durationSource as "tracked" | "manual" | undefined) ?? (s.startedAt ? "tracked" : "manual");
+					const minutes = Math.max(1, Math.round((patch.durationMin as number | undefined) ?? 0));
+					if (minutes > 0) {
+						const weight = await lastKnownWeight(ctx, user._id);
+						const est = estimateSportActivity({
+							activityId: GFLUX_SESSION_ACTIVITY_ID,
+							intensity: GFLUX_SESSION_INTENSITY,
+							durationMinutes: minutes,
+							weightKg: weight,
+						});
+						const now = Date.now();
+						// Nom de la séance (snapshot) — repli : « Musculation ».
+						const sesRow = await ctx.db.get(s.sessionId);
+						await ctx.db.insert("sportActivities", {
+							userId: user._id,
+							// Date de la séance (pas du serveur) — cohérent avec la vue semaine.
+							date: s.date,
+							activityId: est.activityId,
+							activityNameSnapshot: sesRow?.name ?? est.activityNameSnapshot,
+							durationMinutes: minutes,
+							intensity: GFLUX_SESSION_INTENSITY,
+							metValue: est.metValue,
+							coefficientSource: est.coefficientSource,
+							coefficientVersion: est.coefficientVersion,
+							...(weight != null ? { weightSnapshot: weight, estimatedCalories: est.estimatedCalories } : {}),
+							metMinutes: est.metMinutes,
+							source: "gflux_training",
+							trainingSessionId: scheduledId,
+							durationSource,
+							createdAt: now,
+							updatedAt: now,
+						});
+					}
+				}
+			} catch {
+				// Défense : une erreur de calcul de dépense ne doit JAMAIS empêcher
+				// l'utilisation d'Entraînement (règle de robustesse de la mission).
+			}
+		}
+
+		return { ok: true };
+	},
+});
+
+/**
+ * CORRIGE la durée d'une séance terminée (écran « Confirmer la durée » puis
+ * fiche séance) et met à jour la dépense sportive EXISTANTE — jamais une
+ * deuxième (idempotence par trainingSessionId).
+ */
+export const updateSessionDuration = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		scheduledId: v.id("trainingScheduledSessions"),
+		durationMin: v.number(),
+	},
+	handler: async (ctx, { sessionToken, scheduledId, durationMin }) => {
+		const user = await requireClient(ctx, sessionToken);
+		const s = await ctx.db.get(scheduledId);
+		if (!s || s.userId !== user._id) throw new ConvexError("Séance introuvable.");
+		if (s.status !== "completed") throw new ConvexError("La séance n'est pas terminée.");
+		const minutes = Math.round(Math.min(Math.max(durationMin, 1), 600));
+		await ctx.db.patch(scheduledId, {
+			durationMin: minutes,
+			durationSource: s.startedAt ? "tracked" : "manual",
+		});
+		// La dépense liée (si elle existe) est mise à jour, jamais dupliquée.
+		const dep = await ctx.db
+			.query("sportActivities")
+			.withIndex("by_trainingSession", (q) => q.eq("trainingSessionId", scheduledId))
+			.first();
+		if (dep) {
+			const weight = dep.weightSnapshot ?? (await lastKnownWeight(ctx, user._id));
+			const est = estimateSportActivity({
+				activityId: dep.activityId,
+				intensity: dep.intensity,
+				durationMinutes: minutes,
+				weightKg: weight,
+			});
+			await ctx.db.patch(dep._id, {
+				durationMinutes: minutes,
+				metValue: est.metValue,
+				metMinutes: est.metMinutes,
+				...(weight != null ? { estimatedCalories: est.estimatedCalories } : {}),
+				updatedAt: Date.now(),
+			});
+		}
 		return { ok: true };
 	},
 });

@@ -29,6 +29,16 @@ export const programLevel = v.union(
 );
 export const userRole = v.union(v.literal("coach"), v.literal("client"));
 /**
+ * Source d'une dépense sportive : saisie manuelle de la cliente ou création
+ * automatique depuis une séance G-FLUX explicitement terminée.
+ */
+export const sportActivitySource = v.union(v.literal("manual"), v.literal("gflux_training"));
+/**
+ * Provenance de la durée d'une séance : mesurée (startedAt/completedAt
+ * persistés) ou saisie manuellement par la cliente au moment de terminer.
+ */
+export const durationSourceKind = v.union(v.literal("tracked"), v.literal("manual"));
+/**
  * PHASES d'une séance (module Entraînement) — un seul parcours, plusieurs
  * blocs affichés dans l'ordre : échauffement → principal → finisher.
  * Champ optionnel sur `trainingSessionExercises` : absent = "principal"
@@ -1097,6 +1107,21 @@ export default defineSchema({
 		completedAt: v.optional(v.number()),
 		/** Durée réelle de la séance (min) — saisie/consolidée à la fin. */
 		durationMin: v.optional(v.number()),
+		/**
+		 * DÉBUT RÉEL de la séance (ms) — posé UNIQUEMENT par le bouton
+		 * « Commencer la séance » (jamais par l'ouverture de la page). Persisté
+		 * côté backend : la durée réelle (completedAt − startedAt) survit au
+		 * verrouillage iPhone / PWA en arrière-plan — aucun chrono JavaScript.
+		 */
+		startedAt: v.optional(v.number()),
+		/** Provenance de la durée : "tracked" (timestamps) ou "manual" (saisie cliente). */
+		durationSource: v.optional(durationSourceKind),
+		/**
+		 * « Je n'ai pas réalisé cette séance » (ms) : la cliente clôt la séance
+		 * SANS l'avoir faite (consultée / séries cochées) — statut terminé mais
+		 * AUCUNE dépense sportive créée.
+		 */
+		skippedAt: v.optional(v.number()),
 		/** Difficulté ressentie 1–5 (option légère, posée par la cliente). */
 		difficulty: v.optional(v.number()),
 		/** Note libre de la cliente (option légère). */
@@ -1149,6 +1174,66 @@ export default defineSchema({
 		.index("by_user_date", ["userId", "date"])
 		.index("by_session", ["scheduledSessionId"])
 		.index("by_user", ["userId"]),
+
+	/* ═══ Module Dépense sportive — activités sportives réalisées ═══ */
+
+	/**
+	 * DÉPENSE SPORTIVE — estimation du volume énergétique lié aux activités
+	 * sportives RÉELLEMENT réalisées (saisie manuelle OU séance Entraînement
+	 * explicitement terminée).
+	 *
+	 * RÈGLE MÉTIER FONDAMENTALE : ces kcal sont un REPÈRE uniquement — la
+	 * dépense sportive est DÉJÀ prise en compte dans le calibrage calorique.
+	 * Jamais ajoutées aux calories alimentaires, jamais de crédit calorique,
+	 * jamais d'ajustement automatique du plan/macros/déficit.
+	 *
+	 * RÈGLE ANTI DOUBLE COMPTAGE : la marche quotidienne est déjà couverte par
+	 * `dailySteps` + le niveau de marche du calibrage — le catalogue ne propose
+	 * JAMAIS Marche / Marche rapide / Promenade / Balade (voir sportCatalog).
+	 *
+	 * Snapshots partout : activityNameSnapshot, metValue, coefficientSource,
+	 * weightSnapshot — une évolution du catalogue ou une nouvelle pesée ne
+	 * réécrit JAMAIS l'historique (même philosophie que trainingSetLogs).
+	 *
+	 * Idempotence : une séance G-FLUX ne génère JAMAIS deux dépenses —
+	 * index `by_trainingSession` relu dans la même transaction que l'écriture.
+	 */
+	sportActivities: defineTable({
+		userId: v.id("users"),
+		/** Date de l'activité "yyyy-mm-dd" (heure locale de la cliente). */
+		date: v.string(),
+		/** Identifiant du catalogue centralisé ("musculation", "padel"…). */
+		activityId: v.string(),
+		/** Nom affiché au moment de l'enregistrement (survit aux renommages). */
+		activityNameSnapshot: v.string(),
+		/** Durée en minutes (clamp 1–600). */
+		durationMinutes: v.number(),
+		/** "legere" | "moderee" | "intense" — absent pour les activités sans intensité. */
+		intensity: v.optional(v.string()),
+		/** MET utilisé pour l'estimation (snapshot — jamais recalculé). */
+		metValue: v.number(),
+		/** "gflux_table" | "compendium" — source du coefficient (traçabilité). */
+		coefficientSource: v.string(),
+		/** Version du catalogue au moment de l'enregistrement (ex. "1"). */
+		coefficientVersion: v.string(),
+		/** Poids (kg) au moment de l'enregistrement — historique gelé ; absent si aucune pesée connue. */
+		weightSnapshot: v.optional(v.number()),
+		/** Estimation kcal (MET × poids × durée/60) — absent si pas de poids connu. */
+		estimatedCalories: v.optional(v.number()),
+		/** MET-minutes (MET × minutes) — suit le volume indépendamment du poids. */
+		metMinutes: v.number(),
+		/** "manual" | "gflux_training". */
+		source: sportActivitySource,
+		/** Séance G-FLUX à l'origine (source = gflux_training) — clé d'idempotence. */
+		trainingSessionId: v.optional(v.id("trainingScheduledSessions")),
+		/** Provenance de la durée (source = gflux_training) : "tracked" | "manual". */
+		durationSource: v.optional(durationSourceKind),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	})
+		.index("by_user_date", ["userId", "date"])
+		.index("by_user", ["userId"])
+		.index("by_trainingSession", ["trainingSessionId"]),
 
 	/** Clé→valeur d'infrastructure (jamais de données métier). Version
 	 *  sémantique du backend : `appVersion = { key: 'api', version: '3' }`.

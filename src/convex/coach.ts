@@ -1,7 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import type { QueryCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { checkinStatus } from "./schema";
 import {
 	EMAIL_RE,
@@ -12,6 +12,7 @@ import {
 	getSessionUser,
 	lastClosedBilanWeekStart,
 	localTodayISO,
+	mondayISOof,
 	normalizeEmail,
 } from "./helpers";
 import { DEFAULT_GOALS } from "./journal";
@@ -556,10 +557,76 @@ export const removeClient = mutation({
 			}
 			await ctx.db.delete(progId);
 		}
+		// Module Dépense sportive — données privées de la cliente, supprimées
+		// avec la fiche (les dépenses liées à des séances disparaissent avec
+		// l'occurrence elle-même : cascade cohérente de bout en bout).
+		const sportRows = await ctx.db
+			.query("sportActivities")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.collect();
+		for (const sr of sportRows) await ctx.db.delete(sr._id);
 		await ctx.db.delete(userId);
 		return { ok: true, removedCheckins: rows.length };
 	},
 });
+
+/* ═══ Dépense sportive — Vision 360 ═══ */
+
+export type SportWeekAgg = {
+	weekStart: string;
+	activities: number;
+	durationMin: number;
+	kcal: number;
+	metMinutes: number;
+	manualCount: number;
+	trainingCount: number;
+};
+
+/**
+ * Agrégat hebdo Dépense sportive d'une cliente — utilisé par la carte Vision
+ * 360 (semaine du bilan en cours) et la lecture rapide S, S-1, S-2, S-3.
+ * La tendance compare des SEMAINES CLOSES uniquement (jamais la semaine
+ * partielle en cours) sur les MET-minutes (indépendant du poids).
+ */
+export async function sportWeeksAggregate(
+	ctx: Pick<QueryCtx, "db">,
+	userId: Id<"users">,
+	nWeeks: number,
+	fromWeekStart: string
+): Promise<SportWeekAgg[]> {
+	const weeks: SportWeekAgg[] = [];
+	for (let i = 0; i < nWeeks; i++) {
+		const start = addDaysISO(fromWeekStart, -7 * i);
+		weeks.push({
+			weekStart: start,
+			activities: 0,
+			durationMin: 0,
+			kcal: 0,
+			metMinutes: 0,
+			manualCount: 0,
+			trainingCount: 0,
+		});
+	}
+	const startAll = weeks[weeks.length - 1].weekStart;
+	const endAll = addDaysISO(weeks[0].weekStart, 7);
+	const rows = await ctx.db
+		.query("sportActivities")
+		.withIndex("by_user_date", (q) =>
+			q.eq("userId", userId).gte("date", startAll).lt("date", endAll)
+		)
+		.collect();
+	for (const r of rows) {
+		const idx = weeks.findIndex((w) => r.date >= w.weekStart && r.date < addDaysISO(w.weekStart, 7));
+		if (idx < 0) continue;
+		weeks[idx].activities += 1;
+		weeks[idx].durationMin += r.durationMinutes;
+		weeks[idx].kcal += r.estimatedCalories ?? 0;
+		weeks[idx].metMinutes += r.metMinutes;
+		if (r.source === "manual") weeks[idx].manualCount += 1;
+		else weeks[idx].trainingCount += 1;
+	}
+	return weeks;
+}
 
 /**
  * Vue 360° d'un client pour le CRM : fiche, objectifs, journal des 7 derniers
@@ -672,6 +739,39 @@ export const client360 = query({
 		const mean = (xs: number[]) =>
 			xs.length > 0 ? xs.reduce((s, x) => s + x, 0) / xs.length : null;
 		const refCheckin = checkins[0] ?? null;
+
+		/* ── Dépense sportive (semaine du bilan en cours + 3 précédentes) ──
+		   Tendance = semaines CLOSES uniquement (jamais la semaine partielle
+		   en cours), sur les MET-minutes, seuil ±25 % — libellé qualitatif.
+		   `sportWeeksAggregate` renvoie [S, S-1, S-2, S-3]. */
+		const todayISO = localTodayISO();
+		const sportWeeks = await sportWeeksAggregate(ctx, userId, 4, mondayISOof(todayISO));
+		const [sportS, sportS1, sportS2] = sportWeeks;
+		const sportTrend =
+			sportS1.metMinutes === 0 && sportS2.metMinutes === 0
+				? null
+				: sportS1.metMinutes === 0 || sportS2.metMinutes === 0
+					? (sportS1.metMinutes > 0 ? "up" : "down")
+					: sportS1.metMinutes > sportS2.metMinutes * 1.25
+						? "up"
+						: sportS1.metMinutes < sportS2.metMinutes * 0.75
+						? "down"
+						: "stable";
+		const sportBlock = {
+			weekStart: sportS.weekStart,
+			activities: sportS.activities,
+			durationMin: sportS.durationMin,
+			kcal: sportS.kcal,
+			metMinutes: sportS.metMinutes,
+			manualCount: sportS.manualCount,
+			trainingCount: sportS.trainingCount,
+			trend: sportTrend,
+			previous: sportWeeks.slice(1).map((w) => ({
+				weekStart: w.weekStart,
+				durationMin: w.durationMin,
+				kcal: w.kcal,
+			})),
+		};
 
 		let cockpit: {
 			weekStart: string;
@@ -847,7 +947,30 @@ export const client360 = query({
 			latestCheckin: checkins[0] ?? null,
 			checkinCount: checkins.length,
 			cockpit,
+			/** Dépense sportive : semaine en cours + 3 précédentes + tendance. */
+			sport: sportBlock,
 		};
+	},
+});
+
+/**
+ * Query dédiée Vision 360 : lecture rapide des dernières semaines Dépense
+ * sportive (S, S-1, S-2, S-3) — détail semaine/historique côté CRM. La carte
+ * compacte du cockpit lit `client360.sport` (une seule requête de rendu) ;
+ * cette query sert à l'affichage étendu sans surcharger client360.
+ */
+export const sport360 = query({
+	args: {
+		sessionToken: v.optional(v.string()),
+		userId: v.id("users"),
+	},
+	handler: async (ctx, { sessionToken, userId }) => {
+		await requireCoach(ctx, sessionToken);
+		const target = await ctx.db.get(userId);
+		if (!target || target.role !== "client") throw new ConvexError("Client introuvable.");
+		const today = localTodayISO();
+		const weeks = await sportWeeksAggregate(ctx, userId, 5, mondayISOof(today));
+		return { weeks, today };
 	},
 });
 

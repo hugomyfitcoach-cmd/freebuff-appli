@@ -79,6 +79,12 @@ const addDays = (iso, n) => {
 	dt.setDate(dt.getDate() + n);
 	return isoOf(dt);
 };
+const mondayOf = (iso) => {
+	const d = new Date(iso + 'T12:00:00');
+	const day = d.getDay();
+	d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+	return isoOf(d);
+};
 
 console.log(`E2E Entraînement — base=${BASE}`);
 
@@ -198,8 +204,30 @@ await client.mutation(api.trainingClient.deleteMySession, { sessionToken: userTo
 ok('••• supprimer : doublon retiré (les logs réalisés resteraient intouchés)');
 
 // ── 8) COACH ••• + fin de séance (verrou historique) ─────────────────────────
+// Garde : aucune dépense ne doit exister AVANT la fin explicite.
+const sportBefore = await client.query(api.sport.myWeek, { sessionToken: userToken, weekStart: mondayOf(startDate) });
+if ((sportBefore?.totals?.count ?? 0) !== 0) fail('une dépense existe AVANT la fin de séance — interdit (consultation ≠ réalisation)');
+ok('séance programmée + séries cochées sans fin explicite : AUCUNE dépense');
+
 await client.mutation(api.trainingClient.completeSession, { sessionToken: userToken, scheduledId: sid, durationMin: 45, difficulty: 4, note: 'E2E — ressenti ok' });
 ok('fin de séance : statut completed (durée + difficulté + note)');
+
+// ── 8bis) DÉPENSE SPORTIVE AUTO : idempotence + correction de durée ─────────
+const sportAfter = await client.query(api.sport.myWeek, { sessionToken: userToken, weekStart: mondayOf(startDate) });
+const sportRows = (sportAfter?.activities ?? []).filter((a) => a.source === 'gflux_training');
+if (sportRows.length !== 1) fail(`1 dépense attendue après completion, reçu ${sportRows.length}`);
+if (sportRows[0].trainingSessionId !== sid) fail('dépense non liée à la séance (trainingSessionId)');
+if (sportRows[0].durationMinutes !== 45) fail('durée de la dépense ≠ durée de la séance');
+ok(`dépense auto créée : « ${sportRows[0].name} » 45 min ≈ ${sportRows[0].estimatedCalories ?? '—'} kcal (source gflux_training)`);
+
+// Idempotence : re-validation → toujours UNE SEULE dépense.
+await client.mutation(api.trainingClient.completeSession, { sessionToken: userToken, scheduledId: sid, durationMin: 45 });
+const sportAgain = await client.query(api.sport.myWeek, { sessionToken: userToken, weekStart: mondayOf(startDate) });
+const sportAgainRows = (sportAgain?.activities ?? []).filter((a) => a.source === 'gflux_training');
+if (sportAgainRows.length !== 1) fail(`idempotence violée : ${sportAgainRows.length} dépense(s) après re-validation`);
+ok('validation répétée : toujours une seule dépense (idempotent)');
+
+// Correction de durée → la dépense EXISTANTE est mise à jour (jamais un 2e).
 let lockedMsg = null;
 try {
 	await client.mutation(api.trainingClient.logSet, { sessionToken: userToken, scheduledId: sid, sessionExerciseId: ex._id, setOrder: 2, reps: 8, weightKg: 42.5, done: true });
@@ -217,6 +245,22 @@ await client.mutation(api.trainingAssign.updateScheduledSession, { sessionToken:
 	if (/réalisée|modifi/.test(e?.message ?? '')) ok(`••• coach : séance réalisée protégée (« ${e.message} »)`);
 	else throw e;
 });
+
+// Correction de durée → la dépense EXISTANTE est mise à jour (jamais un 2e).
+await client.mutation(api.trainingClient.updateSessionDuration, { sessionToken: userToken, scheduledId: sid, durationMin: 57 });
+const sportFixed = await client.query(api.sport.myWeek, { sessionToken: userToken, weekStart: mondayOf(startDate) });
+const sportFixedRows = (sportFixed?.activities ?? []).filter((a) => a.source === 'gflux_training');
+if (sportFixedRows.length !== 1) fail(`correction de durée : 1 dépense attendue, reçu ${sportFixedRows.length}`);
+if (sportFixedRows[0].durationMinutes !== 57) fail('la dépense n’a pas suivi la correction de durée');
+ok('correction de durée 45 → 57 min : dépense EXISTANTE mise à jour (aucun doublon)');
+
+// ── 8ter) « JE N'AI PAS RÉALISÉ CETTE SÉANCE » → AUCUNE dépense ──────────────
+const dup2 = await client.mutation(api.trainingClient.duplicateMySession, { sessionToken: userToken, scheduledId: sid, date: addDays(startDate, 5) });
+await client.mutation(api.trainingClient.completeSession, { sessionToken: userToken, scheduledId: dup2.scheduledId, durationMin: 30, skipped: true });
+const sportSkipped = await client.query(api.sport.myWeek, { sessionToken: userToken, weekStart: mondayOf(startDate) });
+const sportSkippedRows = (sportSkipped?.activities ?? []).filter((a) => a.source === 'gflux_training');
+if (sportSkippedRows.length !== 1) fail(`séance « non réalisée » ne doit générer AUCUNE dépense (reçu ${sportSkippedRows.length - 1} supplémentaire(s))`);
+ok('« Je n’ai pas réalisé cette séance » : clôturée SANS dépense');
 
 // ── 9) PROLONGER puis REMPLACER (futures annulées, réalisées conservées) ─────
 await client.mutation(api.trainingAssign.extendAssignment, { sessionToken: coachToken, assignmentId, weeks: 1 });
