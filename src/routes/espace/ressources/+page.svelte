@@ -1,8 +1,21 @@
 <script lang="ts">
+	import { invalidateAll } from '$app/navigation';
 	import Icon from '$lib/components/Icon.svelte';
 	import BackToHome from '$lib/components/BackToHome.svelte';
+	import { onNotificationCounts } from '$lib/notificationPoll';
 
 	let { data } = $props();
+
+	/* Mécanisme central de propagation : si un contenu vient d'être partagé
+	   pendant que la cliente est déjà sur cette page (compteur Drive qui
+	   monte), la liste se revalide toute seule — aucun refresh manuel. */
+	let prevDrive: number | null = null;
+	$effect(() => {
+		return onNotificationCounts((c) => {
+			if (prevDrive != null && c.drive > prevDrive) void invalidateAll().catch(() => {});
+			prevDrive = c.drive;
+		});
+	});
 
 	type Attachment = {
 		storageId: string;

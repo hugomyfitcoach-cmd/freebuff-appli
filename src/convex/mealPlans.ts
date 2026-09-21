@@ -3,6 +3,7 @@ import { v, ConvexError } from "convex/values";
 import { getSessionUser } from "./helpers";
 import { ciqualFoodSource } from "./ciqualSource";
 import { applyKcalGuard } from "../lib/nutritionGuard";
+import { recordClientEvent, recordEvent } from "./notifications";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Id, Doc } from "./_generated/dataModel";
 
@@ -394,6 +395,11 @@ export const assignTemplate = mutation({
 			weekdays: days,
 			createdAt: Date.now(),
 		});
+		// Mécanisme central de propagation : la cliente reçoit l'événement
+		// (poller → revalidation automatique des pages concernées) et le coach
+		// garde la trace dans son journal CRM (badge temps réel).
+		await recordClientEvent(ctx, userId, "plan_assigned", t.name);
+		await recordEvent(ctx, userId, "plan_assigned", `Plan assigné : ${t.name} (${startDate} → ${endDate})`);
 		return { ok: true };
 	},
 });

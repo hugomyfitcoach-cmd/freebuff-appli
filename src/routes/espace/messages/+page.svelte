@@ -1,10 +1,23 @@
 <script lang="ts">
+	import { invalidateAll } from '$app/navigation';
 	import AudioPlayer from '$lib/components/AudioPlayer.svelte';
 	import BackToHome from '$lib/components/BackToHome.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { fmtMs } from '$lib/media';
+	import { onNotificationCounts } from '$lib/notificationPoll';
 
 	let { data } = $props();
+
+	/* Mécanisme central de propagation : un message publié pendant que la
+	   cliente est déjà ici (compteur « message » qui monte) revalide la liste
+	   toute seule — aucun refresh manuel. */
+	let prevMessage: number | null = null;
+	$effect(() => {
+		return onNotificationCounts((c) => {
+			if (prevMessage != null && c.message > prevMessage) void invalidateAll().catch(() => {});
+			prevMessage = c.message;
+		});
+	});
 
 	type Msg = {
 		publishedAt: number;

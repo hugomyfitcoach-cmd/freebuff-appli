@@ -15,8 +15,11 @@ import { getSessionUser } from "./helpers";
  *  2) Alerte DÉRIVÉE UNIQUE (aucune connexion depuis 4 jours), posée par le
  *     cron `notifications-tick` toutes les 30 minutes.
  *
- * Les types « bilan_envoye » et « bilan_manquant » ont été retirés — le tick
- * purge les lignes historiques correspondantes.
+ * L'ancien type « bilan_manquant » a été retiré — le tick purge les lignes
+ * historiques correspondantes. « bilan_envoye » est RÉINTRODUIT : un bilan
+ * hebdo soumis par une cliente est un événement RÉEL enregistré dans la
+ * transaction de `checkins.submit` — le coach le voit dans son journal et son
+ * badge CRM vit en temps réel (mécanisme central de propagation).
  *
  * Anti-doublons : chaque alerte dérivée porte une `dedupKey` par PÉRIODE
  * (inactivité = 1 seule alerte tant que la cliente ne revient pas). La garde
@@ -32,6 +35,8 @@ const INACTIVITY_MS = 4 * 24 * 60 * 60 * 1000;
 /** Notifs dérivées conservées 90 jours, événements réels 180 jours. */
 const RETENTION_DERIVED_MS = 90 * 24 * 60 * 60 * 1000;
 const RETENTION_EVENTS_MS = 180 * 24 * 60 * 60 * 1000;
+/** Événements cliente du poller conservés 7 jours (signal éphémère). */
+const CLIENT_EVENTS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 async function requireCoach(ctx: Pick<QueryCtx, "db">, sessionToken: string | undefined | null) {
 	const user = await getSessionUser(ctx, sessionToken);
@@ -44,9 +49,9 @@ async function requireCoach(ctx: Pick<QueryCtx, "db">, sessionToken: string | un
 
 /**
  * Insère une notification d'événement réel. À appeler depuis les mutations
- * métier (metrics, photos, appointments, onboarding.save) — les données
- * clientes sont déjà vérifiées par l'appelant : aucune revérification ici,
- * la fonction n'est pas exposée publiquement.
+ * métier (metrics, photos, appointments, onboarding.save, checkins.submit) —
+ * les données clientes sont déjà vérifiées par l'appelant : aucune
+ * revérification ici, la fonction n'est pas exposée publiquement.
  */
 export async function recordEvent(
 	ctx: Pick<MutationCtx, "db">,
@@ -55,6 +60,8 @@ export async function recordEvent(
 		| "nouveau_poids"
 		| "nouvelles_mesures"
 		| "nouvelles_photos"
+		| "bilan_envoye"
+		| "plan_assigned"
 		| "rdv_pris"
 		| "rdv_annule"
 		| "rdv_replanifie"
@@ -71,6 +78,9 @@ export async function recordEvent(
 		...(opts?.appointmentId ? { appointmentId: opts.appointmentId } : {}),
 		...(opts?.weekStart ? { weekStart: opts.weekStart } : {}),
 	});
+	// Signal temps réel : toute nouvelle notification fait avancer le compteur
+	// meta que le poller CRM relit toutes les 5 s (badge live sans refresh).
+	await bumpCoachEvents(ctx);
 }
 
 /**
@@ -85,6 +95,58 @@ export async function resolveInactivity(ctx: Pick<MutationCtx, "db">, userId: Id
 		.first();
 	if (row && !row.read) await ctx.db.patch(row._id, { read: true });
 }
+
+/* ═══════ Événements cliente (poller, delta ?since=) ═══════ */
+
+/**
+ * Enregistre un événement destiné à la cliente — à appeler dans la transaction
+ * métier de tout flux coach → cliente qui dépasse le simple badge : la page
+ * concernée doit être rafraîchie automatiquement (ex. plan de repas assigné →
+ * propositions du Journal). Le poller relit les lignes créées depuis son
+ * dernier check et invalide la donnée concernée.
+ */
+export async function recordClientEvent(
+	ctx: Pick<MutationCtx, "db">,
+	userId: Id<"users">,
+	kind: string,
+	label?: string
+): Promise<void> {
+	await ctx.db.insert("clientEvents", { userId, kind, ...(label ? { label: label.slice(0, 120) } : {}), createdAt: Date.now() });
+}
+
+/* ═══════ Signal temps réel (mécanisme central de propagation) ═══════ */
+
+/** Clé de la ligne meta portant le compteur d'événements coach. */
+const COACH_EVENTS_META_KEY = "coach_events";
+
+/**
+ * Relié à CHAQUE insertion de notification coach : le poller client lit cette
+ * valeur (entier cumulé dans la table meta, infrastructure pure) — toute
+ * augmentation = « un événement est arrivé » → relecture du journal + badge.
+ * Comparer deux entiers (avant/après) suffit : la purge et les marquages de
+ * lecture ne touchent jamais ce compteur, donc jamais de faux positif.
+ */
+export async function bumpCoachEvents(ctx: Pick<MutationCtx, "db">): Promise<void> {
+	const row = await ctx.db
+		.query("meta")
+		.withIndex("by_key", (q) => q.eq("key", COACH_EVENTS_META_KEY))
+		.first();
+	if (row) await ctx.db.patch(row._id, { version: (row.version ?? 0) + 1 });
+	else await ctx.db.insert("meta", { key: COACH_EVENTS_META_KEY, version: 1 });
+}
+
+/** Version du signal coach (événements cumulés) — lue par le poller (5 s). */
+export const seenCoachEventsVersion = query({
+	args: { sessionToken: v.optional(v.string()) },
+	handler: async (ctx, { sessionToken }) => {
+		await requireCoach(ctx, sessionToken);
+		const row = await ctx.db
+			.query("meta")
+			.withIndex("by_key", (q) => q.eq("key", COACH_EVENTS_META_KEY))
+			.first();
+		return { version: row?.version ?? 0 };
+	},
+});
 
 /* ═══════════════ Requêtes CRM (réservées au coach) ═══════════════ */
 
@@ -117,6 +179,27 @@ export const list = query({
 		return out;
 	},
 });
+
+/** Compteur d'événements cliente créés depuis `since` (ms) — polling delta. */
+export const newClientEvents = query({
+	args: { sessionToken: v.optional(v.string()), since: v.number() },
+	handler: async (ctx, { sessionToken, since }) => {
+		const user = await requireClientOfEvents(ctx, sessionToken);
+		const rows = await ctx.db
+			.query("clientEvents")
+			.withIndex("by_user", (q) => q.eq("userId", user._id))
+			.order("desc")
+			.take(20);
+		return rows.filter((r) => r.createdAt > since).map((r) => ({ kind: r.kind, label: r.label ?? null, createdAt: r.createdAt }));
+	},
+});
+
+async function requireClientOfEvents(ctx: Pick<QueryCtx, "db">, sessionToken: string | undefined | null) {
+	const user = await getSessionUser(ctx, sessionToken);
+	if (!user) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
+	if (user.role !== "client") throw new ConvexError("Réservé à l'espace cliente.");
+	return user;
+}
 
 /** Badge CRM : nombre de notifications « à consulter » (non lues). */
 export const unreadCount = query({
@@ -207,10 +290,10 @@ export const tick = internalMutation({
 		/* ── 2) Purge : notifications trop anciennes + types retirés ─────── */
 		const all = await ctx.db.query("coachNotifications").collect();
 		for (const r of all) {
-			// Types « bilan_envoye » / « bilan_manquant » retirés : les lignes
-			// historiques déjà en base sont supprimées au premier tick suivant.
-			// (cast string : le type ne porte plus ces littéraux.)
-			if ((r.kind as string) === "bilan_envoye" || (r.kind as string) === "bilan_manquant") {
+			// Type « bilan_manquant » retiré : les lignes historiques déjà en base
+			// sont supprimées au premier tick suivant (cast string : le type ne
+			// porte plus ce littéral).
+			if ((r.kind as string) === "bilan_manquant") {
 				await ctx.db.delete(r._id);
 				continue;
 			}
@@ -218,6 +301,15 @@ export const tick = internalMutation({
 			const ttl = isDerived ? RETENTION_DERIVED_MS : RETENTION_EVENTS_MS;
 			if (now - r._creationTime > ttl) await ctx.db.delete(r._id);
 		}
+
+		/* ── 3) Purge des événements cliente du poller (7 jours) ───────── */
+		const oldEvents = await ctx.db
+			.query("clientEvents")
+			.withIndex("by_user")
+			.filter((q) => q.lt(q.field("createdAt"), now - CLIENT_EVENTS_TTL_MS))
+			.take(500);
+		for (const e of oldEvents) await ctx.db.delete(e._id);
+
 		return { ok: true };
 	},
 });

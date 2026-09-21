@@ -4,6 +4,7 @@ import { convex } from '$lib/server/convex';
 import { api } from '../../../../convex/_generated/api.js';
 import { SESSION_COOKIE, requireRole } from '$lib/server/session';
 import { errMsg } from '$lib/errors.js';
+import { sendPushToUser } from '$lib/server/push';
 
 /**
  * Assignations de plans aux clientes (coach).
@@ -42,6 +43,22 @@ export const POST: RequestHandler = async (event) => {
 			endDate: String(body.endDate ?? ''),
 			...(weekdays ? { weekdays } : {}),
 		});
+		// Mécanisme central de propagation : au-delà du badge + de la revalidation
+		// automatique des pages (polling /api/live), un Web Push alerte la cliente
+		// même app fermée — même contrat que le partage Drive / publication retour
+		// (envoi APRÈS le commit réussi, jamais bloquant).
+		if (res?.ok && body?.userId) {
+			void sendPushToUser(
+				String(body.userId),
+				{
+					title: 'Nouveau plan de repas',
+					body: 'Ton coach t\u2019a assigné un plan — retrouve-le dans ton Journal.',
+					url: '/espace/journal',
+					tag: 'coach-plan',
+				},
+				token
+			).catch(() => {});
+		}
 		return json(res);
 	} catch (e) {
 		return json({ error: errMsg(e) }, { status: 400 });
