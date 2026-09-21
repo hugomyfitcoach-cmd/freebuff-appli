@@ -511,6 +511,51 @@ export const removeClient = mutation({
 			.withIndex("by_user", (q) => q.eq("userId", userId))
 			.collect();
 		for (const ev of evtRows) await ctx.db.delete(ev._id);
+		// Module Entraînement — la fiche est supprimée, ses données de suivi le
+		// sont avec elle (jamais pour une cliente encore active : l'historique
+		// sportif n'est retiré QUE lorsque la fiche elle-même est supprimée).
+		const tLogs = await ctx.db
+			.query("trainingSetLogs")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.collect();
+		for (const l of tLogs) await ctx.db.delete(l._id);
+		const tSched = await ctx.db
+			.query("trainingScheduledSessions")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.collect();
+		for (const s of tSched) await ctx.db.delete(s._id);
+		const tAssign = await ctx.db
+			.query("trainingAssignments")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.collect();
+		const tCopyProgramIds = new Set<string>();
+		for (const a of tAssign) {
+			if (a.programId) tCopyProgramIds.add(String(a.programId));
+			await ctx.db.delete(a._id);
+		}
+		for (const pid of tCopyProgramIds) {
+			const progId = pid as any;
+			const sRows = await ctx.db
+				.query("trainingSessions")
+				.withIndex("by_program", (q) => q.eq("programId", progId))
+				.collect();
+			for (const s of sRows) {
+				const exRows = await ctx.db
+					.query("trainingSessionExercises")
+					.withIndex("by_session", (q) => q.eq("sessionId", s._id))
+					.collect();
+				for (const ex of exRows) {
+					const setRows = await ctx.db
+						.query("trainingSets")
+						.withIndex("by_sessionExercise", (q) => q.eq("sessionExerciseId", ex._id))
+						.collect();
+					for (const st of setRows) await ctx.db.delete(st._id);
+					await ctx.db.delete(ex._id);
+				}
+				await ctx.db.delete(s._id);
+			}
+			await ctx.db.delete(progId);
+		}
 		await ctx.db.delete(userId);
 		return { ok: true, removedCheckins: rows.length };
 	},
