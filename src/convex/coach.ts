@@ -497,6 +497,20 @@ export const removeClient = mutation({
 		// Dossier de la cliente (notes privées + ressources partagées, fichiers compris).
 		await deleteAllResourcesForUser(ctx, userId);
 		await deleteIntakeForUser(ctx, userId);
+		// Journal d'activité CRM + événements cliente du poller temps réel :
+		// rattachés à la fiche — supprimés avec elle (cohérent avec messages,
+		// médias et dossier ; le compteur meta global n'est jamais décrémenté,
+		// il ne sert qu'à détecter des augmentations).
+		const notifRows = await ctx.db
+			.query("coachNotifications")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.collect();
+		for (const n of notifRows) await ctx.db.delete(n._id);
+		const evtRows = await ctx.db
+			.query("clientEvents")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.collect();
+		for (const ev of evtRows) await ctx.db.delete(ev._id);
 		await ctx.db.delete(userId);
 		return { ok: true, removedCheckins: rows.length };
 	},

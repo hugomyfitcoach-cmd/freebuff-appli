@@ -1905,6 +1905,14 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		};
 		window.addEventListener('gflux:journal-refresh', onRefresh);
 
+		/* Mécanisme central de propagation : un plan de repas assigné par le
+		   coach revalide le jour affiché — les propositions du plan apparaissent
+		   sans aucune action de la cliente (polling /api/live → gflux:live-event). */
+		const onLiveEvent = (e: Event) => {
+			if ((e as CustomEvent<{ kind?: string }>).detail?.kind === 'plan_assigned') onRefresh();
+		};
+		document.addEventListener('gflux:live-event', onLiveEvent);
+
 		/* Barre sticky : alignée sur le conteneur du Journal (largeur max centrée),
 		   indépendamment de la sidebar desktop ou des marges du viewport. */
 		const setBarPos = () => {
@@ -1947,6 +1955,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			}
 			mq.removeEventListener('change', onMq);
 			window.removeEventListener('gflux:journal-refresh', onRefresh);
+			document.removeEventListener('gflux:live-event', onLiveEvent);
 			window.removeEventListener('resize', setBarPos);
 			window.removeEventListener('orientationchange', setBarPos);
 		};
