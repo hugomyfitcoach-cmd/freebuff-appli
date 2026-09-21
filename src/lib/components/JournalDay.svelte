@@ -24,6 +24,8 @@
 		name: string;
 		brand?: string;
 		imageUrl?: string;
+		/** Miniature miroir G-FLUX (copie OFF 100 px) — prioritaire sur imageUrl. */
+		thumbUrl?: string;
 		qtyGrams: number;
 		kcal: number;
 		carbs: number;
@@ -45,6 +47,8 @@
 		name: string;
 		brand?: string;
 		imageUrl?: string;
+		/** Miniature miroir G-FLUX (copie OFF 100 px) — prioritaire sur imageUrl. */
+		thumbUrl?: string;
 		qtyGrams: number;
 		kcal: number;
 		carbs: number;
@@ -191,6 +195,11 @@
 	function isSel(id: string) {
 		return selIds?.has(id) ?? false;
 	}
+
+	/** Priorité de chargement : les 4 PREMIÈRES entrées (réellement visibles à
+	 *  l'ouverture du Journal) chargent en eager + fetchpriority high — jamais
+	 *  toute la liste (le reste reste en lazy). */
+	const eagerEntryIds = $derived.by(() => new Set(day.entries.slice(0, 4).map((e) => e._id)));
 </script>
 
 <!-- Carte calories — uniquement le CONSOMMÉ (les kcal prévues restent secondaires) -->
@@ -482,8 +491,8 @@
 			class="flex min-w-0 flex-1 items-center gap-2 text-left transition hover:bg-line/30 rounded-lg -mx-1 px-1 py-0.5"
 			onclick={() => onPlannedClick?.(p)}
 		>
-			{#if p.imageUrl}
-				<FoodImg src={p.imageUrl} alt="" eager={false} class="rounded-xl {compact ? 'h-[52px] w-[52px]' : 'h-9 w-9'} opacity-60 saturate-50" />
+			{#if p.thumbUrl || p.imageUrl}
+				<FoodImg src={p.thumbUrl} fallbackSrc={p.imageUrl} alt="" eager={false} class="rounded-xl {compact ? 'h-[52px] w-[52px]' : 'h-9 w-9'} opacity-60 saturate-50" />
 			{:else}
 				<div class="grid shrink-0 place-items-center rounded-xl bg-brand-light/60 {compact ? 'h-[52px] w-[52px]' : 'h-9 w-9'} opacity-70"><Icon name="utensils" size={compact ? 18 : 16} class="text-brand/70" /></div>
 			{/if}
@@ -511,8 +520,8 @@
 {/snippet}
 
 {#snippet entryBody(e: Entry)}
-	{#if e.imageUrl}
-		<FoodImg src={e.imageUrl} alt="" eager={false} class="rounded-xl {compact ? 'h-[52px] w-[52px]' : 'h-9 w-9'}" />
+	{#if e.thumbUrl || e.imageUrl}
+		<FoodImg src={e.thumbUrl} fallbackSrc={e.imageUrl} alt="" eager={eagerEntryIds.has(e._id)} class="rounded-xl {compact ? 'h-[52px] w-[52px]' : 'h-9 w-9'}" />
 	{:else}
 		<div class="grid shrink-0 place-items-center rounded-xl bg-brand-light {compact ? 'h-[52px] w-[52px]' : 'h-9 w-9'}"><Icon name="utensils" size={compact ? 18 : 16} class="text-brand" /></div>
 	{/if}

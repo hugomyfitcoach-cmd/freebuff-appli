@@ -1,6 +1,6 @@
 import { action } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Id, Doc } from "./_generated/dataModel";
 import type { FoodHit } from "./journal";
 import { rankFoods } from "./foodRanking";
@@ -224,7 +224,7 @@ export const searchFoods = action({
 			// Re-tri identique à la recherche locale : aliments bruts d'abord.
 			// Garde-fou kcal ↔ macros (lecture seule) : kcal aberrantes → théoriques,
 			// la fiche fraîchement mise en cache reste intacte en base.
-			const items = rankFoods(
+			const hits = rankFoods(
 				foods.map((f) => {
 					const g = applyKcalGuard(f);
 					return {
@@ -245,6 +245,14 @@ export const searchFoods = action({
 				}),
 				q
 			).slice(0, limit);
-			return { items, hasMore: false };
+			// Miniatures miroir déjà prêtes → thumbUrl (chemin action : lecture via
+			// runQuery ; l'URL de storage est résolue dans le contexte query).
+			const offIds = hits.map((it) => it.offId).filter((x): x is string => typeof x === "string");
+			const thumbs = offIds.length ? await ctx.runQuery(internal.foodImages.thumbUrlsForOffIds, { offIds }) : [];
+			const thumbMap = new Map(thumbs.map((t: { offId: string; url: string }) => [t.offId, t.url]));
+			const withThumbs = hits.map((it) =>
+				it.offId && thumbMap.has(it.offId) ? { ...it, thumbUrl: thumbMap.get(it.offId) } : it
+			);
+			return { items: withThumbs, hasMore: false };
 		},
 });

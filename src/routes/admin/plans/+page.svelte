@@ -32,6 +32,8 @@
 		/** Garde-fou kcal↔macros : kcal OFF incohérentes, valeur recalculée affichée. */
 		kcalRecalculated?: boolean;
 		imageUrl?: string;
+		/** Miniature miroir G-FLUX (copie OFF 100 px) — prioritaire sur imageUrl. */
+		thumbUrl?: string;
 		servingQty?: number;
 		custom?: boolean;
 		/** Fiche de RÉFÉRENCE Ciqual (ANSES) — _id = libellé officiel exact. */
@@ -42,16 +44,17 @@
 		meal: string;
 		food: Food;
 		qty: number;
-	};
-	/** Item de template brut (lecture d'un plan existant). */
-	type TemplateItem = {
-		meal: string;
-		foodId?: string;
-		customFoodId?: string;
-		ciqualLabel?: string;
-		name: string;
-		brand?: string;
-		imageUrl?: string;
+	};		/** Item de template brut (lecture d'un plan existant). */
+		type TemplateItem = {
+			meal: string;
+			foodId?: string;
+			customFoodId?: string;
+			ciqualLabel?: string;
+			name: string;
+			brand?: string;
+			imageUrl?: string;
+			/** Miniature miroir G-FLUX (copie OFF 100 px) — prioritaire sur imageUrl. */
+			thumbUrl?: string;
 		qtyGrams: number;
 		kcal: number;
 		carbs: number;
@@ -196,6 +199,7 @@
 					protein100: it.qtyGrams > 0 ? (it.protein / it.qtyGrams) * 100 : 0,
 					fat100: it.qtyGrams > 0 ? (it.fat / it.qtyGrams) * 100 : 0,
 					imageUrl: it.imageUrl,
+					thumbUrl: it.thumbUrl,
 					ciqual: !!it.ciqualLabel,
 				},
 			}));
@@ -475,8 +479,8 @@
 								     le bouton ✕ reste un raccourci de retrait direct. -->
 								<li class="flex items-center gap-2 py-1.5">
 									<button type="button" class="flex min-w-0 flex-1 items-center gap-2 text-left" aria-label={`Modifier ${it.food.name}`} onclick={() => (editKey = it.key)}>
-										{#if it.food.imageUrl}
-											<FoodImg src={it.food.imageUrl} alt="" class="h-9 w-9 rounded-lg" />
+										{#if it.food.thumbUrl || it.food.imageUrl}
+											<FoodImg src={it.food.thumbUrl} fallbackSrc={it.food.imageUrl} alt="" class="h-9 w-9 rounded-lg" />
 										{:else}
 											<div class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={15} class="text-brand" /></div>
 										{/if}
@@ -568,9 +572,8 @@
 							type="button"
 							onclick={() => addItem(hit)}
 							class="flex w-full items-center gap-3 rounded-xl border border-line bg-white px-3 py-2 text-left transition hover:border-brand"
-						>
-							{#if hit.imageUrl}
-								<FoodImg src={hit.imageUrl} alt="" class="h-9 w-9 shrink-0 rounded-lg" />
+						>								{#if hit.thumbUrl || hit.imageUrl}
+								<FoodImg src={hit.thumbUrl} fallbackSrc={hit.imageUrl} alt="" class="h-9 w-9 shrink-0 rounded-lg" />
 							{:else}
 								<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-line/60"><Icon name="apple" size={16} class="text-mist" /></div>
 							{/if}
