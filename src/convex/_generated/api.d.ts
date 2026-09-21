@@ -21,6 +21,7 @@ import type * as crons from "../crons.js";
 import type * as customFoods from "../customFoods.js";
 import type * as dashboard from "../dashboard.js";
 import type * as exercises from "../exercises.js";
+import type * as foodImages from "../foodImages.js";
 import type * as foodRanking from "../foodRanking.js";
 import type * as googleCalendar from "../googleCalendar.js";
 import type * as helpers from "../helpers.js";
@@ -65,6 +66,7 @@ declare const fullApi: ApiFromModules<{
   customFoods: typeof customFoods;
   dashboard: typeof dashboard;
   exercises: typeof exercises;
+  foodImages: typeof foodImages;
   foodRanking: typeof foodRanking;
   googleCalendar: typeof googleCalendar;
   helpers: typeof helpers;

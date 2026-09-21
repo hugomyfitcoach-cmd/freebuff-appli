@@ -10,18 +10,37 @@ import { build, files, version } from '$service-worker';
 
 // Nom unique par build : un nouveau déploiement invalide l'ancien cache.
 const CACHE = `gflux-${version}`;
-/** Cache dédié aux vignettes alimentaires Open Food Facts (SWR : lecture
- *  instantanée + rafraîchissement en arrière-plan, jamais de cache cassant). */
-const IMG_CACHE = `gflux-img-${version}`;
+/** Cache dédié aux vignettes alimentaires — STABLE entre les builds : une
+ *  image déjà vue reste servie instantanément après un déploiement. Contient
+ *  les copies miroir G-FLUX (storage Convex) et les miniatures OFF utilisées
+ *  en repli. SWR : lecture instantanée + rafraîchissement en arrière-plan. */
+const IMG_CACHE = 'gflux-img-v1';
+/** Plafond d'entrées du cache d'images (les plus anciennes sont retirées). */
+const IMG_CACHE_MAX = 600;
 
 const ASSETS = [...build, ...files];
 
-/** Hôtes d'images alimentaires (vignettes OFF déjà optimisées). */
+/** Hôtes d'images alimentaires (miniatures OFF utilisées en repli miroir). */
 const IMG_HOSTS = ['images.openfoodfacts.org', 'static.openfoodfacts.org', 'world.openfoodfacts.org'];
 const IMG_RE = /\.(png|jpe?g|webp|avif|gif)(\?.*)?$/i;
+/** Copie miroir G-FLUX : storage Convex (URL stable /api/storage/<id>). */
+const CONVEX_HOST_RE = /\.convex\.(cloud|site)$/i;
 
 function isFoodImage(url: URL): boolean {
 	return IMG_HOSTS.includes(url.hostname) && IMG_RE.test(url.pathname);
+}
+
+function isMirrorImage(url: URL): boolean {
+	return CONVEX_HOST_RE.test(url.hostname) && url.pathname.startsWith('/api/storage/');
+}
+
+/** Plafonne le cache d'images (supprime les entrées les plus anciennes). */
+async function trimImageCache(cache: Cache): Promise<void> {
+	const keys = await cache.keys();
+	if (keys.length <= IMG_CACHE_MAX) return;
+	for (const req of keys.slice(0, keys.length - IMG_CACHE_MAX)) {
+		await cache.delete(req).catch(() => {});
+	}
 }
 
 self.addEventListener('install', (event) => {
@@ -47,7 +66,9 @@ self.addEventListener('activate', (event) => {
  * en attente ; il saute la phase « waiting » et prend le contrôle sans attendre
  * la fermeture des onglets — le reload déclenché ensuite par la page sert la
  * nouvelle version immédiatement. Aucun cache client (localStorage, session)
- * n'est effacé ici : seul le cache applicatif change de nom par build. */
+ * n'est effacé ici : seul le cache applicatif change de nom par build. Le
+ * cache d'images (IMG_CACHE) est VOLONTAIREMENT préservé entre les builds :
+ * les vignettes déjà vues restent instantanées après un déploiement. */
 self.addEventListener('message', (event) => {
 	if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
 });
@@ -89,19 +110,23 @@ self.addEventListener('notificationclick', (event) => {
 	);
 });
 
-/* ── Images alimentaires OFF : stale-while-revalidate (instantané puis
-      mise à jour en arrière-plan — ne casse jamais une nouvelle image). ── */
+/* ── Vignettes alimentaires (miroir G-FLUX + repli OFF) : stale-while-
+      revalidate — instantané depuis le cache puis mise à jour en arrière-
+      plan ; ne casse jamais une nouvelle image, survit aux builds. ── */
 self.addEventListener('fetch', (event) => {
 	if (event.request.method !== 'GET') return;
 	const url = new URL(event.request.url);
-	if (isFoodImage(url)) {
+	if (isFoodImage(url) || isMirrorImage(url)) {
 		event.respondWith(
 			caches.match(event.request).then((cached) => {
 				const network = fetch(event.request)
 					.then((res) => {
-						if (res.ok) {
+						const type = res.headers.get('content-type') ?? '';
+						if (res.ok && type.startsWith('image/')) {
 							const clone = res.clone();
-							caches.open(IMG_CACHE).then((c) => c.put(event.request, clone));
+							caches
+								.open(IMG_CACHE)
+								.then((c) => c.put(event.request, clone).then(() => trimImageCache(c)));
 						}
 						return res;
 					})

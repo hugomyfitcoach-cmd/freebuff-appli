@@ -4,6 +4,7 @@ import { addDaysISO, getSessionUser } from "./helpers";
 import { FOOD_SEARCH_CANDIDATES, rankFoods } from "./foodRanking";
 import { applyKcalGuard, guardedKcal100, kcalNeedsRecalc } from "../lib/nutritionGuard";
 import { resolveCoachPlanForDate } from "./mealPlans";
+import { attachThumbs, attachThumbsForFoodIds } from "./foodImages";
 import { ciqualFoodSource } from "./ciqualSource";
 import type { QueryCtx } from "./_generated/server";
 import type { Id, Doc } from "./_generated/dataModel";
@@ -96,7 +97,7 @@ export const getDayForCoach = query({
 			date,
 			goals: goalsRow ?? { userId, ...DEFAULT_GOALS },
 			goalsSet: !!goalsRow,
-			entries,
+			entries: await attachThumbsForFoodIds(ctx, entries),
 			totals,
 		};
 	},
@@ -116,7 +117,8 @@ export const searchForCoach = query({
 			.query("foods")
 			.withSearchIndex("by_name", (sb) => sb.search("name", term))
 			.take(FOOD_SEARCH_CANDIDATES);
-		return rankFoods(foods.map(toHit), term).slice(0, 25);
+		// Miniatures miroir G-FLUX prêtes → thumbUrl (même lecture que côté client).
+		return attachThumbs(ctx, rankFoods(foods.map(toHit), term).slice(0, 25));
 	},
 });
 
@@ -269,6 +271,8 @@ export type FoodHit = {
 	/** Garde-fou kcal↔macros : kcal OFF incohérentes, valeur théorique affichée. */
 	kcalRecalculated?: boolean;
 	imageUrl?: string;
+	/** Miniature miroir G-FLUX prête (copie OFF 100 px) — prioritaire sur imageUrl. */
+	thumbUrl?: string;
 	servingQty?: number;
 	servingUnit?: string;
 };
@@ -354,10 +358,10 @@ export const searchLocal = query({
 		// historique, pas paginés) : la pagination ne s'applique qu'aux produits
 		// de la base OFF, sans jamais les dupliquer.
 		const ranked = rankFoods(foods.map(toHit), term);
-		return {
-			items: [...ranked.slice(offset, offset + limit), ...(offset === 0 ? customs.map(toCustomHit) : [])],
-			hasMore: offset + limit < ranked.length,
-		};
+		const items = [...ranked.slice(offset, offset + limit), ...(offset === 0 ? customs.map(toCustomHit) : [])];
+		// Miniatures miroir G-FLUX prêtes → thumbUrl (lecture pure, sinon le hit
+		// garde son imageUrl OFF pour le fallback FoodImg).
+		return { items: await attachThumbs(ctx, items), hasMore: offset + limit < ranked.length };
 	},
 });
 
@@ -455,16 +459,16 @@ export const recentFoods = query({
 			if (e.foodId) foodIds.push(e.foodId);
 			if (e.customFoodId) customIds.push(e.customFoodId);
 			if (seen.size >= 12) break;
-		}
-		const [foodRows, customRows] = await Promise.all([
-			Promise.all(foodIds.map((id) => ctx.db.get(id))),
-			Promise.all(customIds.map((id) => ctx.db.get(id))),
-		]);
-		const hits: FoodHit[] = [];
-		for (const f of foodRows) if (f) hits.push(toHit(f));
-		for (const f of customRows) if (f) hits.push(toCustomHit(f));
-		return hits;
-	},
+		}	const [foodRows, customRows] = await Promise.all([
+		Promise.all(foodIds.map((id) => ctx.db.get(id))),
+		Promise.all(customIds.map((id) => ctx.db.get(id))),
+	]);
+	const hits = await attachThumbs(ctx, [
+		...foodRows.filter((f): f is Doc<"foods"> => f !== null).map(toHit),
+		...customRows.filter((f): f is Doc<"customFoods"> => f !== null).map(toCustomHit),
+	]);
+	return hits;
+},
 });
 
 /* ─────────────────────────── Objectifs (coach) ─────────────────────────── */
@@ -608,22 +612,28 @@ export const getDay = query({
 		const servingByFood = new Map<string, { qty?: number; unit?: string }>();
 		for (const f of foodRows) if (f) servingByFood.set(f._id, { qty: f.servingQty, unit: f.servingUnit });
 		for (const f of customRows) if (f) servingByFood.set(f._id, { qty: f.servingQty });
-		const entriesOut = entries.map((e) => {
-			const info = e.foodId ? servingByFood.get(e.foodId) : e.customFoodId ? servingByFood.get(e.customFoodId) : undefined;
-			return {
-				...e,
-				servingQty: info?.qty ?? undefined,
-				servingUnit: info?.unit ?? undefined,
-			};
-		});
-		const plannedOut = plannedRows.map((e) => {
-			const info = e.foodId ? servingByFood.get(e.foodId) : e.customFoodId ? servingByFood.get(e.customFoodId) : undefined;
-			return {
-				...e,
-				servingQty: info?.qty ?? undefined,
-				servingUnit: info?.unit ?? undefined,
-			};
-		});
+		const entriesOut = await attachThumbsForFoodIds(
+			ctx,
+			entries.map((e) => {
+				const info = e.foodId ? servingByFood.get(e.foodId) : e.customFoodId ? servingByFood.get(e.customFoodId) : undefined;
+				return {
+					...e,
+					servingQty: info?.qty ?? undefined,
+					servingUnit: info?.unit ?? undefined,
+				};
+			})
+		);
+		const plannedOut = await attachThumbsForFoodIds(
+			ctx,
+			plannedRows.map((e) => {
+				const info = e.foodId ? servingByFood.get(e.foodId) : e.customFoodId ? servingByFood.get(e.customFoodId) : undefined;
+				return {
+					...e,
+					servingQty: info?.qty ?? undefined,
+					servingUnit: info?.unit ?? undefined,
+				};
+			})
+		);
 
 		const totals = entries.reduce(
 			(acc, e) => {

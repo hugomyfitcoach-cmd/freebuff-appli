@@ -6,6 +6,7 @@
 	import BilanCard from '../../lib/components/BilanCard.svelte';
 	import CoachMedia from '../../lib/components/CoachMedia.svelte';
 	import DossierPanel from '../../lib/components/DossierPanel.svelte';
+	import FoodImg from '../../lib/components/FoodImg.svelte';
 	import Icon from '../../lib/components/Icon.svelte';
 	import JournalDay from '../../lib/components/JournalDay.svelte';
 	import MetricTrend from '../../lib/components/MetricTrend.svelte';
@@ -14,6 +15,7 @@
 	import { cycleState } from '../../lib/cycle.js';
 	import { kindRule, SLOT_TAKEN_MESSAGE, toISO } from '../../lib/appointments.js';
 	import { fmtMs } from '../../lib/media.js';
+	import { warmFoodImages } from '../../lib/foodImageWarm.js';
 	import { labelFor } from '../../lib/labels.js';
 	import { ONBOARDING_SECTIONS, readableAnswer } from '../../lib/onboarding.js';
 
@@ -456,6 +458,8 @@
 		name: string;
 		brand?: string;
 		imageUrl?: string;
+		/** Miniature miroir G-FLUX (copie OFF 100 px) — prioritaire sur imageUrl. */
+		thumbUrl?: string;
 		qtyGrams: number;
 		kcal: number;
 		carbs: number;
@@ -479,6 +483,8 @@
 		/** Garde-fou kcal↔macros : kcal OFF incohérentes, valeur recalculée affichée. */
 		kcalRecalculated?: boolean;
 		imageUrl?: string;
+		/** Miniature miroir G-FLUX prête (copie OFF 100 px) — prioritaire sur imageUrl. */
+		thumbUrl?: string;
 		/** Fiche de RÉFÉRENCE Ciqual (ANSES) — _id = libellé officiel exact. */
 		ciqual?: boolean;
 	};
@@ -571,6 +577,8 @@
 
 	async function addFood(hit: FoodHit) {
 		if (!selectedId) return;
+		// Préchauffage du miroir (fire-and-forget) — jamais dans le chemin critique.
+		warmFoodImages([hit]);
 		try {
 			const res = await fetch('/api/coach/journal', {
 				method: 'POST',
@@ -2413,8 +2421,8 @@
 											onclick={() => addFood(hit)}
 											class="flex w-full items-center gap-3 rounded-xl border border-line bg-white px-3 py-2 text-left transition hover:border-brand"
 										>
-											{#if hit.imageUrl}
-												<img src={hit.imageUrl} alt="" class="h-9 w-9 shrink-0 rounded-lg object-cover" />
+											{#if hit.thumbUrl || hit.imageUrl}
+												<FoodImg src={hit.thumbUrl} fallbackSrc={hit.imageUrl} alt="" class="h-9 w-9 shrink-0 rounded-lg" />
 											{:else}
 												<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-line/60"><Icon name="apple" size={16} class="text-mist" /></div>
 											{/if}

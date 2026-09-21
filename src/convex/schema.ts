@@ -799,6 +799,40 @@ export default defineSchema({
 		createdAt: v.number(),
 	}).index("by_user", ["userId"]),
 
+	/**
+	 * Miroir G-FLUX des miniatures alimentaires Open Food Facts (cache global,
+	 * À LA DEMANDE — zéro import massif). Un seul document par offId :
+	 * `pending` (réservation exclusive, course arbitraire par l'index by_offId)
+	 * → `ready` (copie 100 px en storage, URL stable servie au navigateur) ou
+	 * `failed` (OFF injoignable — retentable à la prochaine demande). OFF
+	 * n'est plus jamais contacté à l'affichage : uniquement au premier cache
+	 * miss. `lastUsedAt` permettra une purge future des images inutilisées
+	 * sans toucher aux fiches aliments ni à l'historique nutritionnel.
+	 */
+	foodImageCache: defineTable({
+		/** Code-barres OFF (EAN/GTIN) — clé de déduplication stricte. */
+		offId: v.string(),
+		/** Copie G-FLUX (miniature 100 px) — absent tant que pending/failed. */
+		storageId: v.optional(v.id("_storage")),
+		/** Source OFF d'origine (traçabilité, repli technique jamais prioritaire). */
+		sourceUrl: v.optional(v.string()),
+		/** URL OFF de la variante 100 px réellement téléchargée. */
+		thumbnailSourceUrl: v.optional(v.string()),
+		/** ready (servi) | pending (course en cours) | failed (retentable). */
+		status: v.union(v.literal("ready"), v.literal("pending"), v.literal("failed")),
+		/** Poids de la copie (octets) — contrôle du volume stocké. */
+		bytes: v.optional(v.number()),
+		contentType: v.optional(v.string()),
+		/** Raison d'échec (off-timeout, off-too-big-…, off-http-404…). */
+		failReason: v.optional(v.string()),
+		createdAt: v.number(),
+		updatedAt: v.optional(v.number()),
+		/** Dernière utilisation — brique de la purge future, jamais pour l'UX. */
+		lastUsedAt: v.optional(v.number()),
+	})
+		.index("by_offId", ["offId"])
+		.index("by_status", ["status"]),
+
 	/* ═══ Module Entraînement — bibliothèque d'exercices G-FLUX ═══ */
 
 	/**

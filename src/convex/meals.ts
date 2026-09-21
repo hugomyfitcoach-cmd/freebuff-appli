@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { getSessionUser } from "./helpers";
 import { ciqualFoodSource } from "./ciqualSource";
+import { attachThumbs, attachThumbsForFoodIds } from "./foodImages";
 import type { QueryCtx } from "./_generated/server";
 import type { Id, Doc } from "./_generated/dataModel";
 
@@ -353,7 +354,16 @@ export const listMeals = query({
 			.withIndex("by_user", (q) => q.eq("userId", user._id))
 			.order("desc")
 			.collect();
-		return meals;
+		// Miniature miroir du PREMIER ingrédient (vignette du repas) : lecture
+		// pure par foodId → offId → miroir (sinon fallback OFF dans FoodImg).
+		const withThumbs = await attachThumbsForFoodIds(
+			ctx,
+			meals.map((m) => ({ ...m, foodId: m.ingredients.find((i) => i.foodId)?.foodId }))
+		);
+		return withThumbs.map(({ foodId: _foodId, thumbUrl, ...m }) => {
+			void _foodId;
+			return thumbUrl ? { ...m, ingredients: m.ingredients.map((i, idx) => (idx === 0 ? { ...i, thumbUrl } : i)) } : m;
+		});
 	},
 });
 
@@ -447,9 +457,12 @@ export const listFavorites = query({
 			.order("desc")
 			.collect();	const foods = await Promise.all(rows.map((r) => ctx.db.get(r.foodId)));
 	// Garde-fou kcal ↔ macros (lecture seule) : kcal aberrantes corrigées à la
-	// volée, jamais en base.
-	return foods
-		.filter((f): f is Doc<"foods"> => f !== null)
-		.map((f) => ({ ...f, kcal100: guardedKcal100(f) }));
+	// volée, jamais en base. Miniatures miroir G-FLUX → thumbUrl.
+	return attachThumbs(
+		ctx,
+		foods
+			.filter((f): f is Doc<"foods"> => f !== null)
+			.map((f) => ({ ...f, kcal100: guardedKcal100(f) }))
+	);
 },
 });

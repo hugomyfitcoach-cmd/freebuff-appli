@@ -10,6 +10,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { forceAppUpdate, needsAppUpdate } from '$lib/swUpdate';
 import { FRONTEND_API_VERSION } from '$lib/apiVersion';
+import { warmFoodImages } from '$lib/foodImageWarm';
 import { journalTipForDay } from '$lib/data/journalTips';
 
 	type Goals = { kcal: number; carbs: number; protein: number; fat: number; maintenanceKcal?: number };
@@ -18,6 +19,8 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		name: string;
 		brand?: string;
 		imageUrl?: string;
+		/** Miniature miroir G-FLUX (copie OFF 100 px) — prioritaire sur imageUrl. */
+		thumbUrl?: string;
 		qtyGrams: number;
 		kcal: number;
 		carbs: number;
@@ -44,6 +47,8 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		name: string;
 		brand?: string;
 		imageUrl?: string;
+		/** Miniature miroir G-FLUX (copie OFF 100 px) — prioritaire sur imageUrl. */
+		thumbUrl?: string;
 		qtyGrams: number;
 		kcal: number;
 		carbs: number;
@@ -81,6 +86,8 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		/** Garde-fou kcal↔macros : kcal OFF incohérentes, valeur recalculée affichée. */
 		kcalRecalculated?: boolean;
 		imageUrl?: string;
+		/** Miniature miroir G-FLUX prête (copie OFF 100 px) — prioritaire sur imageUrl. */
+		thumbUrl?: string;
 		servingQty?: number;
 		/** Aliment personnel créé par le client (base « Créés par moi »). */
 		custom?: boolean;
@@ -102,6 +109,8 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			name: string;
 			brand?: string;
 			imageUrl?: string;
+			/** Miniature miroir G-FLUX (copie OFF 100 px) — prioritaire sur imageUrl. */
+			thumbUrl?: string;
 			qtyGrams: number;
 			kcal: number;
 			carbs: number;
@@ -1365,6 +1374,8 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		};
 	});
 	async function saveMeal() {
+		// Préchauffage du miroir des ingrédients (fire-and-forget, jamais bloquant).
+		warmFoodImages(mealItems.map((it) => it.food));
 		mealSaving = true;
 		mealError = '';
 		try {
@@ -1407,6 +1418,10 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		qtyFood = food;
 		qtyGrams = food.servingQty && food.servingQty > 0 ? Math.round(food.servingQty) : 100;
 		qtyError = '';
+		// Préchauffage du miroir (fire-and-forget) : la sélection d'un produit
+		// encore sans copie G-FLUX lance la mise en cache de sa miniature —
+		// l'ouverture de la feuille ne attend JAMAIS cette requête.
+		warmFoodImages([food]);
 	}
 	async function confirmAdd(qtyGrams: number, meal: string) {
 		if (!qtyFood) return;
@@ -2090,8 +2105,8 @@ import { journalTipForDay } from '$lib/data/journalTips';
 						<div class="divide-y divide-line/60">
 							{#each group.entries as e (e._id)}
 								<div class="flex items-center gap-2 px-2 py-1.5">
-									{#if e.imageUrl}
-										<FoodImg src={e.imageUrl} alt="" eager={false} class="h-[52px] w-[52px] rounded-xl" />
+									{#if e.thumbUrl || e.imageUrl}
+										<FoodImg src={e.thumbUrl} fallbackSrc={e.imageUrl} alt="" eager={false} class="h-[52px] w-[52px] rounded-xl" />
 									{:else}
 										<div class="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name="utensils" size={18} class="text-brand" /></div>
 									{/if}
@@ -2300,8 +2315,8 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	{@const fav = favSet.has(food._id)}
 	<li class="flex items-center gap-1">
 		<button type="button" class="flex min-w-0 flex-1 items-center gap-2.5 py-2 pl-1 pr-1 text-left transition hover:bg-line/30" onclick={() => openQty(food)}>
-			{#if food.imageUrl}
-				<FoodImg src={food.imageUrl} alt="" class="h-10 w-10 rounded-lg" />
+			{#if food.thumbUrl || food.imageUrl}
+				<FoodImg src={food.thumbUrl} fallbackSrc={food.imageUrl} alt="" class="h-10 w-10 rounded-lg" />
 			{:else}
 				<div class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={18} class="text-brand" /></div>
 			{/if}
@@ -2422,8 +2437,8 @@ import { journalTipForDay } from '$lib/data/journalTips';
 								<p class="rounded-xl border-2 border-dashed border-line px-4 py-6 text-center text-sm text-mist">Aucun ingrédient pour l'instant — ajoute des produits ci-dessous.</p>
 							{:else}
 								<ul class="flex flex-col gap-2">												{#each mealItems as it, i (i)}
-										<li class="flex cursor-pointer items-center gap-2 rounded-xl border border-line bg-white p-2 text-left transition hover:border-brand" role="button" tabindex="0" onclick={() => openIngredientQty(i)} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openIngredientQty(i); } }}>														{#if it.food.imageUrl}
-															<FoodImg src={it.food.imageUrl} alt="" class="h-10 w-10 rounded-lg" />
+										<li class="flex cursor-pointer items-center gap-2 rounded-xl border border-line bg-white p-2 text-left transition hover:border-brand" role="button" tabindex="0" onclick={() => openIngredientQty(i)} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openIngredientQty(i); } }}>															{#if it.food.thumbUrl || it.food.imageUrl}
+															<FoodImg src={it.food.thumbUrl} fallbackSrc={it.food.imageUrl} alt="" class="h-10 w-10 rounded-lg" />
 														{:else}
 															<div class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={18} class="text-brand" /></div>
 														{/if}
@@ -2472,7 +2487,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 									<li class="flex items-center gap-2 rounded-2xl border border-line bg-white p-2.5 shadow-sm transition hover:border-brand">
 										<button type="button" class="flex min-w-0 flex-1 items-center gap-3 text-left" onclick={() => openPortion(meal)}>
 											{#if meal.ingredients[0]?.imageUrl}
-												<FoodImg src={meal.ingredients[0].imageUrl} alt="" class="h-11 w-11 rounded-xl" />
+												<FoodImg src={meal.ingredients[0].thumbUrl} fallbackSrc={meal.ingredients[0].imageUrl} alt="" class="h-11 w-11 rounded-xl" />
 											{:else}
 												<div class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name="soup" size={20} class="text-brand" /></div>
 											{/if}
@@ -2823,8 +2838,8 @@ import { journalTipForDay } from '$lib/data/journalTips';
 								{#each mealResults as food, i (food._id)}
 									<li>
 										<button type="button" class="flex w-full items-center gap-2 px-1 py-2 text-left transition hover:opacity-70" onclick={() => openIngredientPortion(i)}>
-											{#if food.imageUrl}
-												<FoodImg src={food.imageUrl} alt="" class="h-10 w-10 rounded-lg" />
+											{#if food.thumbUrl || food.imageUrl}
+												<FoodImg src={food.thumbUrl} fallbackSrc={food.imageUrl} alt="" class="h-10 w-10 rounded-lg" />
 											{:else}
 												<div class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={18} class="text-brand" /></div>
 											{/if}
@@ -3106,7 +3121,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	<div role="presentation" class="fixed inset-0 z-[60] flex items-end justify-center bg-ink/40 backdrop-blur-sm sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget && !portionSaving) qtyMealSel = null; }} onkeydown={(e) => { if (e.key === 'Escape' && !portionSaving) qtyMealSel = null; }}>
 		<div class="w-full max-w-lg rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
 			<div class="flex items-center gap-3">							{#if qtyMealSel.ingredients[0]?.imageUrl}
-								<FoodImg src={qtyMealSel.ingredients[0].imageUrl} alt="" class="h-14 w-14 rounded-xl" eager />
+								<FoodImg src={qtyMealSel.ingredients[0].thumbUrl} fallbackSrc={qtyMealSel.ingredients[0].imageUrl} alt="" class="h-14 w-14 rounded-xl" eager />
 							{:else}
 								<div class="grid h-14 w-14 place-items-center rounded-xl bg-brand-light"><Icon name="soup" size={26} class="text-brand" /></div>
 							{/if}
