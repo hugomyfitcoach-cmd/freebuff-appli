@@ -21,23 +21,31 @@ import { env } from '$env/dynamic/private';
  */
 const PROD_MARK = 'calm-jaguar-475';
 
-// Activé uniquement sur les contextes preview Netlify (PREVIEW_DIAG = 1 dans
-// netlify.toml pour deploy-preview / branch-deploy). Absent en production.
-const enabled = env.PREVIEW_DIAG === '1' || env.PREVIEW_DIAG_ENABLED === '1';
+// Activé uniquement sur les contextes preview Netlify. Trois portes, dont
+// aucune n'existe en production :
+//  1. CONTEXT injecté par Netlify au runtime des fonctions ;
+//  2. PREVIEW_DIAG = 1 configuré dans l'UI Netlify (scope Deploy Previews) ;
+//  3. l'URL Convex compilée est non vide ET ne ressemble PAS à la prod.
+const ctx = env.CONTEXT ?? '';
+const url = String(PUBLIC_CONVEX_URL ?? '');
+const enabled =
+	ctx === 'deploy-preview' ||
+	ctx === 'branch-deploy' ||
+	env.PREVIEW_DIAG === '1' ||
+	(!!url && !url.includes(PROD_MARK));
 
 export const GET = async () => {
 	if (!enabled) return json({ enabled: false }, { status: 404 });
-	const url = String(PUBLIC_CONVEX_URL ?? '');
 	return json({
 		enabled: true,
 		convexUrl: url,
 		isProdLike: url.includes(PROD_MARK),
+		netlifyContext: ctx || null,
 	});
 };
 
 export const POST = async () => {
 	if (!enabled) return json({ enabled: false }, { status: 404 });
-	const url = String(PUBLIC_CONVEX_URL ?? '');
 	if (!url || url.includes(PROD_MARK)) {
 		return json({ enabled: true, convexUrl: url, error: 'refus: environnement ressemblant à la production' }, { status: 403 });
 	}
