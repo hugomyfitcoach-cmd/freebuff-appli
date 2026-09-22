@@ -1,35 +1,31 @@
 #!/usr/bin/env node
 /**
- * SEED du Convex PREVIEW — données 100 % FICTIVES, jamais la production.
+ * SEED de secours du Convex PREVIEW — données 100 % FICTIVES.
  *
- * ⛔ ANTI-FUSIBLE : refuse de s'exécuter si l'URL cible est la production
- * calm-jaguar-475, ou si la clé n'est pas une Preview Deploy Key.
+ * Le seed AUTOMATIQUE passe par `--preview-run previewSeed:seedPreviewData`
+ * (exécuté par `convex deploy` sur le preview uniquement — voir netlify.toml).
+ * Ce script n'est utile QUE si tu veux re-seder à la main un preview déjà
+ * déployé : POST /seedPreview sur le .convex.site du preview.
  *
- * Principe : Convex n'autorise pas l'appel direct d'une mutation depuis un
- * script externe sans auth applicative. Le seed passe donc par une ACTION
- * HTTP publique dédiée (previewSeed:runSeedHttp) qui vérifie un token
- * d'exécution (PREVIEW_SEED_TOKEN, variable d'env du Convex Preview), crée
- * les comptes/journal de test si absents, puis renvoie les identifiants.
- * Aucun secret n'est affiché par ce script : seuls les identifiants de TEST
- * fictifs sont imprimés.
+ * ⛔ ANTI-FUSIBLES : refuse l'URL prod (calm-jaguar-475) et une clé "prod:".
+ * Si PREVIEW_SEED_TOKEN est configuré sur le preview, il est requis.
  *
- * Usage : node scripts/seed-preview.mjs https://<preview-deployment>.convex.cloud
+ * Usage : node scripts/seed-preview.mjs https://<preview>.convex.cloud [token-optionnel]
  */
 import { readFileSync, existsSync } from 'node:fs';
 
 const PROD_DEPLOYMENT = 'calm-jaguar-475';
 
-const urlArg = process.argv[2] ?? process.env.PUBLIC_CONVEX_URL ?? '';
+const urlArg = process.argv[2] ?? '';
+const seedToken = process.argv[3] ?? process.env.PREVIEW_SEED_TOKEN ?? '';
 if (!urlArg.startsWith('http')) {
-	console.error('Usage : node scripts/seed-preview.mjs https://<preview>.convex.cloud');
+	console.error('Usage : node scripts/seed-preview.mjs https://<preview>.convex.cloud [token-optionnel]');
 	process.exit(1);
 }
 if (urlArg.includes(PROD_DEPLOYMENT)) {
 	console.error(`⛔ REFUS : cette URL est la PRODUCTION Convex (${PROD_DEPLOYMENT}). Aucune écriture de test autorisée.`);
 	process.exit(1);
 }
-
-// Clé : env du contexte Netlify preview, sinon .env.local (dev).
 let deployKey = process.env.CONVEX_DEPLOY_KEY ?? '';
 if (!deployKey && existsSync('.env.local')) {
 	for (const line of readFileSync('.env.local', 'utf8').split('\n')) {
@@ -42,20 +38,11 @@ if (deployKey.startsWith('prod:')) {
 	process.exit(1);
 }
 
-// Le token de seed vit côté Convex Preview (PREVIEW_SEED_TOKEN). En CI/Netlify
-// preview, il est fourni par la variable d'environnement du même nom.
-const seedToken = process.env.PREVIEW_SEED_TOKEN ?? '';
-if (!seedToken) {
-	console.error('⛔ PREVIEW_SEED_TOKEN manquant (variable Netlify preview + convex env set sur le preview).');
-	process.exit(1);
-}
-
-// Route HTTP publique dédiée (voir src/convex/http.ts) : POST /seedPreview
 const siteUrl = urlArg.replace('.convex.cloud', '.convex.site');
 const res = await fetch(`${siteUrl}/seedPreview`, {
 	method: 'POST',
 	headers: { 'Content-Type': 'application/json' },
-	body: JSON.stringify({ seedToken }),
+	body: JSON.stringify(seedToken ? { seedToken } : {}),
 });
 const j = await res.json();
 if (!res.ok || j.status !== 'success') {

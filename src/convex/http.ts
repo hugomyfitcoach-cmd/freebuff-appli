@@ -6,9 +6,9 @@ import { seedPreviewHttp } from "./previewSeed";
  * Routes HTTP publiques du Convex deployment.
  *
  * ⚠️ PREVIEW uniquement en pratique : la seule route actuelle sert au seed
- * des données de test (protégée par PREVIEW_SEED_TOKEN, refusée en prod).
- * Si un jour des webhooks de production doivent exister, ils s'ajoutent ici
- * — le router est déjà prêt.
+ * de secours des données de test (sans effet en prod : le verrou interne
+ * refuse tout déploiement de production). Si un jour des webhooks de
+ * production doivent exister, ils s'ajoutent ici.
  */
 const http = httpRouter();
 

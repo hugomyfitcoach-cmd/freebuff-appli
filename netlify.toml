@@ -4,6 +4,22 @@
   command = "npm run build"
   publish = "build"
 
+# ── Deploy Previews — workflow officiel Convex × Netlify ──────────────────
+# La PREVIEW deploy key (Netlify, scope Deploy Previews uniquement) fait :
+#   1. créer/réutiliser le Convex Preview « alimentation-ia-preview » ;
+#   2. y pousser le schéma + fonctions (seed automatique via --preview-run) ;
+#   3. injecter l'URL du backend preview dans le build via PUBLIC_CONVEX_URL
+#      (--cmd-url-env-var-name) — aucune config manuelle d'URL.
+# Garde-fous runtime : scripts/build-preview.mjs refuse toute preview dont
+# l'URL/clé ressemblerait à la production (calm-jaguar-475).
+# PRODUCTION : inchangée ci-dessus (npm run build, sans convex deploy — le
+# déploiement Convex prod reste manuel via scripts/deploy.mjs).
+[context.deploy-preview]
+  command = "npx convex deploy --preview-name alimentation-ia-preview --cmd-url-env-var-name PUBLIC_CONVEX_URL --cmd 'npm run build'"
+
+[context.branch-deploy]
+  command = "npx convex deploy --preview-name alimentation-ia-preview --cmd-url-env-var-name PUBLIC_CONVEX_URL --cmd 'npm run build'"
+
 # ── Politique de cache ─────────────────────────────────────────────────────
 # ROOT CAUSE corrigée (PWA restées des JOURS sur l'ancienne version) :
 # sans règles explicites, rien ne garantissait la fraîcheur de l'app shell.
