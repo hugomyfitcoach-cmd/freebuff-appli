@@ -8,16 +8,17 @@
  */
 type PrivateEnv = { OPENAI_API_KEY?: string; OPENAI_MODEL?: string };
 /**
- * Lecture LIVE de process.env à chaque appel (jamais un cache figé au
- * chargement du module : les variables d'environnement Convex sont posées
- * après le provisionnement — un cache module-scope a déjà masqué la clé
- * sur un preview fraîchement créé).
+ * Lecture LIVE et DIRECTE de process.env à chaque appel. Jamais de spread
+ * `{ ...process.env }` ni de cache : le runtime node Convex expose les
+ * variables via des propriétés non énumérables — un spread renvoie un objet
+ * VIDE (clé « invisible » alors qu'elle existe), et un cache module masque
+ * les variables posées après le chargement.
  */
 function aiEnv(): PrivateEnv {
-	// `process.env` existe dans les deux runtimes serveur (node) : BFF SvelteKit
-	// (Netlify/preview, valeurs injectées au cold start de la fonction) et Convex
-	// (variables d'environnement du déploiement).
-	return { ...process.env } as PrivateEnv;
+	return {
+		OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+		OPENAI_MODEL: process.env.OPENAI_MODEL,
+	};
 }
 
 /**
