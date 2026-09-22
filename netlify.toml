@@ -15,10 +15,10 @@
 # PRODUCTION : inchangée ci-dessus (npm run build, sans convex deploy — le
 # déploiement Convex prod reste manuel via scripts/deploy.mjs).
 [context.deploy-preview]
-  command = "npx convex deploy --preview-name alimentation-ia-preview --cmd-url-env-var-name PUBLIC_CONVEX_URL --cmd 'npm run build'"
+  command = "npx convex deploy --preview-name alimentation-ia-preview --preview-run previewSeed:seedPreviewData --cmd-url-env-var-name PUBLIC_CONVEX_URL --cmd 'npm run build'"
 
 [context.branch-deploy]
-  command = "npx convex deploy --preview-name alimentation-ia-preview --cmd-url-env-var-name PUBLIC_CONVEX_URL --cmd 'npm run build'"
+  command = "npx convex deploy --preview-name alimentation-ia-preview --preview-run previewSeed:seedPreviewData --cmd-url-env-var-name PUBLIC_CONVEX_URL --cmd 'npm run build'"
 
 # ── Politique de cache ─────────────────────────────────────────────────────
 # ROOT CAUSE corrigée (PWA restées des JOURS sur l'ancienne version) :
