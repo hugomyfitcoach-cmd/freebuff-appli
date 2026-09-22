@@ -117,7 +117,18 @@ async function callOpenAi(
 		throw new OpenAiUnavailableError(name === 'TimeoutError' ? "L'analyse IA a dépassé le délai." : 'Service IA momentanément indisponible.');
 	}
 	if (!res.ok) {
-		throw new OpenAiUnavailableError(`Service IA indisponible (HTTP ${res.status}).`);
+		// Raison OpenAI (message court, sans donnée sensible) dans la réponse :
+		// distingue quota insuffisant (à régler côté compte) d'un rate limit
+		// passager (à réessayer) — sinon l'UI affiche une erreur générique.
+		let detail = '';
+		try {
+			const j = (await res.json()) as { error?: { message?: string } };
+			detail = typeof j.error?.message === 'string' ? ` — ${j.error.message.slice(0, 140)}` : '';
+		} catch {
+			// corps non JSON : on reste générique
+		}
+		throw new OpenAiUnavailableError(`Service IA indisponible (HTTP ${res.status})${detail}.`);
+	}
 	}
 	const raw = (await res.json()) as {
 		output_text?: string;
