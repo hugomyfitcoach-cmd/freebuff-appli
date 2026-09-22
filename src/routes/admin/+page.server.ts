@@ -45,10 +45,33 @@ import { api } from '../../convex/_generated/api.js';	import { SESSION_COOKIE, r
 	// cockpit de l'onglet Bilans reste, lui, lié à la semaine du bilan).
 	// Non bloquant : ancien backend sans ce module → null (encart masqué,
 	// jamais d'erreur bloquante — règle « ne jamais empêcher l'utilisation »).
-	const sport360Overview = selectedId
+	const sport360Raw = selectedId
 		? await convex
 				.query(api.coach.sport360, { sessionToken: token, userId: selectedId as never })
 				.catch(() => null)
+		: null;
+	// HOTFIX fiche cliente (500 SSR) : la query coach.sport360 renvoie
+	// { weeks: SportWeekAgg[], today } — l'encart « Aperçu » consomme un bloc
+	// type client360.sport (trend + previous S-1…S-4). Normalisation ICI, côté
+	// BFF : la forme renvoyée à l'UI est celle qu'elle affiche réellement,
+	// tolérante aux backends anciens/décalés (previous absent → [], jamais
+	// d'undefined.some en rendu SSR). Lecture pure — aucune donnée modifiée.
+	const sport360Overview = sport360Raw && Array.isArray(sport360Raw.weeks)
+		? {
+				weekStart: sport360Raw.weeks[0]?.weekStart ?? null,
+				activities: sport360Raw.weeks[0]?.activities ?? 0,
+				durationMin: sport360Raw.weeks[0]?.durationMin ?? 0,
+				kcal: sport360Raw.weeks[0]?.kcal ?? 0,
+				metMinutes: sport360Raw.weeks[0]?.metMinutes ?? 0,
+				manualCount: sport360Raw.weeks[0]?.manualCount ?? 0,
+				trainingCount: sport360Raw.weeks[0]?.trainingCount ?? 0,
+				trend: sportTrendFromWeeks(sport360Raw.weeks),
+				previous: sport360Raw.weeks.slice(1).map((w) => ({
+					weekStart: w.weekStart,
+					durationMin: w.durationMin,
+					kcal: w.kcal,
+				})),
+			}
 		: null;
 
 	// Message global (Tableau de bord) : état actif, destinataires et lectures —
@@ -86,6 +109,33 @@ import { api } from '../../convex/_generated/api.js';	import { SESSION_COOKIE, r
 function back(event: { url: URL }, clientId?: string | null): never {
 	const q = clientId ? `?client=${encodeURIComponent(clientId)}` : '';
 	throw redirect(303, `/admin${q}`);
+}
+
+/** Semaine agrégée Dépense sportive (renvoyée par coach.sport360). */
+type SportWeekAgg = {
+	weekStart: string;
+	activities: number;
+	durationMin: number;
+	kcal: number;
+	metMinutes: number;
+	manualCount: number;
+	trainingCount: number;
+};
+
+/**
+ * Tendance Dépense sportive — MÊME règle que client360.sport : comparaison
+ * des SEMAINES CLOSES uniquement (S-1 vs S-2, jamais la semaine partielle
+ * en cours) sur les MET-minutes, seuil ±25 %.
+ */
+function sportTrendFromWeeks(weeks: SportWeekAgg[]): 'up' | 'down' | 'stable' | null {
+	const s1 = weeks[1]?.metMinutes ?? 0;
+	const s2 = weeks[2]?.metMinutes ?? 0;
+	if (s1 === 0 && s2 === 0) return null;
+	if (s1 === 0) return 'down';
+	if (s2 === 0) return 'up';
+	if (s1 > s2 * 1.25) return 'up';
+	if (s1 < s2 * 0.75) return 'down';
+	return 'stable';
 }
 
 export const actions: Actions = {

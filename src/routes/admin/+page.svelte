@@ -1915,7 +1915,7 @@
 							<span class="rounded-full bg-soft px-2 py-0.5 text-[10px] font-semibold text-mist">{sportOverview.manualCount} manuelle{sportOverview.manualCount > 1 ? 's' : ''}</span>
 						{/if}
 					</div>
-					{#if sportOverview && (sportOverview.activities > 0 || sportOverview.previous.some((p) => p.durationMin > 0))}
+					{#if sportOverview && (sportOverview.activities > 0 || (sportOverview.previous ?? []).some((p) => p.durationMin > 0))}
 						<div class="mt-1 flex flex-wrap items-baseline gap-x-2">
 							<span class="font-display text-3xl font-semibold text-ink">≈ {sportOverview.kcal.toLocaleString('fr-FR')} kcal</span>
 							{#if sportOverview.trend === 'up'}
@@ -1930,11 +1930,11 @@
 							{sportOverview.activities} activité{sportOverview.activities > 1 ? 's' : ''}
 							· {Math.floor(sportOverview.durationMin / 60)} h {String(sportOverview.durationMin % 60).padStart(2, '0')} cette semaine
 						</p>
-						{#if sportOverview.previous.some((p) => p.durationMin > 0)}
+						{#if (sportOverview.previous ?? []).some((p) => p.durationMin > 0)}
 							<!-- Lecture rapide : semaines closes précédentes (S-1 à S-4) —
 							     numérotation réelle même si une semaine intermédiaire est vide. -->
 							<div class="mt-2 space-y-0.5 border-t border-line/60 pt-2">
-								{#each sportOverview.previous as pw, i (pw.weekStart)}
+								{#each sportOverview.previous ?? [] as pw, i (pw.weekStart)}
 									{#if pw.durationMin > 0}
 										<p class="text-[11px] text-mist tabular-nums">
 											S-{i + 1} · {Math.floor(pw.durationMin / 60)} h {String(pw.durationMin % 60).padStart(2, '0')} · ≈ {pw.kcal.toLocaleString('fr-FR')} kcal
