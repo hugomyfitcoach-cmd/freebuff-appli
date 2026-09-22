@@ -7,7 +7,7 @@
 		"dev": "convex dev --start \"npm run dev:web\"",
 		"dev:web": "vite dev",
 		"dev:convex": "convex dev",
-		"build": "vite build",
+		"build": "node scripts/build-preview.mjs && vite build",
 		"deploy": "node scripts/deploy.mjs",
 		"setup:coach": "node scripts/setup-coach.mjs",
 		"import:exercises": "node scripts/import-exercises.mjs",
