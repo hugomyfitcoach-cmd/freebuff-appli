@@ -1,4 +1,19 @@
-import { env } from '$env/dynamic/private';
+/**
+ * Environnement dual-runtime : ce module vit côté BFF SvelteKit (preview/prod)
+ * ET dans les actions Convex runtime node (voir aiAnalysis.ts — flux direct,
+ * sans boucle Convex→BFF). `$env/dynamic/private` n'existe pas dans Convex :
+ * on lit `process.env` qui est rempli par SvelteKit en dev/build et par le
+ * runtime node Convex (variables d'environnement du déploiement).
+ * ⚠️ La clé ne quitte JAMAIS ce module, n'est JAMAIS loggée, JAMAIS PUBLIC_*.
+ */
+type PrivateEnv = { OPENAI_API_KEY?: string; OPENAI_MODEL?: string };
+function aiEnv(): PrivateEnv {
+	// `process.env` existe dans les deux runtimes serveur (node) : BFF SvelteKit
+	// (Netlify/preview, valeurs injectées au cold start de la fonction) et Convex
+	// (variables d'environnement du déploiement).
+	return { ...process.env } as PrivateEnv;
+}
+const aiEnvCache = aiEnv();
 
 /**
  * Client OpenAI côté SERVEUR (BFF SvelteKit) — la clé ne quitte JAMAIS ce
@@ -20,7 +35,7 @@ const OPENAI_URL = 'https://api.openai.com/v1/responses';
 
 /** Modèle configurable — borne stricte à des modèles vision textuels. */
 function model(): string {
-	const m = env.OPENAI_MODEL ?? 'gpt-4o-mini';
+	const m = aiEnvCache.OPENAI_MODEL ?? 'gpt-4o-mini';
 	return /^(gpt-4o(-mini)?|gpt-4\.1(-mini|-nano)?|o4-mini)$/.test(m) ? m : 'gpt-4o-mini';
 }
 
@@ -61,7 +76,7 @@ async function callOpenAi(
 	imageDataUrl: string,
 	maxOutputTokens: number
 ): Promise<{ json: unknown; usage: AiUsage }> {
-	const key = env.OPENAI_API_KEY;
+	const key = aiEnvCache.OPENAI_API_KEY;
 	if (!key) throw new OpenAiUnavailableError("Analyse IA non configurée sur le serveur.");
 	assertImageDataUrl(imageDataUrl);
 

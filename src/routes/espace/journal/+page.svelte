@@ -1782,15 +1782,18 @@ import { journalTipForDay } from '$lib/data/journalTips';
 				}
 			} else if (target === 'meal') {
 				barcodeStatus = 'notfound';
-				barcodeError = `Aucun produit trouvé pour le code ${code}. Cherche-le par nom, ou vérifie le code.`;
-			} else {
-				// Produit inconnu : on propose « Photographier l'étiquette » —
-				// le code reste attaché au futur aliment (candidat global).
-				await stopScanner();
-				barcodeStatus = 'idle';
-			pendingBarcode = code;
-			openLabelCaptureAfterUnknownScan();
-			}
+				barcodeError = `Aucun produit trouvé pour le code ${code}. Cherche-le par nom, ou vérifie le code.`;				} else if (aiFlags.foodLabelAi) {
+					// Produit inconnu : on propose « Photographier l'étiquette » —
+					// le code reste attaché au futur aliment (candidat global).
+					await stopScanner();
+					barcodeStatus = 'idle';
+					pendingBarcode = code;
+					openLabelCaptureAfterUnknownScan();
+				} else {
+					// Hors bêta : comportement historique (message + recherche par nom).
+					barcodeStatus = 'notfound';
+					barcodeError = `Aucun produit trouvé pour le code ${code}. Cherche-le par nom, ou crée-le dans « Créés par moi ».`;
+				}
 		} catch (e) {
 			barcodeStatus = 'error';
 			barcodeError = e instanceof Error ? e.message : String(e);
@@ -1860,6 +1863,10 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	let mealQtyDraft = $state('');
 	let mealReplaceIdx = $state<number | null>(null);
 	let mealPhotoFileInput: HTMLInputElement | undefined;
+
+	/** Bêta IA — flags résolus CÔTÉ SERVEUR (allowlist email, pas le nom affiché).
+	 *  false → aucun bouton IA, aucun badge, aucun flux : l'existant intact. */
+	const aiFlags = $derived(data.aiFlags ?? { foodLabelAi: false, mealPhotoAi: false });
 
 	function openMealPhoto(meal: 'petit-dej' | 'dejeuner' | 'diner' | 'collation' = 'dejeuner') {
 		mealAnalyzedMeal = meal;
@@ -2633,7 +2640,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			onToggleSel={toggleSel}
 			onCalCardMount={(el) => (calCardEl = el)}
 			onTipDismiss={() => (tipDismissed = true)}
-			onPhoto={(meal) => openMealPhoto(meal as 'petit-dej' | 'dejeuner' | 'diner' | 'collation')}
+			onPhoto={aiFlags.mealPhotoAi ? (meal) => openMealPhoto(meal as 'petit-dej' | 'dejeuner' | 'diner' | 'collation') : undefined}
 			/>
 		</div>
 	</div>
@@ -3209,6 +3216,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 				<div class="mb-3 flex items-center justify-between rounded-2xl bg-ink px-4 py-3 text-white">
 					<p class="flex items-center gap-2 text-[13px] font-bold tracking-wide">REPAS ANALYSÉ</p>
 					<p class="text-lg font-bold text-emerald-300 tabular-nums">≈ {fmt(analyzedTotals.kcal)} kcal</p>
+				<span class="rounded bg-brand-light px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand-dark">Bêta</span>
 				</div>
 
 				<ul class="flex flex-col divide-y divide-line/60 rounded-2xl border border-line">
@@ -3362,7 +3370,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 				<button type="button" class="flex items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left transition hover:border-brand disabled:opacity-60" disabled={labelAnalyzing} onclick={() => labelFileInput?.click()}>
 					<span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name={labelAnalyzing ? 'sparkles' : 'camera'} size={19} class="text-brand {labelAnalyzing ? 'animate-pulse' : ''}" /></span>
 					<span class="min-w-0 flex-1">
-						<span class="block text-sm font-semibold text-ink">{labelAnalyzing ? 'Lecture de l\'étiquette…' : 'Photographier une étiquette'}</span>
+						<span class="block text-sm font-semibold text-ink">{labelAnalyzing ? 'Lecture de l\'étiquette…' : 'Photographier une étiquette'}{#if aiFlags.foodLabelAi} <span class="ml-1 rounded bg-brand-light px-1 py-px text-[9px] font-bold uppercase tracking-wide text-brand-dark align-middle">Bêta</span>{/if}</span>
 						<span class="block text-xs text-mist">Le tableau nutritionnel est rempli automatiquement</span>
 					</span>
 					<Icon name="chevronRight" size={16} class="shrink-0 text-mist" />

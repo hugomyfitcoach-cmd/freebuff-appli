@@ -41,6 +41,7 @@ async function requireClient(ctx: Pick<QueryCtx, "db">, sessionToken: string | u
 }
 
 import { guardedKcal100 } from "../lib/nutritionGuard";
+import { aiBetaFlagsForEmail } from "./betaAccess";
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
@@ -76,6 +77,11 @@ const analyzedComponentInput = v.object({
 /**
  * « Ajouter au Journal » d'un repas analysé : N composants en une mutation.
  *
+ * RÈGLE BÊTA : les composants « Estimation IA » (source="ai_estimation", sans
+ * identité G-FLUX) ne peuvent être écrits que par un compte autorisé
+ * (`meal_photo_ai_beta`) — un compte non bêta ne peut pas injecter de
+ * nutrition non sourcée dans le Journal via ce chemin.
+ *
  * Règles (exactement celles de `journal.addEntry`, appliquées en boucle) :
  * - identités résolues côté serveur (jamais de nutrition transmise par le
  *   client quand une identité existe) ; snapshots + garde-fou kcal↔macros ;
@@ -97,6 +103,12 @@ export const commitAnalyzedMeal = mutation({
 	},
 	handler: async (ctx, { sessionToken, date, meal, components, clientDate }) => {
 		const user = await requireClient(ctx, sessionToken);
+		// Composants « Estimation IA » : réservés au compte bêta (aucune nutrition
+		// non sourcée injectable dans le Journal par un compte non autorisé).
+		const hasAiComponent = components.some((c) => !c.foodId && !c.customFoodId && !c.ciqualLabel);
+		if (hasAiComponent && !aiBetaFlagsForEmail(user.email).mealPhotoAi) {
+			throw new ConvexError("Fonction bêta non disponible pour ce compte.");
+		}
 		if (!isValidDateISO(date)) throw new ConvexError("Date invalide.");
 		if (!isMeal(meal)) throw new ConvexError("Repas invalide.");
 		if (components.length === 0) throw new ConvexError("Aucun composant à ajouter.");

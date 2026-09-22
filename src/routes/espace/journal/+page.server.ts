@@ -16,5 +16,11 @@ export const load: PageServerLoad = async (event) => {
 	const token = event.cookies.get(SESSION_COOKIE);
 	const today = toLocalISO(new Date());
 	const day = await convex.query(api.journal.getDay, { sessionToken: token, date: today });
-	return { today, day };
+	// Flags bêta résolus CÔTÉ SERVEUR (allowlist email du compte session).
+	// Repli défensif : si la fonction n'existe pas encore sur le déploiement
+	// Convex (push non effectué), l'app ne doit JAMAIS 500 — tout à false.
+	const aiFlags = await convex
+		.query(api.betaAccess.flags, { sessionToken: token })
+		.catch(() => ({ foodLabelAi: false, mealPhotoAi: false }));
+	return { today, day, aiFlags };
 };

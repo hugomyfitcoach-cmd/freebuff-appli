@@ -1,31 +1,55 @@
-import { action } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { api, internal } from "./_generated/api";
-import { matchComponentsCore, type MatchedComponent } from "./mealMatch";
+import { action } from "./_generated/server";
+import type { MatchedComponent } from "./mealMatch";
+import { analyzeLabelImage, analyzeMealImage } from "../lib/server/openai";
 
 /**
- * Analyse d'ÉTIQUETTE nutritionnelle (photo) — orchestration côté Convex.
+ * Analyse IA « Alimentation intelligente » — orchestration Convex DIRECTE.
  *
- * ARCHITECTURE : OpenAI vit DANS une action Convex (runtime node, réseau
- * autorisé) — la clé reste côté serveur (env Convex), le navigateur ne voit
- * que la réponse JSON validée. Le BFF /api/foods/label-scan appelle cette
- * action ; les endpoints /api/* restent la seule porte d'entrée de la PWA.
+ * ARCHITECTURE (flux sans boucle) :
  *
- * Étapes :
- *  1. session cliente (jamais coach) ;
- *  2. photo → /api/ai/label (BFF SvelteKit héberge la clé) → JSON structuré ;
- *  3. JSON VALIDÉ + normalisé (kcal/portion/100 g distingués, kJ→kcal
- *     signalé) — l'IA ne crée JAMAIS l'aliment, elle préremplit le formulaire.
+ *   PWA ──► BFF SvelteKit (/api/foods/label-scan, /api/meals/analyze)
+ *              │  auth cookie + flags bêta (betaAccess.flags) — refus tôt
+ *              ▼
+ *           Action Convex (runtime node, réseau autorisé)
+ *              │  re-vérifie la session + les flags bêta (défense en profondeur)
+ *              │  appelle OpenAI DIRECTEMENT (src/lib/server/openai.ts, même
+ *              │  module que le BFF — la clé vit dans process.env des deux
+ *              │  runtimes serveur, jamais côté PWA)
+ *              ▼
+ *           Validation + clamps + MATCH base G-FLUX (Convex → CIQUAL)
  *
- * PANNE : si OpenAI est indisponible, l'action renvoie ok:false + reason —
- * la recherche, le barcode et la saisie manuelle restent 100 % fonctionnels.
+ * Le BFF ne connaît jamais la clé OpenAI en clair via ce chemin (il n'appelle
+ * plus /api/ai/* : le couple Convex→BFF→OpenAI créait une boucle inutile
+ * PWA→BFF→Convex→BFF→OpenAI — supprimée).
+ *
+ * RÈGLES MÉTIER :
+ *  - l'IA ne crée JAMAIS l'aliment ni les composants : elle préremplit ;
+ *  - nutrition = base G-FLUX (customFoods → OFF importé → CIQUAL) ; l'estimation
+ *    IA n'apparaît qu'en dernier recours, clairement étiquetée ;
+ *  - PANNE OpenAI : ok:false + raison — recherche, barcode et création manuelle
+ *    restent 100 % fonctionnels ;
+ *  - traçabilité aiUsageLog (modèle, tokens, durée, coût estimé) — aucune
+ *    donnée personnelle, aucune image persistée.
  */
 
-/** Résout la session DANS le contexte action (runQuery — pas de `db` local). */
-async function sessionUserInAction(
+/** Garde bêta DANS l'action (re-résolution session — jamais la confiance au BFF). */
+async function requireBetaInAction(
 	ctx: { runQuery: (ref: never, args: never) => Promise<unknown> },
-	sessionToken: string | undefined | null
-): Promise<{ _id: string; role: "coach" | "client" }> {
+	sessionToken: string | undefined | null,
+	flag: "food_label_ai_beta" | "meal_photo_ai_beta"
+): Promise<string> {
+	const allowed = (await ctx.runQuery(
+		api.betaAccess.flags as never,
+		{ sessionToken } as never
+	)) as { foodLabelAi: boolean; mealPhotoAi: boolean } | null;
+	const ok = flag === "food_label_ai_beta" ? !!allowed?.foodLabelAi : !!allowed?.mealPhotoAi;
+	if (!ok) {
+		throw new ConvexError("Fonction bêta non disponible pour ce compte.");
+	}
+	// L'action n'a pas besoin de l'identité au-delà du garde : le matching est
+	// relancé par la mutation commit (session + appartenance vérifiés là-bas).
 	const user = (await ctx.runQuery(
 		api.journal.checkSession as never,
 		{ sessionToken } as never
@@ -34,7 +58,28 @@ async function sessionUserInAction(
 	if (user.role !== "client") {
 		throw new ConvexError("Seuls les comptes clients peuvent utiliser l'analyse photo.");
 	}
-	return user;
+	return user._id;
+}
+
+/** Log IA (best effort : ne masque jamais le résultat métier). */
+async function logAi(
+	ctx: { runMutation: (ref: never, args: never) => Promise<unknown> },
+	entry: {
+		kind: "label" | "meal";
+		model: string;
+		inputTokens?: number;
+		outputTokens?: number;
+		durationMs: number;
+		status: "ok" | "error";
+		estimatedCostUsd?: number;
+		failReason?: string;
+	}
+): Promise<void> {
+	try {
+		await ctx.runMutation(internal.aiLog.record as never, entry as never);
+	} catch {
+		// journaling best effort
+	}
 }
 
 /** Valide et borne une valeur nutritionnelle IA (0–plafond, 1 décimale). */
@@ -43,6 +88,8 @@ function clampNut(n: unknown, max: number): number | undefined {
 	if (!isFinite(x) || x < 0) return undefined;
 	return Math.min(max, Math.round(x * 10) / 10);
 }
+
+/* ─────────────── ÉTIQUETTE NUTRITIONNELLE ─────────────── */
 
 /** Action : analyse une photo d'étiquette et renvoie un JSON préremplissage. */
 export const analyzeLabel = action({
@@ -54,60 +101,45 @@ export const analyzeLabel = action({
 		barcode: v.optional(v.string()),
 	},
 	handler: async (ctx, { sessionToken, imageDataUrl, barcode }) => {
-		await sessionUserInAction(ctx, sessionToken);
+		await requireBetaInAction(ctx, sessionToken, "food_label_ai_beta");
 		if (typeof imageDataUrl !== "string" || !imageDataUrl.startsWith("data:image/")) {
 			throw new ConvexError("Photo d'étiquette invalide.");
 		}
 		if (imageDataUrl.length > 5_000_000) {
 			throw new ConvexError("Photo trop lourde — rapproche-toi de l'étiquette et réessaie.");
-		}		// 1) Appel OpenAI via le BFF (la clé vit côté SvelteKit uniquement).
-		//    URL du BFF = PUBLIC_APP_URL côté Convex (env) — repli localhost en dev.
-		const bffBase = process.env.PUBLIC_APP_URL ?? "http://localhost:5173";
-		let ai: LabelAnalysis | null = null;
-		let aiError = "";
+		}
+
+		// OpenAI DIRECT (runtime node Convex) — plus de boucle Convex→BFF.
 		const t0 = Date.now();
+		let ai: Awaited<ReturnType<typeof analyzeLabelImage>>["analysis"] | null = null;
+		let aiError = "";
 		try {
-			const res = await fetch(`${bffBase}/api/ai/label`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ imageDataUrl }),
-				signal: AbortSignal.timeout(45_000),
-			});
-			const j = (await res.json()) as {
-				ok?: boolean;
-				analysis?: LabelAnalysis;
-				error?: string;
-				usage?: { model?: string; inputTokens?: number; outputTokens?: number; estimatedCostUsd?: number };
-			};
-			if (res.ok && j.ok && j.analysis) ai = j.analysis;
-			else aiError = j.error ?? `HTTP ${res.status}`;
-			// Traçabilité IA (modèle, tokens, durée, coût estimé) — aucune donnée
-			// personnelle : la photo n'est JAMAIS persistée.
-			await ctx.runMutation(internal.aiLog.record, {
+			const r = await analyzeLabelImage(imageDataUrl);
+			ai = r.analysis;
+			await logAi(ctx, {
 				kind: "label",
-				model: j.usage?.model ?? "unknown",
-				inputTokens: j.usage?.inputTokens,
-				outputTokens: j.usage?.outputTokens,
-				durationMs: Date.now() - t0,
-				status: ai ? "ok" : "error",
-				estimatedCostUsd: j.usage?.estimatedCostUsd,
-				failReason: ai ? undefined : aiError.slice(0, 200),
+				model: r.usage.model,
+				inputTokens: r.usage.inputTokens,
+				outputTokens: r.usage.outputTokens,
+				durationMs: r.usage.durationMs,
+				status: "ok",
+				estimatedCostUsd: r.usage.estimatedCostUsd,
 			});
 		} catch (e) {
-			aiError = e instanceof Error ? (e.name === "TimeoutError" ? "timeout" : "unreachable") : "unreachable";
-			await ctx.runMutation(internal.aiLog.record, {
+			aiError = e instanceof Error ? e.message : "unreachable";
+			await logAi(ctx, {
 				kind: "label",
 				model: "unknown",
 				durationMs: Date.now() - t0,
 				status: "error",
-				failReason: aiError,
-			}).catch(() => null);
+				failReason: aiError.slice(0, 200),
+			});
 		}
 		if (!ai) {
 			return { ok: false as const, reason: aiError || "ai-unavailable" };
 		}
 
-		// 2) Validation stricte : l'IA ne décide rien toute seule.
+		// Validation stricte : l'IA ne décide rien toute seule (clamps + revue).
 		const name = (ai.name ?? "").trim().slice(0, 80);
 		const brand = (ai.brand ?? "").trim().slice(0, 80) || undefined;
 		const kcal100 = clampNut(ai.kcal100, 900);
@@ -123,7 +155,7 @@ export const analyzeLabel = action({
 		const needsReview: string[] = [];
 		if (!kcal100) needsReview.push("kcal");
 		if (ai.kcalFromKj) needsReview.push("kcal-kj");
-		if (ai.confidence && ai.confidence < 0.6) needsReview.push("valeurs");
+		if (ai.confidence !== undefined && ai.confidence < 0.6) needsReview.push("valeurs");
 
 		return {
 			ok: true as const,
@@ -137,8 +169,8 @@ export const analyzeLabel = action({
 				fiber100,
 				salt100,
 				servingQty,
-				kcalFromKj: !!ai.kcalFromKj,
-				confidence: typeof ai.confidence === "number" ? ai.confidence : undefined,
+				kcalFromKj: ai.kcalFromKj === true,
+				confidence: ai.confidence,
 				needsReview,
 			},
 			/** Barcode lu côté PWA (décodeur réel) — jamais deviné par l'IA. */
@@ -147,7 +179,79 @@ export const analyzeLabel = action({
 	},
 });
 
-/** Forme du JSON renvoyé par le BFF (/api/ai/label) — OpenAI structuré. */
+/* ─────────────── REPAS PHOTOGRAPHIÉ ─────────────── */
+
+/** Analyse une photo de REPAS : l'IA identifie les composants + quantités,
+ *  la base G-FLUX tranche la nutrition (jamais l'IA). */
+export const analyzeMeal = action({
+	args: {
+		sessionToken: v.optional(v.string()),
+		imageDataUrl: v.string(),
+	},
+	handler: async (ctx, { sessionToken, imageDataUrl }) => {
+		const userId = await requireBetaInAction(ctx, sessionToken, "meal_photo_ai_beta");
+		if (typeof imageDataUrl !== "string" || !imageDataUrl.startsWith("data:image/")) {
+			throw new ConvexError("Photo invalide.");
+		}
+		if (imageDataUrl.length > 5_000_000) {
+			throw new ConvexError("Photo trop lourde — réessaie avec un cadrage plus serré.");
+		}
+
+		// 1) Reconnaissance des composants (OpenAI DIRECT — aliments + quantités).
+		const t0 = Date.now();
+		let ai: Awaited<ReturnType<typeof analyzeMealImage>>["result"] | null = null;
+		let aiError = "";
+		try {
+			const r = await analyzeMealImage(imageDataUrl);
+			ai = r.result;
+			await logAi(ctx, {
+				kind: "meal",
+				model: r.usage.model,
+				inputTokens: r.usage.inputTokens,
+				outputTokens: r.usage.outputTokens,
+				durationMs: r.usage.durationMs,
+				status: ai.items.length > 0 ? "ok" : "error",
+				estimatedCostUsd: r.usage.estimatedCostUsd,
+				failReason: ai.items.length > 0 ? undefined : "no-components",
+			});
+		} catch (e) {
+			aiError = e instanceof Error ? e.message : "unreachable";
+			await logAi(ctx, {
+				kind: "meal",
+				model: "unknown",
+				durationMs: Date.now() - t0,
+				status: "error",
+				failReason: aiError.slice(0, 200),
+			});
+		}
+		if (!ai || ai.items.length === 0) {
+			return { ok: false as const, reason: aiError || "no-components" };
+		}
+
+		// 2) MATCH base G-FLUX (customFoods → OFF importé → CIQUAL → estimation IA)
+		//    — même process que la requête : actions node, `db` indisponible, on
+		//    emprunte la requête interne via runQuery (zéro appel live OFF).
+		const matched = (await ctx.runQuery(
+			internal.mealMatch.matchComponentsInternal as never,
+			{
+				userId,
+				components: ai.items.map((it) => ({
+					name: String(it.name ?? "").slice(0, 80),
+					qtyGrams: it.qtyGrams,
+					kcal100: it.kcal100,
+					carbs100: it.carbs100,
+					protein100: it.protein100,
+					fat100: it.fat100,
+					note: it.note,
+				})),
+			} as never
+		)) as MatchedComponent[];
+
+		return { ok: true as const, components: matched, hint: ai.hint };
+	},
+});
+
+/** Forme du JSON renvoyé par l'analyse étiquette — consommé par le BFF. */
 export type LabelAnalysis = {
 	name?: string;
 	brand?: string;
@@ -166,91 +270,7 @@ export type LabelAnalysis = {
 	confidence?: number;
 };
 
-/* ─────────────── REPAS PHOTOGRAPHIÉ ─────────────── */
-
-/** Analyse une photo de REPAS : l'IA identifie les composants + quantités,
- *  la base G-FLUX tranche la nutrition (jamais l'IA). */
-export const analyzeMeal = action({
-	args: {
-		sessionToken: v.optional(v.string()),
-		imageDataUrl: v.string(),
-	},
-	handler: async (ctx, { sessionToken, imageDataUrl }) => {
-		const user = await sessionUserInAction(ctx, sessionToken);
-		if (typeof imageDataUrl !== "string" || !imageDataUrl.startsWith("data:image/")) {
-			throw new ConvexError("Photo invalide.");
-		}
-		if (imageDataUrl.length > 5_000_000) {
-			throw new ConvexError("Photo trop lourde — réessaie avec un cadrage plus serré.");
-		}		// 1) Reconnaissance des composants (OpenAI — aliments + quantités SEULEMENT).
-		const bffBase = process.env.PUBLIC_APP_URL ?? "http://localhost:5173";
-		let ai: MealComponents | null = null;
-		let aiError = "";
-		const t0 = Date.now();
-		try {
-			const res = await fetch(`${bffBase}/api/ai/meal`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ imageDataUrl }),
-				signal: AbortSignal.timeout(45_000),
-			});
-			const j = (await res.json()) as {
-				ok?: boolean;
-				components?: MealComponents;
-				error?: string;
-				usage?: { model?: string; inputTokens?: number; outputTokens?: number; estimatedCostUsd?: number };
-			};
-			if (res.ok && j.ok && j.components) ai = j.components;
-			else aiError = j.error ?? `HTTP ${res.status}`;
-			await ctx.runMutation(internal.aiLog.record, {
-				kind: "meal",
-				model: j.usage?.model ?? "unknown",
-				inputTokens: j.usage?.inputTokens,
-				outputTokens: j.usage?.outputTokens,
-				durationMs: Date.now() - t0,
-				status: ai && ai.items.length > 0 ? "ok" : "error",
-				estimatedCostUsd: j.usage?.estimatedCostUsd,
-				failReason: ai && ai.items.length > 0 ? undefined : aiError.slice(0, 200) || "no-components",
-			});
-		} catch (e) {
-			aiError = e instanceof Error && e.name === "TimeoutError" ? "timeout" : "unreachable";
-			await ctx.runMutation(internal.aiLog.record, {
-				kind: "meal",
-				model: "unknown",
-				durationMs: Date.now() - t0,
-				status: "error",
-				failReason: aiError,
-			}).catch(() => null);
-		}
-		if (!ai || ai.items.length === 0) {
-			return { ok: false as const, reason: aiError || "no-components" };
-		}
-
-		// 2) MATCH base G-FLUX (Convex → CIQUAL → estimation IA) — via la query
-		//    dédiée (une action n'a pas de `db` direct), zéro appel live OFF,
-		//    aucune nutrition IA acceptée comme source.
-		const matched = (await ctx.runQuery(
-			internal.mealMatch.matchComponentsInternal as never,
-			{
-				userId: user._id,
-				components: ai.items.map((it) => ({
-					name: String(it.name ?? "").slice(0, 80),
-					qtyGrams: it.qtyGrams,
-					// Valeurs IA /100 g de secours (« Estimation IA ») — jamais source.
-					kcal100: it.kcal100,
-					carbs100: it.carbs100,
-					protein100: it.protein100,
-					fat100: it.fat100,
-					note: it.note,
-				})),
-			} as never
-		)) as MatchedComponent[];
-
-		return { ok: true as const, components: matched, hint: ai.hint };
-	},
-});
-
-/** Forme du JSON renvoyé par le BFF (/api/ai/meal). */
+/** Composant IA brut (reconnaissance repas) — avant match G-FLUX. */
 export type MealComponents = {
 	items: {
 		name: string;

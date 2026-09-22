@@ -13,6 +13,7 @@ import type * as aiLog from "../aiLog.js";
 import type * as answers from "../answers.js";
 import type * as appVersion from "../appVersion.js";
 import type * as appointments from "../appointments.js";
+import type * as betaAccess from "../betaAccess.js";
 import type * as checkins from "../checkins.js";
 import type * as ciqual from "../ciqual.js";
 import type * as ciqualNames from "../ciqualNames.js";
@@ -63,6 +64,7 @@ declare const fullApi: ApiFromModules<{
   answers: typeof answers;
   appVersion: typeof appVersion;
   appointments: typeof appointments;
+  betaAccess: typeof betaAccess;
   checkins: typeof checkins;
   ciqual: typeof ciqual;
   ciqualNames: typeof ciqualNames;
