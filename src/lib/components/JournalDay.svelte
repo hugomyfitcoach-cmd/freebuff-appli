@@ -35,6 +35,9 @@
 		portions?: number;
 		/** « planned_eaten » : validé depuis un item planifié (✓ vert discret + remettre en planifié). */
 		source?: string;
+		/** Regroupement « repas analysé » (photo IA) : N composants d'une même
+		 *  analyse → UNE carte repliable dans le Journal (client uniquement). */
+		mealGroup?: string;
 		/** Identité d'origine (duplication / création de repas) — snapshot sinon. */
 		foodId?: string;
 		customFoodId?: string;
@@ -76,6 +79,8 @@
 		mode = 'client',
 		tip = null,
 		onAdd,
+		/** Accès rapide « Photographier mon repas » (bouton photo à côté du +). */
+		onPhoto,
 		onEntryClick,
 		/** Clic sur une carte macro (Glucides / Protéines / Lipides — jamais Calories) → vue détail. */
 		onMacroClick,
@@ -96,6 +101,7 @@
 		/** Astuce du jour (côté client uniquement) — affichée entre macros et repas. */
 		tip?: string | null;
 		onAdd?: (meal: string) => void;
+		onPhoto?: (meal: string) => void;
 		onEntryClick?: (e: Entry) => void;
 		/** Clic sur une carte macro (Glucides / Protéines / Lipides — jamais Calories) → vue détail. */
 		onMacroClick?: (macro: 'carbs' | 'protein' | 'fat') => void;
@@ -125,6 +131,58 @@
 
 	/** Compacité mobile cliente : paddings/tailles resserrés, coach (CRM) inchangé. */
 	const compact = $derived(mode === 'client');
+
+	/* ————— Regroupement « repas analysé » (photo IA) —————
+	 * Les composants d'une même analyse partagent `mealGroup` : ils sont
+	 * retirés des listes plates et rendus comme UNE carte repliable
+	 * (« 🍽️ Repas analysé · ≈ X kcal · N éléments » → tap = détail).
+	 * Totaux du jour/repas INCHANGÉS : ils somment toujours les entrées. */
+	type EntryGroup = { key: string; entries: Entry[]; kcal: number; protein: number };
+	const groupsByMeal = $derived.by(() => {
+		const map = new Map<string, EntryGroup[]>();
+		const loose = new Map<string, Entry[]>();
+		for (const m of MEAL_DEFS) {
+			map.set(m.id, []);
+			loose.set(m.id, []);
+		}
+		const byKey = new Map<string, Entry[]>();
+		for (const e of day.entries) {
+			if (e.mealGroup && mode === 'client') {
+				const arr = byKey.get(e.mealGroup) ?? [];
+				arr.push(e);
+				byKey.set(e.mealGroup, arr);
+			} else {
+				loose.get(e.meal)?.push(e);
+			}
+		}
+		for (const [key, entries] of byKey) {
+			map.get(entries[0].meal)?.push({
+				key,
+				entries,
+				kcal: entries.reduce((s, e) => s + e.kcal, 0),
+				protein: entries.reduce((s, e) => s + e.protein, 0),
+			});
+		}
+		return { map, loose };
+	});
+	const mealGroups = (meal: string): EntryGroup[] => groupsByMeal.map.get(meal) ?? [];
+	/** Entrées hors groupe (rendu historique, une ligne par aliment). */
+	const mealLooseEntries = (meal: string): Entry[] => groupsByMeal.loose.get(meal) ?? [];
+	/** Cartes dépliées (tap sur une carte « repas analysé » = détail des composants). */
+	let expandedGroups = $state<Set<string>>(new Set());
+	function toggleGroup(key: string) {
+		const next = new Set(expandedGroups);
+		if (next.has(key)) next.delete(key);
+		else next.add(key);
+		expandedGroups = next;
+	}
+	/** Libellé de carte : « Poulet grillé, riz basmati… » — à partir des composants. */
+	function groupLabel(g: EntryGroup): string {
+		const names = g.entries.map((e) => e.name);
+		if (names.length === 1) return names[0];
+		if (names.length === 2) return names.join(' & ');
+		return `${names[0]}, ${names[1]}…`;
+	}
 
 	let calCardEl: HTMLElement | undefined;
 	// Expose l'élément « carte calories » au parent (barre sticky côté client).
@@ -348,20 +406,60 @@
 						</button>
 					{/if}
 					{#if onAdd}
-						<button
-							type="button"
-							class="grid h-11 w-11 place-items-center text-brand transition active:scale-90"
-							aria-label={`Ajouter au ${meal.label}`}
-							onclick={() => onAdd(meal.id)}
-						><span class="grid h-7 w-7 place-items-center rounded-full border border-brand/35"><Icon name="plus" size={15} /></span></button>
+						<div class="flex shrink-0 items-center">
+							{#if onPhoto}
+								<button
+									type="button"
+									class="grid h-11 w-10 place-items-center text-brand transition active:scale-90"
+									aria-label={`Photographier le ${meal.label}`}
+									title="Photographier mon repas"
+									onclick={() => onPhoto(meal.id)}
+								><span class="grid h-7 w-7 place-items-center rounded-full border border-brand/35"><Icon name="camera" size={14} /></span></button>
+							{/if}
+							<button
+								type="button"
+								class="grid h-11 w-11 place-items-center text-brand transition active:scale-90"
+								aria-label={`Ajouter au ${meal.label}`}
+								onclick={() => onAdd(meal.id)}
+							><span class="grid h-7 w-7 place-items-center rounded-full border border-brand/35"><Icon name="plus" size={15} /></span></button>
+						</div>
 					{/if}
 				</div>
 			</div>
-			{#if entries.length > 0 || planned.length > 0}
+			{#if mealLooseEntries(meal.id).length > 0 || mealGroups(meal.id).length > 0 || planned.length > 0}
 				<div class="mt-1.5 overflow-hidden rounded-2xl border border-line bg-card">
 					<div class="divide-y divide-line/60">
-						{#each entries as e (e._id)}
+						{#each mealLooseEntries(meal.id) as e (e._id)}
 							{@render mealRow(e)}
+						{/each}
+						<!-- Repas analysés (photo IA) : UNE carte repliable par analyse,
+						     totaux déjà comptés dans le header (aucun double comptage) -->
+						{#each mealGroups(meal.id) as g (g.key)}
+							<div class="px-2 py-1.5">
+								<button
+									type="button"
+									class="flex w-full items-center gap-2 rounded-lg text-left transition hover:bg-line/40"
+									aria-expanded={expandedGroups.has(g.key)}
+									onclick={() => toggleGroup(g.key)}
+								>
+									<span class="grid shrink-0 place-items-center rounded-xl bg-brand-light {compact ? 'h-[52px] w-[52px]' : 'h-9 w-9'}"><Icon name="camera" size={compact ? 18 : 16} class="text-brand" /></span>
+									<span class="min-w-0 flex-1">
+										<span class="block truncate font-semibold text-ink {compact ? 'text-[14px]' : 'text-sm'}">🍽️ {groupLabel(g)}</span>
+										<span class="block text-mist tabular-nums {compact ? 'text-[11px]' : 'text-[11px]'}">
+											<strong class="font-bold text-brand">≈ {fmt(g.kcal)} kcal</strong>
+											· {fmt(g.protein)} g protéines
+											· {g.entries.length} élément{g.entries.length > 1 ? 's' : ''}
+										</span>
+									</span>
+									<Icon name={expandedGroups.has(g.key) ? 'chevronDown' : 'chevronRight'} size={16} class="shrink-0 text-mist" />
+								</button>
+								{#if expandedGroups.has(g.key)}
+									<div class="mt-1 divide-y divide-line/40 rounded-xl bg-line/20">									{#each g.entries as e (e._id)}
+										{@render mealRow(e)}
+									{/each}
+								</div>
+								{/if}
+							</div>
 						{/each}
 						{#each planned as p (p._id)}
 							{@render plannedRow(p)}

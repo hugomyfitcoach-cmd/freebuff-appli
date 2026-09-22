@@ -892,7 +892,7 @@ function daysBetween(a: string, b: string): number {
  * que si elle est PLAUSIBLE : format ISO valide et à ±1 jour de la date
  * serveur (horloge manipulée ou client taré → repli sur la date serveur).
  */
-function trustedClientToday(clientDate?: string): string {
+export function trustedClientToday(clientDate?: string): string {
 	const serverToday = localTodayOfTs();
 	if (clientDate && isValidDateISO(clientDate) && Math.abs(daysBetween(serverToday, clientDate)) <= 1) {
 		return clientDate;

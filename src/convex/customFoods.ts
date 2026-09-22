@@ -38,7 +38,19 @@ const foodFields = {
 	carbs100: v.number(),
 	protein100: v.number(),
 	fat100: v.number(),
+	/** Composés à coefficient kcal ≠ 4 + sel (information étiquette). */
+	fiber100: v.optional(v.number()),
+	salt100: v.optional(v.number()),
 	servingQty: v.optional(v.number()),
+	/**
+	 * Code-barres EAN/GTIN (scan ou décodage d'étiquette) — produit emballé.
+	 * Fourni → l'aliment est créé « candidat global » (globalStatus: 'candidate')
+	 * : la publication dans la base globale reste une action coach/exploitation,
+	 * JAMAIS automatique (règle produit : une cliente n'écrit jamais `foods`).
+	 */
+	barcode: v.optional(v.string()),
+	/** Origine : "manual" (défaut) | "label_photo" (photo d'étiquette). */
+	sourceKind: v.optional(v.string()),
 };
 
 /** Valide et normalise les champs saisies (identique à la création). */
@@ -49,6 +61,8 @@ function normalizeFields(fields: {
 	carbs100: number;
 	protein100: number;
 	fat100: number;
+	fiber100?: number;
+	salt100?: number;
 	servingQty?: number;
 }) {
 	const clean = fields.name.trim();
@@ -62,22 +76,44 @@ function normalizeFields(fields: {
 	if (kcal === 0 && carbs === 0 && protein === 0 && fat === 0) {
 		throw new ConvexError("Renseigne au moins une valeur nutritionnelle.");
 	}
+	// Composés à coefficient kcal ≠ 4 + sel : plages larges, information d'étiquette.
+	const fiber = fields.fiber100 !== undefined && fields.fiber100 !== null ? clamp(fields.fiber100, 0, 90, "Les fibres") : undefined;
+	const salt = fields.salt100 !== undefined && fields.salt100 !== null ? clamp(fields.salt100, 0, 25, "Le sel") : undefined;
 	let qty: number | undefined;
 	if (fields.servingQty !== undefined && fields.servingQty !== null) {
 		qty = clamp(fields.servingQty, 1, 2000, "La portion");
 	}
-	return { name: clean, brand: fields.brand?.trim() || undefined, kcal100: kcal, carbs100: carbs, protein100: protein, fat100: fat, servingQty: qty };
+	return { name: clean, brand: fields.brand?.trim() || undefined, kcal100: kcal, carbs100: carbs, protein100: protein, fat100: fat, fiber100: fiber, salt100: salt, servingQty: qty };
 }
 
-/** Crée un aliment personnel (valeurs pour 100 g). */
+/**
+ * Code-barres saisi (13/8 chiffres max, chiffres seuls) — EAN-13/EAN-8/UPC-A.
+ */
+function cleanBarcode(code: string | undefined | null): string | undefined {
+	const c = (code ?? "").replace(/\D/g, "");
+	return c.length >= 8 && c.length <= 14 ? c : undefined;
+}
+
+/**
+ * Crée un aliment personnel (valeurs pour 100 g).
+ *
+ * Avec un `barcode` produit emballé : l'aliment est marqué
+ * `globalStatus: "candidate"` — candidat à la base globale G-FLUX, mais
+ * JAMAIS publié automatiquement (aucune écriture cliente dans `foods`).
+ * Sans code-barres (recette maison…) : aliment privé, statut absent.
+ */
 export const create = mutation({
 	args: { sessionToken: v.optional(v.string()), ...foodFields },
-	handler: async (ctx, { sessionToken, ...fields }) => {
+	handler: async (ctx, { sessionToken, barcode, sourceKind, ...fields }) => {
 		const user = await requireClient(ctx, sessionToken);
 		const clean = normalizeFields(fields);
+		const code = cleanBarcode(barcode);
 		const id = await ctx.db.insert("customFoods", {
 			userId: user._id,
 			...clean,
+			barcode: code,
+			globalStatus: code ? "candidate" : undefined,
+			sourceKind: sourceKind === "label_photo" ? "label_photo" : "manual",
 			createdAt: Date.now(),
 		});
 		return { ok: true, customFoodId: id };
@@ -91,11 +127,19 @@ export const create = mutation({
  */
 export const update = mutation({
 	args: { sessionToken: v.optional(v.string()), customFoodId: v.id("customFoods"), ...foodFields },
-	handler: async (ctx, { sessionToken, customFoodId, ...fields }) => {
+	handler: async (ctx, { sessionToken, customFoodId, barcode, sourceKind, ...fields }) => {
 		const user = await requireClient(ctx, sessionToken);
 		const food = await ctx.db.get(customFoodId);
 		if (!food || food.userId !== user._id) throw new ConvexError("Aliment introuvable.");
-		await ctx.db.patch(customFoodId, normalizeFields(fields));
+		const patch = normalizeFields(fields);
+		const code = cleanBarcode(barcode);
+		// Le barcode d'origine reste prioritaire : l'édition ne doit pas pouvoir
+		// « dé-candidater » un produit emballé en effaçant son code par erreur.
+		await ctx.db.patch(customFoodId, {
+			...patch,
+			barcode: code ?? food.barcode,
+			globalStatus: code || food.barcode ? "candidate" : food.globalStatus,
+		});
 		return { ok: true, customFoodId };
 	},
 });
@@ -132,5 +176,40 @@ export const byIds = query({
 		const user = await requireClient(ctx, sessionToken);
 		const foods = await Promise.all(ids.map((id) => ctx.db.get(id)));
 		return foods.filter((f): f is Doc<"customFoods"> => f !== null && f.userId === user._id);
+	},
+});
+
+/**
+ * Recherche un aliment personnel PAR CODE-BARRES (exact, chez la cliente).
+ * Retourne null si absent — l'appelant retombe alors sur la base globale
+ * (`foods.by_offId`) puis sur la photo d'étiquette.
+ */
+export const byBarcode = query({
+	args: { sessionToken: v.optional(v.string()), barcode: v.string() },
+	handler: async (ctx, { sessionToken, barcode }) => {
+		const user = await requireClient(ctx, sessionToken);
+		const code = barcode.replace(/\D/g, "");
+		if (!code) return null;
+		return (
+			(await ctx.db
+				.query("customFoods")
+				.withIndex("by_barcode", (q) => q.eq("barcode", code))
+				.first()) ?? null
+		);
+	},
+});
+
+/**
+ * Candidats globaux en attente de revue (réservé coach — brique du futur
+ * enrichissement de la base globale, aucun automatisme).
+ */
+export const globalCandidates = query({
+	args: { sessionToken: v.optional(v.string()) },
+	handler: async (ctx, { sessionToken }) => {
+		const coach = await getSessionUser(ctx, sessionToken);
+		if (!coach) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
+		if (coach.role !== "coach") throw new ConvexError("Réservé à la coach.");
+		const rows = await ctx.db.query("customFoods").collect();
+		return rows.filter((r) => r.globalStatus === "candidate" && r.barcode);
 	},
 });

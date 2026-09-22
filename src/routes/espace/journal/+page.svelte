@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount, tick, untrack } from 'svelte';
 	import { beforeNavigate } from '$app/navigation';
-	import { startBarcodeScanner, CameraPermissionError, type BarcodeScannerHandle } from '$lib/barcodeScanner';
+	import { startBarcodeScanner, CameraPermissionError, normalizeProductCode, type BarcodeScannerHandle, type TorchHandle } from '$lib/barcodeScanner';
+	import { compressImage, detectBarcodeInDataUrl } from '$lib/labelBarcode';
 	import { currentLocalDay } from '$lib/currentDay.svelte';
 	import { appWarm, firstVisit, isFresh, noteSync, restoreScroll, saveScroll } from '$lib/navMemory';
 	import JournalDay from '$lib/components/JournalDay.svelte';
@@ -34,6 +35,8 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		servingUnit?: string;
 		/** « planned_eaten » : validé depuis un item planifié (cercle ✓ dans le Journal). */
 		source?: string;
+		/** Regroupement « repas analysé » (photo IA) : une carte repliable au Journal. */
+		mealGroup?: string;
 		/** Identité d'origine (duplication / création de repas) — snapshot sinon. */
 		foodId?: string;
 		customFoodId?: string;
@@ -93,6 +96,10 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		custom?: boolean;
 		/** Fiche de RÉFÉRENCE Ciqual (ANSES) — _id = libellé officiel exact. */
 		ciqual?: boolean;
+		/** Fibres /100 g (aliments personnels, information d'étiquette). */
+		fiber100?: number;
+		/** Sel /100 g (aliments personnels, information d'étiquette). */
+		salt100?: number;
 	};	type Meal = {
 		_id: string;
 		name: string;
@@ -1044,9 +1051,26 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	let cfCarbs = $state('');
 	let cfProtein = $state('');
 	let cfFat = $state('');
+	let cfFiber = $state('');
+	let cfSalt = $state('');
 	let cfServing = $state('');
 	let cfSaving = $state(false);
 	let cfError = $state('');
+	/** Champs signalés « à vérifier » (photo d'étiquette ambiguë). */
+	let cfReview = $state<Set<string>>(new Set());
+	/** Note IA (« kcal converties depuis kJ »…) affichée au-dessus du formulaire. */
+	let cfAiNote = $state('');
+	/** Code-barres en attente (scan ou photo) — sert d'info « candidat global ». */
+	let pendingBarcode = $state<string | null>(null);
+
+	/* ————— Bottom sheet « + Créer un aliment » (scan / étiquette / manuel) ————— */
+	let createSheetOpen = $state(false);
+	/** La feuille a été ouverte après un scan sans produit trouvé (contexte UX). */
+	let createSheetFromScan = $state(false);
+	/** Photo d'étiquette en cours d'analyse (spinner sur l'option). */
+	let labelAnalyzing = $state(false);
+	let labelError = $state('');
+	let labelFileInput: HTMLInputElement | undefined;
 
 	async function loadCustomFoods() {
 		customFoodsError = '';
@@ -1061,6 +1085,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	}
 	function openCustomEditor() {
 		customEditor = true;
+		createSheetOpen = false;
 		cfEditingId = null;
 		cfName = '';
 		cfBrand = '';
@@ -1068,6 +1093,8 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		cfCarbs = '';
 		cfProtein = '';
 		cfFat = '';
+		cfFiber = '';
+		cfSalt = '';
 		cfServing = '';
 		cfError = '';
 	}
@@ -1081,6 +1108,8 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		cfCarbs = String(food.carbs100);
 		cfProtein = String(food.protein100);
 		cfFat = String(food.fat100);
+		cfFiber = food.fiber100 !== undefined ? String(food.fiber100) : '';
+		cfSalt = food.salt100 !== undefined ? String(food.salt100) : '';
 		cfServing = food.servingQty !== undefined ? String(food.servingQty) : '';
 		cfError = '';
 	}
@@ -1110,11 +1139,16 @@ import { journalTipForDay } from '$lib/data/journalTips';
 					carbs100: num(cfCarbs) ?? 0,
 					protein100: num(cfProtein) ?? 0,
 					fat100: num(cfFat) ?? 0,
+					fiber100: num(cfFiber),
+					salt100: num(cfSalt),
 					servingQty: num(cfServing),
+					barcode: pendingBarcode ?? undefined,
+					sourceKind: pendingBarcode ? 'label_photo' : undefined,
 				}),
 			});
 			const j = await r.json();
 			if (j.error) throw new Error(j.error);
+			pendingBarcode = null;
 			await loadCustomFoods();
 			closeCustomEditor();
 		} catch (e) {
@@ -1133,6 +1167,97 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		} catch (e) {
 			customFoodsError = e instanceof Error ? e.message : String(e);
 		}
+	}
+
+	/* ————— Bottom sheet « + Créer un aliment » (scan / étiquette / manuel) ————— */
+	function openCreateSheet() {
+		labelError = '';
+		createSheetFromScan = false;
+		createSheetOpen = true;
+	}
+	function closeCreateSheet() {
+		createSheetOpen = false;
+		labelError = '';
+	}
+	/** Option « Scanner un code-barres » : bascule l'écran d'ajout en mode scan. */
+	async function createFromScan() {
+		createSheetOpen = false;
+		searchTab = 'crees';
+		await switchMode('barcode');
+	}
+	/** Option « Saisir manuellement » : formulaire existant (vierge). */
+	function createManual() {
+		pendingBarcode = null;
+		cfAiNote = '';
+		cfReview = new Set();
+		openCustomEditor();
+	}
+
+	/**
+	 * Option « Photographier une étiquette » : photo (captée ou galerie) →
+	 * compression → détection barcode LOCALE (vrai décodeur) → analyse IA
+	 * (serveur) → préremplissage du formulaire existant. L'IA ne crée JAMAIS
+	 * l'aliment : la cliente vérifie puis valide.
+	 */
+	async function analyzeLabelFile(file: File) {
+		labelAnalyzing = true;
+		labelError = '';
+		try {
+			const imageDataUrl = await compressImage(file);
+			// 1) Code-barres visible sur la photo ? Décodeur réel (jamais l'IA).
+			const code = await detectBarcodeInDataUrl(imageDataUrl);
+			// 2) Analyse Vision côté serveur (BFF → Convex → OpenAI).
+			const r = await fetch('/api/foods/label-scan', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ imageDataUrl, barcode: code ?? undefined }),
+			});
+			const j = await r.json();
+			if (!r.ok || j.ok === false) {
+				throw new Error(
+					['ai-unavailable', 'unreachable', 'timeout'].includes(String(j.reason))
+						? "L'analyse IA est momentanément indisponible — saisis les valeurs à la main ou réessaie dans un instant."
+						: String(j.reason ?? 'Analyse impossible.')
+				);
+			}
+			const a = j.analysis as {
+				name?: string; brand?: string; kcal100?: number; carbs100?: number;
+				protein100?: number; fat100?: number; fiber100?: number; salt100?: number;
+				servingQty?: number; kcalFromKj?: boolean; needsReview?: string[];
+			};
+			// 3) Préremplit le formulaire MANUEL existant (jamais de création directe).
+			createSheetOpen = false;
+			customEditor = true;
+			cfEditingId = null;
+			cfName = a.name ?? '';
+			cfBrand = a.brand ?? '';
+			cfKcal = a.kcal100 !== undefined ? String(a.kcal100) : '';
+			cfCarbs = a.carbs100 !== undefined ? String(a.carbs100) : '';
+			cfProtein = a.protein100 !== undefined ? String(a.protein100) : '';
+			cfFat = a.fat100 !== undefined ? String(a.fat100) : '';
+			cfFiber = a.fiber100 !== undefined ? String(a.fiber100) : '';
+			cfSalt = a.salt100 !== undefined ? String(a.salt100) : '';
+			cfServing = a.servingQty !== undefined ? String(a.servingQty) : '';
+			pendingBarcode = code ?? (j.barcode ? String(j.barcode) : null);
+			const review = new Set<string>((a.needsReview ?? []).map((x) => (x === 'valeurs' ? 'kcal' : x)));
+			if (!cfKcal) review.add('kcal');
+			cfReview = review;
+			cfAiNote = a.kcalFromKj
+				? 'Étiquette en kJ : les calories ont été converties (×0,239). Vérifie la valeur.'
+				: 'Valeurs lues sur ta photo — vérifie-les avant d\'enregistrer.';
+			cfError = '';
+		} catch (e) {
+			labelError = e instanceof Error ? e.message : String(e);
+		} finally {
+			labelAnalyzing = false;
+		}
+	}
+
+	/** « Produit inconnu » après un scan : rouvre la feuille en mode étiquette. */
+	function openLabelCaptureAfterUnknownScan() {
+		createSheetFromScan = true;
+		labelError = '';
+		createSheetOpen = true;
 	}
 
 	/* ————— Éditeur de repas ————— */
@@ -1532,8 +1657,24 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	let barcodeError = $state('');
 	/* Caméra refusée/bloquée : message dédié + « Réessayer » (voir startScanner). */
 	let barcodePermBlocked = $state(false);
-	let scanner: BarcodeScannerHandle | null = null;
+	let scanner: (BarcodeScannerHandle & TorchHandle) | null = null;
 	let scannerBusy = false;
+	/** Capacités caméra du scan en cours (lampe/zoom si supportés) — affiche
+	 *  les contrôles sous le lecteur, best effort selon l'appareil. */
+	let scannerCaps = $state<{ torch: boolean; zoom: boolean; zoomMin: number; zoomMax: number; zoomStep: number } | null>(null);
+	let torchOn = $state(false);
+	let zoomLevel = $state(1);
+
+	/** Lampe torche (best effort : false sur les appareils sans torch). */
+	async function toggleScannerTorch() {
+		if (!scanner) return;
+		const ok = await scanner.toggleTorch();
+		if (ok) torchOn = !torchOn;
+	}
+	/** Zoom optique/numérique de la caméra (slider, best effort). */
+	function applyScannerZoom() {
+		void scanner?.zoom(zoomLevel);
+	}
 
 	/** Démarre le scanner sur le lecteur demandé : « bc-reader » (écran « Ajouter
 	 *  un aliment ») ou « meal-bc-reader » (fenêtre produit de l'éditeur de
@@ -1545,9 +1686,18 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		scannerBusy = true;
 		barcodeStatus = 'scanning';
 		try {
-			scanner = await startBarcodeScanner(el, (decoded) => {
-				void handleScan(decoded, target);
-			});
+		scanner = await startBarcodeScanner(el, (decoded) => {
+			void handleScan(decoded, target);
+		});
+		scannerCaps = {
+			torch: scanner.hasTorch(),
+			zoom: scanner.hasZoom(),
+			zoomMin: scanner.zoomRange?.min ?? 1,
+			zoomMax: scanner.zoomRange?.max ?? 1,
+			zoomStep: scanner.zoomRange?.step ?? 0.1,
+		};
+		torchOn = false;
+		zoomLevel = scanner.zoomRange?.min ?? 1;
 		} catch (e) {
 			if (e instanceof CameraPermissionError) {
 				/* Refus/blocage caméra : message clair + « Réessayer » + comment
@@ -1579,6 +1729,8 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			}
 			scanner = null;
 		}
+		scannerCaps = null;
+		torchOn = false;
 	}
 	/** « Réessayer » après un refus/blocage caméra : relance le scan sur le bon
 	 *  lecteur (fenêtre produit si elle est ouverte, sinon « Ajouter un aliment »). */
@@ -1628,9 +1780,16 @@ import { journalTipForDay } from '$lib/data/journalTips';
 				} else {
 					openQty(j[0]);
 				}
-			} else {
+			} else if (target === 'meal') {
 				barcodeStatus = 'notfound';
 				barcodeError = `Aucun produit trouvé pour le code ${code}. Cherche-le par nom, ou vérifie le code.`;
+			} else {
+				// Produit inconnu : on propose « Photographier l'étiquette » —
+				// le code reste attaché au futur aliment (candidat global).
+				await stopScanner();
+				barcodeStatus = 'idle';
+			pendingBarcode = code;
+			openLabelCaptureAfterUnknownScan();
 			}
 		} catch (e) {
 			barcodeStatus = 'error';
@@ -1658,6 +1817,249 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		} else {
 			await stopScanner();
 			mealSearchMode = 'search';
+		}
+	}
+
+	/* ————— Photographier mon REPAS (IA → base G-FLUX → fiche visuelle) ————— */
+	type AnalyzedComponent = {
+		label: string;
+		qtyGrams: number;
+		/** "custom" · "off_imported" · "ciqual" · "ai" (estimation à valider). */
+		matchSource: 'custom' | 'off_imported' | 'ciqual' | 'ai';
+		foodId?: string;
+		customFoodId?: string;
+		ciqualLabel?: string;
+		name: string;
+		brand?: string;
+		kcal100?: number;
+		carbs100?: number;
+		protein100?: number;
+		fat100?: number;
+		aiKcal100?: number;
+		aiCarbs100?: number;
+		aiProtein100?: number;
+		aiFat100?: number;
+		aiNote?: string;
+		score?: number;
+	};
+	let mealPhotoOpen = $state(false);
+	let mealAnalyzing = $state(false);
+	let mealAnalyzed = $state<AnalyzedComponent[] | null>(null);
+	let mealAnalyzedHint = $state('');
+	let mealAnalyzedMeal = $state<'petit-dej' | 'dejeuner' | 'diner' | 'collation'>('dejeuner');
+	let mealPhotoError = $state('');
+	let mealCommitting = $state(false);
+	/** Ajout d'un ingrédient oublié (huile, sauce…) : recherche dans Convex. */
+	let mealAddSearchOpen = $state(false);
+	let mealAddQuery = $state('');
+	let mealAddResults = $state<Food[]>([]);
+	let mealAddSearching = $state(false);
+	let mealAddTimer: ReturnType<typeof setTimeout> | undefined;
+	/** Quantité : composant en cours d'édition dans la fiche analysée. */
+	let mealQtyEditIdx = $state<number | null>(null);
+	let mealQtyDraft = $state('');
+	let mealReplaceIdx = $state<number | null>(null);
+	let mealPhotoFileInput: HTMLInputElement | undefined;
+
+	function openMealPhoto(meal: 'petit-dej' | 'dejeuner' | 'diner' | 'collation' = 'dejeuner') {
+		mealAnalyzedMeal = meal;
+		mealAnalyzed = null;
+		mealAnalyzedHint = '';
+		mealPhotoError = '';
+		mealQtyEditIdx = null;
+		mealAddSearchOpen = false;
+		mealPhotoOpen = true;
+	}
+	function closeMealPhoto() {
+		mealPhotoOpen = false;
+	}
+
+	/** Analyse de la photo : OpenAI reconnaît les aliments + quantités, la
+	 *  base G-FLUX (Convex → Ciqual) fournit la nutrition. Sans IA : rien ne
+	 *  se casse — l'ajout manuel au Journal reste disponible. */
+	async function analyzeMealPhoto(file: File) {
+		mealAnalyzing = true;
+		mealPhotoError = '';
+		try {
+			const imageDataUrl = await compressImage(file, 1280, 0.8);
+			const r = await fetch('/api/meals/analyze', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ imageDataUrl }),
+			});
+			const j = await r.json();
+			if (!r.ok || j.ok === false) {
+				throw new Error(
+					['ai-unavailable', 'unreachable', 'timeout'].includes(String(j.reason))
+						? "L'analyse IA est momentanément indisponible — ajoute tes aliments par la recherche en attendant."
+						: String(j.reason ?? 'Analyse impossible.')
+				);
+			}
+			mealAnalyzed = (j.components ?? []) as AnalyzedComponent[];
+			mealAnalyzedHint = j.hint ?? '';
+			if (mealAnalyzed.length === 0) {
+				mealPhotoError = "Aucun aliment identifié sur la photo — réessaie avec un cadrage d'ensemble, ou ajoute les aliments à la main.";
+			}
+		} catch (e) {
+			mealPhotoError = e instanceof Error ? e.message : String(e);
+		} finally {
+			mealAnalyzing = false;
+		}
+	}
+
+	/** Valeurs /100 g effectives d'un composant (match en priorité, estimation IA en repli). */
+	function compPer100(c: AnalyzedComponent) {
+		const fromMatch = c.matchSource !== 'ai';
+		return {
+			kcal: fromMatch ? c.kcal100 ?? 0 : c.aiKcal100 ?? 0,
+			carbs: fromMatch ? c.carbs100 ?? 0 : c.aiCarbs100 ?? 0,
+			protein: fromMatch ? c.protein100 ?? 0 : c.aiProtein100 ?? 0,
+			fat: fromMatch ? c.fat100 ?? 0 : c.aiFat100 ?? 0,
+		};
+	}
+
+	const analyzedTotals = $derived.by(() => {
+		const t = { kcal: 0, carbs: 0, protein: 0, fat: 0 };
+		for (const c of mealAnalyzed ?? []) {
+			const p = compPer100(c);
+			const k = c.qtyGrams / 100;
+			t.kcal += p.kcal * k;
+			t.carbs += p.carbs * k;
+			t.protein += p.protein * k;
+			t.fat += p.fat * k;
+		}
+		return {
+			kcal: Math.round(t.kcal),
+			carbs: Math.round(t.carbs * 10) / 10,
+			protein: Math.round(t.protein * 10) / 10,
+			fat: Math.round(t.fat * 10) / 10,
+		};
+	});
+
+	/** Modification de quantité — recalcul instantané (dérivé, côté client). */
+	function openComponentQty(i: number) {
+		const c = mealAnalyzed?.[i];
+		if (!c) return;
+		mealQtyEditIdx = i;
+		mealQtyDraft = String(Math.round(c.qtyGrams));
+	}
+	function applyComponentQty() {
+		if (mealQtyEditIdx === null || !mealAnalyzed) return;
+		const v = Math.round(parseFloat(mealQtyDraft.replace(',', '.')));
+		if (isFinite(v) && v > 0 && v <= 2000) {
+			const next = mealAnalyzed.slice();
+			next[mealQtyEditIdx] = { ...next[mealQtyEditIdx], qtyGrams: v };
+			mealAnalyzed = next;
+		}
+		mealQtyEditIdx = null;
+	}
+	function removeComponent(i: number) {
+		if (!mealAnalyzed) return;
+		mealAnalyzed = mealAnalyzed.filter((_, idx) => idx !== i);
+	}
+	/** Remplacer un composant : rouvre la recherche d'ingrédient sur CETTE ligne. */
+	function replaceComponent(i: number) {
+		mealReplaceIdx = i;
+		mealAddQuery = '';
+		mealAddResults = [];
+		mealAddSearchOpen = true;
+	}
+	/** Ajouter un ingrédient oublié (huile, sauce, fromage…) : même recherche. */
+	function openAddIngredient() {
+		mealReplaceIdx = null;
+		mealAddQuery = '';
+		mealAddResults = [];
+		mealAddSearchOpen = true;
+	}
+	function onMealAddInput() {
+		clearTimeout(mealAddTimer);
+		mealAddTimer = setTimeout(() => runMealAddSearch(mealAddQuery.trim()), 300);
+	}
+	async function runMealAddSearch(q: string) {
+		if (q.length < 2) {
+			mealAddResults = [];
+			return;
+		}
+		mealAddSearching = true;
+		try {
+			const [prodR, ciqR] = await Promise.all([
+				fetch(`/api/foods/search?q=${encodeURIComponent(q)}&v=${FRONTEND_API_VERSION}`),
+				fetch(`/api/foods/ciqual?q=${encodeURIComponent(q)}`),
+			]);
+			const prod = await prodR.json();
+			const ciq = ciqR.ok ? await ciqR.json() : [];
+			const ciqFoods: Food[] = (Array.isArray(ciq) ? ciq : []).map(ciqualToFood);
+			const prods: Food[] = Array.isArray(prod?.items) ? prod.items : [];
+			// La CIQUAL d'abord (génériques), puis les produits (déjà en base).
+			mealAddResults = [...ciqFoods, ...prods].slice(0, 15);
+		} catch {
+			mealAddResults = [];
+		} finally {
+			mealAddSearching = false;
+		}
+	}
+	/** Sélection d'un aliment (ajout ou remplacement) — quantité par défaut 10 g
+	 *  pour les matières grasses, 100 g sinon. */
+	function pickMealAdd(food: Food) {
+		if (!mealAnalyzed) return;
+		const oily = /huile|beurre|mayonn|crème|creme|sauce|vinaigrette|pesto|fromage|lard|saindoux/i.test(food.name);
+		const per100 = { kcal100: food.kcal100, carbs100: food.carbs100, protein100: food.protein100, fat100: food.fat100 };
+		const comp: AnalyzedComponent = {
+			label: food.name,
+			qtyGrams: oily ? 10 : 100,
+			matchSource: food.ciqual ? 'ciqual' : food.custom ? 'custom' : 'off_imported',
+			foodId: food.custom || food.ciqual ? undefined : food._id,
+			customFoodId: food.custom ? food._id : undefined,
+			ciqualLabel: food.ciqual ? food._id : undefined,
+			name: food.name,
+			brand: food.brand,
+			...per100,
+		};
+		const next = mealAnalyzed.slice();
+		if (mealReplaceIdx !== null && mealReplaceIdx < next.length) next[mealReplaceIdx] = comp;
+		else next.push(comp);
+		mealAnalyzed = next;
+		mealAddSearchOpen = false;
+		mealReplaceIdx = null;
+	}
+
+	/** « Ajouter au Journal » : les N composants en UNE requête — les règles
+	 *  du Journal (snapshots serveur, planned si futur) sont appliquées telles
+	 *  quelles par la mutation. Aucun aliment n'est créé, aucune pollution de
+	 *  « Créés par moi » ni de la base globale. */
+	async function commitAnalyzedMeal() {
+		if (!mealAnalyzed || mealAnalyzed.length === 0 || mealCommitting) return;
+		mealCommitting = true;
+		mealPhotoError = '';
+		try {
+			const r = await fetch('/api/meals/commit', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					date,
+					meal: mealAnalyzedMeal,
+					clientDate: currentLocalDay(),
+					components: mealAnalyzed.map((c) => ({
+						foodId: c.foodId,
+						customFoodId: c.customFoodId,
+						ciqualLabel: c.ciqualLabel,
+						name: c.name,
+						qtyGrams: c.qtyGrams,
+						aiKcal100: c.matchSource === 'ai' ? c.aiKcal100 : undefined,
+						aiCarbs100: c.matchSource === 'ai' ? c.aiCarbs100 : undefined,
+						aiProtein100: c.matchSource === 'ai' ? c.aiProtein100 : undefined,
+						aiFat100: c.matchSource === 'ai' ? c.aiFat100 : undefined,
+					})),
+				}),
+			});
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			mealPhotoOpen = false;
+			await setDate(date);
+		} catch (e) {
+			mealPhotoError = e instanceof Error ? e.message : String(e);
+		} finally {
+			mealCommitting = false;
 		}
 	}
 	/** Fermeture de la fenêtre produit : scanner arrêté, mode réinitialisé. */
@@ -2231,6 +2633,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			onToggleSel={toggleSel}
 			onCalCardMount={(el) => (calCardEl = el)}
 			onTipDismiss={() => (tipDismissed = true)}
+			onPhoto={(meal) => openMealPhoto(meal as 'petit-dej' | 'dejeuner' | 'diner' | 'collation')}
 			/>
 		</div>
 	</div>
@@ -2524,9 +2927,13 @@ import { journalTipForDay } from '$lib/data/journalTips';
 							<input type="text" class="w-full rounded-xl border-2 border-line bg-cream px-3 py-2.5 text-sm font-semibold text-ink outline-none focus:border-brand" placeholder="Nom (ex. Hachis parmentier)" bind:value={cfName} />
 							<input type="text" class="mt-2 w-full rounded-xl border-2 border-line bg-cream px-3 py-2.5 text-sm text-ink outline-none focus:border-brand" placeholder="Marque (optionnel)" bind:value={cfBrand} />
 
+							{#if cfAiNote}
+								<p class="mt-2 flex items-start gap-1.5 rounded-xl bg-brand-light/60 px-3 py-2 text-xs text-brand-dark"><Icon name="sparkles" size={13} class="mt-0.5 shrink-0" />{cfAiNote}</p>
+							{/if}
+
 							<div class="mt-3 grid grid-cols-2 gap-2">
-								<label class="rounded-xl border-2 border-line bg-cream px-3 py-2">
-									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist">Calories / 100 g</span>
+								<label class="rounded-xl border-2 px-3 py-2 {cfReview.has('kcal') ? 'border-warn bg-warn-light/40' : 'border-line bg-cream'}">
+									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist">Calories / 100 g{#if cfReview.has('kcal')}<span class="ml-1 normal-case text-warn">· à vérifier</span>{/if}</span>
 									<input type="text" inputmode="decimal" class="mt-1 w-full bg-transparent text-sm font-bold text-ink outline-none" placeholder="Ex. 120" bind:value={cfKcal} />
 								</label>
 								<label class="rounded-xl border-2 border-line bg-cream px-3 py-2">
@@ -2540,6 +2947,14 @@ import { journalTipForDay } from '$lib/data/journalTips';
 								<label class="rounded-xl border-2 border-line bg-cream px-3 py-2">
 									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist">Lipides / 100 g</span>
 									<input type="text" inputmode="decimal" class="mt-1 w-full bg-transparent text-sm font-bold text-ink outline-none" placeholder="Ex. 4" bind:value={cfFat} />
+								</label>
+								<label class="rounded-xl border-2 border-line bg-cream px-3 py-2">
+									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist">Fibres / 100 g (optionnel)</span>
+									<input type="text" inputmode="decimal" class="mt-1 w-full bg-transparent text-sm font-bold text-ink outline-none" placeholder="Ex. 3" bind:value={cfFiber} />
+								</label>
+								<label class="rounded-xl border-2 border-line bg-cream px-3 py-2">
+									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist">Sel / 100 g (optionnel)</span>
+									<input type="text" inputmode="decimal" class="mt-1 w-full bg-transparent text-sm font-bold text-ink outline-none" placeholder="Ex. 1,2" bind:value={cfSalt} />
 								</label>
 							</div>
 
@@ -2557,9 +2972,9 @@ import { journalTipForDay } from '$lib/data/journalTips';
 							</button>
 							</div>
 						{:else}
-							<button type="button" class="mb-3 flex w-full items-center gap-2 rounded-xl bg-brand-light px-3 py-2.5 text-sm font-semibold text-brand transition hover:bg-brand/15" onclick={openCustomEditor}>
+							<button type="button" class="mb-3 flex w-full items-center gap-2 rounded-xl bg-brand-light px-3 py-2.5 text-sm font-semibold text-brand transition hover:bg-brand/15" onclick={openCreateSheet}>
 								<span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand text-white">＋</span>
-								Créer un aliment (étiquette nutritionnelle)
+								Créer un aliment
 							</button>
 							{#if customFoodsError}
 								<p class="rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{customFoodsError}</p>
@@ -2687,6 +3102,16 @@ import { journalTipForDay } from '$lib/data/journalTips';
 				<div bind:this={bcListEl} class="flex-1 overflow-y-auto overscroll-contain px-3 pb-24 pt-3">
 					<p class="mb-2.5 text-center text-xs text-mist">Scanne le code-barres du produit (ça marche même à distance) ou saisis-le à la main : on le retrouve dans la base G-Flux.</p>
 					<div id="bc-reader" class="relative mx-auto aspect-[3/4] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-colors {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}"></div>
+					{#if scannerCaps && (scannerCaps.torch || scannerCaps.zoom)}
+						<div class="mx-auto mt-2 flex w-full max-w-sm items-center justify-center gap-3">
+							{#if scannerCaps.torch}
+								<button type="button" class="grid h-10 w-10 place-items-center rounded-full border-2 transition {torchOn ? 'border-warn bg-warn-light text-warn' : 'border-line bg-white text-mist'}" aria-label={torchOn ? 'Éteindre la lampe' : 'Allumer la lampe'} onclick={toggleScannerTorch}><Icon name="sun" size={18} /></button>
+							{/if}
+							{#if scannerCaps.zoom}
+								<input type="range" class="h-10 flex-1 accent-[var(--color-brand)]" min={scannerCaps.zoomMin} max={scannerCaps.zoomMax} step={scannerCaps.zoomStep} bind:value={zoomLevel} oninput={applyScannerZoom} aria-label="Zoom caméra" />
+							{/if}
+						</div>
+					{/if}
 
 					<div class="mx-auto mt-3 w-full max-w-sm">
 						<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2.5 focus-within:border-brand">														<Icon name="barcode" size={18} class="shrink-0 text-mist" />
@@ -2745,7 +3170,235 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			</div>
 		</div>
 	</div>
-{/if}{#if ingEdit}
+{/if}
+{#if mealPhotoOpen}
+	<!-- ═══════════ Bottom sheet « Photographier mon repas » ═══════════
+	     1. Photo (capture directe) → analyse IA (composants + quantités) ;
+	     2. MATCH base G-FLUX (Convex → Ciqual) — nutrition JAMAIS inventée ;
+	     3. Fiche visuelle unique : composants modifiables (quantité, remplacement,
+	        suppression) + ajout d'un ingrédient oublié (huile, sauce…) ;
+	     4. « Ajouter au Journal » : N composants en une requête, aucun aliment
+	        créé (ni « Créés par moi », ni base globale). -->
+	<div role="presentation" class="fixed inset-0 z-[75] flex items-end justify-center bg-ink/40 backdrop-blur-sm sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget && !mealAnalyzing && !mealCommitting) closeMealPhoto(); }} onkeydown={(e) => { if (e.key === 'Escape' && !mealAnalyzing && !mealCommitting) closeMealPhoto(); }}>
+		<div class="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 pb-[max(env(safe-area-inset-bottom),20px)] shadow-2xl sm:rounded-3xl">
+			<div class="mb-3 flex items-center justify-between">
+				<p class="font-display text-[17px] font-bold text-ink">Photographier mon repas</p>
+				<button type="button" class="grid h-8 w-8 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={closeMealPhoto}><Icon name="x" size={18} /></button>
+			</div>
+
+			<!-- Choix du repas (même sélecteur que la feuille de quantité) -->
+			<div class="mb-3 grid grid-cols-4 gap-1.5">
+				{#each MEAL_DEFS as m (m.id)}
+					<button type="button" class="flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-semibold transition {mealAnalyzedMeal === m.id ? 'bg-brand text-white' : 'bg-line/50 text-mist'}" onclick={() => (mealAnalyzedMeal = m.id)}>
+						<Icon name={m.icon} size={15} class="shrink-0" />
+						{m.label.split(' ')[0]}
+					</button>
+				{/each}
+			</div>
+
+			{#if !mealAnalyzed}
+				<!-- Capture : gros bouton unique, analyse pendant le spinner -->
+				<button type="button" class="flex w-full flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-brand/40 bg-brand-light/30 px-4 py-8 text-center transition hover:bg-brand-light/60 disabled:opacity-60" disabled={mealAnalyzing} onclick={() => mealPhotoFileInput?.click()}>
+					<Icon name={mealAnalyzing ? 'sparkles' : 'camera'} size={30} class="text-brand {mealAnalyzing ? 'animate-pulse' : ''}" />
+					<span class="text-sm font-bold text-ink">{mealAnalyzing ? 'Analyse de ton assiette…' : 'Prendre la photo du repas'}</span>
+					<span class="max-w-xs text-xs text-mist">{mealAnalyzing ? 'On reconnaît les aliments et les quantités — encore quelques secondes.' : 'Cadre l\'assiette entière : les aliments reconnus seront proposés, tu vérifies tout avant d\'enregistrer.'}</span>
+				</button>
+				<p class="mt-3 text-center text-[11px] text-mist">L'IA reconnaît les aliments — la nutrition vient de la base G-FLUX (Ciqual, produits) : jamais inventée.</p>
+			{:else}
+				<!-- Fiche visuelle du repas analysé (une carte, N composants) -->
+				<div class="mb-3 flex items-center justify-between rounded-2xl bg-ink px-4 py-3 text-white">
+					<p class="flex items-center gap-2 text-[13px] font-bold tracking-wide">REPAS ANALYSÉ</p>
+					<p class="text-lg font-bold text-emerald-300 tabular-nums">≈ {fmt(analyzedTotals.kcal)} kcal</p>
+				</div>
+
+				<ul class="flex flex-col divide-y divide-line/60 rounded-2xl border border-line">
+					{#each mealAnalyzed as c, i (i)}
+						{@const per = compPer100(c)}
+						<li class="flex items-center gap-2 px-3 py-2">
+							<span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={16} class="text-brand" /></span>
+							<span class="min-w-0 flex-1">
+								<span class="block truncate text-[14px] font-semibold text-ink">{c.name}</span>
+								<span class="block text-[11px] text-mist tabular-nums">
+									<strong class="text-brand">{fmt(Math.round((per.kcal * c.qtyGrams) / 100))} kcal</strong>
+									{#if c.matchSource === 'ai'}
+										· <span class="rounded bg-warn-light px-1 py-px font-semibold text-warn">Estimation IA</span>
+									{:else if c.matchSource === 'ciqual'}
+										· Réf. Ciqual
+									{:else if c.matchSource === 'custom'}
+										· Mes aliments
+									{/if}
+								</span>
+							</span>
+							<!-- Quantité : tap → édition, recalcul instantané -->
+							<button type="button" class="shrink-0 rounded-lg border-2 border-line px-2 py-1 text-sm font-bold text-ink tabular-nums transition {mealQtyEditIdx === i ? 'border-brand text-brand' : 'hover:border-brand'}" onclick={() => openComponentQty(i)}>
+								{#if mealQtyEditIdx === i}
+									<input type="text" inputmode="numeric" class="w-14 bg-transparent text-right outline-none" bind:value={mealQtyDraft} onkeydown={(e) => { if (e.key === 'Enter') applyComponentQty(); }} onblur={applyComponentQty} />
+								{:else}
+									{fmt(Math.round(c.qtyGrams))} g
+								{/if}
+							</button>
+							<button type="button" class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-mist transition hover:bg-line/70 hover:text-ink" aria-label={`Remplacer ${c.name}`} onclick={() => replaceComponent(i)}><Icon name="repeat" size={14} /></button>
+							<button type="button" class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-mist transition hover:bg-danger-light hover:text-danger" aria-label={`Supprimer ${c.name}`} onclick={() => removeComponent(i)}><Icon name="trash" size={14} /></button>
+						</li>
+					{/each}
+				</ul>
+
+				{#if mealAnalyzedHint}
+					<p class="mt-2 flex items-start gap-1.5 rounded-xl bg-brand-light/50 px-3 py-2 text-xs text-brand-dark"><Icon name="lightbulb" size={13} class="mt-0.5 shrink-0" />{mealAnalyzedHint}</p>
+				{/if}
+
+				<button type="button" class="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-line px-3 py-2.5 text-sm font-semibold text-mist transition hover:border-brand hover:text-brand" onclick={openAddIngredient}>
+					<Icon name="plus" size={15} /> Ajouter un ingrédient
+				</button>
+
+				<!-- Totaux live (recalculés à chaque modification de quantité) -->
+				<p class="mt-3 flex flex-wrap items-baseline justify-center gap-x-1 text-center text-sm">
+					<span class="font-bold tabular-nums" style:color="#3b82f6">P {fmt(analyzedTotals.protein)} g</span>
+					<span class="text-mist">·</span>
+					<span class="font-bold tabular-nums" style:color="#ec4899">G {fmt(analyzedTotals.carbs)} g</span>
+					<span class="text-mist">·</span>
+					<span class="font-bold tabular-nums" style:color="#f97316">L {fmt(analyzedTotals.fat)} g</span>
+				</p>
+			{/if}
+
+			{#if mealPhotoError}
+				<p class="mt-3 rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{mealPhotoError}</p>
+			{/if}
+
+			{#if mealAnalyzed && mealAnalyzed.length > 0}
+				<button type="button" class="mt-4 w-full rounded-full bg-brand py-3.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={mealCommitting || mealAnalyzed.length === 0} onclick={commitAnalyzedMeal}>
+					{mealCommitting ? 'Ajout au journal…' : 'Ajouter au Journal'}
+				</button>
+				<p class="mt-2 text-center text-[11px] text-mist">Les composants restent séparés dans le journal — rien n'est créé dans tes aliments ni dans la base globale.</p>
+			{/if}
+		</div>
+	</div>
+
+	<!-- Recherche d'ingrédient (ajout oublié / remplacement) — fenêtre produit compacte -->
+	{#if mealAddSearchOpen}
+		<div role="presentation" class="fixed inset-0 z-[85] flex items-end justify-center bg-ink/40 sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget) mealAddSearchOpen = false; }} onkeydown={(e) => { if (e.key === 'Escape') (mealAddSearchOpen = false); }}>
+			<div class="flex h-[80dvh] w-full max-w-lg flex-col rounded-t-3xl bg-white shadow-2xl sm:h-[min(80dvh,600px)] sm:rounded-3xl">
+				<div class="flex shrink-0 items-center justify-between border-b border-line px-4 py-3">
+					<p class="text-[15px] font-bold text-ink">{mealReplaceIdx !== null ? 'Remplacer l’ingrédient' : 'Ajouter un ingrédient'}</p>
+					<button type="button" class="grid h-8 w-8 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={() => { mealAddSearchOpen = false; mealReplaceIdx = null; }}><Icon name="x" size={18} /></button>
+				</div>
+				<div class="shrink-0 border-b border-line px-3 py-2">
+					<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2 focus-within:border-brand">
+						<Icon name="search" size={16} class="shrink-0 text-mist" />
+						<input type="search" class="w-full bg-transparent text-[15px] text-ink outline-none placeholder:text-mist" placeholder="Ex. huile d'olive, sauce tomate…" bind:value={mealAddQuery} oninput={onMealAddInput} />
+					</div>
+					<p class="mt-1 px-1 text-[11px] text-mist">Huile, beurre, sauce, fromage : pense aux ingrédients invisibles sur la photo.</p>
+				</div>
+				<div class="flex-1 overflow-y-auto px-2.5 py-2">
+					{#if mealAddSearching && mealAddResults.length === 0}
+						<p class="py-8 text-center text-sm text-mist">Recherche…</p>
+					{:else if mealAddQuery.trim().length < 2}
+						<p class="py-8 text-center text-sm text-mist">Recherche dans ta base et la base G-Flux.</p>
+					{:else if mealAddResults.length === 0}
+						<p class="py-8 text-center text-sm text-mist">Aucun résultat pour « {mealAddQuery.trim()} ».</p>
+					{:else}
+						<ul class="flex flex-col divide-y divide-line/50">
+							{#each mealAddResults as f (f._id)}
+								<li>
+									<button type="button" class="flex w-full items-center gap-2 px-1 py-2 text-left transition hover:opacity-70" onclick={() => pickMealAdd(f)}>
+										{#if f.ciqual}
+											<span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="salad" size={17} class="text-brand" /></span>
+										{:else}
+											<div class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={16} class="text-brand" /></div>
+										{/if}
+										<span class="min-w-0 flex-1">
+											<span class="block truncate text-sm font-semibold text-ink">{f.name}</span>
+											<span class="block text-[11px] text-mist"><strong class="font-bold text-brand">{fmt(f.kcal100)} kcal</strong> / 100 g{#if f.brand} · {f.brand}{/if}</span>
+										</span>
+										<span class="text-brand">＋</span>
+									</button>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	<input
+		bind:this={mealPhotoFileInput}
+		type="file"
+		accept="image/*"
+		capture="environment"
+		class="hidden"
+		onchange={(e) => {
+			const f = (e.currentTarget as HTMLInputElement).files?.[0];
+			if (f) void analyzeMealPhoto(f);
+			(e.currentTarget as HTMLInputElement).value = '';
+		}}
+	/>
+{/if}
+{#if createSheetOpen}
+	<!-- ═══════════ Bottom sheet « + Créer un aliment » ═══════════
+	     3 points d'entrée : scanner un code-barres, photographier une étiquette
+	     (IA préremplit, la cliente vérifie), ou saisir manuellement (formulaire
+	     historique). Ouverte aussi APRÈS un scan sans produit trouvé. -->
+	<div role="presentation" class="fixed inset-0 z-[80] flex items-end justify-center bg-ink/40 backdrop-blur-sm sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget && !labelAnalyzing) closeCreateSheet(); }} onkeydown={(e) => { if (e.key === 'Escape' && !labelAnalyzing) closeCreateSheet(); }}>
+		<div class="w-full max-w-lg rounded-t-3xl bg-white p-5 pb-[max(env(safe-area-inset-bottom),20px)] shadow-2xl sm:rounded-3xl">
+			<div class="mb-3 flex items-center justify-between">
+				<p class="font-display text-[17px] font-bold text-ink">Créer un aliment</p>
+				<button type="button" class="grid h-8 w-8 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={closeCreateSheet}><Icon name="x" size={18} /></button>
+			</div>
+			{#if createSheetFromScan}
+				<p class="mb-3 rounded-xl bg-line/40 px-3 py-2 text-xs text-mist">Produit introuvable pour ce code-barres. Photographie l'étiquette : l'app préremplit les valeurs, tu n'as plus qu'à vérifier.</p>
+			{/if}
+
+			<div class="flex flex-col gap-2">
+				<button type="button" class="flex items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left transition hover:border-brand disabled:opacity-60" disabled={labelAnalyzing} onclick={() => createFromScan()}>
+					<span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name="barcode" size={19} class="text-brand" /></span>
+					<span class="min-w-0 flex-1">
+						<span class="block text-sm font-semibold text-ink">Scanner un code-barres</span>
+						<span class="block text-xs text-mist">Produit emballé — même à distance</span>
+						</span>
+					<Icon name="chevronRight" size={16} class="shrink-0 text-mist" />
+				</button>
+
+				<button type="button" class="flex items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left transition hover:border-brand disabled:opacity-60" disabled={labelAnalyzing} onclick={() => labelFileInput?.click()}>
+					<span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name={labelAnalyzing ? 'sparkles' : 'camera'} size={19} class="text-brand {labelAnalyzing ? 'animate-pulse' : ''}" /></span>
+					<span class="min-w-0 flex-1">
+						<span class="block text-sm font-semibold text-ink">{labelAnalyzing ? 'Lecture de l\'étiquette…' : 'Photographier une étiquette'}</span>
+						<span class="block text-xs text-mist">Le tableau nutritionnel est rempli automatiquement</span>
+					</span>
+					<Icon name="chevronRight" size={16} class="shrink-0 text-mist" />
+				</button>
+
+				<button type="button" class="flex items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left transition hover:border-brand disabled:opacity-60" disabled={labelAnalyzing} onclick={createManual}>
+					<span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name="pencil" size={19} class="text-brand" /></span>
+					<span class="min-w-0 flex-1">
+						<span class="block text-sm font-semibold text-ink">Saisir manuellement</span>
+						<span class="block text-xs text-mist">Recette maison ou valeurs connues</span>
+					</span>
+					<Icon name="chevronRight" size={16} class="shrink-0 text-mist" />
+				</button>
+			</div>
+
+			{#if labelError}
+				<p class="mt-3 rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{labelError}</p>
+			{/if}
+		</div>
+	</div>
+	<!-- Capture photo cachée : déclenchée par l'option étiquette (capture directe,
+	     repli galerie si l'appareil ne propose pas d'appareil photo). -->
+	<input
+		bind:this={labelFileInput}
+		type="file"
+		accept="image/*"
+		capture="environment"
+		class="hidden"
+		onchange={(e) => {
+			const f = (e.currentTarget as HTMLInputElement).files?.[0];
+			if (f) void analyzeLabelFile(f);
+			(e.currentTarget as HTMLInputElement).value = '';
+		}}
+	/>
+{/if}
+{#if ingEdit}
 	<!-- Feuille de quantité d'un INGRÉDIENT de repas : même composant que le
 	     journal (grammes au pas de 1 g, portions, raccourcis, macros live). -->
 	<QuantitySheet
@@ -2871,6 +3524,16 @@ import { journalTipForDay } from '$lib/data/journalTips';
 				<div bind:this={mealBcListEl} class="flex-1 overflow-y-auto overscroll-contain px-3 pb-24 pt-3">
 					<p class="mb-2.5 text-center text-xs text-mist">Scanne le code-barres du produit : dès qu'il est lu, la feuille de portion s'ouvre directement.</p>
 					<div id="meal-bc-reader" class="relative mx-auto aspect-[3/4] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-colors {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}"></div>
+					{#if scannerCaps && (scannerCaps.torch || scannerCaps.zoom)}
+						<div class="mx-auto mt-2 flex w-full max-w-sm items-center justify-center gap-3">
+							{#if scannerCaps.torch}
+								<button type="button" class="grid h-10 w-10 place-items-center rounded-full border-2 transition {torchOn ? 'border-warn bg-warn-light text-warn' : 'border-line bg-white text-mist'}" aria-label={torchOn ? 'Éteindre la lampe' : 'Allumer la lampe'} onclick={toggleScannerTorch}><Icon name="sun" size={18} /></button>
+							{/if}
+							{#if scannerCaps.zoom}
+								<input type="range" class="h-10 flex-1 accent-[var(--color-brand)]" min={scannerCaps.zoomMin} max={scannerCaps.zoomMax} step={scannerCaps.zoomStep} bind:value={zoomLevel} oninput={applyScannerZoom} aria-label="Zoom caméra" />
+							{/if}
+						</div>
+					{/if}
 
 					<div class="mx-auto mt-3 w-full max-w-sm">
 						<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2.5 focus-within:border-brand">

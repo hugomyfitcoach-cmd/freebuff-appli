@@ -8,6 +8,8 @@
  * @module
  */
 
+import type * as aiAnalysis from "../aiAnalysis.js";
+import type * as aiLog from "../aiLog.js";
 import type * as answers from "../answers.js";
 import type * as appVersion from "../appVersion.js";
 import type * as appointments from "../appointments.js";
@@ -27,6 +29,7 @@ import type * as googleCalendar from "../googleCalendar.js";
 import type * as helpers from "../helpers.js";
 import type * as journal from "../journal.js";
 import type * as maintenance from "../maintenance.js";
+import type * as mealMatch from "../mealMatch.js";
 import type * as mealPlans from "../mealPlans.js";
 import type * as meals from "../meals.js";
 import type * as media from "../media.js";
@@ -55,6 +58,8 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  aiAnalysis: typeof aiAnalysis;
+  aiLog: typeof aiLog;
   answers: typeof answers;
   appVersion: typeof appVersion;
   appointments: typeof appointments;
@@ -74,6 +79,7 @@ declare const fullApi: ApiFromModules<{
   helpers: typeof helpers;
   journal: typeof journal;
   maintenance: typeof maintenance;
+  mealMatch: typeof mealMatch;
   mealPlans: typeof mealPlans;
   meals: typeof meals;
   media: typeof media;

@@ -17,9 +17,20 @@
  * distance et à l'alignement.
  */
 
+import type { MediaTrackConstraintSet } from './barcodeTypes';
+
 export type BarcodeScannerHandle = {
 	/** Arrête la caméra + le décodage et retire les éléments injectés. */
 	stop: () => Promise<void>;
+};
+
+/** Capacités utiles du track caméra (lampe/zoom), si supportées. */
+export type TorchHandle = {
+	toggleTorch: () => Promise<boolean>;
+	hasTorch: () => boolean;
+	zoom: (factor: number) => Promise<boolean>;
+	hasZoom: () => boolean;
+	zoomRange: { min: number; max: number; step: number } | null;
 };
 
 /**
@@ -29,6 +40,49 @@ export type BarcodeScannerHandle = {
  * « caméra indisponible ». Les autres erreurs restent des Error classiques.
  */
 export class CameraPermissionError extends Error {}
+
+/** Vibration légère à la détection (best effort, jamais bloquant). */
+function vibrateOk(): void {
+	try {
+		navigator.vibrate?.(35);
+	} catch {
+		// pas de vibration (desktop / iOS Safari) : silencieux
+	}
+}
+
+/**
+ * Valide un code lu : EAN-13 / EAN-8 / UPC-A (12, réécrit en 13 avec 0
+ * préfixe) — checksum obligatoire. UPC-E (8 avec 0/1 en tête) accepté.
+ * Retourne le code normalisé, ou null si le format ne correspond pas
+ * (QR, CODE_128 interne, lecture partielle…).
+ */
+export function normalizeProductCode(raw: string): string | null {
+	const digits = (raw ?? '').replace(/\D/g, '');
+	if (digits.length === 13) {
+		return eanChecksumValid(digits) ? digits : null;
+	}
+	if (digits.length === 12) {
+		// UPC-A ⊂ EAN-13 (préfixe 0).
+		const as13 = `0${digits}`;
+		return eanChecksumValid(as13) ? as13 : null;
+	}
+	if (digits.length === 8) {
+		// EAN-8 ou UPC-E (préfixe 0/1) — checksum pareil (modulo 10).
+		return eanChecksumValid(digits) ? digits : null;
+	}
+	return null;
+}
+
+/** Checksum modulo 10 EAN/UPC (dernier chiffre = clé). */
+function eanChecksumValid(d: string): boolean {
+	let sum = 0;
+	for (let i = 0; i < d.length - 1; i++) {
+		const n = Number(d[i]);
+		// De droite à gauche, poids alternés 3/1 ; d.length-1-i donne la position.
+		sum += n * ((d.length - 1 - i) % 2 === 0 ? 3 : 1);
+	}
+	return (10 - (sum % 10)) % 10 === Number(d[d.length - 1]);
+}
 
 type NativeDetector = {
 	detect(source: CanvasImageSource | HTMLVideoElement): Promise<{ rawValue: string }[]>;
@@ -59,10 +113,17 @@ type ZXing = {
 /** Formats utiles pour de l'alimentaire (EAN/UPC + CODE_128). */
 const FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'itf', 'code_39'] as const;
 
-/** Résolution de décodage maximale (largeur). 1280 px ≈ 3,4× html5-qrcode. */
-const MAX_DECODE_WIDTH = 1280;
+/** Résolution de décodage maximale (largeur). 1920 px ≈ 5× html5-qrcode :
+ *  c'est LE levier principal de portée — plus de pixels sur le même code
+ *  barres lu à distance normale (1200/1280 en repli si refus du track). */
+const RESOLUTION_LADDER = [
+	{ width: 1920, height: 1080 },
+	{ width: 1280, height: 720 },
+] as const;
 /** Cadence de décodage (ms entre deux frames). */
 const FRAME_INTERVAL_MS = 70;
+/** Garde anti double lecture : même code ignoré pendant 1,2 s. */
+const DUPLICATE_MS = 1200;
 
 function getNativeDetector(): NativeDetector | null {
 	const w = window as unknown as { BarcodeDetector?: new (opts?: { formats?: string[] }) => NativeDetector };
@@ -83,7 +144,7 @@ function getNativeDetector(): NativeDetector | null {
 export async function startBarcodeScanner(
 	container: HTMLElement,
 	onDecoded: (text: string) => void
-): Promise<BarcodeScannerHandle> {
+): Promise<BarcodeScannerHandle & TorchHandle> {
 	container.replaceChildren();
 
 	let stopped = false;
@@ -100,16 +161,25 @@ export async function startBarcodeScanner(
 	// session — l'app ne peut ni l'éviter ni la contourner). Pas de query
 	// `permissions` préalable : inutile quand c'est déjà accordé, non fiable
 	// sur Safari, et le prompt DOIT partir d'un geste utilisateur (le clic).
-	try {
-		stream = await navigator.mediaDevices.getUserMedia({
-			audio: false,
-			video: {
-				facingMode: 'environment',
-				width: { ideal: 1920 },
-				height: { ideal: 1080 },
-			},
-		});
-	} catch (e) {
+	// Ladder de résolution : certains tracks refusent 1920 → repli 1280.
+	let lastError: unknown = null;
+	for (const res of RESOLUTION_LADDER) {
+		try {
+			stream = await navigator.mediaDevices.getUserMedia({
+				audio: false,
+				video: {
+					facingMode: 'environment',
+					width: { ideal: res.width },
+					height: { ideal: res.height },
+				},
+			});
+			break;
+		} catch (e) {
+			lastError = e;
+		}
+	}
+	if (!stream) {
+		const e = lastError;
 		const name = e instanceof DOMException ? e.name : '';
 		if (name === 'NotAllowedError' || name === 'SecurityError' || name === 'NotFoundError') {
 			throw new CameraPermissionError(
@@ -118,11 +188,18 @@ export async function startBarcodeScanner(
 					: "L'accès à la caméra est refusé ou bloqué pour ce site."
 			);
 		}
-		throw e;
+		throw e instanceof Error ? e : new Error('Caméra indisponible.');
 	}
 	if (stopped) {
 		for (const t of stream.getTracks()) t.stop();
-		return { stop: async () => {} };
+		return {
+			stop: async () => {},
+			toggleTorch: async () => false,
+			hasTorch: () => false,
+			zoom: async () => false,
+			hasZoom: () => false,
+			zoomRange: null,
+		};
 	}
 
 	// -- Éléments visuels ----------------------------------------------------
@@ -230,7 +307,7 @@ export async function startBarcodeScanner(
 		const nw = video.videoWidth || 0;
 		const nh = video.videoHeight || 0;
 		if (!nw || !nh) return;
-		const scale = Math.min(1, MAX_DECODE_WIDTH / nw);
+		const scale = Math.min(1, 1920 / nw);
 		vw = Math.round(nw * scale);
 		vh = Math.round(nh * scale);
 		canvas.width = vw;
@@ -272,6 +349,11 @@ export async function startBarcodeScanner(
 		}
 	};
 
+	// Garde anti double lecture : un même code qui reste sous l'objectif
+	// quelques frames ne déclenche pas plusieurs ouverture de feuille.
+	let lastCode = '';
+	let lastCodeAt = 0;
+
 	// Boucle de scan (avec garde anti-chevauchement).
 	const tick = async () => {
 		if (stopped) return;
@@ -280,7 +362,17 @@ export async function startBarcodeScanner(
 			try {
 				if (!vw && video.videoWidth) resizeCanvas();
 				const text = await decodeOnce();
-				if (!stopped && text) onDecoded(text);
+				if (!stopped && text) {
+					const now = Date.now();
+					if (text === lastCode && now - lastCodeAt < DUPLICATE_MS) {
+						// même code tout juste lu : on ignore
+					} else {
+						lastCode = text;
+						lastCodeAt = now;
+						vibrateOk();
+						onDecoded(text);
+					}
+				}
 			} catch {
 				// Frame illisible → on continue.
 			} finally {
@@ -296,6 +388,39 @@ export async function startBarcodeScanner(
 	video.addEventListener('loadedmetadata', resizeCanvas, { once: true });
 	tick();
 
+	// -- Lampe + zoom (best effort, selon capacités du track) ----------------
+	const track = stream.getVideoTracks()[0];
+	const caps = (track?.getCapabilities?.() ?? {}) as MediaTrackConstraintSet & { torch?: boolean; zoom?: { min: number; max: number; step?: number } };
+	const hasTorch = caps.torch === true;
+	const zoomCap = typeof caps.zoom === 'object' && caps.zoom ? caps.zoom : null;
+	let torchOn = false;
+	const torch: TorchHandle = {
+		hasTorch: () => hasTorch,
+		async toggleTorch() {
+			if (!hasTorch || !track) return false;
+			try {
+				torchOn = !torchOn;
+				await track.applyConstraints({ advanced: [{ torch: torchOn } as unknown as MediaTrackConstraintSet] });
+				return true;
+			} catch {
+				torchOn = false;
+				return false;
+			}
+		},
+		hasZoom: () => !!zoomCap,
+		zoomRange: zoomCap ? { min: zoomCap.min, max: zoomCap.max, step: zoomCap.step ?? 0.1 } : null,
+		async zoom(factor: number) {
+			if (!zoomCap || !track) return false;
+			try {
+				const z = Math.min(zoomCap.max, Math.max(zoomCap.min, factor));
+				await track.applyConstraints({ advanced: [{ zoom: z } as unknown as MediaTrackConstraintSet] });
+				return true;
+			} catch {
+				return false;
+			}
+		},
+	};
+
 	return {
 		stop: async () => {
 			stopped = true;
@@ -303,5 +428,6 @@ export async function startBarcodeScanner(
 			if (stream) for (const t of stream.getTracks()) t.stop();
 			container.replaceChildren();
 		},
+		...torch,
 	};
 }

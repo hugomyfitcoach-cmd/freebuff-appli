@@ -19,7 +19,7 @@ export const GET: RequestHandler = async (event) => {
 
 /**
  * Crée un aliment personnel : valeurs pour 100 g saisies depuis l'étiquette.
- * { name, brand?, kcal100, carbs100, protein100, fat100, servingQty? }
+ * { name, brand?, kcal100, carbs100, protein100, fat100, fiber100?, salt100?, servingQty?, barcode?, sourceKind? }
  */
 export const POST: RequestHandler = async (event) => {
 	await requireRole(event, 'client', { next: '/espace/journal' });
@@ -35,7 +35,11 @@ export const POST: RequestHandler = async (event) => {
 			carbs100: Number(body.carbs100 ?? 0),
 			protein100: Number(body.protein100 ?? 0),
 			fat100: Number(body.fat100 ?? 0),
+			fiber100: num(body.fiber100),
+			salt100: num(body.salt100),
 			servingQty: num(body.servingQty),
+			barcode: body.barcode ? String(body.barcode) : undefined,
+			sourceKind: body.sourceKind === 'label_photo' ? 'label_photo' : undefined,
 		});
 		return json(res);
 	} catch (e) {
@@ -65,7 +69,10 @@ export const PUT: RequestHandler = async (event) => {
 			carbs100: Number(body.carbs100 ?? 0),
 			protein100: Number(body.protein100 ?? 0),
 			fat100: Number(body.fat100 ?? 0),
+			fiber100: num(body.fiber100),
+			salt100: num(body.salt100),
 			servingQty: num(body.servingQty),
+			barcode: body.barcode ? String(body.barcode) : undefined,
 		});
 		return json(res);
 	} catch (e) {

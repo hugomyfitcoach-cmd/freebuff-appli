@@ -3,6 +3,7 @@ import { v, ConvexError } from "convex/values";
 import { getSessionUser } from "./helpers";
 import { ciqualFoodSource } from "./ciqualSource";
 import { attachThumbs, attachThumbsForFoodIds } from "./foodImages";
+import { trustedClientToday } from "./journal";
 import type { QueryCtx } from "./_generated/server";
 import type { Id, Doc } from "./_generated/dataModel";
 
@@ -51,6 +52,161 @@ const ingredientInput = v.object({
 	/** Fiche de RÉFÉRENCE Ciqual (libellé officiel exact) — exclusif avec foodId/customFoodId. */
 	ciqualLabel: v.optional(v.string()),
 	qtyGrams: v.number(),
+});
+
+/**
+ * Composant d'un REPAS ANALYSÉ (photo IA) — mêmes identités qu'un ingrédient,
+ * plus les valeurs /100 g de secours quand AUCUN match fiable n'a été trouvé
+ * (composant « Estimation IA » : repères à valider, clairement étiquetés,
+ * jamais masqués ni convertis en aliment).
+ */
+const analyzedComponentInput = v.object({
+	foodId: v.optional(v.id("foods")),
+	customFoodId: v.optional(v.id("customFoods")),
+	ciqualLabel: v.optional(v.string()),
+	name: v.string(),
+	qtyGrams: v.number(),
+	/** Valeurs IA /100 g de secours — utilisées UNIQUEMENT si aucune identité. */
+	aiKcal100: v.optional(v.number()),
+	aiCarbs100: v.optional(v.number()),
+	aiProtein100: v.optional(v.number()),
+	aiFat100: v.optional(v.number()),
+});
+
+/**
+ * « Ajouter au Journal » d'un repas analysé : N composants en une mutation.
+ *
+ * Règles (exactement celles de `journal.addEntry`, appliquées en boucle) :
+ * - identités résolues côté serveur (jamais de nutrition transmise par le
+ *   client quand une identité existe) ; snapshots + garde-fou kcal↔macros ;
+ * - composant SANS identité → estimation IA /100 g encadrée (0–900 kcal,
+ *   0–100 g macro), enregistrée avec `source: "ai_estimation"` ;
+ * - date future → plannedEntries (client_planned) comme l'ajout unitaire ;
+ * - `source` porte aussi le RASSEMBLEMENT repas : chaque composant d'une
+ *   même analyse partage `mealGroup` = "analyse:<timestamp>" — le Journal
+ *   affiche UNE carte regroupée, les composants restent recalculables.
+ */
+export const commitAnalyzedMeal = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		date: v.string(),
+		meal: v.string(),
+		components: v.array(analyzedComponentInput),
+		/** Date ISO locale du navigateur — frontière « futur » (fuseau client ≠ serveur UTC). */
+		clientDate: v.optional(v.string()),
+	},
+	handler: async (ctx, { sessionToken, date, meal, components, clientDate }) => {
+		const user = await requireClient(ctx, sessionToken);
+		if (!isValidDateISO(date)) throw new ConvexError("Date invalide.");
+		if (!isMeal(meal)) throw new ConvexError("Repas invalide.");
+		if (components.length === 0) throw new ConvexError("Aucun composant à ajouter.");
+		if (components.length > 12) throw new ConvexError("Maximum 12 composants par repas analysé.");
+
+		const { resolveCoachPlanForDate } = await import("./mealPlans");
+		await resolveCoachPlanForDate(ctx, user._id, date);
+		const today = trustedClientToday(clientDate);
+		const future = date > today;
+		const mealGroup = `analyse:${Date.now()}`;
+		const created: Id<"diaryEntries">[] = [];
+
+		for (const c of components) {
+			const qty = isFinite(c.qtyGrams) && c.qtyGrams > 0 && c.qtyGrams <= 5000 ? c.qtyGrams : 100;
+			let name = "";
+			let brand: string | undefined;
+			let kcal100: number = 0;
+			let carbs100: number = 0;
+			let protein100: number = 0;
+			let fat100: number = 0;
+			let source: string | undefined;
+
+			const ciqualRef = c.ciqualLabel ? ciqualFoodSource(c.ciqualLabel) : null;
+			if (c.ciqualLabel && !ciqualRef) throw new ConvexError("Une référence Ciqual n'existe plus. Vérifie ce composant.");
+			if (ciqualRef) {
+				name = ciqualRef.name;
+				kcal100 = ciqualRef.kcal100;
+				carbs100 = ciqualRef.carbs100;
+				protein100 = ciqualRef.protein100;
+				fat100 = ciqualRef.fat100;
+				source = undefined;
+			} else if (c.foodId) {
+				const food = await ctx.db.get(c.foodId);
+				if (!food) throw new ConvexError("Un composant n'existe plus dans la base. Vérifie-le.");
+				name = food.name;
+				brand = food.brand;
+				kcal100 = guardedKcal100(food);
+				carbs100 = food.carbs100;
+				protein100 = food.protein100;
+				fat100 = food.fat100;
+			} else if (c.customFoodId) {
+				const food = await ctx.db.get(c.customFoodId);
+				if (!food || food.userId !== user._id) throw new ConvexError("Un composant personnel n'existe plus. Vérifie-le.");
+				name = food.name;
+				brand = food.brand;
+				kcal100 = food.kcal100;
+				carbs100 = food.carbs100;
+				protein100 = food.protein100;
+				fat100 = food.fat100;
+			} else {
+				// Estimation IA (aucun match fiable) : repères /100 g encadrés,
+				// jamais convertis en aliment, jamais dans « Créés par moi ».
+				name = (c.name || "Composant").trim().slice(0, 80);
+				const safe = (v: number | undefined, max: number) =>
+					v !== undefined && isFinite(v) && v >= 0 ? Math.min(max, Math.round(v * 10) / 10) : 0;
+				kcal100 = safe(c.aiKcal100, 900);
+				carbs100 = safe(c.aiCarbs100, 100);
+				protein100 = safe(c.aiProtein100, 100);
+				fat100 = safe(c.aiFat100, 100);
+				source = "ai_estimation";
+			}
+
+			const k = qty / 100;
+			const row = {
+				userId: user._id,
+				date,
+				meal,
+				foodId: ciqualRef ? undefined : c.foodId,
+				customFoodId: ciqualRef ? undefined : c.customFoodId,
+				name,
+				brand,
+				qtyGrams: qty,
+				kcal: Math.round(kcal100 * k),
+				carbs: Math.round(carbs100 * k * 10) / 10,
+				protein: Math.round(protein100 * k * 10) / 10,
+				fat: Math.round(fat100 * k * 10) / 10,
+				source,
+				createdAt: Date.now(),
+			};
+			if (future) {
+				// Jour FUTUR → planifié (client_planned), comme l'ajout unitaire.
+				await ctx.db.insert("plannedEntries", {
+					userId: user._id,
+					date,
+					meal,
+					source: "client_planned",
+					name,
+					brand,
+					qtyGrams: qty,
+					kcal: row.kcal,
+					carbs: row.carbs,
+					protein: row.protein,
+					fat: row.fat,
+					foodId: row.foodId,
+					customFoodId: row.customFoodId,
+					createdAt: Date.now(),
+				});
+			} else {
+				const id = await ctx.db.insert("diaryEntries", {
+					...row,
+					// Clé de regroupement : le Journal affiche UNE carte « repas
+					// analysé », les composants restent des diaryEntries normaux
+					// (modification/suppression unitaires possibles, totaux intacts).
+					mealGroup,
+				});
+				created.push(id);
+			}
+		}
+		return { ok: true, created: created.length, mealGroup };
+	},
 });
 
 /**

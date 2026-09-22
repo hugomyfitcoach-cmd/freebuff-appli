@@ -39,6 +39,14 @@ export const sportActivitySource = v.union(v.literal("manual"), v.literal("gflux
  */
 export const durationSourceKind = v.union(v.literal("tracked"), v.literal("manual"));
 /**
+ * Statut « candidat global G-FLUX » d'un aliment créé par une cliente :
+ * - absent    : aliment privé (recette maison, saisie sans code-barres) ;
+ * - candidate : produit emballé identifié par code-barres, PRIS comme
+ *   candidat à la base globale — la publication (insert dans `foods`) est
+ *   une action COACH/exploitation manuelle, JAMAIS automatique.
+ */
+export const customFoodGlobalStatus = v.union(v.literal("candidate"));
+/**
  * PHASES d'une séance (module Entraînement) — un seul parcours, plusieurs
  * blocs affichés dans l'ordre : échauffement → principal → finisher.
  * Champ optionnel sur `trainingSessionExercises` : absent = "principal"
@@ -218,11 +226,27 @@ export default defineSchema({
 		carbs100: v.number(),
 		protein100: v.number(),
 		fat100: v.number(),
+		/** Composés à coefficient kcal ≠ 4 (cohérence du garde-fou kcal↔macros). */
+		fiber100: v.optional(v.number()),
+		/** Sel /100 g (information étiquette — jamais affiché dans les macros). */
+		salt100: v.optional(v.number()),
 		/** Portion suggérée (g), optionnelle — sert de quantité par défaut. */
 		servingQty: v.optional(v.number()),
+		/**
+		 * Code-barres EAN/GTIN lu au scan — produit emballé identifié. Présent
+		 * → l'aliment peut devenir « candidat global » (voir globalStatus).
+		 * Un même code peut exister chez plusieurs clientes : la dédoublonnage
+		 * à la publication globale relit l'index.
+		 */
+		barcode: v.optional(v.string()),
+		/** "candidate" : pris pour un futur enrichissement global (jamais auto). */
+		globalStatus: v.optional(customFoodGlobalStatus),
+		/** Origine de la création : "manual" (défaut) ou "label_photo". */
+		sourceKind: v.optional(v.string()),
 		createdAt: v.number(),
 	})
 		.index("by_user", ["userId"])
+		.index("by_barcode", ["barcode"])
 		.searchIndex("by_name", { searchField: "name" }),
 
 	/** Lignes du journal : un aliment consommé, un jour, un repas. */
@@ -251,6 +275,10 @@ export default defineSchema({
 		fat: v.number(),
 		/** « planned_eaten » : validé depuis un item planifié (✓ affiché dans le Journal). */
 		source: v.optional(v.string()),
+		/** Regroupement repas analysé (photo IA) : les N composants d'une même
+		 *  analyse partagent une clé "analyse:<timestamp>" — affichés comme UNE
+		 *  carte dans le Journal, recalculables composant par composant. */
+		mealGroup: v.optional(v.string()),
 		createdAt: v.number(),
 	})
 		.index("by_user_date", ["userId", "date"])
@@ -1234,6 +1262,30 @@ export default defineSchema({
 		.index("by_user_date", ["userId", "date"])
 		.index("by_user", ["userId"])
 		.index("by_trainingSession", ["trainingSessionId"]),
+
+	/**
+	 * TRAÇABILITÉ IA — une ligne par appel à OpenAI réussi (étiquette ou repas).
+	 * JAMAIS de données personnelles : la photo n'est PAS stockée, seuls les
+	 * compteurs techniques (modèle, tokens, durée, coût estimé) permettent de
+	 * suivre la consommation. Table bornée par nature (un appel = une ligne).
+	 */
+	aiUsageLog: defineTable({
+		/** "label" (étiquette nutritionnelle) | "meal" (photo de repas). */
+		kind: v.union(v.literal("label"), v.literal("meal")),
+		/** Modèle exact appelé (ex. "gpt-4o-mini"). */
+		model: v.string(),
+		inputTokens: v.optional(v.number()),
+		outputTokens: v.optional(v.number()),
+		/** Durée totale de l'appel (ms). */
+		durationMs: v.number(),
+		/** Statut : "ok" | "error" (timeout, JSON invalide, panne…). */
+		status: v.union(v.literal("ok"), v.literal("error")),
+		/** Coût estimé en USD (tarifs publics, à date) — info de pilotage. */
+		estimatedCostUsd: v.optional(v.number()),
+		/** Raison d'échec courte (tracabilité, jamais de message utilisateur). */
+		failReason: v.optional(v.string()),
+		createdAt: v.number(),
+	}).index("by_kind", ["kind"]),
 
 	/** Clé→valeur d'infrastructure (jamais de données métier). Version
 	 *  sémantique du backend : `appVersion = { key: 'api', version: '3' }`.
