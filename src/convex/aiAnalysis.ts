@@ -1,6 +1,6 @@
 import { v, ConvexError } from "convex/values";
 import { api, internal } from "./_generated/api";
-import { action } from "./_generated/server";
+import { action, query } from "./_generated/server";
 import type { MatchedComponent } from "./mealMatch";
 import { analyzeLabelImage, analyzeMealImage } from "../lib/server/openai";
 
@@ -90,6 +90,21 @@ function clampNut(n: unknown, max: number): number | undefined {
 }
 
 /* ─────────────── ÉTIQUETTE NUTRITIONNELLE ─────────────── */
+
+/**
+ * Statut de la configuration IA de CE déploiement (diagnostic preview).
+ * Renvoie des BOOLÉENS et le nom de modèle — JAMAIS la valeur de la clé.
+ * Sans session : aucune donnée, aucune information sensible.
+ */
+export const keyStatus = query({
+	args: {},
+	handler: async () => {
+		return {
+			openaiKeyPresent: !!process.env.OPENAI_API_KEY,
+			openaiModel: process.env.OPENAI_MODEL ?? null,
+		};
+	},
+});
 
 /** Action : analyse une photo d'étiquette et renvoie un JSON préremplissage. */
 export const analyzeLabel = action({

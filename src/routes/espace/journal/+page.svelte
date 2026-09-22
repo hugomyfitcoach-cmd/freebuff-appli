@@ -3156,7 +3156,10 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			     juste au-dessus du clavier (le conteneur suit le visualViewport),
 			     ne réserve aucune place dans le flux ; la liste défile dessous. -->
 			<div class="pointer-events-none absolute inset-x-0 bottom-[calc(0.625rem+env(safe-area-inset-bottom))] z-10 flex justify-center px-4">
-				<div class="pointer-events-auto flex h-14 w-[55%] min-w-[190px] max-w-[260px] items-center gap-1 rounded-full bg-ink/95 p-1 shadow-lg shadow-ink/30 ring-1 ring-white/10">
+				<!-- 3 zones équilibrées quand la bêta « Repas IA » est active pour le
+				     compte (méthode de TRACKING du journal — jamais une création
+				     d'aliment) ; sinon capsule 2 zones inchangée. -->
+				<div class="pointer-events-auto flex h-14 items-center gap-1 rounded-full bg-ink/95 p-1 shadow-lg shadow-ink/30 ring-1 ring-white/10 {aiFlags.mealPhotoAi ? 'w-[86%] max-w-[380px]' : 'w-[55%] min-w-[190px] max-w-[260px]'}">
 					<button
 						type="button"
 						class="flex h-full flex-1 flex-col items-center justify-center gap-0.5 rounded-full text-[11px] font-semibold transition {logMode === 'search' ? 'bg-white/15 text-white' : 'text-white/70 hover:text-white'}"
@@ -3173,6 +3176,17 @@ import { journalTipForDay } from '$lib/data/journalTips';
 						<Icon name="barcode" size={17} />
 						<span>Code-barres</span>
 					</button>
+					{#if aiFlags.mealPhotoAi}
+						<button
+							type="button"
+							class="relative flex h-full flex-1 flex-col items-center justify-center gap-0.5 rounded-full text-[11px] font-semibold text-white/70 transition hover:text-white"
+							onclick={() => openMealPhoto()}
+						>
+							<Icon name="camera" size={17} />
+							<span>Repas IA</span>
+							<span class="absolute right-1.5 top-1 rounded-full bg-brand px-1 py-px text-[8px] font-bold leading-none text-white">BÊTA</span>
+						</button>
+					{/if}
 				</div>
 			</div>
 		</div>

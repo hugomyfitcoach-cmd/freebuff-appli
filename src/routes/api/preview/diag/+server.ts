@@ -36,11 +36,17 @@ const enabled =
 
 export const GET = async () => {
 	if (!enabled) return json({ enabled: false }, { status: 404 });
+	// Statut IA du backend Convex ciblé — booléens, jamais la valeur de la clé.
+	const ai = await convex
+		.query(api.aiAnalysis.keyStatus, {})
+		.then((r) => ({ openaiKeyPresent: r.openaiKeyPresent, openaiModel: r.openaiModel, error: null }))
+		.catch((e) => ({ openaiKeyPresent: null, openaiModel: null, error: errMsg(e) }));
 	return json({
 		enabled: true,
 		convexUrl: url,
 		isProdLike: url.includes(PROD_MARK),
 		netlifyContext: ctx || null,
+		ai,
 	});
 };
 
