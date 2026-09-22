@@ -129,7 +129,6 @@ async function callOpenAi(
 		}
 		throw new OpenAiUnavailableError(`Service IA indisponible (HTTP ${res.status})${detail}.`);
 	}
-	}
 	const raw = (await res.json()) as {
 		output_text?: string;
 		output?: { type: string; content?: { type: string; text?: string }[] }[];
