@@ -7,13 +7,18 @@
  * ⚠️ La clé ne quitte JAMAIS ce module, n'est JAMAIS loggée, JAMAIS PUBLIC_*.
  */
 type PrivateEnv = { OPENAI_API_KEY?: string; OPENAI_MODEL?: string };
+/**
+ * Lecture LIVE de process.env à chaque appel (jamais un cache figé au
+ * chargement du module : les variables d'environnement Convex sont posées
+ * après le provisionnement — un cache module-scope a déjà masqué la clé
+ * sur un preview fraîchement créé).
+ */
 function aiEnv(): PrivateEnv {
 	// `process.env` existe dans les deux runtimes serveur (node) : BFF SvelteKit
 	// (Netlify/preview, valeurs injectées au cold start de la fonction) et Convex
 	// (variables d'environnement du déploiement).
 	return { ...process.env } as PrivateEnv;
 }
-const aiEnvCache = aiEnv();
 
 /**
  * Client OpenAI côté SERVEUR (BFF SvelteKit) — la clé ne quitte JAMAIS ce
@@ -35,7 +40,7 @@ const OPENAI_URL = 'https://api.openai.com/v1/responses';
 
 /** Modèle configurable — borne stricte à des modèles vision textuels. */
 function model(): string {
-	const m = aiEnvCache.OPENAI_MODEL ?? 'gpt-4o-mini';
+	const m = aiEnv().OPENAI_MODEL ?? 'gpt-4o-mini';
 	return /^(gpt-4o(-mini)?|gpt-4\.1(-mini|-nano)?|o4-mini)$/.test(m) ? m : 'gpt-4o-mini';
 }
 
@@ -76,7 +81,7 @@ async function callOpenAi(
 	imageDataUrl: string,
 	maxOutputTokens: number
 ): Promise<{ json: unknown; usage: AiUsage }> {
-	const key = aiEnvCache.OPENAI_API_KEY;
+	const key = aiEnv().OPENAI_API_KEY;
 	if (!key) throw new OpenAiUnavailableError("Analyse IA non configurée sur le serveur.");
 	assertImageDataUrl(imageDataUrl);
 

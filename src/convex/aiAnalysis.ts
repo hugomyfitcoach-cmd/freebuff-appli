@@ -95,8 +95,9 @@ function clampNut(n: unknown, max: number): number | undefined {
  * Statut de la configuration IA de CE déploiement (diagnostic preview).
  * Renvoie des BOOLÉENS et le nom de modèle — JAMAIS la valeur de la clé.
  * Sans session : aucune donnée, aucune information sensible.
+ * ACTION (runtime node) = même environnement que les VRAIS appels OpenAI.
  */
-export const keyStatus = query({
+export const keyStatus = action({
 	args: {},
 	handler: async () => {
 		return {

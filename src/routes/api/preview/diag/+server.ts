@@ -37,8 +37,11 @@ const enabled =
 export const GET = async () => {
 	if (!enabled) return json({ enabled: false }, { status: 404 });
 	// Statut IA du backend Convex ciblé — booléens, jamais la valeur de la clé.
+	// keyStatus est une ACTION : exécutée dans le runtime node, le même
+	// environnement que les VRAIS appels OpenAI (les variables Convex n'y
+	// sont pas toujours visibles depuis l'isolate des queries).
 	const ai = await convex
-		.query(api.aiAnalysis.keyStatus, {})
+		.action(api.aiAnalysis.keyStatus, {})
 		.then((r) => ({ openaiKeyPresent: r.openaiKeyPresent, openaiModel: r.openaiModel, error: null }))
 		.catch((e) => ({ openaiKeyPresent: null, openaiModel: null, error: errMsg(e) }));
 	return json({
