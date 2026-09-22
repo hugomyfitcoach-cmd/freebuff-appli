@@ -3,6 +3,10 @@ import { mutation, internalMutation, httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { MutationCtx } from "./_generated/server";
 import { normalizeEmail, hashPassword, localTodayISO } from "./helpers";
+
+/** Mot de passe de test — réappliqué à chaque seed (compte toujours authentifiable). */
+const BETA_PASSWORD = "PreviewBeta2026!";
+const COACH_PASSWORD = "PreviewCoach2026!";
 import { resolveCiqualLabel } from "./ciqual";
 
 /**
@@ -37,32 +41,39 @@ function assertNotProd(): void {
 async function seedCoreData(
 	db: MutationCtx["db"]
 ): Promise<{ coachEmail: string; betaEmail: string; coachPassword: string; betaPassword: string }> {
-	// 1) Coach de test (fictif)
+	// 1) Coach de test (fictif) — hash réappliqué à chaque seed (self-healing :
+	// le mot de passe documenté fonctionne toujours, même après N builds).
 	const coachEmail = normalizeEmail("preview-test-coach@example.com");
+	const coachHash = await hashPassword(COACH_PASSWORD);
 	let coachId = (await db.query("users").withIndex("by_email", (q) => q.eq("email", coachEmail)).unique())?._id;
 	if (!coachId) {
 		coachId = await db.insert("users", {
 			email: coachEmail,
-			passwordHash: await hashPassword("PreviewCoach2026!"),
+			passwordHash: coachHash,
 			role: "coach",
 			prenom: "Coach",
 			nom: "Preview",
 		});
+	} else {
+		await db.patch(coachId, { passwordHash: coachHash });
 	}
 
-	// 2) Cliente bêta (allowlist IA) — rattachée au coach de test
+	// 2) Cliente bêta (allowlist IA) — rattachée au coach de test, hash réappliqué.
 	const betaEmail = normalizeEmail("contact@myfit-coach.fr");
+	const betaHash = await hashPassword(BETA_PASSWORD);
 	let betaId = (await db.query("users").withIndex("by_email", (q) => q.eq("email", betaEmail)).unique())?._id;
 	if (!betaId) {
 		betaId = await db.insert("users", {
 			email: betaEmail,
-			passwordHash: await hashPassword("PreviewBeta2026!"),
+			passwordHash: betaHash,
 			role: "client",
 			prenom: "Hugo",
 			nom: "GOURHEUX",
 			createdBy: coachId,
 			startDate: localTodayISO(),
 		});
+	} else {
+		await db.patch(betaId, { passwordHash: betaHash });
 	}
 
 	// 3) Journal de test (Ciqual embarqué — snapshots serveur, idempotent)
@@ -97,8 +108,8 @@ async function seedCoreData(
 	return {
 		coachEmail,
 		betaEmail,
-		coachPassword: "PreviewCoach2026!",
-		betaPassword: "PreviewBeta2026!",
+		coachPassword: COACH_PASSWORD,
+		betaPassword: BETA_PASSWORD,
 	};
 }
 
