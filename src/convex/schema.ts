@@ -279,10 +279,14 @@ export default defineSchema({
 		 *  analyse partagent une clé "analyse:<timestamp>" — affichés comme UNE
 		 *  carte dans le Journal, recalculables composant par composant. */
 		mealGroup: v.optional(v.string()),
+		/** Clé d'idempotence du « Ajouter au Journal » d'un repas analysé :
+		 *  un double-clic / retry réseau ne crée jamais deux fois le repas. */
+		requestId: v.optional(v.string()),
 		createdAt: v.number(),
 	})
 		.index("by_user_date", ["userId", "date"])
-		.index("by_user", ["userId"]),
+		.index("by_user", ["userId"])
+		.index("by_group", ["mealGroup"]),
 
 	/** Objectifs journaliers d'un client (définis par la coach dans le CRM). */
 	clientGoals: defineTable({

@@ -14,6 +14,11 @@ import { errMsg } from '$lib/errors.js';
  * telles quelles, source: 'ai_estimation'). Le backend rejoue EXACTEMENT les
  * mêmes règles que l'ajout unitaire du Journal (mutation journal.addEntry) :
  * snapshots serveur, garde-fou kcal↔macros, planned si date future.
+ *
+ * `requestId` (généré par la PWA) rend la mutation idempotente : un
+ * double-clic ou un retry réseau ne crée jamais le repas deux fois.
+ * Les erreurs techniques (Convex, réseau…) sont masquées derrière un message
+ * utilisateur neutre — la cause réelle reste dans les logs serveur.
  */
 export const POST: RequestHandler = async (event) => {
 	await requireRole(event, 'client', { next: '/espace/journal' });
@@ -24,6 +29,7 @@ export const POST: RequestHandler = async (event) => {
 			meal?: unknown;
 			components?: unknown;
 			clientDate?: unknown;
+			requestId?: unknown;
 		};
 		if (!Array.isArray(body.components) || body.components.length === 0) {
 			return json({ error: 'Aucun composant à ajouter.' }, { status: 400 });
@@ -57,9 +63,11 @@ export const POST: RequestHandler = async (event) => {
 			meal: String(body.meal ?? ''),
 			components,
 			clientDate: typeof body.clientDate === 'string' ? body.clientDate : undefined,
+			requestId: typeof body.requestId === 'string' && body.requestId.length <= 64 ? body.requestId : undefined,
 		});
 		return json(res);
 	} catch (e) {
-		return json({ error: errMsg(e) }, { status: 400 });
+		console.error('[meals/commit] commitAnalyzedMeal a échoué :', errMsg(e));
+		return json({ error: "Impossible d'ajouter ce repas pour le moment. Réessaie dans quelques instants." }, { status: 500 });
 	}
 };

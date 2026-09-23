@@ -12,3 +12,21 @@ export function errMsg(e: unknown): string {
 	}
 	return e instanceof Error ? e.message : String(e);
 }
+
+/**
+ * Message destiné à l'UTILISATEUR final : les erreurs techniques brutes
+ * (stack Convex « [CONVEX M(...)] Server Error », « Uncaught TypeError »,
+ * Request ID…) ne doivent jamais s'afficher dans la PWA — on renvoie le
+ * message ConvexError lisible s'il existe, sinon un texte neutre.
+ * La cause réelle reste dans les logs serveur (console.error côté BFF).
+ */
+export function userErrMsg(e: unknown, fallback: string): string {
+	const msg = errMsg(e);
+	if (!msg) return fallback;
+	if (
+		/\[CONVEX|Uncaught|TypeError|ReferenceError|internal error|Request ID|ECONN|fetch failed|timeout of/i.test(msg)
+	) {
+		return fallback;
+	}
+	return msg;
+}

@@ -4,6 +4,7 @@ import { getSessionUser } from "./helpers";
 import { ciqualFoodSource } from "./ciqualSource";
 import { attachThumbs, attachThumbsForFoodIds } from "./foodImages";
 import { trustedClientToday } from "./journal";
+import { resolveCoachPlanForDate } from "./mealPlans";
 import type { QueryCtx } from "./_generated/server";
 import type { Id, Doc } from "./_generated/dataModel";
 
@@ -100,8 +101,12 @@ export const commitAnalyzedMeal = mutation({
 		components: v.array(analyzedComponentInput),
 		/** Date ISO locale du navigateur — frontière « futur » (fuseau client ≠ serveur UTC). */
 		clientDate: v.optional(v.string()),
+		/** Clé d'idempotence (générée par le client) — un double-clic / retry
+		 *  réseau rejoue la même requête : la mutation est alors un no-op qui
+		 *  renvoie le mealGroup déjà créé (aucun doublon possible). */
+		requestId: v.optional(v.string()),
 	},
-	handler: async (ctx, { sessionToken, date, meal, components, clientDate }) => {
+	handler: async (ctx, { sessionToken, date, meal, components, clientDate, requestId }) => {
 		const user = await requireClient(ctx, sessionToken);
 		// Composants « Estimation IA » : réservés au compte bêta (aucune nutrition
 		// non sourcée injectable dans le Journal par un compte non autorisé).
@@ -114,11 +119,25 @@ export const commitAnalyzedMeal = mutation({
 		if (components.length === 0) throw new ConvexError("Aucun composant à ajouter.");
 		if (components.length > 12) throw new ConvexError("Maximum 12 composants par repas analysé.");
 
-		const { resolveCoachPlanForDate } = await import("./mealPlans");
+		// Idempotence : même requestId + même utilisateur → déjà commité, on
+		// renvoie le résultat d'origine sans rien réécrire (double-clic, retry).
+		const rid = requestId?.trim();
+		if (rid) {
+			const prior = await ctx.db
+				.query("diaryEntries")
+				.withIndex("by_group", (q) => q.eq("mealGroup", `analyse:${rid}`))
+				.first();
+			if (prior) {
+				return { ok: true as const, created: 0, mealGroup: prior.mealGroup as string, duplicate: true };
+			}
+		}
+
 		await resolveCoachPlanForDate(ctx, user._id, date);
 		const today = trustedClientToday(clientDate);
 		const future = date > today;
-		const mealGroup = `analyse:${Date.now()}`;
+		// Regroupement : clé stable (requestId client si fourni — nécessaire
+		// pour l'idempotence, sinon timestamp) préfixée « analyse: ».
+		const mealGroup = `analyse:${rid ?? Date.now()}`;
 		const created: Id<"diaryEntries">[] = [];
 
 		for (const c of components) {
@@ -213,6 +232,7 @@ export const commitAnalyzedMeal = mutation({
 					// analysé », les composants restent des diaryEntries normaux
 					// (modification/suppression unitaires possibles, totaux intacts).
 					mealGroup,
+					requestId: rid,
 				});
 				created.push(id);
 			}

@@ -3,6 +3,7 @@
 	import { beforeNavigate } from '$app/navigation';
 	import { startBarcodeScanner, CameraPermissionError, normalizeProductCode, type BarcodeScannerHandle, type TorchHandle } from '$lib/barcodeScanner';
 	import { compressImage, detectBarcodeInDataUrl } from '$lib/labelBarcode';
+	import { userErrMsg } from '$lib/errors';
 	import { currentLocalDay } from '$lib/currentDay.svelte';
 	import { appWarm, firstVisit, isFresh, noteSync, restoreScroll, saveScroll } from '$lib/navMemory';
 	import JournalDay from '$lib/components/JournalDay.svelte';
@@ -1073,6 +1074,8 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	let labelAnalyzing = $state(false);
 	let labelError = $state('');
 	let labelFileInput: HTMLInputElement | undefined;
+	/** Photothèque (même pipeline IA que la capture directe). */
+	let labelGalleryInput: HTMLInputElement | undefined;
 	/**
 	 * Étape code-barres AVANT enregistrement : 'hidden' (absente) | 'choose'
 	 * (détecté sur la photo, à confirmer) | 'scan' | 'scan-found' | 'scan-absent'
@@ -1257,6 +1260,17 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		cfReview = new Set();
 		openCustomEditor();
 	}
+	/** Saisie manuelle APRÈS un scan sans produit : le code scanné est
+	 *  CONSERVÉ (jamais de rescan) — l'éditeur s'ouvre avec l'étape code-barres
+	 *  pré-remplie (à confirmer), la création le rattachera à l'aliment. */
+	function createManualAfterScan() {
+		createSheetOpen = false;
+		cfAiNote = '';
+		cfReview = new Set();
+		openCustomEditor();
+		bcCode = pendingBarcode;
+		bcStep = pendingBarcode ? 'choose' : 'hidden';
+	}
 
 	/**
 	 * Option « Photographier une étiquette » : photo (captée ou galerie) →
@@ -1315,13 +1329,20 @@ import { journalTipForDay } from '$lib/data/journalTips';
 				: 'Valeurs lues sur ta photo — vérifie-les avant d\'enregistrer.';
 			cfError = '';
 		} catch (e) {
-			labelError = e instanceof Error ? e.message : String(e);
+			labelError = e instanceof Error && e.message.includes("L'analyse IA")
+				? e.message
+				: userErrMsg(e, "Impossible d'analyser cette étiquette pour le moment. Réessaie dans quelques instants.");
 		} finally {
 			labelAnalyzing = false;
 		}
 	}
 
 	/** « Produit inconnu » après un scan : rouvre la feuille en mode étiquette. */
+	/** Étiquette depuis la PHOTOTHÈQUE — exactement le même pipeline que la
+	 *  capture caméra (barcode local → OpenAI → formulaire prérempli). */
+	function pickLabelFromGallery() {
+		labelGalleryInput?.click();
+	}
 	function openLabelCaptureAfterUnknownScan() {
 		createSheetFromScan = true;
 		labelError = '';
@@ -2018,6 +2039,13 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	let mealQtyDraft = $state('');
 	let mealReplaceIdx = $state<number | null>(null);
 	let mealPhotoFileInput: HTMLInputElement | undefined;
+	/** Photothèque (même pipeline que la caméra — sans capture directe). */
+	let mealGalleryInput: HTMLInputElement | undefined;
+	/** Suggestion UX issue des métadonnées de la photo photothèque (lastModified) :
+	 *  « Photo prise aujourd'hui à 12:42 » → propose Déjeuner. Purement
+	 *  indicative — la donnée n'est PAS fiable sur toutes les plateformes,
+	 *  l'utilisateur garde la main sur date et type de repas. */
+	let mealPhotoTakenHint = $state('');
 
 	/** Bêta IA — flags résolus CÔTÉ SERVEUR (allowlist email, pas le nom affiché).
 	 *  false → aucun bouton IA, aucun badge, aucun flux : l'existant intact. */
@@ -2030,20 +2058,64 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		mealPhotoError = '';
 		mealQtyEditIdx = null;
 		mealAddSearchOpen = false;
+		mealPhotoTakenHint = '';
 		mealPhotoOpen = true;
 	}
 	function closeMealPhoto() {
 		mealPhotoOpen = false;
 	}
 
+	/** Suggestion de type de repas d'après l'heure de PRISE de la photo
+	 *  (métadonnée lastModified — indicatif, l'utilisateur garde la main). */
+	function mealSuggestionFromHour(h: number): 'petit-dej' | 'dejeuner' | 'diner' | 'collation' {
+		if (h < 10) return 'petit-dej';
+		if (h < 15) return 'dejeuner';
+		if (h < 22) return 'diner';
+		return 'collation';
+	}
+	function humanizePhotoDate(ts: number): string {
+		const d = new Date(ts);
+		const hh = String(d.getHours()).padStart(2, '0');
+		const mm = String(d.getMinutes()).padStart(2, '0');
+		const today = new Date();
+		const isSameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+		const hier = new Date(today); hier.setDate(hier.getDate() - 1);
+		if (isSameDay(d, today)) return `aujourd'hui à ${hh}:${mm}`;
+		if (isSameDay(d, hier)) return `hier à ${hh}:${mm}`;
+		return `le ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} à ${hh}:${mm}`;
+	}
 	/** Analyse de la photo : OpenAI reconnaît les aliments + quantités, la
 	 *  base G-FLUX (Convex → Ciqual) fournit la nutrition. Sans IA : rien ne
 	 *  se casse — l'ajout manuel au Journal reste disponible. */
-	async function analyzeMealPhoto(file: File) {
+	async function analyzeMealPhoto(file: File, { fromGallery = false } = {}) {
 		mealAnalyzing = true;
 		mealPhotoError = '';
 		try {
 			const imageDataUrl = await compressImage(file, 1280, 0.8);
+			if (fromGallery) {
+				// Suggestion purement UX (date de prise de vue) — jamais bloquante :
+				// si la métadonnée est absente/incohérente, on n'affiche rien.
+				const ts = file.lastModified;
+				if (ts && ts > 0) {
+					const d = new Date(ts);
+					if (!isNaN(d.getTime())) {
+						mealPhotoTakenHint = `Photo prise ${humanizePhotoDate(ts)}`;
+						const dayKey = (x: Date) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+						const photoDay = dayKey(d);
+						if (photoDay === dayKey(new Date())) {
+							// Photo d'aujourd'hui : suggère le type de repas selon l'heure.
+							mealAnalyzedMeal = mealSuggestionFromHour(d.getHours());
+						} else if (photoDay < dayKey(new Date())) {
+							// Photo d'un jour PASSÉ (cas restaurant : midi → analyse le soir) :
+							// bascule le Journal sur CE jour + type de repas selon l'heure.
+							void setDate(photoDay);
+							mealAnalyzedMeal = mealSuggestionFromHour(d.getHours());
+						}
+					}
+				}
+			} else {
+				mealPhotoTakenHint = '';
+			}
 			const r = await fetch('/api/meals/analyze', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -2054,7 +2126,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 				throw new Error(
 					['ai-unavailable', 'unreachable', 'timeout'].includes(String(j.reason))
 						? "L'analyse IA est momentanément indisponible — ajoute tes aliments par la recherche en attendant."
-						: String(j.reason ?? 'Analyse impossible.')
+						: userErrMsg(new Error(String(j.reason ?? 'Analyse impossible.')), 'Impossible d\'analyser cette photo pour le moment. Réessaie dans quelques instants.')
 				);
 			}
 			mealAnalyzed = (j.components ?? []) as AnalyzedComponent[];
@@ -2063,7 +2135,9 @@ import { journalTipForDay } from '$lib/data/journalTips';
 				mealPhotoError = "Aucun aliment identifié sur la photo — réessaie avec un cadrage d'ensemble, ou ajoute les aliments à la main.";
 			}
 		} catch (e) {
-			mealPhotoError = e instanceof Error ? e.message : String(e);
+			mealPhotoError = e instanceof Error && e.message.startsWith("L'analyse IA")
+				? e.message
+				: userErrMsg(e, 'Impossible d\'analyser cette photo pour le moment. Réessaie dans quelques instants.');
 		} finally {
 			mealAnalyzing = false;
 		}
@@ -2200,6 +2274,9 @@ import { journalTipForDay } from '$lib/data/journalTips';
 				body: JSON.stringify({
 					date,
 					meal: mealAnalyzedMeal,
+					// Idempotence : même clé sur un double-clic / retry réseau →
+					// la mutation serveur est un no-op (aucun doublon possible).
+					requestId: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
 					clientDate: currentLocalDay(),
 					components: mealAnalyzed.map((c) => ({
 						foodId: c.foodId,
@@ -3438,12 +3515,20 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			</div>
 
 			{#if !mealAnalyzed}
-				<!-- Capture : gros bouton unique, analyse pendant le spinner -->
-				<button type="button" class="flex w-full flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-brand/40 bg-brand-light/30 px-4 py-8 text-center transition hover:bg-brand-light/60 disabled:opacity-60" disabled={mealAnalyzing} onclick={() => mealPhotoFileInput?.click()}>
+				<!-- Capture : deux chemins (caméra / photothèque), un seul pipeline IA.
+				     Cas d'usage : photo prise à midi, analyse le soir depuis la photothèque. -->
+				<div class="flex w-full flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-brand/40 bg-brand-light/30 px-4 py-8 text-center">
 					<Icon name={mealAnalyzing ? 'sparkles' : 'camera'} size={30} class="text-brand {mealAnalyzing ? 'animate-pulse' : ''}" />
-					<span class="text-sm font-bold text-ink">{mealAnalyzing ? 'Analyse de ton assiette…' : 'Prendre la photo du repas'}</span>
-					<span class="max-w-xs text-xs text-mist">{mealAnalyzing ? 'On reconnaît les aliments et les quantités — encore quelques secondes.' : 'Cadre l\'assiette entière : les aliments reconnus seront proposés, tu vérifies tout avant d\'enregistrer.'}</span>
-				</button>
+					<span class="text-sm font-bold text-ink">{mealAnalyzing ? 'Analyse de ton assiette…' : 'Analyse la photo de ton repas'}</span>
+					<span class="max-w-xs text-xs text-mist">{mealAnalyzing ? 'On reconnaît les aliments et les quantités — encore quelques secondes.' : "Photo prise à midi au restaurant ? Retrouve-la ce soir dans la photothèque — l'analyse reste exactement la même."}</span>
+					<div class="mt-1 grid w-full grid-cols-2 gap-2">
+						<button type="button" class="flex items-center justify-center gap-1.5 rounded-full bg-brand px-3 py-2.5 text-[13px] font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={mealAnalyzing} onclick={() => mealPhotoFileInput?.click()}>📷 Prendre une photo</button>
+						<button type="button" class="flex items-center justify-center gap-1.5 rounded-full border-2 border-brand/40 bg-white px-3 py-2.5 text-[13px] font-bold text-brand transition hover:bg-brand-light/50 disabled:opacity-60" disabled={mealAnalyzing} onclick={() => mealGalleryInput?.click()}>🖼 Photothèque</button>
+					</div>
+				</div>
+				{#if mealPhotoTakenHint}
+					<p class="mt-2 text-center text-[11px] text-mist">📷 {mealPhotoTakenHint} — le type de repas est proposé selon l'heure, tu peux le changer.</p>
+				{/if}
 				<p class="mt-3 text-center text-[11px] text-mist">L'IA reconnaît les aliments — la nutrition vient de la base G-FLUX (Ciqual, produits) : jamais inventée.</p>
 			{:else}
 				<!-- Fiche visuelle du repas analysé (une carte, N composants) -->
@@ -3575,6 +3660,19 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			(e.currentTarget as HTMLInputElement).value = '';
 		}}
 	/>
+	<!-- Photothèque repas : MÊME pipeline (OpenAI → match G-FLUX → fiche) —
+	     + suggestion de type de repas d'après l'heure de prise de vue. -->
+	<input
+		bind:this={mealGalleryInput}
+		type="file"
+		accept="image/*"
+		class="hidden"
+		onchange={(e) => {
+			const f = (e.currentTarget as HTMLInputElement).files?.[0];
+			if (f) void analyzeMealPhoto(f, { fromGallery: true });
+			(e.currentTarget as HTMLInputElement).value = '';
+		}}
+	/>
 {/if}
 {#if createSheetOpen}
 	<!-- ═══════════ Bottom sheet « + Créer un aliment » ═══════════
@@ -3588,7 +3686,21 @@ import { journalTipForDay } from '$lib/data/journalTips';
 				<button type="button" class="grid h-8 w-8 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={closeCreateSheet}><Icon name="x" size={18} /></button>
 			</div>
 			{#if createSheetFromScan}
-				<p class="mb-3 rounded-xl bg-line/40 px-3 py-2 text-xs text-mist">Produit introuvable pour ce code-barres. Photographie l'étiquette : l'app préremplit les valeurs, tu n'as plus qu'à vérifier.</p>
+				<!-- Scan sans produit trouvé : création guidée — le code scanné
+				     est CONSERVÉ (pendingBarcode), jamais de rescan. -->
+				<div class="mb-3 rounded-xl bg-line/40 px-3 py-3">
+					<p class="text-sm font-bold text-ink">Produit non trouvé</p>
+					{#if pendingBarcode}<p class="mt-0.5 text-[11px] tracking-wider text-mist">Code {pendingBarcode} — il sera rattaché à ton aliment.</p>{/if}
+					<p class="mt-1 text-xs text-mist">Aucun produit ne correspond à ce code-barres.</p>
+					<div class="mt-2 flex flex-col gap-1.5">
+						{#if aiFlags.foodLabelAi}
+							<button type="button" class="flex items-center justify-center gap-1.5 rounded-full bg-brand px-4 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark" disabled={labelAnalyzing} onclick={pickLabelFromGallery}><Icon name="camera" size={15} /> Photographier l'étiquette nutritionnelle</button>
+						{/if}
+						<button type="button" class="rounded-full px-4 py-2.5 text-sm font-semibold text-ink transition hover:bg-line/60" onclick={createManualAfterScan}>Saisir manuellement</button>
+					</div>
+				</div>
+			{:else}
+				<p class="mb-3 rounded-xl bg-line/40 px-3 py-2 text-xs text-mist">Un produit absent de la base ? Scan, photo d'étiquette (préremplissage IA) ou saisie libre : l'aliment rejoint « Créés par moi ».</p>
 			{/if}
 
 			<div class="flex flex-col gap-2">
@@ -3601,14 +3713,32 @@ import { journalTipForDay } from '$lib/data/journalTips';
 					<Icon name="chevronRight" size={16} class="shrink-0 text-mist" />
 				</button>
 
-				<button type="button" class="flex items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left transition hover:border-brand disabled:opacity-60" disabled={labelAnalyzing} onclick={() => labelFileInput?.click()}>
-					<span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name={labelAnalyzing ? 'sparkles' : 'camera'} size={19} class="text-brand {labelAnalyzing ? 'animate-pulse' : ''}" /></span>
-					<span class="min-w-0 flex-1">
-						<span class="block text-sm font-semibold text-ink">{labelAnalyzing ? 'Lecture de l\'étiquette…' : 'Photographier une étiquette'}{#if aiFlags.foodLabelAi} <span class="ml-1 rounded bg-brand-light px-1 py-px text-[9px] font-bold uppercase tracking-wide text-brand-dark align-middle">Bêta</span>{/if}</span>
-						<span class="block text-xs text-mist">Le tableau nutritionnel est rempli automatiquement</span>
-					</span>
-					<Icon name="chevronRight" size={16} class="shrink-0 text-mist" />
-				</button>
+				{#if aiFlags.foodLabelAi}
+				<!-- Deux chemins, un seul pipeline IA : caméra (capture directe)
+				     ou photothèque — jamais de création automatique. -->
+				<div class="rounded-2xl border border-line bg-white p-3">
+					<div class="flex items-center gap-3">
+						<span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name={labelAnalyzing ? 'sparkles' : 'camera'} size={19} class="text-brand {labelAnalyzing ? 'animate-pulse' : ''}" /></span>
+						<span class="min-w-0 flex-1">
+							<span class="block text-sm font-semibold text-ink">{labelAnalyzing ? 'Lecture de l\'étiquette…' : 'Photographier une étiquette'} <span class="ml-1 rounded bg-brand-light px-1 py-px text-[9px] font-bold uppercase tracking-wide text-brand-dark align-middle">Bêta</span></span>
+							<span class="block text-xs text-mist">Le tableau nutritionnel est rempli automatiquement</span>
+						</span>
+					</div>
+					<div class="mt-2 grid grid-cols-2 gap-2">
+						<button type="button" class="flex items-center justify-center gap-1.5 rounded-full bg-brand px-3 py-2.5 text-[13px] font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={labelAnalyzing} onclick={() => labelFileInput?.click()}>📷 Prendre une photo</button>
+						<button type="button" class="flex items-center justify-center gap-1.5 rounded-full border-2 border-brand/40 bg-white px-3 py-2.5 text-[13px] font-bold text-brand transition hover:bg-brand-light/50 disabled:opacity-60" disabled={labelAnalyzing} onclick={pickLabelFromGallery}>🖼 Choisir dans la photothèque</button>
+					</div>
+				</div>
+				{:else}
+					<button type="button" class="flex items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left transition hover:border-brand disabled:opacity-60" disabled={labelAnalyzing} onclick={() => labelFileInput?.click()}>
+						<span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name={labelAnalyzing ? 'sparkles' : 'camera'} size={19} class="text-brand {labelAnalyzing ? 'animate-pulse' : ''}" /></span>
+						<span class="min-w-0 flex-1">
+							<span class="block text-sm font-semibold text-ink">{labelAnalyzing ? 'Lecture de l\'étiquette…' : 'Photographier une étiquette'}</span>
+							<span class="block text-xs text-mist">Le tableau nutritionnel est rempli automatiquement</span>
+						</span>
+						<Icon name="chevronRight" size={16} class="shrink-0 text-mist" />
+					</button>
+				{/if}
 
 				<button type="button" class="flex items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left transition hover:border-brand disabled:opacity-60" disabled={labelAnalyzing} onclick={createManual}>
 					<span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name="pencil" size={19} class="text-brand" /></span>
@@ -3632,6 +3762,19 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		type="file"
 		accept="image/*"
 		capture="environment"
+		class="hidden"
+		onchange={(e) => {
+			const f = (e.currentTarget as HTMLInputElement).files?.[0];
+			if (f) void analyzeLabelFile(f);
+			(e.currentTarget as HTMLInputElement).value = '';
+		}}
+	/>
+	<!-- Photothèque étiquette : MÊME pipeline (barcode local → OpenAI →
+	     formulaire prérempli → validation humaine). -->
+	<input
+		bind:this={labelGalleryInput}
+		type="file"
+		accept="image/*"
 		class="hidden"
 		onchange={(e) => {
 			const f = (e.currentTarget as HTMLInputElement).files?.[0];
