@@ -1,6 +1,6 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
-import { getSessionUser, normalizeEmail } from "./helpers";
+import { getSessionUser } from "./helpers";
 
 /**
  * ACCÈS BÊTA « Alimentation IA » — contrôle serveur UNIQUE.
@@ -10,21 +10,28 @@ import { getSessionUser, normalizeEmail } from "./helpers";
  *  - `meal_photo_ai_beta` : photo de repas → composants + quantités (OpenAI).
  *
  * RÈGLES :
- *  - état initial : OFF pour TOUTES les clientes — allowlist stricte d'emails
- *    (compte de test Hugo GOURHEUX uniquement pendant la bêta) ;
- *  - la sécurité n'est JAMAIS basée sur le nom affiché : l'email normalisé du
- *    compte résolu par session (jamais une valeur transmise par le client) ;
+ *  - LANCEMENT GLOBAL (décision mission finale) : les fonctions IA sont
+ *    OUVERTES à TOUTES les clientes en production. Le badge « BÊTA » reste
+ *    affiché dans la PWA : il signale simplement que la fonction peut encore
+ *    évoluer — il n'est plus un périmètre d'accès restreint ;
+ *  - FILET DE SÉCURITÉ CONSERVÉ : le mécanisme de feature flag reste en place
+ *    (double contrôle BFF + action Convex, kill switch instantané). Poser
+ *    BETA_AI_DISABLED=1 sur le déploiement Convex repasse tout à OFF sans
+ *    redéploiement (`npx convex env set BETA_AI_DISABLED 1 --prod`) ;
+ *  - la sécurité n'est JAMAIS basée sur le nom affiché : l'état est résolu
+ *    par la session serveur (jamais une valeur transmise par le client) ;
  *  - contrôle appliqué DEUX FOIS : côté BFF avant d'appeler Convex (réponse
  *    rapide, aucun coût) PUIS dans les actions Convex avant tout appel OpenAI
  *    (défense en profondeur — les endpoints ne sont pas un périmètre de
  *    confiance) ;
  *  - flags OFF = l'existant continue à 100 % (recherche, barcode, création
- *    manuelle, Journal) — désactiver l'IA ne supprime aucun code : il suffit
- *    de vider BETA_ACCOUNTS.
+ *    manuelle, Journal) — désactiver l'IA ne supprime aucun code.
  */
 
-/** Comptes autorisés pendant la bêta (emails normalisés, minuscules). */
-const BETA_ACCOUNTS: ReadonlySet<string> = new Set(["contact@myfit-coach.fr"]);
+/** Kill switch global (env Convex) — filet de sécurité, OFF par défaut. */
+function betaAiDisabled(): boolean {
+	return process.env.BETA_AI_DISABLED === "1";
+}
 
 export type AiBetaFlags = {
 	/** Photo d'étiquette → préremplissage IA (`food_label_ai_beta`). */
@@ -33,10 +40,15 @@ export type AiBetaFlags = {
 	mealPhotoAi: boolean;
 };
 
-/** Flags bêta d'un email — source unique de vérité (jamais stockée : révocable instantanément). */
+/**
+ * Flags bêta IA — source unique de vérité (jamais stockée : révocable
+ * instantanément via BETA_AI_DISABLED). Ouverture globale : toute cliente
+ * authentifiée est autorisée ; l'ancienne allowlist email (compte de test
+ * contact@myfit-coach.fr) est remplacée par le kill switch env.
+ */
 export function aiBetaFlagsForEmail(email: string): AiBetaFlags {
-	const allowed = BETA_ACCOUNTS.has(normalizeEmail(email));
-	return { foodLabelAi: allowed, mealPhotoAi: allowed };
+	if (betaAiDisabled()) return { foodLabelAi: false, mealPhotoAi: false };
+	return { foodLabelAi: true, mealPhotoAi: true };
 }
 
 /**
