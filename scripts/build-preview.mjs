@@ -71,14 +71,18 @@ if (isPreview) {
 		process.exit(1);
 	}
 	console.log(`✅ Preview : PUBLIC_CONVEX_URL=${publicConvexUrl} (Convex Preview, pas ${PROD_DEPLOYMENT}).`);
-}
-
-if (context === 'production') {
-	if (!publicConvexUrl.includes(PROD_URL_PART)) {
+}if (context === 'production') {
+	// L'URL réelle du déploiement production porte un sous-domaine RÉGION
+	// (calm-jaguar-475.eu-west-1.convex.cloud) — forme documentée dans
+	// .env.example. On accepte le nom de déploiement + un hôte *.convex.cloud,
+	// avec ou sans région : tout autre hôte reste refusé (fuite de config).
+	const isProdConvexHost =
+		publicConvexUrl.includes(PROD_DEPLOYMENT) && /\.convex\.cloud\/?$/.test(publicConvexUrl);
+	if (!isProdConvexHost) {
 		console.error(
 			`⛔ Build PRODUCTION incohérent : PUBLIC_CONVEX_URL ne pointe pas vers ${PROD_DEPLOYMENT}. ` +
 				`Production Netlify inchangée → build refusé pour éviter toute fuite de config.`
-		);
+			);
 		process.exit(1);
 	}
 	console.log(`✅ Production : PUBLIC_CONVEX_URL=${publicConvexUrl} — build autorisé (flux inchangé).`);
