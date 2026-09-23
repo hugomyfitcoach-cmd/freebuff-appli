@@ -6,6 +6,7 @@ import { applyKcalGuard, guardedKcal100, kcalNeedsRecalc } from "../lib/nutritio
 import { resolveCoachPlanForDate } from "./mealPlans";
 import { attachThumbs, attachThumbsForFoodIds } from "./foodImages";
 import { ciqualFoodSource } from "./ciqualSource";
+import { internal } from "./_generated/api";
 import type { QueryCtx } from "./_generated/server";
 import type { Id, Doc } from "./_generated/dataModel";
 
@@ -748,6 +749,30 @@ export const getWeek = query({
 	},
 });
 
+/**
+ * Résout les barcodes d'un lot d'aliments de la base commune (EAN/GTIN =
+ * offId). Utilisé par le pré-remplissage de la portion mémorisée : on ne
+ * consulte Open Food Facts QUE pour des produits déjà en cache local —
+ * jamais d'appel réseau dans une simple ouverture de feuille de quantité.
+ * Réservé client, portée session, 40 ids max.
+ */
+export const resolveBarcodes = query({
+	args: {
+		sessionToken: v.optional(v.string()),
+		foodIds: v.array(v.id("foods")),
+	},
+	handler: async (ctx, { sessionToken, foodIds }) => {
+		await requireClient(ctx, sessionToken);
+		const barcodes: Record<string, string> = {};
+		const ids = foodIds.slice(0, 40);
+		for (const id of ids) {
+			const f = await ctx.db.get(id);
+			if (f) barcodes[id] = f.offId;
+		}
+		return barcodes;
+	},
+});
+
 /** Ajout LIBRE : aujourd'hui → consommé (comportement historique du tracker) ;
  *  date FUTURE → planifié (client_planned — grisé, zéro impact header). */
 export const addEntry = mutation({
@@ -756,14 +781,32 @@ export const addEntry = mutation({
 		date: v.string(),
 		meal: v.string(),
 		foodId: v.optional(v.id("foods")),
-		customFoodId: v.optional(v.id("customFoods")),
-		/** Fiche de RÉFÉRENCE Ciqual (ANSES) : libellé officiel EXACT — exclusif avec foodId/customFoodId. */
-		ciqualLabel: v.optional(v.string()),
-		qtyGrams: v.number(),
-		/** Date ISO locale du navigateur — frontière « futur » (fuseau client ≠ serveur UTC). */
-		clientDate: v.optional(v.string()),
-	},
-	handler: async (ctx, { sessionToken, date, meal, foodId, customFoodId, ciqualLabel, qtyGrams, clientDate }) => {
+		customFoodId: v.optional(v.id("customFoods")),			/** Fiche de RÉFÉRENCE Ciqual (ANSES) : libellé officiel EXACT — exclusif avec foodId/customFoodId. */
+			ciqualLabel: v.optional(v.string()),
+			qtyGrams: v.number(),
+			/** Date ISO locale du navigateur — frontière « futur » (fuseau client ≠ serveur UTC). */
+			clientDate: v.optional(v.string()),
+			/**
+			 * PORTIONS MÉMORISÉES du lot (préférence utilisateur) : pour chaque
+			 * aliment du lot, sa dernière quantité RÉELLEMENT VALIDÉE « Ajouter
+			 * au Journal ». Écrit dans `foodPortions` (une ligne par cliente ×
+			 * aliment, jamais partagée, jamais appliquée aux données de l'aliment)
+			 * — la feuille de quantité n'étant pas dans la requête, c'est la seule
+			 * façon fiable de mémoriser EXACTEMENT ce que l'utilisateur a validé.
+			 * Optionnel : absent → identique à l'ancien contrat.
+			 */
+			lastPortions: v.optional(
+				v.array(
+					v.object({
+						foodId: v.optional(v.id("foods")),
+						customFoodId: v.optional(v.id("customFoods")),
+						ciqualLabel: v.optional(v.string()),
+						qtyGrams: v.number(),
+					})
+				)
+			),
+		},
+	handler: async (ctx, { sessionToken, date, meal, foodId, customFoodId, ciqualLabel, qtyGrams, clientDate, lastPortions }) => {
 		const user = await requireClient(ctx, sessionToken);
 		if (!isValidDateISO(date)) throw new ConvexError("Date invalide.");
 		if (!isMeal(meal)) throw new ConvexError("Repas invalide.");
@@ -864,6 +907,45 @@ export const addEntry = mutation({
 			fat: Math.round(fat100 * k * 10) / 10,
 			createdAt: Date.now(),
 		});
+		// Portion mémorisée (préférence utilisateur) : la validation « Ajouter
+		// au Journal » est le SEUL signal — cette écriture ne touche jamais les
+		// données nutritionnelles de l'aliment ni les portions des autres.
+		// L'item validé porte sa clé exacte (ciqual/food/custom) ; le lot
+		// `lastPortions` couvre les autres items de la même feuille UI (la
+		// feuille n'est pas dans la requête : c'est le seul moyen fiable de
+		// mémoriser EXACTEMENT ce que l'utilisateur a validé).
+		const portions: {
+			userId: Id<"users">;
+			foodId?: Id<"foods">;
+			customFoodId?: Id<"customFoods">;
+			ciqualLabel?: string;
+			qtyGrams: number;
+			meal: string;
+		}[] = [];
+		if (ciqualRef) {
+			portions.push({ userId: user._id, ciqualLabel, qtyGrams, meal });
+		} else if (foodId) {
+			portions.push({ userId: user._id, foodId, qtyGrams, meal });
+		} else if (customFoodId) {
+			portions.push({ userId: user._id, customFoodId, qtyGrams, meal });
+		}
+		if (lastPortions) {
+			for (const p of lastPortions.slice(0, 50)) {
+				portions.push({
+					userId: user._id,
+					foodId: p.foodId,
+					customFoodId: p.customFoodId,
+					ciqualLabel: p.ciqualLabel,
+					qtyGrams: p.qtyGrams,
+					meal,
+				});
+			}
+		}
+		// upsertInternal est défensif (clé exactement unique, quantité bornée,
+		// no-op sinon) — un lot invalide ne fait JAMAIS échouer l'ajout.
+		for (const call of portions) {
+			await ctx.runMutation(internal.foodPortions.upsertInternal, call);
+		}
 		return { ok: true, entryId, planned: false };
 	},
 });

@@ -4,6 +4,7 @@ import { getSessionUser } from "./helpers";
 import { ciqualFoodSource } from "./ciqualSource";
 import { attachThumbs, attachThumbsForFoodIds } from "./foodImages";
 import { trustedClientToday } from "./journal";
+import { internal } from "./_generated/api";
 import { resolveCoachPlanForDate } from "./mealPlans";
 import type { QueryCtx } from "./_generated/server";
 import type { Id, Doc } from "./_generated/dataModel";
@@ -224,8 +225,7 @@ export const commitAnalyzedMeal = mutation({
 					foodId: row.foodId,
 					customFoodId: row.customFoodId,
 					createdAt: Date.now(),
-				});
-			} else {
+				});				} else {
 				const id = await ctx.db.insert("diaryEntries", {
 					...row,
 					// Clé de regroupement : le Journal affiche UNE carte « repas
@@ -235,6 +235,17 @@ export const commitAnalyzedMeal = mutation({
 					requestId: rid,
 				});
 				created.push(id);
+				// Portion mémorisée (préférence utilisateur) : le composant avec
+				// identité stable (foodId/customFoodId/ciqualLabel) mémorise sa
+				// quantité validée — les estimations IA sans identité, jamais.
+				await ctx.runMutation(internal.foodPortions.upsertInternal, {
+					userId: user._id,
+					foodId: row.foodId,
+					customFoodId: row.customFoodId,
+					ciqualLabel: ciqualRef ? c.ciqualLabel : undefined,
+					qtyGrams: qty,
+					meal,
+				});
 			}
 		}
 		return { ok: true, created: created.length, mealGroup };

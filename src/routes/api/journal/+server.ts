@@ -41,6 +41,24 @@ export const POST: RequestHandler = async (event) => {
 			/** Fiche de référence Ciqual (ANSES) — libellé officiel exact. */
 			ciqualLabel: body.ciqualLabel ? String(body.ciqualLabel) : undefined,
 			qtyGrams: Number(body.qtyGrams),
+			/** Portions mémorisées (préférence utilisateur, aliment → dernière
+			 *  quantité validée) — pré-remplissage de la feuille de quantité pour
+			 *  les autres items du même lot. Optionnel : absent → identique à
+			 *  l'ancien contrat. */
+			lastPortions: isRecordArray(body.lastPortions)
+				? body.lastPortions
+					.filter(
+						(p: unknown): p is LastPortionArg =>
+							!!p && typeof p === 'object' &&
+							isFiniteNumber((p as LastPortionArg).qtyGrams)
+					)
+					.map((p: LastPortionArg) => ({
+						foodId: typeof p.foodId === 'string' ? p.foodId : undefined,
+						customFoodId: typeof p.customFoodId === 'string' ? p.customFoodId : undefined,
+						ciqualLabel: typeof p.ciqualLabel === 'string' ? p.ciqualLabel : undefined,
+						qtyGrams: Number(p.qtyGrams),
+					}))
+				: undefined,
 			// ⚠️ clientDate (date locale navigateur, fix « date future » la nuit)
 			// DÉSACTIVÉ tant que la mutation `addEntry` n'a pas été poussée sur
 			// Convex prod : l'ancien backend rejette les arguments inconnus.
@@ -52,6 +70,22 @@ export const POST: RequestHandler = async (event) => {
 		return json({ error: errMsg(e) }, { status: 400 });
 	}
 };
+
+/** Portion mémorisée transmise par l'UI (identifiant stable + quantité validée). */
+type LastPortionArg = {
+	foodId?: string;
+	customFoodId?: string;
+	ciqualLabel?: string;
+	qtyGrams: number;
+};
+
+function isRecordArray(v: unknown): v is unknown[] {
+	return Array.isArray(v) && v.length > 0 && v.length <= 50;
+}
+
+function isFiniteNumber(v: unknown): v is number {
+	return typeof v === 'number' && isFinite(v) && v > 0;
+}
 
 function toLocalISO(d: Date): string {
 	const y = d.getFullYear();

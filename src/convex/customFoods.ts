@@ -207,6 +207,24 @@ export const byIds = query({
 });
 
 /**
+ * Barcodes d'un lot d'aliments personnels de la cliente (40 ids max).
+ * Utilisé par le pré-remplissage de la portion mémorisée — isole STRICTEMENT
+ * les lignes appartenant à la cliente (get n'est jamais suffisant seul).
+ */
+export const barcodesByIds = query({
+	args: { sessionToken: v.optional(v.string()), ids: v.array(v.id("customFoods")) },
+	handler: async (ctx, { sessionToken, ids }) => {
+		const user = await requireClient(ctx, sessionToken);
+		const out: Record<string, string> = {};
+		for (const id of ids.slice(0, 40)) {
+			const f = await ctx.db.get(id);
+			if (f && f.userId === user._id && f.barcode) out[id] = f.barcode;
+		}
+		return out;
+	},
+});
+
+/**
  * Recherche un aliment personnel PAR CODE-BARRES (exact, chez la cliente).
  * Retourne null si absent — l'appelant retombe alors sur la base globale
  * (`foods.by_offId`) puis sur la photo d'étiquette.
@@ -221,6 +239,9 @@ export const byBarcode = query({
 			(await ctx.db
 				.query("customFoods")
 				.withIndex("by_barcode", (q) => q.eq("barcode", code))
+				// ISOLATION : l'index est global (toutes clientes) — la lecture
+				// reste STRICTEMENT limitée aux aliments personnels de la cliente.
+				.filter((q) => q.eq(q.field("userId"), user._id))
 				.first()) ?? null
 		);
 	},

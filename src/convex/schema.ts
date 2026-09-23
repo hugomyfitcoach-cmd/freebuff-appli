@@ -369,6 +369,42 @@ export default defineSchema({
 		.index("by_user_food", ["userId", "foodId"])
 		.index("by_user", ["userId"]),
 
+	/**
+	 * PORTION MÉMORISÉE — REPÈRE PERSONNEL d'une cliente pour un aliment
+	 * (préférence UTILISATEUR, une ligne par cliente × aliment).
+	 *
+	 * Écrite UNIQUEMENT à la validation « Ajouter au Journal » (addEntry /
+	 * commitAnalyzedMeal) : une recherche abandonnée, un scan annulé ou une
+	 * feuille fermée sans validation ne mémorisent JAMAIS rien. Elle ne
+	 * modifie AUCUNE donnée nutritionnelle — ni OFF, ni Ciqual, ni la base
+	 * commune G-FLUX, ni la fiche de l'aliment — et n'est jamais partagée :
+	 * clé (userId + identifiant alimentaire stable), isolation stricte par
+	 * cliente. Elle sert uniquement à PRÉ-PROPOSER la dernière quantité
+	 * validée à la prochaine rencontre du même aliment ; la cliente garde
+	 * la main et peut la changer.
+	 *
+	 * Changement ADDITIF : table nouvelle, aucun champ existant touché.
+	 */
+	foodPortions: defineTable({
+		userId: v.id("users"),
+		/** Aliment de la base commune (offId = EAN/GTIN ou référence OFF). */
+		foodId: v.optional(v.id("foods")),
+		/** Aliment créé par la cliente (« Créés par moi »). */
+		customFoodId: v.optional(v.id("customFoods")),
+		/** Fiche de RÉFÉRENCE Ciqual (ANSES) — libellé officiel exact. */
+		ciqualLabel: v.optional(v.string()),
+		/** Dernière quantité réellement validée et ajoutée au Journal (g ou ml). */
+		qtyGrams: v.number(),
+		/** Repas choisi lors de la dernière validation (info, restauration UX). */
+		meal: v.optional(v.string()),
+		/** Nombre de portions (portion nommée / recette) — optionnel, affichage. */
+		portions: v.optional(v.number()),
+		updatedAt: v.number(),
+	})
+		.index("by_user_food", ["userId", "foodId"])
+		.index("by_user_custom", ["userId", "customFoodId"])
+		.index("by_user_ciqual", ["userId", "ciqualLabel"]),
+
 	/* ═══ Suivi corporel (progression) ═══ */
 
 	/* ═══ Photos de suivi (envoyées par le client, visibles par la coach) ═══ */

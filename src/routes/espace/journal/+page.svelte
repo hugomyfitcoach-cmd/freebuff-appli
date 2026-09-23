@@ -1177,8 +1177,13 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			if (!cfEditingId && code.length >= 8) {
 				try {
 					const rr = await fetch(`/api/foods/custom-barcode?barcode=${encodeURIComponent(code)}`);
-					const jj = await rr.json();
-					if (!jj.error) existing = jj as ExistingBarcodeHit | null;
+					// L'endpoint répond `null` quand le code est inconnu (et {error}
+					// en cas d'échec) — toute lecture de propriété doit être gardée.
+					const jj = (await rr.json()) as ExistingBarcodeHit | null | { error?: string };
+					if (jj && typeof jj === 'object' && 'error' in jj && jj.error) {
+						throw new Error(jj.error);
+					}
+					if (jj) existing = jj as ExistingBarcodeHit;
 				} catch {
 					/* indisponible → on retombe sur la création standard */
 				}
@@ -1216,6 +1221,17 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			bcExisting = null;
 			await loadCustomFoods();
 			closeCustomEditor();
+			if (!cfEditingId) {
+				// Création réussie → offre DIRECTE l'ajout au Journal (fiche
+				// préremplie, barcode déjà rattaché, portion mémorisée si connue).
+				// Ce n'est PAS le comportement d'édition (mise à jour fiche simple).
+				const created = customFoods.find((f) => f._id === (j as { customFoodId?: string }).customFoodId);
+				if (created) {
+					logOpen = false;
+					openQty({ ...created, custom: true });
+					return;
+				}
+			}
 		} catch (e) {
 			cfError = e instanceof Error ? e.message : String(e);
 		} finally {
@@ -1302,8 +1318,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			const a = j.analysis as {
 				name?: string; brand?: string; kcal100?: number; carbs100?: number;
 				protein100?: number; fat100?: number; fiber100?: number; salt100?: number;
-				servingQty?: number; kcalFromKj?: boolean; needsReview?: string[];
-			};
+				servingQty?: number; kcalFromKj?: boolean; needsReview?: string[];			};
 			// 3) Préremplit le formulaire MANUEL existant (jamais de création directe).
 			createSheetOpen = false;
 			customEditor = true;
@@ -1315,13 +1330,20 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			cfProtein = a.protein100 !== undefined ? String(a.protein100) : '';
 			cfFat = a.fat100 !== undefined ? String(a.fat100) : '';
 			cfFiber = a.fiber100 !== undefined ? String(a.fiber100) : '';
-			cfSalt = a.salt100 !== undefined ? String(a.salt100) : '';			cfServing = a.servingQty !== undefined ? String(a.servingQty) : '';
-			pendingBarcode = code ?? (j.barcode ? String(j.barcode) : null);
-			// Étape code-barres AVANT validation : détecté sur la photo → à
-			// confirmer ; sinon proposition discrète scanner / « Plus tard ».
+			cfSalt = a.salt100 !== undefined ? String(a.salt100) : '';
+			cfServing = a.servingQty !== undefined ? String(a.servingQty) : '';
+			// Code-barres du flow : le code initial (scan inconnu) est la
+			// référence — JAMAIS écrasé. Un code lu sur la photo complète
+			// seulement s'il n'y en avait pas déjà un (zéro rescan demandé).
+			const labelCode = code ?? (j.barcode ? String(j.barcode) : null);
+			pendingBarcode = pendingBarcode ?? labelCode;
+			// Étape code-barres AVANT validation : code présent (initial ou
+			// photo) → à confirmer ; sinon proposition discrète scanner /
+			// « Plus tard ». L'utilisateur peut toujours modifier/supprimer
+			// le code proposé avant création.
 			bcCode = pendingBarcode;
-			bcStep = 'choose';
-				const review = new Set<string>((a.needsReview ?? []).map((x) => (x === 'valeurs' ? 'kcal' : x)));
+			bcStep = pendingBarcode ? 'choose' : 'hidden';
+			const review = new Set<string>((a.needsReview ?? []).map((x) => (x === 'valeurs' ? 'kcal' : x)));
 			if (!cfKcal) review.add('kcal');
 			cfReview = review;
 			cfAiNote = a.kcalFromKj
@@ -1364,24 +1386,34 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		void startScanner('editor-bc-reader', 'editor');
 	}
 	/** Code scanné dans l'éditeur : base commune connue → fiche existante ;
-	 *  inconnu → rattaché à la fiche en cours (futur candidat global). */
+	 *  inconnu → rattaché à la fiche en cours (futur candidat global).
+	 *  NOTE : l'endpoint répond `null` (PAS `{}`) quand le code est inconnu —
+	 *  toute lecture de propriété doit donc être gardée, sans quoi iOS levait
+	 *  « null is not an object (evaluating 't.error') » au moment de rattacher
+	 *  un code-barres APRÈS la lecture d'une étiquette. */
 	async function handleEditorScan(code: string) {
 		bcBusy = true;
 		bcError = '';
 		try {
 			const rr = await fetch(`/api/foods/custom-barcode?barcode=${encodeURIComponent(code)}`);
-			const jj = await rr.json();
-			if (jj.error) throw new Error(jj.error);
+			const jj = (await rr.json()) as ExistingBarcodeHit | null | { error?: string };
+			if (jj && typeof jj === 'object' && 'error' in jj && jj.error) {
+				throw new Error(jj.error);
+			}
 			if (jj) {
 				bcExisting = jj as ExistingBarcodeHit;
 				bcCode = code;
 				bcStep = 'exists';
 			} else {
+				// Code inconnu → rattaché à la fiche en cours (toujours, éditeur
+				// en création : c'est le chemin « étiquette → scanner »).
 				bcCode = code;
 				bcStep = 'scan-found';
 			}
 	} catch (e) {
-		bcError = e instanceof Error ? e.message : String(e);
+		// Aucune stack trace brute : message utilisateur + retour à l'étape
+		// précédente SANS perdre la fiche en cours.
+		bcError = userErrMsg(e, 'Impossible de vérifier ce code pour le moment. Réessaie dans un instant.');
 		bcStep = cfEditingId ? 'add' : 'choose';
 	} finally {
 		bcBusy = false;
@@ -1717,6 +1749,42 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		// encore sans copie G-FLUX lance la mise en cache de sa miniature —
 		// l'ouverture de la feuille ne attend JAMAIS cette requête.
 		warmFoodImages([food]);
+		// Portion mémorisée (préférence utilisateur) : propose la DERNIÈRE
+		// quantité réellement validée « Ajouter au Journal » pour CET aliment
+		// et CETTE cliente — avant toute autre heuristique (portion OFF…).
+		// Fire-and-forget : la feuille s'ouvre instantanément sur le défaut,
+		// la valeur personnelle arrive en quelques dizaines de ms.
+		const key = qtyPortionKey(food);
+		if (key) {
+			void fetch(`/api/foods/portion?${key}`)
+				.then((r) => (r.ok ? r.json() : null))
+				.then((j: { qtyGrams?: number } | null) => {
+					// Garde : l'utilisateur peut avoir déjà changé la feuille
+					// (fermée ou autre aliment) → on n'écrase jamais.
+					if (j && typeof j.qtyGrams === 'number' && j.qtyGrams > 0 && qtyFood && qtyFood._id === food._id) {
+						qtyGrams = Math.round(j.qtyGrams);
+					}
+				})
+				.catch(() => {
+					/* portion mémorisée indisponible → défaut inchangé */
+				});
+		}
+	}
+	/** Clé de requête de la portion mémorisée (identifiant stable de la source). */
+	function qtyPortionKey(food: Food): string | null {
+		if (food.ciqual) return `ciqualLabel=${encodeURIComponent(food._id)}`;
+		if (food.custom) return `customFoodId=${encodeURIComponent(food._id)}`;
+		if (food._id) return `foodId=${encodeURIComponent(food._id)}`;
+		return null;
+	}
+	/** Lot UI courant (portion mémorisée) : la liste visible d'où provient
+	 *  l'aliment — résultats de recherche, favoris ou récents. Mémoriser ce
+	 *  lot = « l'aliment utilisé » au sens de la portion habituelle, sans
+	 *  jamais toucher aux données de l'aliment ni aux portions des autres. */
+	function uiPortionList(): Food[] {
+		if (searchQ.trim().length >= 2) return results;
+		if (favOnly) return favorites;
+		return recentFoods;
 	}
 	async function confirmAdd(qtyGrams: number, meal: string) {
 		if (!qtyFood) return;
@@ -1739,6 +1807,19 @@ import { journalTipForDay } from '$lib/data/journalTips';
 				/** Date locale du navigateur — frontière « futur » fiable la nuit
 				 *  (00 h 41 à Paris = veille côté serveur UTC). */
 				clientDate: currentLocalDay(),
+				/** Portion mémorisée : la quantité validée par l'utilisateur est
+				 *  le signal — le serveur l'enregistre comme repère personnel
+				 *  pour cet aliment (et les autres produits visibles du lot). */
+				lastPortions: uiPortionList()
+					.filter((f) => f._id !== qtyFood!._id)
+					.slice(0, 50)
+					.map((f) =>
+						f.ciqual
+							? { ciqualLabel: f._id, qtyGrams }
+							: f.custom
+								? { customFoodId: f._id, qtyGrams }
+								: { foodId: f._id, qtyGrams }
+					),
 			}),
 			});
 			const j = await r.json();
@@ -1932,7 +2013,15 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		const code = decoded.replace(/\D/g, '');
 		if (code.length < 8) return;
 		if (target === 'editor') {
-			// Scan lancé DEPUIS l'étape code-barres de l'éditeur d'aliment.
+			// Scan lancé DEPUIS l'étape code-barres de l'éditeur d'aliment. Si
+			// l'éditeur a été fermé entre-temps (annulation du formulaire), le
+			// résultat est routé vers la fenêtre produit si elle est ouverte,
+			// sinon vers le Journal — jamais d'état d'éditeur orphelin.
+			if (!customEditor) {
+				await stopScanner();
+				await lookupCode(code, mealSearchOpen ? 'meal' : 'journal');
+				return;
+			}
 			await handleEditorScan(code);
 			return;
 		}
@@ -2294,6 +2383,14 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			const j = await r.json();
 			if (j.error) throw new Error(j.error);
 			mealPhotoOpen = false;
+			// Retour DIRECT au Journal du jour concerné : l'utilisateur voit
+			// immédiatement ses calories/macros mises à jour (setDate recharge
+			// la journée affichée — selectedDate préservée, futur inclus).
+			logOpen = false;
+			searchQ = '';
+			results = [];
+			hasMore = false;
+			nextOffset = 0;
 			await setDate(date);
 		} catch (e) {
 			mealPhotoError = e instanceof Error ? e.message : String(e);

@@ -130,7 +130,10 @@ export const barcodeLookup = action({
 		sessionToken: v.optional(v.string()),
 		barcode: v.string(),
 	},
-	handler: async (ctx, { sessionToken, barcode }): Promise<Doc<"foods">[]> => {
+	handler: async (
+		ctx,
+		{ sessionToken, barcode }
+	): Promise<(Doc<"foods"> | (Doc<"customFoods"> & { custom: boolean }))[]> => {
 		const user: { _id: Id<"users">; role: "coach" | "client" } | null = await ctx.runQuery(
 			api.journal.checkSession,
 			{ sessionToken }
@@ -148,6 +151,16 @@ export const barcodeLookup = action({
 			barcode: code,
 		});
 		if (local) return [local];
+
+		// 1 bis) Aliment personnel de CETTE cliente : produit créé via une
+		// étiquette / un scan inconnu — le code est rattaché à SA fiche, le
+		// rescan la retrouve immédiatement (jamais de second scan ni de
+		// « produit non trouvé » sur un produit déjà créé par la cliente).
+		const own = await ctx.runQuery(api.customFoods.byBarcode, {
+			sessionToken,
+			barcode: code,
+		});
+		if (own) return [{ ...own, custom: true }];
 
 		// 2) Sinon : API OFF produit + cache local.
 		const url = `https://world.openfoodfacts.org/api/v2/product/${code}.json`;
