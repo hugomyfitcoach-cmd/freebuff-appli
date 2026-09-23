@@ -1313,17 +1313,29 @@ import { journalTipForDay } from '$lib/data/journalTips';
 					['ai-unavailable', 'unreachable', 'timeout'].includes(String(j.reason))
 						? "L'analyse IA est momentanément indisponible — saisis les valeurs à la main ou réessaie dans un instant."
 						: String(j.reason ?? 'Analyse impossible.')
-				);
-			}
+				);			}
 			const a = j.analysis as {
-				name?: string; brand?: string; kcal100?: number; carbs100?: number;
-				protein100?: number; fat100?: number; fiber100?: number; salt100?: number;
-				servingQty?: number; kcalFromKj?: boolean; needsReview?: string[];			};
-			// 3) Préremplit le formulaire MANUEL existant (jamais de création directe).
-			createSheetOpen = false;
-			customEditor = true;
-			cfEditingId = null;
-			cfName = a.name ?? '';
+			name?: string; brand?: string; kcal100?: number; carbs100?: number;
+			protein100?: number; fat100?: number; fiber100?: number; salt100?: number;
+			servingQty?: number; kcalFromKj?: boolean; needsReview?: string[];
+		};
+		// 3) Préremplit le formulaire MANUEL existant (jamais de création directe).
+		createSheetOpen = false;
+		createSheetFromScan = false;
+		labelError = '';
+		// Success contract : analyse réussie → la FICHE de création (écran
+		// Recherche, onglet « Créés par moi ») — JAMAIS l'écran Code-barres.
+		// (stopScanner() ne change pas de mode ; si le scan unknown nous a mis
+		// en mode 'barcode', on en sort explicitement pour ne jamais retomber
+		// devant le scanner après fermeture de la feuille.)
+		if (logMode !== 'search') {
+			await stopScanner();
+			logMode = 'search';
+		}
+		searchTab = 'crees';
+		customEditor = true;
+		cfEditingId = null;
+		cfName = a.name ?? '';
 			cfBrand = a.brand ?? '';
 			cfKcal = a.kcal100 !== undefined ? String(a.kcal100) : '';
 			cfCarbs = a.carbs100 !== undefined ? String(a.carbs100) : '';
@@ -2591,11 +2603,13 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	/** Champ focalisé de l'éditeur « Créés par moi » : re-positionné quand le
 	    clavier s'ouvre (le visualViewport change APRÈS le focus). */
 	let focusedFieldEl: HTMLElement | null = null;
-	function focusScroll(form: HTMLElement, target: EventTarget | null) {
-		if (target instanceof HTMLElement && target !== form) {
-			focusedFieldEl = target;
-			scrollFocusedIntoView(target);
-		}
+	function focusScroll(_form: HTMLElement, target: EventTarget | null) {
+		/* iOS Safari : AUCUN scroll programmatique pendant le focus — le scroll
+		   instantané sous le doigt fait perdre le premier caractère au clavier
+		   numérique (le tap ressemble à un focus cassé : 2–3 tentatives avant de
+		   pouvoir taper). Le champ reste sous le clavier ~200 ms, puis le resize
+		   du visualViewport place le champ focalisé une fois le clavier posé. */
+		if (target instanceof HTMLElement) focusedFieldEl = target;
 	}
 	function blurScroll(e: Event) {
 		if (e.target === focusedFieldEl) focusedFieldEl = null;
@@ -2628,17 +2642,30 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		/* Clavier mobile : la hauteur de l'écran Ajouter suit le visualViewport. */
 		const vv = window.visualViewport;
 		let prevVvH = Math.round((vv?.height ?? window.innerHeight) ?? 0);
+		let vvScrollTimer: ReturnType<typeof setTimeout> | undefined;
 		const setVh = () => {
 			vvH = Math.round((vv?.height ?? window.innerHeight) ?? 0);
 			vvTop = vv?.offsetTop ?? 0;
 			const opened = vvH < prevVvH - 4;
 			prevVvH = vvH;
 			/* Le clavier vient de s'ouvrir / se déplacer : replace le champ focalisé
-			   dans la zone visible (le scroll fait au focusin ne suffisait pas,
-			   la hauteur visible n'était pas encore réduite). Clavier qui se ferme :
-			   on arrête de suivre le champ (pas de scroll parasite au retour). */
-			if (!opened) focusedFieldEl = null;
-			else if (focusedFieldEl?.isConnected) scrollFocusedIntoView(focusedFieldEl);
+			   dans la zone visible — UNIQUEMENT après le jolt d'ouverture (~200 ms,
+			   clavier posé). Jamais DÈS le focusin : le scroll instantané sous le
+			   doigt fait perdre le premier caractère au clavier numérique iOS
+			   (cause du tap « ne répond pas » sur le champ Portion habituelle).
+			   Clavier qui se ferme : on arrête de suivre le champ. */
+			if (!opened) {
+				clearTimeout(vvScrollTimer);
+				focusedFieldEl = null;
+			} else if (focusedFieldEl?.isConnected) {
+				/* Debounce : un seul repositionnement quand la séquence de resizes
+				   du clavier est terminée (~200 ms sans changement de hauteur). */
+				clearTimeout(vvScrollTimer);
+				vvScrollTimer = setTimeout(() => {
+					const stillOpen = Math.round((vv?.height ?? window.innerHeight) ?? 0) < prevVvH + 4;
+					if (stillOpen && focusedFieldEl?.isConnected) scrollFocusedIntoView(focusedFieldEl);
+				}, 200);
+			}
 		};
 		if (vv) {
 			vv.addEventListener('resize', setVh);
@@ -3254,8 +3281,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 					{:else if searchTab === 'crees'}
 						<!-- ═══════ Créés par moi : aliments personnels ═══════ -->
 						{#if customEditor}
-							<!-- focusin (capture) : chaque champ du formulaire reste au-dessus du clavier. -->
-							<div bind:this={customFormEl} onfocusin={(e) => focusScroll(e.currentTarget, e.target)} onfocusout={blurScroll}>
+				<div bind:this={customFormEl} onfocusin={(e) => focusScroll(e.currentTarget, e.target)} onfocusout={blurScroll}>
 							<button type="button" class="mb-3 flex items-center gap-1 text-sm font-semibold text-mist hover:text-ink" onclick={closeCustomEditor}>← Retour à mes aliments</button>
 							<p class="mb-1 text-sm font-semibold text-ink">{cfEditingId ? 'Modifier l\'aliment' : 'Nouvel aliment'}</p>
 							<p class="mb-3 text-xs text-mist">{cfEditingId ? 'Mets à jour les valeurs pour 100 g : les prochains ajouts au journal utiliseront les nouvelles valeurs.' : 'Reçois-tu un plat avec une étiquette nutritionnelle ? Saisis les valeurs pour 100 g : l\'aliment sera ajouté à ta base.'}</p>
