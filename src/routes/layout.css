@@ -84,3 +84,131 @@ textarea,
 		padding-top: max(env(safe-area-inset-top), 0px);
 	}
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   MOTION G-FLUX — fondation partagée (Accueil + composants)
+
+   Philosophie : sobriété > effet wow · fluidité > complexité.
+   Tout passe par transform/opacity (GPU-friendly, zéro CLS), durée courte,
+   courbe premium. Respect strict de prefers-reduced-motion.
+   ═══════════════════════════════════════════════════════════════════════ */
+:root {
+	/* Durées : entrées 260–420 ms max, jamais de sensation de lenteur. */
+	--motion-in: 340ms;
+	--motion-in-fast: 220ms;
+	--motion-out: 180ms;
+	/* Courbes premium (entrées : douceur + très léger dépassement contrôlé). */
+	--ease-premium: cubic-bezier(0.22, 1, 0.36, 1);
+	--ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
+	/* Le stagger est un DÉLAI CSS pur — pas de boucle JS. */
+	--motion-stagger: 30ms;
+}
+
+/* ── Apparition des sections (uniquement au chargement complet) ──────────
+   Le script d'amorçage d'app.html pose .motion-armed sur <html> AVANT le
+   premier rendu : les éléments démarrent invisibles (opacity 0 + Y 10px)
+   puis s'animent avec leur délai de stagger. En navigation interne (SPA)
+   la classe reste posée → plus aucune animation rejouée, retour d'onglet
+   instantané. Sans hydratation : les animations restent auto-complétées
+   (keyframes « from » seul — jamais de contenu masqué). */
+.motion-armed .m-in {
+	animation: m-in var(--motion-in) var(--ease-premium) backwards;
+	animation-delay: calc(var(--m-i, 0) * var(--motion-stagger));
+}
+@keyframes m-in {
+	from {
+		opacity: 0;
+		transform: translateY(10px);
+	}
+}
+
+/* ── Micro-interaction tactile (sensation app native iOS) ─────────────
+   Tap/press : scale 0.98 + contraste subtil + ombre qui se resserre.
+   Réaction quasi instantanée au presser, retour immédiat au relâcher.
+   La liste de transitions remplace celle de Tailwind (CSS non-layered >
+   utilities) et couvre aussi les états hover existants. Zéro layout shift. */
+.tap {
+	transition:
+		transform 100ms var(--ease-soft),
+		box-shadow 100ms var(--ease-soft),
+		filter 100ms var(--ease-soft),
+		border-color 100ms var(--ease-soft),
+		background-color 100ms var(--ease-soft),
+		color 100ms var(--ease-soft);
+}
+.tap:active {
+	transform: scale(0.98);
+	filter: brightness(0.985);
+}
+.tap.tap-shadow:active {
+	box-shadow:
+		0 1px 2px rgba(17, 17, 16, 0.05),
+		0 0 0 1px rgba(17, 17, 16, 0.02);
+}
+
+/* ── Badges (notifications) : apparition douce + micro-bounce UNIQUE ────
+   Pas d'animation répétitive : le badge apparaît une fois, reste lisible.
+   Sa disparition (re-render) est instantanée et sans surprise. */
+.badge-in {
+	animation: badge-in 320ms var(--ease-premium) backwards;
+}
+@keyframes badge-in {
+	0% {
+		opacity: 0;
+		transform: scale(0.6);
+	}
+	55% {
+		opacity: 1;
+		transform: scale(1.06);
+	}
+	100% {
+		transform: scale(1);
+	}
+}
+
+/* ── Tracé progressif des sparklines (carte « Ma progression ») ─────────
+   Apparition douce : fondu + révélation de gauche à droite (le tracé « se
+   dessine »). Une seule fois au montage — neutralisée sous reduced-motion. */
+.spark-draw {
+	animation: spark-draw 500ms var(--ease-soft) backwards;
+}
+@keyframes spark-draw {
+	from {
+		opacity: 0;
+		clip-path: inset(0 100% 0 0);
+	}
+	60% {
+		opacity: 1;
+	}
+}
+
+/* ── Accessibilité : prefers-reduced-motion ─────────────────────────────
+   Les animations ne sont jamais nécessaires pour comprendre une
+   information : on neutralise tout ce qui est décoratif.
+   Les états finaux restent identiques (keyframes « from » seul → état
+   statique = état final, lisibilité immédiate). */
+@media (prefers-reduced-motion: reduce) {
+	.motion-armed .m-in,
+	.badge-in,
+	.spark-draw {
+		animation: none !important;
+		opacity: 1 !important;
+		transform: none !important;
+	}
+	.tap,
+	.tap:active {
+		transition-duration: 1ms !important;
+	}
+	.tap:active {
+		transform: none !important;
+		filter: none !important;
+	}
+	/* Filet global : toute autre animation CSS existante est neutralisée. */
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+	}
+}

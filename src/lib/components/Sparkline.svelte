@@ -1,4 +1,12 @@
 <script lang="ts">
+	/**
+	 * Sparkline — mini courbe de tendance (SVG).
+	 *
+	 * Rendu SSR + hydratation : aucun recalcul côté client, les points
+	 * ($derived) tracent directement le path. Le tracé est un SVG statique :
+	 * aucune animation permanente, aucune boucle JS.
+	 */
+
 	type Point = { date: string; value: number };
 
 	type Props = {
@@ -10,9 +18,13 @@
 		goal?: number | null;
 		/** Couleur de la ligne de référence. */
 		goalColor?: string;
+		/** Apparition douce (opacity + tracé qui « se dessine », 500 ms) — une
+		 *  seule fois au montage, uniquement transform/opacity/clip.
+		 *  Neutralisée sous prefers-reduced-motion (layout.css). */
+		drawIn?: boolean;
 	};
 
-	let { points, color = '#1db954', width = 100, height = 34, goal = null, goalColor = '#9aa3ad' }: Props = $props();
+	let { points, color = '#1db954', width = 100, height = 34, goal = null, goalColor = '#9aa3ad', drawIn = false }: Props = $props();
 
 	let seq = 0; // compteur module : id unique par instance
 	let id = $state(String(++seq));
@@ -53,6 +65,16 @@
 		return `${line} L ${xAt(tMax).toFixed(1)} ${baseY} L ${xAt(tMin).toFixed(1)} ${baseY} Z`;
 	});
 	const last = $derived(pts.length ? pts[pts.length - 1] : null);
+
+	/* Apparition douce optionnelle : opacity + masque de gauche à droite (le
+	   tracé « se dessine »). Uniquement opacity + clip-path — GPU-friendly.
+	   Armé à l'hydratation (une seule fois, jamais rejoué ensuite).
+	   Keyframes « from » seul : sans hydratation le graphe reste lisible. */
+	let mounted = $state(false);
+	$effect(() => {
+		mounted = true;
+	});
+	const drawClass = $derived(drawIn && mounted && pts.length >= 2 ? 'spark-draw' : '');
 </script>
 
 {#if pts.length >= 1}
@@ -60,7 +82,7 @@
 		width={width}
 		height={height}
 		viewBox={`0 0 ${width} ${height}`}
-		class="shrink-0"
+		class="shrink-0 {drawClass}"
 		role="img"
 		aria-label="Tendance de la métrique dans le temps"
 	>
