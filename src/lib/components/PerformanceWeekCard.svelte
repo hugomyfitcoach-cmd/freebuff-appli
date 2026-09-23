@@ -66,9 +66,28 @@
 	function fmt(n: number) {
 		return n.toLocaleString('fr-FR');
 	}
+
+	/* ── Apparition douce (motion G-FLUX) ─────────────────────────────────
+	   Au PREMIER rendu de vraies données (la carte Accueil charge la semaine
+	   en async), chaque barre et chaque anneau part de 0 → valeur, avec un
+	   léger décalage par jour (stagger). Uniquement transform/opacity/stroke
+	   (GPU-friendly), une seule fois — aucune animation permanente. Les
+	   re-rendus (page Performance, changement de semaine) n'arment rien :
+	   la classe n'est posée qu'une fois, au premier passage en état armé.
+	   Neutralisée sous prefers-reduced-motion (layout.css). */
+	let revealed = $state(false);
+
+	$effect(() => {
+		if (!revealed) {
+			/* Premier passage avec des données : on arme les keyframes « from »
+			   puis on désarme au frame suivant (une seule fois par montage). */
+			const id = requestAnimationFrame(() => (revealed = true));
+			return () => cancelAnimationFrame(id);
+		}
+	});
 </script>
 
-<div class="grid grid-cols-7 {compact ? 'gap-1' : 'gap-1.5'}">
+<div class="grid grid-cols-7 {compact ? 'gap-1' : 'gap-1.5'} {revealed ? '' : 'perf-armed'}">
 	{#each days as d, i (d.date)}
 		{@const future = isFuture(d.date)}
 		{@const sel = selected === i}
@@ -92,9 +111,9 @@
 				<div class="relative h-full w-full max-w-[14px] overflow-hidden rounded-full bg-line/50">
 					{#if d.tracked && !future}
 						<div
-							class="absolute bottom-0 left-0 w-full rounded-full transition-all duration-500
+							class="perf-bar absolute bottom-0 left-0 w-full rounded-full transition-all duration-500
 								{d.totals.kcal > goals.kcal ? 'bg-warn' : 'bg-brand'}"
-							style="height: {Math.max(kcalPct(d), 4)}%"
+							style="height: {Math.max(kcalPct(d), 4)}%; --perf-i: {i}"
 						></div>
 					{/if}
 				</div>
@@ -103,11 +122,12 @@
 			<!-- 3 mini-anneaux macros (Glucides / Protéines / Lipides) -->
 			<div class="relative {compact ? 'h-9 w-9' : 'h-11 w-11'}">
 				<svg viewBox="0 0 32 32" class="{compact ? 'h-9 w-9' : 'h-11 w-11'} -rotate-90">
-					{#each RINGS as ring (ring.key)}
+					{#each RINGS as ring, ringIdx (ring.key)}
 						{@const fill = d.tracked && !future ? macroPct(d.totals[ring.key], goals[ring.key]) : 0}
 						<circle cx="16" cy="16" r={ring.r} fill="none" stroke="#eef0ec" stroke-width={ring.sw} />
 						{#if fill > 0}
 							<circle
+								class="perf-ring"
 								cx="16"
 								cy="16"
 								r={ring.r}
@@ -117,6 +137,7 @@
 								stroke-linecap="round"
 								stroke-dasharray={RING_CIRC(ring.r)}
 								stroke-dashoffset={RING_CIRC(ring.r) * (1 - fill / 100)}
+								style="--perf-i: {i * 3 + ringIdx}"
 							/>
 						{/if}
 					{/each}
@@ -145,3 +166,28 @@
 		<span class="ml-auto inline-flex items-center gap-1"><Icon name="flame" size={10} class="shrink-0" /> Objectif : {fmt(goals.kcal)} kcal</span>
 	</div>
 {/if}
+
+<style>
+	/* Apparition douce, armée UNE fois au premier rendu des données :
+	   la classe .perf-armed est posée au premier render (revealed=false) puis
+	   retirée — les keyframes « from » (backwards) jouent alors 300 ms. */
+	.perf-armed :global(.perf-bar) {
+		animation: perf-bar-in 400ms var(--ease-soft, ease-out) backwards;
+		animation-delay: calc(var(--perf-i, 0) * 30ms);
+	}
+	.perf-armed :global(.perf-ring) {
+		animation: perf-fade 300ms var(--ease-soft, ease-out) backwards;
+		animation-delay: calc(var(--perf-i, 0) * 10ms);
+	}
+	@keyframes perf-bar-in {
+		from {
+			transform: scaleY(0.001);
+			opacity: 0;
+		}
+	}
+	@keyframes perf-fade {
+		from {
+			opacity: 0;
+		}
+	}
+</style>

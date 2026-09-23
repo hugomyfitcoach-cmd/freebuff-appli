@@ -34,6 +34,14 @@
 				document.addEventListener('touchmove', block, { passive: false });
 			})();
 		</script>
+		<script>
+			// Motion G-FLUX : arme les animations d'apparition (stagger) AVANT le
+			// premier rendu. Elles ne jouent qu'une fois par CHARGEMENT COMPLET du
+			// document — jamais en navigation interne (SPA), où la classe reste
+			// posée (retour d'onglet instantané, zéro rejeu, zéro flash).
+			// Respect natif de prefers-reduced-motion côté CSS.
+			document.documentElement.classList.add('motion-armed');
+		</script>
 		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 		<link
 			href="https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700&display=swap"
