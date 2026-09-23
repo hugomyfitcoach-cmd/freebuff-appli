@@ -2398,7 +2398,16 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			// Retour DIRECT au Journal du jour concerné : l'utilisateur voit
 			// immédiatement ses calories/macros mises à jour (setDate recharge
 			// la journée affichée — selectedDate préservée, futur inclus).
+			// Fermeture COMPLÈTE du flow « Ajouter un aliment » : la feuille
+			// Recherche/Code-barres ne doit JAMAIS réapparaître après le succès
+			// Repas IA (état résiduel du flow d'entrée — Repas IA est aussi
+			// ouvert depuis la barre du Journal, hors feuille ; scanner stoppé
+			// pour qu'aucun redémarrage ne relance l'écran Code-barres).
+			await stopScanner();
 			logOpen = false;
+			logMode = 'search';
+			searchTab = 'produits';
+			showScrollHint = false;
 			searchQ = '';
 			results = [];
 			hasMore = false;
