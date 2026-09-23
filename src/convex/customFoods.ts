@@ -1,7 +1,8 @@
 import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { getSessionUser } from "./helpers";
-import type { QueryCtx } from "./_generated/server";
+import { applyKcalGuard } from "../lib/nutritionGuard";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 
 /**
@@ -95,6 +96,21 @@ function cleanBarcode(code: string | undefined | null): string | undefined {
 }
 
 /**
+ * Le code existe-t-il DÉJÀ dans la base commune (`foods`, offId = EAN/GTIN) ?
+ * Si oui : la cliente peut garder l'aliment en PERSONNEL, mais JAMAIS de
+ * candidat global ni de doublon (règle produit : barcode connu → pas de
+ * nouveau global, et une cliente n'écrit jamais `foods`).
+ */
+async function barcodeExistsGlobally(ctx: MutationCtx, code: string): Promise<boolean> {
+	if (!code) return false;
+	const f = await ctx.db
+		.query("foods")
+		.withIndex("by_offId", (q) => q.eq("offId", code))
+		.first();
+	return f !== null;
+}
+
+/**
  * Crée un aliment personnel (valeurs pour 100 g).
  *
  * Avec un `barcode` produit emballé : l'aliment est marqué
@@ -105,18 +121,21 @@ function cleanBarcode(code: string | undefined | null): string | undefined {
 export const create = mutation({
 	args: { sessionToken: v.optional(v.string()), ...foodFields },
 	handler: async (ctx, { sessionToken, barcode, sourceKind, ...fields }) => {
-		const user = await requireClient(ctx, sessionToken);
-		const clean = normalizeFields(fields);
-		const code = cleanBarcode(barcode);
-		const id = await ctx.db.insert("customFoods", {
-			userId: user._id,
-			...clean,
-			barcode: code,
-			globalStatus: code ? "candidate" : undefined,
-			sourceKind: sourceKind === "label_photo" ? "label_photo" : "manual",
-			createdAt: Date.now(),
-		});
-		return { ok: true, customFoodId: id };
+	const user = await requireClient(ctx, sessionToken);
+	const clean = normalizeFields(fields);
+	const code = cleanBarcode(barcode);
+	// Anti-doublon serveur : candidat UNIQUEMENT si le code est inconnu de la
+	// base commune. Code déjà connu → aliment personnel simple, zéro candidat.
+	const globalStatus = code && !(await barcodeExistsGlobally(ctx, code)) ? "candidate" : undefined;
+	const id = await ctx.db.insert("customFoods", {
+		userId: user._id,
+		...clean,
+		barcode: code,
+		globalStatus,
+		sourceKind: sourceKind === "label_photo" ? "label_photo" : "manual",
+		createdAt: Date.now(),
+	});
+	return { ok: true, customFoodId: id };
 	},
 });
 
@@ -132,15 +151,23 @@ export const update = mutation({
 		const food = await ctx.db.get(customFoodId);
 		if (!food || food.userId !== user._id) throw new ConvexError("Aliment introuvable.");
 		const patch = normalizeFields(fields);
-		const code = cleanBarcode(barcode);
-		// Le barcode d'origine reste prioritaire : l'édition ne doit pas pouvoir
-		// « dé-candidater » un produit emballé en effaçant son code par erreur.
-		await ctx.db.patch(customFoodId, {
-			...patch,
-			barcode: code ?? food.barcode,
-			globalStatus: code || food.barcode ? "candidate" : food.globalStatus,
-		});
-		return { ok: true, customFoodId };
+	const code = cleanBarcode(barcode);
+	// Le barcode d'origine reste prioritaire : l'édition ne doit pas pouvoir
+	// « dé-candidater » un produit emballé en effaçant son code par erreur.
+	// Rattachement « Ajouter un code-barres » : candidat seulement si le code
+	// est inconnu de la base commune (jamais de doublon global).
+	const finalCode = code ?? food.barcode;
+	const globalStatus =
+		food.globalStatus === "candidate" ||
+		(finalCode !== undefined && !(await barcodeExistsGlobally(ctx, finalCode)))
+			? "candidate"
+			: food.globalStatus;
+	await ctx.db.patch(customFoodId, {
+		...patch,
+		barcode: finalCode,
+		globalStatus,
+	});
+	return { ok: true, customFoodId };
 	},
 });
 
@@ -196,6 +223,65 @@ export const byBarcode = query({
 				.withIndex("by_barcode", (q) => q.eq("barcode", code))
 				.first()) ?? null
 		);
+	},
+});
+
+/**
+ * Résolution code-barres AVANT création (anti-doublon) : base commune d'abord
+ * (`foods`, offId = EAN/GTIN — produits OFF importés), puis les aliments
+ * personnels de la cliente. `null` = code inconnu → la création produira un
+ * aliment personnel + un simple CANDIDAT global (jamais de publication auto).
+ *
+ * Règle produit : si le code existe déjà, la cliente NE crée NI doublon
+ * global NI candidat — on lui propose la fiche existante.
+ */
+export const byBarcodeGlobal = query({
+	args: { sessionToken: v.optional(v.string()), barcode: v.string() },
+	handler: async (ctx, { sessionToken, barcode }) => {
+		const user = await requireClient(ctx, sessionToken);
+		const code = barcode.replace(/\D/g, "");
+		if (!code) return null;
+		// 1) Base commune (780k produits OFF importés) — kcal sous garde-fou.
+		const f = await ctx.db
+			.query("foods")
+			.withIndex("by_offId", (q) => q.eq("offId", code))
+			.first();
+		if (f) {
+			const g = applyKcalGuard(f);
+			return {
+				source: "global" as const,
+				foodId: f._id,
+				name: f.name,
+				brand: f.brand,
+				kcal100: g.kcal100,
+				carbs100: f.carbs100,
+				protein100: f.protein100,
+				fat100: f.fat100,
+				servingQty: f.servingQty,
+				servingUnit: f.servingUnit,
+				kcalRecalculated: g.kcalRecalculated || undefined,
+			};
+		}
+		// 2) Déjà créé par cette cliente ("Plus tard" d'une fois précédente…).
+		const own = await ctx.db
+			.query("customFoods")
+			.withIndex("by_barcode", (q) => q.eq("barcode", code))
+			.filter((q) => q.eq(q.field("userId"), user._id))
+			.first();
+		if (own) {
+			return {
+				source: "own" as const,
+				customFoodId: own._id,
+				name: own.name,
+				brand: own.brand,
+				kcal100: own.kcal100,
+				carbs100: own.carbs100,
+				protein100: own.protein100,
+				fat100: own.fat100,
+				servingQty: own.servingQty,
+			};
+		}
+		return null;
 	},
 });
 

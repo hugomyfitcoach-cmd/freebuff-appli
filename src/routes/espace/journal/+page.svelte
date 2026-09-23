@@ -94,6 +94,8 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		servingQty?: number;
 		/** Aliment personnel créé par le client (base « Créés par moi »). */
 		custom?: boolean;
+		/** Code-barres EAN/GTIN rattaché (aliments personnels produits emballés). */
+		barcode?: string;
 		/** Fiche de RÉFÉRENCE Ciqual (ANSES) — _id = libellé officiel exact. */
 		ciqual?: boolean;
 		/** Fibres /100 g (aliments personnels, information d'étiquette). */
@@ -1071,6 +1073,33 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	let labelAnalyzing = $state(false);
 	let labelError = $state('');
 	let labelFileInput: HTMLInputElement | undefined;
+	/**
+	 * Étape code-barres AVANT enregistrement : 'hidden' (absente) | 'choose'
+	 * (détecté sur la photo, à confirmer) | 'scan' | 'scan-found' | 'scan-absent'
+	 * | 'exists' (déjà dans G-FLUX → proposer la fiche existante) | 'attached'.
+	 */
+	let bcStep = $state<'hidden' | 'choose' | 'scan' | 'scan-found' | 'scan-absent' | 'exists' | 'attached' | 'add'>('hidden');
+	/** Code retenu pour la création : photo, scan, ou déjà rattaché. */
+	let bcCode = $state<string | null>(null);
+	/** Produit global/personnel EXISTANT trouvé pour ce code (anti-doublon). */
+	let bcExisting = $state<ExistingBarcodeHit | null>(null);
+	let bcBusy = $state(false);
+	let bcError = $state('');
+	/** Résolution code-barres : base commune ou fiche perso déjà créée. */
+	type ExistingBarcodeHit = {
+		source: 'global' | 'own';
+		foodId?: string;
+		customFoodId?: string;
+		name: string;
+		brand?: string;
+		kcal100: number;
+		carbs100: number;
+		protein100: number;
+		fat100: number;
+		servingQty?: number;
+		servingUnit?: string;
+		kcalRecalculated?: boolean;
+	};
 
 	async function loadCustomFoods() {
 		customFoodsError = '';
@@ -1087,6 +1116,10 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		customEditor = true;
 		createSheetOpen = false;
 		cfEditingId = null;
+		pendingBarcode = null;
+		bcStep = 'hidden';
+		bcCode = null;
+		bcExisting = null;
 		cfName = '';
 		cfBrand = '';
 		cfKcal = '';
@@ -1112,6 +1145,11 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		cfSalt = food.salt100 !== undefined ? String(food.salt100) : '';
 		cfServing = food.servingQty !== undefined ? String(food.servingQty) : '';
 		cfError = '';
+		/* Édition : aliment déjà rattaché → récap ; sans code → proposition
+		   discrète « Ajouter un code-barres » (rattachement plus tard). */
+		bcStep = food.barcode ? 'attached' : 'add';
+		bcCode = food.barcode ?? null;
+		bcExisting = null;
 	}
 	function closeCustomEditor() {
 		customEditor = false;
@@ -1128,6 +1166,27 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		cfSaving = true;
 		cfError = '';
 		try {
+			/* Anti-doublon : avec un code-barres, on vérifie la base commune AVANT
+			   de créer. Produit déjà connu → aucun doublon, aucun candidat : on
+			   propose simplement la fiche existante. */
+			let existing: ExistingBarcodeHit | null = null;
+			const code = (bcCode ?? pendingBarcode ?? '').replace(/\D/g, '');
+			if (!cfEditingId && code.length >= 8) {
+				try {
+					const rr = await fetch(`/api/foods/custom-barcode?barcode=${encodeURIComponent(code)}`);
+					const jj = await rr.json();
+					if (!jj.error) existing = jj as ExistingBarcodeHit | null;
+				} catch {
+					/* indisponible → on retombe sur la création standard */
+				}
+			}
+			if (existing) {
+				cfSaving = false;
+				bcExisting = existing;
+				bcCode = code;
+				bcStep = 'exists';
+				return;
+			}
 			/* Édition → PUT sur la fiche existante (pas de doublon, journal intact). */
 			const r = await fetch(cfEditingId ? `/api/foods/custom?id=${cfEditingId}` : '/api/foods/custom', {
 				method: cfEditingId ? 'PUT' : 'POST',
@@ -1142,13 +1201,16 @@ import { journalTipForDay } from '$lib/data/journalTips';
 					fiber100: num(cfFiber),
 					salt100: num(cfSalt),
 					servingQty: num(cfServing),
-					barcode: pendingBarcode ?? undefined,
-					sourceKind: pendingBarcode ? 'label_photo' : undefined,
+					barcode: code || undefined,
+					sourceKind: code ? 'label_photo' : undefined,
 				}),
 			});
 			const j = await r.json();
 			if (j.error) throw new Error(j.error);
 			pendingBarcode = null;
+			bcStep = 'hidden';
+			bcCode = null;
+			bcExisting = null;
 			await loadCustomFoods();
 			closeCustomEditor();
 		} catch (e) {
@@ -1188,6 +1250,9 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	/** Option « Saisir manuellement » : formulaire existant (vierge). */
 	function createManual() {
 		pendingBarcode = null;
+		bcStep = 'hidden';
+		bcCode = null;
+		bcExisting = null;
 		cfAiNote = '';
 		cfReview = new Set();
 		openCustomEditor();
@@ -1236,10 +1301,13 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			cfProtein = a.protein100 !== undefined ? String(a.protein100) : '';
 			cfFat = a.fat100 !== undefined ? String(a.fat100) : '';
 			cfFiber = a.fiber100 !== undefined ? String(a.fiber100) : '';
-			cfSalt = a.salt100 !== undefined ? String(a.salt100) : '';
-			cfServing = a.servingQty !== undefined ? String(a.servingQty) : '';
+			cfSalt = a.salt100 !== undefined ? String(a.salt100) : '';			cfServing = a.servingQty !== undefined ? String(a.servingQty) : '';
 			pendingBarcode = code ?? (j.barcode ? String(j.barcode) : null);
-			const review = new Set<string>((a.needsReview ?? []).map((x) => (x === 'valeurs' ? 'kcal' : x)));
+			// Étape code-barres AVANT validation : détecté sur la photo → à
+			// confirmer ; sinon proposition discrète scanner / « Plus tard ».
+			bcCode = pendingBarcode;
+			bcStep = 'choose';
+				const review = new Set<string>((a.needsReview ?? []).map((x) => (x === 'valeurs' ? 'kcal' : x)));
 			if (!cfKcal) review.add('kcal');
 			cfReview = review;
 			cfAiNote = a.kcalFromKj
@@ -1258,6 +1326,87 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		createSheetFromScan = true;
 		labelError = '';
 		createSheetOpen = true;
+	}
+
+	/* ————— Étape code-barres (post-analyse, avant enregistrement) ————— */
+	/** Confirme le code lu sur la photo, ou lance le scan — facultatif. */
+	function confirmBcCode() {
+		if (bcCode) bcStep = 'attached';
+	}
+	/** Lance le scan DANS l'éditeur (le scanner est un singleton : stop d'abord). */
+	async function startBcScan() {
+		bcError = '';
+		await stopScanner();
+		logMode = 'search';
+		bcStep = 'scan';
+		await tick();
+		void startScanner('editor-bc-reader', 'editor');
+	}
+	/** Code scanné dans l'éditeur : base commune connue → fiche existante ;
+	 *  inconnu → rattaché à la fiche en cours (futur candidat global). */
+	async function handleEditorScan(code: string) {
+		bcBusy = true;
+		bcError = '';
+		try {
+			const rr = await fetch(`/api/foods/custom-barcode?barcode=${encodeURIComponent(code)}`);
+			const jj = await rr.json();
+			if (jj.error) throw new Error(jj.error);
+			if (jj) {
+				bcExisting = jj as ExistingBarcodeHit;
+				bcCode = code;
+				bcStep = 'exists';
+			} else {
+				bcCode = code;
+				bcStep = 'scan-found';
+			}
+	} catch (e) {
+		bcError = e instanceof Error ? e.message : String(e);
+		bcStep = cfEditingId ? 'add' : 'choose';
+	} finally {
+		bcBusy = false;
+	}
+	}
+	/** « Plus tard » : le code reste facultatif — aliment privé, zéro candidat. */
+	function skipBc() {
+		bcStep = 'hidden';
+		bcCode = null;
+		bcExisting = null;
+		pendingBarcode = null;
+	}
+	/** Utilise la fiche existante trouvée pour ce code (aucun doublon créé). */
+	function useExistingBarcodeFood() {
+		const hit = bcExisting;
+		if (!hit) return;
+		closeCustomEditor();
+		bcStep = 'hidden';
+		bcCode = null;
+		bcExisting = null;
+		pendingBarcode = null;
+		const food: Food = {
+			_id: hit.foodId ?? hit.customFoodId ?? '',
+			name: hit.name,
+			brand: hit.brand,
+			kcal100: hit.kcal100,
+			carbs100: hit.carbs100,
+			protein100: hit.protein100,
+			fat100: hit.fat100,
+			servingQty: hit.servingQty,
+			kcalRecalculated: hit.kcalRecalculated,
+			custom: hit.source === 'own' ? true : undefined,
+		};
+		openQty(food);
+	}
+	/** Après « existe déjà » : en création on repart sans le code (aucun
+	 *  doublon) ; en édition on garde le code scanné → rattachement privé (le
+	 *  serveur ne crée jamais de candidat pour un code déjà connu). */
+	function dismissExistingBarcodeFood() {
+		bcExisting = null;
+		if (cfEditingId) {
+			bcStep = 'attached';
+		} else {
+			bcCode = null;
+			bcStep = 'choose';
+		}
 	}
 
 	/* ————— Éditeur de repas ————— */
@@ -1679,7 +1828,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	/** Démarre le scanner sur le lecteur demandé : « bc-reader » (écran « Ajouter
 	 *  un aliment ») ou « meal-bc-reader » (fenêtre produit de l'éditeur de
 	 *  repas). Le résultat est routé vers la feuille correspondante. */
-	async function startScanner(elId: string = 'bc-reader', target: 'journal' | 'meal' = 'journal') {
+	async function startScanner(elId: string = 'bc-reader', target: 'journal' | 'meal' | 'editor' = 'journal') {
 		if (scanner || scannerBusy || typeof document === 'undefined') return;
 		const el = document.getElementById(elId);
 		if (!el) return;
@@ -1708,6 +1857,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 				barcodeStatus = 'error';
 			}
 			barcodeError = e instanceof Error ? e.message : 'Caméra indisponible — saisis le code-barres à la main ci-dessous.';
+			if (target === 'editor') bcError = barcodeError;
 			if (scanner) {
 				try {
 					await scanner.stop();
@@ -1756,10 +1906,15 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			logMode = 'search';
 		}
 	}
-	async function handleScan(decoded: string, target: 'journal' | 'meal' = 'journal') {
+	async function handleScan(decoded: string, target: 'journal' | 'meal' | 'editor' = 'journal') {
 		if (scannerBusy || barcodeBusy) return;
 		const code = decoded.replace(/\D/g, '');
 		if (code.length < 8) return;
+		if (target === 'editor') {
+			// Scan lancé DEPUIS l'étape code-barres de l'éditeur d'aliment.
+			await handleEditorScan(code);
+			return;
+		}
 		await lookupCode(code, target);
 	}
 	async function lookupCode(code: string, target: 'journal' | 'meal' = 'journal') {
@@ -2969,6 +3124,71 @@ import { journalTipForDay } from '$lib/data/journalTips';
 								<span class="block text-[11px] font-bold uppercase tracking-wide text-mist">Portion habituelle (g, optionnel)</span>
 								<input type="text" inputmode="decimal" class="mt-1 w-full bg-transparent text-sm font-bold text-ink outline-none" placeholder="Ex. 200" bind:value={cfServing} />
 							</label>
+
+							{#if bcStep === 'choose'}
+								<!-- Étape code-barres (création via étiquette) : facultatif. -->
+								<div class="mt-3 rounded-xl border-2 border-dashed border-line bg-cream/60 px-3 py-3">
+									{#if bcCode}
+										<p class="text-xs font-bold text-ink">Code-barres détecté sur la photo</p>
+										<p class="mt-0.5 text-lg font-black tracking-wider text-ink">{bcCode}</p>
+										<div class="mt-2 flex gap-2">
+											<button type="button" class="rounded-full bg-brand px-4 py-2 text-xs font-bold text-white transition hover:bg-brand-dark" onclick={confirmBcCode}>C'est le bon</button>
+											<button type="button" class="rounded-full px-3 py-2 text-xs font-semibold text-mist transition hover:text-ink" onclick={() => { bcCode = null; bcStep = 'choose'; }}>Le corriger</button>
+										</div>
+									{:else}
+										<p class="text-xs font-bold text-ink">Ajouter le code-barres du produit ?</p>
+										<p class="mt-0.5 text-[11px] text-mist">Optionnel — aide à retrouver le produit et à l'enrichir pour tout le monde (après validation).</p>
+										<div class="mt-2 flex gap-2">
+											<button type="button" class="flex items-center gap-1.5 rounded-full bg-brand px-4 py-2 text-xs font-bold text-white transition hover:bg-brand-dark" disabled={bcBusy} onclick={startBcScan}><Icon name="barcode" size={13} />{bcBusy ? 'Recherche…' : 'Scanner le code-barres'}</button>
+											<button type="button" class="rounded-full px-3 py-2 text-xs font-semibold text-mist transition hover:text-ink" onclick={skipBc}>Plus tard</button>
+										</div>
+									{/if}
+									{#if bcError}
+										<p class="mt-2 rounded-lg bg-danger-light px-2.5 py-1.5 text-xs text-danger">{bcError}</p>
+									{/if}
+								</div>
+							{:else if bcStep === 'scan'}
+								<!-- Scan DANS l'éditeur (résultat routé vers cette feuille). -->
+								<div class="mt-3 overflow-hidden rounded-xl border-2 border-line">
+									<div id="editor-bc-reader" class="aspect-[4/3] w-full bg-ink"></div>
+								</div>
+								<p class="mt-2 text-center text-xs text-mist">Vise le code-barres du produit… <button type="button" class="font-semibold text-brand hover:underline" onclick={() => { bcStep = cfEditingId ? 'add' : 'choose'; void stopScanner(); }}>Annuler</button></p>
+								{#if bcError}
+									<p class="mt-2 rounded-lg bg-danger-light px-2.5 py-1.5 text-xs text-danger">{bcError}</p>
+								{/if}
+							{:else if bcStep === 'scan-found'}
+								<div class="mt-3 rounded-xl bg-brand-light/60 px-3 py-3">
+									<p class="text-xs font-bold text-brand-dark">Code rattaché à ton aliment</p>
+									<p class="mt-0.5 text-lg font-black tracking-wider text-ink">{bcCode}</p>
+									<p class="mt-1 text-[11px] text-brand-dark">Nouveau produit : il rejoindra la base commune comme « candidat » après ta validation — jamais publié automatiquement.</p>
+								</div>
+							{:else if bcStep === 'exists' && bcExisting}
+								<!-- Anti-doublon : ce code existe déjà → fiche existante. -->
+								<div class="mt-3 rounded-xl bg-brand-light/60 px-3 py-3">
+									<p class="text-sm font-bold text-brand-dark">Ce produit existe déjà dans G-FLUX.</p>
+									<p class="mt-1 text-sm font-semibold text-ink">{bcExisting.name}{#if bcExisting.brand} · {bcExisting.brand}{/if}</p>
+									<p class="text-xs text-mist">{fmt(bcExisting.kcal100)} kcal · P {fmt(bcExisting.protein100)} · G {fmt(bcExisting.carbs100)} · L {fmt(bcExisting.fat100)} / 100 g</p>
+									<div class="mt-2 flex gap-2">
+										<button type="button" class="rounded-full bg-brand px-4 py-2 text-xs font-bold text-white transition hover:bg-brand-dark" onclick={useExistingBarcodeFood}>Utiliser la fiche existante</button>
+										<button type="button" class="rounded-full px-3 py-2 text-xs font-semibold text-mist transition hover:text-ink" onclick={dismissExistingBarcodeFood}>{cfEditingId ? 'Garder ma fiche' : 'Créer quand même le mien'}</button>
+									</div>
+								</div>
+							{:else if bcStep === 'attached' && bcCode}
+								<p class="mt-2 flex items-center gap-1.5 rounded-xl bg-brand-light/60 px-3 py-2 text-xs text-brand-dark"><Icon name="barcode" size={13} class="shrink-0" />Code-barres {bcCode} rattaché à cet aliment.</p>
+							{:else if bcStep === 'add'}
+								<!-- Édition d'un aliment sans code : rattachement plus tard. -->
+								<div class="mt-3 rounded-xl border-2 border-dashed border-line bg-cream/60 px-3 py-3">
+									<p class="text-xs font-bold text-ink">Ajouter un code-barres à cet aliment ?</p>
+									<p class="mt-0.5 text-[11px] text-mist">Optionnel — si le produit existe déjà dans G-FLUX, ta fiche pointera dessus (aucun doublon).</p>
+									<div class="mt-2 flex gap-2">
+										<button type="button" class="flex items-center gap-1.5 rounded-full bg-brand px-4 py-2 text-xs font-bold text-white transition hover:bg-brand-dark" disabled={bcBusy} onclick={startBcScan}><Icon name="barcode" size={13} />{bcBusy ? 'Recherche…' : 'Scanner le code-barres'}</button>
+										<button type="button" class="rounded-full px-3 py-2 text-xs font-semibold text-mist transition hover:text-ink" onclick={() => (bcStep = 'hidden')}>Plus tard</button>
+									</div>
+									{#if bcError}
+										<p class="mt-2 rounded-lg bg-danger-light px-2.5 py-1.5 text-xs text-danger">{bcError}</p>
+									{/if}
+								</div>
+							{/if}
 
 							{#if cfError}
 								<p class="mt-3 rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{cfError}</p>
