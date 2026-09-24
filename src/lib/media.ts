@@ -65,16 +65,22 @@ const JPEG_Q = 0.85;
  * Charge une image (File/Blob/URL) en <img> prête à dessiner — COMPATIBLE
  * SAFARI/iOS TOUT ÂGE. `createImageBitmap` n'existe pas sur iOS < 15 et
  * levait « createImageBitmap is not defined » à l'import d'une photo de
- * profil sur iPhone : ici, repli systématique sur <img> + objectURL
- * (createObjectURL géré dans tous les navigateurs, révoqué après chargement).
+ * profil sur iPhone : ici, repli systématique sur <img> + objectURL.
  * Les dimensions lues sont naturalWidth/naturalHeight (EXIF respecté par
  * Safari) — même contrat que createImageBitmap pour drawImage.
+ *
+ * ⚠️ NE PAS révoquer l'objectURL après `onload` : sur iOS Safari, une URL
+ * révoquée invalide la source de l'élément (l'<img> recharge sa donnée de
+ * façon paresseuse) — c'est ce qui laissait le recadrage avatar bloqué sur
+ * « Chargement… ». L'URL reste donc VALIDE après résolution ; c'est à
+ * l'appelant de la révoquer s'il en détient une (ou au déchargement de page).
  */
 export function loadImageElement(src: File | Blob | string): Promise<HTMLImageElement> {
 	return new Promise((resolve, reject) => {
 		const img = new Image();
 		let objectUrl: string | null = null;
-		const cleanup = () => {
+		img.onload = () => resolve(img);
+		img.onerror = () => {
 			if (objectUrl) {
 				try {
 					URL.revokeObjectURL(objectUrl);
@@ -83,13 +89,6 @@ export function loadImageElement(src: File | Blob | string): Promise<HTMLImageEl
 				}
 				objectUrl = null;
 			}
-		};
-		img.onload = () => {
-			cleanup();
-			resolve(img);
-		};
-		img.onerror = () => {
-			cleanup();
 			reject(new Error('format-image'));
 		};
 		if (typeof src === 'string') {
@@ -99,7 +98,6 @@ export function loadImageElement(src: File | Blob | string): Promise<HTMLImageEl
 				objectUrl = URL.createObjectURL(src);
 				img.src = objectUrl;
 			} catch (e) {
-				cleanup();
 				reject(e instanceof Error ? e : new Error('format-image'));
 			}
 		}

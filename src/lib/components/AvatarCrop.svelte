@@ -1,32 +1,30 @@
 <script lang="ts">
 	/**
-	 * Recadrage AVATAR — rond visible, repositionnable et zoomable.
+	 * Recadrage AVATAR — modal propre, rond visible, repositionnable, zoomable.
 	 *
-	 * Après sélection d'une photo de profil, la cliente voit EXACTEMENT le
-	 * cercle qui sera envoyé : glisser pour recentrer, slider pour zoomer.
-	 * Simple et fluide sur iPhone (pointer events, aucun recadrage serveur :
-	 * le serveur reçoit déjà l'image carrée finale).
-	 *
-	 * Export : `getCroppedBlob()` — JPEG carré (le cercle inscrit), prêt pour
-	 * le BFF /api/profile/photo.
+	 * iPhone d'abord :
+	 *  - modal centrée sur fond assombri, hauteur adaptée (dvh + safe-area) ;
+	 *  - fermeture immédiate par « × » (aucun upload si annulation) ;
+	 *  - chargement de l'image avec TIMEOUT + repli dataURL — plus jamais de
+	 *    « Chargement… » infini (sur iOS Safari, une objectURL révoquée trop
+	 *    tôt ou un décodage lent laissaient l'écran bloqué) ;
+	 *  - aperçu EXACT : l'export est le carré inscrit dans le cercle.
 	 */
 	import { loadImageElement } from '$lib/media';
 
 	let { file, oncancel, onsaved }: { file: File; oncancel: () => void; onsaved: (url: string) => void } = $props();
 
-	const VIEW = 264; // côté de la zone d'aperçu (px)
+	/** Côté de la zone d'aperçu : s'adapte aux petits écrans (jamais de débordement). */
+	const VIEW = $state(
+		typeof document !== 'undefined' ? Math.max(220, Math.min(300, Math.floor(Math.min(window.innerWidth, 430)) - 64)) : 264
+	);
 	const ZOOM_MAX = 5;
-	/** Zoom : 1 = l'image couvre tout juste le carré (jamais de vide),
-	 * quelle que soit sa taille source (grande photo iPhone ou petite image). */
+	/** Zoom : 1 = l'image couvre tout juste le carré (jamais de vide). */
 	let zoom = $state(1);
 	let img: HTMLImageElement | null = null;
-	let imgReady = $state(false);
-	let imgError = $state(false);
-	/** Centre de l'image (px écran, relatif au carré d'aperçu). */
-	let cx = $state(VIEW / 2);
-	let cy = $state(VIEW / 2);
 	let imgW = $state(0);
 	let imgH = $state(0);
+	let loadState = $state<'loading' | 'ready' | 'error'>('loading');
 	let saving = $state(false);
 	let savingError = $state('');
 
@@ -43,23 +41,94 @@
 	const minCy = $derived(Math.min(VIEW / 2, halfH));
 	const maxCy = $derived(Math.max(VIEW / 2, VIEW - halfH));
 
+	/** Centre de l'image (px écran, relatif au carré d'aperçu). */
+	let cx = $state(VIEW / 2);
+	let cy = $state(VIEW / 2);
+
+	/* ————— Chargement robuste : objectURL → timeout → dataURL → erreur ————— */
+	let currentUrl: string | null = null; // objectURL détenue (révoquée au démontage)
+	let loadTimer: ReturnType<typeof setTimeout> | null = null;
+	let attempt = 0;
+
+	function clearTimer() {
+		if (loadTimer) {
+			clearTimeout(loadTimer);
+			loadTimer = null;
+		}
+	}
+	function revokeUrl() {
+		if (currentUrl) {
+			try {
+				URL.revokeObjectURL(currentUrl);
+			} catch {
+				/* déjà révoquée */
+			}
+			currentUrl = null;
+		}
+	}
+	function fileToDataUrl(f: Blob): Promise<string> {
+		return new Promise((resolve, reject) => {
+			const r = new FileReader();
+			r.onload = () => resolve(String(r.result));
+			r.onerror = () => reject(new Error('format-image'));
+			r.readAsDataURL(f);
+		});
+	}
+
+	async function load(mode: 'url' | 'dataurl', f: File | Blob, my: number) {
+		loadState = 'loading';
+		clearTimer();
+		if (mode === 'url') revokeUrl();
+		// Filet anti-blocage : si le décodage n'aboutit pas, on retente une
+		// fois en dataURL (décodage garanti sur Safari) puis on affiche une
+		// erreur douce. AUCUNE boucle infinie : le compteur `attempt` invalide
+		// toute tentative périmée.
+		loadTimer = setTimeout(() => {
+			if (my !== attempt || loadState === 'ready') return;
+			if (mode === 'url') void load('dataurl', f, my);
+			else loadState = 'error';
+		}, mode === 'url' ? 8000 : 12000);
+		try {
+			let src: string;
+			if (mode === 'url') {
+				currentUrl = URL.createObjectURL(f);
+				src = currentUrl;
+			} else {
+				src = await fileToDataUrl(f);
+			}
+			const image = await loadImageElement(src);
+			if (my !== attempt) return; // tentative périmée (annulation / nouvelle photo)
+			clearTimer();
+			img = image;
+			imgW = image.naturalWidth || 1;
+			imgH = image.naturalHeight || 1;
+			cx = VIEW / 2;
+			cy = VIEW / 2;
+			zoom = 1;
+			loadState = 'ready';
+		} catch {
+			if (my !== attempt) return;
+			if (mode === 'url') {
+				void load('dataurl', f, my); // repli immédiat : décodage garanti
+			} else {
+				loadState = 'error';
+			}
+		}
+	}
+
 	$effect(() => {
-		loadImageElement(file)
-			.then((image) => {
-				img = image;
-				imgW = image.naturalWidth || 1;
-				imgH = image.naturalHeight || 1;
-				imgReady = true;
-			})
-			.catch(() => {
-				imgError = true;
-			});
+		const f = file;
+		const my = ++attempt;
+		if (f) void load('url', f, my);
 		return () => {
+			attempt++; // invalide les tentatives en vol
+			clearTimer();
+			revokeUrl();
 			img = null;
 		};
 	});
 
-	/* Glisser pour repositionner (Pointer Events — couvre tactile + souris). */
+	/* Glisser pour repositionner (Pointer Events — tactile + souris). */
 	let dragging = false;
 	let px = 0;
 	let py = 0;
@@ -68,7 +137,7 @@
 		cy = Math.min(maxCy, Math.max(minCy, cy));
 	}
 	function onDown(e: PointerEvent) {
-		if (!imgReady) return;
+		if (loadState !== 'ready') return;
 		dragging = true;
 		px = e.clientX - cx;
 		py = e.clientY - cy;
@@ -89,19 +158,22 @@
 		cy = VIEW / 2;
 		zoom = 1;
 	}
+	/** × / Annuler : fermeture immédiate, AUCUN upload. */
+	function close() {
+		if (!saving) oncancel();
+	}
 
 	/** Rend le JPEG carré (le cercle inscrit) : aperçu = résultat exact. */
 	async function getCroppedBlob(): Promise<Blob> {
 		if (!img) throw new Error('no-image');
-		// GÉOMÉTRIE — l'image est affichée à l'échelle `scale` avec son coin
-		// supérieur gauche à (cx − halfW, cy − halfH) dans le carré d'aperçu.
-		// Le point d'écran x correspond au point source (x − (cx − halfW))/scale :
-		// le bord gauche du carré (x = 0) ⇒ coin source (halfW − cx)/scale. ✓
+		// GÉOMÉTRIE — l'image est affichée à l'échelle `scale`, coin supérieur
+		// gauche à (cx − halfW, cy − halfH). Le bord gauche du carré (x = 0)
+		// correspond au point source (halfW − cx)/scale ; côté = VIEW/scale.
 		const srcSize = Math.max(1, Math.min(imgW, imgH) / zoom); // = VIEW / scale
 		const sx = (halfW - cx) / scale;
 		const sy = (halfH - cy) / scale;
 		const canvas = document.createElement('canvas');
-		const out = Math.min(1024, Math.max(256, Math.round(srcSize))); // sortie carrée raisonnable
+		const out = Math.min(1024, Math.max(256, Math.round(srcSize)));
 		canvas.width = out;
 		canvas.height = out;
 		const ctx = canvas.getContext('2d');
@@ -125,7 +197,7 @@
 	}
 
 	async function confirm() {
-		if (!imgReady || saving) return;
+		if (loadState !== 'ready' || saving) return;
 		saving = true;
 		savingError = '';
 		try {
@@ -149,29 +221,36 @@
 	}
 </script>
 
-<div class="fixed inset-0 z-[70] flex flex-col bg-ink/70 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Cadrer ma photo">
-	<div class="mx-auto flex w-full max-w-md flex-1 flex-col justify-center p-4">
-		<h2 class="mb-4 text-center font-display text-lg font-bold text-white">Cadrer ma photo</h2>
-		{#if imgError}
-			<p class="rounded-xl bg-white/90 p-4 text-center text-sm font-semibold text-ink">
-				Cette image n'a pas pu être chargée. Essaie une autre photo.
-			</p>
-			<button type="button" onclick={oncancel} class="mt-4 rounded-xl bg-white px-4 py-3 text-sm font-bold text-ink">Retour</button>
-		{:else}
-			<div class="mx-auto" style:width="{VIEW}px" style:height="{VIEW}px">
-				<div
-					class="relative touch-none select-none overflow-hidden rounded-2xl bg-ink"
-					style:width="{VIEW}px"
-					style:height="{VIEW}px"
-					onpointerdown={onDown}
-					onpointermove={onMove}
-					onpointerup={onUp}
-					onpointercancel={onUp}
-					ondblclick={recenter}
-					role="img"
-					aria-label="Zone de cadrage — glisse pour positionner ton visage dans le cercle"
-				>
-					{#if img && imgReady}
+<div class="fixed inset-0 z-[80] flex items-center justify-center bg-ink/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Cadrer ma photo">
+	<!-- Carte centrée : jamais plus haute que l'écran (dvh), jamais coupée. -->
+	<div class="flex max-h-[calc(100dvh-2rem)] w-full max-w-sm flex-col overflow-hidden rounded-3xl bg-card shadow-2xl shadow-ink/30">
+		<!-- En-tête : titre + fermeture × (immédiate, aucun upload) -->
+		<div class="flex items-center justify-between border-b border-line px-4 py-3">
+			<h2 class="font-display text-base font-bold text-ink">Cadrer ma photo</h2>
+			<button
+				type="button"
+				onclick={close}
+				class="grid h-9 w-9 place-items-center rounded-full text-mist transition hover:bg-soft active:scale-95"
+				aria-label="Fermer"
+			>
+				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+			</button>
+		</div>
+
+		<div class="flex flex-col items-center gap-3 overflow-y-auto px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-4">
+			<div class="relative shrink-0 overflow-hidden rounded-2xl bg-ink" style:width="{VIEW}px" style:height="{VIEW}px">
+				{#if loadState === 'ready' && img}
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						class="absolute inset-0 touch-none select-none"
+						onpointerdown={onDown}
+						onpointermove={onMove}
+						onpointerup={onUp}
+						onpointercancel={onUp}
+						ondblclick={recenter}
+						role="img"
+						aria-label="Zone de cadrage — glisse pour positionner ton visage dans le cercle"
+					>
 						<img
 							src={img.src}
 							alt=""
@@ -182,41 +261,57 @@
 							style:left="{cx - halfW}px"
 							style:top="{cy - halfH}px"
 						/>
-					{:else}
-						<div class="grid h-full place-items-center text-sm text-white/70">Chargement…</div>
-					{/if}
-					<!-- Rond visible : voile au-dehors, cercle limpide au-dedans -->
-					<div
-						class="pointer-events-none absolute inset-0"
-						style="background: radial-gradient(circle at center, transparent 0, transparent {VIEW / 2 - 1.5}px, rgba(0,0,0,.55) {VIEW / 2 - 0.5}px);"
-					></div>
-					<div class="pointer-events-none absolute inset-0 rounded-full ring-2 ring-white/90"></div>
+					</div>
+				{:else if loadState === 'loading'}
+					<div class="grid h-full w-full place-items-center">
+						<span class="h-8 w-8 animate-spin rounded-full border-2 border-white/25 border-t-white"></span>
+					</div>
+				{:else}
+					<div class="grid h-full w-full place-items-center px-6 text-center text-sm font-semibold text-white/85">
+						Cette photo n'a pas pu être chargée. Réessaie avec une autre image.
+					</div>
+				{/if}
+				<!-- Rond de cadrage : voile au-dehors, cercle net au-dedans -->
+				<div
+					class="pointer-events-none absolute inset-0"
+					style="background: radial-gradient(circle at center, transparent 0, transparent {VIEW / 2 - 1.5}px, rgba(0,0,0,.55) {VIEW / 2 - 0.5}px);"
+				></div>
+				<div class="pointer-events-none absolute inset-0 rounded-full ring-2 ring-white/90"></div>
+			</div>
+
+			{#if loadState === 'ready'}
+				<div class="flex w-full items-center gap-3 px-1">
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="shrink-0 text-mist"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /><path d="M8 11h6" /></svg>
+					<input
+						type="range"
+						min="1"
+						max={ZOOM_MAX}
+						step="0.01"
+						bind:value={zoom}
+						oninput={clampPos}
+						class="h-2 w-full cursor-pointer appearance-none rounded-full bg-line accent-brand"
+						aria-label="Zoom"
+					/>
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="shrink-0 text-mist"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /><path d="M8 11h6M11 8v6" /></svg>
 				</div>
-			</div>
-			<p class="mt-3 text-center text-xs text-white/80">Glisse la photo et zoome : le cercle montre l'aperçu exact.</p>
-			<div class="mt-3 flex items-center gap-3 px-2">
-				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0 text-white/80"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /><path d="M8 11h6" /></svg>
-				<input
-					type="range"
-					min="1"
-					max={ZOOM_MAX}
-					step="0.01"
-					bind:value={zoom}
-					oninput={clampPos}
-					class="h-2 w-full cursor-pointer appearance-none rounded-full bg-white/30 accent-white"
-					aria-label="Zoom"
-				/>
-				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0 text-white/80"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /><path d="M8 11h6M11 8v6" /></svg>
-			</div>
-			{#if savingError}
-				<p class="mt-3 rounded-xl bg-danger-light px-3 py-2 text-center text-xs font-semibold text-danger">{savingError}</p>
+				<p class="text-center text-xs text-mist">Glisse la photo dans le cercle et zoome — l'aperçu est exact.</p>
 			{/if}
-			<div class="mt-4 flex gap-3">
-				<button type="button" onclick={oncancel} disabled={saving} class="flex-1 rounded-xl border-2 border-white/40 px-4 py-3 text-sm font-bold text-white transition active:scale-[.98] disabled:opacity-60">Annuler</button>
-				<button type="button" onclick={confirm} disabled={saving || !imgReady} class="flex-1 rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition active:scale-[.98] disabled:opacity-60">
+
+			{#if savingError}
+				<p class="w-full rounded-xl bg-danger-light px-3 py-2 text-center text-xs font-semibold text-danger">{savingError}</p>
+			{/if}
+
+			<div class="flex w-full gap-3">
+				<button type="button" onclick={close} disabled={saving} class="flex-1 rounded-xl border-2 border-line px-4 py-3 text-sm font-bold text-ink transition hover:border-mist active:scale-[.98] disabled:opacity-60">Annuler</button>
+				<button
+					type="button"
+					onclick={confirm}
+					disabled={saving || loadState !== 'ready'}
+					class="flex-[1.4] rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-dark active:scale-[.98] disabled:opacity-60"
+				>
 					{saving ? 'Enregistrement…' : 'Utiliser cette photo'}
 				</button>
 			</div>
-		{/if}
+		</div>
 	</div>
 </div>
