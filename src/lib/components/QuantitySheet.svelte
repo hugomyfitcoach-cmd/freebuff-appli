@@ -26,6 +26,10 @@
 		source,
 		showFav = false,
 		favActive = false,
+		/** Favori possible : identité alimentaire stable (produit OFF avec _id).
+		 *  Une entrée snapshot SANS foodId (Ciqual, aliment perso, repas, analyse IA)
+		 *  n'expose jamais de cœur — on ne crée pas de favori incohérent. */
+		favFoodId = undefined,
 		onToggleFav,
 		/** Positionne la feuille dans la zone visible (clavier mobile iOS). */
 		sheetTop = 0,
@@ -61,6 +65,8 @@
 		source?: 'ciqual';
 		showFav?: boolean;
 		favActive?: boolean;
+		/** Identifiant alimentaire stable du favori (foodId OFF) quand il existe. */
+		favFoodId?: string;
 		onToggleFav?: () => void;
 		/** Positionne la feuille dans la zone visible (clavier mobile iOS). */
 		sheetTop?: number;
@@ -238,15 +244,19 @@
 					<span class="mt-0.5 inline-flex items-center gap-1 rounded-full bg-brand-light px-2 py-0.5 text-[10px] font-bold text-brand">Référence Ciqual – ANSES</span>
 					<p class="mt-0.5 text-xs text-mist">Idéal pour un suivi précis</p>
 				{/if}
-			</div>
-			{#if showFav}
-				<button
-					type="button"
-					class="grid h-9 w-9 shrink-0 place-items-center rounded-full transition {favActive ? 'text-brand' : 'text-mist hover:text-brand'}"
-					aria-label="Favori"
-					onclick={onToggleFav}
-				><Icon name="heart" size={18} /></button>
-			{/if}
+			</div>				{#if showFav && favFoodId}
+					<button
+						type="button"
+						class="grid h-9 w-9 shrink-0 place-items-center rounded-full transition {favActive ? 'text-brand' : 'text-mist hover:text-brand'}"
+						aria-label={favActive ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+						onclick={onToggleFav}
+					>
+						<!-- Favori = cœur ENTIÈREMENT REMPLI en vert (fill), pas un simple contour vert. -->
+						<svg viewBox="0 0 24 24" width="18" height="18" class={favActive ? 'text-brand' : ''} fill={favActive ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+							<path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5" />
+						</svg>
+					</button>
+				{/if}
 		</div>
 
 		<!-- Bascule Grammes / Portions (si portion OFF fiable) / Repères G-FLUX

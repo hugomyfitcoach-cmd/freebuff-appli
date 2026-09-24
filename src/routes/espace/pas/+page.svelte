@@ -3,6 +3,7 @@
 	import BackToHome from '$lib/components/BackToHome.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import StepsBars from '$lib/components/StepsBars.svelte';
+	import { avgLast7Completed, shiftISO } from '$lib/averages';
 
 	let { data } = $props();
 	const goal = $derived<number | null>(data.history.goal ?? null);
@@ -12,7 +13,10 @@
 	};
 	const rows = $derived<Row[]>(data.history.rows ?? []);
 
-	/* ————— Fenêtre locale (fuseau de la cliente) : aujourd'hui et les 6 jours précédents ————— */
+	/* ————— Fenêtre locale (fuseau de la cliente) : les 7 JOURNÉES TERMINÉES —————
+	   J-7 → J-1. La journée en cours est incomplète et n'entre JAMAIS dans la
+	   moyenne ni le graphique (mission). Exemple jeudi : du jeudi précédent au
+	   mercredi terminé. Ancienne fenêtre : J-6 → aujourd'hui. */
 	function iso(d: Date): string {
 		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 	}
@@ -22,10 +26,8 @@
 	});
 	const windowDays = $derived.by<{ date: string; count: number | null }[]>(() => {
 		const out: { date: string; count: number | null }[] = [];
-		for (let i = 6; i >= 0; i--) {
-			const d = new Date();
-			d.setDate(d.getDate() - i);
-			const key = iso(d);
+		for (let i = 7; i >= 1; i--) {
+			const key = shiftISO(todayISO, -i);
 			const hit = rows.find((r) => r.date === key);
 			out.push({
 				date: key,
@@ -37,7 +39,14 @@
 
 	const tracked = $derived(windowDays.filter((d) => d.count !== null));
 	const total = $derived(tracked.reduce((s, d) => s + (d.count ?? 0), 0));
-	const avg = $derived(tracked.length > 0 ? Math.round(total / tracked.length) : null);
+	/** MÊME FONCTION que le CRM coach et le backend (lib/averages.ts) :
+	   fenêtre J-7 → J-1 + jours sans saisie jamais comptés comme zéro. */
+	const avg = $derived(
+		avgLast7Completed(
+			rows.map((r) => ({ date: r.date, value: r.count })),
+			todayISO
+		).avg
+	);
 	const best = $derived.by<{ date: string; count: number } | null>(() => {
 		if (tracked.length === 0) return null;
 		return tracked.reduce((a, b) => ((b.count ?? 0) > (a.count ?? 0) ? b : a)) as { date: string; count: number };
@@ -154,7 +163,7 @@
 		<div class="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-brand-light"><Icon name="footprints" size={22} class="text-brand" /></div>
 		<div class="min-w-0 flex-1">
 			<h1 class="font-display text-2xl font-semibold tracking-tight text-ink">Mes pas</h1>
-			<p class="text-sm text-mist">7 derniers jours — les jours sans saisie ne comptent pas comme zéro.</p>
+			<p class="text-sm text-mist">7 derniers jours terminés — aujourd'hui jamais compté dans la moyenne, les jours sans saisie ne comptent pas comme zéro.</p>
 		</div>
 		{#if !editing}
 			<button
@@ -215,32 +224,53 @@
 
 	<!-- Saisie du jour -->
 	<section class="mt-5 rounded-3xl border border-line bg-card p-4 shadow-sm">
-		<p class="flex items-center gap-1.5 text-sm font-bold text-ink">
-			<Icon name="calendarDays" size={16} class="shrink-0 text-brand" />
-			Aujourd'hui
-			{#if todayCount !== null}
-				<span class="rounded-full bg-brand-light px-2 py-0.5 text-xs font-bold text-brand-dark">{fmt(todayCount)} pas</span>
-			{/if}
+		<div class="flex items-center justify-between gap-2">
+			<p class="flex items-center gap-1.5 text-sm font-bold text-ink">
+				<Icon name="calendarDays" size={16} class="shrink-0 text-brand" />
+				Aujourd'hui
+				{#if todayCount !== null}
+					<span class="rounded-full bg-brand-light px-2 py-0.5 text-xs font-bold text-brand-dark">{fmt(todayCount)} pas</span>
+				{/if}
+			</p>
+			<span class="flex shrink-0 items-center gap-1 rounded-full bg-brand-light px-2.5 py-1 text-[11px] font-bold text-brand-dark">
+				<Icon name="pencil" size={12} class="shrink-0" />
+				Modifiable
+			</span>
+		</div>
+		<!-- Invitation explicite : la valeur du jour est modifiable ICI (et
+		     uniquement ici — jamais depuis les barres de la semaine). -->
+		<p class="mt-2 flex items-center gap-1.5 text-xs font-semibold text-mist">
+			<Icon name="pencil" size={13} class="shrink-0 text-brand" />
+			<span>Compléter ou modifier mes pas</span>
 		</p>
 		<div class="mt-2.5 flex items-center gap-2">
+			<label class="sr-only" for="steps-today">Pas d'aujourd'hui — complète ou modifie cette valeur</label>
 			<input
+				id="steps-today"
 				type="number"
 				inputmode="numeric"
 				min="0"
 				max="150000"
-				placeholder="Ex. 8742"
+				placeholder={todayCount !== null ? String(todayCount) : 'Ex. 8742'}
 				bind:value={stepsValue}
+				aria-describedby={todayCount !== null ? 'steps-today-hint' : undefined}
 				class="w-full flex-1 rounded-2xl border-2 border-line bg-soft px-4 py-3 text-lg font-semibold tabular-nums text-ink outline-none transition focus:border-brand"
 			/>
 			<button
 				type="button"
 				onclick={saveSteps}
 				disabled={stepsSaving}
-				class="shrink-0 rounded-2xl bg-ink px-5 py-3 text-sm font-bold text-white transition hover:bg-brand disabled:opacity-60"
+				class="flex shrink-0 items-center gap-1.5 rounded-2xl bg-ink px-5 py-3 text-sm font-bold text-white transition hover:bg-brand disabled:opacity-60"
 			>
+				<Icon name="pencil" size={14} class="shrink-0" />
 				{stepsSaving ? '…' : todayCount !== null ? 'Modifier' : 'Enregistrer'}
 			</button>
 		</div>
+		{#if todayCount !== null}
+			<p id="steps-today-hint" class="mt-1.5 text-[11px] text-mist">Déjà {fmt(todayCount)} pas aujourd'hui — change la valeur ci-dessus si besoin.</p>
+		{:else}
+			<p class="mt-1.5 text-[11px] text-mist">Renseigne le compteur de ton téléphone ou de ta montre, à la fin de la journée.</p>
+		{/if}
 		{#if stepsError}
 			<p class="mt-1.5 text-xs font-semibold text-danger">{stepsError}</p>
 		{/if}
@@ -273,7 +303,7 @@
 					<span class="font-display text-xl font-bold tabular-nums tracking-tight text-ink">{fmt(total)} <span class="text-xs font-semibold text-mist">pas</span></span>
 				</div>
 				<div class="flex items-baseline justify-between gap-3 py-2.5">
-					<span class="text-sm text-mist">Moyenne / jour</span>
+					<span class="text-sm text-mist">Moyenne / jour <span class="text-[10px] font-semibold text-mist/70">(7 j terminés)</span></span>
 					<span class="font-display text-xl font-bold tabular-nums tracking-tight text-ink">{avg !== null ? fmt(avg) : '—'} <span class="text-xs font-semibold text-mist">pas</span></span>
 				</div>
 				<div class="flex items-baseline justify-between gap-3 py-2.5">

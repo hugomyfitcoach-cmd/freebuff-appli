@@ -169,7 +169,15 @@ export const analyzeLabel = action({
 		// Champs ambigus : chaque valeur porte son état de confiance — l'UI
 		// marque « à vérifier » au lieu d'inventer.
 		const needsReview: string[] = [];
-		if (!kcal100) needsReview.push("kcal");
+		// Garde-fou colonnes (mission) : la résolution lib/labelColumns.ts refuse
+		// de mélanger 100 g et portion — si les kcal et les macros ne sont pas
+		// toutes présentes ENSEMBLE après résolution, c'est qu'aucune colonne
+		// n'était lisible en entier : l'UI passe en revue au lieu d'inventer.
+		if (kcal100 === undefined) needsReview.push("kcal");
+		const partialMacros =
+			(kcal100 !== undefined && (carbs100 === undefined || protein100 === undefined || fat100 === undefined)) ||
+			(kcal100 === undefined && (carbs100 !== undefined || protein100 !== undefined || fat100 !== undefined));
+		if (partialMacros) needsReview.push("valeurs-partielles");
 		if (ai.kcalFromKj) needsReview.push("kcal-kj");
 		if (ai.confidence !== undefined && ai.confidence < 0.6) needsReview.push("valeurs");
 

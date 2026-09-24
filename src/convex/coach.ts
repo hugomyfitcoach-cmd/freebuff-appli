@@ -22,6 +22,7 @@ import { deleteAllForUser, setCheckinMediaVisibility } from "./media";
 import { deleteIntakeForUser } from "./onboarding";
 import { deleteAllResourcesForUser } from "./resources";
 import { deleteAllForUser as pushDeleteAllForUser } from "./push";
+import { avgLast7Completed } from "../lib/averages";
 
 /**
  * CRM réservé au coach. Chaque fonction vérifie le rôle « coach » depuis
@@ -662,12 +663,14 @@ export const client360 = query({
 		// ligne créée) — cohérent avec l'onglet Poids & mesures du CRM.
 		const metricsByDate = [...metrics].sort((a, b) => a.date.localeCompare(b.date));
 
-		// Les 7 derniers jours (aujourd'hui compris), clés "yyyy-mm-dd" locales serveur.
+		// Les 7 JOURNÉES TERMINÉES (J-7 → J-1) — la journée en cours est
+		// incomplète et ne doit JAMAIS entrer dans les moyennes ni les graphes
+		// (mission). Clés "yyyy-mm-dd" locales serveur. Ancien comportement :
+		// J-6 → aujourd'hui (fenêtre glissante incluant le jour partiel).
+		const today360 = localTodayISO(new Date());
 		const days: string[] = [];
-		for (let i = 6; i >= 0; i--) {
-			const d = new Date();
-			d.setDate(d.getDate() - i);
-			days.push(d.toISOString().slice(0, 10));
+		for (let i = 7; i >= 1; i--) {
+			days.push(addDaysISO(today360, -i));
 		}
 		const daySet = new Set(days);
 		const byDay = new Map<string, { kcal: number; carbs: number; protein: number; fat: number; count: number }>();
@@ -834,20 +837,31 @@ export const client360 = query({
 					proteinByDay.set(e.date, (proteinByDay.get(e.date) ?? 0) + e.protein);
 				}
 			}
-			const trackedDays = kcalByDay.size;
-			const kcalSum = [...kcalByDay.values()].reduce((s, x) => s + x, 0);
-			const kcalAvg = trackedDays > 0 ? Math.round(kcalSum / trackedDays) : null;
-			const proteinSum = [...proteinByDay.values()].reduce((s, x) => s + x, 0);
-			const proteinAvg = trackedDays > 0 ? Math.round(proteinSum / trackedDays) : null;
+		// MOYENNES (mission) : 7 journées TERMINÉES = J-7 → J-1, uniquement les
+		// journées avec données réellement renseignées au dénominateur — journée
+		// absente ≠ 0. MÊME FONCTION que le calcul période + dénominateur (aucune
+		// incohérence possible) — lib/averages.ts partagé avec la cliente.
+		const kcalAvgResult = avgLast7Completed(
+			[...kcalByDay.entries()].map(([date, kcal]) => ({ date, value: kcal > 0 ? kcal : null })),
+			today360
+		);
+		const kcalAvg = kcalAvgResult.avg;
+		const trackedDays = kcalAvgResult.trackedDays;
+		const proteinAvgResult = avgLast7Completed(
+			[...proteinByDay.entries()].map(([date, v]) => ({ date, value: v > 0 ? v : null })),
+			today360
+		);
+		const proteinAvg = proteinAvgResult.avg;
 
-			// Pas : comptage quotidien quand il existe (moyenne sur les jours
-			// renseignés, jamais divisée par 7) ; sinon la déclaration du bilan.
-			const weekSteps = stepsRows.filter((s) => s.date >= ws && s.date <= we);
-			const stepsTracked = weekSteps.length;
-			const stepsAvg =
-				stepsTracked > 0
-					? Math.round(weekSteps.reduce((s, r) => s + r.count, 0) / stepsTracked)
-					: null;
+			// Pas : comptage quotidien quand il existe — MOYENNE J-7 → J-1 sur les
+			// jours renseignés (jamais divisée par 7, jamais aujourd'hui dedans) ;
+			// sinon la déclaration du bilan.
+			const stepsAvgResult = avgLast7Completed(
+				stepsRows.map((s) => ({ date: s.date, value: s.count })),
+				today360
+			);
+			const stepsAvg = stepsAvgResult.avg;
+			const stepsTracked = stepsAvgResult.trackedDays;
 			const pasRaw = (refCheckin.answers as Record<string, unknown>).pas;
 			const pas = typeof pasRaw === "string" && pasRaw ? pasRaw : null;
 
@@ -917,12 +931,13 @@ export const client360 = query({
 			};
 		}
 
-		// Les 7 derniers jours (aujourd'hui local compris) pour le mini-graphique
-		// « Pas » du cockpit — jour sans ligne = null (jamais un zéro inventé).
+		// Les 7 JOURNÉES TERMINÉES (J-7 → J-1) pour le mini-graphique « Pas » du
+		// cockpit — jour sans ligne = null (jamais un zéro inventé). La journée en
+		// cours n'y figure JAMAIS (incomplète). Même fenêtre que les moyennes.
 		const last7 = (() => {
-			const end = localTodayISO(new Date());
+			const end = today360;
 			const out: { date: string; count: number | null }[] = [];
-			for (let i = 6; i >= 0; i--) {
+			for (let i = 7; i >= 1; i--) {
 				const date = addDaysISO(end, -i);
 				const hit = stepsRows.find((s) => s.date === date);
 				out.push({ date, count: hit ? hit.count : null });
@@ -930,14 +945,23 @@ export const client360 = query({
 			return out;
 		})();
 
+		// MOYENNE CALORIQUE 360 (mission) : exactement la même fonction que le
+		// cockpit — 7 journées terminées (J-7 → J-1), seuls les jours avec
+		// données comptent. L'ancienne formule (somme ÷ jours suivis de la
+		// fenêtre J-6 → aujourd'hui) laissait la journée partielle enfoncer la
+		// moyenne (ex. 300 kcal à midi ≠ journée entière).
+		const weekAvgKcalResult = avgLast7Completed(
+			week.map((d) => ({ date: d.date, value: d.count > 0 ? d.kcal : null })),
+			today360
+		);
+
 		return {
 			user: publicUser(target),
 			goals: goalsRow ?? { userId, ...DEFAULT_GOALS },
 			goalsSet: !!goalsRow,
 			stepsLast7: last7,
 			week,
-			weekAvgKcal:
-				week.reduce((s, d) => s + d.kcal, 0) / Math.max(1, week.filter((d) => d.count > 0).length),
+			weekAvgKcal: weekAvgKcalResult.avg ?? 0,
 			latestMetric,
 			latestByMetric,
 			weightTrend,

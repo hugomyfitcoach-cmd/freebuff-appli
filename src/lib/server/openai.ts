@@ -37,6 +37,8 @@ function aiEnv(): PrivateEnv {
  *   persistés côté Convex dans aiUsageLog — aucune donnée personnelle).
  */
 
+import { resolveLabel100, type LabelColumn, type ResolvedLabel100 } from '../labelColumns';
+
 const OPENAI_URL = 'https://api.openai.com/v1/responses';
 
 /** Modèle configurable — borne stricte à des modèles vision textuels. */
@@ -158,16 +160,23 @@ async function callOpenAi(
 const LABEL_PROMPT = `Tu lis la photo d'une étiquette nutritionnelle de produit alimentaire, en français.
 Extrait UNIQUEMENT ce qui est réellement écrit sur l'étiquette — n'invente aucune valeur.
 
-RÈGLES CRITIQUES :
-- Les valeurs demandées sont POUR 100 g / 100 ml. Si l'étiquette donne une colonne « par portion », IGNORE-la pour les champs principaux.
-- Distinction kcal vs kJ : 1 kcal = 4,184 kJ. Si seuls des kJ sont indiqués, convertis en kcal et mets kcalFromKj=true.
+RÈGLES CRITIQUES — COLONNES (le plus important) :
+- Une étiquette affiche souvent PLUSIEURS colonnes, ex. « pour 100 g » et « par portion (30 g) ». Tu dois les lire comme DEUX blocs SÉPARÉS et ne JAMAIS mélanger leurs valeurs.
+- per100 : remplis ce bloc UNIQUEMENT avec la colonne « pour 100 g » / « pour 100 ml ». Chaque champ (kcal, glucides, protéines, lipides, fibres, sel) doit venir de CETTE colonne-là — jamais un kcal de la portion avec des protéines du 100 g, jamais l'inverse.
+- serving : remplis ce bloc UNIQUEMENT avec la colonne « portion » (ou « par portion »). grams = poids de la portion indiqué (ex. 30 pour « portion 30 g »). null si la colonne n'existe pas ou ne précise pas de poids.
+- Un liquide utilise 100 ml (et non 100 g) — même logique : la colonne 100 ml remplit per100 avec isLiquid=true.
+- Si SEULE la colonne portion existe : remplis serving, laisse per100 à null. Ne convertis JAMAIS toi-même portion → 100 g (la conversion est faite côté serveur).
+- Si les deux colonnes existent mais l'une est incomplète : remplis chaque bloc avec ce qu'il montre, même partiellement — null pour ce qui manque. Ne comble JAMAIS un trou d'une colonne avec l'autre.
+
+AUTRES RÈGLES :
+- Distinction kcal vs kJ : 1 kcal = 4,184 kJ. Si seuls des kJ sont indiqués, mets-les dans kj (sans conversion) et laisse kcalFromKj=false (la conversion est faite côté serveur).
 - Si une valeur est absente, illisible ou ambiguë, laisse le champ à null — ne devine jamais.
 - « sel » = sel ou équivalent-sel en g/100 g (pas le sodium ; si seul le sodium est donné, multiplie par 2,54).
-- portion : seulement si l'étiquette indique clairement la taille d'une portion en g/ml.
 - name : le nom du produit identifiable ; brand : la marque si identifiable.
+- confidence : ta confiance que les valeurs de per100 viennent bien TOUS de la même colonne (0–1).
 
 Réponds STRICTEMENT en JSON avec ce schéma :
-{"name": string|null, "brand": string|null, "kcal100": number|null, "carbs100": number|null, "protein100": number|null, "fat100": number|null, "fiber100": number|null, "salt100": number|null, "servingQty": number|null, "kcalFromKj": boolean, "confidence": number}`;
+{"name": string|null, "brand": string|null, "per100": {"grams": number|null, "isLiquid": boolean, "kcal": number|null, "kj": number|null, "carbs": number|null, "protein": number|null, "fat": number|null, "fiber": number|null, "salt": number|null}|null, "serving": {"grams": number|null, "isLiquid": boolean, "kcal": number|null, "kj": number|null, "carbs": number|null, "protein": number|null, "fat": number|null, "fiber": number|null, "salt": number|null}|null, "kcalFromKj": boolean, "confidence": number}`;
 
 export type LabelResult = {
 	name?: string;
@@ -183,6 +192,19 @@ export type LabelResult = {
 	confidence?: number;
 };
 
+/** Colonne d'étiquette renvoyée par l'IA (bloc per100 / serving). */
+type AiLabelColumn = {
+	grams?: unknown;
+	isLiquid?: unknown;
+	kcal?: unknown;
+	kj?: unknown;
+	carbs?: unknown;
+	protein?: unknown;
+	fat?: unknown;
+	fiber?: unknown;
+	salt?: unknown;
+};
+
 /** Analyse une photo d'étiquette → JSON structuré (validé). */
 export async function analyzeLabelImage(imageDataUrl: string): Promise<{ analysis: LabelResult; usage: AiUsage }> {
 	const { json, usage } = await callOpenAi(LABEL_PROMPT, imageDataUrl, 700);
@@ -196,21 +218,79 @@ export async function analyzeLabelImage(imageDataUrl: string): Promise<{ analysi
 		const s = typeof v === 'string' ? v.trim().slice(0, 80) : '';
 		return s.length >= 2 ? s : undefined;
 	};
+	/* Colonnes déclarées par l'IA → résolution SANS mélange (lib/labelColumns.ts) :
+	   la colonne 100 g/100 ml est exclusive ; sinon portion convertie proprement ;
+	   sinon champs vides (jamais d'invention). Les kcal/kj de la portion ne
+	   touchent JAMAIS les macros du 100 g, et inversement. */
+	const per100 = parseLabelColumn(o.per100);
+	const serving = parseLabelColumn(o.serving);
+	const hasPer100 = per100 !== null && (
+		num_(per100.kcal) !== null || num_(per100.kj) !== null || num_(per100.carbs) !== null ||
+		num_(per100.protein) !== null || num_(per100.fat) !== null || num_(per100.fiber) !== null ||
+		num_(per100.salt) !== null || num_(per100.grams) !== null
+	);
+	const hasServing = serving !== null && (
+		num_(serving.kcal) !== null || num_(serving.kj) !== null || num_(serving.carbs) !== null ||
+		num_(serving.protein) !== null || num_(serving.fat) !== null || num_(serving.fiber) !== null ||
+		num_(serving.salt) !== null || num_(serving.grams) !== null
+	);
+	let resolved: ResolvedLabel100;
+	if (hasPer100 || hasServing) {
+		resolved = resolveLabel100({ per100: hasPer100 ? per100! : null, serving: hasServing ? serving! : null });
+	} else {
+		// Réponse IA ancienne-format (kcal100 etc. au niveau racine) : compat
+		// dégradation — traitée comme une colonne 100 g déclarée par le modèle.
+		resolved = resolveLabel100({
+			per100: {
+				grams: 100,
+				kcal: num_(o.kcal100),
+				kj: null,
+				carbs: num_(o.carbs100),
+				protein: num_(o.protein100),
+				fat: num_(o.fat100),
+				fiber: num_(o.fiber100),
+				salt: num_(o.salt100),
+			},
+			serving: null,
+		});
+	}
 	return {
 		analysis: {
 			name: str(o.name),
 			brand: str(o.brand),
-			kcal100: num(o.kcal100, 900),
-			carbs100: num(o.carbs100, 100),
-			protein100: num(o.protein100, 100),
-			fat100: num(o.fat100, 100),
-			fiber100: num(o.fiber100, 90),
-			salt100: num(o.salt100, 25),
-			servingQty: num(o.servingQty, 2000),
-			kcalFromKj: o.kcalFromKj === true,
+			kcal100: resolved.kcal,
+			carbs100: resolved.carbs,
+			protein100: resolved.protein,
+			fat100: resolved.fat,
+			fiber100: resolved.fromPer100 && per100 ? (num_(per100.fiber) ?? undefined) : undefined,
+			salt100: resolved.fromPer100 && per100 ? (num_(per100.salt) ?? undefined) : undefined,
+			servingQty: resolved.servingQty,
+			kcalFromKj: resolved.kcalFromKj === true,
 			confidence: num(o.confidence, 1),
 		},
 		usage,
+	};
+}
+
+/** Chiffre exploitable ou null (jamais undefined dans les colonnes). */
+function num_(v: unknown): number | null {
+	const n = typeof v === 'number' ? v : Number(v);
+	return typeof n === 'number' && isFinite(n) && n >= 0 ? n : null;
+}
+/** Colonne IA brute → LabelColumn (valeurs bornées plus tard au clamps serveur). */
+function parseLabelColumn(v: unknown): LabelColumn | null {
+	if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+	const c = v as AiLabelColumn;
+	return {
+		grams: num_(c.grams),
+		isLiquid: c.isLiquid === true,
+		kcal: num_(c.kcal),
+		kj: num_(c.kj),
+		carbs: num_(c.carbs),
+		protein: num_(c.protein),
+		fat: num_(c.fat),
+		fiber: num_(c.fiber),
+		salt: num_(c.salt),
 	};
 }
 

@@ -18,6 +18,7 @@
 	import { warmFoodImages } from '../../lib/foodImageWarm.js';
 	import { labelFor } from '../../lib/labels.js';
 	import { ONBOARDING_SECTIONS, readableAnswer } from '../../lib/onboarding.js';
+	import { avgLast7Completed } from '$lib/averages';
 
 	let { data, form } = $props();
 
@@ -273,31 +274,47 @@
 		return dates.length ? dates.sort()[dates.length - 1] : null;
 	});
 	const goalKcal = $derived(view?.goals?.kcal ?? 2000);
-	const weekAvg = $derived(view ? Math.round(view.weekAvgKcal) : 0);
+	/** MOYENNE CALORIQUE (mission) : MÊME FONCTION que le backend et la
+	   cliente (lib/averages.ts) — 7 journées TERMINÉES J-7 → J-1, la journée
+	   partielle d'aujourd'hui ne l'enfonce JAMAIS ; jour sans données ≠ 0. */
+	const weekAvg = $derived.by(() => {
+		if (!view) return 0;
+		const served = view.weekAvgKcal;
+		// Cachet serveur déjà recalculé (J-7 → J-1) : il fait foi dès qu'il existe.
+		if (typeof served === 'number' && served > 0) return Math.round(served);
+		const days = (view.week ?? []) as { date: string; kcal: number; count: number }[];
+		return avgLast7Completed(days.map((d) => ({ date: d.date, value: d.count > 0 ? d.kcal : null })), todayISO()).avg ?? 0;
+	});
 	const kcalTrend = $derived(view && weekAvg > 0 ? Math.round(((weekAvg - goalKcal) / goalKcal) * 100) : 0);
 	const loggedDays = $derived(view?.week?.filter((d: { count: number }) => d.count > 0).length ?? 0);
 
-	/** Barres calories des 7 derniers jours — jour sans entrée = null (≠ 0). */
+	/** Barres calories des 7 JOURNÉES TERMINÉES (J-7 → J-1, le serveur sert
+	   déjà la bonne fenêtre) — jour sans entrée = null (≠ 0), jamais la journée
+	   partielle d'aujourd'hui dans le graphe ni la moyenne. */
 	const calBars = $derived.by<{ date: string; value: number | null; count: number; isToday: boolean }[]>(() => {
 		const days = (view?.week ?? []) as { date: string; kcal: number; count: number }[];
-		return days.map((d, i) => ({
+		return days.map((d) => ({
 			date: d.date,
 			value: d.count > 0 ? d.kcal : null,
 			count: d.count,
-			isToday: i === days.length - 1,
+			isToday: false,
 		}));
 	});
 
-	/* ── Pas — tendance des 7 derniers jours (mêmes règles : null = non renseigné) ── */
+	/* ── Pas — tendance des 7 JOURNÉES TERMINÉES J-7 → J-1 (mêmes règles :
+	   null = non renseigné, jamais aujourd'hui dans la fenêtre) ── */
 	const stepGoalVal = $derived(((view?.goals as { stepGoal?: number } | undefined)?.stepGoal) ?? null);
 	const stepWeek = $derived((view?.stepsLast7 ?? []) as { date: string; count: number | null }[]);
 	const stepBars = $derived(
-		stepWeek.map((d, i) => ({ date: d.date, value: d.count, isToday: i === stepWeek.length - 1 }))
+		stepWeek.map((d) => ({ date: d.date, value: d.count, isToday: false }))
 	);
-	const stepsTracked = $derived(stepBars.filter((b) => b.value != null).length);
+	/** MÊME FONCTION que la cliente et le backend (lib/averages.ts) :
+	   7 journées terminées J-7 → J-1, jours sans saisie jamais comptés 0. */
+	const stepsAvgResult = $derived(avgLast7Completed(stepWeek.map((d) => ({ date: d.date, value: d.count })), todayISO()));
+	const stepsTracked = $derived(stepsAvgResult.trackedDays);
 	const stepsTotal = $derived(stepBars.reduce((s, b) => s + (b.value ?? 0), 0));
 	/** Moyenne UNIQUEMENT sur les jours réellement renseignés — jamais divisée par 7. */
-	const stepsAvg = $derived(stepsTracked > 0 ? Math.round(stepsTotal / stepsTracked) : 0);
+	const stepsAvg = $derived(stepsAvgResult.avg ?? 0);
 	const fmtN = (n: number) => Math.round(n).toLocaleString('fr-FR');
 
 	const weightPoints = $derived.by(() => {
@@ -1881,7 +1898,7 @@
 								<span class="text-sm font-bold {kcalTrend <= 5 ? 'text-brand' : 'text-warn'}">{kcalTrend > 0 ? '+' : ''}{kcalTrend} %</span>
 							{/if}
 						</div>
-						<div class="mt-1 text-[11px] text-mist">moyenne constatée · {loggedDays} jour(s) renseigné(s) sur 7 · objectif {goalKcal}</div>
+						<div class="mt-1 text-[11px] text-mist">moyenne constatée · {loggedDays} jour(s) renseigné(s) sur 7 terminés · objectif {goalKcal}</div>
 					</div>
 					<!-- Cycle — mêmes données et formule que le dashboard de la cliente -->
 					<div class="rounded-2xl border border-line bg-card p-4">
@@ -2010,7 +2027,7 @@
 
 				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
 					<div class="flex flex-wrap items-center justify-between gap-2">
-						<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="chartBar" size={17} class="shrink-0 text-brand" /> Calories — tendance des 7 derniers jours</h3>
+							<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="chartBar" size={17} class="shrink-0 text-brand" /> Calories — tendance des 7 derniers jours terminés</h3>
 						<span class="text-[11px] text-mist">barres : kcal consommées · ligne pointillée : objectif · ligne verte : moyenne</span>
 					</div>
 					{#if calBars.some((b) => b.value != null)}
@@ -2018,7 +2035,7 @@
 							<WeeklyTrendChart bars={calBars} goal={goalKcal} avg={weekAvg} fmt={fmtN} ariaLabel="Calories de la semaine" />
 						</div>
 						<div class="mt-2 flex items-start gap-1.5 rounded-xl bg-brand-light px-4 py-2.5 text-xs text-ink">
-							<Icon name="ruler" size={13} class="mt-0.5 shrink-0" /> <span><strong>Moyenne constatée : {weekAvg} kcal/jour</strong> sur {loggedDays} jour(s) renseigné(s) — calcul : somme des calories des jours saisis ÷ nombre de jours saisis (objectif : {goalKcal} kcal).</span>
+							<Icon name="ruler" size={13} class="mt-0.5 shrink-0" /> <span><strong>Moyenne constatée : {weekAvg} kcal/jour</strong> sur {loggedDays} jour(s) renseigné(s) — calcul : somme des calories des 7 journées TERMINÉES (J-7 → J-1, aujourd'hui exclu) ÷ nombre de ces jours saisis (objectif : {goalKcal} kcal).</span>
 						</div>
 					{:else}
 						<p class="mt-3 rounded-xl border border-dashed border-line px-4 py-8 text-center text-sm text-mist">Aucune donnée de journal sur les 7 derniers jours.</p>
@@ -2028,7 +2045,7 @@
 				<!-- Pas — tendance des 7 derniers jours (même design system que Calories) -->
 				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
 					<div class="flex flex-wrap items-center justify-between gap-2">
-						<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="footprints" size={17} class="shrink-0 text-brand" /> Pas — tendance des 7 derniers jours</h3>
+						<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="footprints" size={17} class="shrink-0 text-brand" /> Pas — tendance des 7 derniers jours terminés</h3>
 						<span class="text-[11px] text-mist">barres : pas saisis · ligne pointillée : objectif · ligne verte : moyenne</span>
 					</div>
 					{#if stepsTracked > 0}
@@ -2039,7 +2056,7 @@
 							<Icon name="footprints" size={13} class="mt-0.5 shrink-0" />
 							<span>
 								<strong>Moyenne constatée : {fmtN(stepsAvg)} pas/jour</strong>
-								sur {stepsTracked} jour(s) renseigné(s) — calcul : somme des pas des jours saisis ÷ nombre de jours saisis{stepGoalVal ? ` (objectif : ${fmtN(stepGoalVal)} pas/jour)` : ''}.
+								sur {stepsTracked} jour(s) renseigné(s) — calcul : somme des pas des 7 journées TERMINÉES (J-7 → J-1, aujourd'hui exclu) ÷ nombre de ces jours saisis{stepGoalVal ? ` (objectif : ${fmtN(stepGoalVal)} pas/jour)` : ''}.
 							</span>
 							<span class="ml-auto whitespace-nowrap font-semibold text-mist">Total : {fmtN(stepsTotal)} pas</span>
 						</div>

@@ -36,6 +36,20 @@ import { wallTimeToUtcMs } from "./helpers";
 
 const ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * Tolérance ANTICIPÉE du rappel mensurations (mission) : une cliente qui fait
+ * ses mensurations jusqu'à 2 jours AVANT l'échéance fait déjà son relevé du
+ * cycle — échéance J15 avec relevé à J13 = cycle effectué, aucun badge/rappel
+ * à J15. La fenêtre de comptage (démarrage + période×15 − 2) reste ARRONDIE
+ * au multiple de 15 : chaque cycle repart de la même ancre `startDate`, la
+ * tolérance ne fait donc JAMAIS dériver la cadence (sinon chaque relevé
+ * anticipé avancerait durablement toutes les échéances suivantes de 2 jours).
+ * Le seuil d'affichage du rappel reste l'échéance exacte (J15) — on accepte
+ * une saisie en avance, on n'avance pas le rappel.
+ */
+const MEASUREMENTS_EARLY_TOLERANCE_DAYS = 2;
+const MEASUREMENTS_PERIOD_DAYS = 15;
+
 async function requireClient(ctx: Pick<QueryCtx, "db">, sessionToken: string | undefined | null) {
 	const user = await getSessionUser(ctx, sessionToken);
 	if (!user) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
@@ -141,10 +155,20 @@ export const getDashboard = query({
 		const daysSince = daysBetweenISO(day, startDate);
 
 		// Mensurations : échéance tous les 15 jours (démarrage + 15n).
+		// TOLÉRANCE ANTICIPÉE (mission) : une mensuration enregistrée dans les
+		// 2 jours AVANT l'échéance (J13/J14 pour une échéance J15) compte déjà
+		// pour le cycle — le cycle est considéré comme effectué, aucun badge/
+		// rappel à J15. L'échéance d'AFFICHAGE reste J15 (le rappel n'apparaît
+		// jamais plus tôt : c'est la saisie qui est acceptée en avance, pas la
+		// fenêtre qui s'ouvre en avance). L'ancre reste startDate : chaque
+		// fenêtre est arrondie au multiple de 15 — la cadence ne dérive JAMAIS,
+		// même après plusieurs relevés anticipés. Le dashboard est recalculé à
+		// chaque lecture : dès la saisie valide enregistrée, badge et carte
+		// disparaissent immédiatement.
 		let measurementsDue = false;
-		if (daysSince >= 15) {
-			const period = Math.floor(daysSince / 15);
-			const windowStart = addDaysISO(startDate, period * 15);
+		if (daysSince >= MEASUREMENTS_PERIOD_DAYS) {
+			const period = Math.floor(daysSince / MEASUREMENTS_PERIOD_DAYS);
+			const windowStart = addDaysISO(startDate, period * MEASUREMENTS_PERIOD_DAYS - MEASUREMENTS_EARLY_TOLERANCE_DAYS);
 			measurementsDue = !metrics.some((m) => hasMensuration(m) && m.date >= windowStart);
 		}
 

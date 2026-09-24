@@ -1014,6 +1014,31 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			searchError = e instanceof Error ? e.message : String(e);
 		}
 	}
+	/** Bascule par IDENTIFIANT ALIMENTAIRE STABLE (foodId) — utilisée par le
+	 *  cœur de la feuille d'édition du Journal (aliment déjà présent dans le
+	 *  journal). MÊME endpoint / même table `favorites` que la recherche :
+	 *  l'état est partagé, jamais une deuxième logique. */
+	async function toggleFavById(foodId: string) {
+		try {
+			const r = await fetch('/api/favorites', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ foodId }),
+			});
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			const next = new Set(favSet);
+			if (j.favorite) next.add(foodId);
+			else next.delete(foodId);
+			favSet = next;
+			// Synchronise la liste (le favori apparaît / disparaît de la vue Favoris
+			// dès le prochain ouvert de la modale — rechargement silencieux).
+			await loadFavorites();
+		} catch {
+			// Feuille d'édition : pas de zone d'erreur dédiée — silencieux,
+			// l'état du cœur reste la vérité du dernier fetch réussi.
+		}
+	}
 
 	/* ————— Repas personnalisés ————— */
 	let meals = $state<Meal[]>([]);
@@ -2435,6 +2460,14 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		editEntry = e;
 		editError = '';
 	}
+	/** Identité alimentaire STABLE de l'entrée (favori possible) : foodId OFF
+	 *  uniquement. Un snapshot sans foodId (Ciqual, aliment perso, repas,
+	 *  analyse IA) n'expose pas de cœur — pas de favori incohérent. */
+	const editFavId = $derived(
+		editEntry && editEntry.foodId && !editEntry.ciqualLabel && !editEntry.customFoodId && !editEntry.mealGroup
+			? editEntry.foodId
+			: null
+	);
 	/* Aliment « reconstruit » depuis l'entrée pour alimenter la feuille partagée
 	   (mêmes kcal/100 g — le serveur recalcule exactement pareil à l'enregistrement). */
 	const editFood = $derived(
@@ -3106,7 +3139,12 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			</span>
 		</button>
 		{#if !food.custom}
-			<button type="button" class="grid h-10 w-10 shrink-0 place-items-center rounded-full transition {fav ? 'text-brand' : 'text-mist hover:text-brand'}" aria-label={fav ? `Retirer ${food.name} des favoris` : `Ajouter ${food.name} aux favoris`} onclick={() => toggleFav(food)}><Icon name="heart" size={18} /></button>
+			<button type="button" class="grid h-10 w-10 shrink-0 place-items-center rounded-full transition {fav ? 'text-brand' : 'text-mist hover:text-brand'}" aria-label={fav ? `Retirer ${food.name} des favoris` : `Ajouter ${food.name} aux favoris`}					onclick={() => toggleFav(food)}>
+					<!-- Favori = cœur ENTIÈREMENT REMPLI en vert (fill), pas un simple contour vert. -->
+					<svg viewBox="0 0 24 24" width="18" height="18" class={fav ? 'text-brand' : ''} fill={fav ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+						<path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5" />
+					</svg>
+			</button>
 		{/if}
 	</li>
 {/snippet}
@@ -4289,6 +4327,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		showFav={!qtyFood.custom && !qtyFood.ciqual}
 		favActive={favSet.has(qtyFood._id)}
 		onToggleFav={() => { if (qtyFood) toggleFav(qtyFood); }}
+		favFoodId={qtyFood._id}
 		saving={qtySaving}
 		error={qtyError}
 		onSave={(g, meal) => confirmAdd(g, meal)}
@@ -4387,6 +4426,10 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		initialQtyGrams={editEntry.qtyGrams}
 		initialMeal={editEntry.meal}
 		mode="edit"
+		showFav={editFavId !== null}
+		favFoodId={editFavId ?? undefined}
+		favActive={editFavId !== null && favSet.has(editFavId)}
+		onToggleFav={() => { if (editFavId) void toggleFavById(editFavId); }}
 		saving={editSaving}
 		error={editError}
 		onSave={(g, meal) => saveEdit(g, meal)}
