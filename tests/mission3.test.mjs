@@ -115,12 +115,12 @@ test('Le matching repas applique la règle, PAS la recherche générale', () => 
 
 /* ─── 3) Avatar profil ─── */
 
-test('BFF /api/profile/photo : refuse non-image et > 10 Mo, mutation client-only', () => {
+test('BFF /api/profile/photo : garde-fous serveur, zéro canvas Node (cause « image is not defined »)', () => {
 	const src = readFileSync(join(root, 'src/routes/api/profile/photo/+server.ts'), 'utf8');
 	assert.ok(src.includes("requireRole(event, 'client'"), 'réservé aux clientes (session obligatoire)');
 	assert.ok(src.includes("startsWith('image/')"), 'refuse les non-images');
 	assert.ok(src.includes('MAX_FILE_BYTES'), 'limite de taille présente');
-	assert.ok(src.includes('optimizeImageFile'), 'réutilise l’optimisation image existante');
+	assert.ok(!src.includes('optimizeImageFile') && !src.includes('createImageBitmap'), 'aucun traitement canvas côté serveur (Netlify = sans DOM)');
 	assert.ok(src.includes('photos.generateUploadUrl'), 'réutilise le stockage Convex existant');
 });
 

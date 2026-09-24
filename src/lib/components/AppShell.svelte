@@ -307,10 +307,9 @@
 		journalFullScreen
 			? 'min-w-0 flex-1' /* plein écran : la page gère paddings/safe-area/max-width */
 			: contentWidth === 'full'
-				? 'min-w-0 flex-1'
-				: contentWidth === 'wide'
-					? 'mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6'
-					: 'mx-auto w-full max-w-6xl flex-1 px-4 pb-8 sm:px-6 sm:pt-6 ' + (secondaryClientPage ? 'pt-3' : 'pt-6')
+				? 'min-w-0 flex-1'					: contentWidth === 'wide'
+						? 'mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6'
+						: 'mx-auto w-full max-w-6xl flex-1 px-4 pb-8 sm:px-6 sm:pt-6 ' + (secondaryClientPage ? 'pt-3' : 'pt-3 sm:pt-6')
 	);
 
 	/* ————— Préchargement des 3 onglets principaux —————

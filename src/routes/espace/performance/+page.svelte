@@ -163,7 +163,7 @@
 
 <svelte:head><title>Performance — G-Flux</title></svelte:head>
 
-<div class="mx-auto w-full max-w-xl px-4 pb-28 sm:px-6">
+<div class="mx-auto w-full max-w-xl pb-28">
 	<BackToHome label="Performance" />
 
 	<!-- En-tête + navigation semaine -->

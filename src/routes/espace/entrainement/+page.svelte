@@ -241,7 +241,7 @@
 		</div>
 	</div>
 {:else}
-	<div class="mx-auto w-full max-w-md px-4 pb-6 pt-1">
+	<div class="mx-auto w-full max-w-md pb-6 pt-1">
 		<BackToHome label="Entraînement" />
 		<header class="mb-4">
 			<h1 class="flex items-center gap-2 font-display text-2xl font-semibold text-ink">

@@ -4,7 +4,6 @@ import { convex } from '$lib/server/convex';
 import { api } from '../../../../convex/_generated/api.js';
 import { SESSION_COOKIE, requireRole } from '$lib/server/session';
 import { errMsg } from '$lib/errors.js';
-import { optimizeImageFile } from '$lib/media';
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 Mo (cohérent avec la mutation Convex)
 
@@ -32,11 +31,14 @@ export const GET: RequestHandler = async (event) => {
 };
 
 /**
- * Pose (ou remplace) la photo de profil. Multipart, champ `photo` :
- * optimisée dès l'upload (1600 px max, WebP, EXIF retiré — helper existant
- * src/lib/media.ts), uploadée sur le file storage Convex via une URL
- * générée côté serveur, puis référencée dans users.profilePhotoStorageId.
- * Renvoie `{ ok, url }` (URL signée immédiatement utilisable par l'UI).
+ * Pose (ou remplace) la photo de profil. Multipart, champ `photo`.
+ *
+ * La COMPRESSION/RECADRAGE se fait CÔTÉ CLIENT (AvatarCrop exporte un JPEG
+ * carré ≤ 1024 px) : ici, AUCUN traitement canvas — `document`/`Image`
+ * n'existent pas dans la fonction Netlify et provoquaient « image is not
+ * defined ». Le serveur garde ses garde-fous (type image, 10 Mo max) puis
+ * transmet le fichier au file storage Convex (URL générée côté serveur) et
+ * référence users.profilePhotoStorageId. Renvoie `{ ok, url }`.
  */
 export const POST: RequestHandler = async (event) => {
 	await requireRole(event, 'client', { next: '/espace' });
@@ -48,15 +50,11 @@ export const POST: RequestHandler = async (event) => {
 		if (file.size > MAX_FILE_BYTES) return json({ error: 'Image trop lourde (10 Mo maximum).' }, { status: 400 });
 		if (!file.type.startsWith('image/')) return json({ error: 'Le fichier doit être une image.' }, { status: 400 });
 
-		const optimized = await optimizeImageFile(file);
-		if (optimized.blob.size > MAX_FILE_BYTES) {
-			return json({ error: 'Image trop lourde même après optimisation. Choisis-en une plus légère.' }, { status: 400 });
-		}
 		const uploadUrl = await convex.mutation(api.photos.generateUploadUrl, { sessionToken: token });
-		const bytes = new Uint8Array(await optimized.blob.arrayBuffer());
+		const bytes = new Uint8Array(await file.arrayBuffer());
 		const up = await fetch(uploadUrl, {
 			method: 'POST',
-			headers: { 'Content-Type': optimized.mime },
+			headers: { 'Content-Type': file.type || 'image/jpeg' },
 			body: bytes,
 		});
 		const uploaded = await safeJson<{ storageId?: string }>(up);

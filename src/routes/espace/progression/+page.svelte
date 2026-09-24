@@ -385,7 +385,7 @@
 
 {#if detailKey !== null && detailMeta}
 	<!-- ═══════════ Vue détail d'une métrique ═══════════ -->
-	<div class="mx-auto w-full max-w-xl px-4 pb-28 sm:px-6">
+	<div class="mx-auto w-full max-w-xl pb-28">
 		<div class="mb-3 flex items-center gap-1 text-sm font-semibold text-mist">
 			<button type="button" class="flex min-h-9 items-center gap-1 rounded-lg pr-2 transition hover:text-ink" onclick={() => (detailKey = null)}><Icon name="chevronLeft" size={16} /> Retour</button>
 			<span class="text-mist/50" aria-hidden="true">·</span>
@@ -445,7 +445,7 @@
 		</section>
 	</div>	{:else if bfDetail}
 	<!-- ═══════════ Vue détail : masse grasse estimée (lecture seule) ═══════════ -->
-	<div class="mx-auto w-full max-w-xl px-4 pb-28 sm:px-6">
+	<div class="mx-auto w-full max-w-xl pb-28">
 		<div class="mb-3 flex items-center gap-1 text-sm font-semibold text-mist">
 			<button type="button" class="flex min-h-9 items-center gap-1 rounded-lg pr-2 transition hover:text-ink" onclick={() => (bfDetail = false)}><Icon name="chevronLeft" size={16} /> Retour</button>
 			<span class="text-mist/50" aria-hidden="true">·</span>
@@ -498,7 +498,7 @@
 	</div>
 	{:else if guideOpen}
 	<!-- ═══════════ Vue guide : Comment bien prendre mes mesures & mes photos (lecture seule) ═══════════ -->
-	<div class="mx-auto w-full max-w-xl px-4 pb-28 sm:px-6">
+	<div class="mx-auto w-full max-w-xl pb-28">
 		<div class="mb-3 flex items-center gap-1 text-sm font-semibold text-mist">
 			<button type="button" class="flex min-h-9 items-center gap-1 rounded-lg pr-2 transition hover:text-ink" onclick={() => (guideOpen = false)}><Icon name="chevronLeft" size={16} /> Retour</button>
 			<span class="text-mist/50" aria-hidden="true">·</span>
@@ -601,7 +601,7 @@
 	</div>
 	{:else}
 	<!-- ═══════════ Vue principale ═══════════ -->
-	<div class="mx-auto w-full max-w-xl px-4 pb-28 sm:px-6">
+	<div class="mx-auto w-full max-w-xl pb-28">
 		<BackToHome label="Ma progression" />
 		<h1 class="font-display text-2xl font-semibold text-ink">Ma progression <Icon name="trendingUp" size={22} class="inline -mt-1 text-brand" /></h1>
 		<p class="mt-1 text-sm text-mist">Poids, mensurations et masse grasse estimée — touche une courbe pour la détailler.</p>

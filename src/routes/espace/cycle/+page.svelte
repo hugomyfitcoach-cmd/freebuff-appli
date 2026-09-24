@@ -130,7 +130,7 @@
 			}
 		}
 	</style>
-</svelte:head>	<div class="mx-auto w-full max-w-xl px-4 pb-28 sm:px-6">
+</svelte:head>	<div class="mx-auto w-full max-w-xl pb-28">
 	<BackToHome label="Mon cycle" />
 
 	<div class="flex items-center gap-3">

@@ -310,7 +310,7 @@
 
 <svelte:head><title>Dépense sportive — G-Flux</title></svelte:head>
 
-<div class="mx-auto w-full max-w-md px-4 pb-10 pt-3">
+<div class="mx-auto w-full max-w-md pb-10 pt-3">
 	<BackToHome label="Dépense sportive" />
 
 	{#if loading}

@@ -14,9 +14,10 @@
 
 	let { file, oncancel, onsaved }: { file: File; oncancel: () => void; onsaved: (url: string) => void } = $props();
 
-	/** Côté de la zone d'aperçu : s'adapte aux petits écrans (jamais de débordement). */
+	/** Côté de la zone d'aperçu : s'adapte aux petits écrans, modal compacte
+	 *  (jamais plus haute que l'écran iPhone, y compris avec clavier). */
 	const VIEW = $state(
-		typeof document !== 'undefined' ? Math.max(220, Math.min(300, Math.floor(Math.min(window.innerWidth, 430)) - 64)) : 264
+		typeof document !== 'undefined' ? Math.max(200, Math.min(280, Math.floor(window.innerWidth) - 96)) : 248
 	);
 	const ZOOM_MAX = 5;
 	/** Zoom : 1 = l'image couvre tout juste le carré (jamais de vide). */
@@ -75,6 +76,30 @@
 		});
 	}
 
+	/**
+	 * Grosses photos iPhone (4032 px et +) : pré-redimensionnement à 3000 px
+	 * max AVANT le recadrage — limite la mémoire des canvas sur iOS et rend
+	 * le glisser plus fluide. L'orientation EXIF est déjà appliquée par le
+	 * navigateur au rendu de l'<img> (Safari 13.1+, comportement standard).
+	 */
+	async function downscaleHuge(image: HTMLImageElement): Promise<HTMLImageElement> {
+		const max = Math.max(image.naturalWidth, image.naturalHeight);
+		if (max <= 3500) return image;
+		const k = 3000 / max;
+		const w = Math.max(1, Math.round(image.naturalWidth * k));
+		const h = Math.max(1, Math.round(image.naturalHeight * k));
+		const c = document.createElement('canvas');
+		c.width = w;
+		c.height = h;
+		const ctx = c.getContext('2d');
+		if (!ctx) return image;
+		ctx.imageSmoothingEnabled = true;
+		ctx.imageSmoothingQuality = 'high';
+		ctx.drawImage(image, 0, 0, w, h);
+		const url = c.toDataURL('image/jpeg', 0.92);
+		return await loadImageElement(url); // dataURL : aucun souci de révocation
+	}
+
 	async function load(mode: 'url' | 'dataurl', f: File | Blob, my: number) {
 		loadState = 'loading';
 		clearTimer();
@@ -98,8 +123,10 @@
 			}
 			const image = await loadImageElement(src);
 			if (my !== attempt) return; // tentative périmée (annulation / nouvelle photo)
+			const normalized = await downscaleHuge(image).catch(() => image);
+			if (my !== attempt) return;
 			clearTimer();
-			img = image;
+			img = normalized;
 			imgW = image.naturalWidth || 1;
 			imgH = image.naturalHeight || 1;
 			cx = VIEW / 2;
@@ -237,7 +264,7 @@
 			</button>
 		</div>
 
-		<div class="flex flex-col items-center gap-3 overflow-y-auto px-4 pb-[max(env(safe-area-inset-bottom),1rem)] pt-4">
+		<div class="flex flex-col items-center gap-2.5 overflow-y-auto px-4 pb-[max(env(safe-area-inset-bottom),0.875rem)] pt-3">
 			<div class="relative shrink-0 overflow-hidden rounded-2xl bg-ink" style:width="{VIEW}px" style:height="{VIEW}px">
 				{#if loadState === 'ready' && img}
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -296,7 +323,6 @@
 				</div>
 				<p class="text-center text-xs text-mist">Glisse la photo dans le cercle et zoome — l'aperçu est exact.</p>
 			{/if}
-
 			{#if savingError}
 				<p class="w-full rounded-xl bg-danger-light px-3 py-2 text-center text-xs font-semibold text-danger">{savingError}</p>
 			{/if}
