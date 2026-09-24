@@ -80,7 +80,7 @@
 
 <svelte:head><title>Mon espace — G-Flux</title></svelte:head>
 
-<AppShell role="client" user={data.user} badges={data.dashboard?.badges} contentWidth="std" showFooter>
+<AppShell role="client" user={data.user} badges={data.dashboard?.badges} contentWidth="std" showFooter profilePhotoUrl={data.profilePhotoUrl ?? null}>
 	{@render children()}
 </AppShell>
 

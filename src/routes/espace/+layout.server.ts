@@ -13,12 +13,17 @@ import { api } from '../../convex/_generated/api.js';	export const load = async 
 	const dashboard = await convex
 		.query(api.dashboard.getDashboard, { sessionToken: token, today, now: now.getTime() })
 		.catch(() => null);
+	// Photo de profil (avatar de l'en-tête) : URL signée lue côté serveur —
+	// SSR cohérent avec le menu profil, sans aller-retour navigateur au premier rendu.
+	const profilePhotoUrl = await convex
+		.query(api.users.getProfilePhotoUrl, { sessionToken: token })
+		.catch(() => null);
 	await touchP;
 	// Onboarding installation PWA : après une PREMIÈRE connexion, la cliente
 	// est guidée vers l'installation (jamais en mode standalone — règle gérée
 	// côté client qui redirige aussitôt ; le layout ne bloque jamais l'accès).
 	if (user.pwaInstallStatus === 'not_seen') {
-		return { user, dashboard, today, pwaInstallNeeded: true };
+		return { user, dashboard, today, profilePhotoUrl, pwaInstallNeeded: true };
 	}
-	return { user, dashboard, today, pwaInstallNeeded: false };
+	return { user, dashboard, today, profilePhotoUrl, pwaInstallNeeded: false };
 };

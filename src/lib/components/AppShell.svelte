@@ -19,12 +19,14 @@
 		contentWidth = 'std',
 		showFooter = false,
 		badges = {},
+		profilePhotoUrl = null,
 	}: {
 		children: Snippet;
 		role: Role;
 		user: SessionUser;
 		contentWidth?: 'std' | 'wide' | 'full';
 		showFooter?: boolean;
+		profilePhotoUrl?: string | null;
 		badges?: {
 			bilans?: number;
 			retours?: number;
@@ -178,6 +180,70 @@
 	function openInstallTutorial() {
 		menuOpen = false;
 		goto('/onboarding/install');
+	}
+
+	/* ————— Photo de profil (cliente) —————
+	   Remplace la roue par un avatar rond : photo (file storage Convex, même
+	   mécanisme que les photos de suivi) ou initiale du prénom + pastille « + »
+	   quand aucune photo. L'URL signée est chargée au montage via le BFF
+	   (/api/profile/photo) et la modification passe par un input fichier caché
+	   → POST optimisé (1600 px max, WebP, EXIF retiré). Les réglages existants
+	   restent dans CE MÊME menu : rien n'est retiré. */
+	let photoUrl = $state<string | null>(profilePhotoUrl);
+	let photoInput: HTMLInputElement | null = $state(null);
+	let photoSaving = $state(false);
+	const initial = $derived((user.prenom?.trim()?.[0] ?? '?').toUpperCase());
+
+	$effect(() => {
+		if (role !== 'client' || typeof window === 'undefined') return;
+		fetch('/api/profile/photo')
+			.then((r) => (r.ok ? r.json() : null))
+			.then((d: { url?: string | null } | null) => {
+				photoUrl = d?.url ?? null;
+			})
+			.catch(() => {});
+	});
+
+	async function onPhotoChosen() {
+		const input = photoInput;
+		if (!input || photoSaving) return;
+		const file = input.files?.[0];
+		input.value = ''; // permet de re-choisir le même fichier ensuite
+		if (!file) return;
+		photoSaving = true;
+		try {
+			const fd = new FormData();
+			fd.append('photo', file);
+			const res = await fetch('/api/profile/photo', { method: 'POST', body: fd });
+			const data = res.ok ? ((await res.json()) as { url?: string | null }) : null;
+			if (data?.url) {
+				photoUrl = data.url;
+				menuOpen = false;
+			} else {
+				const j = res.ok ? null : await res.json().catch(() => null);
+				window.alert((j as { error?: string } | null)?.error ?? "Impossible d'enregistrer la photo. Réessaie.");
+			}
+		} catch {
+			window.alert("Impossible d'enregistrer la photo. Réessaie.");
+		} finally {
+			photoSaving = false;
+		}
+	}
+
+	async function removePhoto() {
+		if (photoSaving) return;
+		photoSaving = true;
+		try {
+			const res = await fetch('/api/profile/photo', { method: 'DELETE' });
+			if (res.ok) {
+				photoUrl = null;
+				menuOpen = false;
+			}
+		} catch {
+			// silencieux : l'avatar initiale reste affiché
+		} finally {
+			photoSaving = false;
+		}
 	}
 
 	type Link = { href: string; label: string; icon?: string; accent?: boolean; badge?: number };
@@ -393,6 +459,35 @@
 						</button>
 					{/if}
 					<div class="relative">
+						{#if role === 'client'}
+						<!-- Avatar profil : photo ronde (ou initiale + « + ») — remplace la roue.
+						     Le tap ouvre le menu profil (photo, réglages, déconnexion). -->
+						<button
+							type="button"
+							onclick={() => (menuOpen = !menuOpen)}
+							class="relative grid h-10 w-10 place-items-center rounded-full transition active:scale-95"
+							aria-label="Menu profil"
+							aria-expanded={menuOpen}
+						>
+							{#if photoUrl}
+								<img src={photoUrl} alt="Photo de profil" class="h-10 w-10 rounded-full border-2 border-line object-cover" />
+							{:else}
+								<span class="grid h-10 w-10 place-items-center rounded-full border-2 border-brand/30 bg-brand-light text-sm font-bold text-brand-dark">{initial}</span>
+								<span class="absolute -bottom-0.5 -right-0.5 grid h-4 w-4 place-items-center rounded-full bg-brand text-[10px] font-bold leading-none text-white ring-2 ring-white">
+									<Icon name="plus" size={10} strokeWidth={3} />
+								</span>
+							{/if}
+						</button>
+						<input
+							bind:this={photoInput}
+							onchange={onPhotoChosen}
+							type="file"
+							accept="image/*"
+							class="hidden"
+							aria-hidden="true"
+							tabindex={-1}
+						/>
+						{:else}
 						<button
 							type="button"
 							onclick={() => (menuOpen = !menuOpen)}
@@ -402,13 +497,33 @@
 						>
 							<Icon name="settings" size={18} />
 						</button>
+						{/if}
 						{#if menuOpen}
 							<!-- Fond transparent : un tap ailleurs referme le menu -->
 							<button type="button" class="fixed inset-0 z-40 cursor-default" aria-label="Fermer le menu" onclick={() => (menuOpen = false)}></button>
 						<div class="absolute right-0 top-12 z-50 w-60 rounded-2xl border border-line bg-card p-2 shadow-xl shadow-ink/10">
-							<div class="border-b border-line/70 px-3 py-2.5">
-								<p class="truncate text-sm font-bold text-ink">{user.prenom}</p>
-								<p class="truncate text-xs text-mist">{user.email}</p>
+							<div class="flex items-center gap-3 border-b border-line/70 px-3 py-2.5">
+								<span class="relative shrink-0">
+									{#if photoUrl}
+										<img src={photoUrl} alt="Photo de profil" class="h-11 w-11 rounded-full border-2 border-line object-cover" />
+									{:else}
+										<span class="grid h-11 w-11 place-items-center rounded-full border-2 border-brand/30 bg-brand-light text-base font-bold text-brand-dark">{initial}</span>
+									{/if}
+									<button
+										type="button"
+										onclick={() => photoInput?.click()}
+										disabled={photoSaving}
+										class="absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full bg-ink text-white shadow transition hover:bg-brand disabled:opacity-60"
+										aria-label={photoUrl ? 'Modifier la photo' : 'Ajouter une photo'}
+										title={photoUrl ? 'Modifier la photo' : 'Ajouter une photo'}
+									>
+										<Icon name={photoUrl ? 'pencil' : 'plus'} size={11} strokeWidth={2.6} />
+									</button>
+								</span>
+								<div class="min-w-0">
+									<p class="truncate text-sm font-bold text-ink">{user.prenom}</p>
+									<p class="truncate text-xs text-mist">{user.email}</p>
+								</div>
 							</div>
 							{#if role === 'client'}
 								<button
@@ -421,11 +536,34 @@
 										<span class="flex-1 text-left">G-FLUX est installée</span>
 										<Icon name="circleCheck" size={16} class="text-brand" />
 									{:else}
-										<span class="flex-1 text-left">Installer G-FLUX</span>
-										<Icon name="chevronRight" size={16} class="text-mist" />
-									{/if}
+									<span class="flex-1 text-left">Installer G-FLUX</span>
+									<Icon name="chevronRight" size={16} class="text-mist" />
+								{/if}
+							</button>
+							{#if role === 'client'}
+								<button
+									type="button"
+									onclick={() => photoInput?.click()}
+									disabled={photoSaving}
+									class="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-ink transition hover:bg-soft"
+								>
+									<Icon name="camera" size={16} class="shrink-0" />
+									<span class="flex-1 text-left">{photoUrl ? 'Modifier ma photo' : 'Ajouter une photo'}</span>
+									{#if photoSaving}<Icon name="refreshCw" size={14} class="animate-spin text-mist" />{/if}
 								</button>
+								{#if photoUrl}
+									<button
+										type="button"
+										onclick={removePhoto}
+										disabled={photoSaving}
+										class="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-mist transition hover:bg-soft"
+									>
+										<Icon name="trash" size={16} class="shrink-0" />
+										<span class="flex-1 text-left">Retirer ma photo</span>
+									</button>
+								{/if}
 							{/if}
+						{/if}
 							<form method="POST" action="/connexion?/logout" class="pt-1.5">
 									<button
 										type="submit"

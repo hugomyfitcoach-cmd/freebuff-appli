@@ -124,6 +124,21 @@ const RESOLUTION_LADDER = [
 const FRAME_INTERVAL_MS = 70;
 /** Garde anti double lecture : même code ignoré pendant 1,2 s. */
 const DUPLICATE_MS = 1200;
+/** Durée du flash vert du cadre après une lecture (ms). */
+const GREEN_FLASH_MS = 900;
+/** Bordure des coins du cadre (blanc au repos, vert au flash). */
+const WHITE_BORDER = '4px solid rgba(255,255,255,.92)';
+const GREEN_BORDER = '4px solid rgba(74,222,128,1)';
+/**
+ * Cadre guide affiché — volontairement LARGE et centré légèrement au-dessus
+ * du milieu (esprit « capture Food ») : le décodage porte sur TOUTE l'image,
+ * le cadre n'est qu'un repère. Un cadre trop petit poussait les clientes à
+ * « viser » le code au centre et à coller le téléphone — l'inverse de
+ * l'objectif (reconnaissance rapide, à distance normale, cadrage approximatif).
+ */
+const FRAME_LEFT_RIGHT_PCT = 3;
+const FRAME_TOP_PCT = 26;
+const FRAME_HEIGHT_PCT = 44;
 
 function getNativeDetector(): NativeDetector | null {
 	const w = window as unknown as { BarcodeDetector?: new (opts?: { formats?: string[] }) => NativeDetector };
@@ -202,6 +217,37 @@ export async function startBarcodeScanner(
 		};
 	}
 
+	// -- Focus continu (iPhone / Safari en priorité) --------------------------
+	// Sans ça, l'iPhone fige la mise au point sur l'infini : un code-barres à
+	// 15–25 cm reste FLOU et indécodable, même en haute résolution. Best effort
+	// et silencieux : selon l'appareil, focusMode/pointsOfInterest peuvent être
+	// absents des capabilities (on essaie les deux, on ignore tout échec).
+	try {
+		const track = stream.getVideoTracks()[0];
+		const caps = (track?.getCapabilities?.() ?? {}) as MediaTrackConstraintSet & {
+			focusMode?: string[];
+			pointsOfInterest?: unknown;
+		};
+		if (Array.isArray(caps.focusMode)) {
+			const modes = caps.focusMode as string[];
+			// continuous = autofocus permanent ; sinon single-shot pour déclencher
+			// au moins une mise au point au démarrage du scan.
+			const mode = modes.includes('continuous') ? 'continuous' : modes.includes('single-shot') ? 'single-shot' : null;
+			if (mode) await track.applyConstraints({ advanced: [{ focusMode: mode } as unknown as MediaTrackConstraintSet] });
+		}
+		if (caps.pointsOfInterest !== undefined) {
+			// Point d'intérêt au centre du cadre guide (x,y normalisés 0–1) :
+			// oriente l'exposition/autofocus là où la cliente place le produit.
+			await track.applyConstraints({
+				advanced: [
+					{ pointsOfInterest: { x: 0.5, y: (FRAME_TOP_PCT + FRAME_HEIGHT_PCT / 2) / 100 } } as unknown as MediaTrackConstraintSet,
+				],
+			});
+		}
+	} catch {
+		// Focus non pilotable (ancien iOS, desktop…) : le décodage reste tel quel.
+	}
+
 	// -- Éléments visuels ----------------------------------------------------
 	// La vidéo remplit TOUJOURS le conteneur (cadre portrait stable, même si
 	// la source caméra est paysage) : object-fit cover + position absolute.
@@ -231,10 +277,10 @@ export async function startBarcodeScanner(
 	const frame = document.createElement('div');
 	Object.assign(frame.style, {
 		position: 'absolute',
-		left: '6%',
-		right: '6%',
-		top: '33%',
-		height: '34%',
+		left: `${FRAME_LEFT_RIGHT_PCT}%`,
+		right: `${FRAME_LEFT_RIGHT_PCT}%`,
+		top: `${FRAME_TOP_PCT}%`,
+		height: `${FRAME_HEIGHT_PCT}%`,
 	} as CSSStyleDeclaration);
 	// Voile sombre autour du cadre (repère visuel clair, décode toute l'image).
 	const dim = document.createElement('div');
@@ -243,7 +289,7 @@ export async function startBarcodeScanner(
 		left: '0',
 		top: '0',
 		width: '100%',
-		height: '33%',
+		height: `${FRAME_TOP_PCT}%`,
 		background: 'rgba(0,0,0,.38)',
 	} as Partial<CSSStyleDeclaration>);
 	frame.append(dim);
@@ -253,7 +299,7 @@ export async function startBarcodeScanner(
 		left: '0',
 		bottom: '0',
 		width: '100%',
-		height: '33%',
+		height: `${100 - FRAME_TOP_PCT - FRAME_HEIGHT_PCT}%`,
 		background: 'rgba(0,0,0,.38)',
 	} as Partial<CSSStyleDeclaration>);
 	frame.append(dim2);
@@ -262,31 +308,58 @@ export async function startBarcodeScanner(
 		Object.assign(sideDim.style, {
 			position: 'absolute',
 			[side]: '0',
-			top: '33%',
-			bottom: '33%',
-			width: '6%',
+			top: `${FRAME_TOP_PCT}%`,
+			bottom: `${100 - FRAME_TOP_PCT - FRAME_HEIGHT_PCT}%`,
+			width: `${FRAME_LEFT_RIGHT_PCT}%`,
 			background: 'rgba(0,0,0,.38)',
 		} as Partial<CSSStyleDeclaration>);
 		frame.append(sideDim);
 	}
-	for (const styles of [
-		{ left: '0', top: '0', borderLeft: '3px solid rgba(255,255,255,.9)', borderTop: '3px solid rgba(255,255,255,.9)' },
-		{ right: '0', top: '0', borderRight: '3px solid rgba(255,255,255,.9)', borderTop: '3px solid rgba(255,255,255,.9)' },
-		{ left: '0', bottom: '0', borderLeft: '3px solid rgba(255,255,255,.9)', borderBottom: '3px solid rgba(255,255,255,.9)' },
-		{ right: '0', bottom: '0', borderRight: '3px solid rgba(255,255,255,.9)', borderBottom: '3px solid rgba(255,255,255,.9)' },
-	]) {
+	// Coins : mémorisés avec leurs côtés bordés pour le flash vert.
+	const cornerDefs: { styles: Partial<CSSStyleDeclaration>; sides: ('Top' | 'Right' | 'Bottom' | 'Left')[] }[] = [
+		{ styles: { left: '0', top: '0', borderLeft: WHITE_BORDER, borderTop: WHITE_BORDER }, sides: ['Left', 'Top'] },
+		{ styles: { right: '0', top: '0', borderRight: WHITE_BORDER, borderTop: WHITE_BORDER }, sides: ['Right', 'Top'] },
+		{ styles: { left: '0', bottom: '0', borderLeft: WHITE_BORDER, borderBottom: WHITE_BORDER }, sides: ['Left', 'Bottom'] },
+		{ styles: { right: '0', bottom: '0', borderRight: WHITE_BORDER, borderBottom: WHITE_BORDER }, sides: ['Right', 'Bottom'] },
+	];
+	const corners: { el: HTMLDivElement; sides: ('Top' | 'Right' | 'Bottom' | 'Left')[] }[] = [];
+	for (const def of cornerDefs) {
 		const c = document.createElement('div');
 		Object.assign(c.style, {
 			position: 'absolute',
-			width: '26px',
-			height: '26px',
-			borderRadius: '4px',
+			width: '34px',
+			height: '34px',
+			borderRadius: '6px',
 		} as Partial<CSSStyleDeclaration>);
-		Object.assign(c.style, styles as Partial<CSSStyleDeclaration>);
+		Object.assign(c.style, def.styles as Partial<CSSStyleDeclaration>);
+		corners.push({ el: c, sides: def.sides });
 		frame.append(c);
 	}
 	guide.append(frame);
 	container.append(video, guide);
+
+	// -- Feedback visuel « code lu » : le cadre passe franchement au vert ------
+	// (lueur + coins verts) pendant GREEN_FLASH_MS. Déclenché au même moment
+	// que la vibration : la cliente SAIT instantanément que c'est reconnu,
+	// même si la feuille produit met un instant à s'ouvrir.
+	let greenTimer: ReturnType<typeof setTimeout> | null = null;
+	let lastGreenAt = 0;
+	function flashGreen(): void {
+		const now = Date.now();
+		if (now - lastGreenAt < GREEN_FLASH_MS) return; // déjà vert : pas de clignotement
+		lastGreenAt = now;
+		frame.style.boxShadow = '0 0 0 4px rgba(34,197,94,.55), 0 0 36px 12px rgba(34,197,94,.35)';
+		for (const c of corners) {
+			for (const side of c.sides) c.el.style.setProperty(`border${side}`, GREEN_BORDER);
+		}
+		if (greenTimer) clearTimeout(greenTimer);
+		greenTimer = setTimeout(() => {
+			frame.style.boxShadow = '';
+			for (const c of corners) {
+				for (const side of c.sides) c.el.style.setProperty(`border${side}`, WHITE_BORDER);
+			}
+		}, GREEN_FLASH_MS);
+	}
 
 	// -- Moteur de décodage ---------------------------------------------------
 	nativeDetector = getNativeDetector();
@@ -329,7 +402,6 @@ export async function startBarcodeScanner(
 		try {
 			ctx.drawImage(video, 0, 0, vw, vh);
 			const source = new zxingMod.HTMLCanvasElementLuminanceSource(canvas);
-			const bitmap = new zxingMod.BinaryBitmap(new zxingMod.HybridBinarizer(source));
 			const hints = new Map<number, unknown>();
 			hints.set(zxingMod.DecodeHintType.POSSIBLE_FORMATS, [
 				zxingMod.BarcodeFormat.EAN_13,
@@ -340,10 +412,21 @@ export async function startBarcodeScanner(
 				zxingMod.BarcodeFormat.ITF,
 				zxingMod.BarcodeFormat.CODE_39,
 			]);
-			hints.set(zxingMod.DecodeHintType.TRY_HARDER, false);
-			const reader = new zxingMod.MultiFormatReader(false, hints);
-			const result = reader.decode(bitmap);
-			return result ? result.text : null;
+			// Passe 1 rapide (TRY_HARDER=false) — cadence élevée.
+			const quick = new zxingMod.MultiFormatReader(false, hints);
+			const bitmap = new zxingMod.BinaryBitmap(new zxingMod.HybridBinarizer(source));
+			const result = quick.decode(bitmap);
+			if (result?.text) return result.text;
+			// Passe 2 : une frame sur 4 seulement, TRY_HARDER=true — plus coûteux
+			// (rotations/contrastes difficiles) mais décroche les codes tenus à
+			// distance ou légèrement flous que la passe rapide rate.
+			frameCount++;
+			if (frameCount % 4 !== 0) return null;
+			hints.set(zxingMod.DecodeHintType.TRY_HARDER, true);
+			const harder = new zxingMod.MultiFormatReader(false, hints);
+			const bitmap2 = new zxingMod.BinaryBitmap(new zxingMod.HybridBinarizer(source));
+			const result2 = harder.decode(bitmap2);
+			return result2 ? result2.text : null;
 		} catch {
 			return null;
 		}
@@ -353,6 +436,8 @@ export async function startBarcodeScanner(
 	// quelques frames ne déclenche pas plusieurs ouverture de feuille.
 	let lastCode = '';
 	let lastCodeAt = 0;
+	/** Compteur de frames (ZXing : une passe TRY_HARDER toutes les 4 frames). */
+	let frameCount = 0;
 
 	// Boucle de scan (avec garde anti-chevauchement).
 	const tick = async () => {
@@ -370,6 +455,7 @@ export async function startBarcodeScanner(
 						lastCode = text;
 						lastCodeAt = now;
 						vibrateOk();
+						flashGreen();
 						onDecoded(text);
 					}
 				}
@@ -425,6 +511,7 @@ export async function startBarcodeScanner(
 		stop: async () => {
 			stopped = true;
 			if (timer) clearTimeout(timer);
+			if (greenTimer) clearTimeout(greenTimer);
 			if (stream) for (const t of stream.getTracks()) t.stop();
 			container.replaceChildren();
 		},

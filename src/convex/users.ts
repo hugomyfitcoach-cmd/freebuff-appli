@@ -187,6 +187,77 @@ export const updateProfile = mutation({
 	},
 });
 
+/* ════ Photo de profil (avatar de l'en-tête cliente) ════
+ *
+ * Même mécanisme de stockage que progressPhotos/coachMedia : le fichier vit
+ * dans le file storage Convex, déposé via une URL d'upload générée CÔTÉ
+ * SERVEUR (BFF, session cliente obligatoire) — le navigateur n'appelle jamais
+ * Convex directement. La fiche users ne porte que le storageId ; l'ancienne
+ * photo est supprimée du storage quand une nouvelle la remplace (pas de
+ * fichier orphelin). Aucune architecture parallèle.
+ */
+
+/** URL signée de la photo de profil (null si aucune photo) — lecture cliente. */
+export const getProfilePhotoUrl = query({
+	args: { sessionToken: v.optional(v.string()) },
+	handler: async (ctx, { sessionToken }) => {
+		const user = await getSessionUser(ctx, sessionToken);
+		if (!user?.profilePhotoStorageId) return null;
+		return (await ctx.storage.getUrl(user.profilePhotoStorageId)) ?? null;
+	},
+});
+
+/**
+ * Pose (ou remplace) la photo de profil de la cliente connectée. Le fichier
+ * a déjà été uploadé via le BFF ; on vérifie ici qu'il existe, que c'est une
+ * image raisonnable, puis on bascule le champ — l'ancienne photo est retirée
+ * du storage dans la même mutation (transaction Convex).
+ */
+export const setProfilePhoto = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		storageId: v.id("_storage"),
+	},
+	handler: async (ctx, { sessionToken, storageId }) => {
+		const user = await getSessionUser(ctx, sessionToken);
+		if (!user) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
+		if (user.role !== "client") throw new ConvexError("Réservé aux comptes clients.");
+		const meta = await ctx.storage.getMetadata(storageId);
+		if (!meta) throw new ConvexError("Fichier introuvable — recommence l'ajout de la photo.");
+		if (!meta.contentType?.startsWith("image/")) throw new ConvexError("Le fichier doit être une image.");
+		if (meta.size > 10 * 1024 * 1024) throw new ConvexError("Image trop lourde (10 Mo maximum).");
+		const old = user.profilePhotoStorageId;
+		await ctx.db.patch(user._id, { profilePhotoStorageId: storageId });
+		if (old && old !== storageId) {
+			try {
+				await ctx.storage.delete(old);
+			} catch {
+				// déjà supprimée (remplacement rapproché) : sans effet
+			}
+		}
+		return { ok: true };
+	},
+});
+
+/** Retire la photo de profil (retour à l'avatar initiale). */
+export const clearProfilePhoto = mutation({
+	args: { sessionToken: v.optional(v.string()) },
+	handler: async (ctx, { sessionToken }) => {
+		const user = await getSessionUser(ctx, sessionToken);
+		if (!user) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
+		const old = user.profilePhotoStorageId;
+		if (old) {
+			await ctx.db.patch(user._id, { profilePhotoStorageId: undefined });
+			try {
+				await ctx.storage.delete(old);
+			} catch {
+				// déjà supprimée : sans effet
+			}
+		}
+		return { ok: true };
+	},
+});
+
 /* ════ Suivi de cycle (Accueil cliente — mêmes questions/formule que l'outil historique) ════ */
 
 /** La cliente lit sa propre configuration de cycle. */

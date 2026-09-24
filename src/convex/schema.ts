@@ -87,6 +87,14 @@ export default defineSchema({
 		prenom: v.string(),
 		/** Nom de famille — distinguer deux clientes au même prénom (fiche CRM). */
 		nom: v.optional(v.string()),
+		/**
+		 * Photo de profil (avatar de l'en-tête cliente) — pointe vers le file
+		 * storage Convex (même mécanisme que progressPhotos/coachMedia : upload
+		 * via URL générée, lecture par URL signée). L'ancienne photo est
+		 * supprimée du storage quand une nouvelle est posée. Optionnel : l'avatar
+		 * retombe sur l'initiale du prénom.
+		 */
+		profilePhotoStorageId: v.optional(v.id("_storage")),
 		/** Lien vers le tableur Google Sheets G-FLUX de la cliente — usage coach uniquement, jamais exposé côté client. */
 		gsheetUrl: v.optional(v.string()),
 		disabled: v.optional(v.boolean()),

@@ -5,6 +5,8 @@ import { toHit, type FoodHit } from "./journal";
 import { searchCiqualLocal, resolveCiqualLabel } from "./ciqual";
 import { getSessionUser } from "./helpers";
 import type { QueryCtx } from "./_generated/server";
+import { preferCookedForMeal, cookedBonusFor } from "../lib/cookedState";
+import { nameMatchScore } from "../lib/foodText";
 
 /**
  * MATCH « repas photographié » — résolution des composants reconnus par l'IA
@@ -29,43 +31,9 @@ import type { QueryCtx } from "./_generated/server";
 const MIN_MATCH_SCORE = 0.55;
 
 /**
- * Rapprochement nominal tolérant (tokens, sans accents, pluriels) :
- * - 1.0  : tous les mots de l'ingrédient sont dans le nom du candidat,
- *          et réciproquement ;
- * - 0.7+ : l'ingrédient est couvert par le nom (sous-ensemble de tokens) ;
- * - ~0.5 : au moins deux mots significatifs en commun ;
- * - 0.25 : un seul mot en commun.
- * La couverture du nom du candidat pondère le score (« Riz basmati » pour
- * « riz basmati » doit battre « Riz au lait »).
+ * Score de rapprochement nominal — implémentation partagée dans
+ * src/lib/foodText.ts (extrait à l'identique pour être testable hors Convex).
  */
-export function nameMatchScore(ingredientName: string, candidateName: string): number {
-	const t = (s: string) =>
-		s
-			.normalize("NFD")
-			.replace(/[\u0300-\u036f]/g, "")
-			.toLowerCase()
-			.replace(/[^a-z0-9]+/g, " ")
-			.trim()
-			.split(" ")
-			.filter((w) => w.length >= 3)
-			.map((w) => (w.length >= 5 && w.endsWith("s") ? w.slice(0, -1) : w));
-	const a = t(ingredientName);
-	const b = t(candidateName);
-	if (a.length === 0 || b.length === 0) return 0;
-	const setB = new Set(b);
-	let covered = 0;
-	for (const w of a) if (setB.has(w)) covered++;
-	const coverageA = covered / a.length;
-	const setA = new Set(a);
-	let coveredB = 0;
-	for (const w of b) if (setA.has(w)) coveredB++;
-	const coverageB = b.length > 0 ? coveredB / b.length : 0;
-	if (coverageA === 1 && coverageB === 1) return 1;
-	if (coverageA === 1) return 0.7 + 0.15 * coverageB;
-	if (coverageA >= 0.5 && covered >= 2) return 0.55 * coverageB + 0.15;
-	if (coverageA >= 0.5) return 0.45 * coverageB + 0.1;
-	return covered > 0 ? 0.25 : 0;
-}
 
 /** Résultat d'un match brut : fiche Convex (OFF importé ou custom) ou Ciqual. */
 export type MealMatchRow =
@@ -138,10 +106,14 @@ function aiFallback(
 async function findBestMatch(
 	ctx: QueryCtx,
 	userId: string,
-	name: string
+	name: string,
+	opts?: { searchTerm?: string; wantCooked?: boolean }
 ): Promise<MealMatchRow | null> {
-	const term = name.trim().toLowerCase();
+	// Règle « état cuit par défaut » (repas IA uniquement) : le terme de
+	// recherche porte « cuit » pour les féculents servis dans une assiette.
+	const term = (opts?.searchTerm ?? name).trim().toLowerCase();
 	if (term.length < 2) return null;
+	const wantCooked = opts?.wantCooked === true;
 
 	let best: MealMatchRow | null = null;
 	let bestScore = 0;
@@ -152,7 +124,8 @@ async function findBestMatch(
 		.withSearchIndex("by_name", (sb) => sb.search("name", term))
 		.take(8);
 	for (const f of customs) {
-		const s = nameMatchScore(name, f.name) + 0.05; // bonus « sa propre base »
+		let s = nameMatchScore(name, f.name) + 0.05; // bonus « sa propre base »
+		s += cookedBonusFor(f.name, wantCooked);
 		if (s > bestScore) {
 			bestScore = s;
 			best = {
@@ -177,7 +150,8 @@ async function findBestMatch(
 		.take(FOOD_SEARCH_CANDIDATES);
 	const ranked = rankFoods(foods.map(toHit), term).slice(0, 5);
 	for (const hit of ranked) {
-		const s = nameMatchScore(name, hit.name) - (hit.brand?.trim() ? 0.08 : 0);
+		let s = nameMatchScore(name, hit.name) - (hit.brand?.trim() ? 0.08 : 0);
+		s += cookedBonusFor(hit.name, wantCooked);
 		if (s > bestScore) {
 			bestScore = s;
 			best = {
@@ -200,7 +174,8 @@ async function findBestMatch(
 	const ciqHits = searchCiqualLocal(term);
 	for (const c of ciqHits) {
 		if (resolveCiqualLabel(c.label) === null) continue; // sécurité : fiche exacte uniquement
-		const s = nameMatchScore(name, c.label) + 0.05; // bonus référence officielle
+		let s = nameMatchScore(name, c.label) + 0.05; // bonus référence officielle
+		s += cookedBonusFor(c.label, wantCooked);
 		if (s > bestScore) {
 			bestScore = s;
 			best = {
@@ -231,7 +206,22 @@ export async function matchComponentsCore(
 		const label = String(c.name ?? "").trim().slice(0, 80);
 		if (!label) continue;
 		const qty = clampQty(c.qtyGrams);
-		const m = await findBestMatch(ctx, userId, label);
+		// Règle repas « servi cuit » : riz/pâtes/semoule… visibles dans une
+		// assiette sont recherchés en variante CUITE (jamais cru) — sauf si
+		// l'ingrédient porte déjà « cru »/« sec » (photo d'aliment sec). La
+		// recherche générale (Journal) n'est PAS concernée : ce code ne vit
+		// que dans le matching des composants d'une photo.
+		const cookedTerm = preferCookedForMeal(label);
+		let m = await findBestMatch(ctx, userId, label, {
+			searchTerm: cookedTerm ?? label,
+			wantCooked: cookedTerm !== null,
+		});
+		if (!m && cookedTerm) {
+			// Aucune variante cuite trouvée (recherche étroite) : repli sur la
+			// recherche nominale — la pénalité « cru » reste appliquée, donc une
+			// fiche crue ne gagne QUE si c'est le seul candidat crédible.
+			m = await findBestMatch(ctx, userId, label, { searchTerm: label, wantCooked: true });
+		}
 		if (m) {
 			// Un aliment « Créés par moi » doit être référencé comme customFoodId
 			// (jamais foodId, réservé à la base OFF) ; Ciqual passe par son libellé.

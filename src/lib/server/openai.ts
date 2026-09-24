@@ -300,7 +300,8 @@ const MEAL_PROMPT = `Tu regardes la photo d'un REPAS. Liste les aliments/composa
 
 RÈGLES CRITIQUES :
 - Tu reconnais les aliments et proposes les quantités — tu n'es PAS la source nutritionnelle : ne calcule PAS de calories ni de macros.
-- 2 à 6 composants maximum, du plus visible au moins visible. Nom en français, simple et générique (ex. « poulet grillé », « riz basmati », « courgettes », « sauce »).
+- ÉTAT DE L'ALIMENT : nomme chaque composant TEL QU'IL EST SERVI ET CONSOMMÉ dans l'assiette. Les féculents visibles (riz, pâtes, semoule, quinoa, boulgour, couscous, nouilles) sont CUITS dans un repas servi : écris « riz basmati cuit », « pâtes cuites », « semoule cuite », sauf si la photo montre clairement l'aliment sec/cru (alors précise « cru » ou « sec » dans le nom).
+- 2 à 6 composants maximum, du plus visible au moins visible. Nom en français, simple et générique (ex. « poulet grillé », « riz basmati cuit », « courgettes », « sauce »).
 - qtyGrams : estimation réaliste de la PORTION visible (pas la recette complète).
 - kcal100/carbs100/protein100/fat100 : FOURNIS tout de même une estimation prudente /100 g pour chaque composant (bornes réalistes) — elle sera affichée comme « estimation à valider » UNIQUEMENT si la base G-FLUX ne trouve pas de correspondance. Utilise null si vraiment impossible.
 - Si des éléments caloriques typiques sont probablement présents mais INVISIBLES (huile de cuisson, beurre, sauce versée, fromage râpé), ne les ajoute PAS à items : mets hint = « Huile, sauce ou matière grasse utilisée ? ».
