@@ -8,6 +8,7 @@
  * La photo est d'abord redimensionnée/compresée (JPEG ≤ 1400 px, qualité 0.82)
  * : upload léger, analyse Vision plus rapide, tokens économisés.
  */
+import { loadImageElement } from './media';
 
 type ZXing = {
 	MultiFormatReader: new (
@@ -23,20 +24,24 @@ type ZXing = {
 
 /** Redimensionne + compresse une photo en JPEG (dataURL) — max 1400 px. */
 export async function compressImage(file: File | Blob, maxSide = 1400, quality = 0.82): Promise<string> {
-	const bitmap = await createImageBitmap(file);
+	// Safari/iOS : createImageBitmap peut être absent (vieux iOS) → repli
+	// <img> + objectURL (loadImageElement), même contrat de dessin.
+	const source = typeof createImageBitmap === 'function' ? await createImageBitmap(file) : await loadImageElement(file);
 	try {
-		const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
-		const w = Math.max(1, Math.round(bitmap.width * scale));
-		const h = Math.max(1, Math.round(bitmap.height * scale));
+		const sw = 'naturalWidth' in source ? source.naturalWidth : source.width;
+		const sh = 'naturalHeight' in source ? source.naturalHeight : source.height;
+		const scale = Math.min(1, maxSide / Math.max(sw, sh));
+		const w = Math.max(1, Math.round(sw * scale));
+		const h = Math.max(1, Math.round(sh * scale));
 		const canvas = document.createElement('canvas');
 		canvas.width = w;
 		canvas.height = h;
 		const ctx = canvas.getContext('2d');
 		if (!ctx) throw new Error('Canvas indisponible.');
-		ctx.drawImage(bitmap, 0, 0, w, h);
+		ctx.drawImage(source as CanvasImageSource, 0, 0, w, h);
 		return canvas.toDataURL('image/jpeg', quality);
 	} finally {
-		bitmap.close();
+		(source as { close?: () => void }).close?.();
 	}
 }
 

@@ -139,3 +139,27 @@ test('AppShell : avatar rond (photo ou initiale + « + ») remplace la roue côt
 	// Côté coach : la roue reste (branche else).
 	assert.ok(src.includes('name="settings"'), 'roue conservée pour le coach');
 });
+
+/* ─── 4) Correctifs post-test iPhone ─── */
+
+test('Scanner : reprise du lecteur après fermeture de fiche (jamais deux streams)', () => {
+	const src = readFileSync(join(root, 'src/routes/espace/journal/+page.svelte'), 'utf8');
+	assert.ok(src.includes('resumeBarcodeIfNeeded'), 'fonction de reprise présente');
+	// La reprise est branchée sur la fermeture de la fiche quantité ET de la
+	// feuille de création (les deux chemins qui stoppent le scanner).
+	assert.ok(/qtyFood = null; void resumeBarcodeIfNeeded\(\)/.test(src), 'reprise à la fermeture de la fiche aliment');
+	assert.ok(/closeCreateSheet[\s\S]{0,200}resumeBarcodeIfNeeded/.test(src), 'reprise à la fermeture de la feuille création');
+	// Garde anti double stream : startScanner reste singleton.
+	assert.ok(/if \(scanner \|\| scannerBusy/.test(src), 'singleton scanner conservé');
+});
+
+test('Images : fallback Safari (loadImageElement) — createImageBitmap jamais appelé sans garde', () => {
+	const media = readFileSync(join(root, 'src/lib/media.ts'), 'utf8');
+	assert.ok(media.includes('loadImageElement'), 'loader compatible Safari présent');
+	assert.ok(/typeof createImageBitmap === 'function'/.test(media), 'appel createImageBitmap gardé');
+	const label = readFileSync(join(root, 'src/lib/labelBarcode.ts'), 'utf8');
+	assert.ok(/typeof createImageBitmap === 'function'/.test(label), 'compressImage (étiquette) aussi gardé');
+	const crop = readFileSync(join(root, 'src/lib/components/AvatarCrop.svelte'), 'utf8');
+	assert.ok(crop.includes('getCroppedBlob'), 'recadrage rond avec export exact');
+	assert.ok(crop.includes('radial-gradient'), 'rond visible pendant le cadrage');
+});

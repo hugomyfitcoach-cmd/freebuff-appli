@@ -1284,6 +1284,9 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	function closeCreateSheet() {
 		createSheetOpen = false;
 		labelError = '';
+		// Fiche refermée sans enregistrer : on rend la main au lecteur si on
+		// était parti d'un scan (sinon écran Code-barres noir au retour).
+		void resumeBarcodeIfNeeded();
 	}
 	/** Option « Scanner un code-barres » : bascule l'écran d'ajout en mode scan. */
 	async function createFromScan() {
@@ -2020,6 +2023,30 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		}
 		scannerCaps = null;
 		torchOn = false;
+	}
+	/**
+	 * REPRISE DU LECTEUR après fermeture d'une feuille ouverte DEPUIS un scan
+	 * (fiche quantité, création/étiquette). Le scanner singleton est stoppé à
+	 * la détection pour libérer la caméra ; sans relance, l'écran Code-barres
+	 * restait NOIR au retour (conteneur vide). On ne relance que si on est
+	 * réellement devant le lecteur et si AUCUN scanner n'est déjà actif — la
+	 * garde singleton de startScanner interdit tout second stream en parallèle.
+	 */
+	async function resumeBarcodeIfNeeded() {
+		if (typeof document === 'undefined') return;
+		await tick();
+		if (
+			logOpen &&
+			logMode === 'barcode' &&
+			!createSheetOpen &&
+			!customEditor &&
+			!mealSearchOpen &&
+			!qtyFood &&
+			!scanner &&
+			document.getElementById('bc-reader')
+		) {
+			void startScanner();
+		}
 	}
 	/** « Réessayer » après un refus/blocage caméra : relance le scan sur le bon
 	 *  lecteur (fenêtre produit si elle est ouverte, sinon « Ajouter un aliment »). */
@@ -4331,7 +4358,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		saving={qtySaving}
 		error={qtyError}
 		onSave={(g, meal) => confirmAdd(g, meal)}
-		onClose={() => { qtyFood = null; }}
+		onClose={() => { qtyFood = null; void resumeBarcodeIfNeeded(); }}
 	/>
 {/if}
 

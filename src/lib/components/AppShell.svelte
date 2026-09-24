@@ -3,6 +3,7 @@
 	import { afterNavigate, invalidateAll, preloadCode, preloadData, goto } from '$app/navigation';
 	import type { Snippet } from 'svelte';
 	import Icon from './Icon.svelte';
+	import AvatarCrop from './AvatarCrop.svelte';
 	import { noteSync } from '../navMemory';
 	import { isStandalone } from '../pwa';
 	import { forceAppUpdate, onUpdateState, startCompatWatch } from '../swUpdate';
@@ -192,6 +193,8 @@
 	let photoUrl = $state<string | null>(profilePhotoUrl);
 	let photoInput: HTMLInputElement | null = $state(null);
 	let photoSaving = $state(false);
+	/** Photo choisie en attente de cadrage (rond, pan/zoom) — cf. AvatarCrop. */
+	let cropFile = $state<File | null>(null);
 	const initial = $derived((user.prenom?.trim()?.[0] ?? '?').toUpperCase());
 
 	$effect(() => {
@@ -204,30 +207,24 @@
 			.catch(() => {});
 	});
 
-	async function onPhotoChosen() {
+	/** Photo choisie → recadrage ROND (aperçu exact) avant envoi ; l'upload
+	 *  et les erreurs sont gérés DANS AvatarCrop (jamais d'erreur technique
+	 *  brute affichée). */
+	function onPhotoChosen() {
 		const input = photoInput;
-		if (!input || photoSaving) return;
+		if (!input) return;
 		const file = input.files?.[0];
 		input.value = ''; // permet de re-choisir le même fichier ensuite
 		if (!file) return;
-		photoSaving = true;
-		try {
-			const fd = new FormData();
-			fd.append('photo', file);
-			const res = await fetch('/api/profile/photo', { method: 'POST', body: fd });
-			const data = res.ok ? ((await res.json()) as { url?: string | null }) : null;
-			if (data?.url) {
-				photoUrl = data.url;
-				menuOpen = false;
-			} else {
-				const j = res.ok ? null : await res.json().catch(() => null);
-				window.alert((j as { error?: string } | null)?.error ?? "Impossible d'enregistrer la photo. Réessaie.");
-			}
-		} catch {
-			window.alert("Impossible d'enregistrer la photo. Réessaie.");
-		} finally {
-			photoSaving = false;
+		if (!file.type.startsWith('image/')) {
+			window.alert('Choisis une photo (image) pour ta photo de profil.');
+			return;
 		}
+		if (file.size > 10 * 1024 * 1024) {
+			window.alert('Image trop lourde (10 Mo maximum). Choisis-en une plus légère.');
+			return;
+		}
+		cropFile = file;
 	}
 
 	async function removePhoto() {
@@ -487,6 +484,17 @@
 							aria-hidden="true"
 							tabindex={-1}
 						/>
+						{#if cropFile}
+							<AvatarCrop
+								file={cropFile}
+								oncancel={() => (cropFile = null)}
+								onsaved={(url) => {
+									photoUrl = url;
+									cropFile = null;
+									menuOpen = false;
+								}}
+							/>
+						{/if}
 						{:else}
 						<button
 							type="button"

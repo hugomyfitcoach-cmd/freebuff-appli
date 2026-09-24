@@ -62,6 +62,51 @@ const WEBP_Q = 0.82;
 const JPEG_Q = 0.85;
 
 /**
+ * Charge une image (File/Blob/URL) en <img> prête à dessiner — COMPATIBLE
+ * SAFARI/iOS TOUT ÂGE. `createImageBitmap` n'existe pas sur iOS < 15 et
+ * levait « createImageBitmap is not defined » à l'import d'une photo de
+ * profil sur iPhone : ici, repli systématique sur <img> + objectURL
+ * (createObjectURL géré dans tous les navigateurs, révoqué après chargement).
+ * Les dimensions lues sont naturalWidth/naturalHeight (EXIF respecté par
+ * Safari) — même contrat que createImageBitmap pour drawImage.
+ */
+export function loadImageElement(src: File | Blob | string): Promise<HTMLImageElement> {
+	return new Promise((resolve, reject) => {
+		const img = new Image();
+		let objectUrl: string | null = null;
+		const cleanup = () => {
+			if (objectUrl) {
+				try {
+					URL.revokeObjectURL(objectUrl);
+				} catch {
+					/* déjà révoqué */
+				}
+				objectUrl = null;
+			}
+		};
+		img.onload = () => {
+			cleanup();
+			resolve(img);
+		};
+		img.onerror = () => {
+			cleanup();
+			reject(new Error('format-image'));
+		};
+		if (typeof src === 'string') {
+			img.src = src;
+		} else {
+			try {
+				objectUrl = URL.createObjectURL(src);
+				img.src = objectUrl;
+			} catch (e) {
+				cleanup();
+				reject(e instanceof Error ? e : new Error('format-image'));
+			}
+		}
+	});
+}
+
+/**
  * Optimise une image DÈS L'UPLOAD (jamais en boucle) :
  *  - redimensionne à 1600 px max sur le côté le plus long (suffisant pour un
  *    suivi coaching), ratio conservé ;
@@ -69,17 +114,22 @@ const JPEG_Q = 0.85;
  *  - l'original lourd n'est jamais envoyé.
  */
 export async function optimizeImageFile(file: File): Promise<{ blob: Blob; mime: string; name: string }> {
-	const bitmap = await createImageBitmap(file);
-	const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
-	const w = Math.max(1, Math.round(bitmap.width * scale));
-	const h = Math.max(1, Math.round(bitmap.height * scale));
+	// Safari/iOS : <img> + objectURL (jamais createImageBitmap direct — absent
+	// des vieux iOS) ; createImageBitmap reste utilisé quand il existe.
+	const source = typeof createImageBitmap === 'function' ? await createImageBitmap(file) : await loadImageElement(file);
+	const sw = 'naturalWidth' in source ? source.naturalWidth : source.width;
+	const sh = 'naturalHeight' in source ? source.naturalHeight : source.height;
+	if (!sw || !sh) throw new Error('format-image');
+	const scale = Math.min(1, MAX_SIDE / Math.max(sw, sh));
+	const w = Math.max(1, Math.round(sw * scale));
+	const h = Math.max(1, Math.round(sh * scale));
 	const canvas = document.createElement('canvas');
 	canvas.width = w;
 	canvas.height = h;
 	const ctx = canvas.getContext('2d');
 	if (!ctx) throw new Error('Optimisation d’image impossible.');
-	ctx.drawImage(bitmap, 0, 0, w, h);
-	bitmap.close();
+	ctx.drawImage(source as CanvasImageSource, 0, 0, w, h);
+	(source as { close?: () => void }).close?.();
 
 	let blob: Blob | null = null;
 	let mime = 'image/webp';
