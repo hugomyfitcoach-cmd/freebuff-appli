@@ -31,6 +31,22 @@ export function kindRule(kind: string): { durationMin: number; bufferMin: number
 	return KIND_RULES[kind] ?? { durationMin: 30, bufferMin: 5 };
 }
 
+/**
+ * Lien de visio PRÉPROPOSÉ par type (mission) : un « Démarrage » préremplit le
+ * champ meetingUrl du CRM avec le Meet par défaut. Le lien reste ÉDITABLE —
+ * la valeur n'est jamais codée en dur dans l'affichage côté cliente : elle
+ * vit sur le rendez-vous (appointments.meetingUrl).
+ */
+export const DEFAULT_MEETING_URLS: Record<string, string> = {
+	Démarrage: 'https://meet.google.com/ajz-hoxy-tkz',
+};
+
+/** Lien de visio prérempli pour un type (null si pas de préremplissage prévu). */
+export function defaultMeetingUrlFor(kind: string): string | null {
+	const url = DEFAULT_MEETING_URLS[kind];
+	return typeof url === 'string' && url.startsWith('https://') ? url : null;
+}
+
 export type Rdv = {
 	_id: string;
 	clientId: string;
@@ -44,6 +60,8 @@ export type Rdv = {
 	lastModifiedBy: string | null;
 	rescheduleCount: number;
 	googleEventId: string | null;
+	/** Lien de visio du RDV (bouton « Rejoindre la visio » si présent). */
+	meetingUrl?: string | null;
 };
 
 /** Type de réservation autorisé ? (les nouveaux bookings sont limités à Suivi/Démarrage) */

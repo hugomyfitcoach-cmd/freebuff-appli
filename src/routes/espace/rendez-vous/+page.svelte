@@ -270,6 +270,19 @@
 							? 'Ton coach a planifié ce rendez-vous avec toi.'
 							: 'Tu as choisi ce créneau pour ton prochain échange avec ton coach.'}
 					</p>
+					{#if next.meetingUrl}
+						<!-- Lien de visio posé par le coach sur CE rendez-vous : bouton
+						     « Rejoindre la visio » — jamais de lien codé en dur ici. -->
+						<a
+							href={next.meetingUrl}
+							target="_blank"
+							rel="noopener noreferrer"
+							class="mt-3 flex items-center justify-center gap-2 rounded-xl bg-ink px-5 py-2.5 text-sm font-bold text-white transition hover:bg-brand"
+						>
+							<Icon name="video" size={16} class="shrink-0" />
+							Rejoindre la visio
+						</a>
+					{/if}
 					<div class="mt-3 grid gap-2">
 						<button
 							type="button"

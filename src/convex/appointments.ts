@@ -46,6 +46,30 @@ export const KIND_RULES: Record<string, { durationMin: number; bufferMin: number
 	Démarrage: { durationMin: 60, bufferMin: 5 },
 };
 
+/**
+ * Lien de visio PRÉPROPOSÉ par type (mission) : un « Démarrage » préremplit
+ * automatiquement le champ meetingUrl du CRM avec le Meet par défaut. Le
+ * lien reste ÉDITABLE — ni le client, ni l'affichage ne codent ce lien en dur.
+ * Autres types : pas de préremplissage (meetingUrl reste vide/absent).
+ */
+export const DEFAULT_MEETING_URLS: Record<string, string> = {
+	Démarrage: "https://meet.google.com/ajz-hoxy-tkz",
+};
+
+/** Lien de visio prérempli pour un type (null si aucun préremplissage prévu). */
+export function defaultMeetingUrlFor(kind: string): string | null {
+	const url = DEFAULT_MEETING_URLS[kind];
+	return typeof url === "string" && url.startsWith("https://") ? url : null;
+}
+
+/** Normalise un lien de visio saisi : https:// obligatoire, borné, sinon null. */
+export function normalizeMeetingUrl(raw: string | undefined | null): string | null {
+	const s = (raw ?? "").trim();
+	if (!s) return null;
+	if (!/^https:\/\//.test(s)) return null;
+	return s.slice(0, 500);
+}
+
 /** Règles d'un type connu, sinon repli (30 min / 5) pour les anciens RDV. */
 export function kindRule(kind: string): { durationMin: number; bufferMin: number } {
 	return KIND_RULES[kind] ?? { durationMin: 30, bufferMin: 5 };
@@ -172,6 +196,8 @@ function publicAppointment(a: Doc<"appointments">, nameOf: (id: Id<"users">) => 
 		/** Présent uniquement sur les anciennes demandes de replanification (compat). */
 		sourceId: a.sourceId ?? null,
 		googleEventId: a.googleEventId ?? null,
+		/** Lien de visio (bouton « Rejoindre la visio » côté cliente si présent). */
+		meetingUrl: a.meetingUrl ?? null,
 		cancelledAt: a.cancelledAt ?? null,
 		cancelledBy: a.cancelledBy ?? null,
 	};
@@ -312,8 +338,10 @@ export const bookByCoach = mutation({
 		time: v.string(),
 		endTime: v.string(),
 		kind: v.string(),
+		/** Lien de visio (prérempli « Démarrage », éditable). */
+		meetingUrl: v.optional(v.string()),
 	},
-	handler: async (ctx, { sessionToken, clientId, date, time, endTime, kind }) => {
+	handler: async (ctx, { sessionToken, clientId, date, time, endTime, kind, meetingUrl }) => {
 		const coach = await requireCoach(ctx, sessionToken);
 		const client = await ctx.db.get(clientId);
 		if (!client || client.role !== "client") throw new ConvexError("Cliente introuvable.");
@@ -338,6 +366,10 @@ export const bookByCoach = mutation({
 			time,
 			endTime,
 			kind,
+			// Lien de visio : saisi par le CRM (prérempli « Démarrage », éditable) ;
+			// à défaut, le préremplissage serveur par type s'applique. Jamais de
+			// lien codé en dur côté affichage.
+			meetingUrl: normalizeMeetingUrl(meetingUrl) ?? defaultMeetingUrlFor(kind) ?? undefined,
 			status: "on_book",
 			bookedBy: coach._id,
 			bookingSource: "coach",
@@ -448,6 +480,8 @@ export const reschedule = mutation({
 			endTime,
 			updatedAt: now,
 			lastModifiedBy: user._id,
+			// Le lien de visio ne se réinitialise PAS à la replanification : il
+			// reste celui posé à la création (le Meet par défaut reste valable).
 			rescheduleCount: (a.rescheduleCount ?? 0) + 1,
 			// Réarmement du rappel 12 h : un éventuel envoi lié à l'ANCIENNE date
 			// n'empêchera plus le rappel de la nouvelle (logique startAt, §27).

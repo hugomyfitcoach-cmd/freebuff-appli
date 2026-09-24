@@ -27,6 +27,7 @@
 		toMin,
 		type Rdv,
 	} from '$lib/appointments';
+	import { defaultMeetingUrlFor } from '$lib/appointments';
 
 	type Range = { day: number; start: string; end: string };
 	type ClientRow = { user: { _id: string; prenom: string; nom?: string | null } };
@@ -51,6 +52,9 @@
 	let viewKind = $state('');
 	/** Créneau cliqué en mode réservation → modale (cliente / déplacement). */
 	let reserving = $state<Picking | null>(null);
+	/** Lien de visio de la réservation en cours — PRÉREMPLI pour « Démarrage »
+	 *  (Meet par défaut), toujours éditable, jamais codé en dur à l'affichage. */
+	let reservingUrl = $state('');
 	/** Replanification d'un RDV existant (le type est verrouillé sur le sien). */
 	let rescheduleFrom = $state<Rdv | null>(null);
 	/** Aperçu d'un RDV existant (clic sur un bloc vert / orange). */
@@ -221,13 +225,16 @@
 			kind: viewKind,
 			clientId: '',
 		};
+		// PRÉREMPLISSAGE automatique du lien de visio pour « Démarrage » (mission) :
+		// le Meet par défaut est proposé, la coach garde la main pour l'éditer.
+		reservingUrl = defaultMeetingUrlFor(viewKind) ?? '';
 	}
-	async function book(clientId: string, clientName: string, date: string, time: string, endTime: string, kind: string) {
+	async function book(clientId: string, clientName: string, date: string, time: string, endTime: string, kind: string, meetingUrl?: string) {
 		try {
 			const res = await fetch('/api/appointments', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ clientId, clientName, date, time, endTime, kind }),
+				body: JSON.stringify({ clientId, clientName, date, time, endTime, kind, meetingUrl: meetingUrl?.trim() || undefined }),
 			});
 			const j = await res.json();
 			if (!res.ok) throw new Error(j.error ?? j.message ?? 'Erreur');
@@ -299,7 +306,7 @@
 			void move(rescheduleFrom, reserving.date, reserving.time, reserving.endTime);
 		} else {
 			const c = clients.find((x) => x.user._id === reserving!.clientId);
-			void book(reserving!.clientId, c ? fullName(c) : 'Cliente', reserving!.date, reserving!.time, reserving!.endTime, reserving!.kind);
+			void book(reserving!.clientId, c ? fullName(c) : 'Cliente', reserving!.date, reserving!.time, reserving!.endTime, reserving!.kind, reservingUrl.trim() || undefined);
 		}
 	}
 </script>
@@ -572,6 +579,18 @@
 					<option value="" disabled>Choisir une cliente…</option>
 					{#each clients as c (c.user._id)}<option value={c.user._id}>{fullName(c)}</option>{/each}
 				</select>
+				<label class="mb-1 block text-xs font-bold uppercase tracking-wide text-mist" for="rdv-meeting-url">Lien de visio (optionnel)</label>
+				<input
+					id="rdv-meeting-url"
+					type="url"
+					bind:value={reservingUrl}						placeholder="https://…"
+					class="mb-1 w-full rounded-lg border border-line bg-white px-3 py-2 text-sm {reservingUrl ? 'border-brand/50' : ''}"
+				/>
+				<p class="mb-4 text-[11px] leading-snug text-mist">
+					{reserving.kind === 'Démarrage' && reservingUrl
+						? 'Prérempli avec ton Meet de démarrage — tu peux le modifier ou le vider.'
+						: 'La cliente verra un bouton « Rejoindre la visio » sur son rendez-vous.'}
+				</p>
 			{/if}
 			<div class="flex justify-end gap-2">
 				<button type="button" class="rounded-lg border-2 border-line px-3 py-1.5 text-sm font-semibold text-ink" onclick={() => (reserving = null)}>Annuler</button>

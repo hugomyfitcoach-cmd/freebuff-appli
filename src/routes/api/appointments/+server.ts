@@ -179,6 +179,9 @@ export const POST: RequestHandler = async (event) => {
 				sessionToken: token,
 				clientId: body.clientId,
 				...rdvInput,
+				// Lien de visio (prérempli « Démarrage » côté CRM, éditable) —
+				// normalisé côté Convex (https:// obligatoire, borné).
+				meetingUrl: typeof body.meetingUrl === 'string' ? body.meetingUrl : undefined,
 			});
 			// Poussée Google Calendar du coach (meilleur effort : le RDV reste valide sans).
 			const googleEventId = await pushToGoogle(token, null, { ...rdvInput, clientName });

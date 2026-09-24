@@ -779,6 +779,13 @@ export default defineSchema({
 		endTime: v.string(),
 		/** Type de rendez-vous ("Suivi" 15 min, "Démarrage" 60 min ; anciens types conservés). */
 		kind: v.string(),
+		/**
+		 * Lien de visio du rendez-vous (optionnel, éditable par la coach).
+		 * Prérempli côté CRM quand le type est « Démarrage » (Meet par défaut),
+		 * mais JAMAIS imposé : la coach peut le modifier ou le vider. Affiché
+		 * côté cliente comme bouton « Rejoindre la visio » quand présent.
+		 */
+		meetingUrl: v.optional(v.string()),
 		status: v.union(v.literal("on_book"), v.literal("client_request"), v.literal("cancelled")),
 		/** Origine de la réservation : coach ou cliente. */
 		bookedBy: v.id("users"),
