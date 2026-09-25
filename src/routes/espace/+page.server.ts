@@ -15,6 +15,10 @@ export const load: PageServerLoad = async (event) => {
 	// Le layout /espace a déjà vérifié la session (requireRole) — on ne refait
 	// jamais cette requête Convex ici : navigation d'onglet plus rapide.
 	const token = event.cookies.get(SESSION_COOKIE);
+	// Tendance pas de la carte Accueil : même query existante que la page
+	// « Mes pas » (steps.myHistory, lecture pure) — la fenêtre de 7 jours est
+	// découpée côté page. Lancée en parallèle, jamais bloquante pour l'Accueil.
+	const stepsHistoryP = convex.query(api.steps.myHistory, { sessionToken: token }).catch(() => null);
 	const checkins = await convex.query(api.checkins.myCheckins, { sessionToken: token });
 	// Médias publiés des retours (audios + pièces jointes), groupés par bilan.
 	const published = await convex.query(api.media.myPublished, { sessionToken: token }).catch(() => null);
@@ -31,5 +35,6 @@ export const load: PageServerLoad = async (event) => {
 		checkins: safe as typeof checkins,
 		media: (published?.byCheckin ?? {}) as Record<string, unknown[]>,
 		cycle,
+		stepsHistory: await stepsHistoryP,
 	};
 };

@@ -87,6 +87,7 @@
 	import { fmtWeightKg } from '$lib/weight';
 	import type { PerfDay, PerfGoals } from '$lib/perf';
 	import { fmtMs, type CoachMediaItem } from '$lib/media';
+	import { shiftISO } from '$lib/averages';
 	import {
 		CYCLE_LENGTH_OPTIONS,
 		CYCLE_NO_ESTIMATE_MSGS,
@@ -422,7 +423,25 @@
 	const kcalToday = $derived(dayFresh ? (dash?.tracking.kcal ?? 0) : 0);
 
 	/* ————— Mini-graphiques : pas (semaine courante) & poids (dernières pesées) ————— */
-	const stepsWeekPts = $derived((dash?.steps.week ?? []).map((s) => ({ date: s.date, value: s.count })));
+	/* ————— Tendance pas de la carte Pas : fenêtre stricte des 7 derniers
+	   JOURS TERMINÉS (J-7 → J-1) — même découpage que la page « Mes pas » :
+	   la journée en cours n'y entre jamais, un jour sans donnée reste un repère
+	   neutre (jamais un 0 inventé). Source : steps.myHistory (query existante
+	   de la page Mes pas), chargée par le loader — aucune nouvelle logique. ————— */
+	type StepsHistoryData = { rows?: { date: string; count: number }[] } | null;
+	const stepsHistory = $derived<StepsHistoryData>((data.stepsHistory ?? null) as StepsHistoryData);
+	const todayISO = $derived(currentLocalDay());
+	/** Un point par jour de J-7 à J-1 ; count = null quand aucune saisie (jamais 0). */
+	const stepsLast7 = $derived.by(() => {
+		const rows = stepsHistory?.rows ?? [];
+		return Array.from({ length: 7 }, (_, i) => {
+			const date = shiftISO(todayISO, -(7 - i));
+			const hit = rows.find((r) => r.date === date);
+			return { date, count: hit ? hit.count : null };
+		});
+	});
+	/** Hauteur relative des barres (0 si aucune donnée → tous les repères gris). */
+	const stepsLast7Max = $derived(Math.max(0, ...stepsLast7.map((d) => d.count ?? 0)));
 	// Tendance du poids : delta entre la première et la dernière pesée de la fenêtre.
 	const weightDelta = $derived.by(() => {
 		const w = weightTrendShown ?? [];
@@ -1040,12 +1059,19 @@
 				<!-- Tendance discrète des 7 derniers jours (données déjà chargées
 				     par le dashboard — aucune logique métier nouvelle). Le SVG
 				     s'adapte à la largeur de la colonne (petits écrans compris). -->
-				{#if stepsWeekPts.length >= 2}
-					<!-- Étiquette « 7 j » : la courbe = tendance hebdo, sans ambiguïté
-				     avec la valeur du jour affichée au-dessus. -->
+				{#if stepsLast7.some((d) => d.count !== null)}
+					<!-- Mini histogramme des 7 derniers jours TERMINÉS (J-7 → J-1) :
+				     aujourd'hui n'y entre jamais (c'est la valeur du jour, au-dessus).
+				     Un jour sans saisie = petit repère gris, jamais un 0 inventé. -->
 					<div class="mt-2 flex w-full items-end gap-1.5">
-						<div class="min-w-0 flex-1 opacity-80 [&>svg]:h-auto [&>svg]:w-full">
-							<Sparkline points={stepsWeekPts} width={120} height={26} drawIn />
+						<div class="flex min-w-0 flex-1 items-end gap-1" aria-hidden="true">
+							{#each stepsLast7 as d, i (d.date)}
+								{@const h = d.count !== null && stepsLast7Max > 0 ? Math.max(10, Math.round((d.count / stepsLast7Max) * 26)) : 4}
+								<div
+									class="w-full flex-1 rounded-full {d.count !== null ? 'bg-brand/45' : 'bg-line/60'}"
+									style="height: {h}px"
+								></div>
+							{/each}
 						</div>
 						<span class="shrink-0 pb-0.5 text-[9px] font-bold uppercase tracking-wider text-mist/70">7 j</span>
 					</div>

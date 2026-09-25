@@ -132,6 +132,7 @@ test('MacroLine : mêmes libellés que le Journal, objectif absent géré, dépa
 /* ─── 5) Ajustement v2 : équilibre Pas / Calories + hiérarchie « Mes pas » ─── */
 
 const pas = readFileSync(join(root, 'src/routes/espace/pas/+page.svelte'), 'utf8');
+const accueilServer = readFileSync(join(root, 'src/routes/espace/+page.server.ts'), 'utf8');
 
 test('Accueil : Calories (3/5) plus large que Pas (2/5), Poids/Cycle sur grille 2 colonnes', () => {
 	assert.ok(accueil.includes('grid grid-cols-5 gap-3'), 'grille équilibrée en 5 colonnes');
@@ -167,10 +168,10 @@ test('Accueil : mini-rings animés + labels macros entiers + tendance pas discr�
 	// Animation premium de l'arc, neutralisée sous prefers-reduced-motion.
 	assert.ok(macroLine.includes('macro-ring-in'), 'animation de progression de l\'arc présente');
 	assert.ok(macroLine.includes('prefers-reduced-motion'), 'prefers-reduced-motion respecté');
-	// Tendance pas sur la carte Pas : composant Sparkline existant, données dashboard.
-	assert.ok(accueil.includes('<Sparkline points={stepsWeekPts}'), 'sparkline réutilisant les données du dashboard');
-	// Le tableau de points reste alimenté par les données existantes.
-	assert.ok(accueil.includes('dash?.steps.week'), 'aucune nouvelle source de données');
+	// Tendance pas : fenêtre stricte J-7 → J-1 (steps.myHistory), jour sans donnée jamais un 0.
+	assert.ok(accueil.includes('shiftISO(todayISO, -(7 - i))'), 'fenêtre des 7 derniers jours terminés');
+	assert.ok(accueilServer.includes('api.steps.myHistory'), 'source = query existante de la page Mes pas (loader)');
+	assert.ok(accueil.includes("d.count !== null ? 'bg-brand/45' : 'bg-line/60'"), 'jour sans donnée = repère gris (jamais un 0)');
 });
 
 test('Carte Pas : valeur explicitement « du jour » + tendance 7 j étiquetée', () => {
