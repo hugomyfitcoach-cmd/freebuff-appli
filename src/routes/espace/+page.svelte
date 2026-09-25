@@ -1037,6 +1037,14 @@
 						{todaySteps === 0 && !dayFresh ? 'Synchronisation de la journée…' : 'Voir mes statistiques de pas'}
 					{/if}
 				</p>
+				<!-- Tendance discrète des 7 derniers jours (données déjà chargées
+				     par le dashboard — aucune logique métier nouvelle). Le SVG
+				     s'adapte à la largeur de la colonne (petits écrans compris). -->
+				{#if stepsWeekPts.length >= 2}
+					<div class="mt-2 w-full min-w-0 opacity-80 [&>svg]:h-auto [&>svg]:w-full">
+						<Sparkline points={stepsWeekPts} width={132} height={30} drawIn />
+					</div>
+				{/if}
 			</a>
 
 			<!-- CALORIES -->
@@ -1062,7 +1070,7 @@
 				</p>
 				<!-- Aperçu compact macros (Glucides | Protéines | Lipides) — même
 				     ordre, mêmes couleurs et mêmes valeurs que le Journal. -->
-				<MacroLine state={macroState} />
+				<MacroLine data={macroState} />
 			</a>
 		</div>
 

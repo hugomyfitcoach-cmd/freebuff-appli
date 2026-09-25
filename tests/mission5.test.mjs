@@ -98,9 +98,9 @@ test('fmtMacro : entier formaté fr-FR (2 ou 3 chiffres comme 4)', () => {
 /* ─── 4) Intégration Accueil : montage + données réutilisées + non-régression ─── */
 
 test('Accueil : MacroLine est montée DANS la carte Calories (après le texte de statut)', () => {
-	assert.ok(accueil.includes('<MacroLine state={macroState} />'), 'composant monté dans la carte Calories');
+	assert.ok(accueil.includes('<MacroLine data={macroState} />'), 'composant monté dans la carte Calories');
 	const statusIdx = accueil.indexOf('kcalStatusText}</span>');
-	const macroIdx = accueil.indexOf('<MacroLine state={macroState}');
+	const macroIdx = accueil.indexOf('<MacroLine data={macroState}');
 	assert.ok(statusIdx > 0 && macroIdx > statusIdx, 'la ligne macros vient APRÈS le texte kcal restant/objectif');
 });
 
@@ -137,22 +137,38 @@ test('Accueil : Calories (3/5) plus large que Pas (2/5), Poids/Cycle sur grille 
 	assert.ok(accueil.includes('grid grid-cols-5 gap-3'), 'grille équilibrée en 5 colonnes');
 	assert.ok(accueil.includes('col-span-2'), 'carte Pas compacte (2/5)');
 	const calIdx = accueil.indexOf('<!-- CALORIES -->');
-	const macroIdx = accueil.indexOf('<MacroLine state={macroState}');
+	const macroIdx = accueil.indexOf('<MacroLine data={macroState}');
 	assert.ok(calIdx > 0 && macroIdx > calIdx && accueil.slice(calIdx, macroIdx).includes('col-span-3'), 'carte Calories élargie (3/5)');
 	assert.ok(accueil.includes('mt-3 grid grid-cols-2 gap-3'), 'Poids / Cycle restent en 2 colonnes');
 });
 
-test('Mes pas : hiérarchie simplifiée — un seul bouton explicite par action', () => {
+test('Mes pas : hiérarchie simplifiée — champ direct + CTA « Enregistrer »', () => {
 	// Signaux ambigus supprimés (plusieurs éléments non cliquables ressemblant à des boutons).
 	assert.ok(!pas.includes('>Modifiable</span>'), 'badge « Modifiable » supprimé');
 	assert.ok(!pas.includes('Compléter ou modifier mes pas</span>'), 'pseudo-lien « Compléter ou modifier » supprimé');
 	assert.ok(!/aria-label="Modifier les 7 derniers jours"/.test(pas), 'icône crayon d\'en-tête supprimée');
-	// Vraies actions explicites.
-	assert.ok(pas.includes("Modifier mes pas d'aujourd'hui"), 'bouton clair pour le jour');
-	assert.ok(pas.includes('Mettre à jour mes pas de la semaine'), 'action claire sous le graphique');
+	assert.ok(!pas.includes("Modifier mes pas d'aujourd'hui"), 'plus de bouton d\'ouverture intermédiaire');
+	// CTA du haut = « Enregistrer » (expression Svelte, pas d'ouverture en deux temps).
+	assert.ok(/\{stepsSaving \? '…' : 'Enregistrer'\}/.test(pas), 'CTA du jour = Enregistrer');
+	assert.ok(pas.includes('Mettre à jour mes pas de la semaine'), 'action semaine conservée sous le graphique');
 	assert.ok(pas.includes('startEditing(true)'), "l'action semaine ouvre le panneau existant (+ scroll)");
 	// Logique métier inchangée : mêmes endpoints, même garde « vide ≠ 0 ».
 	assert.ok(pas.includes("fetch('/api/steps'"), 'sauvegarde via /api/steps inchangée');
 	assert.ok(pas.includes("if (raw === '') continue;"), 'champ vide = aucun changement (jamais 0)');
 	assert.ok(pas.includes('invalidateAll();'), 'revalidation après enregistrement');
+});
+
+test('Accueil : mini-rings animés + labels macros entiers + tendance pas discrète', () => {
+	// Libellés entiers : whitespace-nowrap (jamais de GL… / PR… / LI…).
+	assert.ok(macroLine.includes('whitespace-nowrap'), 'libellés et valeurs jamais tronqués');
+	// Format demandé : valeur consommée + objectif en entier.
+	assert.ok(macroLine.includes('{ring.eaten} g'), 'valeur consommée en entier');
+	assert.ok(macroLine.includes('/ {ring.goal} g'), 'objectif en entier');
+	// Animation premium de l'arc, neutralisée sous prefers-reduced-motion.
+	assert.ok(macroLine.includes('macro-ring-in'), 'animation de progression de l\'arc présente');
+	assert.ok(macroLine.includes('prefers-reduced-motion'), 'prefers-reduced-motion respecté');
+	// Tendance pas sur la carte Pas : composant Sparkline existant, données dashboard.
+	assert.ok(accueil.includes('<Sparkline points={stepsWeekPts}'), 'sparkline réutilisant les données du dashboard');
+	// Le tableau de points reste alimenté par les données existantes.
+	assert.ok(accueil.includes('dash?.steps.week'), 'aucune nouvelle source de données');
 });

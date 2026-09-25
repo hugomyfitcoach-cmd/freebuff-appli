@@ -127,21 +127,13 @@
 	}
 
 	/* ————— Saisie du jour —————
-	   Hiérarchie simplifiée : la valeur du jour est affichée en clair, et un
-	   SEUL bouton explicite (« Modifier mes pas d'aujourd'hui ») ouvre la
-	   saisie. Fini les signaux multiples (badge « Modifiable », pseudo-lien,
-	   icône crayon) — même logique de sauvegarde qu'avant. */
-	let editingToday = $state(false);
+	   Hiérarchie simple : la valeur du jour est directement éditable (grand
+	   champ discret) avec UN seul CTA « Enregistrer ». Plus de signaux
+	   multiples (badge « Modifiable », pseudo-lien, bouton d'ouverture) —
+	   la sauvegarde passe par la même logique /api/steps qu'avant. */
 	let stepsValue = $state('');
 	let stepsSaving = $state(false);
 	let stepsError = $state('');
-	let todayInputEl = $state<HTMLInputElement | undefined>(undefined);
-	function startEditingToday() {
-		editingToday = true;
-		stepsValue = todayCount !== null ? String(todayCount) : '';
-		/* Le focus attend le rendu du champ (mode affichage → mode saisie). */
-		setTimeout(() => todayInputEl?.focus(), 0);
-	}
 	$effect(() => {
 		if (todayCount !== null && stepsValue === '') stepsValue = String(todayCount);
 	});
@@ -162,7 +154,6 @@
 			const body = await res.json();
 			if (!res.ok || body.error) throw new Error(body.error ?? 'Enregistrement impossible.');
 			await invalidateAll();
-			editingToday = false;
 		} catch (e) {
 			stepsError = e instanceof Error ? e.message : 'Enregistrement impossible.';
 		} finally {
@@ -230,63 +221,42 @@
 		</section>
 	{/if}
 
-	<!-- Aujourd'hui : la valeur affichée en clair, UNE seule action explicite.
-	     La saisie ne s'ouvre que sur clic (fin des signaux multiples : badge
-	     « Modifiable », pseudo-lien, icône crayon). La valeur du jour reste
-	     modifiable ICI uniquement — jamais depuis les barres de la semaine. -->
+	<!-- Aujourd'hui : la valeur du jour est directement éditable (grand champ
+	     discret, pré-rempli) avec UN seul CTA « Enregistrer ». Fin des signaux
+	     multiples — la valeur du jour reste modifiable ICI uniquement (jamais
+	     depuis les barres de la semaine). -->
 	<section class="mt-5 rounded-3xl border border-line bg-card p-4 shadow-sm">
 		<p class="flex items-center gap-1.5 text-sm font-bold text-ink">
 			<Icon name="calendarDays" size={16} class="shrink-0 text-brand" />
 			Aujourd'hui
 		</p>
-		{#if !editingToday}
-			<div class="mt-2 flex items-end justify-between gap-3">
-				<p class="font-display text-4xl font-bold leading-none tracking-tight text-ink tabular-nums">
-					{#if todayCount !== null}{fmt(todayCount)} <span class="text-base font-semibold text-mist">pas</span>{:else}<span class="text-mist">—</span>{/if}
-				</p>
-			</div>
+		<div class="mt-2.5 flex items-center gap-2">
+			<label class="sr-only" for="steps-today">Pas d'aujourd'hui — complète ou modifie cette valeur</label>
+			<input
+				id="steps-today"
+				type="number"
+				inputmode="numeric"
+				min="0"
+				max="150000"
+				placeholder={todayCount !== null ? String(todayCount) : 'Ex. 8742'}
+				bind:value={stepsValue}
+				aria-describedby={todayCount !== null ? 'steps-today-hint' : undefined}
+				class="w-full min-w-0 flex-1 rounded-2xl border-2 border-line bg-soft px-4 py-3.5 text-xl font-bold tabular-nums text-ink outline-none transition focus:border-brand"
+			/>
 			<button
 				type="button"
-				onclick={startEditingToday}
-				class="tap mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-ink px-4 py-3 text-sm font-bold text-white transition hover:bg-brand disabled:opacity-60"
+				onclick={saveSteps}
+				disabled={stepsSaving}
+				class="shrink-0 rounded-2xl bg-ink px-5 py-3.5 text-sm font-bold text-white transition hover:bg-brand disabled:opacity-60"
 			>
-				<Icon name="pencil" size={14} class="shrink-0" />
-				Modifier mes pas d'aujourd'hui
+				<Icon name="check" size={14} class="mr-1 shrink-0" />
+				{stepsSaving ? '…' : 'Enregistrer'}
 			</button>
-			{#if todayCount === null}
-				<p class="mt-2 text-[11px] text-mist">Renseigne le compteur de ton téléphone ou de ta montre, à la fin de la journée.</p>
-			{/if}
+		</div>
+		{#if todayCount !== null}
+			<p id="steps-today-hint" class="mt-1.5 text-[11px] text-mist">Déjà {fmt(todayCount)} pas aujourd'hui — change la valeur ci-dessus si besoin.</p>
 		{:else}
-			<div class="mt-2.5 flex items-center gap-2">
-				<label class="sr-only" for="steps-today">Pas d'aujourd'hui — complète ou modifie cette valeur</label>
-				<input
-					bind:this={todayInputEl}
-					id="steps-today"
-					type="number"
-					inputmode="numeric"
-					min="0"
-					max="150000"
-					placeholder={todayCount !== null ? String(todayCount) : 'Ex. 8742'}
-					bind:value={stepsValue}
-					aria-describedby={todayCount !== null ? 'steps-today-hint' : undefined}
-					class="w-full min-w-0 flex-1 rounded-2xl border-2 border-line bg-soft px-4 py-3 text-lg font-semibold tabular-nums text-ink outline-none transition focus:border-brand"
-				/>
-				<button
-					type="button"
-					onclick={saveSteps}
-					disabled={stepsSaving}
-					class="shrink-0 rounded-2xl bg-brand px-5 py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
-				>{stepsSaving ? '…' : 'Enregistrer'}</button>
-				<button
-					type="button"
-					onclick={() => (editingToday = false)}
-					disabled={stepsSaving}
-					class="shrink-0 rounded-2xl border-2 border-line px-3 py-3 text-sm font-semibold text-mist transition hover:text-ink"
-				>Annuler</button>
-			</div>
-			{#if todayCount !== null}
-				<p id="steps-today-hint" class="mt-1.5 text-[11px] text-mist">Déjà {fmt(todayCount)} pas aujourd'hui — change la valeur ci-dessus si besoin.</p>
-			{/if}
+			<p class="mt-1.5 text-[11px] text-mist">Renseigne le compteur de ton téléphone ou de ta montre, à la fin de la journée.</p>
 		{/if}
 		{#if stepsError}
 			<p class="mt-1.5 text-xs font-semibold text-danger">{stepsError}</p>
