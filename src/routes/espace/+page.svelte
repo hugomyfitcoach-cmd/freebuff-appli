@@ -1037,7 +1037,7 @@
 			<!-- PAS → vue statistiques « Mes pas » (7 derniers jours) -->
 			<a
 				href="/espace/pas"
-				class="tap tap-shadow group col-span-2 rounded-3xl border border-line bg-card p-4 text-left shadow-sm hover:border-brand/50"
+				class="tap tap-shadow group col-span-2 flex h-full flex-col rounded-3xl border border-line bg-card p-4 text-left shadow-sm hover:border-brand/50"
 			>
 				<div class="flex items-center justify-between gap-1">
 					<span class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-mist"><Icon name="footprints" size={14} class="shrink-0 text-brand" /> Pas</span>
@@ -1060,20 +1060,30 @@
 				     par le dashboard — aucune logique métier nouvelle). Le SVG
 				     s'adapte à la largeur de la colonne (petits écrans compris). -->
 				{#if stepsLast7.some((d) => d.count !== null)}
-					<!-- Mini histogramme des 7 derniers jours TERMINÉS (J-7 → J-1) :
-				     aujourd'hui n'y entre jamais (c'est la valeur du jour, au-dessus).
-				     Un jour sans saisie = petit repère gris, jamais un 0 inventé. -->
-					<div class="mt-2 flex w-full items-end gap-1.5">
-						<div class="flex min-w-0 flex-1 items-end gap-1" aria-hidden="true">
+					<!-- Zone secondaire — MÊME GRAMMAIRE que les macros de la carte
+				     Calories : séparateur léger + même respiration (pt-2.5).
+				     Ancrée en bas (mt-auto) : les deux cartes de la rangée partagent
+				     la même structure verticale (haut = info principale, bas = info
+				     secondaire alignée). Mini histogramme des 7 derniers jours
+				     TERMINÉS (J-7 → J-1) : aujourd'hui n'y entre jamais (c'est la
+				     valeur du jour, au-dessus) ; un jour sans saisie = repère gris,
+				     jamais un 0 inventé. -->
+					<div class="mt-auto border-t border-line pt-2.5">
+						<div class="flex w-full items-end gap-1.5">
+						<!-- Hauteur calée sur le bloc macros (label + ring + valeur =
+						     60 px) : les deux zones secondaires démarrent à la même
+						     hauteur, barres ancrées en bas. -->
+						<div class="flex h-[60px] min-w-0 flex-1 items-end gap-1" aria-hidden="true">
 							{#each stepsLast7 as d, i (d.date)}
-								{@const h = d.count !== null && stepsLast7Max > 0 ? Math.max(10, Math.round((d.count / stepsLast7Max) * 26)) : 4}
-								<div
-									class="w-full flex-1 rounded-full {d.count !== null ? 'bg-brand/45' : 'bg-line/60'}"
-									style="height: {h}px"
-								></div>
-							{/each}
+								{@const h = d.count !== null && stepsLast7Max > 0 ? Math.max(12, Math.round((d.count / stepsLast7Max) * 38)) : 5}
+									<div
+										class="w-full flex-1 rounded-full {d.count !== null ? 'bg-brand/45' : 'bg-line/60'}"
+										style="height: {h}px"
+									></div>
+								{/each}
+							</div>
+							<span class="shrink-0 pb-0.5 text-[9px] font-bold uppercase tracking-wider text-mist/70">7 j</span>
 						</div>
-						<span class="shrink-0 pb-0.5 text-[9px] font-bold uppercase tracking-wider text-mist/70">7 j</span>
 					</div>
 				{/if}
 			</a>

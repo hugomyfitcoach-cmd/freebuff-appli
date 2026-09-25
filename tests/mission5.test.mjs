@@ -172,6 +172,10 @@ test('Accueil : mini-rings animés + labels macros entiers + tendance pas discr�
 	assert.ok(accueil.includes('shiftISO(todayISO, -(7 - i))'), 'fenêtre des 7 derniers jours terminés');
 	assert.ok(accueilServer.includes('api.steps.myHistory'), 'source = query existante de la page Mes pas (loader)');
 	assert.ok(accueil.includes("d.count !== null ? 'bg-brand/45' : 'bg-line/60'"), 'jour sans donnée = repère gris (jamais un 0)');
+	// Alignement vertical avec le bloc macros de la carte Calories : même
+	// séparateur léger + même respiration (pt-2.5), zone ancrée en bas.
+	assert.ok(accueil.includes('mt-auto border-t border-line pt-2.5'), 'séparateur + respiration identiques au bloc macros');
+	assert.ok(accueil.includes('h-[60px]'), 'zone tendance calée sur la hauteur du bloc macros');
 });
 
 test('Carte Pas : valeur explicitement « du jour » + tendance 7 j étiquetée', () => {
