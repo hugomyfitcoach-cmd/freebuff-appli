@@ -128,3 +128,31 @@ test('MacroLine : mêmes libellés que le Journal, objectif absent géré, dépa
 	// La valeur réelle reste affichée même > 100 % (le ring, lui, est borné côté helper).
 	assert.ok(macroLine.includes('{ring.eaten} g'), 'valeur consommée réelle affichée');
 });
+
+/* ─── 5) Ajustement v2 : équilibre Pas / Calories + hiérarchie « Mes pas » ─── */
+
+const pas = readFileSync(join(root, 'src/routes/espace/pas/+page.svelte'), 'utf8');
+
+test('Accueil : Calories (3/5) plus large que Pas (2/5), Poids/Cycle sur grille 2 colonnes', () => {
+	assert.ok(accueil.includes('grid grid-cols-5 gap-3'), 'grille équilibrée en 5 colonnes');
+	assert.ok(accueil.includes('col-span-2'), 'carte Pas compacte (2/5)');
+	const calIdx = accueil.indexOf('<!-- CALORIES -->');
+	const macroIdx = accueil.indexOf('<MacroLine state={macroState}');
+	assert.ok(calIdx > 0 && macroIdx > calIdx && accueil.slice(calIdx, macroIdx).includes('col-span-3'), 'carte Calories élargie (3/5)');
+	assert.ok(accueil.includes('mt-3 grid grid-cols-2 gap-3'), 'Poids / Cycle restent en 2 colonnes');
+});
+
+test('Mes pas : hiérarchie simplifiée — un seul bouton explicite par action', () => {
+	// Signaux ambigus supprimés (plusieurs éléments non cliquables ressemblant à des boutons).
+	assert.ok(!pas.includes('>Modifiable</span>'), 'badge « Modifiable » supprimé');
+	assert.ok(!pas.includes('Compléter ou modifier mes pas</span>'), 'pseudo-lien « Compléter ou modifier » supprimé');
+	assert.ok(!/aria-label="Modifier les 7 derniers jours"/.test(pas), 'icône crayon d\'en-tête supprimée');
+	// Vraies actions explicites.
+	assert.ok(pas.includes("Modifier mes pas d'aujourd'hui"), 'bouton clair pour le jour');
+	assert.ok(pas.includes('Mettre à jour mes pas de la semaine'), 'action claire sous le graphique');
+	assert.ok(pas.includes('startEditing(true)'), "l'action semaine ouvre le panneau existant (+ scroll)");
+	// Logique métier inchangée : mêmes endpoints, même garde « vide ≠ 0 ».
+	assert.ok(pas.includes("fetch('/api/steps'"), 'sauvegarde via /api/steps inchangée');
+	assert.ok(pas.includes("if (raw === '') continue;"), 'champ vide = aucun changement (jamais 0)');
+	assert.ok(pas.includes('invalidateAll();'), 'revalidation après enregistrement');
+});

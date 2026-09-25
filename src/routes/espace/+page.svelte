@@ -1011,11 +1011,14 @@
 			<span class="text-[11px] text-mist">{todayLabel}</span>
 		</div>
 
-		<div class="mt-2 grid grid-cols-2 gap-3">
+		<!-- Équilibre premium : Pas compacte (2/5) car moins d'informations,
+		     Calories plus présente (3/5) depuis l'ajout des macros. Poids / Cycle
+		     restent sur la grille 2 colonnes historique. -->
+		<div class="mt-2 grid grid-cols-5 gap-3">
 			<!-- PAS → vue statistiques « Mes pas » (7 derniers jours) -->
 			<a
 				href="/espace/pas"
-				class="tap tap-shadow group rounded-3xl border border-line bg-card p-4 text-left shadow-sm hover:border-brand/50"
+				class="tap tap-shadow group col-span-2 rounded-3xl border border-line bg-card p-4 text-left shadow-sm hover:border-brand/50"
 			>
 				<div class="flex items-center justify-between gap-1">
 					<span class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-mist"><Icon name="footprints" size={14} class="shrink-0 text-brand" /> Pas</span>
@@ -1039,7 +1042,7 @@
 			<!-- CALORIES -->
 			<a
 				href="/espace/journal"
-				class="tap tap-shadow group rounded-3xl border border-line bg-card p-4 shadow-sm hover:border-brand/50"
+				class="tap tap-shadow group col-span-3 rounded-3xl border border-line bg-card p-4 shadow-sm hover:border-brand/50"
 			>
 				<div class="flex items-center justify-between gap-1">
 					<span class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-mist"><Icon name="flame" size={14} class="shrink-0 text-brand" /> Calories</span>
@@ -1061,7 +1064,9 @@
 				     ordre, mêmes couleurs et mêmes valeurs que le Journal. -->
 				<MacroLine state={macroState} />
 			</a>
+		</div>
 
+		<div class="mt-3 grid grid-cols-2 gap-3">
 			<!-- POIDS -->
 			<a
 				href="/espace/progression"

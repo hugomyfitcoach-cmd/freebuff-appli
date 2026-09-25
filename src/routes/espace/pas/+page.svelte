@@ -65,6 +65,7 @@
 	let edits = $state<Record<string, string>>({});
 	let editsSaving = $state(false);
 	let editsError = $state('');
+	let weekEditEl = $state<HTMLElement | undefined>(undefined);
 
 	function dayLabel(date: string): { day: string; dateLabel: string } {
 		const d = new Date(date + 'T12:00:00');
@@ -75,12 +76,15 @@
 		return { day: wd, dateLabel: dl };
 	}
 
-	function startEditing() {
+	function startEditing(scrollTo = false) {
 		const next: Record<string, string> = {};
 		for (const d of windowDays) next[d.date] = d.count !== null ? String(d.count) : '';
 		edits = next;
 		editsError = '';
 		editing = true;
+		/* Ouverture depuis l'action sous le graphique : le panneau d'édition
+		   (en haut de page) est amené dans le champ de vision. */
+		if (scrollTo) setTimeout(() => weekEditEl?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 0);
 	}
 
 	async function saveEdits() {
@@ -122,10 +126,22 @@
 		}
 	}
 
-	/* ————— Saisie du jour ————— */
+	/* ————— Saisie du jour —————
+	   Hiérarchie simplifiée : la valeur du jour est affichée en clair, et un
+	   SEUL bouton explicite (« Modifier mes pas d'aujourd'hui ») ouvre la
+	   saisie. Fini les signaux multiples (badge « Modifiable », pseudo-lien,
+	   icône crayon) — même logique de sauvegarde qu'avant. */
+	let editingToday = $state(false);
 	let stepsValue = $state('');
 	let stepsSaving = $state(false);
 	let stepsError = $state('');
+	let todayInputEl = $state<HTMLInputElement | undefined>(undefined);
+	function startEditingToday() {
+		editingToday = true;
+		stepsValue = todayCount !== null ? String(todayCount) : '';
+		/* Le focus attend le rendu du champ (mode affichage → mode saisie). */
+		setTimeout(() => todayInputEl?.focus(), 0);
+	}
 	$effect(() => {
 		if (todayCount !== null && stepsValue === '') stepsValue = String(todayCount);
 	});
@@ -146,6 +162,7 @@
 			const body = await res.json();
 			if (!res.ok || body.error) throw new Error(body.error ?? 'Enregistrement impossible.');
 			await invalidateAll();
+			editingToday = false;
 		} catch (e) {
 			stepsError = e instanceof Error ? e.message : 'Enregistrement impossible.';
 		} finally {
@@ -165,20 +182,11 @@
 			<h1 class="font-display text-2xl font-semibold tracking-tight text-ink">Mes pas</h1>
 			<p class="text-sm text-mist">7 derniers jours terminés — aujourd'hui jamais compté dans la moyenne, les jours sans saisie ne comptent pas comme zéro.</p>
 		</div>
-		{#if !editing}
-			<button
-				type="button"
-				onclick={startEditing}
-				class="grid h-11 w-11 shrink-0 place-items-center rounded-full text-mist transition hover:bg-line/50 hover:text-ink"
-				aria-label="Modifier les 7 derniers jours"
-				title="Modifier les 7 jours"
-			><Icon name="pencil" size={18} /></button>
-		{/if}
 	</div>
 
 	{#if editing}
 		<!-- Mode édition : tous les jours de la fenêtre, y compris rétroactifs -->
-		<section class="mt-5 rounded-3xl border border-line bg-card p-4 shadow-sm">
+		<section bind:this={weekEditEl} class="mt-5 rounded-3xl border border-line bg-card p-4 shadow-sm">
 			<div class="flex items-center justify-between gap-2">
 				<h2 class="text-[11px] font-bold uppercase tracking-widest text-mist">Modifier les 7 jours</h2>
 				<span class="text-[11px] text-mist">1 valeur par jour</span>
@@ -222,54 +230,63 @@
 		</section>
 	{/if}
 
-	<!-- Saisie du jour -->
+	<!-- Aujourd'hui : la valeur affichée en clair, UNE seule action explicite.
+	     La saisie ne s'ouvre que sur clic (fin des signaux multiples : badge
+	     « Modifiable », pseudo-lien, icône crayon). La valeur du jour reste
+	     modifiable ICI uniquement — jamais depuis les barres de la semaine. -->
 	<section class="mt-5 rounded-3xl border border-line bg-card p-4 shadow-sm">
-		<div class="flex items-center justify-between gap-2">
-			<p class="flex items-center gap-1.5 text-sm font-bold text-ink">
-				<Icon name="calendarDays" size={16} class="shrink-0 text-brand" />
-				Aujourd'hui
-				{#if todayCount !== null}
-					<span class="rounded-full bg-brand-light px-2 py-0.5 text-xs font-bold text-brand-dark">{fmt(todayCount)} pas</span>
-				{/if}
-			</p>
-			<span class="flex shrink-0 items-center gap-1 rounded-full bg-brand-light px-2.5 py-1 text-[11px] font-bold text-brand-dark">
-				<Icon name="pencil" size={12} class="shrink-0" />
-				Modifiable
-			</span>
-		</div>
-		<!-- Invitation explicite : la valeur du jour est modifiable ICI (et
-		     uniquement ici — jamais depuis les barres de la semaine). -->
-		<p class="mt-2 flex items-center gap-1.5 text-xs font-semibold text-mist">
-			<Icon name="pencil" size={13} class="shrink-0 text-brand" />
-			<span>Compléter ou modifier mes pas</span>
+		<p class="flex items-center gap-1.5 text-sm font-bold text-ink">
+			<Icon name="calendarDays" size={16} class="shrink-0 text-brand" />
+			Aujourd'hui
 		</p>
-		<div class="mt-2.5 flex items-center gap-2">
-			<label class="sr-only" for="steps-today">Pas d'aujourd'hui — complète ou modifie cette valeur</label>
-			<input
-				id="steps-today"
-				type="number"
-				inputmode="numeric"
-				min="0"
-				max="150000"
-				placeholder={todayCount !== null ? String(todayCount) : 'Ex. 8742'}
-				bind:value={stepsValue}
-				aria-describedby={todayCount !== null ? 'steps-today-hint' : undefined}
-				class="w-full flex-1 rounded-2xl border-2 border-line bg-soft px-4 py-3 text-lg font-semibold tabular-nums text-ink outline-none transition focus:border-brand"
-			/>
+		{#if !editingToday}
+			<div class="mt-2 flex items-end justify-between gap-3">
+				<p class="font-display text-4xl font-bold leading-none tracking-tight text-ink tabular-nums">
+					{#if todayCount !== null}{fmt(todayCount)} <span class="text-base font-semibold text-mist">pas</span>{:else}<span class="text-mist">—</span>{/if}
+				</p>
+			</div>
 			<button
 				type="button"
-				onclick={saveSteps}
-				disabled={stepsSaving}
-				class="flex shrink-0 items-center gap-1.5 rounded-2xl bg-ink px-5 py-3 text-sm font-bold text-white transition hover:bg-brand disabled:opacity-60"
+				onclick={startEditingToday}
+				class="tap mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-ink px-4 py-3 text-sm font-bold text-white transition hover:bg-brand disabled:opacity-60"
 			>
 				<Icon name="pencil" size={14} class="shrink-0" />
-				{stepsSaving ? '…' : todayCount !== null ? 'Modifier' : 'Enregistrer'}
+				Modifier mes pas d'aujourd'hui
 			</button>
-		</div>
-		{#if todayCount !== null}
-			<p id="steps-today-hint" class="mt-1.5 text-[11px] text-mist">Déjà {fmt(todayCount)} pas aujourd'hui — change la valeur ci-dessus si besoin.</p>
+			{#if todayCount === null}
+				<p class="mt-2 text-[11px] text-mist">Renseigne le compteur de ton téléphone ou de ta montre, à la fin de la journée.</p>
+			{/if}
 		{:else}
-			<p class="mt-1.5 text-[11px] text-mist">Renseigne le compteur de ton téléphone ou de ta montre, à la fin de la journée.</p>
+			<div class="mt-2.5 flex items-center gap-2">
+				<label class="sr-only" for="steps-today">Pas d'aujourd'hui — complète ou modifie cette valeur</label>
+				<input
+					bind:this={todayInputEl}
+					id="steps-today"
+					type="number"
+					inputmode="numeric"
+					min="0"
+					max="150000"
+					placeholder={todayCount !== null ? String(todayCount) : 'Ex. 8742'}
+					bind:value={stepsValue}
+					aria-describedby={todayCount !== null ? 'steps-today-hint' : undefined}
+					class="w-full min-w-0 flex-1 rounded-2xl border-2 border-line bg-soft px-4 py-3 text-lg font-semibold tabular-nums text-ink outline-none transition focus:border-brand"
+				/>
+				<button
+					type="button"
+					onclick={saveSteps}
+					disabled={stepsSaving}
+					class="shrink-0 rounded-2xl bg-brand px-5 py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
+				>{stepsSaving ? '…' : 'Enregistrer'}</button>
+				<button
+					type="button"
+					onclick={() => (editingToday = false)}
+					disabled={stepsSaving}
+					class="shrink-0 rounded-2xl border-2 border-line px-3 py-3 text-sm font-semibold text-mist transition hover:text-ink"
+				>Annuler</button>
+			</div>
+			{#if todayCount !== null}
+				<p id="steps-today-hint" class="mt-1.5 text-[11px] text-mist">Déjà {fmt(todayCount)} pas aujourd'hui — change la valeur ci-dessus si besoin.</p>
+			{/if}
 		{/if}
 		{#if stepsError}
 			<p class="mt-1.5 text-xs font-semibold text-danger">{stepsError}</p>
@@ -289,7 +306,7 @@
 			<div class="flex flex-col items-center gap-2 px-4 py-10 text-center">
 				<span class="grid h-12 w-12 place-items-center rounded-full bg-soft"><Icon name="footprints" size={22} class="text-mist" /></span>
 				<p class="font-display text-lg font-semibold text-ink">Pas assez de données</p>
-				<p class="text-sm text-mist">0 / 7 jours renseignés — enregistre tes pas ci-dessus pour voir tes statistiques apparaître.</p>
+				<p class="text-sm text-mist">0 / 7 jours renseignés — ajoute tes pas d'aujourd'hui ci-dessus pour voir tes statistiques apparaître.</p>
 			</div>
 		{:else}
 			<div class="mt-3">
@@ -324,6 +341,26 @@
 					</div>
 				{/if}
 			</div>
+		{/if}
+
+		<!-- Action claire et unique pour corriger la semaine (saisie rétroactive
+		     inchangée) — remplace l'icône crayon ambiguë de l'en-tête. Masquée
+		     quand le panneau d'édition est déjà ouvert. -->
+		{#if !editing}
+		<button
+			type="button"
+			onclick={() => startEditing(true)}
+			class="tap mt-4 flex w-full items-center justify-between gap-2 rounded-2xl bg-brand-light/70 px-4 py-3 text-left transition hover:bg-brand-light active:scale-[0.99]"
+		>
+			<span class="flex min-w-0 items-center gap-2.5">
+				<Icon name="pencil" size={16} class="shrink-0 text-brand-dark" />
+				<span class="min-w-0">
+					<span class="block text-sm font-bold text-ink">Mettre à jour mes pas de la semaine</span>
+					<span class="block text-xs text-mist">Modifier plusieurs jours en une seule fois</span>
+				</span>
+			</span>
+			<Icon name="chevronRight" size={16} class="shrink-0 text-mist" />
+		</button>
 		{/if}
 	</section>
 
