@@ -483,18 +483,7 @@
 							aria-hidden="true"
 							tabindex={-1}
 						/>
-						{#if cropFile}
-							<AvatarCrop
-								file={cropFile}
-								oncancel={() => (cropFile = null)}
-								onsaved={(url) => {
-									photoUrl = url;
-									cropFile = null;
-									menuOpen = false;
-								}}
-							/>
-						{/if}
-						{:else}
+					{:else}
 						<button
 							type="button"
 							onclick={() => (menuOpen = !menuOpen)}
@@ -633,5 +622,20 @@
 				{/each}
 			</div>
 		</nav>
+	{/if}
+
+	<!-- Recadrage photo : monté HORS du <header backdrop-blur> — un
+	     backdrop-filter fait du header le « containing block » des
+	     position:fixed descendants et coince la modal en haut sur iPhone. -->
+	{#if cropFile}
+		<AvatarCrop
+			file={cropFile}
+			oncancel={() => (cropFile = null)}
+			onsaved={(url) => {
+				photoUrl = url;
+				cropFile = null;
+				menuOpen = false;
+			}}
+		/>
 	{/if}
 </div>

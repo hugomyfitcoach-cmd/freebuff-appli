@@ -1,14 +1,18 @@
 <script lang="ts">
 	/**
-	 * Recadrage AVATAR — modal propre, rond visible, repositionnable, zoomable.
+	 * Recadrage AVATAR — modal fixe centrée, rond visible, pan/zoom au doigt.
 	 *
 	 * iPhone d'abord :
-	 *  - modal centrée sur fond assombri, hauteur adaptée (dvh + safe-area) ;
-	 *  - fermeture immédiate par « × » (aucun upload si annulation) ;
-	 *  - chargement de l'image avec TIMEOUT + repli dataURL — plus jamais de
-	 *    « Chargement… » infini (sur iOS Safari, une objectURL révoquée trop
-	 *    tôt ou un décodage lent laissaient l'écran bloqué) ;
-	 *  - aperçu EXACT : l'export est le carré inscrit dans le cercle.
+	 *  - modal `position: fixed` PLEIN ÉCRAN, centrée verticalement, avec
+	 *    safe-area (encoche + barre home) — indépendante du scroll de la page.
+	 *    NB : ce composant doit être monté HORS du <header backdrop-blur>
+	 *    d'AppShell (un backdrop-filter fait du header le « containing block »
+	 *    des position:fixed descendants → modal coincée en haut sur iPhone) ;
+	 *  - PAN tactile : Touch Events NON PASSIFS (preventDefault) + bornes
+	 *    anti-zone-vide — l'image couvre toujours tout le carré, le glisser
+	 *    4 directions fonctionne, le zoom est conservé, 2 doigts = pinch ;
+	 *  - export = aperçu exact : le JPEG est le carré inscrit dans le cercle,
+	 *    calculé avec le MÊME repère que l'affichage (scale + cx + cy).
 	 */
 	import { loadImageElement } from '$lib/media';
 
@@ -36,15 +40,24 @@
 	const dispH = $derived(imgH * scale);
 	const halfW = $derived(dispW / 2);
 	const halfH = $derived(dispH / 2);
-	/** Bornes de glissement : l'image couvre toujours tout le carré. */
-	const minCx = $derived(Math.min(VIEW / 2, halfW));
-	const maxCx = $derived(Math.max(VIEW / 2, VIEW - halfW));
-	const minCy = $derived(Math.min(VIEW / 2, halfH));
-	const maxCy = $derived(Math.max(VIEW / 2, VIEW - halfH));
 
 	/** Centre de l'image (px écran, relatif au carré d'aperçu). */
 	let cx = $state(VIEW / 2);
 	let cy = $state(VIEW / 2);
+
+	/**
+	 * Bornes ANTI-ZONE-VIDE — l'image couvre TOUJOURS tout le carré :
+	 *   bord gauche ≤ 0   ⇒ cx ≤ halfW ;
+	 *   bord droit  ≥ VIEW ⇒ cx ≥ VIEW − halfW.
+	 * (L'ancien clamp était inversé — min(VIEW/2, halfW) — et verrouillait
+	 *  cx/cy au centre : le pan était annulé à chaque mouvement.)
+	 */
+	function clampPos() {
+		if (dispW <= VIEW) cx = VIEW / 2;
+		else cx = Math.min(halfW, Math.max(VIEW - halfW, cx));
+		if (dispH <= VIEW) cy = VIEW / 2;
+		else cy = Math.min(halfH, Math.max(VIEW - halfH, cy));
+	}
 
 	/* ————— Chargement robuste : objectURL → timeout → dataURL → erreur ————— */
 	let currentUrl: string | null = null; // objectURL détenue (révoquée au démontage)
@@ -155,29 +168,29 @@
 		};
 	});
 
-	/* Glisser pour repositionner (Pointer Events — tactile + souris). */
+	/* ————— PAN tactile — Safari iOS d'abord —————
+	 * Touch Events avec { passive: false } : preventDefault() doit pouvoir
+	 * empêcher la page de scroller/rubber-bander sous le doigt. Pointer
+	 * Events (souris uniquement) pour le desktop. Deux doigts = pincement.
+	 * Le delta est RELATIF (clientX − ancre) : le décalage du conteneur
+	 * s'annule, aucun besoin de getBoundingClientRect. */
 	let dragging = false;
+	let pinching = false;
 	let px = 0;
 	let py = 0;
-	function clampPos() {
-		cx = Math.min(maxCx, Math.max(minCx, cx));
-		cy = Math.min(maxCy, Math.max(minCy, cy));
+	let pinchDist = 0;
+	let pinchZoom = 1;
+	let lastTapAt = 0;
+
+	function anchor(x: number, y: number) {
+		px = x - cx;
+		py = y - cy;
 	}
-	function onDown(e: PointerEvent) {
-		if (loadState !== 'ready') return;
-		dragging = true;
-		px = e.clientX - cx;
-		py = e.clientY - cy;
-		(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+	function touchSpan(t: TouchList): number {
+		return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
 	}
-	function onMove(e: PointerEvent) {
-		if (!dragging) return;
-		cx = e.clientX - px;
-		cy = e.clientY - py;
-		clampPos();
-	}
-	function onUp() {
-		dragging = false;
+	function touchMid(t: TouchList): { x: number; y: number } {
+		return { x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 };
 	}
 	/** Double-clic / double-tap : recentrer. */
 	function recenter() {
@@ -185,10 +198,128 @@
 		cy = VIEW / 2;
 		zoom = 1;
 	}
-	/** × / Annuler : fermeture immédiate, AUCUN upload. */
+
+	function panSurface(node: HTMLElement) {
+		function onTouchStart(e: TouchEvent) {
+			if (loadState !== 'ready') return;
+			if (e.touches.length === 1) {
+				const now = Date.now();
+				if (now - lastTapAt < 320) {
+					recenter(); // double-tap
+					dragging = false;
+					lastTapAt = 0;
+					e.preventDefault();
+					return;
+				}
+				lastTapAt = now;
+				dragging = true;
+				pinching = false;
+				anchor(e.touches[0].clientX, e.touches[0].clientY);
+			} else if (e.touches.length === 2) {
+				dragging = true;
+				pinching = true;
+				pinchDist = touchSpan(e.touches);
+				pinchZoom = zoom; // le zoom courant est conservé comme base
+				const m = touchMid(e.touches);
+				anchor(m.x, m.y);
+			}
+			e.preventDefault(); // JAMAIS de scroll de page pendant le cadrage
+		}
+		function onTouchMove(e: TouchEvent) {
+			if (!dragging) return;
+			if (pinching && e.touches.length >= 2) {
+				if (pinchDist > 0) {
+					zoom = Math.min(ZOOM_MAX, Math.max(1, pinchZoom * (touchSpan(e.touches) / pinchDist)));
+				}
+				const m = touchMid(e.touches);
+				cx = m.x - px;
+				cy = m.y - py;
+			} else if (e.touches.length === 1 && !pinching) {
+				cx = e.touches[0].clientX - px;
+				cy = e.touches[0].clientY - py;
+			} else {
+				return;
+			}
+			clampPos(); // bornes anti-zone-vide appliquées à CHAQUE frame
+			e.preventDefault();
+		}
+		function onTouchEnd(e: TouchEvent) {
+			if (e.touches.length === 0) {
+				dragging = false;
+				pinching = false;
+			} else if (e.touches.length === 1 && pinching) {
+				// Pincement terminé : on repart du doigt restant sans à-coup.
+				pinching = false;
+				anchor(e.touches[0].clientX, e.touches[0].clientY);
+			}
+		}
+		function onPointerDown(e: PointerEvent) {
+			// Souris uniquement : le tactile passe par Touch Events (plus fiable
+			// sur iOS — pointer capture y est capricieux).
+			if (e.pointerType !== 'mouse' || loadState !== 'ready') return;
+			dragging = true;
+			pinching = false;
+			anchor(e.clientX, e.clientY);
+			node.setPointerCapture?.(e.pointerId);
+		}
+		function onPointerMove(e: PointerEvent) {
+			if (!dragging || pinching || e.pointerType !== 'mouse') return;
+			cx = e.clientX - px;
+			cy = e.clientY - py;
+			clampPos();
+		}
+		function onPointerUp(e: PointerEvent) {
+			if (e.pointerType !== 'mouse') return;
+			dragging = false;
+			if (node.hasPointerCapture?.(e.pointerId)) node.releasePointerCapture(e.pointerId);
+		}
+		node.addEventListener('touchstart', onTouchStart, { passive: false });
+		node.addEventListener('touchmove', onTouchMove, { passive: false });
+		node.addEventListener('touchend', onTouchEnd);
+		node.addEventListener('touchcancel', onTouchEnd);
+		node.addEventListener('pointerdown', onPointerDown);
+		node.addEventListener('pointermove', onPointerMove);
+		node.addEventListener('pointerup', onPointerUp);
+		node.addEventListener('pointercancel', onPointerUp);
+		node.addEventListener('dblclick', recenter);
+		return {
+			destroy() {
+				node.removeEventListener('touchstart', onTouchStart);
+				node.removeEventListener('touchmove', onTouchMove);
+				node.removeEventListener('touchend', onTouchEnd);
+				node.removeEventListener('touchcancel', onTouchEnd);
+				node.removeEventListener('pointerdown', onPointerDown);
+				node.removeEventListener('pointermove', onPointerMove);
+				node.removeEventListener('pointerup', onPointerUp);
+				node.removeEventListener('pointercancel', onPointerUp);
+				node.removeEventListener('dblclick', recenter);
+			}
+		};
+	}
+
+	/** × / Annuler / Échap : fermeture immédiate, AUCUN upload. */
 	function close() {
 		if (!saving) oncancel();
 	}
+	function onKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape') close();
+	}
+
+	/** Zoom contrôlé : applique la valeur PUIS recale le cadre (pas de frame avec vide). */
+	function onZoomInput(e: Event) {
+		const v = Number((e.currentTarget as HTMLInputElement).value);
+		zoom = Math.min(ZOOM_MAX, Math.max(1, v));
+		clampPos();
+	}
+
+	$effect(() => {
+		// Verrouille le scroll de la page tant que la modal est ouverte.
+		const prev = document.body.style.overflow;
+		document.body.style.overflow = 'hidden';
+		return () => {
+			document.body.style.overflow = prev;
+		};
+	});
 
 	/** Rend le JPEG carré (le cercle inscrit) : aperçu = résultat exact. */
 	async function getCroppedBlob(): Promise<Blob> {
@@ -196,6 +327,7 @@
 		// GÉOMÉTRIE — l'image est affichée à l'échelle `scale`, coin supérieur
 		// gauche à (cx − halfW, cy − halfH). Le bord gauche du carré (x = 0)
 		// correspond au point source (halfW − cx)/scale ; côté = VIEW/scale.
+		// MÊME repère que l'affichage : scale + cx + cy, rien d'autre.
 		const srcSize = Math.max(1, Math.min(imgW, imgH) / zoom); // = VIEW / scale
 		const sx = (halfW - cx) / scale;
 		const sy = (halfH - cy) / scale;
@@ -248,11 +380,21 @@
 	}
 </script>
 
-<div class="fixed inset-0 z-[80] flex items-center justify-center bg-ink/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Cadrer ma photo">
-	<!-- Carte centrée : jamais plus haute que l'écran (dvh), jamais coupée. -->
-	<div class="flex max-h-[calc(100dvh-2rem)] w-full max-w-sm flex-col overflow-hidden rounded-3xl bg-card shadow-2xl shadow-ink/30">
+<svelte:window onkeydown={onKeydown} />
+
+<!-- Modal FIXE plein écran : centrée dans le viewport (dvh), padding
+     safe-area iOS, indépendante du scroll de la page derrière. -->
+<div
+	class="fixed inset-0 z-[80] flex items-center justify-center bg-ink/60 p-4 backdrop-blur-sm"
+	role="dialog"
+	aria-modal="true"
+	aria-label="Cadrer ma photo"
+	style="padding-top:calc(env(safe-area-inset-top) + 1rem);padding-bottom:calc(env(safe-area-inset-bottom) + 1rem)"
+>
+	<!-- Carte centrée : jamais plus haute que la modal (max-h-full), jamais coupée. -->
+	<div class="flex max-h-full w-full max-w-sm flex-col overflow-hidden rounded-3xl bg-card shadow-2xl shadow-ink/30">
 		<!-- En-tête : titre + fermeture × (immédiate, aucun upload) -->
-		<div class="flex items-center justify-between border-b border-line px-4 py-3">
+		<div class="flex shrink-0 items-center justify-between border-b border-line px-4 py-3">
 			<h2 class="font-display text-base font-bold text-ink">Cadrer ma photo</h2>
 			<button
 				type="button"
@@ -264,17 +406,15 @@
 			</button>
 		</div>
 
-		<div class="flex flex-col items-center gap-2.5 overflow-y-auto px-4 pb-[max(env(safe-area-inset-bottom),0.875rem)] pt-3">
+		<!-- Aperçu + zoom : seule zone scrollable si l'écran est très court. -->
+		<div class="flex min-h-0 flex-col items-center gap-2.5 overflow-y-auto overscroll-contain px-4 pb-3 pt-3">
 			<div class="relative shrink-0 overflow-hidden rounded-2xl bg-ink" style:width="{VIEW}px" style:height="{VIEW}px">
 				{#if loadState === 'ready' && img}
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<!-- Surface de PAN : Touch Events non passifs (action) + souris.
+					     touch-action:none ⇒ iOS ne détourne pas le doigt pour scroller. -->
 					<div
+						use:panSurface
 						class="absolute inset-0 touch-none select-none"
-						onpointerdown={onDown}
-						onpointermove={onMove}
-						onpointerup={onUp}
-						onpointercancel={onUp}
-						ondblclick={recenter}
 						role="img"
 						aria-label="Zone de cadrage — glisse pour positionner ton visage dans le cercle"
 					>
@@ -314,8 +454,8 @@
 						min="1"
 						max={ZOOM_MAX}
 						step="0.01"
-						bind:value={zoom}
-						oninput={clampPos}
+						value={zoom}
+						oninput={onZoomInput}
 						class="h-2 w-full cursor-pointer appearance-none rounded-full bg-line accent-brand"
 						aria-label="Zoom"
 					/>
@@ -326,18 +466,20 @@
 			{#if savingError}
 				<p class="w-full rounded-xl bg-danger-light px-3 py-2 text-center text-xs font-semibold text-danger">{savingError}</p>
 			{/if}
+		</div>
 
-			<div class="flex w-full gap-3">
-				<button type="button" onclick={close} disabled={saving} class="flex-1 rounded-xl border-2 border-line px-4 py-3 text-sm font-bold text-ink transition hover:border-mist active:scale-[.98] disabled:opacity-60">Annuler</button>
-				<button
-					type="button"
-					onclick={confirm}
-					disabled={saving || loadState !== 'ready'}
-					class="flex-[1.4] rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-dark active:scale-[.98] disabled:opacity-60"
-				>
-					{saving ? 'Enregistrement…' : 'Utiliser cette photo'}
-				</button>
-			</div>
+		<!-- Actions TOUJOURS visibles (hors zone scrollable, au-dessus de la
+		     barre home grâce au padding safe-area de la modal). -->
+		<div class="flex shrink-0 w-full gap-3 px-4 pb-4 pt-1">
+			<button type="button" onclick={close} disabled={saving} class="flex-1 rounded-xl border-2 border-line px-4 py-3 text-sm font-bold text-ink transition hover:border-mist active:scale-[.98] disabled:opacity-60">Annuler</button>
+			<button
+				type="button"
+				onclick={confirm}
+				disabled={saving || loadState !== 'ready'}
+				class="flex-[1.4] rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-dark active:scale-[.98] disabled:opacity-60"
+			>
+				{saving ? 'Enregistrement…' : 'Utiliser cette photo'}
+			</button>
 		</div>
 	</div>
 </div>
