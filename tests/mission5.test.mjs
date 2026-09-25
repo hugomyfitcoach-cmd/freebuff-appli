@@ -172,3 +172,25 @@ test('Accueil : mini-rings animés + labels macros entiers + tendance pas discr�
 	// Le tableau de points reste alimenté par les données existantes.
 	assert.ok(accueil.includes('dash?.steps.week'), 'aucune nouvelle source de données');
 });
+
+test('Carte Pas : valeur explicitement « du jour » + tendance 7 j étiquetée', () => {
+	// Anti-ambiguïté : la valeur affichée est celle du JOUR (pas une stat hebdo).
+	assert.ok(accueil.includes("Aujourd'hui · "), "libellé « Aujourd'hui » sur la carte Pas");
+	assert.ok(
+		accueil.includes('{/key} <span class="text-sm font-semibold text-mist">pas</span>'),
+		'la valeur du jour porte son unité (pas)'
+	);
+	assert.ok(accueil.includes('Objectif du jour atteint'), 'objectif formulé « du jour »');
+	// Tendance hebdo clairement distinguée de la valeur du jour.
+	assert.ok(accueil.includes('>7 j</span>'), 'étiquette « 7 j » sur la sparkline');
+});
+
+test('Mes pas : feedback post-enregistrement expliquant la moyenne 7 jours', () => {
+	assert.ok(pas.includes("C'est noté !"), 'confirmation claire après enregistrement');
+	assert.ok(pas.includes('apparaîtront'), 'explication : jour intégré demain dans la moyenne');
+	assert.ok(pas.includes('noteSaved();'), 'feedback déclenché après un enregistrement réussi');
+	assert.ok(pas.includes('role="status"'), 'message non intrusif (role=status)');
+	assert.ok(pas.includes('onDestroy(() => clearTimeout(savedTimer));'), 'timer nettoyé au démontage');
+	// Le message disparaît dès une nouvelle saisie (pas de confirmation périmée).
+	assert.ok(pas.includes('savedMsg = false;'), 'feedback réinitialisé à la saisie');
+});

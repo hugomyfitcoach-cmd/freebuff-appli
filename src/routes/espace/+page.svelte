@@ -1025,24 +1025,29 @@
 					<Icon name="chevronRight" size={15} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
 				</div>
 				<p class="mt-2 font-display text-3xl font-bold leading-none tracking-tight text-ink tabular-nums">
-					{#key data.today}<CountUp value={todaySteps ?? 0} format={fmt} duration={550} />{/key}
+					{#key data.today}<CountUp value={todaySteps ?? 0} format={fmt} duration={550} />{/key} <span class="text-sm font-semibold text-mist">pas</span>
 				</p>
 				<p class="mt-1.5 flex items-center gap-1 text-xs font-semibold {stepsReached ? 'text-brand-dark' : 'text-mist'}">
 					{#if stepsReached}
 						<Icon name="circleCheck" size={13} class="shrink-0" />
-						Objectif {fmt(stepGoal ?? 0)} atteint
+						Objectif du jour atteint
 					{:else if todaySteps !== null && stepGoal !== null}
-						{fmt(todaySteps)} / {fmt(stepGoal)} pas
+						<span class="min-w-0 truncate">Aujourd'hui · {fmt(todaySteps)} / {fmt(stepGoal)} pas</span>
 					{:else}
-						{todaySteps === 0 && !dayFresh ? 'Synchronisation de la journée…' : 'Voir mes statistiques de pas'}
+						<span class="min-w-0 truncate">{todaySteps === 0 && !dayFresh ? 'Synchronisation de la journée…' : "Aujourd'hui · Voir mes statistiques"}</span>
 					{/if}
 				</p>
 				<!-- Tendance discrète des 7 derniers jours (données déjà chargées
 				     par le dashboard — aucune logique métier nouvelle). Le SVG
 				     s'adapte à la largeur de la colonne (petits écrans compris). -->
 				{#if stepsWeekPts.length >= 2}
-					<div class="mt-2 w-full min-w-0 opacity-80 [&>svg]:h-auto [&>svg]:w-full">
-						<Sparkline points={stepsWeekPts} width={132} height={30} drawIn />
+					<!-- Étiquette « 7 j » : la courbe = tendance hebdo, sans ambiguïté
+				     avec la valeur du jour affichée au-dessus. -->
+					<div class="mt-2 flex w-full items-end gap-1.5">
+						<div class="min-w-0 flex-1 opacity-80 [&>svg]:h-auto [&>svg]:w-full">
+							<Sparkline points={stepsWeekPts} width={120} height={26} drawIn />
+						</div>
+						<span class="shrink-0 pb-0.5 text-[9px] font-bold uppercase tracking-wider text-mist/70">7 j</span>
 					</div>
 				{/if}
 			</a>

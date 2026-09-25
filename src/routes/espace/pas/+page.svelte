@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
+	import { onDestroy } from 'svelte';
 	import BackToHome from '$lib/components/BackToHome.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import StepsBars from '$lib/components/StepsBars.svelte';
@@ -134,6 +135,16 @@
 	let stepsValue = $state('');
 	let stepsSaving = $state(false);
 	let stepsError = $state('');
+	/* Feedback post-enregistrement : rassure et explique que le jour en cours
+	   n'entre pas (volontairement) dans la moyenne des 7 jours TERMINÉS. */
+	let savedMsg = $state(false);
+	let savedTimer: ReturnType<typeof setTimeout> | undefined;
+	function noteSaved() {
+		savedMsg = true;
+		clearTimeout(savedTimer);
+		savedTimer = setTimeout(() => (savedMsg = false), 8000);
+	}
+	onDestroy(() => clearTimeout(savedTimer));
 	$effect(() => {
 		if (todayCount !== null && stepsValue === '') stepsValue = String(todayCount);
 	});
@@ -154,6 +165,7 @@
 			const body = await res.json();
 			if (!res.ok || body.error) throw new Error(body.error ?? 'Enregistrement impossible.');
 			await invalidateAll();
+			noteSaved();
 		} catch (e) {
 			stepsError = e instanceof Error ? e.message : 'Enregistrement impossible.';
 		} finally {
@@ -240,6 +252,10 @@
 				max="150000"
 				placeholder={todayCount !== null ? String(todayCount) : 'Ex. 8742'}
 				bind:value={stepsValue}
+				oninput={() => {
+					savedMsg = false;
+					clearTimeout(savedTimer);
+				}}
 				aria-describedby={todayCount !== null ? 'steps-today-hint' : undefined}
 				class="w-full min-w-0 flex-1 rounded-2xl border-2 border-line bg-soft px-4 py-3.5 text-xl font-bold tabular-nums text-ink outline-none transition focus:border-brand"
 			/>
@@ -253,7 +269,17 @@
 				{stepsSaving ? '…' : 'Enregistrer'}
 			</button>
 		</div>
-		{#if todayCount !== null}
+		{#if savedMsg}
+			<!-- Confirmation : rassure et explique que le graphique (7 jours
+			     terminés) n'intègre pas encore aujourd'hui — c'est voulu. -->
+			<div class="mt-2.5 flex items-start gap-2 rounded-xl bg-brand-light/60 px-3 py-2.5" role="status">
+				<Icon name="circleCheck" size={15} class="mt-0.5 shrink-0 text-brand-dark" />
+				<p class="min-w-0 text-xs leading-relaxed text-ink">
+					<span class="block font-bold text-brand-dark">C'est noté !</span>
+					Tes pas du jour sont bien enregistrés. Ils apparaîtront <span class="font-semibold">demain</span> dans la moyenne des 7 derniers jours.
+				</p>
+			</div>
+		{:else if todayCount !== null}
 			<p id="steps-today-hint" class="mt-1.5 text-[11px] text-mist">Déjà {fmt(todayCount)} pas aujourd'hui — change la valeur ci-dessus si besoin.</p>
 		{:else}
 			<p class="mt-1.5 text-[11px] text-mist">Renseigne le compteur de ton téléphone ou de ta montre, à la fin de la journée.</p>
