@@ -82,6 +82,8 @@
 	import Sparkline from '$lib/components/Sparkline.svelte';
 	import PerformanceWeekCard from '$lib/components/PerformanceWeekCard.svelte';
 	import CountUp from '$lib/components/CountUp.svelte';
+	import MacroLine from '$lib/components/MacroLine.svelte';
+	import { macroRings, type MacroLineState } from '$lib/macros';
 	import { fmtWeightKg } from '$lib/weight';
 	import type { PerfDay, PerfGoals } from '$lib/perf';
 	import { fmtMs, type CoachMediaItem } from '$lib/media';
@@ -551,6 +553,8 @@
 	   Chargement async (non bloquant) : la carte reste la dernière section de
 	   l'Accueil ; tant que la réponse n'est pas là, rien n'est inventé. ————— */
 	let perfWeek = $state<{ days: PerfDay[]; goals: PerfGoals } | null>(null);
+	/** Fetch semaine en erreur (réseau/backend) → la ligne macros disparaît proprement. */
+	let perfWeekFailed = $state(false);
 	const perfToday = $derived(currentLocalDay());
 	const perfWeekStart = $derived.by(() => {
 		const m = localMonday(new Date(perfToday + 'T12:00:00'));
@@ -585,16 +589,43 @@
 		const start = perfWeekStart;
 		if (perfLoadedFor === start) return;
 		perfLoadedFor = start;
-		void (async () => {
-			try {
-				const r = await fetch(`/api/journal/week?start=${start}`);
-				const j = await r.json();
-				if (!j.error) perfWeek = { days: j.days as PerfDay[], goals: j.goals as PerfGoals };
-			} catch {
-				/* silencieux : la carte reste en état neutre */
-			}
-		})();
+		void refreshPerfWeek(start);
 	});
+
+	/* ————— Macros du jour (aperçu compact de la carte Calories) —————
+	   Réutilise EXACTEMENT la semaine du Journal déjà chargée pour la carte
+	   Performance (fetch existant /api/journal/week → query Convex existante
+	   journal.getWeek) : jour courant = totaux consommés, objectifs = goals
+	   coach. Lecture pure — aucune écriture, aucune nouvelle source de vérité,
+	   mêmes chiffres que le Journal (qui affiche aussi les valeurs par défaut
+	   quand la coach n'a rien configuré). Dérivation RÉACTIVE : au changement
+	   de jour local (minuit), les rings repartent du nouveau jour — jamais les
+	   valeurs de la veille. En cas d'échec réseau, la ligne disparaît proprement
+	   (la carte reste exactement celle d'avant). ————— */
+	const macroState = $derived.by<MacroLineState>(() => {
+		if (perfWeekFailed) return { kind: 'unavailable' };
+		const w = perfWeek;
+		if (!w) return { kind: 'loading' };
+		const todayRow = w.days.find((d) => d.date === currentLocalDay());
+		return {
+			kind: 'ready',
+			rings: macroRings(todayRow?.totals ?? { carbs: 0, protein: 0, fat: 0 }, w.goals),
+		};
+	});
+	async function refreshPerfWeek(start: string) {
+		try {
+			const r = await fetch(`/api/journal/week?start=${start}`);
+			const j = await r.json();
+			if (!j.error) {
+				perfWeek = { days: j.days as PerfDay[], goals: j.goals as PerfGoals };
+				perfWeekFailed = false;
+			} else {
+				perfWeekFailed = true;
+			}
+		} catch {
+			perfWeekFailed = true;
+		}
+	}
 
 	/* ————— Carte DÉPENSE SPORTIVE (semaine en cours, chargement async non
 	   bloquant — même pattern que la carte Performance) ————— */
@@ -681,6 +712,10 @@
 		if (!firstVisit(ROUTE) && !isFresh(ROUTE) && appWarm()) {
 			await invalidateAll().catch(() => {});
 			optimisticMetrics = null;
+			/* Retour d'un autre onglet (ex. Journal) : re-synchronise silencieusement
+			   la semaine du Journal — les macros de la carte Calories restent
+			   cohérentes avec ce qui vient d'être mangé (même donnée, même fetch). */
+			void refreshPerfWeek(perfWeekStart);
 			window.dispatchEvent(new CustomEvent('gflux:warm-tabs'));
 		}
 	}
@@ -1022,6 +1057,9 @@
 					{/if}
 					<span class="min-w-0 truncate">{kcalStatusText}</span>
 				</p>
+				<!-- Aperçu compact macros (Glucides | Protéines | Lipides) — même
+				     ordre, mêmes couleurs et mêmes valeurs que le Journal. -->
+				<MacroLine state={macroState} />
 			</a>
 
 			<!-- POIDS -->
