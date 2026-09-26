@@ -522,9 +522,10 @@
 
 {#snippet mealRow(e: Entry)}
 	{#if mode === 'client' && onEntryClick}
-		<!-- Ligne compacte type FOOD : py-1 (client) — dense mais lisible,
-		     nom 14px + kcal/quantité 11px intacts. -->
-		<div class="flex w-full items-center {compact ? 'gap-2 px-2 py-1' : 'gap-2.5 px-2 py-1.5'}">
+		<!-- Ligne compacte type FOOD : py-0.5 (client) — densité maximale
+		     tout en gardant l'air autour des vignettes 44 px ; nom 14px +
+		     kcal/quantité 11px intacts. -->
+		<div class="flex w-full items-center {compact ? 'gap-2 px-2 py-0.5' : 'gap-2.5 px-2 py-1.5'}">
 		<button
 			type="button"
 			class="flex min-w-0 flex-1 items-center text-left transition hover:bg-line/40 {compact ? 'gap-2' : 'gap-2.5'}"
@@ -541,19 +542,20 @@
 			<!-- Rond de sélection type FOOD : TOUJOURS visible, vide → coché.
 			     Sélection TEMPORAIRE uniquement (jamais un statut « mangé ») ;
 			     le tap sur la ligne ouvre toujours la fiche de l'aliment.
-			     Compact 24 px (rendu Food/Virtuagym) : after:-inset-2.5 garde la
-			     zone tactile ~44 px sans changer l'apparence. -->
+			     Compact 22 px, bordure allégée 1,5 px + coche 10 px : visuellement
+			     discret, toujours lisible ; after:-inset-[11px] garde la zone
+			     tactile ~44 px sans changer l'apparence. -->
 			<button
 				type="button"
-				class="relative grid {compact ? 'h-6 w-6' : 'h-7 w-7'} shrink-0 place-items-center rounded-full border-2 transition after:absolute {compact ? 'after:-inset-2.5' : 'after:-inset-2'} after:rounded-full after:content-[''] {isSel(e._id) ? 'border-brand bg-brand text-white' : 'border-line bg-white text-transparent'}"
+				class="relative grid {compact ? 'h-[22px] w-[22px] border-[1.5px]' : 'h-7 w-7 border-2'} shrink-0 place-items-center rounded-full transition after:absolute {compact ? 'after:-inset-[11px]' : 'after:-inset-2'} after:rounded-full after:content-[''] {isSel(e._id) ? 'border-brand bg-brand text-white' : 'border-line bg-white text-transparent'}"
 				aria-label={isSel(e._id) ? 'Désélectionner' : 'Sélectionner'}
 				onclick={() => onToggleSel?.(e._id)}
 			>
-				<Icon name="check" size={compact ? 11 : 13} strokeWidth={3} />
+				<Icon name="check" size={compact ? 10 : 13} strokeWidth={3} />
 			</button>
 		</div>
 	{:else}
-		<div class="flex w-full items-center {compact ? 'gap-2 px-2 py-1' : 'gap-2.5 px-2 py-1.5'}">
+		<div class="flex w-full items-center {compact ? 'gap-2 px-2 py-0.5' : 'gap-2.5 px-2 py-1.5'}">
 			{@render entryBody(e)}
 			{#if mode === 'coach' && onQty && onRemove}
 				<div class="flex shrink-0 items-center gap-1">
@@ -587,7 +589,7 @@
      ce n'est pas validé « Mangé ». Rond à droite = sélection (Mangé / Supprimer
      via la barre d'actions quand le jour est arrivé) ; tap ligne = édition. -->
 {#snippet plannedRow(p: Planned)}
-	<div class="flex w-full items-center {compact ? 'gap-2 px-2 py-1' : 'gap-2.5 px-2 py-1.5'} bg-line/20">
+	<div class="flex w-full items-center {compact ? 'gap-2 px-2 py-0.5' : 'gap-2.5 px-2 py-1.5'} bg-line/20">
 		<button
 			type="button"
 			class="flex min-w-0 flex-1 items-center gap-2 text-left transition hover:bg-line/30 rounded-lg -mx-1 px-1 py-0.5"
@@ -609,15 +611,16 @@
 		</button>
 		<!-- Rond de sélection type FOOD : TOUJOURS visible, vide → coché.
 		     « Mangé » est validé via la barre d'actions, jamais par ce rond.
-		     Compact 24 px (rendu Food/Virtuagym) : after:-inset-2.5 garde la
-		     zone tactile ~44 px sans changer l'apparence. -->
+		     Compact 22 px, bordure allégée 1,5 px + coche 10 px ;
+		     after:-inset-[11px] garde la zone tactile ~44 px sans changer
+		     l'apparence. -->
 		<button
 			type="button"
-			class="relative grid {compact ? 'h-6 w-6' : 'h-7 w-7'} shrink-0 place-items-center rounded-full border-2 transition after:absolute {compact ? 'after:-inset-2.5' : 'after:-inset-2'} after:rounded-full after:content-[''] {isSel(p._id) ? 'border-brand bg-brand text-white' : 'border-line bg-white text-transparent'}"
+			class="relative grid {compact ? 'h-[22px] w-[22px] border-[1.5px]' : 'h-7 w-7 border-2'} shrink-0 place-items-center rounded-full transition after:absolute {compact ? 'after:-inset-[11px]' : 'after:-inset-2'} after:rounded-full after:content-[''] {isSel(p._id) ? 'border-brand bg-brand text-white' : 'border-line bg-white text-transparent'}"
 			aria-label={isSel(p._id) ? 'Désélectionner' : 'Sélectionner'}
 			onclick={() => onToggleSel?.(p._id)}
 		>
-			<Icon name="check" size={compact ? 11 : 13} strokeWidth={3} />
+			<Icon name="check" size={compact ? 10 : 13} strokeWidth={3} />
 		</button>
 	</div>
 {/snippet}

@@ -34,20 +34,20 @@ test('Journal : vignettes compactes 44 px côté cliente (52 px → 44 px)', () 
 	assert.ok(journalDay.includes("'h-9 w-9'"), 'gabarit coach 36 px inchangé');
 });
 
-test('Journal : lignes aliments resserrées (py-1 cliente) mais lisibilité intacte', () => {
-	// Ligne consommée + ligne planifiée : la branche cliente passe à py-1.
-	assert.ok(/plannedRow\(p: Planned\)[\s\S]{0,200}'gap-2 px-2 py-1'/.test(journalDay), 'ligne planifiée compacte (py-1)');
+test('Journal : lignes aliments resserrées (py-0.5 cliente) mais lisibilité intacte', () => {
+	// Ligne consommée + ligne planifiée : la branche cliente passe à py-0.5.
+	assert.ok(/plannedRow\(p: Planned\)[\s\S]{0,200}'gap-2 px-2 py-0.5'/.test(journalDay), 'ligne planifiée compacte (py-0.5)');
 	// Typographie : nom 14 px et kcal/quantité 11 px inchangés (lisibilité).
 	assert.ok(journalDay.includes("compact ? 'text-[14px]' : 'text-sm'"), 'nom du produit inchangé (14 px)');
 	assert.ok(journalDay.includes("compact ? 'text-[11px]' : 'text-[11px]'"), 'kcal/quantité inchangés (11 px)');
 });
 
-test('Journal : rond de sélection réduit à 24 px, zone tactile ~44 px conservée', () => {
-	assert.ok(journalDay.includes("compact ? 'h-6 w-6' : 'h-7 w-7'"), 'rond 24 px en mode client (28 px en coach)');
-	assert.ok(journalDay.includes("compact ? 'after:-inset-2.5' : 'after:-inset-2'"), 'zone tactile élargie conservée (after:-inset-2.5)');
-	assert.ok(journalDay.includes("size={compact ? 11 : 13}"), 'coche réduite proportionnellement');
+test('Journal : rond de sélection réduit à 22 px, zone tactile ~44 px conservée', () => {
+	assert.ok(journalDay.includes("compact ? 'h-[22px] w-[22px] border-[1.5px]' : 'h-7 w-7 border-2'"), 'rond 22 px bordure allégée en mode client (28 px en coach)');
+	assert.ok(journalDay.includes("compact ? 'after:-inset-[11px]' : 'after:-inset-2'"), 'zone tactile élargie conservée (after:-inset-[11px] → ~44 px)');
+	assert.ok(journalDay.includes("size={compact ? 10 : 13}"), 'coche réduite proportionnellement');
 	// Les deux ronds (entrée consommée + planifiée) utilisent le même gabarit.
-	const rounds = [...journalDay.matchAll(/compact \? 'h-6 w-6' : 'h-7 w-7'/g)].length;
+	const rounds = [...journalDay.matchAll(/compact \? 'h-\[22px\] w-\[22px\] border-\[1\.5px\]' : 'h-7 w-7 border-2'/g)].length;
 	assert.equal(rounds, 2, 'rond compact appliqué aux lignes consommées ET planifiées');
 });
 
