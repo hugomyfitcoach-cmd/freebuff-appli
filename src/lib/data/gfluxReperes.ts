@@ -69,6 +69,8 @@ const C_S_MUESLI: GFluxRepere = { label: 'c. à soupe', plural: 'c. à soupe', g
 const C_S_FARINE: GFluxRepere = { label: 'c. à soupe', plural: 'c. à soupe', grams: 10, unit: 'g' };
 const C_S_CACAO: GFluxRepere = { label: 'c. à soupe', plural: 'c. à soupe', grams: 8, unit: 'g' };
 const C_S_CONFITURE: GFluxRepere = { label: 'c. à soupe', plural: 'c. à soupe', grams: 20, unit: 'g' };
+const C_S_CORN_FLAKES: GFluxRepere = { label: 'c. à soupe', plural: 'c. à soupe', grams: 9, unit: 'g' };
+const SCOOP_WHEY: GFluxRepere = { label: 'scoop', plural: 'scoops', grams: 30, unit: 'g' };
 const C_S_RAISIN_SEC: GFluxRepere = { label: 'c. à soupe', plural: 'c. à soupe', grams: 10, unit: 'g' };
 const C_S_SAME: GFluxRepere = { label: 'c. à soupe', plural: 'c. à soupe', grams: 12, unit: 'g' };
 const C_S_LIN: GFluxRepere = { label: 'c. à soupe', plural: 'c. à soupe', grams: 10, unit: 'g' };
@@ -240,6 +242,18 @@ const RULES: GFluxRule[] = [
 	{ any: ['croissant'], reperes: [CROISSANT] },
 	// Édulcorants marque (avant la règle générique sucre).
 	{ phrases: ['pure via', 'specialpatisserie', 'special patisserie'], never: ['liquide'], reperes: [MORCEAU] },
+	// Whey (poudre) : 1 scoop ≈ 30 g (valeurs Fabricant les plus courantes).
+	// Uniquement la POUDRE pure : pâtisseries/boissons à la whey ne se dosent
+	// pas au scoop (« pancake whey », « boisson whey »… → vétos).
+	{
+		any: ['whey', 'caseine', 'caséine', 'isolat'],
+		never: ['barre', 'boisson', 'cookie', 'pain', 'pancake', 'crepe', 'crêpe', 'gaufre', 'muffin', 'porridge', 'flapjack', 'gateau', 'gâteau', 'brownie', 'banane', 'ec', 'shaker'],
+		reperes: [SCOOP_WHEY],
+	},
+	// Corn flakes : cuillère de service (~9 g) — les flocons « corn flakes »
+	// ne passent ni par la règle générique flocons d'avoine (8 g) ni par une
+	// règle au mot « corn » (attraperait « pop-corn »).
+	{ phrases: ['corn flakes', 'corn flake'], never: ['barre', 'boisson'], reperes: [C_S_CORN_FLAKES] },
 
 	/* — Unités naturelles : le TYPE principal gagne toujours sur les
 	     adjectifs (« yaourt sucré », « compote sucrée pomme »…).
@@ -254,7 +268,9 @@ const RULES: GFluxRule[] = [
 	{ any: ['faisselle'], reperes: [FB_POT, C_A_SOUPLE] },
 	{ phrases: ['fromage blanc', 'fromages blancs', 'fromage frais', 'fromages frais', 'fromage battu'], any: ['faisselle'], never: ['individuel', 'individuels'], reperes: [FB_POT, C_A_SOUPLE] },
 	{ phrases: ['petit suisse', 'petits suisses'], reperes: [POT_PETIT_SUISSE, C_A_SOUPLE] },
-	{ phrases: ['dessert lacté', 'desserts lactés', 'caillé', 'caillés'], reperes: [DESSERT_LACTE_POT, C_A_SOUPLE] },
+	// NB « never: ['oeuf'] » : « caillé » et « caille » se normalisent en le
+	// même mot — sans veto, « Oeuf de caille » héritait du pot de dessert lacté.
+	{ phrases: ['dessert lacté', 'desserts lactés', 'caillé', 'caillés'], never: ['oeuf'], reperes: [DESSERT_LACTE_POT, C_A_SOUPLE] },
 	{ phrases: ['compote à boire', 'compotes à boire', 'gourde de compote'], reperes: [VERRE, CANETTE, BOUTEILLE] },
 	{ any: ['compote'], never: ['boire'], reperes: [POT_COMPOTE, C_A_SOUPLE] },
 	// Jus (avant les fruits : « jus d'orange » ≠ 1 orange) — sauf jus de

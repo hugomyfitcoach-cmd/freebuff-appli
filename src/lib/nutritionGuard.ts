@@ -147,10 +147,50 @@ const ALCOHOL_NAME_RE = wordsToRegex(ALCOHOL_WORDS);
 const NON_ALCOHOL_NAME_RE = wordsToRegex(NON_ALCOHOL_WORDS);
 
 /**
+ * Édulcorants INTENSES (stévia, sucralose, aspartame, Pure Via, Canderel,
+ * « édulcorant de table »…) : une fiche qui EST l'édulcorant porte des
+ * macros ≈ nulles et des kcal de comprimé/poudre (tablette 0–50 kcal/100 g)
+ * — le 4/4/9 y « recalcule » une valeur déjà sans objet. Jamais de recalcul
+ * automatique pour ces produits QUAND LA FICHE EST L'ÉDULCORANT LUI-MÊME
+ * (kcal100 ≤ 50) : un aliment réel qui cite l'édulcorant dans son nom
+ * (« yaourt stévia », « boisson au sucralose ») reste éligible au garde-fou.
+ * Le polyol érythritol est déjà couvert par la règle polyols ≥ 5 g/100 g.
+ */
+const SWEETENER_NAME_RE = wordsToRegex([
+	// ⚠️ `normalizedWords` ne déaccentue pas (convention du module) : les
+	// formes accentuées sont listées explicitement à côté des brutes.
+	"edulcorants?",
+	"édulcorants?",
+	"stevias?",
+	"stévias?",
+	"rebaudiosides?",
+	"sucraloses?",
+	"aspartames?",
+	"acesulfame",
+	"saccharines?",
+	"saccharin",
+	"thaumatines?",
+	"cyclamates?",
+	"neotame",
+	"advantame",
+	// marques / noms commerciaux usuels
+	"canderel",
+	"pure via",
+	"purevia",
+	"tagatesse",
+	"hermesetas",
+	"natreen",
+	"splenda",
+]);
+
+/**
  * Produits exclus du recalcul AUTOMATIQUE — le 4/4/9 ne peut pas recomposer
  * leurs kcal de façon fiable :
  * - polyols ≥ 5 g/100 g (coefficient réel entre 0 et 3 kcal/g : erythritol 0,
  *   maltitol 2,4… l'écart deviendrait une fausse correction) ;
+ * - édulcorants intenses reconnus au libellé (stévia, sucralose, aspartame,
+ *   Pure Via, Canderel…) quand la fiche est l'édulcorant lui-même
+ *   (kcal100 ≤ 50) : macros ≈ nulles, le recalcul n'a pas d'objet ;
  * - boissons alcoolisées et vinaigres reconnus au libellé quand OFF ne fournit
  *   PAS `alcohol_100g` (glucides convertis en éthanol/acide, énergie
  *   introuvable sans le degré). Avec le champ alcool fourni, le calcul de
@@ -161,6 +201,10 @@ const NON_ALCOHOL_NAME_RE = wordsToRegex(NON_ALCOHOL_WORDS);
 export function kcalGuardExcluded(n: GuardedNutrients & { name?: string }): boolean {
 	if (pos(n.polyols100) >= 5) return true;
 	const name = n.name?.trim();
+	// Édulcorants intenses : uniquement la fiche édulcorant elle-même
+	// (kcal de tablette ≤ 50/100 g) — jamais un aliment classique citant
+	// l'édulcorant, qui reste corrigeable si ses macros contredisent ses kcal.
+	if (name && n.kcal100 <= 50 && SWEETENER_NAME_RE.test(normalizedWords(name))) return true;
 	if (name && pos(n.alcohol100) <= 0) {
 		const norm = normalizedWords(name);
 		if (!NON_ALCOHOL_NAME_RE.test(norm) && (ALCOHOL_NAME_RE.test(norm) || ALCOHOL_PCT_RE.test(name))) {
