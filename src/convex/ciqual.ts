@@ -15,7 +15,7 @@
  */
 
 import { ciqualNutrients } from "./ciqualNutrients";
-import { anchorTokens, tokenize } from "./foodRanking";
+import { anchorTokens, norm, tokenize } from "./foodRanking";
 import { query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { getSessionUser } from "./helpers";
@@ -127,6 +127,25 @@ const PRESERVE_TOKENS = new Set([
 ]);
 const COOKED_MODES = new Set(["cuit", "bouilli", "vapeur", "roti", "grille", "poelee"]);
 
+/* ── Ordre pédagogique de la famille ŒUF (requête générique « œuf ») ──
+ *
+ * Voulu : œuf CRU → œuf DUR → œuf AU PLAT. Le vocabulaire Ciqual place ces
+ * états DANS LA TÊTE du libellé (« Oeuf dur », « Oeuf au plat, sans matière
+ * grasse ») ou sans virgule (« Oeuf cru ») : `modeOf` (qui lit la queue)
+ * ne les voit pas, et la diversification standard peut glisser une fiche
+ * exotique (« Oeufs de cabillaud fumés ») à la place. Préfixe strict sur le
+ * libellé normalisé : « Oeuf, blanc (blanc d'oeuf), cru » ou « Oeuf d'oie,
+ * cru » ne matchent PAS. Uniquement en requête GÉNÉRIQUE — « œuf dur » tapé
+ * explicitement reste une recherche spécifique (pertinence pure).
+ */
+function eggStateRank(label: string): number {
+	const n = norm(label);
+	if (n.startsWith("oeuf cru")) return 0;
+	if (n.startsWith("oeuf dur")) return 1;
+	if (n.startsWith("oeuf au plat") || n.startsWith("oeuf a la coque")) return 2;
+	return 99; // hors famille (poché, brouillé, exotiques, blancs/jaunes…)
+}
+
 /** Tête du libellé (variété) : partie avant la 1re virgule, tokenisée. */
 function headTokens(label: string): string[] {
 	return tokenize(label.split(",")[0]);
@@ -134,9 +153,18 @@ function headTokens(label: string): string[] {
 
 /** La requête contient-elle un MODE (« cuit », « fumé », « crue »…) ?
  *  Oui → recherche spécifique : l'utilisateur a DEMANDÉ ce mode, les
- *  découpes/variétés réelles qui le portent restent toutes candidates. */
+ *  découpes/variétés réelles qui le portent restent toutes candidates.
+ *  `EGG_QUERY_MODES` complète pour les états de l'œuf (« dur », « au plat »,
+ *  « à la coque »…) : ce sont des états DEMANDÉS — la requête devient
+ *  spécifique (pertinence pure) au lieu de la liste diversifiée. */
+const EGG_QUERY_MODES = new Set(["dur", "dure", "mollet", "poche", "brouille", "coque", "plat"]);
 function queryHasMode(qt: string[]): boolean {
-	return qt.some((t) => MODE_TOKENS.has(t) || (t.endsWith("e") && MODE_TOKENS.has(t.slice(0, -1))));
+	return qt.some(
+		(t) =>
+			MODE_TOKENS.has(t) ||
+			(t.endsWith("e") && MODE_TOKENS.has(t.slice(0, -1))) ||
+			EGG_QUERY_MODES.has(t)
+	);
 }
 
 /** Mode de préparation : 1er token d'état APRÈS la tête (« rôties/cuites »
@@ -233,7 +261,27 @@ export function searchCiqualLocal(query: string): CiqualHit[] {
 		picked.push(c);
 		return true;
 	};
-	/* A — l'aliment du 1er résultat : ses modes distincts (cru, cuit…). */
+	/* A — l'aliment du 1er résultat : ses modes distincts (cru, cuit…).
+	 * Famille ŒUF (requête générique « oeuf ») : les 3 états demandés prennent
+	 * les slots DANS L'ORDRE FIXE cru → dur → au plat (rang 0 → 1 → 2), avant
+	 * toute mécanique standard — sans ça, une fiche exotique ou un mode de la
+	 * queue (« Oeufs de cabillaud, fumés ») glissait en 2e position. Le test
+	 * accepte toute tête commençant par « oeuf » (« Oeuf cru » sans virgule
+	 * donne une tête « oeuf cru ») — exclusif à la famille œuf. */
+	const isEggQuery = leaderBase.startsWith("oeuf");
+	if (isEggQuery) {
+		for (let r = 0; r < 3 && picked.length < CIQUAL_MAX_RESULTS; r++) {
+			const hit = candidates.find(
+				(c) => !usedLabels.has(c.ref.label) && eggStateRank(c.ref.label) === r
+			);
+			if (hit) {
+				usedLabels.add(hit.ref.label);
+				usedGroups.add("oeuf|" + String(r));
+				usedModes.add(String(r));
+				picked.push(hit);
+			}
+		}
+	}
 	for (const c of candidates) {
 		if (picked.length >= CIQUAL_MAX_RESULTS) break;
 		if (baseOf(c.ref.label) !== leaderBase) continue;

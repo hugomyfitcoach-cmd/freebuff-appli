@@ -15,7 +15,7 @@
 		"exercises:sync": "node scripts/sync-gflux-exercises.mjs",
 		"e2e:performance": "node scripts/e2e-performance.mjs",
 		"preview": "vite preview",
-		"test": "node --test --experimental-strip-types tests/*.test.mjs",
+		"test": "node --test --experimental-strip-types --import ./tests/ts-resolve.mjs tests/*.test.mjs",
 	"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
