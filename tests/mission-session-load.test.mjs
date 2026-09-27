@@ -203,6 +203,46 @@ test('Svelte 5 : le template mode libre n\u2019appelle que la fonction pure', ()
 	assert.ok(!/{@const [^}]*ensureDraft/.test(runner), 'jamais ensureDraft dans le template');
 });
 
+/* ─── UX séance : aperçu mouvement, repos auto, chrono global, terminer ─── */
+
+test('UX 1 : vignette cliquable + aperçu plein écran (vidéo boucle, X, instructions)', () => {
+	assert.ok(runner.includes('previewEx = ex'), 'vignette mode libre → aperçu');
+	assert.ok(runner.includes('previewEx = gEx'), 'vignette mode guidé → même aperçu');
+	assert.ok(/aria-label=\{`Voir le mouvement/.test(runner), 'libellé accessible');
+	assert.ok(/Voir le mouvement/.test(runner), 'CTA texte sous le nom de l\u2019exercice');
+	// Modale : vidéo en boucle muette + fermeture X + backdrop + Escape.
+	assert.ok(runner.includes('role="dialog"'), 'modale role=dialog');
+	assert.ok(/autoplay\n?\s*muted/.test(runner) || runner.includes('autoplay muted'), 'vidéo muette autoplaysinline');
+	assert.ok(/loop\n?\s*playsinline|loop\s/.test(runner) || runner.includes('loop'), 'boucle automatique');
+	assert.ok(runner.includes("previewEx = null"), 'fermeture (X / backdrop / Escape)');
+	assert.ok(runner.includes("e.key === 'Escape'"), 'Escape ferme l\u2019aperçu');
+	assert.ok(/instructions\?\.length/.test(runner), 'exécution de l\u2019exercice rappelée dans l\u2019aperçu');
+	// Le guidé affiche la vraie animation vidéo, plus une image statique seule.
+	assert.ok(runner.includes('mediaVideo(gEx)'), 'guidé : vidéo si disponible');
+});
+
+test('UX 2 : repos automatique en mode manuel après validation d\u2019une série', () => {
+	const toggle = runner.slice(runner.indexOf('async function toggleFreeSet'), runner.indexOf('/* ── Navigation guidée ──'));
+	assert.ok(toggle.includes("startTimer('rest', rest)"), 'même moteur de timer que le guidé');
+	assert.ok(toggle.includes('if (next)'), 'décocher ne relance jamais le repos');
+	assert.ok(toggle.includes('isLastSet && isLastEx'), 'pas de repos après la toute dernière série');
+	assert.ok(toggle.includes('rest > 0'), 'repos uniquement s\u2019il est prescrit');
+});
+
+test('UX 3 : chrono global de séance basé sur startedAt persisté', () => {
+	assert.ok(runner.includes('startElapsed()'), 'chrono démarré au début réel + à la reprise');
+	assert.ok(runner.includes('stopElapsed()'), 'chrono arrêté à l\u2019ouverture du récap + au démontage');
+	assert.ok(runner.includes('Séance en cours · '), 'chrono visible dans le header');
+	assert.ok(runner.includes('elapsedLabel'), 'label dérivé horodaté');
+});
+
+test('UX 4 : « Terminer » accessible depuis le header + confirmation existante réutilisée', () => {
+	assert.ok(/Terminer\s*</.test(runner), 'bouton court dans le header');
+	const header = runner.slice(runner.indexOf('HEADER séance'), runner.indexOf('<!-- ═══════════ MODE LIBRE'));
+	assert.ok(header.includes('requestFinish'), 'le header passe par le flux existant (confirm partiel → récap)');
+	assert.ok(header.includes('elapsedLabel'), 'header : « Séance en cours · mm:ss »');
+});
+
 /* ─── 4) BFF : observabilité requestId + anti-hang Convex ─── */
 
 test('BFF GET : chaque étape tracée avec requestId (auth, Convex, réponse, durée)', () => {

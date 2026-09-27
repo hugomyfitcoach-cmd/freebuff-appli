@@ -179,6 +179,30 @@
 	}
 	onDestroy(() => stopTimer());
 
+	/* ── Chrono global de séance (temps écoulé depuis startedAt) ──
+	   startedAt est PERSISTÉ backend (survit verrouillage/fond) : le chrono
+	   repart de l'horodatage réel à la reprise. La durée finale enregistrée
+	   est celle-ci (même base que detectedDurationMin) — aucun doublon. */
+	let elapsedNow = $state(Date.now());
+	let elapsedInterval: ReturnType<typeof setInterval> | null = null;
+	function startElapsed() {
+		elapsedNow = Date.now();
+		if (elapsedInterval) return;
+		elapsedInterval = setInterval(() => (elapsedNow = Date.now()), 1000);
+	}
+	function stopElapsed() {
+		if (elapsedInterval) clearInterval(elapsedInterval);
+		elapsedInterval = null;
+	}
+	const elapsedLabel = $derived.by(() => {
+		if (!sessionStarted) return '';
+		const s = Math.max(0, Math.floor((elapsedNow - startedAt) / 1000));
+		const h = Math.floor(s / 3600);
+		const m = Math.floor((s % 3600) / 60);
+		const sec = s % 60;
+		return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`;
+	});
+
 	/* ── Résumé de fin ── */
 	let recap = $state<null | {
 		durationMin: number;
@@ -210,6 +234,7 @@
 				// L'horloge locale repart de l'horodatage PERSISTÉ (jamais d'un
 				// chrono dépendant du cycle de vie de la page).
 				startedAt = r.startedAt;
+				startElapsed(); // chrono global visible dans le header
 			}
 		} catch {
 			/* silencieux : la séance reste utilisable, la durée sera déclinée
@@ -263,17 +288,17 @@
 				prefilled[draftKey(ex._id, st.order)] = buildDraft(ex, st.order);
 			}
 		}
-		drafts = prefilled;
-		if (data.scheduled.status === 'completed') {
-			alreadyCompleted = true;
-			mode = 'recap';
-			buildRecap(data.scheduled.durationMin ?? null);
-		} else if (data.scheduled.startedAt) {
-			// Reprise d'une séance commencée (app fermée, verrouillage…) :
-			// l'état backend est retrouvé, aucun chronomètre n'est perdu.
-			sessionStarted = true;
-			startedAt = data.scheduled.startedAt;
-		}
+		drafts = prefilled;			if (data.scheduled.status === 'completed') {
+				alreadyCompleted = true;
+				mode = 'recap';
+				buildRecap(data.scheduled.durationMin ?? null);
+			} else if (data.scheduled.startedAt) {
+				// Reprise d'une séance commencée (app fermée, verrouillage…) :
+				// l'état backend est retrouvé, aucun chronomètre n'est perdu.
+				sessionStarted = true;
+				startedAt = data.scheduled.startedAt;
+				startElapsed();
+			}
 	}
 
 	async function loadSession() {
@@ -330,6 +355,7 @@
 		loadController = null;
 		if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', diagVisibility);
 		clearTimeout(diagTimeout);
+		stopElapsed();
 	});
 
 	/* ── Écriture d'une série (LES DEUX MODES) ── */
@@ -374,6 +400,17 @@
 						},
 				next
 			);
+			// Série VALIDÉE → repos automatique comme en guidé (même moteur de
+			// timer, jamais en chevauchant une durée de série en cours) : sauf
+			// toute dernière série de la séance, et seulement si un repos est
+			// prescrit. Décocher ne relance rien.
+			if (next) {
+				const isLastSet = setOrder >= ex.sets.length - 1;
+				const exIdx = data?.exercises.findIndex((e) => e._id === ex._id) ?? -1;
+				const isLastEx = exIdx === (data?.exercises.length ?? 1) - 1;
+				const rest = ex.sets[setOrder]?.restSeconds ?? 0;
+				if (!(isLastSet && isLastEx) && rest > 0) startTimer('rest', rest);
+			}
 		} catch {
 			d.done = !next;
 			err = "Impossible d'enregistrer — réessaie.";
@@ -523,6 +560,7 @@
 
 	/** Ouvre le récap — avec confirmation si la durée détectée est étrange. */
 	function openRecap() {
+		stopElapsed(); // le chrono global s'arrête ici — la durée enregistrée est figée
 		const detected = detectedDurationMin();
 		if (detected < DURATION_MIN_THRESHOLD || detected > DURATION_MAX_THRESHOLD) {
 			// Panneau léger, uniquement à ce moment — jamais bloquant, fermable.
@@ -640,6 +678,20 @@
 	function mediaFor(ex: Ex): string | null {
 		return ex.exercise?.animationUrl ?? ex.exercise?.mediaUrl ?? null;
 	}
+	/** Vidéo du mouvement (.mp4/.webm) — sinon null (gif/image statique). */
+	function mediaVideo(ex: Ex): string | null {
+		const u = ex.exercise?.animationUrl ?? ex.exercise?.mediaUrl ?? null;
+		return u && /\.(mp4|webm|mov)(\?|$)/i.test(u) ? u : null;
+	}
+	/** Image à afficher : gif si média animé gif, poster derrière une vidéo. */
+	function mediaImage(ex: Ex): string | null {
+		const u = ex.exercise?.animationUrl ?? ex.exercise?.mediaUrl ?? null;
+		if (u && /\.(mp4|webm|mov)(\?|$)/i.test(u)) return ex.exercise?.posterUrl ?? null;
+		return u ?? ex.exercise?.posterUrl ?? null;
+	}
+
+	/* ── Aperçu plein écran du mouvement (vignette cliquable) ── */
+	let previewEx = $state<Ex | null>(null);
 </script>
 
 <div class="mx-auto w-full max-w-md px-4 pb-8 pt-3">
@@ -790,6 +842,22 @@
 					<span class="flex items-center gap-1"><Icon name="clock" size={13} /> ≈ {data.estimatedMin} min</span>
 					{#if data.programName}<span class="truncate">· {data.programName}</span>{/if}
 				</p>
+				{#if sessionStarted && elapsedLabel}
+					<!-- Séance en cours : chrono global visible en permanence + accès direct à la fin -->
+					<div class="mt-2 flex items-center gap-2">
+						<span class="inline-flex items-center gap-1.5 rounded-full bg-brand-light px-2.5 py-1 text-[11px] font-bold text-brand-dark">
+							<span class="h-1.5 w-1.5 animate-pulse rounded-full bg-brand"></span>
+							Séance en cours · {elapsedLabel}
+						</span>
+						<button
+							type="button"
+							onclick={requestFinish}
+							class="rounded-full bg-ink px-3 py-1 text-[11px] font-bold text-white transition hover:bg-brand"
+						>
+							Terminer
+						</button>
+					</div>
+				{/if}
 			</div>
 			<button
 				type="button"
@@ -819,15 +887,28 @@
 						{@const doneCount = ex.loggedSets.filter((l) => l.done).length}
 						<article class="mb-3 overflow-hidden rounded-2xl border border-line bg-card shadow-sm {doneCount === ex.sets.length && ex.sets.length > 0 ? 'opacity-70' : ''}">
 							<div class="flex items-start gap-3 p-3.5">
-								<div class="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-line/40">
-									{#if ex.exercise?.posterUrl}
-										<img src={ex.exercise.posterUrl} alt="" loading="lazy" class="h-full w-full object-cover" />
-									{:else if ex.exercise?.mediaUrl}
-										<img src={ex.exercise.mediaUrl} alt="" loading="lazy" class="h-full w-full object-cover" />
-									{:else}
+								{#if mediaFor(ex)}
+									<!-- Vignette cliquable → aperçu plein écran du mouvement -->
+									<button
+										type="button"
+										onclick={() => (previewEx = ex)}
+										class="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-line/40"
+										aria-label={`Voir le mouvement : ${ex.exercise?.name ?? 'exercice'}`}
+									>
+										{#if mediaVideo(ex)}
+											<video src={mediaVideo(ex)!} autoplay muted loop playsinline poster={ex.exercise?.posterUrl ?? ''} class="h-full w-full object-cover"></video>
+										{:else if ex.exercise?.posterUrl || ex.exercise?.mediaUrl}
+											<img src={(ex.exercise?.animationUrl ?? ex.exercise?.mediaUrl)!} alt="" loading="lazy" class="h-full w-full object-cover" />
+										{/if}
+										{#if mediaVideo(ex)}
+											<span class="absolute right-0.5 bottom-0.5 grid h-4 w-4 place-items-center rounded-full bg-ink/70 text-white"><Icon name="play" size={8} /></span>
+										{/if}
+									</button>
+								{:else}
+									<div class="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-line/40">
 										<span class="grid h-full w-full place-items-center"><Icon name="dumbbell" size={18} class="text-mist" /></span>
-									{/if}
-								</div>
+									</div>
+								{/if}
 								<div class="min-w-0 flex-1">
 									<h3 class="truncate text-sm font-bold text-ink">{ex.exercise?.name ?? 'Exercice'}</h3>
 									<p class="text-xs text-mist">
@@ -838,6 +919,11 @@
 									</p>
 									{#if lastPerfLabel(ex)}
 										<p class="mt-0.5 text-[11px] font-semibold text-brand-dark">{lastPerfLabel(ex)}</p>
+									{/if}
+									{#if mediaFor(ex)}
+										<button type="button" onclick={() => (previewEx = ex)} class="mt-1 inline-flex items-center gap-1 text-[11px] font-bold text-brand-dark transition hover:text-ink">
+											<Icon name="play" size={10} /> Voir le mouvement
+										</button>
 									{/if}
 								</div>
 								<span class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold {doneCount === ex.sets.length && ex.sets.length > 0 ? 'bg-brand text-white' : 'bg-line/70 text-mist'}">
@@ -979,13 +1065,20 @@
 					</div>
 				{:else}
 					<!-- ── SÉRIE EN COURS ── -->
-					<div class="mx-auto mb-4 h-28 w-28 overflow-hidden rounded-2xl bg-line/30">
-						{#if mediaFor(gEx)}
+					<button
+						type="button"
+						onclick={() => (previewEx = gEx)}
+						class="mx-auto mb-4 block h-28 w-28 overflow-hidden rounded-2xl bg-line/30"
+						aria-label={`Voir le mouvement : ${gEx.exercise?.name ?? 'exercice'}`}
+					>
+						{#if mediaVideo(gEx)}
+							<video src={mediaVideo(gEx)!} autoplay muted loop playsinline poster={gEx.exercise?.posterUrl ?? ''} class="h-full w-full object-cover"></video>
+						{:else if mediaFor(gEx)}
 							<img src={mediaFor(gEx)!} alt="" class="h-full w-full object-cover" />
 						{:else}
 							<span class="grid h-full w-full place-items-center"><Icon name="dumbbell" size={26} class="text-mist" /></span>
 						{/if}
-					</div>
+					</button>
 					<h2 class="text-center font-display text-xl font-bold text-ink">{gEx.exercise?.name ?? 'Exercice'}</h2>
 					<p class="mt-1 text-center text-sm font-semibold text-brand-dark">
 						Série {gSetIdx + 1}/{gEx.sets.length}
@@ -1094,6 +1187,65 @@
 		{/if}
 	{/if}
 </div>
+
+<!-- ═══ Aperçu plein écran du mouvement (vignette cliquable) — vidéo en boucle, muette, X + retour immédiat. Ne bloque jamais la saisie en cours. ═══ -->
+{#if previewEx}
+	<div
+		class="fixed inset-0 z-[70] flex flex-col bg-ink/90"
+		role="dialog"
+		aria-modal="true"
+		tabindex="-1"
+		aria-label={previewEx.exercise?.name ?? 'Aperçu du mouvement'}
+		onclick={(e) => {
+			if (e.target === e.currentTarget) previewEx = null;
+		}}
+		onkeydown={(e) => {
+			if (e.key === 'Escape') previewEx = null;
+		}}
+	>
+		<div class="flex items-center justify-between px-4 pt-4">
+			<p class="min-w-0 truncate font-display text-lg font-semibold text-white">{previewEx.exercise?.name ?? 'Exercice'}</p>
+			<button
+				type="button"
+				onclick={() => (previewEx = null)}
+				class="rounded-full bg-white/10 p-2 text-white transition hover:bg-white/20"
+				aria-label="Fermer l'aperçu"
+			>
+				<Icon name="x" size={20} />
+			</button>
+		</div>
+		<button
+			type="button"
+			class="flex flex-1 items-center justify-center p-4"
+			onclick={() => (previewEx = null)}
+			aria-label="Fermer l'aperçu"
+		>
+			<div class="relative max-h-[70vh] w-full max-w-md overflow-hidden rounded-3xl bg-black">
+				{#if mediaVideo(previewEx)}						<video
+							src={mediaVideo(previewEx)!}
+							autoplay
+							muted
+							loop
+							playsinline
+							poster={previewEx.exercise?.posterUrl ?? ''}
+							class="max-h-[70vh] w-full object-contain"
+						></video>
+				{:else if mediaFor(previewEx)}
+					<img src={mediaFor(previewEx)!} alt="" class="max-h-[70vh] w-full object-contain" />
+				{/if}
+			</div>
+		</button>
+		{#if previewEx.exercise?.instructions?.length}
+			<div class="max-h-32 overflow-y-auto px-6 pb-6">
+				<ul class="space-y-1 text-xs leading-relaxed text-white/80">
+					{#each previewEx.exercise.instructions as line, i (i)}
+						<li>{i + 1}. {line}</li>
+					{/each}
+				</ul>
+			</div>
+		{/if}
+	</div>
+{/if}
 
 <!-- ═══ Confirmation de durée (uniquement après « Terminer la séance », si durée étrange). Panneau léger : fermable, ne bloque JAMAIS l'app, aucune perte de données, jamais une notification globale. ═══ -->
 {#if durationConfirm}
