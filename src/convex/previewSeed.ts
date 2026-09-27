@@ -327,6 +327,7 @@ async function seedCoreData(
 	betaPassword: string;
 	exercises: { total: number; imported: number; updated: number; unchanged: number };
 	testProgram: { created: boolean; scheduledCount: number };
+	vision360Demo: { ok: boolean; demoEmail: string; days: number } | { ok: false; error: string };
 }> {
 	// 1) Coach de test (fictif) — hash réappliqué à chaque seed (self-healing :
 	// le mot de passe documenté fonctionne toujours, même après N builds).
@@ -403,6 +404,18 @@ async function seedCoreData(
 		.collect();
 	const testProgram = await seedTestProgram(db, coachId, betaId, allOfficial);
 
+	// 6) Cliente DEMO Vision 360 (100 % synthétique — 3 semaines de données
+	//    poids/pas/alimentation/sport/mensurations + bilan démo). Idempotent,
+	//    verrou anti-prod propre au module ; non bloquant : un échec démo
+	//    n'empêche JAMAIS le seed principal (Entraînement reste testable).
+	let vision360Demo: { ok: boolean; demoEmail: string; days: number } | { ok: false; error: string } = { ok: false, error: "non exécuté" };
+	try {
+		const { seedVision360DemoData } = await import("./previewSeedVision360");
+		vision360Demo = await seedVision360DemoData(db);
+	} catch (e) {
+		vision360Demo = { ok: false, error: e instanceof Error ? e.message : String(e) };
+	}
+
 	return {
 		coachEmail,
 		betaEmail,
@@ -413,6 +426,7 @@ async function seedCoreData(
 			created: testProgram.created,
 			scheduledCount: testProgram.scheduledCount,
 		},
+		vision360Demo,
 	};
 }
 

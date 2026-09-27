@@ -23,6 +23,16 @@ import { deleteIntakeForUser } from "./onboarding";
 import { deleteAllResourcesForUser } from "./resources";
 import { deleteAllForUser as pushDeleteAllForUser } from "./push";
 import { avgLast7Completed } from "../lib/averages";
+import {
+	parisTodayISO,
+	visionWindow,
+	weightVision,
+	stepsAverages,
+	foodAverages,
+	sportVision,
+	mensurationsVision,
+	exploitabilityThresholdKcal,
+} from "../lib/vision360";
 
 /**
  * CRM réservé au coach. Chaque fonction vérifie le rôle « coach » depuis
@@ -644,7 +654,7 @@ export const client360 = query({
 		const target = await ctx.db.get(userId);
 		if (!target || target.role !== "client") throw new ConvexError("Client introuvable.");
 
-		const [goalsRow, metrics, checkins, entries, stepsRows] = await Promise.all([
+		const [goalsRow, metrics, checkins, entries, stepsRows, sportRows] = await Promise.all([
 			ctx.db.query("clientGoals").withIndex("by_userId", (q) => q.eq("userId", userId)).first(),
 			ctx.db
 				.query("bodyMetrics")
@@ -654,6 +664,7 @@ export const client360 = query({
 			ctx.db.query("checkins").withIndex("by_user_week", (q) => q.eq("userId", userId)).order("desc").collect(),
 			ctx.db.query("diaryEntries").withIndex("by_user", (q) => q.eq("userId", userId)).order("desc").collect(),
 			ctx.db.query("dailySteps").withIndex("by_user", (q) => q.eq("userId", userId)).order("asc").collect(),
+			ctx.db.query("sportActivities").withIndex("by_user", (q) => q.eq("userId", userId)).collect(),
 		]);
 
 		// Les lignes bodyMetrics sont lues dans l'ordre de création (index by_user),
@@ -663,15 +674,16 @@ export const client360 = query({
 		// ligne créée) — cohérent avec l'onglet Poids & mesures du CRM.
 		const metricsByDate = [...metrics].sort((a, b) => a.date.localeCompare(b.date));
 
-		// Les 7 JOURNÉES TERMINÉES (J-7 → J-1) — la journée en cours est
-		// incomplète et ne doit JAMAIS entrer dans les moyennes ni les graphes
-		// (mission). Clés "yyyy-mm-dd" locales serveur. Ancien comportement :
-		// J-6 → aujourd'hui (fenêtre glissante incluant le jour partiel).
-		const today360 = localTodayISO(new Date());
-		const days: string[] = [];
-		for (let i = 7; i >= 1; i--) {
-			days.push(addDaysISO(today360, -i));
-		}
+		// Les 7 DERNIÈRES JOURNÉES CALENDAIRES COMPLÈTES (J-7 → J-1) — la
+		// journée en cours est incomplète et ne doit JAMAIS entrer dans les
+		// moyennes ni les graphes. Vision 360 = PHOTO LIVE au moment de la
+		// consultation : la clé "aujourd'hui" est calculée dans le fuseau de
+		// RÉFÉRENCE Europe/Paris (Intl ICU du runtime) — JAMAIS l'horloge naïve
+		// du serveur, JAMAIS la date d'envoi du bilan. Consulté dimanche :
+		// dim. précédent → sam. ; consulté lundi : lun. précédent → dim.
+		const today360 = parisTodayISO();
+		const vision = visionWindow(today360);
+		const days: string[] = vision.days;
 		const daySet = new Set(days);
 		const byDay = new Map<string, { kcal: number; carbs: number; protein: number; fat: number; count: number }>();
 		for (const day of days) {
@@ -743,10 +755,13 @@ export const client360 = query({
 			xs.length > 0 ? xs.reduce((s, x) => s + x, 0) / xs.length : null;
 		const refCheckin = checkins[0] ?? null;
 
-		/* ── Dépense sportive (semaine du bilan en cours + 3 précédentes) ──
-		   Tendance = semaines CLOSES uniquement (jamais la semaine partielle
-		   en cours), sur les MET-minutes, seuil ±25 % — libellé qualitatif.
-		   `sportWeeksAggregate` renvoie [S, S-1, S-2, S-3]. */
+		/* ── Dépense sportive — DEUX blocs ──
+		   1. sportBlock : semaines calendaires S + S-1… (carte Bilans, déjà
+		      en place — inchangée) ;
+		   2. sport7 (Vision 360 live) : activités des 7 JOURNÉES COMPLÈTES
+		      J-7 → J-1 — jamais l'activité d'aujourd'hui, jamais une fenêtre
+		      liée au bilan. La logique idempotente des dépenses (une seule
+		      ligne par séance via index by_trainingSession) est inchangée. */
 		const todayISO = localTodayISO();
 		const sportWeeks = await sportWeeksAggregate(ctx, userId, 4, mondayISOof(todayISO));
 		const [sportS, sportS1, sportS2] = sportWeeks;
@@ -776,16 +791,52 @@ export const client360 = query({
 			})),
 		};
 
+		// Activités des 7 journées complètes (sportActivities : source manual |
+		// gflux_training — dépenses idempotentes par construction).
+		const sport7 = sportVision(sportRows, days);
+
 		let cockpit: {
 			weekStart: string;
 			weekEnd: string;
 			weekLabel: string;
-			weight: { avg: number | null; count: number; prevAvg: number | null; delta: number | null };
-			calories: { avg: number | null; goal: number; trackedDays: number };
-			protein: { avg: number | null; goal: number; trackedDays: number };
+			/** Vision 360 LIVE — 7 journées complètes au moment de la consultation. */
+			visionWindow: { start: string; end: string; today: string };
+			weight: {
+				/** Moyenne des pesées RÉELLES des 7 journées complètes (jamais un 0 inventé). */
+				avg: number | null;
+				/** Nombre de pesées sur la période. */
+				count: number;
+				/** Dernière pesée de la période — jamais un 0 kg inventé. */
+				last: { date: string; weightKg: number } | null;
+				/** Dernière pesée de la période précédente (J-14 → J-8). */
+				prevLast: { date: string; weightKg: number } | null;
+				/** Delta last − prevLast — null si incomparable (période sans pesée). */
+				delta: number | null;
+			};
+			calories: {
+				/** Moyenne sur les SEULS jours EXPLOITABLES (≥ max(800, 60 % objectif)). */
+				avg: number | null;
+				goal: number;
+				/** X/7 jours exploitables. */
+				trackedDays: number;
+				/** Jours partiellement renseignés EXCLUS (le Journal reste intact). */
+				partialExcluded: number;
+				/** Jours sans aucune donnée (≠ partiel). */
+				absentDays: number;
+				/** Seuil appliqué (kcal) — transparence du garde-fou. */
+				thresholdKcal: number;
+			};
+			protein: {
+				/** MÊMES jours exploitables que les calories (une seule définition). */
+				avg: number | null;
+				goal: number;
+				trackedDays: number;
+				partialExcluded: number;
+			};
 			steps: {
 				avg: number | null;
 				goal: number | null;
+				/** X/7 jours renseignés. */
 				trackedDays: number;
 				declared: string | null;
 			};
@@ -793,6 +844,8 @@ export const client360 = query({
 				fresh: boolean;
 				date: string | null;
 				daysAgo: number | null;
+				/** Date du relevé précédent (comparaison) — null si aucun. */
+				prevDate: string | null;
 				waistCm: number | null;
 				hipCm: number | null;
 				neckCm: number | null;
@@ -807,6 +860,26 @@ export const client360 = query({
 			};
 		} | null = null;
 
+		const goalKcal360 = goalsRow?.kcal ?? DEFAULT_GOALS.kcal;
+
+		// ── VISION 360 LIVE (photo au moment de la consultation) ──
+		// Totaux alimentaires par jour des 7 journées complètes.
+		const foodTotals = new Map<string, { kcal: number | null; protein: number | null }>();
+		for (const day of days) foodTotals.set(day, { kcal: null, protein: null });
+		for (const e of entries) {
+			if (!foodTotals.has(e.date)) continue;
+			const acc = foodTotals.get(e.date)!;
+			acc.kcal = (acc.kcal ?? 0) + e.kcal;
+			acc.protein = (acc.protein ?? 0) + e.protein;
+		}
+		const weight360 = weightVision(
+			metricsByDate.filter((m) => m.weightKg !== undefined).map((m) => ({ date: m.date, weightKg: m.weightKg as number })),
+			days
+		);
+		const food360 = foodAverages(foodTotals, days, goalKcal360);
+		const steps360 = stepsAverages(stepsRows.map((s) => ({ date: s.date, count: s.count })), days);
+		const mens360 = mensurationsVision(metricsByDate);
+
 		if (refCheckin) {
 			const ws = refCheckin.weekStart;
 			const we = addDaysISO(ws, 6);
@@ -814,54 +887,24 @@ export const client360 = query({
 			const inWeek = (d: string) => d >= ws && d <= we;
 			const inPrevWeek = (d: string) => d >= prevWs && d < ws;
 
-			// Poids : moyenne de la semaine vs moyenne de la semaine précédente
-			// (deux moyennes hebdo, jamais deux pesées isolées comparées).
+			// Poids : moyenne de la semaine du bilan vs semaine précédente (onglet
+			// Bilans — historique cohérent avec le questionnaire, inchangé).
+			// Les moyennes LIVE Vision 360 (7 jours complets) sont dans
+			// cockpit.weight / cockpit.calories / cockpit.protein ci-dessous.
 			const weekWeights = metrics
 				.filter((m) => m.weightKg !== undefined && inWeek(m.date))
 				.map((m) => m.weightKg as number);
 			const prevWeights = metrics
 				.filter((m) => m.weightKg !== undefined && inPrevWeek(m.date))
 				.map((m) => m.weightKg as number);
-			const weightAvg = mean(weekWeights);
-			const prevWeightAvg = mean(prevWeights);
-			const weightDelta =
-				weightAvg !== null && prevWeightAvg !== null ? round1(weightAvg - prevWeightAvg) : null;
+			const weekWeightAvg = mean(weekWeights);
+			const prevWeekWeightAvg = mean(prevWeights);
+			const weekWeightDelta =
+				weekWeightAvg !== null && prevWeekWeightAvg !== null
+					? round1(weekWeightAvg - prevWeekWeightAvg)
+					: null;
 
-			// Calories & protéines : moyenne sur les seuls jours possédant des
-			// données + couverture — une journée vide n'est jamais comptée comme 0.
-			const kcalByDay = new Map<string, number>();
-			const proteinByDay = new Map<string, number>();
-			for (const e of entries) {
-				if (inWeek(e.date)) {
-					kcalByDay.set(e.date, (kcalByDay.get(e.date) ?? 0) + e.kcal);
-					proteinByDay.set(e.date, (proteinByDay.get(e.date) ?? 0) + e.protein);
-				}
-			}
-		// MOYENNES (mission) : 7 journées TERMINÉES = J-7 → J-1, uniquement les
-		// journées avec données réellement renseignées au dénominateur — journée
-		// absente ≠ 0. MÊME FONCTION que le calcul période + dénominateur (aucune
-		// incohérence possible) — lib/averages.ts partagé avec la cliente.
-		const kcalAvgResult = avgLast7Completed(
-			[...kcalByDay.entries()].map(([date, kcal]) => ({ date, value: kcal > 0 ? kcal : null })),
-			today360
-		);
-		const kcalAvg = kcalAvgResult.avg;
-		const trackedDays = kcalAvgResult.trackedDays;
-		const proteinAvgResult = avgLast7Completed(
-			[...proteinByDay.entries()].map(([date, v]) => ({ date, value: v > 0 ? v : null })),
-			today360
-		);
-		const proteinAvg = proteinAvgResult.avg;
-
-			// Pas : comptage quotidien quand il existe — MOYENNE J-7 → J-1 sur les
-			// jours renseignés (jamais divisée par 7, jamais aujourd'hui dedans) ;
-			// sinon la déclaration du bilan.
-			const stepsAvgResult = avgLast7Completed(
-				stepsRows.map((s) => ({ date: s.date, value: s.count })),
-				today360
-			);
-			const stepsAvg = stepsAvgResult.avg;
-			const stepsTracked = stepsAvgResult.trackedDays;
+			// Pas : déclaration du bilan (libellé) — les moyennes LIVE sont plus bas.
 			const pasRaw = (refCheckin.answers as Record<string, unknown>).pas;
 			const pas = typeof pasRaw === "string" && pasRaw ? pasRaw : null;
 
@@ -898,28 +941,45 @@ export const client360 = query({
 				weekStart: ws,
 				weekEnd: we,
 				weekLabel: refCheckin.weekLabel,
+				visionWindow: { start: vision.start, end: vision.end, today: vision.today },
 				weight: {
-					avg: weightAvg !== null ? round1(weightAvg) : null,
-					count: weekWeights.length,
-					prevAvg: prevWeightAvg !== null ? round1(prevWeightAvg) : null,
-					delta: weightDelta,
+					avg: weight360.avg,
+					count: weight360.count,
+					last: weight360.last,
+					prevLast: weight360.prevLast,
+					delta: weight360.delta,
 				},
-				calories: { avg: kcalAvg, goal: goalsRow?.kcal ?? DEFAULT_GOALS.kcal, trackedDays },
-				protein: { avg: proteinAvg, goal: goalsRow?.protein ?? DEFAULT_GOALS.protein, trackedDays },
+				calories: {
+					avg: food360.kcalAvg,
+					goal: goalKcal360,
+					trackedDays: food360.breakdown.exploitableDays,
+					partialExcluded: food360.breakdown.partialDays,
+					absentDays: food360.breakdown.absentDays,
+					thresholdKcal: exploitabilityThresholdKcal(goalKcal360),
+				},
+				protein: {
+					avg: food360.proteinAvg,
+					goal: goalsRow?.protein ?? DEFAULT_GOALS.protein,
+					trackedDays: food360.breakdown.exploitableDays,
+					partialExcluded: food360.breakdown.partialDays,
+				},
 				steps: {
-					avg: stepsAvg,
+					avg: steps360.avg,
 					goal: goalsRow?.stepGoal ?? null,
-					trackedDays: stepsTracked,
+					trackedDays: steps360.trackedDays,
 					declared: pas,
 				},
 				measurements: {
 					fresh,
-					date: latestMens?.date ?? null,
+					date: mens360?.date ?? latestMens?.date ?? null,
+					/** Fraîcheur : jours depuis le dernier relevé (inchangé). */
 					daysAgo,
-					waistCm: latestMens?.waistCm ?? null,
-					hipCm: latestMens?.hipCm ?? null,
-					neckCm: latestMens?.neckCm ?? null,
-					deltas,
+					/** Relevé précédent (comparaison) — null si aucun. */
+					prevDate: mens360?.prevDate ?? null,
+					waistCm: mens360?.waistCm ?? latestMens?.waistCm ?? null,
+					hipCm: mens360?.hipCm ?? latestMens?.hipCm ?? null,
+					neckCm: mens360?.neckCm ?? latestMens?.neckCm ?? null,
+					deltas: mens360?.deltas ?? deltas,
 				},
 				bilan: {
 					status: refCheckin.status,
@@ -973,6 +1033,10 @@ export const client360 = query({
 			cockpit,
 			/** Dépense sportive : semaine en cours + 3 précédentes + tendance. */
 			sport: sportBlock,
+			/** Vision 360 LIVE : dépense des 7 journées complètes (J-7 → J-1). */
+			sport7,
+			/** Fenêtre Vision 360 réellement appliquée (transparence UI). */
+			visionWindow: { start: vision.start, end: vision.end, today: vision.today },
 		};
 	},
 });
