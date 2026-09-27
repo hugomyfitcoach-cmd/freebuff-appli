@@ -3019,7 +3019,12 @@
 						{@render cardHead('flame', 'Calories', `${cockpit.calories.trackedDays}/7 j exploitables`)}
 						{#if cockpit.calories.avg !== null}
 							<div class="mt-1 font-display text-2xl font-semibold text-ink">{cockpit.calories.avg.toLocaleString('fr-FR')} kcal</div>
-							<p class="mt-0.5 text-[11px] text-mist">en moyenne / jour exploitable · objectif {cockpit.calories.goal.toLocaleString('fr-FR')} kcal</p>
+							<p class="mt-0.5 text-[11px] text-mist">
+								en moyenne / jour exploitable · objectif {cockpit.calories.goal.toLocaleString('fr-FR')} kcal
+								{#if cockpit.calories.goalChanged && (cockpit.calories.distinctGoals ?? []).length > 1}
+									<span class="italic">· fenêtre traversant un changement ( {(cockpit.calories.distinctGoals ?? []).map((g) => g.toLocaleString('fr-FR')).join(' → ')} kcal, évalué jour par jour)</span>
+								{/if}
+							</p>
 							{#if cockpit.calories.partialExcluded > 0}
 								<p class="mt-1 text-[10px] italic text-mist">{cockpit.calories.partialExcluded} journée{cockpit.calories.partialExcluded > 1 ? 's' : ''} partiellement renseignée{cockpit.calories.partialExcluded > 1 ? 's' : ''} exclue{cockpit.calories.partialExcluded > 1 ? 's' : ''} de la moyenne (tracking incomplet)</p>
 							{/if}

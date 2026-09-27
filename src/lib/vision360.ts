@@ -140,11 +140,20 @@ export type Exploitability = {
 	absentDays: number;
 };
 
-/** Comptage des 4 catégories de journées sur la fenêtre. */
+/** Objectif calorique d'une journée : valeur unique OU par date (historisé). */
+export type GoalForDay = number | null | undefined | ((date: string) => number | null | undefined);
+
+/** Objectif applicable à UNE journée (résout la fonction par date si fournie). */
+export function goalOfDay(goal: GoalForDay, date: string): number | null | undefined {
+	return typeof goal === 'function' ? goal(date) : goal;
+}
+
+/** Comptage des 4 catégories de journées sur la fenêtre — l'objectif évalué
+ *  est celui APPLICABLE À CHAQUE JOURNÉE (historisé), jamais l'objectif courant. */
 export function foodDayBreakdown(
 	totals: Map<string, { kcal: number | null; protein: number | null }>,
 	days: string[],
-	goalKcal: number | null | undefined
+	goalKcal: GoalForDay
 ): Exploitability {
 	let daysWithData = 0;
 	let exploitableDays = 0;
@@ -157,7 +166,7 @@ export function foodDayBreakdown(
 			continue;
 		}
 		daysWithData += 1;
-		if (t.kcal >= exploitabilityThresholdKcal(goalKcal)) exploitableDays += 1;
+		if (t.kcal >= exploitabilityThresholdKcal(goalOfDay(goalKcal, d))) exploitableDays += 1;
 		else partialDays += 1;
 	}
 	return { daysWithData, exploitableDays, partialDays, absentDays };
@@ -181,7 +190,7 @@ export type FoodAverages = {
 export function foodAverages(
 	totals: Map<string, { kcal: number | null; protein: number | null }>,
 	days: string[],
-	goalKcal: number | null | undefined
+	goalKcal: GoalForDay
 ): FoodAverages {
 	const breakdown = foodDayBreakdown(totals, days, goalKcal);
 	let kcalSum = 0;
@@ -189,7 +198,7 @@ export function foodAverages(
 	for (const d of days) {
 		const t = totals.get(d);
 		if (!t || t.kcal == null || !isFinite(t.kcal)) continue;
-		if (t.kcal < exploitabilityThresholdKcal(goalKcal)) continue; // partiel → exclu des deux
+		if (t.kcal < exploitabilityThresholdKcal(goalOfDay(goalKcal, d))) continue; // partiel → exclu des deux
 		kcalSum += t.kcal;
 		if (t.protein != null && isFinite(t.protein)) proteinSum += t.protein;
 	}

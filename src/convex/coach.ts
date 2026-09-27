@@ -33,6 +33,7 @@ import {
 	mensurationsVision,
 	exploitabilityThresholdKcal,
 } from "../lib/vision360";
+import { kcalGoalForDate, hasChangeWithin, withCurrentGoal } from "../lib/goalHistory";
 
 /**
  * CRM réservé au coach. Chaque fonction vérifie le rôle « coach » depuis
@@ -654,7 +655,7 @@ export const client360 = query({
 		const target = await ctx.db.get(userId);
 		if (!target || target.role !== "client") throw new ConvexError("Client introuvable.");
 
-		const [goalsRow, metrics, checkins, entries, stepsRows, sportRows] = await Promise.all([
+		const [goalsRow, metrics, checkins, entries, stepsRows, sportRows, goalHistory] = await Promise.all([
 			ctx.db.query("clientGoals").withIndex("by_userId", (q) => q.eq("userId", userId)).first(),
 			ctx.db
 				.query("bodyMetrics")
@@ -665,6 +666,10 @@ export const client360 = query({
 			ctx.db.query("diaryEntries").withIndex("by_user", (q) => q.eq("userId", userId)).order("desc").collect(),
 			ctx.db.query("dailySteps").withIndex("by_user", (q) => q.eq("userId", userId)).order("asc").collect(),
 			ctx.db.query("sportActivities").withIndex("by_user", (q) => q.eq("userId", userId)).collect(),
+			ctx.db
+				.query("clientGoalHistory")
+				.withIndex("by_user_from", (q) => q.eq("userId", userId))
+				.collect(),
 		]);
 
 		// Les lignes bodyMetrics sont lues dans l'ordre de création (index by_user),
@@ -820,12 +825,15 @@ export const client360 = query({
 				/** X/7 jours exploitables. */
 				trackedDays: number;
 				/** Jours partiellement renseignés EXCLUS (le Journal reste intact). */
-				partialExcluded: number;
-				/** Jours sans aucune donnée (≠ partiel). */
-				absentDays: number;
-				/** Seuil appliqué (kcal) — transparence du garde-fou. */
-				thresholdKcal: number;
-			};
+				partialExcluded: number;					/** Jours sans aucune donnée (≠ partiel). */
+					absentDays: number;
+					/** Seuil appliqué (kcal) — transparence du garde-fou. */
+					thresholdKcal: number;
+					/** Objectifs distincts applicables sur la fenêtre (historisé). */
+					distinctGoals: number[];
+					/** True si la fenêtre traverse un changement d'objectif. */
+					goalChanged: boolean;
+				};
 			protein: {
 				/** MÊMES jours exploitables que les calories (une seule définition). */
 				avg: number | null;
@@ -862,6 +870,25 @@ export const client360 = query({
 
 		const goalKcal360 = goalsRow?.kcal ?? DEFAULT_GOALS.kcal;
 
+		// ── OBJECTIF CALORIQUE DATÉ (Vision 360) ──
+		// La fenêtre J-7 → J-1 peut traverser un changement d'objectif : chaque
+		// journée est évaluée avec l'objectif applicable CE jour-là (garde-fou
+		// 60 % inclus). Historique vide → repli documenté sur l'objectif courant
+		// (aucun faux historique inventé). L'objectif affiché dans le cockpit :
+		//  - un seul objectif sur la fenêtre → sa valeur ;
+		//  - plusieurs → l'objectif de la DERNIÈRE journée + une mention de
+		//    plage (ex. « 1 600 → 1 750 le 25/09 ») côté UI.
+		const effectiveHistory = withCurrentGoal(
+			goalHistory.map((h) => ({ kcal: h.kcal, effectiveFrom: h.effectiveFrom })),
+			goalKcal360,
+			vision.today
+		);
+		const goalForDay = (date: string): number => kcalGoalForDate(effectiveHistory, date, goalKcal360);
+		const windowGoals = days.map(goalForDay);
+		const distinctGoals = [...new Set(windowGoals)];
+		const goalChangedInWindow = hasChangeWithin(effectiveHistory, vision.start, vision.end);
+		const caloriesGoal360 = distinctGoals.length === 1 ? distinctGoals[0] : windowGoals[windowGoals.length - 1];
+
 		// ── VISION 360 LIVE (photo au moment de la consultation) ──
 		// Totaux alimentaires par jour des 7 journées complètes.
 		const foodTotals = new Map<string, { kcal: number | null; protein: number | null }>();
@@ -876,7 +903,7 @@ export const client360 = query({
 			metricsByDate.filter((m) => m.weightKg !== undefined).map((m) => ({ date: m.date, weightKg: m.weightKg as number })),
 			days
 		);
-		const food360 = foodAverages(foodTotals, days, goalKcal360);
+		const food360 = foodAverages(foodTotals, days, goalForDay);
 		const steps360 = stepsAverages(stepsRows.map((s) => ({ date: s.date, count: s.count })), days);
 		const mens360 = mensurationsVision(metricsByDate);
 
@@ -951,11 +978,18 @@ export const client360 = query({
 				},
 				calories: {
 					avg: food360.kcalAvg,
-					goal: goalKcal360,
+					// Objectif affiché : unique sur la fenêtre, sinon celui de la dernière journée.
+					goal: caloriesGoal360,
 					trackedDays: food360.breakdown.exploitableDays,
 					partialExcluded: food360.breakdown.partialDays,
 					absentDays: food360.breakdown.absentDays,
-					thresholdKcal: exploitabilityThresholdKcal(goalKcal360),
+					// Seuil d'affichage : celui de la dernière journée (les partielles
+					// ont été évaluées jour par jour avec leur propre objectif).
+					thresholdKcal: exploitabilityThresholdKcal(caloriesGoal360),
+					/** Objectifs distincts traversés par la fenêtre (ex. [1600, 1750]). */
+					distinctGoals,
+					/** True si la fenêtre traverse un changement d'objectif. */
+					goalChanged: goalChangedInWindow,
 				},
 				protein: {
 					avg: food360.proteinAvg,

@@ -189,15 +189,31 @@ async function seedDemoData(db: MutationCtx["db"]): Promise<{ ok: true; demoEmai
 		await db.patch(demoId, { passwordHash });
 	}
 
-	// 3) Objectifs : kcal 1 600 (→ seuil 960), protéines 110 g, pas 10 000.
+	// 3) Objectifs : ACTUEL 1 750 kcal (protéines 110 g, pas 10 000) +
+	//    HISTORIQUE CALORIES synthétique : 1 600 à partir de J-14, 1 750 à
+	//    partir de J-3 — la fenêtre Vision 360 (J-7 → J-1) traverse le
+	//    changement (garde-fou 60 % évalué avec l'objectif de chaque jour) et
+	//    le Journal d'avant J-3 affiche toujours 1 600.
 	const existingGoals = await db
 		.query("clientGoals")
 		.withIndex("by_userId", (q) => q.eq("userId", demoId))
 		.first();
 	if (!existingGoals) {
-		await db.insert("clientGoals", { userId: demoId, kcal: 1600, carbs: 160, protein: 110, fat: 53, stepGoal: 10000 });
+		await db.insert("clientGoals", { userId: demoId, kcal: 1750, carbs: 175, protein: 110, fat: 58, stepGoal: 10000 });
 	} else {
-		await db.patch(existingGoals._id, { kcal: 1600, protein: 110, stepGoal: 10000 });
+		await db.patch(existingGoals._id, { kcal: 1750, protein: 110, stepGoal: 10000 });
+	}
+	const goalHistory: { effectiveFrom: string; kcal: number }[] = [
+		{ effectiveFrom: addDaysISO(todayISO, -14), kcal: 1600 },
+		{ effectiveFrom: addDaysISO(todayISO, -3), kcal: 1750 },
+	];
+	for (const gh of goalHistory) {
+		const row = await db
+			.query("clientGoalHistory")
+			.withIndex("by_user_from", (q) => q.eq("userId", demoId).eq("effectiveFrom", gh.effectiveFrom))
+			.first();
+		if (row) await db.patch(row._id, { kcal: gh.kcal });
+		else await db.insert("clientGoalHistory", { userId: demoId, kcal: gh.kcal, effectiveFrom: gh.effectiveFrom, createdBy: coachId, createdAt: now });
 	}
 
 	// 4) Données journalières — TOUTES les dates portent le préfixe de la

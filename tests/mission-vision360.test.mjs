@@ -397,9 +397,11 @@ test('client360 : Vision 360 LIVE — today parisien, JAMAIS l’horloge serveur
 });
 
 test('client360 : le cockpit sert la moyenne avec garde-fou + partialExcluded + thresholdKcal', () => {
-	assert.ok(coach.includes('foodAverages(foodTotals, days, goalKcal360)'), 'calories ET protéines passent par le même calcul');
+	// HISTORISATION : le garde-fou est évalué avec l’objectif de CE jour-là
+	// (goalForDay résout l’historique), pas l’objectif courant global.
+	assert.ok(coach.includes('foodAverages(foodTotals, days, goalForDay)'), 'calories ET protéines passent par le même calcul (objectif daté)');
 	assert.ok(coach.includes('partialExcluded: food360.breakdown.partialDays'), 'journées partielles exclues exposées');
-	assert.ok(coach.includes('thresholdKcal: exploitabilityThresholdKcal(goalKcal360)'), 'seuil exposé (transparence du garde-fou)');
+	assert.ok(coach.includes('thresholdKcal: exploitabilityThresholdKcal(caloriesGoal360)'), 'seuil exposé (objectif du cockpit, daté)');
 	assert.ok(coach.includes('avg: weight360.avg') && coach.includes('prevLast: weight360.last' ) === false, 'poids : structure vision (avg/last/prevLast/delta)');
 	assert.ok(coach.includes('prevDate: mens360?.prevDate ?? null'), 'mensurations : date du relevé précédent exposée');
 });
