@@ -873,6 +873,19 @@
 			<p class="mb-3 rounded-xl border-2 border-danger bg-danger-light px-3 py-2 text-xs font-semibold text-danger">{err}</p>
 		{/if}
 
+		{#if mode === 'libre' && timerKind === 'rest'}
+			<!-- ── Repos (mode manuel) : compte à rebours de la série validée — Passer/fermer, jamais bloquant ── -->
+			<div class="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-brand/40 bg-brand-light/60 px-4 py-3">
+				<p class="flex items-center gap-2 text-sm font-bold text-ink">
+					<span class="h-2 w-2 animate-pulse rounded-full bg-brand"></span>
+					Repos · <span class="tabular-nums">{fmtTimer(timerLeft)}</span>
+				</p>
+				<button type="button" onclick={stopTimer} class="rounded-full bg-ink px-3 py-1 text-[11px] font-bold text-white transition hover:bg-brand">
+					Passer
+				</button>
+			</div>
+		{/if}
+
 		<!-- ═══════════ MODE LIBRE ═══════════ -->
 		{#if mode === 'libre'}
 			{#each phasesOf(data.exercises) as phase (phase)}

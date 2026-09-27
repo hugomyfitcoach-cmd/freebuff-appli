@@ -227,6 +227,11 @@ test('UX 2 : repos automatique en mode manuel après validation d\u2019une séri
 	assert.ok(toggle.includes('if (next)'), 'décocher ne relance jamais le repos');
 	assert.ok(toggle.includes('isLastSet && isLastEx'), 'pas de repos après la toute dernière série');
 	assert.ok(toggle.includes('rest > 0'), 'repos uniquement s\u2019il est prescrit');
+	// UI : bandeau repos visible dans le mode libre avec compte à rebours + Passer.
+	assert.ok(/mode === 'libre' && timerKind === 'rest'/.test(runner), 'bandeau repos dédié au mode manuel');
+	assert.ok(runner.includes('Repos · '), 'compte à rebours affiché');
+	const restBanner = runner.slice(runner.indexOf("mode === 'libre' && timerKind === 'rest'"), runner.indexOf('<!-- ═══════════ MODE LIBRE'));
+	assert.ok(restBanner.includes('onclick={stopTimer}'), 'bouton « Passer » arrête le timer (fermeture possible)');
 });
 
 test('UX 3 : chrono global de séance basé sur startedAt persisté', () => {
