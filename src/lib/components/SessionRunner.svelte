@@ -293,7 +293,6 @@
 					if (s.kind === 'success') {
 						diagStep('DATA ASSIGNED');
 						applyLoadedSession(s.data as Data);
-						diagStep(`RENDER READY · loading=${loading} data=${!!data} err='${err}' mode=${mode}`);
 					} else {
 						// Erreur applicative (séance introuvable…) OU transport :
 						// message lisible, jamais de stack technique.
@@ -308,6 +307,7 @@
 			err = SESSION_LOAD_ERROR_MESSAGE;
 		} finally {
 			if (!ctl.signal.aborted) loading = false; // GARANTI après succès ou échec définitif
+			diagStep(`FIN DE CYCLE · loading=${loading} data=${!!data} err='${err.slice(0, 30)}' mode=${mode}`);
 		}
 	}
 
