@@ -581,10 +581,11 @@ export const completeSession = mutation({
  *   recalculée sur la nouvelle durée ;
  * - idempotent : sur une séance non terminée, l'appel est un no-op.
  *
- * Durée : startedAt est réarmé à now → la prochaine complétion mesure la
- * prochaine fenêtre réellement « en cours », jamais le temps écoulé entre
- * les deux ouvertures (le front repart aussi de zéro). completedAt, durée,
- * difficulté et note sont effacés (réévalués à la nouvelle clôture).
+ * Durée : startedAt est réarmé en arrière du temps réellement accumulé
+ * (startedAt − durationMin×60 000) → la prochaine complétion mesure la
+ * somme des fenêtres actives, jamais le temps mort entre les deux ouvertures.
+ * completedAt, durée, difficulté et note sont effacés (réévalués à la
+ * nouvelle clôture).
  */
 export const reopenSession = mutation({
 	args: {
@@ -614,9 +615,14 @@ export const reopenSession = mutation({
 			difficulty: undefined,
 			note: undefined,
 			skippedAt: undefined,
-			startedAt: now,
+			// Fenêtre active : repart juste avant la fin réelle de la 1re
+			// complétion. Le temps entre les deux ouvertures n'est JAMAIS
+			// compté, mais le temps réellement travaillé AVANT l'erreur l'est
+			// (durée totale = somme des fenêtres actives, dans startedAt/
+			// completedAt existants — aucun champ de schéma en plus).
+			startedAt: Math.max(0, (s.startedAt ?? now) - (s.durationMin ?? 0) * 60_000),
 		});
-		return { ok: true, reopened: true, startedAt: now };
+		return { ok: true, reopened: true, startedAt: Math.max(0, (s.startedAt ?? now) - (s.durationMin ?? 0) * 60_000) };
 	},
 });
 

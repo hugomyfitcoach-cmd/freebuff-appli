@@ -285,7 +285,7 @@ test('UX 5c : réouverture = la MÊME séance (aucun doublon possible)', () => {
 test('UX 5d : durée à la reprise — chrono réarmé, le temps inter-ouvertures n\'est jamais compté', () => {
 	const convex = readFileSync(join(root, 'src/convex/trainingClient.ts'), 'utf8');
 	const reopenBody = convex.slice(convex.indexOf('export const reopenSession'), convex.indexOf('export const updateSessionDuration'));
-	assert.ok(reopenBody.includes('startedAt: now'), 'startedAt réarmé à la réouverture (base du chrono = réouverture)');
+	assert.ok(reopenBody.includes('(s.startedAt ?? now) - (s.durationMin ?? 0) * 60_000'), 'startedAt réarmé = fin de la fenêtre active précédente — le temps mort inter-ouvertures n\'est JAMAIS compté, le temps réellement travaillé reste acquis');
 	assert.ok(reopenBody.includes('durationMin: undefined'), 'durée de la 1re complétion effacée (recalculée à la nouvelle clôture)');
 	const applyLoaded = runner.slice(runner.indexOf('function applyLoadedSession'), runner.indexOf('async function loadSession'));
 	assert.ok(applyLoaded.includes('startedAt = data.scheduled.startedAt'), 'chrono front repart du startedAt PERSISTÉ backend');
