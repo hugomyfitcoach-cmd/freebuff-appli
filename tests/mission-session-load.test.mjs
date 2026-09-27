@@ -154,7 +154,7 @@ test('Démontage (abort externe) : la promesse sort sans toucher l\u2019état ni
 /* ─── 3) SessionRunner : câblage et écran d'erreur ─── */
 
 test('SessionRunner : chargement via le helper résilient (plus de fetch nu sans timeout)', () => {
-	assert.ok(runner.includes("from '$lib/sessionLoad.ts'"), 'le helper est importé');
+	assert.ok(runner.includes("from '$lib/sessionLoad'"), 'le helper est importé');
 	assert.ok(runner.includes('loadScheduledSession(scheduledId'), 'le chemin passe par le helper');
 	assert.ok(!/await fetch\(`\/api\/training\/session\/\$\{scheduledId\}`\)/.test(runner), 'plus aucun fetch nu du chargement');
 });
