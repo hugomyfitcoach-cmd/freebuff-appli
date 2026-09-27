@@ -207,6 +207,7 @@
 	let recap = $state<null | {
 		durationMin: number;
 		setsDone: number;
+		setsTotal: number;
 		exDone: number;
 		exTotal: number;
 		volumeKg: number;
@@ -216,6 +217,9 @@
 	let clientNote = $state('');
 	let finishing = $state(false);
 	let confirmPartial = $state(false);
+	/* Réouverture d'une séance terminée par erreur (depuis le récap lecture seule). */
+	let reopenConfirm = $state(false);
+	let reopening = $state(false);
 
 	/* ── Démarrage RÉEL (bouton « Commencer la séance ») — ouvrir/consulter
 	   la séance ne démarre RIEN. startedAt est persisté backend (survit au
@@ -288,17 +292,20 @@
 				prefilled[draftKey(ex._id, st.order)] = buildDraft(ex, st.order);
 			}
 		}
-		drafts = prefilled;			if (data.scheduled.status === 'completed') {
-				alreadyCompleted = true;
-				mode = 'recap';
-				buildRecap(data.scheduled.durationMin ?? null);
-			} else if (data.scheduled.startedAt) {
-				// Reprise d'une séance commencée (app fermée, verrouillage…) :
-				// l'état backend est retrouvé, aucun chronomètre n'est perdu.
-				sessionStarted = true;
-				startedAt = data.scheduled.startedAt;
-				startElapsed();
-			}
+		drafts = prefilled;
+		if (data.scheduled.status === 'completed') {
+			alreadyCompleted = true;
+			mode = 'recap';
+			buildRecap(data.scheduled.durationMin ?? null);
+		} else if (data.scheduled.startedAt) {
+			// Reprise d'une séance commencée (app fermée, verrouillage…) — et
+			// reprise APRÈS réouverture d'une séance terminée par erreur. Dans
+			// les deux cas startedAt PERSISTÉ backend est la base du chrono ;
+			// une réouverture l'ayant réarmé, le chrono repart de zéro.
+			sessionStarted = true;
+			startedAt = data.scheduled.startedAt;
+			startElapsed();
+		}
 	}
 
 	async function loadSession() {
@@ -505,9 +512,13 @@
 		nextStep();
 	}
 
-	/* ── Fin de séance ── */
-	function completionStatus(): { exDone: number; exTotal: number; setsDone: number } {
-		if (!data) return { exDone: 0, exTotal: 0, setsDone: 0 };
+	/* ── Fin de séance ──
+	   Séance « manifestement incomplète » : aucune série validée, ou très peu
+	   (< 25 % du programme) → confirmation renforcée avant Terminer. */
+	const FEW_SETS_RATIO = 0.25;
+	const totalSets = $derived(data?.exercises.reduce((n, e) => n + e.sets.length, 0) ?? 0);
+	function completionStatus(): { exDone: number; exTotal: number; setsDone: number; setsTotal: number } {
+		if (!data) return { exDone: 0, exTotal: 0, setsDone: 0, setsTotal: 0 };
 		let exDone = 0;
 		let setsDone = 0;
 		for (const ex of data.exercises) {
@@ -515,7 +526,7 @@
 			if (doneSets > 0) exDone += 1;
 			setsDone += doneSets;
 		}
-		return { exDone, exTotal: data.exercises.length, setsDone };
+		return { exDone, exTotal: data.exercises.length, setsDone, setsTotal: totalSets };
 	}
 	function buildRecap(actualDurationMin: number | null) {
 		if (!data) return;
@@ -540,14 +551,18 @@
 				break;
 			}
 		}
-		recap = { durationMin, setsDone: st.setsDone, exDone: st.exDone, exTotal: st.exTotal, volumeKg: volume, progression };
+		recap = { durationMin, setsDone: st.setsDone, setsTotal: st.setsTotal, exDone: st.exDone, exTotal: st.exTotal, volumeKg: volume, progression };
 	}
 
-	/** Étape 1 : « Terminer la séance » → résumé local (avec confirm si partiel). */
+	/** Étape 1 : « Terminer la séance » → résumé local.
+	 * Séance manifestement incomplète (aucune série validée, ou très peu par
+	 * rapport au programme) → confirmation RENFORCÉE : un faux « Terminer »
+	 * n'enregistre jamais une séance vide sans avertissement explicite. */
 	function requestFinish() {
 		if (!data) return;
 		const st = completionStatus();
-		if (st.exDone < st.exTotal) {
+		const sparse = st.setsDone === 0 || (totalSets > 0 && st.setsDone / totalSets < FEW_SETS_RATIO);
+		if (st.exDone < st.exTotal || sparse) {
 			confirmPartial = true;
 			return;
 		}
@@ -613,6 +628,40 @@
 			err = "Impossible d'enregistrer — réessaie.";
 		} finally {
 			finishing = false;
+		}
+	}
+
+	/* ── Réouverture d'une séance terminée PAR ERREUR (rattrapage) ──
+	   L'occurrence (scheduledId) reste LA MÊME : statut completed → planned,
+	   séries déjà renseignées conservées, dépense sportive liée supprimée
+	   (la complétion suivante en recrée UNE seule, recalculée). startedAt est
+	   réarmé côté backend à l'instant de la réouverture → le chrono repart de
+	   zéro et le temps écoulé entre les deux ouvertures n'est JAMAIS compté
+	   comme durée d'entraînement. Aucune nouvelle séance, aucun doublon. */
+	async function reopenFinishedSession() {
+		if (reopening) return;
+		reopening = true;
+		err = '';
+		try {
+			const r = await fetch(`/api/training/session/${scheduledId}`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ reopen: true }),
+			}).then((x) => x.json());
+			if (r.error) throw new Error(r.error);
+			// Rechargement complet de la MÊME occurrence (mêmes séries) :
+			// scheduled.startedAt réarmé devient la nouvelle base du chrono.
+			alreadyCompleted = false;
+			recap = null;
+			mode = 'libre';
+			reopenConfirm = false;
+			await loadSession();
+		} catch {
+			// La feuille reste ouverte : l'erreur est affichée dedans, la
+			// cliente peut réessayer sans rien perdre.
+			err = "Impossible de rouvrir la séance — réessaie.";
+		} finally {
+			reopening = false;
 		}
 	}
 
@@ -735,6 +784,11 @@
 					<Icon name="trophy" size={15} class="text-warn" /> {recap.progression}
 				</p>
 			{/if}
+			{#if alreadyCompleted}
+				<p class="mt-3 rounded-xl bg-line/40 px-4 py-2.5 text-sm font-semibold text-mist">
+					{recap.setsDone}/{recap.setsTotal} séries réalisées
+				</p>
+			{/if}
 
 			{#if !alreadyCompleted}
 				<!-- Durée : modifiable avant validation (durée cohérente = aucune friction) -->
@@ -784,10 +838,20 @@
 					</button>
 				</div>
 			{:else}
+				<!-- Séance réalisée (lecture seule) : correction d'erreur possible,
+				     action discrète — la réouverture exige une confirmation. -->
+				<button
+					type="button"
+					onclick={() => (reopenConfirm = true)}
+					disabled={reopening}
+					class="mt-3 w-full rounded-xl border-2 border-line bg-card px-5 py-2.5 text-sm font-semibold text-ink transition hover:border-brand disabled:opacity-60"
+				>
+					<Icon name="pencil" size={14} class="mr-1 inline text-mist" /> Reprendre / modifier la séance
+				</button>
 				<button
 					type="button"
 					onclick={closeRunner}
-					class="mt-5 w-full rounded-xl bg-ink px-5 py-3 text-sm font-bold text-white transition hover:bg-brand"
+					class="mt-2 w-full rounded-xl bg-ink px-5 py-3 text-sm font-bold text-white transition hover:bg-brand"
 				>
 					Retour à l'entraînement
 				</button>
@@ -1298,7 +1362,7 @@
 	</div>
 {/if}
 
-<!-- Confirmation « terminer partiellement » -->
+<!-- Confirmation « terminer une séance incomplète » : avertissement RENFORCÉ si aucune série validée — un faux « Terminer » ne doit jamais passer sans un vrai choix. Bouton primaire = continuer (action sûre par défaut). -->
 {#if confirmPartial && data}
 	<div
 		class="fixed inset-0 z-[60] grid place-items-end bg-ink/50 p-4 sm:place-items-center"
@@ -1308,20 +1372,61 @@
 		}}
 	>
 		<div class="w-full max-w-sm rounded-3xl bg-white p-5 shadow-xl">
-			<h3 class="font-display text-lg font-semibold text-ink">Terminer quand même ?</h3>
-			<p class="mt-1 text-sm text-mist">
-				{completionStatus().exDone} exercices sur {completionStatus().exTotal} renseignés. Ta séance sera enregistrée telle quelle.
-			</p>
+			{#if completionStatus().setsDone === 0}
+				<h3 class="font-display text-lg font-semibold text-ink">Terminer sans aucune série ?</h3>
+				<p class="mt-1 rounded-xl bg-warn-light px-3 py-2.5 text-sm font-medium text-ink">
+					Tu n'as pas encore terminé toutes tes séries. Veux-tu vraiment terminer cette séance ?
+				</p>
+			{:else}
+				<h3 class="font-display text-lg font-semibold text-ink">Terminer quand même ?</h3>
+				<p class="mt-1 text-sm text-mist">
+					{completionStatus().exDone} exercices sur {completionStatus().exTotal} renseignés · {completionStatus().setsDone}/{completionStatus().setsTotal} séries. Ta séance sera enregistrée telle quelle.
+				</p>
+			{/if}
 			<div class="mt-4 grid gap-2">
 				<button
 					type="button"
-					onclick={confirmFinishPartial}
+					onclick={() => (confirmPartial = false)}
 					class="rounded-xl bg-brand px-5 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark"
 				>
-					Oui, terminer la séance
+					Continuer ma séance
 				</button>
-				<button type="button" onclick={() => (confirmPartial = false)} class="rounded-xl border-2 border-line px-5 py-2.5 text-sm font-semibold text-ink">
-					Continuer la séance
+				<button type="button" onclick={confirmFinishPartial} class="rounded-xl border-2 border-line px-5 py-2.5 text-sm font-semibold text-ink transition hover:border-danger hover:text-danger">
+					Terminer quand même
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Confirmation de RÉOUVERTURE d'une séance terminée par erreur : la même séance repasse « en cours », séries conservées, aucun doublon — jamais automatique. -->
+{#if reopenConfirm && data}
+	<div
+		class="fixed inset-0 z-[60] grid place-items-end bg-ink/50 p-4 sm:place-items-center"
+		role="presentation"
+		onclick={(e) => {
+			if (e.target === e.currentTarget) reopenConfirm = false;
+		}}
+	>
+		<div class="w-full max-w-sm rounded-3xl bg-white p-5 shadow-xl">
+			<h3 class="font-display text-lg font-semibold text-ink">Reprendre la séance ?</h3>
+			<p class="mt-1 text-sm text-mist">
+				Ta séance repasse « en cours » : corrige ou complète tes séries, puis termine-la à nouveau. C'est LA MÊME séance — rien n'est dupliqué, l'historique sera simplement mis à jour.
+			</p>
+			{#if err}
+				<p class="mt-2 rounded-lg bg-danger-light px-3 py-2 text-xs font-semibold text-danger">{err}</p>
+			{/if}
+			<div class="mt-4 grid gap-2">
+				<button
+					type="button"
+					disabled={reopening}
+					onclick={reopenFinishedSession}
+					class="rounded-xl bg-brand px-5 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
+				>
+					{reopening ? 'Réouverture…' : 'Oui, reprendre la séance'}
+				</button>
+				<button type="button" onclick={() => (reopenConfirm = false)} class="rounded-xl border-2 border-line px-5 py-2.5 text-sm font-semibold text-ink">
+					Annuler
 				</button>
 			</div>
 		</div>

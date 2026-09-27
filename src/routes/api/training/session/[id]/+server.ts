@@ -86,6 +86,8 @@ export const GET: RequestHandler = async (event) => {
 /**
  * Fin de séance — même parcours depuis le mode libre ou le guidé.
  * `skipped: true` = « Je n'ai pas réalisé cette séance » (clôture sans dépense).
+ * `reopen: true` = réouverture d'une séance terminée par erreur (completed →
+ * planned, séries conservées, dépense neutralisée — jamais de doublon).
  */
 export const POST: RequestHandler = async (event) => {
 	const rid = Math.random().toString(36).slice(2, 10);
@@ -98,26 +100,40 @@ export const POST: RequestHandler = async (event) => {
 			log('bad-request POST', rid, { ms: Date.now() - t0 });
 			return json({ error: 'Séance introuvable.' }, { status: 400 });
 		}
-		try {
-			const body = await event.request.json();
-			log('convex-start POST', rid);
-			const tConvex = Date.now();
+	try {
+		const body = await event.request.json();
+		log('convex-start POST', rid);
+		const tConvex = Date.now();
+		if (body.reopen === true) {
+			// Réouverture d'une séance terminée par erreur : completed → planned,
+			// séries conservées, dépense sportive liée neutralisée (aucun doublon).
 			await withTimeout(
-				convex.mutation(api.trainingClient.completeSession, {
+				convex.mutation(api.trainingClient.reopenSession, {
 					sessionToken: token,
 					scheduledId: id as never,
-					...(body.durationMin !== undefined ? { durationMin: Number(body.durationMin) } : {}),
-					...(body.difficulty !== undefined ? { difficulty: Number(body.difficulty) } : {}),
-					...(body.note !== undefined ? { note: String(body.note) } : {}),
-					...(body.skipped === true ? { skipped: true } : {}),
 				}),
 				CONVEX_TIMEOUT_MS,
 				rid
 			);
-			log('convex-end POST', rid, { convexMs: Date.now() - tConvex });
-			log('respond POST', rid, { status: 200, totalMs: Date.now() - t0 });
-			return json({ ok: true });
-		} catch (e) {
+			log('respond POST', rid, { status: 200, totalMs: Date.now() - t0, reopen: true });
+			return json({ ok: true, reopened: true, startedAt: Date.now() });
+		}
+		await withTimeout(
+			convex.mutation(api.trainingClient.completeSession, {
+				sessionToken: token,
+				scheduledId: id as never,
+				...(body.durationMin !== undefined ? { durationMin: Number(body.durationMin) } : {}),
+				...(body.difficulty !== undefined ? { difficulty: Number(body.difficulty) } : {}),
+				...(body.note !== undefined ? { note: String(body.note) } : {}),
+				...(body.skipped === true ? { skipped: true } : {}),
+			}),
+			CONVEX_TIMEOUT_MS,
+			rid
+		);
+		log('convex-end POST', rid, { convexMs: Date.now() - tConvex });
+		log('respond POST', rid, { status: 200, totalMs: Date.now() - t0 });
+		return json({ ok: true });
+	} catch (e) {
 			const msg = errMsg(e);
 			const isTimeout = /timeout/i.test(msg);
 			log('convex-error POST', rid, { ms: Date.now() - t0, isTimeout, error: msg });

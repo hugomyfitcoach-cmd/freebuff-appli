@@ -241,6 +241,57 @@ test('UX 3 : chrono global de séance basé sur startedAt persisté', () => {
 	assert.ok(runner.includes('elapsedLabel'), 'label dérivé horodaté');
 });
 
+/* ─── UX 5 : fin de séance sécurisée (confirmation renforcée + réouverture d'erreur) ─── */
+
+test('UX 5a : confirmation RENFORCÉE quand 0 série validée avant « Terminer »', () => {
+	const requestFinish = runner.slice(runner.indexOf('function requestFinish'), runner.indexOf('function confirmFinishPartial'));
+	assert.ok(requestFinish.includes('setsDone === 0'), '0 série validée déclenche la confirmation (jamais de récap direct)');
+	assert.ok(requestFinish.includes('FEW_SETS_RATIO'), 'très peu de séries déclenche aussi la confirmation');
+	const sheet = runner.slice(runner.indexOf('{#if confirmPartial && data}'), runner.indexOf('<!-- Confirmation de RÉOUVERTURE'));
+	assert.ok(sheet.includes("Tu n'as pas encore terminé toutes tes séries. Veux-tu vraiment terminer cette séance ?"), 'message d\'avertissement explicite affiché');
+	assert.ok(sheet.includes('Continuer ma séance'), 'action « Continuer ma séance » présente');
+	assert.ok(sheet.includes('Terminer quand même'), 'action « Terminer quand même » présente (droit conservé)');	// Sûr par défaut : le bouton PRIMAIRE (vert) annule — « Terminer quand même » est secondaire.
+	const primary = sheet.indexOf('bg-brand');
+	assert.ok(primary > 0 && sheet.slice(primary - 300, primary).includes('confirmPartial = false'), 'bouton primaire = Continuer (annule la feuille)');
+	assert.ok(sheet.includes('onclick={confirmFinishPartial} class="rounded-xl border-2 border-line'), '« Terminer quand même » = bouton secondaire discret (jamais primaire)');
+});
+
+test('UX 5b : récap d\u2019une séance déjà terminée = lecture seule + action discrète de correction', () => {
+	const recapBlock = runner.slice(runner.indexOf("{#if mode === 'recap' && recap}"), runner.indexOf('<!-- Confirmation de RÉOUVERTURE'));
+	assert.ok(recapBlock.includes("Reprendre / modifier la séance"), 'bouton discret « Reprendre / modifier la séance » présent');
+	assert.ok(recapBlock.includes('reopenConfirm = true'), 'la réouverture exige une confirmation (jamais automatique)');
+	assert.ok(recapBlock.includes('setsDone}/{recap.setsTotal} séries réalisées'), 'résumé lisible : N/N séries réalisées affiché');
+	// La modification de durée / difficulté reste masquée en lecture seule.
+	assert.ok(recapBlock.includes('{#if !alreadyCompleted}'), 'bloc édition (durée/difficulté/note) toujours conditionné');
+});
+
+test('UX 5c : réouverture = la MÊME séance (aucun doublon possible)', () => {
+	const reopen = runner.slice(runner.indexOf('async function reopenFinishedSession'), runner.indexOf('/** Étape 2 : « Enregistrer et fermer »'));
+	assert.ok(reopen.includes("JSON.stringify({ reopen: true })"), 'frontend : POST reopen:true sur la MÊME occurrence (scheduledId)');
+	assert.ok(reopen.includes('await loadSession()'), 'rechargement complet de la séance (séries conservées)');
+	assert.ok(reopen.includes('alreadyCompleted = false'), 'retour en mode séance, pas en récap');
+	const bffPost = bff.slice(bff.indexOf('export const POST'), bff.indexOf('export const PATCH'));
+	assert.ok(bffPost.includes('body.reopen === true'), 'BFF : reopen routé vers la mutation dédiée');
+	assert.ok(bffPost.includes('api.trainingClient.reopenSession'), 'BFF : reopen → reopenSession (completeSession jamais appelé en reopen)');
+	const convex = readFileSync(join(root, 'src/convex/trainingClient.ts'), 'utf8');
+	assert.ok(convex.includes('export const reopenSession'), 'Convex : mutation reopenSession existe');
+	const reopenBody = convex.slice(convex.indexOf('export const reopenSession'), convex.indexOf('export const updateSessionDuration'));
+	assert.ok(reopenBody.includes('status !== "completed"'), 'idempotent : séance non terminée → no-op');
+	assert.ok(reopenBody.includes('by_trainingSession'), 'dépense sportive relue par l\'index anti-doublon');
+	assert.ok(reopenBody.includes('ctx.db.delete(dep._id)'), 'dépense sportive liée supprimée (la complétion suivante en recrée UNE)');
+	assert.ok(!reopenBody.includes('insert("trainingScheduledSessions"'), 'aucune nouvelle occurrence créée (jamais de doublon)');
+});
+
+test('UX 5d : durée à la reprise — chrono réarmé, le temps inter-ouvertures n\'est jamais compté', () => {
+	const convex = readFileSync(join(root, 'src/convex/trainingClient.ts'), 'utf8');
+	const reopenBody = convex.slice(convex.indexOf('export const reopenSession'), convex.indexOf('export const updateSessionDuration'));
+	assert.ok(reopenBody.includes('startedAt: now'), 'startedAt réarmé à la réouverture (base du chrono = réouverture)');
+	assert.ok(reopenBody.includes('durationMin: undefined'), 'durée de la 1re complétion effacée (recalculée à la nouvelle clôture)');
+	const applyLoaded = runner.slice(runner.indexOf('function applyLoadedSession'), runner.indexOf('async function loadSession'));
+	assert.ok(applyLoaded.includes('startedAt = data.scheduled.startedAt'), 'chrono front repart du startedAt PERSISTÉ backend');
+	assert.ok(runner.includes('sessionStarted ? Date.now() - startedAt : Date.now() - startedAt'), 'durée détectée = fenêtre en cours uniquement');
+});
+
 test('UX 4 : « Terminer » accessible depuis le header + confirmation existante réutilisée', () => {
 	assert.ok(/Terminer\s*</.test(runner), 'bouton court dans le header');
 	const header = runner.slice(runner.indexOf('HEADER séance'), runner.indexOf('<!-- ═══════════ MODE LIBRE'));
@@ -269,6 +320,6 @@ test('BFF : appel Convex borné par un timeout — la requête ne peut jamais re
 	assert.ok(bff.includes('CONVEX_TIMEOUT_MS'), 'constante de timeout Convex définie');
 	assert.ok(bff.includes('withTimeout('), 'tous les appels Convex passent par withTimeout');
 	const withTimeoutCalls = (bff.match(/withTimeout\(/g) ?? []).length;
-	assert.equal(withTimeoutCalls, 3, 'GET + POST + PATCH protégés (la définition ne contient pas la parenthèse immédiate)');
+	assert.equal(withTimeoutCalls, 4, 'GET + POST (compléter) + POST (réouvrir) + PATCH tous protégés');
 	assert.ok(bff.includes("status: isTimeout ? 502"), 'timeout → 502 JSON (transport réessayable côté client), jamais un pend');
 });
