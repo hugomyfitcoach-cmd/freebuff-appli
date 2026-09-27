@@ -2042,7 +2042,7 @@
 					</div>
 					{#if calBars.some((b) => b.value != null)}
 						<div class="mt-3">
-							<WeeklyTrendChart bars={calBars} goal={goalKcal} avg={weekAvg} fmt={fmtN} ariaLabel="Calories de la semaine" />
+							<WeeklyTrendChart bars={calBars} goal={view?.cockpit?.calories?.goal ?? goalKcal} avg={weekAvg} fmt={fmtN} ariaLabel="Calories de la semaine" />
 						</div>
 						<div class="mt-2 flex items-start gap-1.5 rounded-xl bg-brand-light px-4 py-2.5 text-xs text-ink">
 							<Icon name="ruler" size={13} class="mt-0.5 shrink-0" /> <span><strong>Moyenne constatée : {weekAvg} kcal/jour</strong> sur {cockpit?.calories?.trackedDays ?? loggedDays} jour(s) exploitable(s) — 7 journées TERMINÉES (J-7 → J-1, aujourd'hui exclu), jours trop incomplètement renseignés exclus du calcul (seuil {cockpit?.calories?.thresholdKcal ?? 960} kcal = max(800, 60 % de l'objectif){cockpit?.calories?.partialExcluded ? ` · ${cockpit.calories.partialExcluded} journée(s) partielle(s) exclue(s)` : ''} — le Journal reste intact ; objectif (dernier jour de la fenêtre) : {view?.cockpit?.calories?.goal ?? goalKcal} kcal).</span>
