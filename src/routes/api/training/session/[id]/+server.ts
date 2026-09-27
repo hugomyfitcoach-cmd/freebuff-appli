@@ -63,7 +63,9 @@ export const GET: RequestHandler = async (event) => {
 			);
 			log('convex-end', rid, { convexMs: Date.now() - tConvex });
 			log('respond', rid, { status: 200, totalMs: Date.now() - t0 });
-			return json(res);
+			// diagRid : corrélation client ↔ logs fonction (retrouvable dans
+			// Netlify UI par recherche du rid) — retiré avec l'instrumentation.
+			return json({ ...res, diagRid: rid });
 		} catch (e) {
 			const msg = errMsg(e);
 			const isTimeout = /timeout/i.test(msg);

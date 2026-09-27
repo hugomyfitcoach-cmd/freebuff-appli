@@ -220,18 +220,21 @@
 	let loadController: AbortController | null = null;
 
 	/* ── Instrumentation DIAGNOSTIC (temporaire, mission « Chargement ») ──
-	   Encart visible en haut d'écran : prouve QUEL bundle tourne (empreinte
-	   de build), combien de tentatives ont eu lieu et où la dernière en est.
-	   À retirer une fois la cause confirmée côté iPhone. */
-	let diag = $state({ build: BUILD_VERSION, attempts: 0, phase: 'idle', note: '', online: true });
-	function diagSet(patch: Partial<typeof diag>) {
-		diag = { ...diag, ...patch };
+	   Trace visible ÉTAPE PAR ÉTAPE du parcours de chargement, affichée en
+	   haut d'écran (dernière étape atteinte = ligne la plus récente).
+	   Étapes : MOUNT OK → FETCH START → FETCH RESPONSE (status) → JSON PARSED
+	   → DATA ASSIGNED → RENDER READY — ou FETCH TIMEOUT / FETCH ERROR /
+	   JS ERROR / ABORT EXTERNE. À retirer une fois la cause confirmée. */
+	let diagSteps = $state<string[]>([
+		`INIT · build ${BUILD_VERSION.slice(-6)} · ${typeof navigator !== 'undefined' && navigator.onLine ? 'en ligne' : 'HORS LIGNE'}`,
+	]);
+	function diagStep(msg: string) {
+		diagSteps = [...diagSteps, `${new Date().toLocaleTimeString('fr-FR', { hour12: false })} ${msg}`];
 	}
-	const diagVisibility = () => diagSet({ online: navigator.onLine });
+	const diagVisibility = () => diagStep(navigator.onLine ? 'VISIBILITÉ · en ligne' : 'VISIBILITÉ · HORS LIGNE');
 	if (typeof navigator !== 'undefined') {
-		diag.online = navigator.onLine;
 		document.addEventListener('visibilitychange', diagVisibility);
-		navigator.serviceWorker?.getRegistration?.().then((r) => diagSet({ note: r?.active ? 'SW actif' : 'sans SW' }));
+		navigator.serviceWorker?.getRegistration?.().then((r) => diagStep(r?.active ? 'SW ACTIF' : 'SANS SW'));
 	}
 
 	function applyLoadedSession(r: Data) {
@@ -256,26 +259,28 @@
 		loading = true;
 		err = '';
 		data = null;
-		diagSet({ attempts: diag.attempts + 1, phase: 'fetch…', note: `${navigator.onLine ? 'en ligne' : 'HORS LIGNE'} · tentative ${diag.attempts + 1}` });
+		diagStep('LOAD SESSION (timeout 15 s + 1 retry)');
 		try {
 			await loadScheduledSession(scheduledId, {
 				signal: ctl.signal,
+				trace: (m) => diagStep(m),
 				setState: (s) => {
 					if (ctl.signal.aborted) return; // démontage : jamais de setState après
 					if (s.kind === 'success') {
-						diagSet({ phase: 'succès' });
+						diagStep('DATA ASSIGNED');
 						applyLoadedSession(s.data as Data);
+						diagStep('RENDER READY');
 					} else {
 						// Erreur applicative (séance introuvable…) OU transport :
 						// message lisible, jamais de stack technique.
-						diagSet({ phase: s.kind === 'appError' ? 'erreur séance' : 'erreur réseau' });
+						diagStep(s.kind === 'appError' ? `APP ERROR: ${s.message.slice(0, 40)}` : 'TRANSPORT ERROR (final)');
 						err = s.message || SESSION_LOAD_ERROR_MESSAGE;
 					}
 				},
 			});
 		} catch (e) {
 			if (ctl.signal.aborted) return; // démontage / rechargement : silence
-			diagSet({ phase: 'abandon après retry' });
+			diagStep('JS ERROR (après retry)');
 			err = SESSION_LOAD_ERROR_MESSAGE;
 		} finally {
 			if (!ctl.signal.aborted) loading = false; // GARANTI après succès ou échec définitif
@@ -283,13 +288,24 @@
 	}
 
 	onMount(() => {
+		diagStep('MOUNT OK');
 		void loadSession();
 	});
+
+	/* Échappatoire de diagnostic : si l'écran de chargement tient encore
+	   20 s après le montage, un bouton « Passer l'attente » force l'affichage
+	   de la trace complète et du bouton Réessayer (jusqu'ici : preuve que le
+	   timeout JS ne s'est pas exécuté). */
+	let diagForced = $state(false);
+	const diagTimeout = setTimeout(() => {
+		if (loading) diagStep('⚠ 20 s ÉCOULÉES — timeout JS non déclenché ?');
+	}, 20_000);
 
 	onDestroy(() => {
 		loadController?.abort();
 		loadController = null;
 		if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', diagVisibility);
+		clearTimeout(diagTimeout);
 	});
 
 	/* ── Écriture d'une série (LES DEUX MODES) ── */
@@ -603,9 +619,12 @@
 </script>
 
 <div class="mx-auto w-full max-w-md px-4 pb-8 pt-3">
-	<!-- Instrumentation diagnostic (temporaire) : build réellement exécuté + état du chargement -->
+	<!-- Instrumentation diagnostic (temporaire) : trace étape par étape du chargement -->
 	<div class="mb-2 rounded-xl border border-warn/60 bg-warn-light/70 px-3 py-1.5 font-mono text-[10px] leading-snug text-ink" role="status">
-		<span class="font-bold">DIAG</span> · build {diag.build.slice(-6)} · {diag.note || diag.phase}
+		<span class="font-bold">DIAG</span>
+		{#each diagSteps as step, i (i)}
+			<div class="truncate">{step}</div>
+		{/each}
 	</div>
 	<!-- ═══════════ RECAP (résumé de fin / séance déjà réalisée) ═══════════ -->
 	{#if mode === 'recap' && recap}
@@ -700,6 +719,29 @@
 		</div>
 	{:else if loading}
 		<p class="py-16 text-center text-sm text-mist">Chargement de la séance…</p>
+		{#if diagSteps.length > 2}
+			<div class="mx-auto max-w-xs rounded-xl border border-warn/60 bg-warn-light/70 px-3 py-2 font-mono text-[10px] leading-snug text-ink">
+				{#each diagSteps.slice(1) as step, i (i)}
+					<div class="truncate">{step}</div>
+				{/each}
+			</div>
+		{/if}
+		<button
+			type="button"
+			onclick={() => diagForced = true}
+			class="mx-auto mt-4 block rounded-xl border-2 border-line px-4 py-2 text-xs font-semibold text-mist"
+		>
+			Passer l'attente
+		</button>
+		{#if diagForced}
+			<div class="pt-10 text-center">
+				<p class="mx-auto max-w-xs rounded-xl border-2 border-danger bg-danger-light px-4 py-3 text-sm font-medium text-danger">{SESSION_LOAD_ERROR_MESSAGE}</p>
+				<button type="button" onclick={loadSession} class="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-5 py-3 text-sm font-bold text-white transition hover:bg-brand-dark">
+					<Icon name="rotateCcw" size={15} /> Réessayer
+				</button>
+				<button type="button" onclick={closeRunner} class="mt-2 w-full rounded-xl border-2 border-line px-5 py-2.5 text-sm font-semibold text-ink">Retour</button>
+			</div>
+		{/if}
 	{:else if err && !data}
 		<div class="pt-10 text-center">
 			<div class="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-danger-light">

@@ -59,6 +59,8 @@ export async function loadScheduledSession(
 		fetchFn?: typeof fetch;
 		signal?: AbortSignal;
 		setState?: (s: LoadState) => void;
+		/** Instrumentation diagnostic (temporaire) : étapes visibles à l'écran. */
+		trace?: (msg: string) => void;
 	} = {}
 ): Promise<void> {
 	const baseUrl = opts.baseUrl ?? '';
@@ -66,15 +68,23 @@ export async function loadScheduledSession(
 	const doFetch = opts.fetchFn ?? fetch;
 	const external = opts.signal ?? new AbortController().signal;
 	const setState = opts.setState ?? (() => {});
+	const trace = opts.trace ?? (() => {});
 
 	for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
 		if (external.aborted) throw new DOMException('Aborted', 'AbortError');
 		try {
+			trace(`FETCH START #${attempt}`);
 			const res = await attemptFetch(baseUrl, scheduledId, timeoutMs, doFetch, external);
 			if (external.aborted) throw new DOMException('Aborted', 'AbortError');
+			trace(`FETCH RESPONSE #${attempt} status=${res.status}`);
 			// Le parse peut échouer (HTML d'erreur du CDN, corps vide) OU PENDRE
 			// (corps jamais terminé) : timeout dessus aussi — transport réessayable.
 			const j = await readJsonWithTimeout(res, timeoutMs);
+			trace(
+				j === null
+					? `JSON PARSED #${attempt} ÉCHEC (corps illisible)`
+					: `JSON PARSED #${attempt} OK${typeof (j as { diagRid?: unknown }).diagRid === 'string' ? ` rid=${(j as { diagRid: string }).diagRid}` : ''}`
+			);
 			if (external.aborted) throw new DOMException('Aborted', 'AbortError');
 			if (j === null) throw new TransportError();
 			if (j && typeof j === 'object' && 'error' in j) {
@@ -92,8 +102,14 @@ export async function loadScheduledSession(
 		} catch (e) {
 			// Démontage (abort externe) : sortir immédiatement, sans toucher l'état.
 			if (external.aborted || (e instanceof DOMException && e.name === 'AbortError' && !isTransportAbort(e))) {
+				trace(`ABORT EXTERNE #${attempt} (démontage)`);
 				throw e;
 			}
+			trace(
+				e instanceof TransportError && e.message === 'timeout'
+					? `FETCH TIMEOUT #${attempt} (${Math.round(timeoutMs / 1000)} s écoulées)`
+					: `FETCH ERROR #${attempt}: ${(e instanceof Error ? e.message : String(e)).slice(0, 60)}`
+			);
 			// Dernière tentative : échec définitif → message utilisateur.
 			if (attempt === MAX_ATTEMPTS) {
 				throw new TransportError(SESSION_LOAD_ERROR_MESSAGE);
@@ -150,8 +166,9 @@ async function attemptFetch(
 	} catch (e) {
 		if (external.aborted) throw e; // démontage : tel quel
 		if (e instanceof DOMException && e.name === 'AbortError') {
-			// Raison = notre timer ? → transport réessayable. Sinon abort inconnu → idem.
-			throw new TransportError();
+			// Raison = NOTRE timer (TransportError posé par le setTimeout) ?
+			// → timeout réessayable. Sinon abort inconnu → transport aussi.
+			throw new TransportError(ac.signal.reason instanceof TransportError ? 'timeout' : 'abort');
 		}
 		// TypeError réseau, etc. → transport réessayable.
 		throw e instanceof TransportError ? e : new TransportError();
