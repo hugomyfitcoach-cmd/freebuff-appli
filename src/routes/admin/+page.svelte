@@ -274,18 +274,23 @@
 		return dates.length ? dates.sort()[dates.length - 1] : null;
 	});
 	const goalKcal = $derived(view?.goals?.kcal ?? 2000);
-	/** MOYENNE CALORIQUE (mission) : MÊME FONCTION que le backend et la
-	   cliente (lib/averages.ts) — 7 journées TERMINÉES J-7 → J-1, la journée
-	   partielle d'aujourd'hui ne l'enfonce JAMAIS ; jour sans données ≠ 0. */
+	/** VISION 360 LIVE — les données du cockpit sont servies déjà recalculées
+	   sur les 7 JOURNÉES CALENDAIRES COMPLÈTES (J-7 → J-1, Europe/Paris) au
+	   MOMENT de la consultation (client360 recalculé à chaque requête — photo
+	   live, jamais figée à la date d'envoi du bilan). Les replis locaux ci-
+	   dessous ne servent que pour un cachet serveur ancien, jamais aujourd'hui. */
+	const visionWindowInfo = $derived(
+		(view?.visionWindow ?? null) as { start: string; end: string; today: string } | null
+	);
 	const weekAvg = $derived.by(() => {
 		if (!view) return 0;
-		const served = view.weekAvgKcal;
-		// Cachet serveur déjà recalculé (J-7 → J-1) : il fait foi dès qu'il existe.
-		if (typeof served === 'number' && served > 0) return Math.round(served);
+		const served = cockpit?.calories?.avg;
+		// Moyenne LIVE (jours exploitables, garde-fou) servie par le backend.
+		if (typeof served === 'number' && served > 0) return served;
 		const days = (view.week ?? []) as { date: string; kcal: number; count: number }[];
 		return avgLast7Completed(days.map((d) => ({ date: d.date, value: d.count > 0 ? d.kcal : null })), todayISO()).avg ?? 0;
 	});
-	const kcalTrend = $derived(view && weekAvg > 0 ? Math.round(((weekAvg - goalKcal) / goalKcal) * 100) : 0);
+	const kcalTrend = $derived(view && weekAvg > 0 ? Math.round(((weekAvg - (view?.cockpit?.calories?.goal ?? goalKcal)) / (view?.cockpit?.calories?.goal ?? goalKcal)) * 100) : 0);
 	const loggedDays = $derived(view?.week?.filter((d: { count: number }) => d.count > 0).length ?? 0);
 
 	/** Barres calories des 7 JOURNÉES TERMINÉES (J-7 → J-1, le serveur sert
@@ -1017,26 +1022,26 @@
 		);
 		const n = groups.reduce((s: number, g: { photos: unknown[] }) => s + g.photos.length, 0);
 		return n > 0 ? { count: n } : null;
-	});
-	/** Protéines du cockpit — même agrégation que la carte Calories.
-	    Le calcul SOURCE (Convex) est déjà correct : `proteinByDay` est remplie
-	    dans la même boucle que `kcalByDay` (mêmes diaryEntries, même « jour
-	    suivi » = jour avec ≥ 1 aliment enregistré, moyenne ÷ jours suivis).
-	    Tant que le backend déployé n'expose pas `cockpit.protein` (push Convex
-	    pending), la carte recompose ce résultat à partir de `view.week` —
-	    la somme par jour des MÊMES diaryEntries, déjà servie en prod (les 7
-	    derniers jours glissants ≈ semaine du bilan en cours). Dès le push,
-	    la valeur servie (identique) reprend la main. */
+	});		/** Protéines du cockpit — moyenne LIVE sur les MÊMES jours exploitables
+	    que les calories (une seule définition d'une journée complète, garde-
+	    fou alimentaire). Repli local sur view.week pour un cachet ancien. */
 	const proteinCard = $derived.by(() => {
 		const served = cockpit?.protein;
 		const goal = served?.goal ?? view?.goals?.protein ?? 90;
-		if (served) return { avg: served.avg, goal, trackedDays: served.trackedDays };
+		if (served) return { avg: served.avg, goal, trackedDays: served.trackedDays, partialExcluded: served.partialExcluded ?? 0 };
 		const week = (view?.week ?? []) as { protein: number; count: number }[];
 		const tracked = week.filter((d) => d.count > 0);
-		if (tracked.length === 0) return { avg: null, goal, trackedDays: 0 };
+		if (tracked.length === 0) return { avg: null, goal, trackedDays: 0, partialExcluded: 0 };
 		const sum = tracked.reduce((s, d) => s + d.protein, 0);
-		return { avg: Math.round(sum / tracked.length), goal, trackedDays: tracked.length };
+		return { avg: Math.round(sum / tracked.length), goal, trackedDays: tracked.length, partialExcluded: 0 };
 	});
+	/** Dépense sportive LIVE : 7 journées complètes (J-7 → J-1) — activité
+	    d'aujourd'hui jamais incluse (partielle). Repli : bloc semaines. */
+	const sport7 = $derived((view?.sport7 ?? null) as { activities: number; durationMin: number; kcal: number; metMinutes: number; manualCount: number; trainingCount: number } | null);
+	const sportCard = $derived(sport7 ?? sport360);
+	/** Dates des deux pesées comparées (Vision 360 Poids). */
+	const weightLast = $derived((cockpit?.weight?.last ?? null) as { date: string; weightKg: number } | null);
+	const weightPrevLast = $derived((cockpit?.weight?.prevLast ?? null) as { date: string; weightKg: number } | null);
 	const cockpitPill = $derived.by(() => {
 		const b = cockpit?.bilan ?? null;
 		if (!b) return null;
@@ -1898,7 +1903,12 @@
 								<span class="text-sm font-bold {kcalTrend <= 5 ? 'text-brand' : 'text-warn'}">{kcalTrend > 0 ? '+' : ''}{kcalTrend} %</span>
 							{/if}
 						</div>
-						<div class="mt-1 text-[11px] text-mist">moyenne constatée · {loggedDays} jour(s) renseigné(s) sur 7 terminés · objectif {goalKcal}</div>
+						<div class="mt-1 text-[11px] text-mist">
+							moyenne constatée · {loggedDays} jour(s) renseigné(s) sur 7 terminés · objectif {(view?.cockpit?.calories?.goal ?? goalKcal).toLocaleString('fr-FR')} kcal
+							{#if view?.cockpit?.calories?.goalChanged && (view?.cockpit?.calories?.distinctGoals ?? []).length > 1}
+								<span class="italic">· fenêtre traversant un changement ( {(view?.cockpit?.calories?.distinctGoals ?? []).map((g) => g.toLocaleString('fr-FR')).join(' → ')} kcal, évalué jour par jour)</span>
+							{/if}
+						</div>
 					</div>
 					<!-- Cycle — mêmes données et formule que le dashboard de la cliente -->
 					<div class="rounded-2xl border border-line bg-card p-4">
@@ -2032,10 +2042,10 @@
 					</div>
 					{#if calBars.some((b) => b.value != null)}
 						<div class="mt-3">
-							<WeeklyTrendChart bars={calBars} goal={goalKcal} avg={weekAvg} fmt={fmtN} ariaLabel="Calories de la semaine" />
+							<WeeklyTrendChart bars={calBars} goal={view?.cockpit?.calories?.goal ?? goalKcal} avg={weekAvg} fmt={fmtN} ariaLabel="Calories de la semaine" />
 						</div>
 						<div class="mt-2 flex items-start gap-1.5 rounded-xl bg-brand-light px-4 py-2.5 text-xs text-ink">
-							<Icon name="ruler" size={13} class="mt-0.5 shrink-0" /> <span><strong>Moyenne constatée : {weekAvg} kcal/jour</strong> sur {loggedDays} jour(s) renseigné(s) — calcul : somme des calories des 7 journées TERMINÉES (J-7 → J-1, aujourd'hui exclu) ÷ nombre de ces jours saisis (objectif : {goalKcal} kcal).</span>
+							<Icon name="ruler" size={13} class="mt-0.5 shrink-0" /> <span><strong>Moyenne constatée : {weekAvg} kcal/jour</strong> sur {cockpit?.calories?.trackedDays ?? loggedDays} jour(s) exploitable(s) — 7 journées TERMINÉES (J-7 → J-1, aujourd'hui exclu), jours trop incomplètement renseignés exclus du calcul (seuil {cockpit?.calories?.thresholdKcal ?? 960} kcal = max(800, 60 % de l'objectif){cockpit?.calories?.partialExcluded ? ` · ${cockpit.calories.partialExcluded} journée(s) partielle(s) exclue(s)` : ''} — le Journal reste intact ; objectif (dernier jour de la fenêtre) : {view?.cockpit?.calories?.goal ?? goalKcal} kcal).</span>
 						</div>
 					{:else}
 						<p class="mt-3 rounded-xl border border-dashed border-line px-4 py-8 text-center text-sm text-mist">Aucune donnée de journal sur les 7 derniers jours.</p>
@@ -2981,36 +2991,53 @@
 									</div>
 								{/snippet}
 
-								<!-- POIDS — moyenne, évolution vs semaine précédente, pesées -->
-								<div class="flex flex-col rounded-xl border border-line bg-cream/40 p-3">
-									{@render cardHead('scale', 'Poids', cockpit.weight.count > 0 ? `${cockpit.weight.count} pesée${cockpit.weight.count > 1 ? 's' : ''}` : undefined)}
-									{#if cockpit.weight.avg !== null}
-										<div class="mt-1 flex flex-wrap items-baseline gap-x-2">
-											<span class="font-display text-2xl font-semibold text-ink">{fmtVal(cockpit.weight.avg)} kg</span>
-											{#if cockpit.weight.delta !== null}
-												<span class="rounded-full bg-soft px-1.5 py-0.5 text-[10px] font-bold text-ink">{fmtSigned(cockpit.weight.delta)} kg vs sem. préc.</span>
-											{:else}
-												<span class="text-[10px] italic text-mist">pas de semaine précédente</span>
-											{/if}
-										</div>
-										<p class="mt-0.5 text-[11px] text-mist">Moyenne de la semaine</p>
-									{:else}
-										<div class="mt-1 font-display text-2xl font-semibold text-mist/50">—</div>
-										<p class="mt-0.5 text-[11px] italic text-mist">Aucune pesée cette semaine</p>
-									{/if}
-								</div>
+					<!-- POIDS — VISION 360 LIVE (7 jours complets) : moyenne principale + dernière pesée vs période précédente -->
+					<div class="flex flex-col rounded-xl border border-line bg-cream/40 p-3">
+						{@render cardHead('scale', 'Poids', cockpit.weight.count > 0 ? `${cockpit.weight.count} pesée${cockpit.weight.count > 1 ? 's' : ''}` : undefined)}
+						{#if cockpit.weight.avg !== null}
+							<div class="mt-1 flex flex-wrap items-baseline gap-x-2">
+								<span class="font-display text-2xl font-semibold text-ink">{fmtVal(cockpit.weight.avg)} kg</span>
+								{#if cockpit.weight.delta !== null}
+									<span class="rounded-full bg-soft px-1.5 py-0.5 text-[10px] font-bold text-ink">{fmtSigned(cockpit.weight.delta)} kg</span>
+								{/if}
+							</div>
+							<p class="mt-0.5 text-[11px] text-mist">Moyenne des 7 derniers jours terminés</p>
+							{#if cockpit.weight.last}
+								<p class="mt-1.5 border-t border-line/60 pt-1.5 text-[11px] leading-snug text-mist">
+									Dernière pesée <strong class="text-ink">{fmtVal(cockpit.weight.last.weightKg)} kg</strong>
+									{#if cockpit.weight.last.date}<span class="tabular-nums"> · {fmtDateShort(cockpit.weight.last.date)}</span>{/if}
+									{#if cockpit.weight.prevLast}
+										<br />vs {fmtVal(cockpit.weight.prevLast.weightKg)} kg
+										{#if cockpit.weight.prevLast.date}<span class="tabular-nums"> · {fmtDateShort(cockpit.weight.prevLast.date)}</span>{/if}								{:else}
+									<br /><span class="italic">comparaison indisponible (période précédente sans pesée)</span>
+								{/if}
+								</p>
+							{/if}
+						{:else}
+							<div class="mt-1 font-display text-2xl font-semibold text-mist/50">—</div>
+							<p class="mt-0.5 text-[11px] italic text-mist">Aucune pesée sur les 7 derniers jours terminés</p>
+						{/if}
+					</div>
 
-								<!-- CALORIES — moyenne, objectif, jours suivis -->
-								<div class="flex flex-col rounded-xl border border-line bg-cream/40 p-3">
-									{@render cardHead('flame', 'Calories', `${cockpit.calories.trackedDays}/7 j suivis`)}
-									{#if cockpit.calories.avg !== null}
-										<div class="mt-1 font-display text-2xl font-semibold text-ink">{cockpit.calories.avg.toLocaleString('fr-FR')} kcal</div>
-										<p class="mt-0.5 text-[11px] text-mist">en moyenne / jour suivi · objectif {cockpit.calories.goal.toLocaleString('fr-FR')} kcal</p>
-									{:else}
-										<div class="mt-1 font-display text-2xl font-semibold text-mist/50">—</div>
-										<p class="mt-0.5 text-[11px] italic text-mist">Aucun jour suivi cette semaine · objectif {cockpit.calories.goal.toLocaleString('fr-FR')} kcal</p>
-									{/if}
-								</div>
+					<!-- CALORIES — VISION 360 LIVE : moyenne sur jours EXPLOITABLES (garde-fou tracking) -->
+					<div class="flex flex-col rounded-xl border border-line bg-cream/40 p-3">
+						{@render cardHead('flame', 'Calories', `${cockpit.calories.trackedDays}/7 j exploitables`)}
+						{#if cockpit.calories.avg !== null}
+							<div class="mt-1 font-display text-2xl font-semibold text-ink">{cockpit.calories.avg.toLocaleString('fr-FR')} kcal</div>
+							<p class="mt-0.5 text-[11px] text-mist">
+								en moyenne / jour exploitable · objectif {cockpit.calories.goal.toLocaleString('fr-FR')} kcal
+								{#if cockpit.calories.goalChanged && (cockpit.calories.distinctGoals ?? []).length > 1}
+									<span class="italic">· fenêtre traversant un changement ( {(cockpit.calories.distinctGoals ?? []).map((g) => g.toLocaleString('fr-FR')).join(' → ')} kcal, évalué jour par jour)</span>
+								{/if}
+							</p>
+							{#if cockpit.calories.partialExcluded > 0}
+								<p class="mt-1 text-[10px] italic text-mist">{cockpit.calories.partialExcluded} journée{cockpit.calories.partialExcluded > 1 ? 's' : ''} partiellement renseignée{cockpit.calories.partialExcluded > 1 ? 's' : ''} exclue{cockpit.calories.partialExcluded > 1 ? 's' : ''} de la moyenne (tracking incomplet)</p>
+							{/if}
+						{:else}
+							<div class="mt-1 font-display text-2xl font-semibold text-mist/50">—</div>
+							<p class="mt-0.5 text-[11px] italic text-mist">Aucun jour exploitable · objectif {cockpit.calories.goal.toLocaleString('fr-FR')} kcal</p>
+						{/if}
+					</div>
 
 								<!-- PAS — moyenne, objectif, jours renseignés + mini tendance 7 jours -->
 								{#if cockpit.steps.avg !== null || cockpit.steps.declared || stepsLast7.some((d) => d.count !== null)}
@@ -3068,56 +3095,53 @@
 									</div>
 								{/if}
 
-								<!-- DÉPENSE SPORTIVE — semaine en cours + tendance (semaines closes,
-								     MET-minutes) — repère, jamais un crédit calorique. -->
-								<div class="flex flex-col rounded-xl border border-line bg-cream/40 p-3">
-									{@render cardHead('zap', 'Dépense sportive', sport360 ? (sport360.trainingCount > 0 ? `${sport360.trainingCount} séance${sport360.trainingCount > 1 ? 's' : ''} G-FLUX` : sport360.manualCount > 0 ? `${sport360.manualCount} manuelle${sport360.manualCount > 1 ? 's' : ''}` : undefined) : undefined)}
-									{#if sport360 && (sport360.activities > 0 || sport360.previous.some((p) => p.durationMin > 0))}
-										<div class="mt-1 flex flex-wrap items-baseline gap-x-2">
-											<span class="font-display text-2xl font-semibold text-ink">≈ {sport360.kcal.toLocaleString('fr-FR')} kcal</span>
-											{#if sport360.trend === 'up'}
-												<span class="rounded-full bg-brand-light px-1.5 py-0.5 text-[10px] font-bold text-brand-dark">↑ Volume sportif</span>
-											{:else if sport360.trend === 'down'}
-												<span class="rounded-full bg-warn-light px-1.5 py-0.5 text-[10px] font-bold text-warn">↓ Volume sportif</span>
-											{:else if sport360.trend === 'stable'}
-												<span class="rounded-full bg-soft px-1.5 py-0.5 text-[10px] font-bold text-ink">Volume stable</span>
-											{/if}
-										</div>
-										<p class="mt-0.5 text-[11px] text-mist">
-											{sport360.activities} activité{sport360.activities > 1 ? 's' : ''}
-											· {Math.floor(sport360.durationMin / 60)} h {String(sport360.durationMin % 60).padStart(2, '0')} cette semaine
+					<!-- DÉPENSE SPORTIVE — VISION 360 LIVE : 7 JOURNÉES COMPLÈTES (J-7 → J-1).
+					     L'activité d'aujourd'hui n'entre JAMAIS (partielle). Les dépenses
+					     restent idempotentes (une ligne par séance G-FLUX). -->
+					<div class="flex flex-col rounded-xl border border-line bg-cream/40 p-3">
+						{@render cardHead('zap', 'Dépense sportive', sportCard ? (sportCard.trainingCount > 0 ? `${sportCard.trainingCount} séance${sportCard.trainingCount > 1 ? 's' : ''} G-FLUX` : sportCard.manualCount > 0 ? `${sportCard.manualCount} manuelle${sportCard.manualCount > 1 ? 's' : ''}` : undefined) : undefined)}
+						{#if sportCard && sportCard.activities > 0}
+							<div class="mt-1 flex flex-wrap items-baseline gap-x-2">
+								<span class="font-display text-2xl font-semibold text-ink">≈ {sportCard.kcal.toLocaleString('fr-FR')} kcal</span>
+							</div>
+							<p class="mt-0.5 text-[11px] text-mist">
+								{sportCard.activities} activité{sportCard.activities > 1 ? 's' : ''}
+								· {Math.floor(sportCard.durationMin / 60)} h {String(sportCard.durationMin % 60).padStart(2, '0')} sur les 7 derniers jours terminés
+							</p>
+							{#if sport360?.previous.some((p) => p.durationMin > 0)}
+								<!-- Lecture rapide : semaines closes précédentes (jamais la semaine partielle) -->
+								<div class="mt-1.5 space-y-0.5 border-t border-line/60 pt-1.5">
+									{#each sport360!.previous.filter((p) => p.durationMin > 0) as pw (pw.weekStart)}
+										<p class="text-[10px] text-mist tabular-nums">
+											S-{sport360!.previous.indexOf(pw) + 1} · {Math.floor(pw.durationMin / 60)} h {String(pw.durationMin % 60).padStart(2, '0')} · ≈ {pw.kcal.toLocaleString('fr-FR')} kcal
 										</p>
-										{#if sport360.previous.some((p) => p.durationMin > 0)}
-										<!-- Lecture rapide : semaines closes précédentes (jamais la semaine partielle) -->
-										<div class="mt-1.5 space-y-0.5 border-t border-line/60 pt-1.5">
-											{#each sport360.previous.filter((p) => p.durationMin > 0) as pw (pw.weekStart)}
-												<p class="text-[10px] text-mist tabular-nums">
-													S-{sport360!.previous.indexOf(pw) + 1} · {Math.floor(pw.durationMin / 60)} h {String(pw.durationMin % 60).padStart(2, '0')} · ≈ {pw.kcal.toLocaleString('fr-FR')} kcal
-												</p>
-											{/each}
-										</div>
-										{/if}
-									{:else}
-										<div class="mt-1 font-display text-2xl font-semibold text-mist/50">—</div>
-										<p class="mt-0.5 text-[11px] italic text-mist">Aucune activité cette semaine</p>
-									{/if}
+									{/each}
 								</div>
+							{/if}
+						{:else}
+							<div class="mt-1 font-display text-2xl font-semibold text-mist/50">—</div>
+							<p class="mt-0.5 text-[11px] italic text-mist">Aucune activité sur les 7 derniers jours terminés</p>
+						{/if}
+					</div>
 
 								<!-- PROTÉINES — moyenne, objectif, jours suivis, indication vs objectif -->
 								<div class="flex flex-col rounded-xl border border-line bg-cream/40 p-3">
-									{@render cardHead('beef', 'Protéines', `${proteinCard.trackedDays}/7 j suivis`)}
-									{#if proteinCard.avg !== null}
-										<div class="mt-1 flex flex-wrap items-baseline gap-x-2">
-											<span class="font-display text-2xl font-semibold text-ink">{fmtVal(proteinCard.avg)} g</span>
-											<span class="rounded-full px-1.5 py-0.5 text-[10px] font-bold {proteinCard.avg >= proteinCard.goal ? 'bg-brand-light text-brand-dark' : 'bg-warn-light text-warn'}">
-												{proteinCard.avg >= proteinCard.goal ? 'objectif atteint' : `objectif ${fmtVal(proteinCard.goal)} g`}
-											</span>
-										</div>
-										<p class="mt-0.5 text-[11px] text-mist">en moyenne / jour suivi</p>
-									{:else}
-										<div class="mt-1 font-display text-2xl font-semibold text-mist/50">—</div>
-										<p class="mt-0.5 text-[11px] italic text-mist">Aucun jour suivi cette semaine · objectif {fmtVal(proteinCard.goal)} g</p>
-									{/if}
+						{@render cardHead('beef', 'Protéines', `${proteinCard.trackedDays}/7 j exploitables`)}
+						{#if proteinCard.avg !== null}
+							<div class="mt-1 flex flex-wrap items-baseline gap-x-2">
+								<span class="font-display text-2xl font-semibold text-ink">{fmtVal(proteinCard.avg)} g</span>
+								<span class="rounded-full px-1.5 py-0.5 text-[10px] font-bold {proteinCard.avg >= proteinCard.goal ? 'bg-brand-light text-brand-dark' : 'bg-warn-light text-warn'}">
+									{proteinCard.avg >= proteinCard.goal ? 'objectif atteint' : `objectif ${fmtVal(proteinCard.goal)} g`}
+								</span>
+							</div>
+							<p class="mt-0.5 text-[11px] text-mist">en moyenne / jour exploitable (mêmes jours que les calories)</p>
+							{#if proteinCard.partialExcluded > 0}
+								<p class="mt-1 text-[10px] italic text-mist">{proteinCard.partialExcluded} journée{proteinCard.partialExcluded > 1 ? 's' : ''} partielle{proteinCard.partialExcluded > 1 ? 's' : ''} exclue{proteinCard.partialExcluded > 1 ? 's' : ''} (cohérence calories/protéines)</p>
+							{/if}
+						{:else}
+							<div class="mt-1 font-display text-2xl font-semibold text-mist/50">—</div>
+							<p class="mt-0.5 text-[11px] italic text-mist">Aucun jour exploitable · objectif {fmtVal(proteinCard.goal)} g</p>
+						{/if}
 								</div>
 
 								<!-- CYCLE — lecture seule, mêmes données que l'Accueil cliente -->
@@ -3149,14 +3173,27 @@
 									{/if}
 								</div>
 
-								<!-- MENSURATIONS — carte compacte : fraîcheur + dernier relevé -->
-								<div class="flex flex-col rounded-xl border border-line bg-cream/40 p-3">
-									{@render cardHead('ruler', 'Mensurations', cockpit.measurements.fresh ? 'nouveau' : undefined)}
-									{#if cockpit.measurements.date}
-										<p class="mt-1 text-sm font-semibold text-ink">
-											{cockpit.measurements.fresh ? `Nouvelles mesures ${fmtDaysAgo(cockpit.measurements.daysAgo ?? 0)}` : 'Pas de nouvelles mensurations cette semaine'}
-										</p>
-										<p class="mt-0.5 text-[11px] text-mist">Dernier relevé : le {fmtDateShort(cockpit.measurements.date)}</p>
+					<!-- MENSURATIONS — dernier relevé VS relevé précédent (au moment de la consultation, SANS fenêtre 7 jours) + deltas par mesure -->
+					<div class="flex flex-col rounded-xl border border-line bg-cream/40 p-3">
+						{@render cardHead('ruler', 'Mensurations', cockpit.measurements.fresh ? 'nouveau' : undefined)}
+						{#if cockpit.measurements.date}
+							<p class="mt-1 text-sm font-semibold text-ink">
+								{cockpit.measurements.fresh ? `Nouvelles mesures ${fmtDaysAgo(cockpit.measurements.daysAgo ?? 0)}` : 'Mensurations (dernier relevé)'}
+							</p>
+							<p class="mt-0.5 text-[11px] text-mist">Dernier relevé : le {fmtDateShort(cockpit.measurements.date)}{#if cockpit.measurements.prevDate} · précédent : {fmtDateShort(cockpit.measurements.prevDate)}{/if}</p>
+							{#if cockpit.measurements.waistCm !== null || cockpit.measurements.hipCm !== null || cockpit.measurements.neckCm !== null}
+								<div class="mt-1.5 space-y-0.5 border-t border-line/60 pt-1.5">
+									{#if cockpit.measurements.waistCm !== null}
+										<p class="text-[11px] text-ink">Taille fine <strong>{fmtVal(cockpit.measurements.waistCm)} cm</strong>{#if cockpit.measurements.deltas.waistCm !== null}<span class="ml-1 font-semibold {cockpit.measurements.deltas.waistCm < 0 ? 'text-brand-dark' : cockpit.measurements.deltas.waistCm > 0 ? 'text-warn' : 'text-mist'}">{fmtSigned(cockpit.measurements.deltas.waistCm)} cm</span>{/if}</p>
+									{/if}
+									{#if cockpit.measurements.hipCm !== null}
+										<p class="text-[11px] text-ink">Fessiers <strong>{fmtVal(cockpit.measurements.hipCm)} cm</strong>{#if cockpit.measurements.deltas.hipCm !== null}<span class="ml-1 font-semibold {cockpit.measurements.deltas.hipCm < 0 ? 'text-brand-dark' : cockpit.measurements.deltas.hipCm > 0 ? 'text-warn' : 'text-mist'}">{fmtSigned(cockpit.measurements.deltas.hipCm)} cm</span>{/if}</p>
+									{/if}
+									{#if cockpit.measurements.neckCm !== null}
+										<p class="text-[11px] text-ink">Tour de cou <strong>{fmtVal(cockpit.measurements.neckCm)} cm</strong>{#if cockpit.measurements.deltas.neckCm !== null}<span class="ml-1 font-semibold {cockpit.measurements.deltas.neckCm < 0 ? 'text-brand-dark' : cockpit.measurements.deltas.neckCm > 0 ? 'text-warn' : 'text-mist'}">{fmtSigned(cockpit.measurements.deltas.neckCm)} cm</span>{/if}</p>
+									{/if}
+								</div>
+							{/if}
 									{:else}
 										<p class="mt-1 text-sm italic text-mist">Aucune mensuration enregistrée</p>
 									{/if}

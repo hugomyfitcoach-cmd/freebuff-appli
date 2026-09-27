@@ -17,6 +17,12 @@ import { DEFAULT_GOALS } from "./journal";
 import { deleteMessageAudioRows, mediaExpiresAt } from "./media";
 import { step2Done } from "./onboarding";
 import { wallTimeToUtcMs } from "./helpers";
+import {
+	visionWindow,
+	parisTodayISO,
+	foodAverages,
+	stepsAverages,
+} from "../lib/vision360";
 
 /**
  * Dashboard « Accueil » de l'espace cliente.
@@ -297,51 +303,63 @@ export const getDashboard = query({
 			.withIndex("by_user", (q) => q.eq("userId", user._id))
 			.collect();
 
-		/* ── Récap hebdo : samedi + dimanche de la semaine courante (sinon rien) ── */
-		// La carte « Ta semaine en un coup d'œil » n'apparaît que samedi et
-		// dimanche ; dès le lundi 00:00 elle disparaît (aucun résumé d'une
-		// semaine déjà terminée). Les moyennes n'utilisent que les jours
-		// réellement renseignés (absence de donnée ≠ zéro).
-		const dow = new Date(ts).getDay();
-		let recap = null;
-		if (dow === 6 || dow === 0) {
-			const recapWeekStart = weekStart;
-			const recapWeekEnd = addDaysISO(recapWeekStart, 6);
+		/* ── Récap hebdo « Tes 7 derniers jours terminés » ──
+	   UNE SEULE SOURCE DE VÉRITÉ : la fenêtre Vision 360 — les 7 DERNIÈRES
+	   JOURNÉES CALENDAIRES COMPLÈTES J-7 → J-1 (Europe/Paris), la journée en
+	   cours TOUJOURS exclue, recalculée à chaque consultation (jamais figée à
+	   une semaine lundi → dimanche, jamais “now − 168 h”). Consulté dimanche :
+	   dimanche précédent → samedi. Consulté lundi : lundi précédent →
+	   dimanche terminé. Calories : mêmes JOURNÉES EXPLOITABLES que la Vision
+	   360 (seuil max(800, 60 % de l'objectif de la fenêtre), garde-fou qualité
+	   du tracking). Pas : exactement la même fenêtre/moyenne que la page Pas
+	   (jours renseignés, absence ≠ 0) — impossible d'avoir deux moyennes
+	   différentes au même moment. L'objectif calorique affiché est le DATÉ de
+	   la fenêtre (objectif courant en repli). */
+		const vision = visionWindow(parisTodayISO(ts));
+		const visionDays = vision.days;
+		const visionStart = vision.start;
+		const visionEnd = vision.end;
 
-			// Calories de la semaine : uniquement les jours ayant des entrées.
-			const kcalByDay = new Map<string, number>();
-			for (const e of weekEntries) {
-				if (e.date >= recapWeekStart && e.date <= recapWeekEnd) {
-					kcalByDay.set(e.date, (kcalByDay.get(e.date) ?? 0) + e.kcal);
-				}
+		// Totaux caloriques par journée de la fenêtre (absence = null, jamais 0).
+		const kcalByDay360 = new Map<string, number | null>();
+		for (const d of visionDays) kcalByDay360.set(d, null);
+		for (const e of weekEntries) {
+			if (kcalByDay360.has(e.date)) {
+				kcalByDay360.set(e.date, (kcalByDay360.get(e.date) ?? 0) + e.kcal);
 			}
-			const kcalTracked = kcalByDay.size;
-			const kcalAvg =
-				kcalTracked > 0 ? Math.round([...kcalByDay.values()].reduce((s, x) => s + x, 0) / kcalTracked) : null;
-
-			// Pas de la semaine : moyenne sur les jours renseignés (jamais /7).
-			const weekSteps = stepsRows.filter((s) => s.date >= recapWeekStart && s.date <= recapWeekEnd);
-			const stepsTracked = weekSteps.length;
-			const stepsAvg =
-				stepsTracked > 0 ? Math.round(weekSteps.reduce((s, r) => s + r.count, 0) / stepsTracked) : null;
-
-			// Pesées de la semaine.
-			const weighins = weightRows.filter(
-				(m) => m.date >= recapWeekStart && m.date <= recapWeekEnd
-			).length;
-
-			// Bilan : soumis ou non pour la semaine du récap.
-			const bilanSent = checkins.some((c) => c.weekStart === recapWeekStart);
-
-			recap = {
-				weekStart: recapWeekStart,
-				weekEnd: recapWeekEnd,
-				calories: { avg: kcalAvg, goal: kcalGoal, trackedDays: kcalTracked },
-				steps: { avg: stepsAvg, goal: stepGoal, trackedDays: stepsTracked },
-				weighins: { count: weighins, goal: 3 },
-				bilan: { sent: bilanSent },
-			};
 		}
+
+		// Calories ET pas : helpers Vision 360 (une seule définition).
+		const food360Home = foodAverages(
+			new Map([...kcalByDay360].map(([date, k]) => [date, { kcal: k, protein: null }])),
+			visionDays,
+			kcalGoal
+		);
+		const steps360Home = stepsAverages(
+			stepsRows.map((s) => ({ date: s.date, count: s.count })),
+			visionDays
+		);
+
+		// Pesées strictement dans la fenêtre.
+		const weighins = weightRows.filter((m) => m.date >= visionStart && m.date <= visionEnd).length;
+
+		// Bilan : soumis ou non pour la semaine glissante contenant la fenêtre.
+		const bilanSent = checkins.some((c) => c.weekStart <= visionStart && addDaysISO(c.weekStart, 6) >= visionStart);
+
+		const recap = {
+			windowStart: visionStart,
+			windowEnd: visionEnd,
+			calories: {
+				avg: food360Home.kcalAvg,
+				goal: kcalGoal,
+				// Jours EXPLOITABLES (garde-fou Vision 360) — pas juste « avec entrées ».
+				trackedDays: food360Home.breakdown.exploitableDays,
+				partialDays: food360Home.breakdown.partialDays,
+			},
+			steps: { avg: steps360Home.avg, goal: stepGoal, trackedDays: steps360Home.trackedDays },
+			weighins: { count: weighins, goal: 3 },
+			bilan: { sent: bilanSent },
+		};
 
 		return {
 			today: day,

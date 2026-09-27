@@ -8,7 +8,9 @@
  * Règles non négociables :
  * - les séries/logs sont en snapshot (jamais réécrits par un changement de
  *   programme) — `trainingSetLogs` est la seule source d'historique ;
- * - une séance réalisée n'est jamais modifiable après coup (statut completed) ;
+ * - une séance réalisée est verrouillée après coup — SAUF erreur manifeste :
+ *   `reopenSession` rouvre l'OCCURRENCE (completed → planned) sans toucher
+ *   aux séries ni créer de doublon, la dépense sportive liée est neutralisée ;
  * - « terminer même partiellement » est un droit : aucune série n'est exigée.
  */
 
@@ -564,6 +566,65 @@ export const completeSession = mutation({
 		}
 
 		return { ok: true };
+	},
+});
+
+/**
+ * ROUVRE une séance terminée PAR ERREUR (rattrapage d'un faux « Terminer ») :
+ * statut completed → planned, en conservant toutes les séries déjà renseignées
+ * (trainingSetLogs — source d'historique — n'est JAMAIS touché).
+ *
+ * Garanties (aucun doublon possible) :
+ * - CETTE occurrence (scheduledId) est rouverte — jamais une copie ;
+ * - la dépense sportive liée est supprimée dans la MÊME transaction (index
+ *   by_trainingSession) — la complétion suivante en recrée une seule, propre,
+ *   recalculée sur la nouvelle durée ;
+ * - idempotent : sur une séance non terminée, l'appel est un no-op.
+ *
+ * Durée : startedAt repart de MAINTENANT (chrono à zéro à l'écran) et la
+ * durée déjà accumulée est RENVOYÉE (`accumulatedMin`) — le front l'ajoute à
+ * la nouvelle fenêtre au moment de re-terminer. La durée finale = somme des
+ * fenêtres réellement actives : le temps mort entre les deux ouvertures
+ * n'est jamais compté (une fenêtre contiguë [startedAt, completedAt] ne
+ * pourrait pas l'exclure seule). completedAt, difficulté et note sont
+ * effacés (réévalués à la nouvelle clôture).
+ */
+export const reopenSession = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		scheduledId: v.id("trainingScheduledSessions"),
+	},
+	handler: async (ctx, { sessionToken, scheduledId }) => {
+		const user = await requireClient(ctx, sessionToken);
+		const s = await ctx.db.get(scheduledId);
+		if (!s || s.userId !== user._id) throw new ConvexError("Séance introuvable.");
+		if (s.status !== "completed") return { ok: true, reopened: false };
+		const now = Date.now();
+
+		// La dépense sportive liée est neutralisée AVANT la réouverture (même
+		// transaction) : jamais deux dépenses pour la même séance.
+		const dep = await ctx.db
+			.query("sportActivities")
+			.withIndex("by_trainingSession", (q) => q.eq("trainingSessionId", scheduledId))
+			.first();
+		if (dep) await ctx.db.delete(dep._id);
+
+		// Chrono à zéro : la reprise ouvre une NOUVELLE fenêtre active. Le
+		// temps réellement travaillé avant l'erreur repart au front via
+		// `accumulatedMin` (ajouté à la fenêtre au moment de re-terminer) :
+		// le temps mort entre les deux ouvertures n'est jamais compté.
+		const accumulatedMin = s.durationMin ?? 0;
+		await ctx.db.patch(scheduledId, {
+			status: "planned",
+			completedAt: undefined,
+			durationMin: undefined,
+			durationSource: undefined,
+			difficulty: undefined,
+			note: undefined,
+			skippedAt: undefined,
+			startedAt: now,
+		});
+		return { ok: true, reopened: true, startedAt: now, accumulatedMin };
 	},
 });
 

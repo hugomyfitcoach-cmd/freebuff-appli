@@ -4,7 +4,8 @@
 	import BackToHome from '$lib/components/BackToHome.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import StepsBars from '$lib/components/StepsBars.svelte';
-	import { avgLast7Completed, shiftISO } from '$lib/averages';
+	import { avgLast7Completed } from '$lib/averages';
+	import { parisTodayISO, shiftISO } from '$lib/vision360';
 
 	let { data } = $props();
 	const goal = $derived<number | null>(data.history.goal ?? null);
@@ -14,17 +15,12 @@
 	};
 	const rows = $derived<Row[]>(data.history.rows ?? []);
 
-	/* ————— Fenêtre locale (fuseau de la cliente) : les 7 JOURNÉES TERMINÉES —————
-	   J-7 → J-1. La journée en cours est incomplète et n'entre JAMAIS dans la
-	   moyenne ni le graphique (mission). Exemple jeudi : du jeudi précédent au
-	   mercredi terminé. Ancienne fenêtre : J-6 → aujourd'hui. */
-	function iso(d: Date): string {
-		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-	}
-	const todayISO = $derived.by(() => {
-		const d = new Date();
-		return iso(d);
-	});
+	/* ————— Fenêtre : les 7 JOURNÉES TERMINÉES J-7 → J-1 —————
+	   MÊME SOURCE DE VÉRITÉ que l'Accueil, le CRM et la Vision 360 :
+	   parisTodayISO() (Europe/Paris) + le helper partagé — la journée en cours
+	   est incomplète et n'entre JAMAIS dans la moyenne ni le graphique.
+	   Exemple jeudi : du jeudi précédent au mercredi terminé. */
+	const todayISO = $derived(parisTodayISO());
 	const windowDays = $derived.by<{ date: string; count: number | null }[]>(() => {
 		const out: { date: string; count: number | null }[] = [];
 		for (let i = 7; i >= 1; i--) {

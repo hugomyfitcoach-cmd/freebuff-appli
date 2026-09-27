@@ -1,13 +1,14 @@
 import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
-import { addDaysISO, getSessionUser } from "./helpers";
+import { addDaysISO, getSessionUser, localTodayISO } from "./helpers";
+import { kcalGoalForDate, withCurrentGoal } from "../lib/goalHistory";
 import { FOOD_SEARCH_CANDIDATES, rankFoods } from "./foodRanking";
 import { applyKcalGuard, guardedKcal100, kcalNeedsRecalc } from "../lib/nutritionGuard";
 import { resolveCoachPlanForDate } from "./mealPlans";
 import { attachThumbs, attachThumbsForFoodIds } from "./foodImages";
 import { ciqualFoodSource } from "./ciqualSource";
 import { internal } from "./_generated/api";
-import type { QueryCtx } from "./_generated/server";
+import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Id, Doc } from "./_generated/dataModel";
 
 /**
@@ -77,9 +78,10 @@ export const getDayForCoach = query({
 	handler: async (ctx, { sessionToken, userId, date }) => {
 		await resolveCoachTarget(ctx, sessionToken, userId);
 		if (!isValidDateISO(date)) throw new ConvexError("Date invalide.");
-		const [entries, goalsRow] = await Promise.all([
+		const [entries, goalsRow, goalHistory] = await Promise.all([
 			ctx.db.query("diaryEntries").withIndex("by_user_date", (q) => q.eq("userId", userId).eq("date", date)).order("asc").collect(),
 			ctx.db.query("clientGoals").withIndex("by_userId", (q) => q.eq("userId", userId)).first(),
+			loadGoalHistory(ctx, userId),
 		]);
 		const totals = entries.reduce(
 			(acc, e) => {
@@ -94,9 +96,13 @@ export const getDayForCoach = query({
 		for (const k of Object.keys(totals) as (keyof typeof totals)[]) {
 			totals[k] = Math.round(totals[k] * 10) / 10;
 		}
+		const baseGoals = goalsRow ?? { userId, ...DEFAULT_GOALS };
+		// Objectif calorique DATÉ : la journée consultée affiche l'objectif qui
+		// était applicable À CETTE DATE (jamais l'objectif d'aujourd'hui).
+		const dayKcal = kcalGoalForDate(goalHistory, date, baseGoals.kcal ?? DEFAULT_GOALS.kcal);
 		return {
 			date,
-			goals: goalsRow ?? { userId, ...DEFAULT_GOALS },
+			goals: { ...baseGoals, kcal: dayKcal },
 			goalsSet: !!goalsRow,
 			entries: await attachThumbsForFoodIds(ctx, entries),
 			totals,
@@ -474,6 +480,43 @@ export const recentFoods = query({
 
 /* ─────────────────────────── Objectifs (coach) ─────────────────────────── */
 
+/* ── HISTORISATION DE L'OBJECTIF CALORIQUE ──
+   Une ligne par changement (clientGoalHistory) : modifier l'objectif ne
+   réécrit plus jamais les journées passées. Lecture : dernier effectiveFrom
+   ≤ date (module pur lib/goalHistory.ts partagé avec Vision 360). */
+
+async function loadGoalHistory(ctx: Pick<QueryCtx, "db">, userId: Id<"users">) {
+	return ctx.db
+		.query("clientGoalHistory")
+		.withIndex("by_user_from", (q) => q.eq("userId", userId))
+		.collect();
+}
+
+/** Écrit (replace) la ligne d'historique d'effet AUJOURD'HUI — idempotent. */
+async function upsertGoalHistoryToday(
+	ctx: MutationCtx,
+	userId: Id<"users">,
+	kcal: number,
+	coachId: Id<"users">,
+	todayISO: string
+): Promise<void> {
+	const rows = await ctx.db
+		.query("clientGoalHistory")
+		.withIndex("by_user_from", (q) => q.eq("userId", userId).eq("effectiveFrom", todayISO))
+		.collect();
+	for (const row of rows) {
+		if (row.kcal === kcal) return; // même valeur déjà posée aujourd'hui → no-op
+		await ctx.db.delete(row._id); // plusieurs modifications le même jour → la dernière gagne
+	}
+	await ctx.db.insert("clientGoalHistory", {
+		userId,
+		kcal,
+		effectiveFrom: todayISO,
+		createdBy: coachId,
+		createdAt: Date.now(),
+	});
+}
+
 export const setClientGoals = mutation({
 	args: {
 		sessionToken: v.optional(v.string()),
@@ -532,6 +575,15 @@ export const setClientGoals = mutation({
 			.query("clientGoals")
 			.withIndex("by_userId", (q) => q.eq("userId", userId))
 			.first();
+
+		// HISTORISATION : si l'objectif calorique CHANGE (ou première définition),
+		// la nouvelle valeur prend effet AUJOURD'HUI (Europe/Paris — date serveur
+		// locale, le CRM opère dans ce fuseau). Les journées passées conservent
+		// leur objectif d'alors : plus jamais de réécriture rétroactive.
+		if (!existing || existing.kcal !== kcal) {
+			await upsertGoalHistoryToday(ctx, userId, kcal, coach._id, localTodayISO());
+		}
+
 		if (existing) {
 			const p: Partial<Doc<"clientGoals">> = { kcal, carbs, protein, fat };
 			if (clearMaintenance) p.maintenanceKcal = undefined;
@@ -585,7 +637,7 @@ export const getDay = query({
 		const user = await requireClient(ctx, sessionToken);
 		if (!isValidDateISO(date)) throw new ConvexError("Date invalide.");
 
-		const [entries, goalsRow, plannedRows] = await Promise.all([
+		const [entries, goalsRow, plannedRows, goalHistory] = await Promise.all([
 			ctx.db
 				.query("diaryEntries")
 				.withIndex("by_user_date", (q) => q.eq("userId", user._id).eq("date", date))
@@ -600,6 +652,7 @@ export const getDay = query({
 				.withIndex("by_user_date", (q) => q.eq("userId", user._id).eq("date", date))
 				.order("asc")
 				.collect(),
+			loadGoalHistory(ctx, user._id),
 		]);
 
 		// Portion OFF (mode « portion » à l'édition) : on joint l'aliment de la
@@ -666,7 +719,9 @@ export const getDay = query({
 
 		return {
 			date,
-			goals: goalsRow ?? { userId: user._id, ...DEFAULT_GOALS },
+			// Objectif calorique DATÉ (journée consultée) — les macros/maintenance
+			// restent les valeurs courantes (historisation ultérieure possible).
+			goals: { ...(goalsRow ?? { userId: user._id, ...DEFAULT_GOALS }), kcal: kcalGoalForDate(goalHistory, date, (goalsRow?.kcal ?? DEFAULT_GOALS.kcal) as number) },
 			goalsSet: !!goalsRow,
 			entries: entriesOut,
 			totals,
@@ -696,12 +751,13 @@ export const getWeek = query({
 		if (!isValidDateISO(start)) throw new ConvexError("Date invalide.");
 		const end = addDaysISO(start, 7); // exclusif
 
-		const [entries, goalsRow] = await Promise.all([
+		const [entries, goalsRow, goalHistory] = await Promise.all([
 			ctx.db
 				.query("diaryEntries")
 				.withIndex("by_user_date", (q) => q.eq("userId", user._id).gte("date", start).lt("date", end))
 				.collect(),
 			ctx.db.query("clientGoals").withIndex("by_userId", (q) => q.eq("userId", user._id)).first(),
+			loadGoalHistory(ctx, user._id),
 		]);
 
 		const byDay = new Map<string, { kcal: number; carbs: number; protein: number; fat: number }>();
@@ -733,6 +789,13 @@ export const getWeek = query({
 		}
 
 		const g: Partial<Doc<"clientGoals">> = goalsRow ?? { userId: user._id, ...DEFAULT_GOALS };
+		// Objectifs caloriques DATÉS jour par jour (Performance) : la barre de
+		// chaque journée est comparée à l'objectif applicable CE jour-là.
+		const goalByDate = new Map<string, number>();
+		for (let i = 0; i < 7; i++) {
+			const d = addDaysISO(start, i);
+			goalByDate.set(d, kcalGoalForDate(goalHistory, d, g.kcal ?? DEFAULT_GOALS.kcal));
+		}
 		return {
 			start,
 			end: addDaysISO(start, 6),
@@ -743,6 +806,8 @@ export const getWeek = query({
 				fat: g.fat ?? DEFAULT_GOALS.fat,
 				maintenanceKcal: g.maintenanceKcal ?? undefined,
 			},
+			/** Objectif calorique par date (Europe/Paris) — kcal pour today = goals.kcal. */
+			kcalGoalsByDate: Object.fromEntries(goalByDate),
 			goalsSet: !!goalsRow,
 			days,
 		};

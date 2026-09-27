@@ -15,6 +15,7 @@
 	 */
 	import { onMount, onDestroy } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import { loadScheduledSession, SESSION_LOAD_ERROR_MESSAGE } from '$lib/sessionLoad';
 
 	type ExSet = {
 		order: number;
@@ -80,24 +81,38 @@
 	let saving = $state(false);
 	let alreadyCompleted = $state(false);
 
-	/* ── Saisie du mode libre : [exerciseId][setOrder] → brouillon ── */
+	/* ── Saisie du mode libre : [exerciseId][setOrder] → brouillon ──
+	   ⚠ Svelte 5 : le template ne doit JAMAIS écrire dans un état pendant le
+	   rendu (state_unsafe_mutation — le flush de mise à jour du DOM meurt et
+	   l'écran reste sur « Chargement… » malgré loading=false). D'où :
+	   - buildDraft : PUR (aucune écriture) — valeurs par défaut calculées ;
+	   - getDraft : PUR (lecture seule) — utilisable dans le template ;
+	   - ensureDraft : ÉCRIT — réservé aux gestionnaires d'événements ;
+	   - applyLoadedSession préremplit tous les brouillons à l'assignation des
+	     données (contexte asynchrone, pas pendant un rendu). */
 	type Draft = { reps: string; weight: string; duration: string; done: boolean };
 	let drafts = $state<Record<string, Draft>>({});
 	function draftKey(exId: string, setOrder: number): string {
 		return `${exId}:${setOrder}`;
 	}
+	function buildDraft(ex: Ex, setOrder: number): Draft {
+		const logged = ex.loggedSets.find((l) => l.setOrder === setOrder);
+		return {
+			reps: String(logged?.reps ?? ex.suggestedReps ?? ''),
+			weight:
+				logged?.weightKg != null ? String(logged.weightKg) : ex.suggestedWeight != null ? String(ex.suggestedWeight) : '',
+			duration: String(logged?.durationSeconds ?? ex.sets[setOrder]?.durationSeconds ?? ''),
+			done: logged?.done ?? false,
+		};
+	}
+	/** Pur — appelable dans le template (aucune écriture, jamais). */
 	function getDraft(ex: Ex, setOrder: number): Draft {
+		return drafts[draftKey(ex._id, setOrder)] ?? buildDraft(ex, setOrder);
+	}
+	/** Écriture — UNIQUEMENT depuis un gestionnaire d'événement (jamais le rendu). */
+	function ensureDraft(ex: Ex, setOrder: number): Draft {
 		const k = draftKey(ex._id, setOrder);
-		if (!drafts[k]) {
-			const logged = ex.loggedSets.find((l) => l.setOrder === setOrder);
-			drafts[k] = {
-				reps: String(logged?.reps ?? ex.suggestedReps ?? ''),
-				weight:
-					logged?.weightKg != null ? String(logged.weightKg) : ex.suggestedWeight != null ? String(ex.suggestedWeight) : '',
-				duration: String(logged?.durationSeconds ?? ex.sets[setOrder]?.durationSeconds ?? ''),
-				done: logged?.done ?? false,
-			};
-		}
+		if (!drafts[k]) drafts[k] = buildDraft(ex, setOrder);
 		return drafts[k];
 	}
 
@@ -163,10 +178,35 @@
 	}
 	onDestroy(() => stopTimer());
 
+	/* ── Chrono global de séance (temps écoulé depuis startedAt) ──
+	   startedAt est PERSISTÉ backend (survit verrouillage/fond) : le chrono
+	   repart de l'horodatage réel à la reprise. La durée finale enregistrée
+	   est celle-ci (même base que detectedDurationMin) — aucun doublon. */
+	let elapsedNow = $state(Date.now());
+	let elapsedInterval: ReturnType<typeof setInterval> | null = null;
+	function startElapsed() {
+		elapsedNow = Date.now();
+		if (elapsedInterval) return;
+		elapsedInterval = setInterval(() => (elapsedNow = Date.now()), 1000);
+	}
+	function stopElapsed() {
+		if (elapsedInterval) clearInterval(elapsedInterval);
+		elapsedInterval = null;
+	}
+	const elapsedLabel = $derived.by(() => {
+		if (!sessionStarted) return '';
+		const s = Math.max(0, Math.floor((elapsedNow - startedAt) / 1000));
+		const h = Math.floor(s / 3600);
+		const m = Math.floor((s % 3600) / 60);
+		const sec = s % 60;
+		return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`;
+	});
+
 	/* ── Résumé de fin ── */
 	let recap = $state<null | {
 		durationMin: number;
 		setsDone: number;
+		setsTotal: number;
 		exDone: number;
 		exTotal: number;
 		volumeKg: number;
@@ -176,6 +216,13 @@
 	let clientNote = $state('');
 	let finishing = $state(false);
 	let confirmPartial = $state(false);
+	/* Réouverture d'une séance terminée par erreur (depuis le récap lecture
+	   seule). `reopenAccumulatedMin` = temps réellement travaillé avant
+	   l'erreur : ajouté à la nouvelle fenêtre au moment de re-terminer — le
+	   temps mort entre les deux ouvertures n'est JAMAIS compté. */
+	let reopenConfirm = $state(false);
+	let reopening = $state(false);
+	let reopenAccumulatedMin = $state(0);
 
 	/* ── Démarrage RÉEL (bouton « Commencer la séance ») — ouvrir/consulter
 	   la séance ne démarre RIEN. startedAt est persisté backend (survit au
@@ -194,6 +241,7 @@
 				// L'horloge locale repart de l'horodatage PERSISTÉ (jamais d'un
 				// chrono dépendant du cycle de vie de la page).
 				startedAt = r.startedAt;
+				startElapsed(); // chrono global visible dans le header
 			}
 		} catch {
 			/* silencieux : la séance reste utilisable, la durée sera déclinée
@@ -210,28 +258,82 @@
 	const DURATION_MIN_THRESHOLD = 10;
 	const DURATION_MAX_THRESHOLD = 150;
 
-	/* ── Chargement ── */
-	onMount(async () => {
-		try {
-			const r = await fetch(`/api/training/session/${scheduledId}`).then((x) => x.json());
-			if (r.error) throw new Error(r.error);
-			data = r as Data;
-			guidedTotal = data.exercises.reduce((n, e) => n + e.sets.length, 0) || 1;
-			if (data.scheduled.status === 'completed') {
-				alreadyCompleted = true;
-				mode = 'recap';
-				buildRecap(data.scheduled.durationMin ?? null);
-			} else if (data.scheduled.startedAt) {
-				// Reprise d'une séance commencée (app fermée, verrouillage…) :
-				// l'état backend est retrouvé, aucun chronomètre n'est perdu.
-				sessionStarted = true;
-				startedAt = data.scheduled.startedAt;
+	/* ── Chargement (timeout + 1 retry — plus JAMAIS de spinner infini) ──
+	   loadScheduledSession garantit un état final en temps fini : succès,
+	   erreur applicative ou échec transport après UNE seule relance. Le
+	   signal est posé par un contrôleur local annulé au démontage — un
+	   changement d'écran ne peut laisser aucun état suspendu derrière lui. */
+	let loadController: AbortController | null = null;
+
+	/** Échappatoire utilisateur : le bouton « Cela prend trop de temps » affiche
+	 *  l'erreur + Réessayer/Retour sans attendre le timeout de chargement. */
+	let diagForced = $state(false);
+
+	function applyLoadedSession(r: Data) {
+		data = r;
+		guidedTotal = data.exercises.reduce((n, e) => n + e.sets.length, 0) || 1;
+		// Préremplissage des brouillons AVANT le premier rendu du mode libre :
+		// getDraft restera ainsi purement lisible pendant le rendu (Svelte 5 —
+		// aucune écriture d'état dans un effet de template).
+		const prefilled: Record<string, Draft> = {};
+		for (const ex of r.exercises) {
+			for (const st of ex.sets) {
+				prefilled[draftKey(ex._id, st.order)] = buildDraft(ex, st.order);
 			}
-		} catch (e) {
-			err = e instanceof Error ? e.message : 'Chargement impossible.';
-		} finally {
-			loading = false;
 		}
+		drafts = prefilled;
+		if (data.scheduled.status === 'completed') {
+			alreadyCompleted = true;
+			mode = 'recap';
+			buildRecap(data.scheduled.durationMin ?? null);
+		} else if (data.scheduled.startedAt) {
+			// Reprise d'une séance commencée (app fermée, verrouillage…) — et
+			// reprise APRÈS réouverture d'une séance terminée par erreur. Dans
+			// les deux cas startedAt PERSISTÉ backend est la base du chrono ;
+			// une réouverture l'ayant réarmé, le chrono repart de zéro.
+			sessionStarted = true;
+			startedAt = data.scheduled.startedAt;
+			startElapsed();
+		}
+	}
+
+	async function loadSession() {
+		loadController?.abort();
+		loadController = new AbortController();
+		const ctl = loadController;
+		loading = true;
+		err = '';
+		data = null;
+		try {
+			await loadScheduledSession(scheduledId, {
+				signal: ctl.signal,
+				setState: (s) => {
+					if (ctl.signal.aborted) return; // démontage : jamais de setState après
+					if (s.kind === 'success') {
+						applyLoadedSession(s.data as Data);
+					} else {
+						// Erreur applicative (séance introuvable…) OU transport :
+						// message lisible, jamais de stack technique.
+						err = s.message || SESSION_LOAD_ERROR_MESSAGE;
+					}
+				},
+			});
+		} catch (e) {
+			if (ctl.signal.aborted) return; // démontage / rechargement : silence
+			err = SESSION_LOAD_ERROR_MESSAGE;
+		} finally {
+			if (!ctl.signal.aborted) loading = false; // GARANTI après succès ou échec définitif
+		}
+	}
+
+	onMount(() => {
+		void loadSession();
+	});
+
+	onDestroy(() => {
+		loadController?.abort();
+		loadController = null;
+		stopElapsed();
 	});
 
 	/* ── Écriture d'une série (LES DEUX MODES) ── */
@@ -259,7 +361,7 @@
 
 	/** Mode libre : coche/valide une série avec les valeurs du brouillon. */
 	async function toggleFreeSet(ex: Ex, setOrder: number) {
-		const d = getDraft(ex, setOrder);
+		const d = ensureDraft(ex, setOrder);
 		const next = !d.done;
 		d.done = next;
 		saving = true;
@@ -276,6 +378,17 @@
 						},
 				next
 			);
+			// Série VALIDÉE → repos automatique comme en guidé (même moteur de
+			// timer, jamais en chevauchant une durée de série en cours) : sauf
+			// toute dernière série de la séance, et seulement si un repos est
+			// prescrit. Décocher ne relance rien.
+			if (next) {
+				const isLastSet = setOrder >= ex.sets.length - 1;
+				const exIdx = data?.exercises.findIndex((e) => e._id === ex._id) ?? -1;
+				const isLastEx = exIdx === (data?.exercises.length ?? 1) - 1;
+				const rest = ex.sets[setOrder]?.restSeconds ?? 0;
+				if (!(isLastSet && isLastEx) && rest > 0) startTimer('rest', rest);
+			}
 		} catch {
 			d.done = !next;
 			err = "Impossible d'enregistrer — réessaie.";
@@ -370,9 +483,13 @@
 		nextStep();
 	}
 
-	/* ── Fin de séance ── */
-	function completionStatus(): { exDone: number; exTotal: number; setsDone: number } {
-		if (!data) return { exDone: 0, exTotal: 0, setsDone: 0 };
+	/* ── Fin de séance ──
+	   Séance « manifestement incomplète » : aucune série validée, ou très peu
+	   (< 25 % du programme) → confirmation renforcée avant Terminer. */
+	const FEW_SETS_RATIO = 0.25;
+	const totalSets = $derived(data?.exercises.reduce((n, e) => n + e.sets.length, 0) ?? 0);
+	function completionStatus(): { exDone: number; exTotal: number; setsDone: number; setsTotal: number } {
+		if (!data) return { exDone: 0, exTotal: 0, setsDone: 0, setsTotal: 0 };
 		let exDone = 0;
 		let setsDone = 0;
 		for (const ex of data.exercises) {
@@ -380,7 +497,7 @@
 			if (doneSets > 0) exDone += 1;
 			setsDone += doneSets;
 		}
-		return { exDone, exTotal: data.exercises.length, setsDone };
+		return { exDone, exTotal: data.exercises.length, setsDone, setsTotal: totalSets };
 	}
 	function buildRecap(actualDurationMin: number | null) {
 		if (!data) return;
@@ -391,7 +508,11 @@
 				if (l.done) volume += (l.weightKg ?? 0) * (l.reps ?? 0);
 			}
 		}
-		const durationMin = actualDurationMin ?? Math.max(1, Math.round((Date.now() - startedAt) / 60000));
+		// Durée = fenêtre en cours (+ temps réellement accumulé avant une
+		// réouverture d'erreur — le temps mort inter-ouvertures n'est jamais
+		// compté). `actualDurationMin` (saisie/correction manuelle) reste la
+		// valeur reine quand la cliente la fournit.
+		const durationMin = actualDurationMin ?? Math.max(1, Math.round((Date.now() - startedAt) / 60000) + reopenAccumulatedMin);
 		// Progression notable : une charge > dernière perf sur un exercice.
 		let progression: string | null = null;
 		for (const ex of data.exercises) {
@@ -405,14 +526,18 @@
 				break;
 			}
 		}
-		recap = { durationMin, setsDone: st.setsDone, exDone: st.exDone, exTotal: st.exTotal, volumeKg: volume, progression };
+		recap = { durationMin, setsDone: st.setsDone, setsTotal: st.setsTotal, exDone: st.exDone, exTotal: st.exTotal, volumeKg: volume, progression };
 	}
 
-	/** Étape 1 : « Terminer la séance » → résumé local (avec confirm si partiel). */
+	/** Étape 1 : « Terminer la séance » → résumé local.
+	 * Séance manifestement incomplète (aucune série validée, ou très peu par
+	 * rapport au programme) → confirmation RENFORCÉE : un faux « Terminer »
+	 * n'enregistre jamais une séance vide sans avertissement explicite. */
 	function requestFinish() {
 		if (!data) return;
 		const st = completionStatus();
-		if (st.exDone < st.exTotal) {
+		const sparse = st.setsDone === 0 || (totalSets > 0 && st.setsDone / totalSets < FEW_SETS_RATIO);
+		if (st.exDone < st.exTotal || sparse) {
 			confirmPartial = true;
 			return;
 		}
@@ -425,6 +550,7 @@
 
 	/** Ouvre le récap — avec confirmation si la durée détectée est étrange. */
 	function openRecap() {
+		stopElapsed(); // le chrono global s'arrête ici — la durée enregistrée est figée
 		const detected = detectedDurationMin();
 		if (detected < DURATION_MIN_THRESHOLD || detected > DURATION_MAX_THRESHOLD) {
 			// Panneau léger, uniquement à ce moment — jamais bloquant, fermable.
@@ -435,10 +561,11 @@
 		mode = 'recap';
 		stopTimer();
 	}
-	/** Durée détectée : timestamps persistés si démarrage réel, sinon local. */
+	/** Durée détectée : fenêtre en cours (+ temps réellement accumulé avant
+	 *  une réouverture d'erreur — le temps mort inter-ouvertures est exclu). */
 	function detectedDurationMin(): number {
 		const ms = sessionStarted ? Date.now() - startedAt : Date.now() - startedAt;
-		return Math.max(1, Math.round(ms / 60000));
+		return Math.max(1, Math.round(ms / 60000) + reopenAccumulatedMin);
 	}
 	function acceptDetectedDuration() {
 		durationConfirm = null;
@@ -480,12 +607,49 @@
 		}
 	}
 
+	/* ── Réouverture d'une séance terminée PAR ERREUR (rattrapage) ──
+	   L'occurrence (scheduledId) reste LA MÊME : statut completed → planned,
+	   séries déjà renseignées conservées, dépense sportive liée supprimée
+	   (la complétion suivante en recrée UNE seule, recalculée). startedAt est
+	   réarmé côté backend à l'instant de la réouverture → le chrono repart de
+	   zéro et le temps écoulé entre les deux ouvertures n'est JAMAIS compté
+	   comme durée d'entraînement. Aucune nouvelle séance, aucun doublon. */
+	async function reopenFinishedSession() {
+		if (reopening) return;
+		reopening = true;
+		err = '';
+		try {
+			const r = await fetch(`/api/training/session/${scheduledId}`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ reopen: true }),
+			}).then((x) => x.json());
+			if (r.error) throw new Error(r.error);
+			// Rechargement complet de la MÊME occurrence (mêmes séries).
+			// startedAt backend repart de maintenant (nouvelle fenêtre active) ;
+			// le temps déjà accumulé est conservé côté front pour être ré-ajouté
+			// à la re-complétion — le temps mort inter-ouvertures reste exclu.
+			reopenAccumulatedMin = Number(r.accumulatedMin ?? 0);
+			alreadyCompleted = false;
+			recap = null;
+			mode = 'libre';
+			reopenConfirm = false;
+			await loadSession();
+		} catch {
+			// La feuille reste ouverte : l'erreur est affichée dedans, la
+			// cliente peut réessayer sans rien perdre.
+			err = "Impossible de rouvrir la séance — réessaie.";
+		} finally {
+			reopening = false;
+		}
+	}
+
 	/** Étape 2 : « Enregistrer et fermer » → POST unique (durée + difficulté + note). */
 	async function saveAndClose() {
 		finishing = true;
 		err = '';
 		try {
-			const durationMin = recap?.durationMin ?? Math.max(1, Math.round((Date.now() - startedAt) / 60000));
+			const durationMin = recap?.durationMin ?? Math.max(1, Math.round((Date.now() - startedAt) / 60000) + reopenAccumulatedMin);
 			await fetch(`/api/training/session/${scheduledId}`, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
@@ -542,6 +706,20 @@
 	function mediaFor(ex: Ex): string | null {
 		return ex.exercise?.animationUrl ?? ex.exercise?.mediaUrl ?? null;
 	}
+	/** Vidéo du mouvement (.mp4/.webm) — sinon null (gif/image statique). */
+	function mediaVideo(ex: Ex): string | null {
+		const u = ex.exercise?.animationUrl ?? ex.exercise?.mediaUrl ?? null;
+		return u && /\.(mp4|webm|mov)(\?|$)/i.test(u) ? u : null;
+	}
+	/** Image à afficher : gif si média animé gif, poster derrière une vidéo. */
+	function mediaImage(ex: Ex): string | null {
+		const u = ex.exercise?.animationUrl ?? ex.exercise?.mediaUrl ?? null;
+		if (u && /\.(mp4|webm|mov)(\?|$)/i.test(u)) return ex.exercise?.posterUrl ?? null;
+		return u ?? ex.exercise?.posterUrl ?? null;
+	}
+
+	/* ── Aperçu plein écran du mouvement (vignette cliquable) ── */
+	let previewEx = $state<Ex | null>(null);
 </script>
 
 <div class="mx-auto w-full max-w-md px-4 pb-8 pt-3">
@@ -576,6 +754,11 @@
 			{#if recap.progression}
 				<p class="mt-2 flex items-center justify-center gap-1.5 rounded-xl bg-warn-light px-4 py-2.5 text-sm font-semibold text-ink">
 					<Icon name="trophy" size={15} class="text-warn" /> {recap.progression}
+				</p>
+			{/if}
+			{#if alreadyCompleted}
+				<p class="mt-3 rounded-xl bg-line/40 px-4 py-2.5 text-sm font-semibold text-mist">
+					{recap.setsDone}/{recap.setsTotal} séries réalisées
 				</p>
 			{/if}
 
@@ -627,21 +810,59 @@
 					</button>
 				</div>
 			{:else}
+				<!-- Séance réalisée (lecture seule) : correction d'erreur possible,
+				     action discrète — la réouverture exige une confirmation. -->
+				<button
+					type="button"
+					onclick={() => (reopenConfirm = true)}
+					disabled={reopening}
+					class="mt-3 w-full rounded-xl border-2 border-line bg-card px-5 py-2.5 text-sm font-semibold text-ink transition hover:border-brand disabled:opacity-60"
+				>
+					<Icon name="pencil" size={14} class="mr-1 inline text-mist" /> Reprendre / modifier la séance
+				</button>
 				<button
 					type="button"
 					onclick={closeRunner}
-					class="mt-5 w-full rounded-xl bg-ink px-5 py-3 text-sm font-bold text-white transition hover:bg-brand"
+					class="mt-2 w-full rounded-xl bg-ink px-5 py-3 text-sm font-bold text-white transition hover:bg-brand"
 				>
 					Retour à l'entraînement
 				</button>
 			{/if}
 		</div>
 	{:else if loading}
-		<p class="py-16 text-center text-sm text-mist">Chargement de la séance…</p>
+		<div class="pt-10 text-center">
+			<p class="text-sm text-mist">Chargement de la séance…</p>
+			<button
+				type="button"
+				onclick={() => (diagForced = true)}
+				class="mx-auto mt-6 block rounded-xl border-2 border-line px-4 py-2 text-xs font-semibold text-mist"
+			>
+				Cela prend trop de temps
+			</button>
+		</div>
+		{#if diagForced}
+			<div class="pt-10 text-center">
+				<p class="mx-auto max-w-xs rounded-xl border-2 border-danger bg-danger-light px-4 py-3 text-sm font-medium text-danger">{SESSION_LOAD_ERROR_MESSAGE}</p>
+				<button type="button" onclick={loadSession} class="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-5 py-3 text-sm font-bold text-white transition hover:bg-brand-dark">
+					<Icon name="rotateCcw" size={15} /> Réessayer
+				</button>
+				<button type="button" onclick={closeRunner} class="mt-2 w-full rounded-xl border-2 border-line px-5 py-2.5 text-sm font-semibold text-ink">Retour</button>
+			</div>
+		{/if}
 	{:else if err && !data}
 		<div class="pt-10 text-center">
-			<p class="rounded-xl border-2 border-danger bg-danger-light px-4 py-3 text-sm text-danger">{err}</p>
-			<button type="button" onclick={closeRunner} class="mt-4 rounded-xl border-2 border-line px-5 py-2.5 text-sm font-semibold text-ink">Retour</button>
+			<div class="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-danger-light">
+				<Icon name="triangleAlert" size={22} class="text-danger" />
+			</div>
+			<p class="mx-auto max-w-xs rounded-xl border-2 border-danger bg-danger-light px-4 py-3 text-sm font-medium text-danger">{err}</p>
+			<button
+				type="button"
+				onclick={loadSession}
+				class="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-5 py-3 text-sm font-bold text-white transition hover:bg-brand-dark"
+			>
+				<Icon name="rotateCcw" size={15} /> Réessayer
+			</button>
+			<button type="button" onclick={closeRunner} class="mt-2 w-full rounded-xl border-2 border-line px-5 py-2.5 text-sm font-semibold text-ink">Retour</button>
 		</div>
 	{:else if data}
 		<!-- ═══════════ HEADER séance ═══════════ -->
@@ -652,6 +873,22 @@
 					<span class="flex items-center gap-1"><Icon name="clock" size={13} /> ≈ {data.estimatedMin} min</span>
 					{#if data.programName}<span class="truncate">· {data.programName}</span>{/if}
 				</p>
+				{#if sessionStarted && elapsedLabel}
+					<!-- Séance en cours : chrono global visible en permanence + accès direct à la fin -->
+					<div class="mt-2 flex items-center gap-2">
+						<span class="inline-flex items-center gap-1.5 rounded-full bg-brand-light px-2.5 py-1 text-[11px] font-bold text-brand-dark">
+							<span class="h-1.5 w-1.5 animate-pulse rounded-full bg-brand"></span>
+							Séance en cours · {elapsedLabel}
+						</span>
+						<button
+							type="button"
+							onclick={requestFinish}
+							class="rounded-full bg-ink px-3 py-1 text-[11px] font-bold text-white transition hover:bg-brand"
+						>
+							Terminer
+						</button>
+					</div>
+				{/if}
 			</div>
 			<button
 				type="button"
@@ -665,6 +902,19 @@
 
 		{#if err}
 			<p class="mb-3 rounded-xl border-2 border-danger bg-danger-light px-3 py-2 text-xs font-semibold text-danger">{err}</p>
+		{/if}
+
+		{#if mode === 'libre' && timerKind === 'rest'}
+			<!-- ── Repos (mode manuel) : compte à rebours de la série validée — Passer/fermer, jamais bloquant ── -->
+			<div class="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-brand/40 bg-brand-light/60 px-4 py-3">
+				<p class="flex items-center gap-2 text-sm font-bold text-ink">
+					<span class="h-2 w-2 animate-pulse rounded-full bg-brand"></span>
+					Repos · <span class="tabular-nums">{fmtTimer(timerLeft)}</span>
+				</p>
+				<button type="button" onclick={stopTimer} class="rounded-full bg-ink px-3 py-1 text-[11px] font-bold text-white transition hover:bg-brand">
+					Passer
+				</button>
+			</div>
 		{/if}
 
 		<!-- ═══════════ MODE LIBRE ═══════════ -->
@@ -681,15 +931,28 @@
 						{@const doneCount = ex.loggedSets.filter((l) => l.done).length}
 						<article class="mb-3 overflow-hidden rounded-2xl border border-line bg-card shadow-sm {doneCount === ex.sets.length && ex.sets.length > 0 ? 'opacity-70' : ''}">
 							<div class="flex items-start gap-3 p-3.5">
-								<div class="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-line/40">
-									{#if ex.exercise?.posterUrl}
-										<img src={ex.exercise.posterUrl} alt="" loading="lazy" class="h-full w-full object-cover" />
-									{:else if ex.exercise?.mediaUrl}
-										<img src={ex.exercise.mediaUrl} alt="" loading="lazy" class="h-full w-full object-cover" />
-									{:else}
+								{#if mediaFor(ex)}
+									<!-- Vignette cliquable → aperçu plein écran du mouvement -->
+									<button
+										type="button"
+										onclick={() => (previewEx = ex)}
+										class="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-line/40"
+										aria-label={`Voir le mouvement : ${ex.exercise?.name ?? 'exercice'}`}
+									>
+										{#if mediaVideo(ex)}
+											<video src={mediaVideo(ex)!} autoplay muted loop playsinline poster={ex.exercise?.posterUrl ?? ''} class="h-full w-full object-cover"></video>
+										{:else if ex.exercise?.posterUrl || ex.exercise?.mediaUrl}
+											<img src={(ex.exercise?.animationUrl ?? ex.exercise?.mediaUrl)!} alt="" loading="lazy" class="h-full w-full object-cover" />
+										{/if}
+										{#if mediaVideo(ex)}
+											<span class="absolute right-0.5 bottom-0.5 grid h-4 w-4 place-items-center rounded-full bg-ink/70 text-white"><Icon name="play" size={8} /></span>
+										{/if}
+									</button>
+								{:else}
+									<div class="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-line/40">
 										<span class="grid h-full w-full place-items-center"><Icon name="dumbbell" size={18} class="text-mist" /></span>
-									{/if}
-								</div>
+									</div>
+								{/if}
 								<div class="min-w-0 flex-1">
 									<h3 class="truncate text-sm font-bold text-ink">{ex.exercise?.name ?? 'Exercice'}</h3>
 									<p class="text-xs text-mist">
@@ -700,6 +963,11 @@
 									</p>
 									{#if lastPerfLabel(ex)}
 										<p class="mt-0.5 text-[11px] font-semibold text-brand-dark">{lastPerfLabel(ex)}</p>
+									{/if}
+									{#if mediaFor(ex)}
+										<button type="button" onclick={() => (previewEx = ex)} class="mt-1 inline-flex items-center gap-1 text-[11px] font-bold text-brand-dark transition hover:text-ink">
+											<Icon name="play" size={10} /> Voir le mouvement
+										</button>
 									{/if}
 								</div>
 								<span class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold {doneCount === ex.sets.length && ex.sets.length > 0 ? 'bg-brand text-white' : 'bg-line/70 text-mist'}">
@@ -841,13 +1109,20 @@
 					</div>
 				{:else}
 					<!-- ── SÉRIE EN COURS ── -->
-					<div class="mx-auto mb-4 h-28 w-28 overflow-hidden rounded-2xl bg-line/30">
-						{#if mediaFor(gEx)}
+					<button
+						type="button"
+						onclick={() => (previewEx = gEx)}
+						class="mx-auto mb-4 block h-28 w-28 overflow-hidden rounded-2xl bg-line/30"
+						aria-label={`Voir le mouvement : ${gEx.exercise?.name ?? 'exercice'}`}
+					>
+						{#if mediaVideo(gEx)}
+							<video src={mediaVideo(gEx)!} autoplay muted loop playsinline poster={gEx.exercise?.posterUrl ?? ''} class="h-full w-full object-cover"></video>
+						{:else if mediaFor(gEx)}
 							<img src={mediaFor(gEx)!} alt="" class="h-full w-full object-cover" />
 						{:else}
 							<span class="grid h-full w-full place-items-center"><Icon name="dumbbell" size={26} class="text-mist" /></span>
 						{/if}
-					</div>
+					</button>
 					<h2 class="text-center font-display text-xl font-bold text-ink">{gEx.exercise?.name ?? 'Exercice'}</h2>
 					<p class="mt-1 text-center text-sm font-semibold text-brand-dark">
 						Série {gSetIdx + 1}/{gEx.sets.length}
@@ -957,6 +1232,65 @@
 	{/if}
 </div>
 
+<!-- ═══ Aperçu plein écran du mouvement (vignette cliquable) — vidéo en boucle, muette, X + retour immédiat. Ne bloque jamais la saisie en cours. ═══ -->
+{#if previewEx}
+	<div
+		class="fixed inset-0 z-[70] flex flex-col bg-ink/90"
+		role="dialog"
+		aria-modal="true"
+		tabindex="-1"
+		aria-label={previewEx.exercise?.name ?? 'Aperçu du mouvement'}
+		onclick={(e) => {
+			if (e.target === e.currentTarget) previewEx = null;
+		}}
+		onkeydown={(e) => {
+			if (e.key === 'Escape') previewEx = null;
+		}}
+	>
+		<div class="flex items-center justify-between px-4 pt-4">
+			<p class="min-w-0 truncate font-display text-lg font-semibold text-white">{previewEx.exercise?.name ?? 'Exercice'}</p>
+			<button
+				type="button"
+				onclick={() => (previewEx = null)}
+				class="rounded-full bg-white/10 p-2 text-white transition hover:bg-white/20"
+				aria-label="Fermer l'aperçu"
+			>
+				<Icon name="x" size={20} />
+			</button>
+		</div>
+		<button
+			type="button"
+			class="flex flex-1 items-center justify-center p-4"
+			onclick={() => (previewEx = null)}
+			aria-label="Fermer l'aperçu"
+		>
+			<div class="relative max-h-[70vh] w-full max-w-md overflow-hidden rounded-3xl bg-black">
+				{#if mediaVideo(previewEx)}						<video
+							src={mediaVideo(previewEx)!}
+							autoplay
+							muted
+							loop
+							playsinline
+							poster={previewEx.exercise?.posterUrl ?? ''}
+							class="max-h-[70vh] w-full object-contain"
+						></video>
+				{:else if mediaFor(previewEx)}
+					<img src={mediaFor(previewEx)!} alt="" class="max-h-[70vh] w-full object-contain" />
+				{/if}
+			</div>
+		</button>
+		{#if previewEx.exercise?.instructions?.length}
+			<div class="max-h-32 overflow-y-auto px-6 pb-6">
+				<ul class="space-y-1 text-xs leading-relaxed text-white/80">
+					{#each previewEx.exercise.instructions as line, i (i)}
+						<li>{i + 1}. {line}</li>
+					{/each}
+				</ul>
+			</div>
+		{/if}
+	</div>
+{/if}
+
 <!-- ═══ Confirmation de durée (uniquement après « Terminer la séance », si durée étrange). Panneau léger : fermable, ne bloque JAMAIS l'app, aucune perte de données, jamais une notification globale. ═══ -->
 {#if durationConfirm}
 	<div
@@ -995,7 +1329,7 @@
 	</div>
 {/if}
 
-<!-- Confirmation « terminer partiellement » -->
+<!-- Confirmation « terminer une séance incomplète » : avertissement RENFORCÉ si aucune série validée — un faux « Terminer » ne doit jamais passer sans un vrai choix. Bouton primaire = continuer (action sûre par défaut). -->
 {#if confirmPartial && data}
 	<div
 		class="fixed inset-0 z-[60] grid place-items-end bg-ink/50 p-4 sm:place-items-center"
@@ -1005,20 +1339,61 @@
 		}}
 	>
 		<div class="w-full max-w-sm rounded-3xl bg-white p-5 shadow-xl">
-			<h3 class="font-display text-lg font-semibold text-ink">Terminer quand même ?</h3>
-			<p class="mt-1 text-sm text-mist">
-				{completionStatus().exDone} exercices sur {completionStatus().exTotal} renseignés. Ta séance sera enregistrée telle quelle.
-			</p>
+			{#if completionStatus().setsDone === 0}
+				<h3 class="font-display text-lg font-semibold text-ink">Terminer sans aucune série ?</h3>
+				<p class="mt-1 rounded-xl bg-warn-light px-3 py-2.5 text-sm font-medium text-ink">
+					Tu n'as pas encore terminé toutes tes séries. Veux-tu vraiment terminer cette séance ?
+				</p>
+			{:else}
+				<h3 class="font-display text-lg font-semibold text-ink">Terminer quand même ?</h3>
+				<p class="mt-1 text-sm text-mist">
+					{completionStatus().exDone} exercices sur {completionStatus().exTotal} renseignés · {completionStatus().setsDone}/{completionStatus().setsTotal} séries. Ta séance sera enregistrée telle quelle.
+				</p>
+			{/if}
 			<div class="mt-4 grid gap-2">
 				<button
 					type="button"
-					onclick={confirmFinishPartial}
+					onclick={() => (confirmPartial = false)}
 					class="rounded-xl bg-brand px-5 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark"
 				>
-					Oui, terminer la séance
+					Continuer ma séance
 				</button>
-				<button type="button" onclick={() => (confirmPartial = false)} class="rounded-xl border-2 border-line px-5 py-2.5 text-sm font-semibold text-ink">
-					Continuer la séance
+				<button type="button" onclick={confirmFinishPartial} class="rounded-xl border-2 border-line px-5 py-2.5 text-sm font-semibold text-ink transition hover:border-danger hover:text-danger">
+					Terminer quand même
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Confirmation de RÉOUVERTURE d'une séance terminée par erreur : la même séance repasse « en cours », séries conservées, aucun doublon — jamais automatique. -->
+{#if reopenConfirm && data}
+	<div
+		class="fixed inset-0 z-[60] grid place-items-end bg-ink/50 p-4 sm:place-items-center"
+		role="presentation"
+		onclick={(e) => {
+			if (e.target === e.currentTarget) reopenConfirm = false;
+		}}
+	>
+		<div class="w-full max-w-sm rounded-3xl bg-white p-5 shadow-xl">
+			<h3 class="font-display text-lg font-semibold text-ink">Reprendre la séance ?</h3>
+			<p class="mt-1 text-sm text-mist">
+				Ta séance repasse « en cours » : corrige ou complète tes séries, puis termine-la à nouveau. C'est LA MÊME séance — rien n'est dupliqué, l'historique sera simplement mis à jour.
+			</p>
+			{#if err}
+				<p class="mt-2 rounded-lg bg-danger-light px-3 py-2 text-xs font-semibold text-danger">{err}</p>
+			{/if}
+			<div class="mt-4 grid gap-2">
+				<button
+					type="button"
+					disabled={reopening}
+					onclick={reopenFinishedSession}
+					class="rounded-xl bg-brand px-5 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
+				>
+					{reopening ? 'Réouverture…' : 'Oui, reprendre la séance'}
+				</button>
+				<button type="button" onclick={() => (reopenConfirm = false)} class="rounded-xl border-2 border-line px-5 py-2.5 text-sm font-semibold text-ink">
+					Annuler
 				</button>
 			</div>
 		</div>

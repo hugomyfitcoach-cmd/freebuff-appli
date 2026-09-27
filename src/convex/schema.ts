@@ -309,6 +309,40 @@ export default defineSchema({
 		stepGoal: v.optional(v.number()),
 	}).index("by_userId", ["userId"]),
 
+	/**
+	 * HISTORISATION DE L'OBJECTIF CALORIQUE — une ligne par changement, JAMAIS
+	 * d'écrasement. Résout le bug métier : modifier l'objectif aujourd'hui
+	 * réaffichait le nouvel objectif sur les JOURNÉES PASSÉES du Journal et
+	 * biaisait les comparaisons Vision 360.
+	 *
+	 * Règle de lecture : pour une date D, l'objectif applicable = la ligne avec
+	 * la plus grande `effectiveFrom` ≤ D (une seule définition, partagée
+	 * Journal / Vision 360 / garde-fou 60 %). Clé d'unicité fonctionnelle :
+	 * (userId, effectiveFrom) — la ligne est REPLACÉE si la coach modifie
+	 * plusieurs fois l'objectif le même jour (pas de valeurs concurrentes).
+	 *
+	 * RÉTROCOMPATIBILITÉ : `clientGoals.kcal` reste la source de vérité de
+	 * l'objectif ACTUEL (toutes les vues existantes continuent de fonctionner)
+	 * et joue le rôle de repli quand l'historique est vide (données antérieures
+	 * à cette fonctionnalité : aucun faux historique n'est fabriqué — l'objectif
+	 * courant est considéré applicable à toutes les dates passées, Hypothèse
+	 * documentée, la première ligne d'historique est créée à la prochaine
+	 * modification réelle).
+	 * Additif pur : table nouvelle, aucun champ existant touché.
+	 */
+	clientGoalHistory: defineTable({
+		userId: v.id("users"),
+		/** Objectif calorique en kcal (mêmes bornes que clientGoals.kcal : 800–6000). */
+		kcal: v.number(),
+		/** Date d'effet "yyyy-mm-dd" (Europe/Paris) : première journée où cet objectif s'applique. */
+		effectiveFrom: v.string(),
+		/** Coach à l'origine du changement (traçabilité). */
+		createdBy: v.optional(v.id("users")),
+		createdAt: v.number(),
+	})
+		.index("by_user", ["userId"])
+		.index("by_user_from", ["userId", "effectiveFrom"]),
+
 	/** Pas quotidiens saisis par la cliente — une seule valeur par jour. */
 	dailySteps: defineTable({
 		userId: v.id("users"),
