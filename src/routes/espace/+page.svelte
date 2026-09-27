@@ -9,9 +9,9 @@
 	 */
 
 	type Recap = {
-		weekStart: string;
-		weekEnd: string;
-		calories: { avg: number | null; goal: number; trackedDays: number };
+		windowStart: string;
+		windowEnd: string;
+		calories: { avg: number | null; goal: number; trackedDays: number; partialDays: number };
 		steps: { avg: number | null; goal: number | null; trackedDays: number };
 		weighins: { count: number; goal: number };
 		bilan: { sent: boolean };
@@ -502,13 +502,13 @@
 		return '→ stable';
 	}
 
-	/* ————— Récap hebdo (samedi + dimanche de la semaine courante) ————— */
+	/* ————— Récap « Tes 7 derniers jours terminés » (J-7 → J-1, live) ————— */
 	const recap = $derived(dash?.recap ?? null);
 	function recapRangeLabel(): string {
 		const fmt = (iso: string) =>
-			new Date(iso + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+			new Date(iso + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 		if (!recap) return '';
-		return `${fmt(recap.weekStart)} → ${fmt(recap.weekEnd)}`;
+		return `${fmt(recap.windowStart)} → ${fmt(recap.windowEnd)}`;
 	}
 
 	/** Filet de sécurité : maintenance > objectif (sinon comportement inchangé). */
@@ -1370,11 +1370,11 @@
 	</a>
 </section>
 
-<!-- ═══════════ Récap hebdo (samedi + dimanche uniquement) ═══════════ -->
+<!-- ═══════════ Récap « Tes 7 derniers jours terminés » (fenêtre Vision 360) ═══════════ -->
 {#if recap}
 	<section class="m-in recap-card mt-4 rounded-3xl border border-brand/30 bg-brand-light p-5 shadow-sm" style="--m-i: 8">
 		<div class="flex flex-wrap items-center justify-between gap-2">
-			<h2 class="text-[11px] font-bold uppercase tracking-widest text-brand-dark">Ta semaine en un coup d'œil</h2>
+			<h2 class="text-[11px] font-bold uppercase tracking-widest text-brand-dark">Tes 7 derniers jours terminés</h2>
 			<span class="text-[11px] text-mist">{recapRangeLabel()}</span>
 		</div>
 		<div class="mt-4 space-y-4">
@@ -1382,7 +1382,12 @@
 				<div>
 					<p class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-mist"><Icon name="flame" size={12} class="shrink-0" /> Calories moyennes</p>
 					<p class="mt-0.5 font-display text-2xl font-semibold text-ink">{#if recap.calories.avg !== null}{#key recap.calories.avg}<CountUp value={recap.calories.avg} format={fmt} duration={450} />{/key} kcal{:else}—{/if}<span class="text-xs font-semibold text-mist"> / jour</span></p>
-					<p class="text-[11px] text-mist">Objectif : {fmt(recap.calories.goal)} · {recap.calories.trackedDays} / 7 jours suivis</p>
+					<p class="text-[11px] text-mist">
+						Objectif : {fmt(recap.calories.goal)} · {recap.calories.trackedDays} / 7 jours exploitables
+						{#if recap.calories.partialDays > 0}
+							· {recap.calories.partialDays} journée{recap.calories.partialDays > 1 ? 's' : ''} partiellement renseignée{recap.calories.partialDays > 1 ? 's' : ''} exclue{recap.calories.partialDays > 1 ? 's' : ''}
+						{/if}
+					</p>
 				</div>
 				<div>
 					<p class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-mist"><Icon name="footprints" size={12} class="shrink-0" /> Pas moyens</p>
