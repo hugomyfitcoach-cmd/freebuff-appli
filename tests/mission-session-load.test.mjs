@@ -285,7 +285,11 @@ test('UX 5c : réouverture = la MÊME séance (aucun doublon possible)', () => {
 test('UX 5d : durée à la reprise — chrono réarmé, le temps inter-ouvertures n\'est jamais compté', () => {
 	const convex = readFileSync(join(root, 'src/convex/trainingClient.ts'), 'utf8');
 	const reopenBody = convex.slice(convex.indexOf('export const reopenSession'), convex.indexOf('export const updateSessionDuration'));
-	assert.ok(reopenBody.includes('now - (s.durationMin ?? 0) * 60_000'), 'startedAt = now − temps déjà accumulé : le temps réellement travaillé reste acquis, le temps mort inter-ouvertures n\'est JAMAIS compté (somme des fenêtres actives)');
+	assert.ok(reopenBody.includes('const accumulatedMin = s.durationMin ?? 0'), 'la durée déjà accumulée est RENVOYÉE au front (le temps réellement travaillé reste acquis)');
+	assert.ok(/startedAt: now,/.test(reopenBody), 'startedAt repart de maintenant (nouvelle fenêtre active) — le temps mort inter-ouvertures n\'est JAMAIS compté');
+	assert.ok(!reopenBody.includes('now - (s.durationMin'), 'aucune arithmétique de fenêtre fusionnée (une fenêtre contiguë ne peut pas exclure le temps mort)');
+	assert.ok(/60000\) \+ reopenAccumulatedMin|60000\)\s*\+\s*reopenAccumulatedMin/.test(runner), 'front : durée finale = fenêtre en cours + temps accumulé (somme des fenêtres actives)');
+	assert.ok(bff.includes('accumulatedMin: reopened?.accumulatedMin ?? 0'), 'BFF : accumulatedMin relayé de Convex au front');
 	assert.ok(reopenBody.includes('durationMin: undefined'), 'durée de la 1re complétion effacée (recalculée à la nouvelle clôture)');
 	const applyLoaded = runner.slice(runner.indexOf('function applyLoadedSession'), runner.indexOf('async function loadSession'));
 	assert.ok(applyLoaded.includes('startedAt = data.scheduled.startedAt'), 'chrono front repart du startedAt PERSISTÉ backend');

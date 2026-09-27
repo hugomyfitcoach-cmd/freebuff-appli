@@ -581,11 +581,13 @@ export const completeSession = mutation({
  *   recalculée sur la nouvelle durée ;
  * - idempotent : sur une séance non terminée, l'appel est un no-op.
  *
- * Durée : startedAt est décalé en arrière du temps déjà accumulé, depuis
- * maintenant (now − durationMin×60 000) → la prochaine complétion mesure la
- * somme des fenêtres actives, jamais le temps mort entre les deux ouvertures.
- * completedAt, durée, difficulté et note sont effacés (réévalués à la
- * nouvelle clôture).
+ * Durée : startedAt repart de MAINTENANT (chrono à zéro à l'écran) et la
+ * durée déjà accumulée est RENVOYÉE (`accumulatedMin`) — le front l'ajoute à
+ * la nouvelle fenêtre au moment de re-terminer. La durée finale = somme des
+ * fenêtres réellement actives : le temps mort entre les deux ouvertures
+ * n'est jamais compté (une fenêtre contiguë [startedAt, completedAt] ne
+ * pourrait pas l'exclure seule). completedAt, difficulté et note sont
+ * effacés (réévalués à la nouvelle clôture).
  */
 export const reopenSession = mutation({
 	args: {
@@ -607,13 +609,11 @@ export const reopenSession = mutation({
 			.first();
 		if (dep) await ctx.db.delete(dep._id);
 
-		// Fenêtre active : startedAt est décalé en arrière du temps DÉJÀ
-		// accumulé, depuis MAINTENANT. La prochaine fenêtre mesurée
-		// (completedAt − startedAt) s'ajoute donc au temps réellement
-		// travaillé avant l'erreur (somme des fenêtres actives), et le temps
-		// mort entre les deux ouvertures n'est JAMAIS compté — aucun champ
-		// de schéma en plus.
-		const newStartedAt = Math.max(0, now - (s.durationMin ?? 0) * 60_000);
+		// Chrono à zéro : la reprise ouvre une NOUVELLE fenêtre active. Le
+		// temps réellement travaillé avant l'erreur repart au front via
+		// `accumulatedMin` (ajouté à la fenêtre au moment de re-terminer) :
+		// le temps mort entre les deux ouvertures n'est jamais compté.
+		const accumulatedMin = s.durationMin ?? 0;
 		await ctx.db.patch(scheduledId, {
 			status: "planned",
 			completedAt: undefined,
@@ -622,9 +622,9 @@ export const reopenSession = mutation({
 			difficulty: undefined,
 			note: undefined,
 			skippedAt: undefined,
-			startedAt: newStartedAt,
+			startedAt: now,
 		});
-		return { ok: true, reopened: true, startedAt: newStartedAt };
+		return { ok: true, reopened: true, startedAt: now, accumulatedMin };
 	},
 });
 

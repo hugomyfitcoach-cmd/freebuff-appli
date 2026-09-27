@@ -107,7 +107,7 @@ export const POST: RequestHandler = async (event) => {
 		if (body.reopen === true) {
 			// Réouverture d'une séance terminée par erreur : completed → planned,
 			// séries conservées, dépense sportive liée neutralisée (aucun doublon).
-			await withTimeout(
+			const reopened = await withTimeout(
 				convex.mutation(api.trainingClient.reopenSession, {
 					sessionToken: token,
 					scheduledId: id as never,
@@ -116,7 +116,9 @@ export const POST: RequestHandler = async (event) => {
 				rid
 			);
 			log('respond POST', rid, { status: 200, totalMs: Date.now() - t0, reopen: true });
-			return json({ ok: true, reopened: true, startedAt: Date.now() });
+			// accumulatedMin : temps réellement travaillé avant l'erreur — le
+			// front l'ajoutera à la nouvelle fenêtre au moment de re-terminer.
+			return json({ ok: true, reopened: true, startedAt: Date.now(), accumulatedMin: reopened?.accumulatedMin ?? 0 });
 		}
 		await withTimeout(
 			convex.mutation(api.trainingClient.completeSession, {

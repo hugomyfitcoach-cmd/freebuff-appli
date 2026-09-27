@@ -217,9 +217,13 @@
 	let clientNote = $state('');
 	let finishing = $state(false);
 	let confirmPartial = $state(false);
-	/* Réouverture d'une séance terminée par erreur (depuis le récap lecture seule). */
+	/* Réouverture d'une séance terminée par erreur (depuis le récap lecture
+	   seule). `reopenAccumulatedMin` = temps réellement travaillé avant
+	   l'erreur : ajouté à la nouvelle fenêtre au moment de re-terminer — le
+	   temps mort entre les deux ouvertures n'est JAMAIS compté. */
 	let reopenConfirm = $state(false);
 	let reopening = $state(false);
+	let reopenAccumulatedMin = $state(0);
 
 	/* ── Démarrage RÉEL (bouton « Commencer la séance ») — ouvrir/consulter
 	   la séance ne démarre RIEN. startedAt est persisté backend (survit au
@@ -537,7 +541,11 @@
 				if (l.done) volume += (l.weightKg ?? 0) * (l.reps ?? 0);
 			}
 		}
-		const durationMin = actualDurationMin ?? Math.max(1, Math.round((Date.now() - startedAt) / 60000));
+		// Durée = fenêtre en cours (+ temps réellement accumulé avant une
+		// réouverture d'erreur — le temps mort inter-ouvertures n'est jamais
+		// compté). `actualDurationMin` (saisie/correction manuelle) reste la
+		// valeur reine quand la cliente la fournit.
+		const durationMin = actualDurationMin ?? Math.max(1, Math.round((Date.now() - startedAt) / 60000) + reopenAccumulatedMin);
 		// Progression notable : une charge > dernière perf sur un exercice.
 		let progression: string | null = null;
 		for (const ex of data.exercises) {
@@ -586,10 +594,11 @@
 		mode = 'recap';
 		stopTimer();
 	}
-	/** Durée détectée : timestamps persistés si démarrage réel, sinon local. */
+	/** Durée détectée : fenêtre en cours (+ temps réellement accumulé avant
+	 *  une réouverture d'erreur — le temps mort inter-ouvertures est exclu). */
 	function detectedDurationMin(): number {
 		const ms = sessionStarted ? Date.now() - startedAt : Date.now() - startedAt;
-		return Math.max(1, Math.round(ms / 60000));
+		return Math.max(1, Math.round(ms / 60000) + reopenAccumulatedMin);
 	}
 	function acceptDetectedDuration() {
 		durationConfirm = null;
@@ -649,8 +658,11 @@
 				body: JSON.stringify({ reopen: true }),
 			}).then((x) => x.json());
 			if (r.error) throw new Error(r.error);
-			// Rechargement complet de la MÊME occurrence (mêmes séries) :
-			// scheduled.startedAt réarmé devient la nouvelle base du chrono.
+			// Rechargement complet de la MÊME occurrence (mêmes séries).
+			// startedAt backend repart de maintenant (nouvelle fenêtre active) ;
+			// le temps déjà accumulé est conservé côté front pour être ré-ajouté
+			// à la re-complétion — le temps mort inter-ouvertures reste exclu.
+			reopenAccumulatedMin = Number(r.accumulatedMin ?? 0);
 			alreadyCompleted = false;
 			recap = null;
 			mode = 'libre';
@@ -670,7 +682,7 @@
 		finishing = true;
 		err = '';
 		try {
-			const durationMin = recap?.durationMin ?? Math.max(1, Math.round((Date.now() - startedAt) / 60000));
+			const durationMin = recap?.durationMin ?? Math.max(1, Math.round((Date.now() - startedAt) / 60000) + reopenAccumulatedMin);
 			await fetch(`/api/training/session/${scheduledId}`, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
