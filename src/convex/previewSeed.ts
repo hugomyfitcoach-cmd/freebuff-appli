@@ -4,6 +4,9 @@ import { internal } from "./_generated/api";
 import type { MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { normalizeEmail, hashPassword, localTodayISO } from "./helpers";
+// Seed DEMO Vision 360 (import STATIQUE : le bundler Convex ne garantit pas
+// la résolution des imports dynamiques relatifs dans le bundle fonctions).
+import { seedVision360DemoData } from "./previewSeedVision360";
 import {
 	GFLUX_OFFICIAL_EXERCISES,
 	GFLUX_OFFICIAL_SOURCE,
@@ -410,9 +413,10 @@ async function seedCoreData(
 	//    n'empêche JAMAIS le seed principal (Entraînement reste testable).
 	let vision360Demo: { ok: boolean; demoEmail: string; days: number } | { ok: false; error: string } = { ok: false, error: "non exécuté" };
 	try {
-		const { seedVision360DemoData } = await import("./previewSeedVision360");
 		vision360Demo = await seedVision360DemoData(db);
 	} catch (e) {
+		// Non bloquant : un échec DEMO n'empêche JAMAIS le seed principal
+		// (Entraînement / comptes de test restent fonctionnels).
 		vision360Demo = { ok: false, error: e instanceof Error ? e.message : String(e) };
 	}
 
