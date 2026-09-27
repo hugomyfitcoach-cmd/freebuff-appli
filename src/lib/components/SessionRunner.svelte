@@ -82,24 +82,38 @@
 	let saving = $state(false);
 	let alreadyCompleted = $state(false);
 
-	/* ── Saisie du mode libre : [exerciseId][setOrder] → brouillon ── */
+	/* ── Saisie du mode libre : [exerciseId][setOrder] → brouillon ──
+	   ⚠ Svelte 5 : le template ne doit JAMAIS écrire dans un état pendant le
+	   rendu (state_unsafe_mutation — le flush de mise à jour du DOM meurt et
+	   l'écran reste sur « Chargement… » malgré loading=false). D'où :
+	   - buildDraft : PUR (aucune écriture) — valeurs par défaut calculées ;
+	   - getDraft : PUR (lecture seule) — utilisable dans le template ;
+	   - ensureDraft : ÉCRIT — réservé aux gestionnaires d'événements ;
+	   - applyLoadedSession préremplit tous les brouillons à l'assignation des
+	     données (contexte asynchrone, pas pendant un rendu). */
 	type Draft = { reps: string; weight: string; duration: string; done: boolean };
 	let drafts = $state<Record<string, Draft>>({});
 	function draftKey(exId: string, setOrder: number): string {
 		return `${exId}:${setOrder}`;
 	}
+	function buildDraft(ex: Ex, setOrder: number): Draft {
+		const logged = ex.loggedSets.find((l) => l.setOrder === setOrder);
+		return {
+			reps: String(logged?.reps ?? ex.suggestedReps ?? ''),
+			weight:
+				logged?.weightKg != null ? String(logged.weightKg) : ex.suggestedWeight != null ? String(ex.suggestedWeight) : '',
+			duration: String(logged?.durationSeconds ?? ex.sets[setOrder]?.durationSeconds ?? ''),
+			done: logged?.done ?? false,
+		};
+	}
+	/** Pur — appelable dans le template (aucune écriture, jamais). */
 	function getDraft(ex: Ex, setOrder: number): Draft {
+		return drafts[draftKey(ex._id, setOrder)] ?? buildDraft(ex, setOrder);
+	}
+	/** Écriture — UNIQUEMENT depuis un gestionnaire d'événement (jamais le rendu). */
+	function ensureDraft(ex: Ex, setOrder: number): Draft {
 		const k = draftKey(ex._id, setOrder);
-		if (!drafts[k]) {
-			const logged = ex.loggedSets.find((l) => l.setOrder === setOrder);
-			drafts[k] = {
-				reps: String(logged?.reps ?? ex.suggestedReps ?? ''),
-				weight:
-					logged?.weightKg != null ? String(logged.weightKg) : ex.suggestedWeight != null ? String(ex.suggestedWeight) : '',
-				duration: String(logged?.durationSeconds ?? ex.sets[setOrder]?.durationSeconds ?? ''),
-				done: logged?.done ?? false,
-			};
-		}
+		if (!drafts[k]) drafts[k] = buildDraft(ex, setOrder);
 		return drafts[k];
 	}
 
@@ -240,6 +254,16 @@
 	function applyLoadedSession(r: Data) {
 		data = r;
 		guidedTotal = data.exercises.reduce((n, e) => n + e.sets.length, 0) || 1;
+		// Préremplissage des brouillons AVANT le premier rendu du mode libre :
+		// getDraft restera ainsi purement lisible pendant le rendu (Svelte 5 —
+		// aucune écriture d'état dans un effet de template).
+		const prefilled: Record<string, Draft> = {};
+		for (const ex of r.exercises) {
+			for (const st of ex.sets) {
+				prefilled[draftKey(ex._id, st.order)] = buildDraft(ex, st.order);
+			}
+		}
+		drafts = prefilled;
 		if (data.scheduled.status === 'completed') {
 			alreadyCompleted = true;
 			mode = 'recap';
@@ -269,7 +293,7 @@
 					if (s.kind === 'success') {
 						diagStep('DATA ASSIGNED');
 						applyLoadedSession(s.data as Data);
-						diagStep('RENDER READY');
+						diagStep(`RENDER READY · loading=${loading} data=${!!data} err='${err}' mode=${mode}`);
 					} else {
 						// Erreur applicative (séance introuvable…) OU transport :
 						// message lisible, jamais de stack technique.
@@ -333,7 +357,7 @@
 
 	/** Mode libre : coche/valide une série avec les valeurs du brouillon. */
 	async function toggleFreeSet(ex: Ex, setOrder: number) {
-		const d = getDraft(ex, setOrder);
+		const d = ensureDraft(ex, setOrder);
 		const next = !d.done;
 		d.done = next;
 		saving = true;

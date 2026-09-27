@@ -179,6 +179,30 @@ test('SessionRunner : démontage → abort (aucun état suspendu derrière un ch
 	assert.ok(/onDestroy\(\(\) => \{[\s\S]*?loadController\?\.abort\(\)/.test(runner), 'le contrôleur est annulé au démontage');
 });
 
+/* ─── Svelte 5 : AUCUNE écriture d'état pendant le rendu (state_unsafe_mutation) ───
+ * Incident : getDraft() écrivait drafts[k] lorsqu'appelée depuis le template
+ * ({@const d = getDraft(ex, st.order)}) → exception pendant le flush de rendu
+ * → le DOM restait sur « Chargement… » malgré loading=false. */
+
+test('Svelte 5 : getDraft est PURE (aucune écriture) — utilisable dans le template', () => {
+	const getDraftBody = runner.slice(runner.indexOf('function getDraft'), runner.indexOf('function ensureDraft'));
+	assert.ok(!/drafts\[[^\]]+\]\s*=/.test(getDraftBody), 'getDraft ne doit JAMAIS écrire dans drafts');
+	assert.ok(!/drafts =/.test(getDraftBody), 'getDraft ne doit JAMAIS réassigner drafts');
+	assert.ok(getDraftBody.includes('?? buildDraft('), 'getDraft retombe en lecture sur buildDraft');
+});
+
+test('Svelte 5 : les écritures de brouillon vivent hors du rendu (ensureDraft / préremplissage)', () => {
+	assert.ok(runner.includes('function ensureDraft'), 'ensureDraft = écriture réservée aux événements');
+	assert.ok(/ensureDraft\(ex, setOrder\)/.test(runner), 'toggleFreeSet utilise ensureDraft (gestionnaire d\u2019événement)');
+	assert.ok(/prefilled\[draftKey\(ex\._id, st\.order\)\]/.test(runner), 'applyLoadedSession préremplit les brouillons avant rendu');
+	assert.ok(runner.includes('drafts = prefilled'), 'préremplissage assigné en une fois (contexte async, pas un rendu)');
+});
+
+test('Svelte 5 : le template mode libre n\u2019appelle que la fonction pure', () => {
+	assert.ok(runner.includes('{@const d = getDraft(ex, st.order)}'), 'template : getDraft (pure) uniquement');
+	assert.ok(!/{@const [^}]*ensureDraft/.test(runner), 'jamais ensureDraft dans le template');
+});
+
 /* ─── 4) BFF : observabilité requestId + anti-hang Convex ─── */
 
 test('BFF GET : chaque étape tracée avec requestId (auth, Convex, réponse, durée)', () => {
