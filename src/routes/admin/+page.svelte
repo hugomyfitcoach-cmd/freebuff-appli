@@ -290,7 +290,7 @@
 		const days = (view.week ?? []) as { date: string; kcal: number; count: number }[];
 		return avgLast7Completed(days.map((d) => ({ date: d.date, value: d.count > 0 ? d.kcal : null })), todayISO()).avg ?? 0;
 	});
-	const kcalTrend = $derived(view && weekAvg > 0 ? Math.round(((weekAvg - goalKcal) / goalKcal) * 100) : 0);
+	const kcalTrend = $derived(view && weekAvg > 0 ? Math.round(((weekAvg - (view?.cockpit?.calories?.goal ?? goalKcal)) / (view?.cockpit?.calories?.goal ?? goalKcal)) * 100) : 0);
 	const loggedDays = $derived(view?.week?.filter((d: { count: number }) => d.count > 0).length ?? 0);
 
 	/** Barres calories des 7 JOURNÉES TERMINÉES (J-7 → J-1, le serveur sert
@@ -1903,7 +1903,12 @@
 								<span class="text-sm font-bold {kcalTrend <= 5 ? 'text-brand' : 'text-warn'}">{kcalTrend > 0 ? '+' : ''}{kcalTrend} %</span>
 							{/if}
 						</div>
-						<div class="mt-1 text-[11px] text-mist">moyenne constatée · {loggedDays} jour(s) renseigné(s) sur 7 terminés · objectif {goalKcal}</div>
+						<div class="mt-1 text-[11px] text-mist">
+							moyenne constatée · {loggedDays} jour(s) renseigné(s) sur 7 terminés · objectif {(view?.cockpit?.calories?.goal ?? goalKcal).toLocaleString('fr-FR')} kcal
+							{#if view?.cockpit?.calories?.goalChanged && (view?.cockpit?.calories?.distinctGoals ?? []).length > 1}
+								<span class="italic">· fenêtre traversant un changement ( {(view?.cockpit?.calories?.distinctGoals ?? []).map((g) => g.toLocaleString('fr-FR')).join(' → ')} kcal, évalué jour par jour)</span>
+							{/if}
+						</div>
 					</div>
 					<!-- Cycle — mêmes données et formule que le dashboard de la cliente -->
 					<div class="rounded-2xl border border-line bg-card p-4">
@@ -2040,7 +2045,7 @@
 							<WeeklyTrendChart bars={calBars} goal={goalKcal} avg={weekAvg} fmt={fmtN} ariaLabel="Calories de la semaine" />
 						</div>
 						<div class="mt-2 flex items-start gap-1.5 rounded-xl bg-brand-light px-4 py-2.5 text-xs text-ink">
-							<Icon name="ruler" size={13} class="mt-0.5 shrink-0" /> <span><strong>Moyenne constatée : {weekAvg} kcal/jour</strong> sur {cockpit?.calories?.trackedDays ?? loggedDays} jour(s) exploitable(s) — 7 journées TERMINÉES (J-7 → J-1, aujourd'hui exclu), jours trop incomplètement renseignés exclus du calcul (seuil {cockpit?.calories?.thresholdKcal ?? 960} kcal = max(800, 60 % de l'objectif){cockpit?.calories?.partialExcluded ? ` · ${cockpit.calories.partialExcluded} journée(s) partielle(s) exclue(s)` : ''} — le Journal reste intact ; objectif : {goalKcal} kcal).</span>
+							<Icon name="ruler" size={13} class="mt-0.5 shrink-0" /> <span><strong>Moyenne constatée : {weekAvg} kcal/jour</strong> sur {cockpit?.calories?.trackedDays ?? loggedDays} jour(s) exploitable(s) — 7 journées TERMINÉES (J-7 → J-1, aujourd'hui exclu), jours trop incomplètement renseignés exclus du calcul (seuil {cockpit?.calories?.thresholdKcal ?? 960} kcal = max(800, 60 % de l'objectif){cockpit?.calories?.partialExcluded ? ` · ${cockpit.calories.partialExcluded} journée(s) partielle(s) exclue(s)` : ''} — le Journal reste intact ; objectif (dernier jour de la fenêtre) : {view?.cockpit?.calories?.goal ?? goalKcal} kcal).</span>
 						</div>
 					{:else}
 						<p class="mt-3 rounded-xl border border-dashed border-line px-4 py-8 text-center text-sm text-mist">Aucune donnée de journal sur les 7 derniers jours.</p>
