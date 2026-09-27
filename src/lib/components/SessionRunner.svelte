@@ -15,6 +15,7 @@
 	 */
 	import { onMount, onDestroy } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import { loadScheduledSession, SESSION_LOAD_ERROR_MESSAGE } from '$lib/sessionLoad';
 
 	type ExSet = {
 		order: number;
@@ -210,28 +211,64 @@
 	const DURATION_MIN_THRESHOLD = 10;
 	const DURATION_MAX_THRESHOLD = 150;
 
-	/* ── Chargement ── */
-	onMount(async () => {
-		try {
-			const r = await fetch(`/api/training/session/${scheduledId}`).then((x) => x.json());
-			if (r.error) throw new Error(r.error);
-			data = r as Data;
-			guidedTotal = data.exercises.reduce((n, e) => n + e.sets.length, 0) || 1;
-			if (data.scheduled.status === 'completed') {
-				alreadyCompleted = true;
-				mode = 'recap';
-				buildRecap(data.scheduled.durationMin ?? null);
-			} else if (data.scheduled.startedAt) {
-				// Reprise d'une séance commencée (app fermée, verrouillage…) :
-				// l'état backend est retrouvé, aucun chronomètre n'est perdu.
-				sessionStarted = true;
-				startedAt = data.scheduled.startedAt;
-			}
-		} catch (e) {
-			err = e instanceof Error ? e.message : 'Chargement impossible.';
-		} finally {
-			loading = false;
+	/* ── Chargement (timeout + 1 retry — plus JAMAIS de spinner infini) ──
+	   loadScheduledSession garantit un état final en temps fini : succès,
+	   erreur applicative ou échec transport après UNE seule relance. Le
+	   signal est posé par un contrôleur local annulé au démontage — un
+	   changement d'écran ne peut laisser aucun état suspendu derrière lui. */
+	let loadController: AbortController | null = null;
+
+	function applyLoadedSession(r: Data) {
+		data = r;
+		guidedTotal = data.exercises.reduce((n, e) => n + e.sets.length, 0) || 1;
+		if (data.scheduled.status === 'completed') {
+			alreadyCompleted = true;
+			mode = 'recap';
+			buildRecap(data.scheduled.durationMin ?? null);
+		} else if (data.scheduled.startedAt) {
+			// Reprise d'une séance commencée (app fermée, verrouillage…) :
+			// l'état backend est retrouvé, aucun chronomètre n'est perdu.
+			sessionStarted = true;
+			startedAt = data.scheduled.startedAt;
 		}
+	}
+
+	async function loadSession() {
+		loadController?.abort();
+		loadController = new AbortController();
+		const ctl = loadController;
+		loading = true;
+		err = '';
+		data = null;
+		try {
+			await loadScheduledSession(scheduledId, {
+				signal: ctl.signal,
+				setState: (s) => {
+					if (ctl.signal.aborted) return; // démontage : jamais de setState après
+					if (s.kind === 'success') {
+						applyLoadedSession(s.data as Data);
+					} else {
+						// Erreur applicative (séance introuvable…) OU transport :
+						// message lisible, jamais de stack technique.
+						err = s.message || SESSION_LOAD_ERROR_MESSAGE;
+					}
+				},
+			});
+		} catch (e) {
+			if (ctl.signal.aborted) return; // démontage / rechargement : silence
+			err = SESSION_LOAD_ERROR_MESSAGE;
+		} finally {
+			if (!ctl.signal.aborted) loading = false; // GARANTI après succès ou échec définitif
+		}
+	}
+
+	onMount(() => {
+		void loadSession();
+	});
+
+	onDestroy(() => {
+		loadController?.abort();
+		loadController = null;
 	});
 
 	/* ── Écriture d'une série (LES DEUX MODES) ── */
@@ -640,8 +677,18 @@
 		<p class="py-16 text-center text-sm text-mist">Chargement de la séance…</p>
 	{:else if err && !data}
 		<div class="pt-10 text-center">
-			<p class="rounded-xl border-2 border-danger bg-danger-light px-4 py-3 text-sm text-danger">{err}</p>
-			<button type="button" onclick={closeRunner} class="mt-4 rounded-xl border-2 border-line px-5 py-2.5 text-sm font-semibold text-ink">Retour</button>
+			<div class="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-danger-light">
+				<Icon name="triangleAlert" size={22} class="text-danger" />
+			</div>
+			<p class="mx-auto max-w-xs rounded-xl border-2 border-danger bg-danger-light px-4 py-3 text-sm font-medium text-danger">{err}</p>
+			<button
+				type="button"
+				onclick={loadSession}
+				class="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-5 py-3 text-sm font-bold text-white transition hover:bg-brand-dark"
+			>
+				<Icon name="rotateCcw" size={15} /> Réessayer
+			</button>
+			<button type="button" onclick={closeRunner} class="mt-2 w-full rounded-xl border-2 border-line px-5 py-2.5 text-sm font-semibold text-ink">Retour</button>
 		</div>
 	{:else if data}
 		<!-- ═══════════ HEADER séance ═══════════ -->
