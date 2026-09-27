@@ -581,8 +581,8 @@ export const completeSession = mutation({
  *   recalculée sur la nouvelle durée ;
  * - idempotent : sur une séance non terminée, l'appel est un no-op.
  *
- * Durée : startedAt est réarmé en arrière du temps réellement accumulé
- * (startedAt − durationMin×60 000) → la prochaine complétion mesure la
+ * Durée : startedAt est décalé en arrière du temps déjà accumulé, depuis
+ * maintenant (now − durationMin×60 000) → la prochaine complétion mesure la
  * somme des fenêtres actives, jamais le temps mort entre les deux ouvertures.
  * completedAt, durée, difficulté et note sont effacés (réévalués à la
  * nouvelle clôture).
@@ -607,6 +607,13 @@ export const reopenSession = mutation({
 			.first();
 		if (dep) await ctx.db.delete(dep._id);
 
+		// Fenêtre active : startedAt est décalé en arrière du temps DÉJÀ
+		// accumulé, depuis MAINTENANT. La prochaine fenêtre mesurée
+		// (completedAt − startedAt) s'ajoute donc au temps réellement
+		// travaillé avant l'erreur (somme des fenêtres actives), et le temps
+		// mort entre les deux ouvertures n'est JAMAIS compté — aucun champ
+		// de schéma en plus.
+		const newStartedAt = Math.max(0, now - (s.durationMin ?? 0) * 60_000);
 		await ctx.db.patch(scheduledId, {
 			status: "planned",
 			completedAt: undefined,
@@ -615,14 +622,9 @@ export const reopenSession = mutation({
 			difficulty: undefined,
 			note: undefined,
 			skippedAt: undefined,
-			// Fenêtre active : repart juste avant la fin réelle de la 1re
-			// complétion. Le temps entre les deux ouvertures n'est JAMAIS
-			// compté, mais le temps réellement travaillé AVANT l'erreur l'est
-			// (durée totale = somme des fenêtres actives, dans startedAt/
-			// completedAt existants — aucun champ de schéma en plus).
-			startedAt: Math.max(0, (s.startedAt ?? now) - (s.durationMin ?? 0) * 60_000),
+			startedAt: newStartedAt,
 		});
-		return { ok: true, reopened: true, startedAt: Math.max(0, (s.startedAt ?? now) - (s.durationMin ?? 0) * 60_000) };
+		return { ok: true, reopened: true, startedAt: newStartedAt };
 	},
 });
 
