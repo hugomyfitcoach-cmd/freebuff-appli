@@ -109,30 +109,36 @@ function buildPlan(todayISO: string): DayPlan[] {
 		{ offset: at(w2, 6), weight: 61.1, steps: 9800, kcal: 1600, protein: 97 },
 	];
 
-	/* SEMAINE S-1 (w1) : les jours exploitables/partiels/absents + 6/7 pas
-	   + UNE semaine SANS pesée (comparaison indisponible) + vrai 0 pas. */
+	/* SEMAINE S-1 (w1) : aucune pesée (la comparaison « dernière pesée »
+	   remonte à la semaine S-2 — jamais de 0 inventé) ; jours normaux + un
+	   borderline. NB : selon le jour de consultation, ses débuts peuvent
+	   tomber dans la fenêtre courante (ex. consultation dimanche). */
 	const s1: DayPlan[] = [
 		{ offset: at(w1, 0), steps: 9200, kcal: 1570, protein: 98, sport: ["Natation", 40, 300] },
-		{ offset: at(w1, 1), steps: 0, kcal: 720, protein: 38 }, // vraie valeur 0 pas + journée PARTIELLE (720 < 960)
-		{ offset: at(w1, 2), steps: 10400, kcal: 1620, protein: 106 }, // exploitable
-		{ offset: at(w1, 3), steps: 8700, kcal: 1000, protein: 64 }, // juste au-dessus du seuil 960 → exploitable
+		{ offset: at(w1, 1), steps: 9200, kcal: 1600, protein: 98 },
+		{ offset: at(w1, 2), steps: 10400, kcal: 1620, protein: 106 },
+		{ offset: at(w1, 3), steps: 8700, kcal: 1550, protein: 101 },
 		{ offset: at(w1, 4), steps: 9500, kcal: 950, protein: 55 }, // PARTIELLE (950 < 960)
-		{ offset: at(w1, 5) }, // journée TOTALEMENT absente (pas de kcal, pas de pas)
-		{ offset: at(w1, 6), steps: 10100, kcal: 1690, protein: 112, sport: ["Musculation", 55, 285] },
+		{ offset: at(w1, 5) }, // journée TOTALEMENT absente
+		{ offset: at(w1, 6), steps: 10100, kcal: 1000, protein: 64, sport: ["Musculation", 55, 285] }, // borderline exploitable
 	];
 
-	/* SEMAINE COURANTE (w0) : données du LUNDI au SATURDAY (J-6 → J-0).
-	   La journée EN COURS (offset 0) contient des données PARTIELLES :
-	   elles ne doivent JAMAIS entrer dans la Vision 360 (journée non
-	   terminée) — c'est exactement le piège que la règle exclut. */
+	/* SEMAINE COURANTE (w0) : c'est elle que la fenêtre J-7 → J-1 affiche
+	   (sauf la journée EN COURS, jamais comptée). Elle porte les cas de
+	   test DU GARDE-FOU en conditions réelles :
+	   - mer : pas = 0 VRAI (saisie) mais AUCUNE donnée alimentaire →
+	     absence ≠ 0 ≠ partielle (3 catégories visibles) ;
+	   - jeu : 950 kcal → PARTIELLE (exclue calories ET protéines) ;
+	   - sam : 720 kcal → PARTIELLE (saisie après le bilan du vendredi) ;
+	   - dimanche (en cours) : 700 → jamais compté (journée non terminée). */
 	const s0: DayPlan[] = [
 		{ offset: at(w0, 0), weight: 60.9, steps: 8800, kcal: 1555, protein: 96 },
 		{ offset: at(w0, 1), weight: 60.8, steps: 10900, kcal: 1635, protein: 105, sport: ["Cours collectif", 45, 330] },
-		{ offset: at(w0, 2), weight: 60.7, steps: 9600, kcal: 1500, protein: 99 },
-		{ offset: at(w0, 3), steps: 12000, kcal: 1670, protein: 110 },
+		{ offset: at(w0, 2), weight: 60.7, steps: 0 }, // vrai 0 pas + alimentaire ABSENT
+		{ offset: at(w0, 3), steps: 12000, kcal: 950, protein: 55 }, // PARTIELLE
 		{ offset: at(w0, 4), weight: 60.6, steps: 9100, kcal: 1590, protein: 100 }, // vendredi = jour du bilan
-		{ offset: at(w0, 5), steps: 8300, kcal: 1615, protein: 102 }, // samedi — APRÈS l'envoi du bilan
-		{ offset: at(w0, 6), steps: 7700, kcal: 700, protein: 35 }, // dimanche EN COURS — partiel, JAMAIS compté
+		{ offset: at(w0, 5), steps: 8300, kcal: 720, protein: 35 }, // PARTIELLE — après l'envoi du bilan
+		{ offset: at(w0, 6), steps: 7700, kcal: 700, protein: 35 }, // EN COURS — JAMAIS comptée
 	];
 
 	return [...s2, ...s1, ...s0];

@@ -275,8 +275,11 @@ export function weightVision(rows: WeightPoint[], days: string[]): WeightVision 
 	const avg = inCur.length > 0 ? inCur.reduce((s, r) => s + r.weightKg, 0) / inCur.length : null;
 	const last = inCur.length > 0 ? inCur[inCur.length - 1] : null;
 	const prevLast = inPrev.length > 0 ? inPrev[inPrev.length - 1] : null;
+	// Double arrondi (0,01 puis 0,1) : évite l'artefact flottant où une
+	// moyenne exactement x,x5 retombe en dessous (60,75 → 60,7 au lieu de 60,8).
+	const round10 = (n: number) => Math.round(Math.round(n * 100) / 100 * 10) / 10;
 	return {
-		avg: avg !== null ? Math.round(avg * 10) / 10 : null,
+		avg: avg !== null ? round10(avg) : null,
 		count: inCur.length,
 		last: last ? { date: last.date, weightKg: last.weightKg } : null,
 		prevLast: prevLast ? { date: prevLast.date, weightKg: prevLast.weightKg } : null,
