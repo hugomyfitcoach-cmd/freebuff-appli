@@ -15,6 +15,7 @@
 	 */
 	import { onMount, onDestroy } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import { BUILD_VERSION } from '$lib/buildVersion';
 	import { loadScheduledSession, SESSION_LOAD_ERROR_MESSAGE } from '$lib/sessionLoad';
 
 	type ExSet = {
@@ -218,6 +219,21 @@
 	   changement d'écran ne peut laisser aucun état suspendu derrière lui. */
 	let loadController: AbortController | null = null;
 
+	/* ── Instrumentation DIAGNOSTIC (temporaire, mission « Chargement ») ──
+	   Encart visible en haut d'écran : prouve QUEL bundle tourne (empreinte
+	   de build), combien de tentatives ont eu lieu et où la dernière en est.
+	   À retirer une fois la cause confirmée côté iPhone. */
+	let diag = $state({ build: BUILD_VERSION, attempts: 0, phase: 'idle', note: '', online: true });
+	function diagSet(patch: Partial<typeof diag>) {
+		diag = { ...diag, ...patch };
+	}
+	const diagVisibility = () => diagSet({ online: navigator.onLine });
+	if (typeof navigator !== 'undefined') {
+		diag.online = navigator.onLine;
+		document.addEventListener('visibilitychange', diagVisibility);
+		navigator.serviceWorker?.getRegistration?.().then((r) => diagSet({ note: r?.active ? 'SW actif' : 'sans SW' }));
+	}
+
 	function applyLoadedSession(r: Data) {
 		data = r;
 		guidedTotal = data.exercises.reduce((n, e) => n + e.sets.length, 0) || 1;
@@ -240,22 +256,26 @@
 		loading = true;
 		err = '';
 		data = null;
+		diagSet({ attempts: diag.attempts + 1, phase: 'fetch…', note: `${navigator.onLine ? 'en ligne' : 'HORS LIGNE'} · tentative ${diag.attempts + 1}` });
 		try {
 			await loadScheduledSession(scheduledId, {
 				signal: ctl.signal,
 				setState: (s) => {
 					if (ctl.signal.aborted) return; // démontage : jamais de setState après
 					if (s.kind === 'success') {
+						diagSet({ phase: 'succès' });
 						applyLoadedSession(s.data as Data);
 					} else {
 						// Erreur applicative (séance introuvable…) OU transport :
 						// message lisible, jamais de stack technique.
+						diagSet({ phase: s.kind === 'appError' ? 'erreur séance' : 'erreur réseau' });
 						err = s.message || SESSION_LOAD_ERROR_MESSAGE;
 					}
 				},
 			});
 		} catch (e) {
 			if (ctl.signal.aborted) return; // démontage / rechargement : silence
+			diagSet({ phase: 'abandon après retry' });
 			err = SESSION_LOAD_ERROR_MESSAGE;
 		} finally {
 			if (!ctl.signal.aborted) loading = false; // GARANTI après succès ou échec définitif
@@ -269,6 +289,7 @@
 	onDestroy(() => {
 		loadController?.abort();
 		loadController = null;
+		if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', diagVisibility);
 	});
 
 	/* ── Écriture d'une série (LES DEUX MODES) ── */
@@ -582,6 +603,10 @@
 </script>
 
 <div class="mx-auto w-full max-w-md px-4 pb-8 pt-3">
+	<!-- Instrumentation diagnostic (temporaire) : build réellement exécuté + état du chargement -->
+	<div class="mb-2 rounded-xl border border-warn/60 bg-warn-light/70 px-3 py-1.5 font-mono text-[10px] leading-snug text-ink" role="status">
+		<span class="font-bold">DIAG</span> · build {diag.build.slice(-6)} · {diag.note || diag.phase}
+	</div>
 	<!-- ═══════════ RECAP (résumé de fin / séance déjà réalisée) ═══════════ -->
 	{#if mode === 'recap' && recap}
 		<div class="pt-2 text-center">
