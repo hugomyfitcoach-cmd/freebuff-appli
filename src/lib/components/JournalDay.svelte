@@ -411,13 +411,13 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 	{#if compact}
 		<!-- Type FOOD : le repas est une SECTION — titre, total kcal & % et petit + sont
 		     HORS carte ; la carte blanche contient uniquement les aliments. Repas vide = aucun bloc. -->
-		<section class="mb-2">
+		<section class="mb-1">
 			<div class="flex items-center justify-between gap-2 px-1">
 				<div class="min-w-0">
 					<h2 class="flex min-w-0 items-center text-[18px] font-bold tracking-tight text-ink">
 						{meal.label}
 					</h2>
-					<p class="mt-0.5 text-[13px] font-semibold tabular-nums text-brand">
+					<p class="mt-0 leading-[1.35] text-[13px] font-semibold tabular-nums text-brand">
 						{#if mealKcal(meal.id) > 0 || plannedKcal === 0}
 							{fmt(mealKcal(meal.id))} kcal · {mealPct(meal.id)} %
 							{#if plannedKcal > 0}<span class="font-normal text-mist">· {fmt(plannedKcal)} prévues</span>{/if}
@@ -425,7 +425,7 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 							<!-- Ajuste la métrique sur la baseline du titre (pas de
 							     padding-top parasite → densité identique avec/sans
 							     aliments prévus) -->
-							<span class="mt-0.5 inline-block font-normal text-mist">{fmt(plannedKcal)} kcal prévues</span>
+							<span class="inline-block font-normal text-mist">{fmt(plannedKcal)} kcal prévues</span>
 						{/if}
 					</p>
 				</div>
@@ -462,9 +462,9 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 				</div>
 			</div>
 			{#if mealLooseEntries(meal.id).length > 0 || mealGroups(meal.id).length > 0 || planned.length > 0}
-				<!-- mt-0.5 : rapproche la carte du titre (kcal déjà sur la baseline
-				     du titre) — densité type FOOD, respiration conservée -->
-				<div class="mt-0.5 overflow-hidden rounded-2xl border border-line bg-card">
+				<!-- mt-0 : carte immédiatement sous la ligne kcal (densité type FOOD —
+				     le slack de line-height du titre fournit déjà la respiration) -->
+				<div class="mt-0 overflow-hidden rounded-2xl border border-line bg-card">
 					<div class="divide-y divide-line/60">
 						{#each mealLooseEntries(meal.id) as e (e._id)}
 							{@render mealRow(e)}

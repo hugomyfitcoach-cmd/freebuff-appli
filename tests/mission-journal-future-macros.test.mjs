@@ -149,16 +149,29 @@ test('Vue détail macro : jour futur = prévus (plannedTotals), jour réel = con
 /* ─── 4) Compaction UX des blocs repas (mode cliente) ─── */
 
 test('Compaction : kcal prévues alignées sur la baseline du titre (zéro padding parasite)', () => {
-	assert.ok(journalDay.includes('mt-0.5 inline-block font-normal text-mist'), 'kcal prévues remontées sur la ligne du titre');
+	assert.ok(journalDay.includes('inline-block font-normal text-mist'), 'kcal prévues remontées sur la ligne du titre');
 });
 
-test('Compaction : carte d’aliments rapprochée du titre du repas (mt-1.5 → mt-0.5)', () => {
+test('Compaction : carte d’aliments rapprochée du titre du repas (mt-1.5 → mt-0)', () => {
 	// Une seule carte d'aliments compacte par repas (branches cliente), rapprochée.
-	const compact = [...journalDay.matchAll(/mt-0\.5 overflow-hidden rounded-2xl border border-line bg-card/g)].length;
-	assert.equal(compact, 1, 'carte d’aliments du repas rapprochée du titre (client)');
+	const compact = [...journalDay.matchAll(/mt-0 overflow-hidden rounded-2xl border border-line bg-card/g)].length;
+	assert.equal(compact, 1, 'carte d’aliments immédiatement sous la ligne kcal (client)');
 	assert.ok(!journalDay.includes('mt-1.5 overflow-hidden rounded-2xl border border-line bg-card'), 'ancien espacement supprimé');
 	// Le bloc coach (Vision 360) garde son espacement d'origine.
 	assert.ok(journalDay.includes("mt-1.5 px-1 pb-1"), 'rendu coach inchangé (structure historique)');
+});
+
+test('Compaction phase 2 : en-têtes de repas resserrés SANS toucher polices ni boutons', () => {
+	// Section : mb-1 (au lieu de mb-2) — moins de vide entre deux repas.
+	assert.ok(journalDay.includes('<section class="mb-1">'), 'section repas compacte (mb-1)');
+	// Ligne kcal/%) : collée au titre (mt-0) avec interligne resserré (1,35).
+	assert.ok(journalDay.includes('mt-0 leading-[1.35] text-[13px] font-semibold tabular-nums text-brand'), 'ligne kcal collée au titre, interligne 1,35');
+	// NON-RÉGRESSION : polices inchangées (titre 18 px, kcal 13 px)…
+	assert.ok(journalDay.includes("text-[18px] font-bold tracking-tight text-ink"), 'titre repas toujours 18 px');
+	assert.ok(journalDay.includes('text-[13px] font-semibold tabular-nums text-brand'), 'ligne kcal toujours 13 px');
+	// …et boutons caméra / + intacts (h-11 w-10 / h-11 w-11).
+	assert.ok(journalDay.includes('h-11 w-10 place-items-center text-brand'), 'bouton caméra intact');
+	assert.ok(journalDay.includes('h-11 w-11 place-items-center text-brand'), 'bouton + intact');
 });
 
 test('Compaction appliquée aux 4 repas (composant partagé, aucune exception)', () => {
