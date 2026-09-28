@@ -582,6 +582,38 @@ export const setClientGoals = mutation({
 		// leur objectif d'alors : plus jamais de réécriture rétroactive.
 		if (!existing || existing.kcal !== kcal) {
 			await upsertGoalHistoryToday(ctx, userId, kcal, coach._id, localTodayISO());
+			// BASELINE LEGACY (1re modification d'une cliente d'avant l'historisation) :
+			// l'ANCIEN objectif connu (existing.kcal) est la seule valeur dont on est
+			// certain pour le passé — sans cette ligne, les dates antérieures tombaient
+			// sur le repli « objectif courant » et hier se retrouvait réécrit avec le
+			// NOUVEL objectif. Ancre = date de CRÉATION de la ligne clientGoals
+			// (meilleure approximation non inventée : première trace horodatée de cet
+			// objectif). Jamais d'écriture si l'historique couvre déjà plus ancien,
+			// et aucune fausse date historique précise n'est fabriquée.
+			if (existing) {
+				const history = await loadGoalHistory(ctx, userId);
+				const earliestFrom = history.reduce<string | null>(
+					(min, h) => (min === null || h.effectiveFrom < min ? h.effectiveFrom : min),
+					null
+				);
+				const baselineFrom = localTodayISO(new Date(existing._creationTime));
+				if (earliestFrom === null || baselineFrom < earliestFrom) {
+					const sameDay = await ctx.db
+						.query("clientGoalHistory")
+						.withIndex("by_user_from", (q) => q.eq("userId", userId).eq("effectiveFrom", baselineFrom))
+						.collect();
+					if (!sameDay.some((row) => row.kcal === existing.kcal)) {
+						for (const row of sameDay) await ctx.db.delete(row._id);
+						await ctx.db.insert("clientGoalHistory", {
+							userId,
+							kcal: existing.kcal,
+							effectiveFrom: baselineFrom,
+							createdBy: coach._id,
+							createdAt: Date.now(),
+						});
+					}
+				}
+			}
 		}
 
 		if (existing) {

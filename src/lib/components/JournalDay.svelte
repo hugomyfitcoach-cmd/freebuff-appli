@@ -225,8 +225,13 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 	/** Style « prévu » des anneaux : atténué / désaturé — cohérent avec les
 	 *  lignes d'aliments planifiés (grisées, opacité réduite). Lié à la
 	 *  PRÉSENCE de plannedTotals (API cliente uniquement) → le rendu coach
-	 *  (Vision 360, API sans plannedTotals) reste strictement inchangé. */
-	const macrosPlanned = isFutureDay && !!day.plannedTotals;
+	 *  (Vision 360, API sans plannedTotals) reste strictement inchangé.
+	 *  $derived (jamais lu à l'init du module) — réactivité + warning svelte éteint. */
+	const macrosPlanned = $derived(isFutureDay && !!day.plannedTotals);
+	/** Gris neutre unique du mode « prévu » : titres, icônes, arcs, pourcentages
+	 *  et valeurs — TOUTE identité rose/bleu/orange est retirée sur jour futur,
+	 *  pour être lu d'emblée comme « ceci est prévu, pas encore consommé ». */
+	const PLANNED_GRAY = '#9aa19a';
 	/* Items planifiés : information secondaire (JAMAIS dans les anneaux / barre). */
 	const plannedItems = $derived(day.planned ?? []);
 	const plannedKcalTotal = $derived(Math.round(day.plannedTotals?.kcal ?? 0));
@@ -369,8 +374,8 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 			onkeydown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onMacroClick?.(macroKey); } } : undefined}
 		>
 			<div class="mb-2 flex items-center justify-between px-0.5">
-				<span class="font-bold text-ink {compact ? 'text-[10px]' : 'text-[10px]'}">{ring.label}</span>
-				<Icon name={ring.icon} size={compact ? 12 : 14} class="shrink-0" style="color:{ring.color}" />
+				<span class="font-bold {compact ? 'text-[10px]' : 'text-[10px]'} {macrosPlanned ? 'text-mist' : 'text-ink'}">{ring.label}</span>
+				<Icon name={ring.icon} size={compact ? 12 : 14} class="shrink-0" style={macrosPlanned ? `color:${PLANNED_GRAY}` : `color:${ring.color}`} />
 			</div>
 			<div class="relative mx-auto {compact ? 'h-[76px] w-[76px]' : 'h-[84px] w-[84px] md:h-[92px] md:w-[92px]'}">
 				<svg viewBox="0 0 64 64" class="-rotate-90 {compact ? 'h-[76px] w-[76px]' : 'h-[84px] w-[84px] md:h-[92px] md:w-[92px]'}">
@@ -380,7 +385,7 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 						cy="32"
 						r="22"
 						fill="none"
-						stroke={macrosPlanned ? '#9aa19a' : ring.color}
+						stroke={macrosPlanned ? PLANNED_GRAY : ring.color}
 						stroke-width={compact ? 4 : 6}
 						stroke-linecap="round"
 						stroke-dasharray={circ}
@@ -388,11 +393,11 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 						style="transition: stroke-dashoffset .5s"
 					/>
 				</svg>
-				<span class="absolute inset-0 grid place-items-center font-bold leading-none" style:color={macrosPlanned ? undefined : ring.color}>
+				<span class="absolute inset-0 grid place-items-center font-bold leading-none" style:color={macrosPlanned ? PLANNED_GRAY : ring.color}>
 					<span class="{compact ? 'text-[15px]' : 'text-[16px] md:text-[18px]'}">{Math.round(pct)}%</span>
 				</span>		</div>
 		<p class="{macrosPlanned ? 'text-mist' : 'text-ink'} {compact ? 'mt-1.5 text-[10px]' : 'mt-2.5 text-[11px]'}">
-			<strong class="font-bold tabular-nums">{fmt(Math.round(ring.eaten))}</strong><span class="text-mist">/{fmt(ring.goal)}g</span>
+			<strong class="font-bold tabular-nums {macrosPlanned ? 'text-mist' : ''}">{fmt(Math.round(ring.eaten))}</strong><span class="text-mist">/{fmt(ring.goal)}g</span>
 		</p>
 	</div>
 	{/each}

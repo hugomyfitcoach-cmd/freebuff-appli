@@ -23,6 +23,7 @@ import {
 	foodAverages,
 	stepsAverages,
 } from "../lib/vision360";
+import { kcalGoalForDate, withCurrentGoal } from "../lib/goalHistory";
 
 /**
  * Dashboard « Accueil » de l'espace cliente.
@@ -145,6 +146,18 @@ export const getDashboard = query({
 		const kcal = Math.round(entries.reduce((s, e) => s + e.kcal, 0));
 		const kcalGoal = goalsRow?.kcal ?? DEFAULT_GOALS.kcal;
 		const maintenanceKcal = goalsRow?.maintenanceKcal ?? null;
+
+		/* ── Objectif DATÉ (historique) : le récap « 7 derniers jours » évalue le
+		   garde-fou 60 % avec l'objectif APPLICABLE À CHAQUE JOURNÉE (règle
+		   Vision 360), jamais l'objectif courant plaqué sur toute la fenêtre.
+		   `withCurrentGoal` fusionne l'objectif courant en lecture — mêmes règles
+		   que la Vision 360 coach (coach.ts), une seule définition partagée. */
+		const goalHistoryRows = await ctx.db
+			.query("clientGoalHistory")
+			.withIndex("by_user_from", (q) => q.eq("userId", user._id))
+			.collect();
+		const kcalGoal360 = (date: string): number =>
+			kcalGoalForDate(withCurrentGoal(goalHistoryRows, kcalGoal, parisTodayISO(ts)), date, kcalGoal);
 
 		/* ── Progression : dernier poids + pesées de la semaine ── */
 		// Tri par date de mesure (l'index by_user suit l'ordre de création) :
@@ -333,7 +346,7 @@ export const getDashboard = query({
 		const food360Home = foodAverages(
 			new Map([...kcalByDay360].map(([date, k]) => [date, { kcal: k, protein: null }])),
 			visionDays,
-			kcalGoal
+			kcalGoal360
 		);
 		const steps360Home = stepsAverages(
 			stepsRows.map((s) => ({ date: s.date, count: s.count })),
@@ -349,9 +362,10 @@ export const getDashboard = query({
 		const recap = {
 			windowStart: visionStart,
 			windowEnd: visionEnd,
-			calories: {
-				avg: food360Home.kcalAvg,
-				goal: kcalGoal,
+		calories: {
+			avg: food360Home.kcalAvg,
+			// Objectif DATÉ : celui du DERNIER jour de la fenêtre (J-1), pas l'objectif courant.
+			goal: kcalGoal360(visionEnd),
 				// Jours EXPLOITABLES (garde-fou Vision 360) — pas juste « avec entrées ».
 				trackedDays: food360Home.breakdown.exploitableDays,
 				partialDays: food360Home.breakdown.partialDays,

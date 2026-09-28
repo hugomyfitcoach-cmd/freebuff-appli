@@ -45,13 +45,30 @@ test('Journal futur : les anneaux macros affichent les macros PRÉVUES (plannedT
 test('Journal futur : rendu atténué des anneaux (désaturé + gris), jamais « consommé »', () => {
 	// Carte atténuée (cohérent avec les lignes planifiées opacity-60 saturate-50).
 	assert.ok(journalDay.includes("{macrosPlanned ? 'opacity-60 saturate-50' : ''}"), 'carte macro désaturée/atténuée en mode prévu');
-	// Arc gris neutre (identité rose/bleu/orange retirée pendant la préparation).
-	assert.ok(journalDay.includes("stroke={macrosPlanned ? '#9aa19a' : ring.color}"), 'arc gris neutre en mode prévu, couleur d’identité sinon');
-	// Valeurs en gris (text-mist) au centre + gramme, couleur de marque sinon.
-	assert.ok(journalDay.includes("style:color={macrosPlanned ? undefined : ring.color}"), 'pourcentage neutre en mode prévu');
+	// Gris neutre partagé (const) : toute identité rose/bleu/orange retirée en mode prévu.
+	assert.match(journalDay, /const PLANNED_GRAY = '#9aa19a';/);
+	// Arc gris neutre.
+	assert.ok(journalDay.includes('stroke={macrosPlanned ? PLANNED_GRAY : ring.color}'), 'arc gris neutre en mode prévu, couleur d’identité sinon');
+	// §1 phase 2 : TITRE et ICÔNE grisés (plus aucune couleur d’identité).
+	assert.ok(journalDay.includes("{macrosPlanned ? 'text-mist' : 'text-ink'}\">{ring.label}"), 'titre de carte gris en mode prévu');
+	assert.match(journalDay, /style=\{macrosPlanned \? `color:\$\{PLANNED_GRAY\}` : `color:\$\{ring\.color\}`\}/, 'icône grisée en mode prévu');
+	// Pourcentage + valeur en gris au centre.
+	assert.ok(journalDay.includes('style:color={macrosPlanned ? PLANNED_GRAY : ring.color}'), 'pourcentage gris en mode prévu');
 	assert.ok(journalDay.includes("{macrosPlanned ? 'text-mist' : 'text-ink'}"), 'grammage neutre en mode prévu');
 	// Le style prévu est lié à plannedTotals (données API cliente) → coach jamais affecté.
-	assert.match(journalDay, /const macrosPlanned = isFutureDay && !!day\.plannedTotals;/);
+	// $derived (jamais lu à l’init du module) : réactivité + warning svelte éteint.
+	assert.match(journalDay, /const macrosPlanned = \$derived\(isFutureDay && !!day\.plannedTotals\);/);
+});
+
+test('Journal futur : modale détail macro entièrement au gris « prévu » (cohérence anneaux)', () => {
+	assert.match(journalPage, /const PLANNED_GRAY = '#9aa19a';/, 'même gris que les anneaux du JournalDay');
+	assert.match(journalPage, /const macroMetaTint = \$derived\(isFuture \? PLANNED_GRAY : macroMeta\.color\);/, 'teinte unique : gris en futur, couleur macro sinon');
+	const modalStart = journalPage.indexOf('VUE DÉTAIL MACRO');
+	const modal = journalPage.slice(modalStart, journalPage.indexOf('{:else}', modalStart));
+	assert.match(modal, /stroke=\{macroMetaTint\}/, 'arc de la modale gris en futur');
+	assert.match(modal, /style:color=\{macroMetaTint\}/, '% + totaux grisés en futur');
+	assert.match(modal, /isFuture \? `color:\$\{PLANNED_GRAY\}` : `color:\$\{macroMeta\.color\}`/, 'icône grisée en futur');
+	assert.ok(modal.includes('macroMetaTint'), 'détail par aliment (g par item) via la même teinte');
 });
 
 test('Journal futur : kcal prévues et macros prévues partagent la MÊME source (aucun double comptage)', () => {
@@ -93,6 +110,24 @@ test('Basculé le jour venu : prévu → consommé via la validation existante (
 		/export const eatPlanned = mutation\(\{[\s\S]*?ctx\.db\.insert\("diaryEntries", \{[\s\S]*?source: "planned_eaten"[\s\S]*?\}\);\s*await ctx\.db\.delete\(plannedId\);/,
 		'validation = transfert planned → consommé, sans résidu planifié'
 	);
+});
+
+test('Jour J : consommé repart de 0, les planifiés restent visibles non validés (phase 2)', () => {
+	// Les anneaux/calories du composant dérivent UNIQUEMENT de day.entries
+	// (diaryEntries = consommé) — planned ne remplit JAMAIS le consommé ;
+	// au passage planned → jour J, rien n’est transféré automatiquement.
+	assert.match(journalDay, /for \(const e of day\.entries\) \{/, 'totaux consommés = entries uniquement');
+	// planned et plannedTotals restent servis séparément (visibles non validés).
+	assert.match(journalConvex, /const plannedTotals = plannedRows\.reduce\(/, 'plannedTotals servis à part (aucune fusion dans le consommé)');
+	// Dévalidation : retour planifié PROPRE (INSERT plannedEntries + DELETE entry).
+	assert.match(
+		journalConvex,
+		/export const uneatEntry = mutation\(\{[\s\S]*?ctx\.db\.insert\("plannedEntries", \{[\s\S]*?source: "client_planned"[\s\S]*?\}\);\s*await ctx\.db\.delete\(entryId\);/,
+		'dé-validation = retrait du consommé + remise en prévu (réversible)'
+	);
+	// Garde-fous : validation interdite sur futur ; dé-validation interdite sur passé.
+	assert.match(journalConvex, /p\.date > today[\s\S]{0,80}Impossible de valider « Mangé » sur une date future\./);
+	assert.match(journalConvex, /entry\.date < today[\s\S]{0,120}Impossible de dé-valider un jour passé\./);
 });
 
 /* ─── 3) Vue détail macro (clic carte) — cohérente sur jour futur ─── */

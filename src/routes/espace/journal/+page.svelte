@@ -276,6 +276,9 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		{ key: 'protein', label: 'Protéines', icon: 'drumstick', color: '#3b82f6', field: 'protein' },
 		{ key: 'fat', label: 'Lipides', icon: 'droplet', color: '#f97316', field: 'fat' },
 	] as const;
+	/** Gris neutre du mode « prévu » (jour futur) — même teinte que les anneaux
+	 *  du JournalDay : toute couleur d'identité rose/bleu/orange est retirée. */
+	const PLANNED_GRAY = '#9aa19a';
 	type MacroKey = (typeof MACRO_LIST)[number]['key'];
 	const MACRO_DEFS = { carbs: MACRO_LIST[0], protein: MACRO_LIST[1], fat: MACRO_LIST[2] };
 	let macroDetail = $state<MacroKey | null>(null);
@@ -293,6 +296,9 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	);
 	const macroEaten = $derived(macroDetail ? macroShown[macroDetail] : 0);
 	const macroDetailPct = $derived(macroGoal > 0 ? Math.min(100, (macroEaten / macroGoal) * 100) : 0);
+	/** Jour futur : le détail reste AU GRIS « prévu » (arc, %, icône, totaux) —
+	 *  la couleur de la macro ne revient qu'au jour réel (tracking consommé). */
+	const macroMetaTint = $derived(isFuture ? PLANNED_GRAY : macroMeta.color);
 	const macroCirc = 2 * Math.PI * 22;
 	/** Grammes avec 1 décimale max, virgule française (« 54,6 g »). */
 	function fmtG(n: number) {
@@ -2896,7 +2902,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 								cy="32"
 								r="22"
 								fill="none"
-								stroke={macroMeta.color}
+								stroke={macroMetaTint}
 								stroke-width="6"
 								stroke-linecap="round"
 								stroke-dasharray={macroCirc}
@@ -2904,7 +2910,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 								style="transition: stroke-dashoffset .5s"
 							/>
 						</svg>
-						<span class="absolute inset-0 grid place-items-center font-bold leading-none tabular-nums" style:color={macroMeta.color}>
+						<span class="absolute inset-0 grid place-items-center font-bold leading-none tabular-nums" style:color={macroMetaTint}>
 							<!-- Chiffre + % sur la MÊME baseline, groupés en un seul item
 							     centré : sinon place-items-center empile les deux spans
 							     sur deux lignes (chiffre au-dessus, % en dessous). -->
@@ -2918,9 +2924,9 @@ import { journalTipForDay } from '$lib/data/journalTips';
 							<span class="text-3xl font-bold leading-none tabular-nums text-ink">{fmtG(Math.max(0, macroGoal - macroEaten))}</span>
 							<span class="text-[13px] font-semibold text-mist">{isFuture ? 'g restants à planifier' : 'g restants'}</span>
 						</p>
-						<p class="mt-1.5 text-[13px] font-semibold tabular-nums" style:color={macroMeta.color}>{fmtG(macroEaten)}/{fmtG(macroGoal)} g {isFuture ? 'prévus' : 'consommés'}</p>
+						<p class="mt-1.5 text-[13px] font-semibold tabular-nums" style:color={macroMetaTint}>{fmtG(macroEaten)}/{fmtG(macroGoal)} g {isFuture ? 'prévus' : 'consommés'}</p>
 					</div>
-					<Icon name={macroMeta.icon} size={26} class="shrink-0" style="color:{macroMeta.color}" />
+					<Icon name={macroMeta.icon} size={26} class="shrink-0" style={isFuture ? `color:${PLANNED_GRAY}` : `color:${macroMeta.color}`} />
 				</div>
 			</section>
 
@@ -2941,7 +2947,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 				<section class="mt-4">
 					<div class="flex items-baseline justify-between gap-2 px-1">
 						<h2 class="text-[18px] font-bold tracking-tight text-ink">{group.label}</h2>
-						<p class="text-[13px] font-semibold tabular-nums" style:color={macroMeta.color}>
+						<p class="text-[13px] font-semibold tabular-nums" style:color={macroMetaTint}>
 							{fmtG(group.total)} g ({macroGoal > 0 ? Math.round((group.total / macroGoal) * 100) : 0} %)
 						</p>
 					</div>
@@ -2960,7 +2966,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 											{#if e.brand}<span class="truncate text-[12px] text-mist">{e.brand}</span>{/if}
 										</span>
 										<span class="mt-0.5 block text-[11px] tabular-nums text-mist">
-											<strong class="font-bold" style:color={macroMeta.color}>{fmtG(e[macroMeta.field])} g</strong>
+											<strong class="font-bold" style:color={macroMetaTint}>{fmtG(e[macroMeta.field])} g</strong>
 											{#if 'portions' in e && e.portions}
 												· {String(e.portions).replace('.', ',')} {e.portions === 1 ? 'portion' : 'portions'}
 											{:else}

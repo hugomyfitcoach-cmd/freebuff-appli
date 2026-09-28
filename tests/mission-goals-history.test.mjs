@@ -36,6 +36,7 @@ const coach = readFileSync(join(root, 'src/convex/coach.ts'), 'utf8');
 const schema = readFileSync(join(root, 'src/convex/schema.ts'), 'utf8');
 const seedDemo = readFileSync(join(root, 'src/convex/previewSeedVision360.ts'), 'utf8');
 const adminPage = readFileSync(join(root, 'src/routes/admin/+page.svelte'), 'utf8');
+const dashboard = readFileSync(join(root, 'src/convex/dashboard.ts'), 'utf8');
 
 /* ── CAS SIMPLE — 01/09 : 1 600 · 15/09 : 1 700 · 27/09 : 1 550 ── */
 
@@ -263,4 +264,56 @@ test('COHÉRENCE : le garde-fou daté reste UNE définition partagée calories +
 	// exactement les mêmes jours exploitables, évalués avec l’objectif du jour.
 	const c360 = coach.slice(coach.indexOf('const food360 = foodAverages'), coach.indexOf('const food360 = foodAverages') + 200);
 	assert.ok(c360.includes('goalForDay'), 'une seule source d’objectif pour les deux moyennes');
+});
+
+/* ── PHASE 2 — BASELINE LEGACY : l’ANCIENNE valeur est historisée ──
+   Cause du bug prod : setClientGoals n’historisait que la NOUVELLE valeur ;
+   pour les clientes sans historique, les dates antérieures retombaient sur
+   le repli « objectif courant » → hier réécrit avec le nouvel objectif. */
+
+test('LEGACY : la mutation capture l’ANCIEN objectif à la première modification (jamais inventé)', () => {
+	assert.ok(journal.includes('BASELINE LEGACY'), 'bloc baseline legacy documenté dans setClientGoals');
+	assert.match(journal, /kcal: existing\.kcal/, 'valeur de la baseline = l’ancienne valeur connue juste avant le changement');
+	// Ancre NON INVENTÉE : date de création de la ligne clientGoals (première trace horodatée).
+	assert.ok(journal.includes('localTodayISO(new Date(existing._creationTime))'), 'ancre = _creationTime de clientGoals (aucune fausse date précise)');
+	// Jamais si l’historique couvre déjà plus ancien ; idempotent (même valeur déjà posée → no-op).
+	assert.match(journal, /earliestFrom === null \|\| baselineFrom < earliestFrom/, 'baseline refusée si l’historique est déjà plus ancien');
+	assert.match(journal, /sameDay\.some\(\(row\) => row\.kcal === existing\.kcal\)/, 'baseline déjà posée → no-op');
+	// Première définition (aucune ligne clientGoals existante) → rien à capturer.
+	assert.match(journal, /if \(existing\) \{\s*const history = await loadGoalHistory/, 'baseline uniquement sur MODIFICATION (pas à la création)');
+});
+
+test('LEGACY : scénario 1600 → 1750 — hier ne récupère JAMAIS le nouvel objectif', () => {
+	// Avant correctif : une seule ligne (1750 @ aujourd’hui) → hier retombait sur
+	// le repli « objectif courant » (1750) = passé réécrit. Avec la baseline
+	// (1600 posée à la date de création de clientGoals), hier reste à 1600 —
+	// y compris avec le repli de lecture fixé à la valeur APRÈS changement.
+	const hist = [
+		{ kcal: 1600, effectiveFrom: '2026-08-01' }, // baseline legacy (date de création clientGoals)
+		{ kcal: 1750, effectiveFrom: '2026-09-28' }, // changement du jour
+	];
+	const courant = 1750; // clientGoals.kcal APRÈS modification (fallback de lecture)
+	assert.equal(kcalGoalForDate(hist, '2026-09-27', courant), 1600, 'hier : ancien objectif');
+	assert.equal(kcalGoalForDate(hist, '2026-09-26', courant), 1600, 'avant-hier : ancien objectif');
+	assert.equal(kcalGoalForDate(hist, '2026-09-28', courant), 1750, 'aujourd’hui : nouvel objectif');
+	assert.equal(kcalGoalForDate(hist, '2026-09-29', courant), 1750, 'demain : nouvel objectif (effet forward)');
+});
+
+test('LEGACY : seconde modification 1750 → 1550 — les dates antérieures restent intactes', () => {
+	const hist = [
+		{ kcal: 1600, effectiveFrom: '2026-08-01' },
+		{ kcal: 1750, effectiveFrom: '2026-09-28' },
+		{ kcal: 1550, effectiveFrom: '2026-10-05' },
+	];
+	assert.equal(kcalGoalForDate(hist, '2026-09-27', 1550), 1600);
+	assert.equal(kcalGoalForDate(hist, '2026-10-04', 1550), 1750);
+	assert.equal(kcalGoalForDate(hist, '2026-10-05', 1550), 1550);
+});
+
+test('DASHBOARD (accueil) : le garde-fou 60 % du récap 7 jours utilise l’objectif PAR JOUR', () => {
+	assert.match(dashboard, /import \{ kcalGoalForDate, withCurrentGoal \} from "\.\.\/lib\/goalHistory";/, 'même résolution partagée que Journal / Vision 360');
+	assert.match(dashboard, /const kcalGoal360 = \(date: string\): number =>/, 'résolution fonction par date (plus un scalaire)');
+	assert.match(dashboard, /kcalGoalForDate\(withCurrentGoal\(goalHistoryRows, kcalGoal, parisTodayISO\(ts\)\), date, kcalGoal\)/, 'historique fusionné avec l’objectif courant (règles Vision 360)');
+	assert.match(dashboard, /foodAverages\([\s\S]*?kcalGoal360\s*\)/, 'moyennes + garde-fou : objectif applicable à CHAQUE journée');
+	assert.match(dashboard, /goal: kcalGoal360\(visionEnd\)/, 'objectif affiché du récap = celui de la dernière journée de la fenêtre (J-1)');
 });
