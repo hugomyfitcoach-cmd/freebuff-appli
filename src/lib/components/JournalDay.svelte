@@ -462,9 +462,9 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 				</div>
 			</div>
 			{#if mealLooseEntries(meal.id).length > 0 || mealGroups(meal.id).length > 0 || planned.length > 0}
-				<!-- mt-0 : carte immédiatement sous la ligne kcal (densité type FOOD —
-				     le slack de line-height du titre fournit déjà la respiration) -->
-				<div class="mt-0 overflow-hidden rounded-2xl border border-line bg-card">
+				<!-- mt-2.5 : ~10 px d'air entre la ligne kcal/% et la carte d'aliments
+				     (retour respiration demandé) — titre → kcal reste compact -->
+				<div class="mt-2.5 overflow-hidden rounded-2xl border border-line bg-card">
 					<div class="divide-y divide-line/60">
 						{#each mealLooseEntries(meal.id) as e (e._id)}
 							{@render mealRow(e)}

@@ -152,10 +152,10 @@ test('Compaction : kcal prévues alignées sur la baseline du titre (zéro paddi
 	assert.ok(journalDay.includes('inline-block font-normal text-mist'), 'kcal prévues remontées sur la ligne du titre');
 });
 
-test('Compaction : carte d’aliments rapprochée du titre du repas (mt-1.5 → mt-0)', () => {
-	// Une seule carte d'aliments compacte par repas (branches cliente), rapprochée.
-	const compact = [...journalDay.matchAll(/mt-0 overflow-hidden rounded-2xl border border-line bg-card/g)].length;
-	assert.equal(compact, 1, 'carte d’aliments immédiatement sous la ligne kcal (client)');
+test('Compaction : ~10 px d’air entre la ligne kcal/% et la carte d’aliments (mt-2.5)', () => {
+	// Une seule carte d'aliments par repas (branches cliente) : air de 10 px.
+	const compact = [...journalDay.matchAll(/mt-2\.5 overflow-hidden rounded-2xl border border-line bg-card/g)].length;
+	assert.equal(compact, 1, 'carte d’aliments à ~10 px sous la ligne kcal (client)');
 	assert.ok(!journalDay.includes('mt-1.5 overflow-hidden rounded-2xl border border-line bg-card'), 'ancien espacement supprimé');
 	// Le bloc coach (Vision 360) garde son espacement d'origine.
 	assert.ok(journalDay.includes("mt-1.5 px-1 pb-1"), 'rendu coach inchangé (structure historique)');
