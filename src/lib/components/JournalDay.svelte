@@ -12,12 +12,17 @@
 	 * - `planned` (plan coach + préparation cliente) est affiché GRIS avec un
 	 *   cercle vide et n'impacte RIEN — seul un total secondaire « prévu »
 	 *   apparaît (repas + carte). Tap sur le cercle = « Mangé » (via onToggleEat).
+	 * - EXCEPTION jour FUTUR uniquement : les anneaux macros affichent les
+	 *   macros PRÉVUES (`plannedTotals`, même source que les kcal prévues) en
+	 *   rendu atténué — pour préparer sa journée. Jamais interprétées comme
+	 *   consommées : rien n'est écrit, aucune donnée réelle n'est modifiée.
 	 *
 	 * mode="client" : la ligne est cliquable → feuille de quantité (édition).
 	 * mode="coach"  : mêmes lignes + commandes compactes − / + / supprimer.
 	 */
-	import Icon from './Icon.svelte';
-	import FoodImg from './FoodImg.svelte';
+import Icon from './Icon.svelte';
+import FoodImg from './FoodImg.svelte';
+import { currentLocalDay } from '$lib/currentDay.svelte';
 
 	type Entry = {
 		_id: string;
@@ -202,6 +207,26 @@
 		}
 		return t;
 	});
+	/** Jour FUTUR consulté : les anneaux macros affichent les macros PRÉVUES
+	 *  (plannedTotals — même source que les « kcal prévues ») en rendu atténué.
+	 *  Aujourd'hui / passé : consommé uniquement, comportement inchangé.
+	 *  Garde SSR : currentLocalDay() n'est lu que côté navigateur (le module
+	 *  crée un $state + listeners window → jamais exécuté pendant le prerender). */
+	const isFutureDay = $derived(typeof window !== 'undefined' && day.date > currentLocalDay());
+	/** Source unique des macros affichées dans les anneaux : consommé, sauf
+	 *  jour futur → prévu (plannedTotals). AUCUN double comptage : une même
+	 *  donnée (planned OU diary) alimente kcal prévues ET macros prévues. */
+	const macrosShown = $derived.by(() => {
+		if (isFutureDay && day.plannedTotals) {
+			return { carbs: day.plannedTotals.carbs, protein: day.plannedTotals.protein, fat: day.plannedTotals.fat };
+		}
+		return { carbs: totals.carbs, protein: totals.protein, fat: totals.fat };
+	});
+	/** Style « prévu » des anneaux : atténué / désaturé — cohérent avec les
+	 *  lignes d'aliments planifiés (grisées, opacité réduite). Lié à la
+	 *  PRÉSENCE de plannedTotals (API cliente uniquement) → le rendu coach
+	 *  (Vision 360, API sans plannedTotals) reste strictement inchangé. */
+	const macrosPlanned = isFutureDay && !!day.plannedTotals;
 	/* Items planifiés : information secondaire (JAMAIS dans les anneaux / barre). */
 	const plannedItems = $derived(day.planned ?? []);
 	const plannedKcalTotal = $derived(Math.round(day.plannedTotals?.kcal ?? 0));
@@ -246,9 +271,9 @@
 		return n.toLocaleString('fr-FR');
 	}
 	const rings = $derived([
-		{ label: 'Glucides', icon: 'wheat', color: '#ec4899', eaten: totals.carbs, goal: day.goals.carbs },
-		{ label: 'Protéines', icon: 'drumstick', color: '#3b82f6', eaten: totals.protein, goal: day.goals.protein },
-		{ label: 'Lipides', icon: 'droplet', color: '#f97316', eaten: totals.fat, goal: day.goals.fat },
+		{ label: 'Glucides', icon: 'wheat', color: '#ec4899', eaten: macrosShown.carbs, goal: day.goals.carbs },
+		{ label: 'Protéines', icon: 'drumstick', color: '#3b82f6', eaten: macrosShown.protein, goal: day.goals.protein },
+		{ label: 'Lipides', icon: 'droplet', color: '#f97316', eaten: macrosShown.fat, goal: day.goals.fat },
 	]);
 	function isSel(id: string) {
 		return selIds?.has(id) ?? false;
@@ -325,7 +350,9 @@
 </section>
 
 <!-- Macros type FOOD : le RING est l'élément visuel principal de la card.
-     CONSOMMÉ / OBJECTIF uniquement — jamais les totaux planifiés (règle absolue). -->
+     CONSOMMÉ / OBJECTIF — sauf jour FUTUR : macros PRÉVUES (plannedTotals,
+     même source que les kcal prévues) en rendu atténué (gris + désaturé),
+     jamais interprétées comme consommées (aucune écriture, aucun comptage). -->
 <section class="grid grid-cols-3 {compact ? 'mb-1.5 gap-1.5' : 'mb-2.5 gap-2'}">
 	{#each rings as ring (ring.label)}
 		{@const pct = macroPct(ring.eaten, ring.goal)}
@@ -334,7 +361,7 @@
 		{@const macroKey = ring.label === 'Glucides' ? 'carbs' : ring.label === 'Protéines' ? 'protein' : 'fat'}
 		{@const clickable = mode === 'client' && !!onMacroClick}
 		<div
-			class="rounded-2xl border border-line bg-card text-center {compact ? 'px-1.5 pb-2 pt-2' : 'px-2 pb-2.5 pt-2.5'} {clickable ? 'cursor-pointer outline-none transition duration-150 hover:shadow-sm active:scale-[0.97]' : ''}"
+			class="rounded-2xl border border-line bg-card text-center {compact ? 'px-1.5 pb-2 pt-2' : 'px-2 pb-2.5 pt-2.5'} {macrosPlanned ? 'opacity-60 saturate-50' : ''} {clickable ? 'cursor-pointer outline-none transition duration-150 hover:shadow-sm active:scale-[0.97]' : ''}"
 			role={clickable ? 'button' : undefined}
 			tabindex={clickable ? 0 : undefined}
 			aria-label={clickable ? `Voir le détail des ${ring.label.toLowerCase()}` : undefined}
@@ -353,7 +380,7 @@
 						cy="32"
 						r="22"
 						fill="none"
-						stroke={ring.color}
+						stroke={macrosPlanned ? '#9aa19a' : ring.color}
 						stroke-width={compact ? 4 : 6}
 						stroke-linecap="round"
 						stroke-dasharray={circ}
@@ -361,10 +388,10 @@
 						style="transition: stroke-dashoffset .5s"
 					/>
 				</svg>
-				<span class="absolute inset-0 grid place-items-center font-bold leading-none" style:color={ring.color}>
+				<span class="absolute inset-0 grid place-items-center font-bold leading-none" style:color={macrosPlanned ? undefined : ring.color}>
 					<span class="{compact ? 'text-[15px]' : 'text-[16px] md:text-[18px]'}">{Math.round(pct)}%</span>
 				</span>		</div>
-		<p class="text-ink {compact ? 'mt-1.5 text-[10px]' : 'mt-2.5 text-[11px]'}">
+		<p class="{macrosPlanned ? 'text-mist' : 'text-ink'} {compact ? 'mt-1.5 text-[10px]' : 'mt-2.5 text-[11px]'}">
 			<strong class="font-bold tabular-nums">{fmt(Math.round(ring.eaten))}</strong><span class="text-mist">/{fmt(ring.goal)}g</span>
 		</p>
 	</div>
@@ -390,7 +417,10 @@
 							{fmt(mealKcal(meal.id))} kcal · {mealPct(meal.id)} %
 							{#if plannedKcal > 0}<span class="font-normal text-mist">· {fmt(plannedKcal)} prévues</span>{/if}
 						{:else}
-							<span class="font-normal text-mist">{fmt(plannedKcal)} kcal prévues</span>
+							<!-- Ajuste la métrique sur la baseline du titre (pas de
+							     padding-top parasite → densité identique avec/sans
+							     aliments prévus) -->
+							<span class="mt-0.5 inline-block font-normal text-mist">{fmt(plannedKcal)} kcal prévues</span>
 						{/if}
 					</p>
 				</div>
@@ -427,7 +457,9 @@
 				</div>
 			</div>
 			{#if mealLooseEntries(meal.id).length > 0 || mealGroups(meal.id).length > 0 || planned.length > 0}
-				<div class="mt-1.5 overflow-hidden rounded-2xl border border-line bg-card">
+				<!-- mt-0.5 : rapproche la carte du titre (kcal déjà sur la baseline
+				     du titre) — densité type FOOD, respiration conservée -->
+				<div class="mt-0.5 overflow-hidden rounded-2xl border border-line bg-card">
 					<div class="divide-y divide-line/60">
 						{#each mealLooseEntries(meal.id) as e (e._id)}
 							{@render mealRow(e)}

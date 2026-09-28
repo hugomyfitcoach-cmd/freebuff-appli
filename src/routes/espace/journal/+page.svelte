@@ -283,21 +283,32 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	 *  narrowing fragile dans le template). Ne s'affiche que si `macroDetail`. */
 	const macroMeta = $derived(macroDetail ? MACRO_DEFS[macroDetail] : MACRO_LIST[0]);
 	const macroGoal = $derived(macroDetail ? day.goals[macroDetail] : 0);
-	const macroEaten = $derived(macroDetail ? totals[macroDetail] : 0);
+	/** Source unique des macros affichées : consommé (totaux Journal), SAUF
+	 *  jour FUTUR → macros PRÉVUES (plannedTotals — même source que les kcal
+	 *  prévues et que les anneaux du JournalDay : aucun double comptage). */
+	const macroShown = $derived(
+		isFuture
+			? { carbs: day.plannedTotals?.carbs ?? 0, protein: day.plannedTotals?.protein ?? 0, fat: day.plannedTotals?.fat ?? 0 }
+			: totals
+	);
+	const macroEaten = $derived(macroDetail ? macroShown[macroDetail] : 0);
 	const macroDetailPct = $derived(macroGoal > 0 ? Math.min(100, (macroEaten / macroGoal) * 100) : 0);
 	const macroCirc = 2 * Math.PI * 22;
 	/** Grammes avec 1 décimale max, virgule française (« 54,6 g »). */
 	function fmtG(n: number) {
 		return fmt(Math.round(n * 10) / 10);
 	}
-	/** Aliments consommés du jour regroupés par repas (ordre du Journal) ;
-	 *  seuls les repas réellement consommés apparaissent — repas vides masqués. */
+	/** Aliments regroupés par repas (ordre du Journal) : consommés du jour,
+	 *  SAUF jour futur → items PRÉVUS (mêmes valeurs que plannedTotals) —
+	 *  seuls les repas réellement renseignés apparaissent — repas vides masqués. */
 	const macroMealGroups = $derived.by(() => {
 		const key = macroDetail;
 		if (!key) return [];
 		const field = MACRO_DEFS[key].field;
 		return MEAL_DEFS.map((m) => {
-			const entries = day.entries.filter((e) => e.meal === m.id);
+			const entries = isFuture
+				? plannedItems.filter((p) => p.meal === m.id)
+				: day.entries.filter((e) => e.meal === m.id);
 			return { id: m.id, label: m.label, entries, total: entries.reduce((s, e) => s + e[field], 0) };
 		}).filter((g) => g.entries.length > 0);
 	});
@@ -324,7 +335,6 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	   ci-dessus ne lisent QUE day.entries (single source of truth). */
 	const plannedItems = $derived(day.planned ?? []);
 	const hasPlanned = $derived(plannedItems.length > 0);
-
 	/* ————— Sélection type FOOD (tous les aliments du journal : consommés + planifiés) —————
 	   Rond TOUJOURS visible sur chaque ligne : vide → coché (vert). Sélection
 	   TEMPORAIRE uniquement — jamais un statut « mangé ». La barre d'actions
@@ -2906,9 +2916,9 @@ import { journalTipForDay } from '$lib/data/journalTips';
 					<div class="min-w-0 flex-1">
 						<p class="flex items-baseline gap-1.5">
 							<span class="text-3xl font-bold leading-none tabular-nums text-ink">{fmtG(Math.max(0, macroGoal - macroEaten))}</span>
-							<span class="text-[13px] font-semibold text-mist">g restants</span>
+							<span class="text-[13px] font-semibold text-mist">{isFuture ? 'g restants à planifier' : 'g restants'}</span>
 						</p>
-						<p class="mt-1.5 text-[13px] font-semibold tabular-nums" style:color={macroMeta.color}>{fmtG(macroEaten)}/{fmtG(macroGoal)} g consommés</p>
+						<p class="mt-1.5 text-[13px] font-semibold tabular-nums" style:color={macroMeta.color}>{fmtG(macroEaten)}/{fmtG(macroGoal)} g {isFuture ? 'prévus' : 'consommés'}</p>
 					</div>
 					<Icon name={macroMeta.icon} size={26} class="shrink-0" style="color:{macroMeta.color}" />
 				</div>
@@ -2951,7 +2961,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 										</span>
 										<span class="mt-0.5 block text-[11px] tabular-nums text-mist">
 											<strong class="font-bold" style:color={macroMeta.color}>{fmtG(e[macroMeta.field])} g</strong>
-											{#if e.portions}
+											{#if 'portions' in e && e.portions}
 												· {String(e.portions).replace('.', ',')} {e.portions === 1 ? 'portion' : 'portions'}
 											{:else}
 												· {fmt(e.qtyGrams)} g
@@ -2966,7 +2976,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			{:else}
 				<div class="mt-4 rounded-2xl border border-dashed border-line bg-card/60 px-4 py-10 text-center">
 					<Icon name={macroMeta.icon} size={22} class="mx-auto text-mist" />
-					<p class="mt-2 text-sm text-mist">Rien de consommé sur cette journée.</p>
+					<p class="mt-2 text-sm text-mist">{isFuture ? 'Rien de prévu sur cette journée.' : 'Rien de consommé sur cette journée.'}</p>
 				</div>
 			{/each}
 		</div>
