@@ -362,10 +362,10 @@ export const getDashboard = query({
 		const recap = {
 			windowStart: visionStart,
 			windowEnd: visionEnd,
-		calories: {
-			avg: food360Home.kcalAvg,
-			// Objectif DATÉ : celui du DERNIER jour de la fenêtre (J-1), pas l'objectif courant.
-			goal: kcalGoal360(visionEnd),
+			calories: {
+				avg: food360Home.kcalAvg,
+				// Objectif DATÉ : celui du DERNIER jour de la fenêtre (J-1), pas l'objectif courant.
+				goal: kcalGoal360(visionEnd),
 				// Jours EXPLOITABLES (garde-fou Vision 360) — pas juste « avec entrées ».
 				trackedDays: food360Home.breakdown.exploitableDays,
 				partialDays: food360Home.breakdown.partialDays,
