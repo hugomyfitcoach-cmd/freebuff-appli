@@ -1898,9 +1898,13 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			const j = await r.json();
 			if (!r.ok || j.ok === false) {
 				// AUCUN texte brut du modèle : message orienté solution (jamais « no comment »).
+				// « Photo illisible » est réservé aux VRAIES images inexploitables :
+				// une panne/erreur serveur (OpenAI, Convex) affiche le message
+				// « indisponible » — jamais un reproche sur la photo.
+				const reason = String(j.reason ?? '');
 				throw new Error(
-					['ai-unavailable', 'unreachable', 'timeout'].includes(String(j.reason))
-						? "L'analyse IA est momentanément indisponible — ajoute tes ingrédients à la main en attendant."
+					['ai-unavailable', 'unreachable', 'timeout'].includes(reason) || /convex|server error|indisponible/i.test(reason)
+						? "L'analyse IA est momentanément indisponible — réessaie dans quelques instants."
 						: "Je n'arrive pas à lire suffisamment cette recette. Essaie de reprendre une photo plus nette."
 				);
 			}
@@ -1908,7 +1912,8 @@ import { journalTipForDay } from '$lib/data/journalTips';
 				label: String(c.label ?? ''),
 				qtyGrams: Number(c.qtyGrams ?? 100),
 				qtyUncertain: (j.uncertainQtyIdx as number[] | undefined)?.includes(i) ?? false,
-				qtyRaw: (j.qtyRaw as (string | undefined)[] | undefined)?.[i],
+				// null (position vide côté Convex) → undefined : jamais affiché.
+				qtyRaw: (j.qtyRaw as (string | null)[] | undefined)?.[i] ?? undefined,
 				matchSource: c.matchSource as RecipeComp['matchSource'],
 				foodId: c.foodId as string | undefined,
 				customFoodId: c.customFoodId as string | undefined,

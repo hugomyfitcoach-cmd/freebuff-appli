@@ -426,7 +426,7 @@ RÈGLES CRITIQUES — INGRÉDIENTS :
   · SINON (« à discrétion », « 1 verre », « 1 bol », « une poignée », chiffre illisible) → qtyGrams = null et qtyUncertain = true. Ne devine JAMAIS un poids.
 - qtyUncertain = true aussi si la photo est floue sur CE chiffre précis ou si l'unité est ambiguë, même après conversion.
 - kcal100/carbs100/protein100/fat100 : FOURNIS tout de même une estimation prudente /100 g pour chaque ingrédient (bornes réalistes) — elle n'est affichée que si aucune fiche alimentaire fiable n'est trouvée. null si vraiment impossible.
-- 12 ingrédients maximum, du premier au dernier de la liste ; ignore le sel, le poivre et les épices négligeables ; ne fusionne PAS deux lignes.
+- 12 ingrédients maximum, du premier au dernier de la liste ; ignore SYSTÉMATIQUEMENT sel, poivre, épices et herbes en pincée — même s'ils sont mis en avant avec une image ou une carte dédiée (ils ne deviennent JAMAIS des ingrédients du repas) ; ne fusionne PAS deux lignes.
 - servings : le nombre de personnes/portions UNIQUEMENT s'il est clairement écrit (ex. « Pour 4 personnes » → 4), sinon null. Ne calcule RIEN à partir de servings.
 - name (racine) : le TITRE de la recette UNIQUEMENT s'il est clairement visible (ex. « Poulet quinoa brocolis »), sinon null.
 

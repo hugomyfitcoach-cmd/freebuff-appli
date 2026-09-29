@@ -483,8 +483,14 @@ export const analyzeRecipe = action({
 			uncertainQtyIdx: recipe.items
 				.map((it, i) => (it.qtyUncertain === true ? i : -1))
 				.filter((i) => i >= 0),
-			/** Quantités écrites sur la recette (affichage « tel qu'écrit »). */
-			qtyRaw: recipe.items.map((it) => it.qtyRaw),
+			/** Quantités écrites sur la recette (affichage « tel qu'écrit »).
+			 *  ⚠️ Sérialisation Convex : un array ne peut contenir undefined
+			 *  (champ absent de l'ingrédient i) → null aux positions vides,
+			 *  et l'array entier est OMIS si AUCUNE quantité n'est écrite.
+			 *  (Bug vécu en Preview : map() à trous → « undefined is not a
+			 *  valid Convex value » au retour de l'action → échec affiché
+			 *  alors que l'extraction et le matching avaient RÉUSSI.) */
+			qtyRaw: recipe.items.some((it) => it.qtyRaw) ? recipe.items.map((it) => it.qtyRaw ?? null) : undefined,
 		};
 	},
 });
@@ -496,7 +502,8 @@ export type RecipeAnalysis = {
 	name?: string;
 	servings?: number;
 	uncertainQtyIdx?: number[];
-	qtyRaw?: (string | undefined)[];
+	/** Positions alignées sur components ; null = quantité non écrite. */
+	qtyRaw?: (string | null)[];
 };
 
 /** Forme du JSON renvoyé par l'analyse étiquette — consommé par le BFF. */
