@@ -2200,6 +2200,8 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		aiFat100?: number;
 		aiNote?: string;
 		score?: number;
+		/** Produit emballé (paquet, bouteille…) — reconnaissance élargie IA. */
+		packaged?: boolean;
 	};
 	let mealPhotoOpen = $state(false);
 	let mealAnalyzing = $state(false);
@@ -2303,13 +2305,20 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			});
 			const j = await r.json();
 			if (!r.ok || j.ok === false) {
+				// AUCUN texte brut du modèle n'est affiché (« no comment »…) : la
+				// photo est réellement inexploitable → message orienté solution.
 				throw new Error(
 					['ai-unavailable', 'unreachable', 'timeout'].includes(String(j.reason))
 						? "L'analyse IA est momentanément indisponible — ajoute tes aliments par la recherche en attendant."
-						: userErrMsg(new Error(String(j.reason ?? 'Analyse impossible.')), 'Impossible d\'analyser cette photo pour le moment. Réessaie dans quelques instants.')
+						: "Je n'arrive pas à identifier précisément ce produit. Essaie de reprendre une photo du produit, du code-barres ou de l'étiquette nutritionnelle."
 				);
 			}
-			mealAnalyzed = (j.components ?? []) as AnalyzedComponent[];
+			mealAnalyzed = ((j.components ?? []) as AnalyzedComponent[]).map((c) => ({
+				...c,
+				// Compat anciens payloads : produit emballé déclaré OU identifiable
+				// (marque présente). Aucun effet sur l'ajout au Journal.
+				packaged: c.packaged === true || !!c.brand,
+			}));
 			mealAnalyzedHint = j.hint ?? '';
 			if (mealAnalyzed.length === 0) {
 				mealPhotoError = "Aucun aliment identifié sur la photo — réessaie avec un cadrage d'ensemble, ou ajoute les aliments à la main.";

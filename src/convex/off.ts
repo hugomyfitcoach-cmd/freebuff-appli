@@ -1,4 +1,4 @@
-import { action } from "./_generated/server";
+import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Id, Doc } from "./_generated/dataModel";
@@ -116,6 +116,137 @@ async function fetchOffSearch(q: string): Promise<ReturnType<typeof parseProduct
 		"Open Food Facts ne répond pas pour le moment. Réessaie dans quelques secondes."
 	);
 }
+
+/**
+ * CŒUR de résolution d'un code-barres (EAN/GTIN) pour le Repas IA — MÊME
+ * ordre de résolution que le scan du Journal (`barcodeLookup`) :
+ *
+ * 1) Base locale `foods` (EAN/GTIN = offId, garde-fou kcal appliqué à la
+ *    lecture) ; 2) aliments personnels de la cliente (produit créé via une
+ *    étiquette / un scan inconnu — le code est rattaché à SA fiche) ;
+ * 3) API OFF produit + cache local (le produit sera trouvé en local ensuite).
+ * Réponse : la fiche résolue, ou null (code inconnu / OFF indisponible).
+ */
+async function resolveBarcodeCore(
+	ctx: ActionCtx,
+	sessionToken: string | undefined,
+	code: string
+): Promise<ResolvedBarcodeProduct | null> {
+	// 1) Base locale d'abord (EAN/GTIN = offId dans le dump).
+	const local: Doc<"foods"> | null = await ctx.runQuery(api.journal.foodByBarcode, {
+		sessionToken,
+		barcode: code,
+	});
+	if (local) {
+		return {
+			source: "food",
+			foodId: local._id,
+			name: local.name,
+			brand: local.brand,
+			kcal100: local.kcal100,
+			carbs100: local.carbs100,
+			protein100: local.protein100,
+			fat100: local.fat100,
+			offId: local.offId,
+			servingQty: local.servingQty,
+		};
+	}
+
+	// 1 bis) Aliment personnel de CETTE cliente : produit créé via une
+	// étiquette / un scan inconnu — le code est rattaché à SA fiche, le
+	// rescan la retrouve immédiatement (jamais de second scan ni de
+	// « produit non trouvé » sur un produit déjà créé par la cliente).
+	const own = await ctx.runQuery(api.customFoods.byBarcode, {
+		sessionToken,
+		barcode: code,
+	});
+	if (own) {
+		return {
+			source: "custom",
+			customFoodId: own._id,
+			name: own.name,
+			brand: own.brand,
+			kcal100: own.kcal100,
+			carbs100: own.carbs100,
+			protein100: own.protein100,
+			fat100: own.fat100,
+			offId: own.barcode,
+			servingQty: own.servingQty,
+		};
+	}
+
+	// 2) Sinon : API OFF produit + cache local.
+	const url = `https://world.openfoodfacts.org/api/v2/product/${code}.json`;
+	try {
+		const res = await fetch(url, {
+			headers: { "User-Agent": OFF_UA, Accept: "application/json" },
+			signal: AbortSignal.timeout(10_000),
+		});
+		if (res.ok) {
+			const data = (await res.json()) as { status?: number; product?: OffProduct };
+			if (data.status === 1 && data.product) {
+				const parsed = parseProducts([data.product]);
+				if (parsed.length > 0) {
+					const ids: Id<"foods">[] = await ctx.runMutation(api.journal.cacheFoods, {
+						sessionToken,
+						products: parsed,
+					});
+					const foods: (Doc<"foods"> | null)[] = await ctx.runQuery(api.journal.foodsByIds, {
+						sessionToken,
+						ids,
+					});
+					const f = foods.find((x): x is Doc<"foods"> => x !== null && x.offId === code);
+					if (f) {
+						return {
+							source: "food",
+							foodId: f._id,
+							name: f.name,
+							brand: f.brand,
+							kcal100: f.kcal100,
+							carbs100: f.carbs100,
+							protein100: f.protein100,
+							fat100: f.fat100,
+							offId: f.offId,
+							servingQty: f.servingQty,
+						};
+					}
+				}
+			}
+		}
+	} catch {
+		// OFF indisponible : « introuvable » — l'appelant dégrade proprement.
+	}
+	return null;
+}
+
+/** Produit résolu par code-barres (fiche base, aliment personnel, ou OFF). */
+export type ResolvedBarcodeProduct = {
+	source: "food" | "custom";
+	foodId?: Id<"foods">;
+	customFoodId?: Id<"customFoods">;
+	offId?: string;
+	name: string;
+	brand?: string;
+	/** kcal sous garde-fou (lecture via foodByBarcode / foodsByIds). */
+	kcal100: number;
+	carbs100: number;
+	protein100: number;
+	fat100: number;
+	servingQty?: number;
+};
+
+/** Version interne (action aiAnalysis.analyzeMeal — sans session requise ici). */
+export const resolveBarcodeInternal = internalAction({
+	args: {
+		sessionToken: v.optional(v.string()),
+		barcode: v.string(),
+	},
+	handler: async (ctx, { sessionToken, barcode }): Promise<ResolvedBarcodeProduct | null> => {
+		const code = barcode.replace(/\D/g, "");
+		if (!code) return null;
+		return resolveBarcodeCore(ctx, sessionToken, code);
+	},
+});
 
 /** Recherche un produit OFF : cache local d'abord, sinon API + mise en cache. */
 /**

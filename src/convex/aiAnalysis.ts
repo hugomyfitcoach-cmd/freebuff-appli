@@ -2,6 +2,7 @@ import { v, ConvexError } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { action, query } from "./_generated/server";
 import type { MatchedComponent } from "./mealMatch";
+import type { ResolvedBarcodeProduct } from "./off";
 import { analyzeLabelImage, analyzeMealImage } from "../lib/server/openai";
 
 /**
@@ -249,17 +250,44 @@ export const analyzeMeal = action({
 			});
 		}
 		if (!ai || ai.items.length === 0) {
-			return { ok: false as const, reason: aiError || "no-components" };
+			// Photo réellement inexploitable (ou IA indisponible) : l'UI affiche
+			// un message propre — JAMAIS un « no comment » brut du modèle.
+			return {
+				ok: false as const,
+				reason: aiError || "no-components",
+				/** Type de photo déclaré par le modèle ("unclear" si échec IA). */
+				photoType: ai?.photoType ?? "unclear",
+			};
 		}
 
-		// 2) MATCH base G-FLUX (customFoods → OFF importé → CIQUAL → estimation IA)
+		// 2) Composants à code-barres lisible : résolution EXACTE par le MÊME
+		//    moteur que le scan du Journal (base locale → aliments personnels →
+		//    API OFF + cache). Priorité de la règle produit : un code lisible
+		//    tranche, avant tout rapprochement nominal.
+		const resolved = new Map<number, ResolvedBarcodeProduct>();
+		for (let i = 0; i < ai.items.length; i++) {
+			const code = ai.items[i].barcode;
+			if (!code) continue;
+			try {
+				const p = (await ctx.runAction(
+					internal.off.resolveBarcodeInternal as never,
+					{ sessionToken, barcode: code } as never
+				)) as ResolvedBarcodeProduct | null;
+				if (p) resolved.set(i, p);
+			} catch {
+				// Résolution indisponible : le composant suit le chemin nominal
+				// (marque + produit → OFF local → Ciqual → estimation IA).
+			}
+		}
+
+		// 3) MATCH base G-FLUX (customFoods → OFF importé → CIQUAL → estimation IA)
 		//    — même process que la requête : actions node, `db` indisponible, on
 		//    emprunte la requête interne via runQuery (zéro appel live OFF).
 		const matched = (await ctx.runQuery(
 			internal.mealMatch.matchComponentsInternal as never,
 			{
 				userId,
-				components: ai.items.map((it) => ({
+				components: ai.items.map((it, i) => ({
 					name: String(it.name ?? "").slice(0, 80),
 					qtyGrams: it.qtyGrams,
 					kcal100: it.kcal100,
@@ -267,11 +295,15 @@ export const analyzeMeal = action({
 					protein100: it.protein100,
 					fat100: it.fat100,
 					note: it.note,
+					packaged: it.packaged,
+					brand: it.brand,
+					variant: it.variant,
+					preResolved: resolved.get(i),
 				})),
 			} as never
 		)) as MatchedComponent[];
 
-		return { ok: true as const, components: matched, hint: ai.hint };
+		return { ok: true as const, components: matched, hint: ai.hint, photoType: ai.photoType };
 	},
 });
 

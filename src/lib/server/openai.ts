@@ -296,23 +296,46 @@ function parseLabelColumn(v: unknown): LabelColumn | null {
 
 /* ─────────────── REPAS PHOTOGRAPHIÉ ─────────────── */
 
-const MEAL_PROMPT = `Tu regardes la photo d'un REPAS. Liste les aliments/composants visibles avec leur QUANTITÉ estimée en grammes.
+const MEAL_PROMPT = `Tu regardes la photo envoyée par une utilisatrice pour tracker son repas. Détermine d'abord CE QUE MONTRE la photo, puis liste les composants.
 
-RÈGLES CRITIQUES :
+TYPE DE PHOTO (photoType, obligatoire) :
+- "meal" : un repas servi — aliments servis ou bruts dans une assiette, un bol, un verre ;
+- "packaged_product" : un produit EMBALLÉ est le sujet (paquet de bonbons, bouteille de lait, brique de jus, boîte de riz, pot de yaourt, paquet de céréales…) ;
+- "barcode" : un code-barres est nettement lisible sur l'emballage ;
+- "nutrition_label" : une étiquette / un tableau nutritionnel est le sujet principal ;
+- "unclear" : photo floue au point de rien reconnaître, hors-sujet, ou vide d'aliment.
+
+RÈGLES CRITIQUES — COMPOSANTS :
 - Tu reconnais les aliments et proposes les quantités — tu n'es PAS la source nutritionnelle : ne calcule PAS de calories ni de macros.
 - ÉTAT DE L'ALIMENT : nomme chaque composant TEL QU'IL EST SERVI ET CONSOMMÉ dans l'assiette. Les féculents visibles (riz, pâtes, semoule, quinoa, boulgour, couscous, nouilles) sont CUITS dans un repas servi : écris « riz basmati cuit », « pâtes cuites », « semoule cuite », sauf si la photo montre clairement l'aliment sec/cru (alors précise « cru » ou « sec » dans le nom).
-- 2 à 6 composants maximum, du plus visible au moins visible. Nom en français, simple et générique (ex. « poulet grillé », « riz basmati cuit », « courgettes », « sauce »).
-- qtyGrams : estimation réaliste de la PORTION visible (pas la recette complète).
+- 1 à 6 composants maximum, du plus visible au moins visible. Nom en français, simple (ex. « poulet grillé », « riz basmati cuit », « courgettes », « sauce »).
+- PRODUIT EMBALLÉ : UN SEUL composant par produit. Renseigne alors :
+  - brand : la marque réellement imprimée (ex. « Haribo », « Tropicana », « Lactel », « Coca-Cola ») — null si absente ou illisible ;
+  - variant : la variante / déclinaison imprimée (ex. « Dragibus », « demi-écrémé », « jus de pomme », « Zero », « complet ») — null si absente ;
+  - barcode : les chiffres du code-barres UNIQUEMENT s'ils sont NETTEMENT lisibles (EAN-13) — null sinon, ne devine JAMAIS un code ;
+  - packaged : true pour tout produit emballé, false pour un aliment servi/brut.
+- name pour un produit emballé : le nom du PRODUIT (ex. « Dragibus », « lait demi-écrémé », « jus de pomme », « Coca-Cola Zero ») — la marque vit dans brand, pas dans name.
+- qtyGrams : estimation réaliste de la QUANTITÉ consommée (portion du produit, pas le poids du paquet entier sauf s'il est consommé entier).
 - kcal100/carbs100/protein100/fat100 : FOURNIS tout de même une estimation prudente /100 g pour chaque composant (bornes réalistes) — elle sera affichée comme « estimation à valider » UNIQUEMENT si la base G-FLUX ne trouve pas de correspondance. Utilise null si vraiment impossible.
 - Si des éléments caloriques typiques sont probablement présents mais INVISIBLES (huile de cuisson, beurre, sauce versée, fromage râpé), ne les ajoute PAS à items : mets hint = « Huile, sauce ou matière grasse utilisée ? ».
-- Photo floue, hors-sujet ou repas non identifiable → items = [] et note-le dans hint.
+- INTERDIT — RÉPONSES VIDES : n'écris JAMAIS « no comment », « unknown », « non identifié » ou tout autre placeholder dans name. Photo inexploitable → items = [] et photoType = "unclear". Photo floue mais où un aliment reste reconnaissable → liste-le quand même (l'estimation reste possible).
 
 Réponds STRICTEMENT en JSON avec ce schéma :
-{"items": [{"name": string, "qtyGrams": number, "kcal100": number|null, "carbs100": number|null, "protein100": number|null, "fat100": number|null, "note": string|null}], "hint": string|null}`;
+{"photoType": "meal"|"packaged_product"|"barcode"|"nutrition_label"|"unclear", "items": [{"name": string, "qtyGrams": number, "brand": string|null, "variant": string|null, "barcode": string|null, "packaged": boolean, "kcal100": number|null, "carbs100": number|null, "protein100": number|null, "fat100": number|null, "note": string|null}], "hint": string|null}`;
+
+export type MealPhotoType = 'meal' | 'packaged_product' | 'barcode' | 'nutrition_label' | 'unclear';
 
 export type MealComponentAi = {
 	name: string;
 	qtyGrams: number;
+	/** Produit emballé : marque imprimée (ex. « Haribo ») — jamais inventée. */
+	brand?: string;
+	/** Variante / déclinaison imprimée (ex. « Dragibus », « demi-écrémé »). */
+	variant?: string;
+	/** Code-barres UNIQUEMENT s'il est nettement lisible (chiffres seuls). */
+	barcode?: string;
+	/** Produit emballé (paquet, bouteille, brique, pot…) vs aliment servi. */
+	packaged?: boolean;
 	kcal100?: number;
 	carbs100?: number;
 	protein100?: number;
@@ -320,26 +343,52 @@ export type MealComponentAi = {
 	note?: string;
 };
 
-export type MealResult = { items: MealComponentAi[]; hint?: string };
+export type MealResult = { photoType: MealPhotoType; items: MealComponentAi[]; hint?: string };
 
-/** Analyse une photo de repas → composants + quantités (nutrition = repères). */
-export async function analyzeMealImage(imageDataUrl: string): Promise<{ result: MealResult; usage: AiUsage }> {
-	const { json, usage } = await callOpenAi(MEAL_PROMPT, imageDataUrl, 900);
+/** Placeholders interdits (« no comment », « unknown »…) — normalisés sans accents. */
+const PLACEHOLDER_RE =
+	/^(no\s*comment|aucun(e|s)?|unknown|unkown|non\s*identifi\w*|inconnu(e|s)?|pas\s*d[e']\w*|none|null|n\/a|rien|vide)$/;
+
+/**
+ * Valide la réponse Repas IA : bornes, placeholders interdits, code-barres
+ * plausibles. Une photo « no comment » devient items = [] (jamais un faux
+ * composant affiché à l'utilisatrice).
+ */
+export function parseMealComponents(json: unknown): MealResult {
 	const o = (json ?? {}) as Record<string, unknown>;
+	const photoType = (['meal', 'packaged_product', 'barcode', 'nutrition_label', 'unclear'] as const).includes(
+		o.photoType as MealPhotoType
+	)
+		? (o.photoType as MealPhotoType)
+		: 'unclear';
 	const num = (v: unknown, max: number): number | undefined => {
 		const n = typeof v === 'number' ? v : Number(v);
 		if (!isFinite(n) || n < 0) return undefined;
 		return Math.min(max, Math.round(n * 10) / 10);
 	};
+	const str = (v: unknown, max = 80): string | undefined => {
+		const s = typeof v === 'string' ? v.trim().slice(0, max) : '';
+		return s.length >= 2 ? s : undefined;
+	};
 	const items: MealComponentAi[] = [];
 	for (const it of Array.isArray(o.items) ? o.items.slice(0, 8) : []) {
 		const r = (it ?? {}) as Record<string, unknown>;
 		const name = typeof r.name === 'string' ? r.name.trim().slice(0, 80) : '';
-		if (name.length < 2) continue;
-		const qty = num(r.qtyGrams, 2000) ?? 100;
+		// Garde anti-« no comment » : un placeholder n'est PAS un composant.
+		const normalized = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+		if (name.length < 2 || PLACEHOLDER_RE.test(normalized) || !/[a-z0-9]/i.test(name)) continue;
+		const brand = str(r.brand);
+		const barcodeRaw = typeof r.barcode === 'string' || typeof r.barcode === 'number' ? String(r.barcode).replace(/\D/g, '') : '';
+		const barcode = barcodeRaw.length >= 8 && barcodeRaw.length <= 14 ? barcodeRaw : undefined;
+		const variant = str(r.variant);
 		items.push({
 			name,
-			qtyGrams: Math.max(1, Math.round(qty)),
+			qtyGrams: Math.max(1, Math.round(num(r.qtyGrams, 2000) ?? 100)),
+			brand,
+			variant,
+			barcode,
+			// Produit emballé déclaré OU identifiable (marque / code lisible).
+			packaged: r.packaged === true || !!brand || !!barcode,
 			kcal100: num(r.kcal100, 900),
 			carbs100: num(r.carbs100, 100),
 			protein100: num(r.protein100, 100),
@@ -348,5 +397,12 @@ export async function analyzeMealImage(imageDataUrl: string): Promise<{ result: 
 		});
 		if (items.length >= 6) break;
 	}
-	return { result: { items, hint: typeof o.hint === 'string' && o.hint.trim() ? o.hint.trim().slice(0, 160) : undefined }, usage };
+	return { photoType, items, hint: typeof o.hint === 'string' && o.hint.trim() ? o.hint.trim().slice(0, 160) : undefined };
+}
+
+/** Analyse une photo (repas OU produit emballé) → composants + quantités
+ *  (nutrition = repères ; la base G-FLUX tranche, jamais l'IA). */
+export async function analyzeMealImage(imageDataUrl: string): Promise<{ result: MealResult; usage: AiUsage }> {
+	const { json, usage } = await callOpenAi(MEAL_PROMPT, imageDataUrl, 1100);
+	return { result: parseMealComponents(json), usage };
 }

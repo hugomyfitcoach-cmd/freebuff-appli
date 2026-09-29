@@ -31,6 +31,49 @@ import { nameMatchScore } from "../lib/foodText";
 const MIN_MATCH_SCORE = 0.55;
 
 /**
+ * Produit emballé déjà résolu par code-barres (Repas IA) : la résolution
+ * `off.resolveBarcodeInternal` a trouvé la fiche EXACTE (base locale, aliment
+ * personnel ou API OFF) — aucun rapprochement nominal à faire, le score est
+ * de confiance maximale. Côté formulaire, l'IA n'a JAMAIS inventé ce match :
+ * il vient d'un code lisible sur la photo (même moteur que le scan).
+ */
+export type PreResolvedBarcode = {
+	source: "food" | "custom";
+	foodId?: string;
+	customFoodId?: string;
+	name: string;
+	brand?: string;
+	kcal100: number;
+	carbs100: number;
+	protein100: number;
+	fat100: number;
+};
+
+/**
+ * Termes de recherche d'un composant EMBALLÉ, du plus spécifique au plus
+ * générique : « marque + variante + produit » puis déclinaisons. L'ordre
+ * applique la règle produit : on ne force JAMAIS un match de marque faible —
+ * si aucun terme ne trouve de correspondance fiable, le composant retombe en
+ * « Estimation IA » (jamais une fiche de marque approchante mais fausse).
+ */
+export function packagedSearchTerms(name: string, brand?: string, variant?: string): string[] {
+	const clean = (s: string) => s.trim().replace(/\s+/g, " ");
+	const n = clean(name);
+	const b = brand ? clean(brand) : "";
+	const v = variant && clean(variant).toLowerCase() !== n.toLowerCase() ? clean(variant) : "";
+	const terms: string[] = [];
+	const push = (t: string) => {
+		const k = clean(t);
+		if (k.length >= 2 && !terms.includes(k)) terms.push(k);
+	};
+	if (b && v) push(`${b} ${v} ${n}`);
+	if (v) push(`${v} ${n}`);
+	if (b) push(`${b} ${n}`);
+	push(n);
+	return terms;
+}
+
+/**
  * Score de rapprochement nominal — implémentation partagée dans
  * src/lib/foodText.ts (extrait à l'identique pour être testable hors Convex).
  */
@@ -199,28 +242,82 @@ async function findBestMatch(
 export async function matchComponentsCore(
 	ctx: QueryCtx,
 	userId: string,
-	components: { name: string; qtyGrams: number; kcal100?: number; carbs100?: number; protein100?: number; fat100?: number; note?: string }[]
+	components: {
+		name: string;
+		qtyGrams: number;
+		kcal100?: number;
+		carbs100?: number;
+		protein100?: number;
+		fat100?: number;
+		note?: string;
+		/** Produit emballé (paquet, bouteille, brique…) — recherche dédiée. */
+		packaged?: boolean;
+		/** Marque imprimée sur l'emballage (ex. « Haribo ») — jamais inventée. */
+		brand?: string;
+		/** Variante / déclinaison imprimée (ex. « Dragibus », « demi-écrémé »). */
+		variant?: string;
+		/** Code-barres lisible — résolu en amont (off.resolveBarcodeInternal). */
+		preResolved?: PreResolvedBarcode;
+	}[]
 ): Promise<MatchedComponent[]> {
 	const out: MatchedComponent[] = [];
 	for (const c of components.slice(0, 12)) {
 		const label = String(c.name ?? "").trim().slice(0, 80);
 		if (!label) continue;
 		const qty = clampQty(c.qtyGrams);
-		// Règle repas « servi cuit » : riz/pâtes/semoule… visibles dans une
-		// assiette sont recherchés en variante CUITE (jamais cru) — sauf si
-		// l'ingrédient porte déjà « cru »/« sec » (photo d'aliment sec). La
-		// recherche générale (Journal) n'est PAS concernée : ce code ne vit
-		// que dans le matching des composants d'une photo.
-		const cookedTerm = preferCookedForMeal(label);
-		let m = await findBestMatch(ctx, userId, label, {
-			searchTerm: cookedTerm ?? label,
-			wantCooked: cookedTerm !== null,
-		});
-		if (!m && cookedTerm) {
-			// Aucune variante cuite trouvée (recherche étroite) : repli sur la
-			// recherche nominale — la pénalité « cru » reste appliquée, donc une
-			// fiche crue ne gagne QUE si c'est le seul candidat crédible.
-			m = await findBestMatch(ctx, userId, label, { searchTerm: label, wantCooked: true });
+
+		// 0) Produit emballé déjà résolu PAR CODE-BARRES : match exact (même
+		//    moteur que le scan), aucun rapprochement nominal, aucune heuristique.
+		if (c.preResolved) {
+			const p = c.preResolved;
+			out.push({
+				label,
+				qtyGrams: qty,
+				matchSource: p.source === "custom" ? "custom" : "off_imported",
+				foodId: p.source === "food" ? p.foodId : undefined,
+				customFoodId: p.source === "custom" ? p.customFoodId : undefined,
+				name: p.name,
+				brand: p.brand,
+				kcal100: p.kcal100,
+				carbs100: p.carbs100,
+				protein100: p.protein100,
+				fat100: p.fat100,
+				aiKcal100: c.kcal100,
+				aiCarbs100: c.carbs100,
+				aiProtein100: c.protein100,
+				aiFat100: c.fat100,
+				aiNote: c.note,
+				score: 1,
+			});
+			continue;
+		}
+		// Produit EMBALLÉ sans code-barres exploitable : recherche « marque +
+		// variante + produit » du plus spécifique au plus générique. La règle
+		// « servi cuit » ne s'applique PAS (le paquet n'est pas dans l'assiette) :
+		// aucune réécriture du terme, aucun bonus cuit.
+		let m: MealMatchRow | null = null;
+		if (c.packaged) {
+			for (const term of packagedSearchTerms(label, c.brand, c.variant)) {
+				m = await findBestMatch(ctx, userId, label, { searchTerm: term, wantCooked: false });
+				if (m) break;
+			}
+		} else {
+			// Règle repas « servi cuit » : riz/pâtes/semoule… visibles dans une
+			// assiette sont recherchés en variante CUITE (jamais cru) — sauf si
+			// l'ingrédient porte déjà « cru »/« sec » (photo d'aliment sec). La
+			// recherche générale (Journal) n'est PAS concernée : ce code ne vit
+			// que dans le matching des composants d'une photo.
+			const cookedTerm = preferCookedForMeal(label);
+			m = await findBestMatch(ctx, userId, label, {
+				searchTerm: cookedTerm ?? label,
+				wantCooked: cookedTerm !== null,
+			});
+			if (!m && cookedTerm) {
+				// Aucune variante cuite trouvée (recherche étroite) : repli sur la
+				// recherche nominale — la pénalité « cru » reste appliquée, donc une
+				// fiche crue ne gagne QUE si c'est le seul candidat crédible.
+				m = await findBestMatch(ctx, userId, label, { searchTerm: label, wantCooked: true });
+			}
 		}
 		if (m) {
 			// Un aliment « Créés par moi » doit être référencé comme customFoodId
@@ -247,7 +344,11 @@ export async function matchComponentsCore(
 				score: Math.round(m.score * 100) / 100,
 			});
 		} else {
-			out.push(aiFallback(label, { ...c, qtyGrams: qty }));
+			// Estimation IA : le libellé porte la marque connue si elle existe
+			// (ex. « Dragibus (Haribo) ») — jamais une fausse fiche de marque.
+			const labelWithBrand =
+				c.brand && !label.toLowerCase().includes(c.brand.toLowerCase()) ? `${label} (${c.brand})` : label;
+			out.push(aiFallback(labelWithBrand.slice(0, 80), { ...c, qtyGrams: qty }));
 		}
 	}
 	return out;
@@ -267,6 +368,10 @@ export const matchComponents = query({
 				protein100: v.optional(v.number()),
 				fat100: v.optional(v.number()),
 				note: v.optional(v.string()),
+				/** Métadonnées emballage lues par l'IA sur la photo. */
+				packaged: v.optional(v.boolean()),
+				brand: v.optional(v.string()),
+				variant: v.optional(v.string()),
 			})
 		),
 	},
@@ -292,6 +397,26 @@ export const matchComponentsInternal = internalQuery({
 				protein100: v.optional(v.number()),
 				fat100: v.optional(v.number()),
 				note: v.optional(v.string()),
+				/** Métadonnées emballage lues par l'IA sur la photo. */
+				packaged: v.optional(v.boolean()),
+				brand: v.optional(v.string()),
+				variant: v.optional(v.string()),
+				/** Produit DÉJÀ résolu par code-barres — assemblé CÔTÉ SERVEUR
+				 *  uniquement (aiAnalysis), jamais transmis par la cliente : la
+				 *  query publique matchComponents n'accepte PAS ce champ. */
+				preResolved: v.optional(
+					v.object({
+						source: v.union(v.literal("food"), v.literal("custom")),
+						foodId: v.optional(v.string()),
+						customFoodId: v.optional(v.string()),
+						name: v.string(),
+						brand: v.optional(v.string()),
+						kcal100: v.number(),
+						carbs100: v.number(),
+						protein100: v.number(),
+						fat100: v.number(),
+					})
+				),
 			})
 		),
 	},
