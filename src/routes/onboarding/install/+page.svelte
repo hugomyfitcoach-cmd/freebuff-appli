@@ -182,7 +182,7 @@
 	<div class="mx-auto flex min-h-dvh w-full max-w-md flex-col px-5">
 		<!-- Logo -->
 		<header class="pt-[max(env(safe-area-inset-top),20px)] text-center">
-			<img src="/logo-header.jpg" alt="G-FLUX™" class="mx-auto h-10 w-auto select-none" draggable="false" />
+			<img src="/logo-header.png" alt="G-FLUX™" class="mx-auto h-10 w-auto select-none" draggable="false" />
 		</header>
 
 		<!-- Retour -->

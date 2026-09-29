@@ -122,7 +122,7 @@
 			aria-label="G-FLUX"
 		>
 			<img
-				src="/logo-header.jpg"
+				src="/logo-header.png"
 				alt="G-FLUX™"
 				class="mx-auto h-14 w-auto select-none"
 				draggable="false"
@@ -237,7 +237,7 @@
 
 		<div class="mx-auto w-full max-w-sm flex-1 overflow-y-auto px-5 pb-[max(env(safe-area-inset-bottom),28px)] pt-8">
 			<img
-				src="/logo-header.jpg"
+				src="/logo-header.png"
 				alt="G-FLUX™"
 				class="mx-auto mb-8 h-8 w-auto select-none"
 				draggable="false"
