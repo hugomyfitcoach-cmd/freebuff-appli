@@ -421,7 +421,7 @@ RÈGLES CRITIQUES — INGRÉDIENTS :
 - qtyRaw : la quantité EXACTEMENT telle qu'écrite (ex. « 50 g », « 2 œufs », « 1 cuillère à soupe d'huile », « 150 ml »), null si aucune quantité n'est écrite.
 - unit : l'unité écrite : "g" (g/kg), "ml" (ml/cl/l), "piece" (pièces : œufs, tranches, filets…), "cuillere" (cuillère à soupe ou à café), null si ambigu ou absente.
 - qtyGrams : le poids en GRAMMES, UNIQUEMENT si la conversion est fiable :
-  · g/kg → direct (1 kg = 1000 g) ; cl/ml/l → ×1 pour les liquides courants (150 ml = 150) ;
+  · g/kg → direct (1 kg = 1000 g) ; ml → ×1 (150 ml = 150 g) ; cl → ×10 (20 cl = 200 g) ; l → ×1000 ;
   · repères fiables : œuf moyen = 50 g, tranche de jambon blanc = 25 g, cuillère à soupe d'huile = 10 g, cuillère à soupe de liquide = 15 g, cuillère à café = 5 g ;
   · SINON (« à discrétion », « 1 verre », « 1 bol », « une poignée », chiffre illisible) → qtyGrams = null et qtyUncertain = true. Ne devine JAMAIS un poids.
 - qtyUncertain = true aussi si la photo est floue sur CE chiffre précis ou si l'unité est ambiguë, même après conversion.

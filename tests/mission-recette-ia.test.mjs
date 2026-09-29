@@ -46,6 +46,7 @@ test('Prompt recette : extraction liste d\u2019ingr\u00e9dients + quantit\u00e9s
 });
 
 test('Conversions fiables uniquement : pas de quantit\u00e9 invent\u00e9e silencieusement', () => {
+	assert.ok(/cl \u2192 \u00d710|\u00d710/.test(openai), 'conversion cl \u2192 grammes explicite (20 cl = 200 g)');
 	assert.ok(openai.includes('qtyUncertain'), 'flag quantit\u00e9 incertaine expos\u00e9 au parseur');
 	assert.ok(/c\.à\.? ?c|cuill\u00e8re|cuillere/i.test(openai), 'rep\u00e8res cuill\u00e8re pr\u00e9sents dans le prompt');
 	assert.ok(openai.includes('\u0153uf') || openai.includes('oeuf'), 'rep\u00e8re \u0153uf pr\u00e9sent (\u2248 50 g)');
