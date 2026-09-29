@@ -177,7 +177,7 @@
 
 <div class="container">
 	<div class="form-header">
-		<img src="/logo-header.jpg" alt="G-Flux" class="logo-img" />
+		<img src="/logo-header.png" alt="G-Flux" class="logo-img" />
 	</div>
 
 	<!-- Jamais d'impasse : retour Accueil quand le formulaire est fermé ou déjà envoyé,

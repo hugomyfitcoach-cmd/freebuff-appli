@@ -383,7 +383,7 @@
 	<aside class="fixed inset-y-0 left-0 z-50 hidden w-64 flex-col border-r border-line bg-cream md:flex">
 		<div class="flex items-center gap-3 border-b border-line px-5 py-4">
 			<a href={role === 'coach' ? '/admin' : '/espace'} class="flex items-center gap-3">
-				<img src="/logo-header.jpg" alt="G-Flux" class="h-9 w-auto" />
+				<img src="/logo-header.png" alt="G-Flux" class="h-9 w-auto" />
 			</a>
 			<span class="font-display text-xs font-semibold uppercase tracking-widest text-mist">
 				{role === 'coach' ? 'CRM Coach' : 'Espace client'}
@@ -439,7 +439,7 @@
 			<div class="flex items-center justify-between gap-2 px-4 py-2">
 				{#if showBrand}
 					<a href={role === 'coach' ? '/admin' : '/espace'} class="flex items-center py-0.5" aria-label="Accueil G-FLUX">
-						<img src="/logo-header.jpg" alt="G-Flux" class="h-auto w-[76px]" />
+						<img src="/logo-header.png" alt="G-Flux" class="h-auto w-[76px]" />
 					</a>
 				{/if}
 				<div class="ml-auto flex items-center gap-1">

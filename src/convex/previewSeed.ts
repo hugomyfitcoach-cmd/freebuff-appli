@@ -18,6 +18,9 @@ import {
 const BETA_PASSWORD = "PreviewBeta2026!";
 const COACH_PASSWORD = "PreviewCoach2026!";
 import { resolveCiqualLabel } from "./ciqual";
+// Produits OFF de RÉFÉRENCE pour la preview (données factuelles publiques —
+// aucune donnée cliente ; voir PREVIEW_OFF_PRODUCTS pour la licence).
+import { PREVIEW_OFF_PRODUCTS } from "./previewOffProducts";
 
 /**
  * SEED PREVIEW — données 100 % FICTIVES, JAMAIS la production.
@@ -37,6 +40,10 @@ import { resolveCiqualLabel } from "./ciqual";
  *  - coach de test  : preview-test-coach@example.com / PreviewCoach2026!
  *  - cliente bêta   : contact@myfit-coach.fr (allowlist IA) / PreviewBeta2026!
  *  - journal Ciqual : 2 entrées du jour (poitrine de poulet rôtie, riz basmati).
+ *  - produits OFF de référence (foods) : un échantillon de PRODUITS EMBALLÉS
+ *    réels Open Food Facts (voir previewOffProducts.ts) — sans lui, le Repas
+ *    IA et la recherche produits ne peuvent JAMAIS trouver de produit de
+ *    marque en preview (la base 780 k n'est importée qu'en production).
  */
 const PROD_URL_MARK = "calm-jaguar-475";
 
@@ -331,6 +338,7 @@ async function seedCoreData(
 	exercises: { total: number; imported: number; updated: number; unchanged: number };
 	testProgram: { created: boolean; scheduledCount: number };
 	vision360Demo: { ok: boolean; demoEmail: string; days: number } | { ok: false; error: string };
+	offProducts: { imported: number; created: number };
 }> {
 	// 1) Coach de test (fictif) — hash réappliqué à chaque seed (self-healing :
 	// le mot de passe documenté fonctionne toujours, même après N builds).
@@ -400,6 +408,13 @@ async function seedCoreData(
 	//    Entraînement est testable de bout en bout sur la preview.
 	const exercises = await seedOfficialExercises(db);
 
+	// 4 bis) Produits OFF de RÉFÉRENCE (idempotent, upsert par offId) —
+	//    échantillon factuel public de produits emballés réels. Sans lui,
+	//    aucune recherche produit de marque ne peut aboutir en preview :
+	//    ni la recherche cliente, ni le Repas IA (matching), ni le scan.
+	const offProducts = await seedPreviewOffProducts(db);
+
+
 	// 5) Programme de test + assignation (parcours complet coach → cliente).
 	const allOfficial = await db
 		.query("exercises")
@@ -431,7 +446,29 @@ async function seedCoreData(
 			scheduledCount: testProgram.scheduledCount,
 		},
 		vision360Demo,
+		offProducts,
 	};
+}
+
+/**
+ * Produits OFF de RÉFÉRENCE pour la preview — échantillon factuel public
+ * (upsert idempotent par offId, aucune donnée cliente, jamais en prod via
+ * assertNotProd). Cible exprès les cas de test du Repas IA / recherche :
+ * produits de marque AVEC variantes différenciantes (stracciatella ≠ nature,
+ * Zero ≠ classique, écrémé ≠ demi-écrémé, fraise ≠ vanille…).
+ */
+async function seedPreviewOffProducts(db: MutationCtx["db"]): Promise<{ imported: number; created: number }> {
+	let created = 0;
+	for (const p of PREVIEW_OFF_PRODUCTS) {
+		const existing = await db
+			.query("foods")
+			.withIndex("by_offId", (q) => q.eq("offId", p.offId))
+			.first();
+		if (existing) continue;
+		await db.insert("foods", p);
+		created++;
+	}
+	return { imported: PREVIEW_OFF_PRODUCTS.length, created };
 }
 
 /**

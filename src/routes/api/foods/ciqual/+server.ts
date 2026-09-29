@@ -8,10 +8,12 @@ import { errMsg } from '$lib/errors.js';
 /**
  * Fiches Ciqual (ANSES) pour le bloc « Aliments de référence » — recherche
  * 100 % locale (table embarquée côté Convex, zéro appel réseau externe).
- * Jusqu'à 5 références VRAIMENT pertinentes ; liste vide si aucune.
+ * Jusqu'à 3 références VRAIMENT pertinentes ; liste vide si aucune.
+ * CLIENTE (Journal PWA) ET COACH (CRM) : même moteur `searchCiqual` (mêmes
+ * repères — « oeuf » → cru, dur, au plat), jamais deux implémentations.
  */
 export const GET: RequestHandler = async (event) => {
-	await requireRole(event, 'client', { next: '/espace/journal' });
+	await requireRole(event, ['client', 'coach']);
 	const token = event.cookies.get(SESSION_COOKIE);
 	const q = (event.url.searchParams.get('q') ?? '').trim();
 	if (q.length < 2) return json([]);

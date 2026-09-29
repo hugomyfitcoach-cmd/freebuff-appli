@@ -805,6 +805,10 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	let searching = $state(false);
 	let searchError = $state('');
 	let searchTimer: ReturnType<typeof setTimeout> | undefined;
+	/** Compteur anti-course : seule la réponse de la DERNIÈRE requête lancée
+	 *  peut écrire les résultats (une frappe plus rapide jette les réponses
+	 *  anciennes — jamais de résultats d'une recherche périmée). */
+	let searchSeq = 0;
 
 	/** Fiche Ciqual → Food (l'_id porté par les flux est le LIBELLÉ officiel exact ;
 	 *  à l'ajout, le serveur résout les valeurs — jamais le client). */
@@ -822,11 +826,13 @@ import { journalTipForDay } from '$lib/data/journalTips';
 
 	async function runSearch(q: string) {
 		if (q.length < 2) {
+			searchSeq++;
 			results = [];
 			ciqualResults = [];
 			hasMore = false;
 			return;
 		}
+		const guard = ++searchSeq;
 		searching = true;
 		searchError = '';
 		showScrollHint = false;
@@ -857,6 +863,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			.then(() => null, () => 'ciqual' as const);
 		const err = await req;
 		await ciq;
+		if (guard !== searchSeq) return; // réponse périmée : une recherche plus récente a pris la main
 		if (err) {
 			searchError = err instanceof Error ? err.message : String(err);
 			results = [];
@@ -1535,6 +1542,8 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	let mealShowScrollHint = $state(false);
 	let mealSearching = $state(false);
 	let mealSearchTimer: ReturnType<typeof setTimeout> | undefined;
+	/** Anti-course (même règle que la recherche principale). */
+	let mealSearchSeq = 0;
 	/** Fenêtre de recherche d'aliments DANS l'éditeur de repas (bouton « Ajouter un produit »). */
 	let mealSearchOpen = $state(false);
 	/** Mode de la fenêtre produit : recherche par nom ou scan code-barres (capsule flottante). */
@@ -1602,6 +1611,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			mealShowScrollHint = false;
 			return;
 		}
+		const guard = ++mealSearchSeq;
 		mealSearching = true;
 		mealSearchError = '';
 		// Même séparation stricte que la recherche principale : Ciqual en tête,
@@ -1626,6 +1636,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			.then(() => null, () => 'ciqual' as const);
 		const err = await req;
 		await ciq;
+		if (guard !== mealSearchSeq) return; // réponse périmée : une recherche plus récente a pris la main
 		if (err) {
 			mealSearchError = err instanceof Error ? err.message : String(err);
 			mealResults = [];
@@ -2189,6 +2200,8 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		aiFat100?: number;
 		aiNote?: string;
 		score?: number;
+		/** Produit emballé (paquet, bouteille…) — reconnaissance élargie IA. */
+		packaged?: boolean;
 	};
 	let mealPhotoOpen = $state(false);
 	let mealAnalyzing = $state(false);
@@ -2292,13 +2305,20 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			});
 			const j = await r.json();
 			if (!r.ok || j.ok === false) {
+				// AUCUN texte brut du modèle n'est affiché (« no comment »…) : la
+				// photo est réellement inexploitable → message orienté solution.
 				throw new Error(
 					['ai-unavailable', 'unreachable', 'timeout'].includes(String(j.reason))
 						? "L'analyse IA est momentanément indisponible — ajoute tes aliments par la recherche en attendant."
-						: userErrMsg(new Error(String(j.reason ?? 'Analyse impossible.')), 'Impossible d\'analyser cette photo pour le moment. Réessaie dans quelques instants.')
+						: "Je n'arrive pas à identifier précisément ce produit. Essaie de reprendre une photo du produit, du code-barres ou de l'étiquette nutritionnelle."
 				);
 			}
-			mealAnalyzed = (j.components ?? []) as AnalyzedComponent[];
+			mealAnalyzed = ((j.components ?? []) as AnalyzedComponent[]).map((c) => ({
+				...c,
+				// Compat anciens payloads : produit emballé déclaré OU identifiable
+				// (marque présente). Aucun effet sur l'ajout au Journal.
+				packaged: c.packaged === true || !!c.brand,
+			}));
 			mealAnalyzedHint = j.hint ?? '';
 			if (mealAnalyzed.length === 0) {
 				mealPhotoError = "Aucun aliment identifié sur la photo — réessaie avec un cadrage d'ensemble, ou ajoute les aliments à la main.";
@@ -2380,11 +2400,15 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		clearTimeout(mealAddTimer);
 		mealAddTimer = setTimeout(() => runMealAddSearch(mealAddQuery.trim()), 300);
 	}
+	/** Anti-course (même règle que la recherche principale). */
+	let mealAddSeq = 0;
 	async function runMealAddSearch(q: string) {
 		if (q.length < 2) {
+			mealAddSeq++;
 			mealAddResults = [];
 			return;
 		}
+		const guard = ++mealAddSeq;
 		mealAddSearching = true;
 		try {
 			const [prodR, ciqR] = await Promise.all([
@@ -2395,12 +2419,13 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			const ciq = ciqR.ok ? await ciqR.json() : [];
 			const ciqFoods: Food[] = (Array.isArray(ciq) ? ciq : []).map(ciqualToFood);
 			const prods: Food[] = Array.isArray(prod?.items) ? prod.items : [];
+			if (guard !== mealAddSeq) return; // réponse périmée
 			// La CIQUAL d'abord (génériques), puis les produits (déjà en base).
 			mealAddResults = [...ciqFoods, ...prods].slice(0, 15);
 		} catch {
-			mealAddResults = [];
+			if (guard === mealAddSeq) mealAddResults = [];
 		} finally {
-			mealAddSearching = false;
+			if (guard === mealAddSeq) mealAddSearching = false;
 		}
 	}
 	/** Sélection d'un aliment (ajout ou remplacement) — quantité par défaut 10 g
@@ -2625,32 +2650,42 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	   sans vider la recherche ni perdre les résultats ; le geste continue.
 	   Seuil : ignore les micro-mouvements et les taps sur un produit. */
 	function attachScrollDismiss(el: HTMLElement) {
-		/* On ne ferme le clavier QUE sur un geste doigt (touchstart → momentum
-		   ≤ 1 s). Le défilement automatique qu'iOS applique au conteneur pour
-		   révéler le champ focalisé ne doit PAS fermer le clavier. */
+		/* On ne ferme le clavier QUE sur un GESTE DOIGT en cours sur la liste
+		   (touchstart → touchend du MÊME geste). Fenêtre temporelle interdite :
+		   sur Android (viewport interactive-widget=resizes-content), le navigateur
+		   SCROLLE LUI-MÊME le conteneur pour révéler le champ focalisé quand le
+		   clavier s'ouvre — et l'app aussi (scrollFocusedIntoView, ~200 ms après
+		   le focus). Ces scrolls automatiques tombent dans la seconde qui suit le
+		   tap : une fenêtre « ≤ 1 s après le dernier toucher » les prenait pour
+		   des gestes et fermait le clavier en pleine saisie (blur intempestif).
+		   Les scrolls causés par l'APP (repositionnement du champ) sont également
+		   ignorés via programmaticScrollUntil. */
 		let touchActive = false;
-		let lastTouchEnd = 0;
 		const onTouchStart = () => (touchActive = true);
-		const onTouchEnd = () => {
-			touchActive = false;
-			lastTouchEnd = performance.now();
-		};
+		const onTouchEnd = () => (touchActive = false);
+		const onTouchCancel = () => (touchActive = false);
+		/* FRONTIÈRE UNIQUE : le doigt posé sur la liste. La révélation du champ
+		   par le navigateur (Android scrolle le conteneur quand le clavier
+		   s'ouvre) arrive TOUJOURS après le focusin, donc après touchend du tap
+		   (touchActive = false) — jamais prise pour un geste. Le momentum après
+		   un vrai glissé ne ferme pas non plus le clavier : seul le défilement
+		   pixels-sous-le-doigt compte. */
 		const onScroll = () => {
 			if (el.scrollTop < 8) return;
-			const recentGesture = touchActive || performance.now() - lastTouchEnd < 1000;
-			if (!recentGesture) return;
+			if (programmaticScrollUntil > performance.now()) return; // scroll de l'app
+			if (!touchActive) return; // aucun doigt posé = jamais un geste
 			const active = document.activeElement;
 			if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) active.blur();
 		};
 		el.addEventListener('scroll', onScroll, { passive: true });
 		el.addEventListener('touchstart', onTouchStart, { passive: true });
 		el.addEventListener('touchend', onTouchEnd, { passive: true });
-		el.addEventListener('touchcancel', onTouchEnd, { passive: true });
+		el.addEventListener('touchcancel', onTouchCancel, { passive: true });
 		return () => {
 			el.removeEventListener('scroll', onScroll);
 			el.removeEventListener('touchstart', onTouchStart);
 			el.removeEventListener('touchend', onTouchEnd);
-			el.removeEventListener('touchcancel', onTouchEnd);
+			el.removeEventListener('touchcancel', onTouchCancel);
 		};
 	}
 	$effect(() => {
@@ -2684,10 +2719,18 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		const delta = r.bottom - targetBottom;
 		if (delta > 0) scroller.scrollTop += delta;
 		else if (r.top < targetTop) scroller.scrollTop += r.top - targetTop;
+		/* Scroll causé par l'APP : les handlers scroll-dismiss l'ignorent
+		   (250 ms couvre la séquence de resizes du clavier Android). */
+		programmaticScrollUntil = performance.now() + 250;
 	}
 	/** Champ focalisé de l'éditeur « Créés par moi » : re-positionné quand le
 	    clavier s'ouvre (le visualViewport change APRÈS le focus). */
 	let focusedFieldEl: HTMLElement | null = null;
+	/** Timestamp jusqu'auquel les scrolls des listes sont causés par l'APP
+	 *  (repositionnement du champ focalisé au-dessus du clavier) : les handlers
+	 *  scroll-dismiss les ignorent — jamais de fermeture de clavier causée par
+	 *  notre propre scroll (bug clavier Android « disparition intempestive »). */
+	let programmaticScrollUntil = 0;
 	function focusScroll(_form: HTMLElement, target: EventTarget | null) {
 		/* iOS Safari : AUCUN scroll programmatique pendant le focus — le scroll
 		   instantané sous le doigt fait perdre le premier caractère au clavier
