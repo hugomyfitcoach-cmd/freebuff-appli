@@ -7,24 +7,30 @@
  *
  *  - deux sources STRICTEMENT séparées : Ciqual (ANSES, aliments de référence)
  *    en tête, produits Open Food Facts ensuite — jamais fusionnées ;
- *  - mêmes endpoints BFF que la cliente (`/api/foods/search`, `/api/foods/ciqual`)
- *    → même normalisation, même ranking (foodRanking), mêmes repères Ciqual
- *    (ex. « oeuf » → cru, dur, au plat) : à requête identique, résultats
- *    identiques côté cliente et côté coach ;
+ *  - MÊMES MOTEURS que la PWA cliente (aucune deuxième implémentation) :
+ *      · produits : `/api/coach/search` → `journal.searchForCoach` — mêmes 150
+ *        candidats, même ranking `foodRanking`, même garde-fou kcal↔macros,
+ *        mêmes miniatures que la recherche cliente (25 premiers identiques) ;
+ *        (la recherche cliente `/api/foods/search` reste réservée à la PWA :
+ *        son action Convex est client-only et la doctrine du 13/09 interdit
+ *        de toucher au backend pour une évolution CRM) ;
+ *      · Ciqual : `/api/foods/ciqual` → `searchCiqual` — MÊME moteur que la
+ *        cliente, donc mêmes repères (« oeuf » → cru, dur, au plat) : à
+ *        requête identique, résultats identiques côté cliente et côté coach ;
  *  - recherche réactive : debounce 300 ms après la frappe (règle PWA), seuil
  *    2 caractères, Enter = accélérateur (jamais obligatoire) ;
  *  - garde-fou anti-course : chaque frappe incrémente un compteur, une réponse
  *    ancienne ne peut JAMAIS remplacer les résultats d'une requête plus récente ;
- *  - pagination scroll infini (tranches de 25, `loadMore`), bloc Ciqual
+ *  - pagination scroll infini prête (tranches de 25, `loadMore`) — inerte tant
+ *    que la recherche coach n'est pas paginée côté backend ; bloc Ciqual
  *    toujours hors pagination ;
- *  - contrat serveur PWA gardé : réponse `{ items, hasMore }` inattendue =
- *    ERREUR affichée (jamais une liste vide silencieuse).
+ *  - payload inattendu = ERREUR affichée (jamais une liste vide silencieuse),
+ *    garde de contrat identique à la PWA.
  *
  * Module `.svelte.ts` : l'état est réactif (runes Svelte 5) et partagé avec le
  * template via `controller.state`. `ciqualToFood` reste pur (testable hors
  * composant).
  */
-import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 
 /** Seuil minimal de caractères (règle PWA : aucune requête en dessous). */
 export const FOOD_SEARCH_MIN_CHARS = 2;
@@ -56,7 +62,7 @@ export type SearchFood = {
 /** Fiche Ciqual brute renvoyée par le BFF `/api/foods/ciqual`. */
 export type CiqualRaw = { label: string; kcal: number; protein?: number; carbs?: number; fat?: number };
 
-/** Réponse paginée du BFF produits ({ items, hasMore } — tranches de 25). */
+/** Réponse produits normalisée par le contrôleur (items + présence d'une suite). */
 export type SearchPage = { items: SearchFood[]; hasMore: boolean };
 
 /** État réactif exposé au template (mutable via les méthodes du contrôleur). */
@@ -66,7 +72,7 @@ export type FoodSearchState = {
 	/** Recherche en vol (loading discret : la liste existante reste affichée). */
 	searching: boolean;
 	error: string;
-	/** Produits OFF classés (moteur PWA — ranking identique côté cliente). */
+	/** Produits OFF classés (même ranking foodRanking que la cliente). */
 	products: SearchFood[];
 	/** Fiches de référence Ciqual — bloc séparé, TOUJOURS au-dessus des produits. */
 	ciqual: SearchFood[];
@@ -144,7 +150,7 @@ export function createFoodSearch(): FoodSearchController {
 		state.showScrollHint = false;
 	}
 
-	/** Recherche effective (produits PWA + Ciqual, en parallèle). */
+	/** Recherche effective (produits + Ciqual, en parallèle). */
 	async function run(q: string) {
 		// Même règle que la PWA : en dessous de 2 caractères, pas de requête.
 		if (q.length < FOOD_SEARCH_MIN_CHARS) return;
@@ -154,16 +160,19 @@ export function createFoodSearch(): FoodSearchController {
 		state.searching = true;
 		state.error = '';
 		state.showScrollHint = false;
-		// Contrat PWA : réponse { items, hasMore } obligatoire — un payload
-		// inattendu est une ERREUR affichée, jamais une liste vide silencieuse.
-		const off = fetch(`/api/foods/search?q=${encodeURIComponent(q)}&v=${FRONTEND_API_VERSION}`, {
+		// Produits : moteur classé du CRM (MÊME ranking foodRanking que la PWA).
+		// Contrat : tableau FoodHit[] ; un payload inattendu est une ERREUR
+		// affichée, jamais une liste vide silencieuse.
+		const off = fetch(`/api/coach/search?q=${encodeURIComponent(q)}`, {
 			signal: AbortSignal.timeout(15_000),
 		})
 			.then(async (r) => {
 				const j = await r.json();
 				if (j.error) throw new Error(j.error);
-				if (!Array.isArray(j.items)) throw new Error('Recherche momentanément indisponible — réessaie dans un instant.');
-				return j as SearchPage;
+				// Contrat coach : tableau FoodHit[] brut — un payload inattendu est
+				// une ERREUR affichée, jamais une liste vide silencieuse.
+				if (!Array.isArray(j)) throw new Error('Recherche momentanément indisponible — réessaie dans un instant.');
+				return { items: j as SearchFood[], hasMore: false as boolean };
 			});
 		// Échec Ciqual silencieux : pas de grosse section vide, les produits
 		// OFF restent affichés (règle PWA).
@@ -240,13 +249,16 @@ export function createFoodSearch(): FoodSearchController {
 	}
 
 	async function loadMore() {
+		// Pagination produits : la recherche coach renvoie déjà ses 25 meilleurs
+		// (hasMore = false) — ce chemin reste prêt si le backend devient paginé,
+		// il est simplement inert aujourd'hui.
 		const q = state.q.trim();
 		if (state.loadingMore || !state.hasMore || q.length < FOOD_SEARCH_MIN_CHARS) return;
 		state.showScrollHint = false; // l'utilisateur a fait défiler
 		state.loadingMore = true;
 		const req = seq; // la pagination appartient à la recherche courante
 		try {
-			const r = await fetch(`/api/foods/search?q=${encodeURIComponent(q)}&offset=${state.nextOffset}&limit=25`);
+			const r = await fetch(`/api/coach/search?q=${encodeURIComponent(q)}&offset=${state.nextOffset}&limit=25`);
 			const j = await r.json();
 			if (req !== seq) return; // nouvelle recherche entre-temps : jeté
 			if (!j.error) {

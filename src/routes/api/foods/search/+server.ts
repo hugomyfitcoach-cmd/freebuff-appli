@@ -7,8 +7,7 @@ import { errMsg } from '$lib/errors.js';
 import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 
 /**
- * Recherche d'aliments (Open Food Facts, mis en cache côté Convex) — CLIENTE
- * (Journal PWA) ET COACH (CRM) : même moteur, même ranking, mêmes résultats.
+ * Recherche d'aliments (Open Food Facts, mis en cache côté Convex).
  *
  * Réponse paginée : `{ items, hasMore }` — tranches de 25 produits classés,
  * la suite est chargée par le client au défilement (scroll infini). `offset`
@@ -16,7 +15,7 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
  * tranche (25 par défaut).
  */
 export const GET: RequestHandler = async (event) => {
-	await requireRole(event, ['client', 'coach']);
+	await requireRole(event, 'client', { next: '/espace/journal' });
 	const token = event.cookies.get(SESSION_COOKIE);
 	const q = (event.url.searchParams.get('q') ?? '').trim();
 	if (q.length < 2) return json({ items: [], hasMore: false });

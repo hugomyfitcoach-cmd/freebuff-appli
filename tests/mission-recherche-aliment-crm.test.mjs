@@ -35,13 +35,13 @@ test('BFF Ciqual : accessible à la cliente ET au coach (le redirect 303 vers /a
 	assert.ok(!/requireRole\(event, 'client'/.test(ciqualBff), 'plus de restriction au seul rôle client');
 });
 
-test('BFF recherche produits : même moteur pour la PWA et le CRM (rôles client + coach)', () => {
-	assert.ok(/requireRole\(event, \['client', 'coach'\]\)/.test(searchBff), 'rôles client + coach acceptés');
+test('BFF recherche produits : INCHANGÉ — la doctrine du 13/09 interdit de toucher au backend pour une évolution CRM', () => {
+	assert.ok(/requireRole\(event, 'client'/.test(searchBff), 'le BFF produits reste client-only (contrat PWA intact)');
 });
 
-test('CRM fiche cliente : plus d’appel au moteur séparé /api/coach/search', () => {
-	assert.ok(!/api\/coach\/search/.test(adminPage), 'moteur PWA utilisé à la place de searchForCoach');
-	assert.ok(!/api\/coach\/search/.test(plansPage), 'l’éditeur de plans utilise aussi le moteur PWA');
+test('CRM : un seul appel réseau produits, centralisé dans le module partagé', () => {
+	assert.ok(!/api\/coach\/search/.test(adminPage), 'fiche cliente : aucun fetch produits direct (module partagé)');
+	assert.ok(!/api\/coach\/search/.test(plansPage), 'plans : aucun fetch produits direct (module partagé)');
 });
 
 test('CRM : recherche RÉACTIVE pendant la frappe (plus de clic « Chercher »)', () => {
@@ -71,11 +71,11 @@ test('Moteur partagé : anti-course — une réponse ancienne ne remplace jamais
 	assert.ok(/guard !== mealAddSeq\) return;/.test(journalPage), 'PWA ajout ingrédient repas photo : réponse périmée jetée');
 });
 
-test('Moteur partagé : mêmes endpoints que la PWA + contrat { items, hasMore } gardé', () => {
-	assert.ok(/\/api\/foods\/search\?q=/.test(foodSearch), 'endpoint produits identique à la PWA');
-	assert.ok(/v=\$\{FRONTEND_API_VERSION\}/.test(foodSearch), 'télémétrie de version du contrat');
+test('Moteur partagé : endpoints coach pour les produits, garde de contrat identique à la PWA', () => {
+	assert.ok(/\/api\/coach\/search\?q=/.test(foodSearch), 'produits via /api/coach/search (même ranking foodRanking que la PWA, backend intact)');
+	assert.ok(/\/api\/foods\/ciqual\?q=/.test(foodSearch), 'Ciqual via le BFF de la cliente (moteur searchCiqual partagé)');
 	assert.ok(/AbortSignal\.timeout\(15_000\)/.test(foodSearch), 'timeout réseau identique à la PWA');
-	assert.ok(/!Array\.isArray\(j\.items\)/.test(foodSearch), 'payload inattendu = erreur affichée (jamais liste vide silencieuse)');
+	assert.ok(/!Array\.isArray\(j\)/.test(foodSearch), 'payload inattendu = erreur affichée (jamais liste vide silencieuse)');
 });
 
 test('Moteur partagé : échec Ciqual silencieux — jamais de section vide, produits OFF conservés', () => {
@@ -92,12 +92,14 @@ test('CRM : hiérarchie visuelle — CIQUAL en tête, produits Open Food Facts e
 	}
 });
 
-test('CRM : les repères Ciqual de la PWA sont réutilisés à l’identique (aucune deuxième implémentation)', () => {
+test('CRM : les repères Ciqual et le ranking OFF de la PWA sont réutilisés (aucune deuxième implémentation)', () => {
 	// Ordre officiel « oeuf » : cru → dur → au plat (déjà testé côté PWA sur
 	// searchCiqualLocal — le CRM passe par le MÊME moteur via /api/foods/ciqual
 	// → convex.searchCiqual → searchCiqualLocal : aucun nouveau code de ranking).
 	assert.ok(/api\.ciqual\.searchCiqual/.test(ciqualBff), 'BFF → fonction Convex Ciqual existante (moteur unique)');
-	assert.ok(!/searchForCoach/.test(adminPage), 'le ranking séparé searchForCoach n’est plus appelé par le CRM');
+	assert.ok(!/searchForCoach/.test(adminPage), 'la page n’appelle plus la fonction Convex coach directement (elle passe par le module partagé)');
+	assert.ok(!/fetch\(\/api\/foods\/search/.test(foodSearch), 'le module partagé n’appelle PAS l’endpoint client-only de la PWA (aucun changement backend)');
+	assert.ok(!/FRONTEND_API_VERSION/.test(foodSearch), 'aucune télémétrie de contrat client sur les endpoints coach');
 });
 
 test('CRM : le chargement du panneau reset la recherche (aucun résidu de la cliente précédente)', () => {
