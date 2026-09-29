@@ -42,3 +42,58 @@ export function nameMatchScore(ingredientName: string, candidateName: string): n
 	if (coverageA >= 0.5) return 0.45 * coverageB + 0.1;
 	return covered > 0 ? 0.25 : 0;
 }
+
+/* ── Familles de variantes MUTUELLEMENT EXCLUSIVES (produits emballés) ──
+ *
+ * Une requête demandant une variante ne doit JAMAIS accepter une fiche
+ * portant une variante rivale du même axe : « stracciatella » ≠ « nature »,
+ * « fraise » ≠ « vanille », « écrémé » ≠ « demi-écrémé », « Zero » ≠
+ * « classique ». Map volontairement petite (axes goût / matière grasse /
+ * sucre), symétrique à la lecture : le conflit est détecté dans les DEUX
+ * sens (demandé vs candidat). Extensible : ajouter une entrée par rival
+ * réel observé — jamais un filtrage large qui casserait des fiches légitimes.
+ */
+const FLAVOR_CONFLICTS: Record<string, string[]> = {
+	// Axe goût / parfum (yaourts, desserts, jus, biscuits…)
+	nature: ["fraise", "vanille", "chocolat", "stracciatella", "myrtille", "peche", "abricot", "cacao", "cafe", "caramel", "citron"],
+	fraise: ["vanille", "chocolat", "nature", "myrtille", "peche", "abricot", "citron", "caramel"],
+	vanille: ["fraise", "chocolat", "nature", "myrtille", "pistache", "caramel", "citron"],
+	chocolat: ["fraise", "vanille", "nature", "cafe", "citron", "myrtille"],
+	stracciatella: ["nature", "fraise", "vanille", "myrtille", "citron"],
+	citron: ["fraise", "vanille", "chocolat", "nature", "orange"],
+	orange: ["citron", "pomme", "ananas", "abricot"],
+	pomme: ["orange", "ananas", "abricot"],
+	// Axe matière grasse (lait, crème, yaourt)
+	ecreme: ["demi", "entier"],
+	demi: ["entier", "ecreme"],
+	entier: ["demi", "ecreme"],
+	// Axe sucre (sodas, desserts)
+	zero: ["classic", "classique", "original", "normal", "sucre"],
+	classic: ["zero", "light"],
+	light: ["classic", "classique", "zero"],
+};
+
+/** Tous les tokens de rivalité connus (axes goût / matière grasse / sucre). */
+const FLAVOR_AXES: ReadonlySet<string> = new Set([
+	...Object.keys(FLAVOR_CONFLICTS),
+	...Object.values(FLAVOR_CONFLICTS).flat(),
+]);
+
+/**
+ * true si une variante DEMANDÉE entre en conflit avec les variantes d'un
+ * candidat (rivalité directe dans une famille ci-dessus, dans les deux
+ * sens). Les tokens de variante DEMANDÉS et présents chez le candidat sont
+ * neutres (« lait demi-écrémé » demandé vs candidat « Lait demi-écrémé » :
+ * ses tokens demi+écrémé sont ceux demandés → PAS un conflit) — seul un
+ * token rival NON demandé chez le candidat rejette.
+ */
+export function flavorConflict(requiredTokens: string[], candidateTokens: string[]): boolean {
+	const required = new Set(requiredTokens);
+	const candidateVariants = candidateTokens.filter((t) => FLAVOR_AXES.has(t) && !required.has(t));
+	for (const r of requiredTokens) {
+		for (const c of candidateVariants) {
+			if (FLAVOR_CONFLICTS[r]?.includes(c) || FLAVOR_CONFLICTS[c]?.includes(r)) return true;
+		}
+	}
+	return false;
+}

@@ -3,7 +3,8 @@ import { v, ConvexError } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Id, Doc } from "./_generated/dataModel";
 import type { FoodHit } from "./journal";
-import { rankFoods } from "./foodRanking";
+import { rankFoods, tokenize } from "./foodRanking";
+import { nameMatchScore, flavorConflict } from "../lib/foodText";
 import { applyKcalGuard } from "../lib/nutritionGuard";
 
 /**
@@ -245,6 +246,94 @@ export const resolveBarcodeInternal = internalAction({
 		const code = barcode.replace(/\D/g, "");
 		if (!code) return null;
 		return resolveBarcodeCore(ctx, sessionToken, code);
+	},
+});
+
+/**
+ * Produit OFF retenu par la recherche live du Repas IA (client → produit).
+ * `kcal100` est déjà sous garde-fou kcal↔macros (lecture via `guardedFood100`
+ * après relecture de la fiche mise en cache).
+ */
+export type OffLiveProduct = {
+	foodId: Id<"foods">;
+	name: string;
+	brand?: string;
+	kcal100: number;
+	carbs100: number;
+	protein100: number;
+	fat100: number;
+};
+
+/**
+ * Recherche OFF LIVE pour le Repas IA (action interne — une query n'a pas le
+ * droit au réseau). MÊME PIPELINE que la recherche cliente (`fetchOffSearch` :
+ * v1 CGI + règles strictes de `parseProducts`), puis mise en cache `foods`
+ * (`journal.cacheFoods`) et relecture sous garde-fou — le produit devient
+ * une fiche `foods` normale, comme pour la recherche client.
+ *
+ * SÉLECTION (côté action, règles variantes) :
+ *  - tokens de rivalité (flavorConflict) : une fiche portant une variante
+ *    rivale de celle demandée est éliminée (« nature » pour « stracciatella ») ;
+ *  - la fiche retenue doit PORTER la variante demandée si l'IA en a lu une ;
+ *  - correspondance nominale minimale 0.5 (sinon : aucun match fiable).
+ * Échec OFF (indisponible, rate-limit) → null : l'appelant retombe sur le
+ * socle local, jamais d'échec brut.
+ */
+export const searchOffProductsInternal = internalAction({
+	args: {
+		sessionToken: v.optional(v.string()),
+		/** Terme de recherche précis (marque + variante + produit). */
+		query: v.string(),
+		/** Nom du composant (pour la correspondance nominale). */
+		componentName: v.string(),
+		/** Variantes demandées (tokens de rivalité, normalisés). */
+		demandedFlavors: v.array(v.string()),
+	},
+	handler: async (ctx, { sessionToken, query, componentName, demandedFlavors }): Promise<OffLiveProduct | null> => {
+		const q = query.trim();
+		if (q.length < 2) return null;
+		try {
+			const products = await fetchOffSearch(q);
+			if (products.length === 0) return null;
+			const compToks = tokenize(componentName);
+			let best: (typeof products)[number] | null = null;
+			let bestScore = 0;
+			for (const p of products) {
+				const pToks = tokenize(p.name);
+				if (demandedFlavors.length > 0 && flavorConflict(demandedFlavors, pToks)) continue;
+				if (demandedFlavors.length > 0 && !demandedFlavors.every((f) => pToks.includes(f))) continue;
+				const s = nameMatchScore(componentName, p.name) + 0.1 * nameMatchScore(q, p.name);
+				if (s < 0.5) continue;
+				if (s > bestScore) {
+					bestScore = s;
+					best = p;
+				}
+			}
+			if (!best) return null;
+			// Cache `foods` (upsert par offId) puis relecture sous garde-fou.
+			const ids: Id<"foods">[] = await ctx.runMutation(api.journal.cacheFoods, {
+				sessionToken,
+				products: [best],
+			});
+			const foods: (Doc<"foods"> | null)[] = await ctx.runQuery(api.journal.foodsByIds, {
+				sessionToken,
+				ids,
+			});
+			const f = foods.find((x): x is Doc<"foods"> => x !== null && x.offId === best!.offId);
+			if (!f) return null;
+			return {
+				foodId: f._id,
+				name: f.name,
+				brand: f.brand,
+				kcal100: f.kcal100,
+				carbs100: f.carbs100,
+				protein100: f.protein100,
+				fat100: f.fat100,
+			};
+		} catch {
+			// OFF indisponible / rate-limit : l'appelant retombe sur le socle local.
+			return null;
+		}
 	},
 });
 

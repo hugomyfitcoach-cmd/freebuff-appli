@@ -1,8 +1,10 @@
 import { v, ConvexError } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 import { api, internal } from "./_generated/api";
 import { action, query } from "./_generated/server";
 import type { MatchedComponent } from "./mealMatch";
 import type { ResolvedBarcodeProduct } from "./off";
+import { packagedSearchTerms, demandedFlavorTokens } from "./mealMatch";
 import { analyzeLabelImage, analyzeMealImage } from "../lib/server/openai";
 
 /**
@@ -280,9 +282,51 @@ export const analyzeMeal = action({
 			}
 		}
 
-		// 3) MATCH base G-FLUX (customFoods → OFF importé → CIQUAL → estimation IA)
+		// 3) Produits emballés SANS code-barres : recherche OFF LIVE précise
+		//    (marque + variante + produit) — même pipeline que la recherche
+		//    cliente, mise en cache `foods`, règles variantes (jamais « nature »
+		//    pour « Stracciatella »). Une query n'ayant pas le droit au réseau,
+		//    la recherche vit DANS CETTE ACTION ; le produit retenu est transmis
+		//    au matcher en `preResolved` (même chemin que le code-barres).
+		for (let i = 0; i < ai.items.length; i++) {
+			if (resolved.has(i) || !ai.items[i].packaged) continue;
+			const it = ai.items[i];
+			const name = String(it.name ?? "").slice(0, 80);
+			const terms = packagedSearchTerms(name, it.brand, it.variant);
+			const flavors = demandedFlavorTokens(name, it.variant);
+			for (const term of terms) {
+				try {
+					const p = (await ctx.runAction(
+						internal.off.searchOffProductsInternal as never,
+						{
+							sessionToken,
+							query: term,
+							componentName: name,
+							demandedFlavors: flavors,
+						} as never
+					)) as { foodId: Id<"foods">; name: string; brand?: string; kcal100: number; carbs100: number; protein100: number; fat100: number } | null;
+					if (p) {
+						resolved.set(i, {
+							source: "food" as const,
+							foodId: p.foodId,
+							name: p.name,
+							brand: p.brand,
+							kcal100: p.kcal100,
+							carbs100: p.carbs100,
+							protein100: p.protein100,
+							fat100: p.fat100,
+						});
+						break;
+					}
+				} catch {
+					// OFF indisponible : terme suivant, puis socle local.
+				}
+			}
+		}
+
+		// 4) MATCH base G-FLUX (customFoods → OFF importé → CIQUAL → estimation IA)
 		//    — même process que la requête : actions node, `db` indisponible, on
-		//    emprunte la requête interne via runQuery (zéro appel live OFF).
+		//    emprunte la requête interne via runQuery.
 		const matched = (await ctx.runQuery(
 			internal.mealMatch.matchComponentsInternal as never,
 			{

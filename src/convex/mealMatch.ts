@@ -1,12 +1,32 @@
 import { internalQuery, query } from "./_generated/server";
 import { v } from "convex/values";
-import { FOOD_SEARCH_CANDIDATES, rankFoods } from "./foodRanking";
+import { FOOD_SEARCH_CANDIDATES, rankFoods, tokenize, norm } from "./foodRanking";
 import { toHit, type FoodHit } from "./journal";
 import { searchCiqualLocal, resolveCiqualLabel } from "./ciqual";
 import { getSessionUser } from "./helpers";
 import type { QueryCtx } from "./_generated/server";
 import { preferCookedForMeal, cookedBonusFor } from "../lib/cookedState";
-import { nameMatchScore } from "../lib/foodText";
+import { nameMatchScore, flavorConflict } from "../lib/foodText";
+
+/** Tokens de rivalité suivis par flavorConflict (axes goût / MG / sucre). */
+export const FLAVOR_TOKENS: ReadonlySet<string> = new Set([
+	"nature", "fraise", "vanille", "chocolat", "stracciatella", "myrtille",
+	"peche", "abricot", "cacao", "cafe", "caramel", "citron", "orange", "pomme",
+	"ecreme", "demi", "entier", "zero", "classic", "classique", "light",
+]);
+
+/**
+ * Variantes DEMANDÉES pour un composant emballé : tokens de rivalité présents
+ * dans le nom ET/OU la variante lue par l'IA (« Stracciatella » dans variant,
+ * « Coca-Cola Zero » dans le nom — les deux se cumulent).
+ */
+export function demandedFlavorTokens(name: string, variant?: string): string[] {
+	const collect = (s: string) =>
+		norm(s)
+			.split(" ")
+			.filter((t) => FLAVOR_TOKENS.has(t));
+	return [...new Set([...collect(name), ...collect(variant ?? "")])];
+}
 
 /**
  * MATCH « repas photographié » — résolution des composants reconnus par l'IA
@@ -145,18 +165,33 @@ function aiFallback(
  * Le contexte est minimal (seule la lecture `db` est requise) : la fonction
  * est appelée depuis une query authentifiée OU une action (via runQuery
  * dédiée) — voir matchComponents / matchComponentsCore.
+ *
+ * ⚠ PRODUIT EMBALLÉ DEMANDANT UNE VARIANTE : une fiche portant une variante
+ * RIVALE (nature vs stracciatella, écrémé vs demi-écrémé, Zero vs classique,
+ * fraise vs vanille…) est toujours rejetée (voir flavorConflict) — une
+ * couverture nominale élevée (« yaourt à la grecque ») ne peut plus faire
+ * gagner « nature » quand la photo montre « Stracciatella ».
  */
 async function findBestMatch(
 	ctx: QueryCtx,
 	userId: string,
 	name: string,
-	opts?: { searchTerm?: string; wantCooked?: boolean }
+	opts?: { searchTerm?: string; wantCooked?: boolean; demandedFlavors?: string[] }
 ): Promise<MealMatchRow | null> {
 	// Règle « état cuit par défaut » (repas IA uniquement) : le terme de
 	// recherche porte « cuit » pour les féculents servis dans une assiette.
 	const term = (opts?.searchTerm ?? name).trim().toLowerCase();
 	if (term.length < 2) return null;
 	const wantCooked = opts?.wantCooked === true;
+
+	// Variantes DEMANDÉES du composant (« stracciatella », « zero », « écrémé »…):
+	// tokens de rivalité présents dans la requête — une fiche portant une
+	// variante RIVALE doit être rejetée (jamais « nature » pour « stracciatella »).
+	const reqToks = tokenize(name);
+	const demandedFlavors = [
+		...reqToks.filter((t) => FLAVOR_TOKENS.has(t)),
+		...(opts?.demandedFlavors ?? []),
+	];
 
 	let best: MealMatchRow | null = null;
 	let bestScore = 0;
@@ -167,7 +202,14 @@ async function findBestMatch(
 		.withSearchIndex("by_name", (sb) => sb.search("name", term))
 		.take(8);
 	for (const f of customs) {
+		if (demandedFlavors.length > 0 && flavorConflict(demandedFlavors, tokenize(f.name))) continue;
 		let s = nameMatchScore(name, f.name) + 0.05; // bonus « sa propre base »
+		// Variante demandée absente de la fiche (« Coca-Cola » pour « Zero ») :
+		// même handicap que Ciqual — la fiche tombe sous le seuil.
+		if (demandedFlavors.length > 0) {
+			const fToks = tokenize(f.name);
+			if (!demandedFlavors.every((fl) => fToks.includes(fl))) s -= 0.35;
+		}
 		s += cookedBonusFor(f.name, wantCooked);
 		if (s > bestScore) {
 			bestScore = s;
@@ -193,7 +235,14 @@ async function findBestMatch(
 		.take(FOOD_SEARCH_CANDIDATES);
 	const ranked = rankFoods(foods.map(toHit), term).slice(0, 5);
 	for (const hit of ranked) {
+		if (demandedFlavors.length > 0 && flavorConflict(demandedFlavors, tokenize(hit.name))) continue;
 		let s = nameMatchScore(name, hit.name) - (hit.brand?.trim() ? 0.08 : 0);
+		// Variante demandée absente de la fiche (« Coca-Cola » classique pour un
+		// « Zero ») : handicap majeur uniforme (Ciqual, custom, OFF local).
+		if (demandedFlavors.length > 0) {
+			const hToks = tokenize(hit.name);
+			if (!demandedFlavors.every((fl) => hToks.includes(fl))) s -= 0.35;
+		}
 		s += cookedBonusFor(hit.name, wantCooked);
 		if (s > bestScore) {
 			bestScore = s;
@@ -217,7 +266,17 @@ async function findBestMatch(
 	const ciqHits = searchCiqualLocal(term);
 	for (const c of ciqHits) {
 		if (resolveCiqualLabel(c.label) === null) continue; // sécurité : fiche exacte uniquement
+		if (demandedFlavors.length > 0 && flavorConflict(demandedFlavors, tokenize(c.label))) continue;
 		let s = nameMatchScore(name, c.label) + 0.05; // bonus référence officielle
+		// Variante demandée ABSENTE du libellé Ciqual (« grecque aromatisé, sucré »
+		// sans parfum précis) : HANDICAP MAJEUR (−0.35) — le meilleur score
+		// nominal possible (~0.85) passe sous le seuil global (0.55) → la fiche
+		// générique est écartée au profit de l'ESTIMATION IA (règle produit :
+		// jamais une fiche générique pour un produit dont la variante est connue).
+		if (demandedFlavors.length > 0) {
+			const labelToks = tokenize(c.label);
+			if (!demandedFlavors.every((f) => labelToks.includes(f))) s -= 0.35;
+		}
 		s += cookedBonusFor(c.label, wantCooked);
 		if (s > bestScore) {
 			bestScore = s;
@@ -237,6 +296,14 @@ async function findBestMatch(
 
 	return best && bestScore >= MIN_MATCH_SCORE ? best : null;
 }
+
+/**
+ * Recherche OFF LIVE pour un composant emballé : elle vit DANS L'ACTION
+ * (aiAnalysis.analyzeMeal — une query n'a pas le droit au réseau) via
+ * `off.searchOffProductsInternal` ; le produit retenu est mis en cache
+ * (`journal.cacheFoods`) puis transmis ici en `preResolved`, exactement
+ * comme le chemin code-barres. Le socle local ci-dessous reste le repli.
+ */
 
 /** Cœur partagé : matching d'une liste de composants IA (query authentifiée ou action). */
 export async function matchComponentsCore(
@@ -297,8 +364,21 @@ export async function matchComponentsCore(
 		// aucune réécriture du terme, aucun bonus cuit.
 		let m: MealMatchRow | null = null;
 		if (c.packaged) {
+			// Variante lue par l'IA même si elle n'est pas dans le nom
+			// (« Stracciatella » dans variant, nom = « Yaourt à la grecque »).
+			const demanded = demandedFlavorTokens(label, c.variant);
+			const runLocalSearch = async (term: string) =>
+				findBestMatch(ctx, userId, label, {
+					searchTerm: term,
+					wantCooked: false,
+					demandedFlavors: demanded,
+				});
+			// 1) OPEN FOOD FACTS LIVE : résolu DANS L'ACTION (aiAnalysis) via
+			//    `off.searchOffProductsInternal` + cache → transmis en
+			//    `preResolved` (même chemin que le code-barres). Ici : socle local
+			//    (custom → OFF importé → Ciqual), ladder spécifique → générique.
 			for (const term of packagedSearchTerms(label, c.brand, c.variant)) {
-				m = await findBestMatch(ctx, userId, label, { searchTerm: term, wantCooked: false });
+				m = await runLocalSearch(term);
 				if (m) break;
 			}
 		} else {

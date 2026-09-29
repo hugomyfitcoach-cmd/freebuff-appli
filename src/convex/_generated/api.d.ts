@@ -42,6 +42,7 @@ import type * as notifications from "../notifications.js";
 import type * as off from "../off.js";
 import type * as onboarding from "../onboarding.js";
 import type * as photos from "../photos.js";
+import type * as previewOffProducts from "../previewOffProducts.js";
 import type * as previewSeed from "../previewSeed.js";
 import type * as previewSeedVision360 from "../previewSeedVision360.js";
 import type * as push from "../push.js";
@@ -98,6 +99,7 @@ declare const fullApi: ApiFromModules<{
   off: typeof off;
   onboarding: typeof onboarding;
   photos: typeof photos;
+  previewOffProducts: typeof previewOffProducts;
   previewSeed: typeof previewSeed;
   previewSeedVision360: typeof previewSeedVision360;
   push: typeof push;
