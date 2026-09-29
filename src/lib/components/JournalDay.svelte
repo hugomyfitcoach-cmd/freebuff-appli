@@ -137,6 +137,53 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 	/** Compacité mobile cliente : paddings/tailles resserrés, coach (CRM) inchangé. */
 	const compact = $derived(mode === 'client');
 
+	/* ————— Saisie directe de la quantité (mode coach, CRM) —————
+	   La valeur centrale entre − / + devient éditable au clic : input
+	   numérique discret (inputmode="decimal", virgule acceptée), valeur
+	   actuelle PRÉ-SÉLECTIONNÉE. Enter ou clic ailleurs valident, Échap
+	   annule. Mêmes garde-fous que l'endpoint (updateEntryQtyForCoach :
+	   1–5000 g) — invalide/vide → l'édition se referme SANS appel réseau.
+	   Les kcal/macros sont recalculées côté serveur (loadDay rafraîchit). */
+	let qtyEditId = $state<string | null>(null);
+	let qtyDraft = $state('');
+	let qtyEditInput: HTMLInputElement | undefined = $state();
+	/** Valeur TOUT JUSTE validée (blur avant clic sur − / +) : l'incrément
+	 *  part d'elle, pas d'une prop pas encore rechargée par le serveur. */
+	let qtyCommitted: { id: string; val: number } | null = null;
+	function openQtyEdit(e: Entry) {
+		qtyEditId = e._id;
+		qtyDraft = String(e.qtyGrams).replace('.', ',');
+		// Sélection complète de la valeur : on tape directement par-dessus.
+		setTimeout(() => {
+			qtyEditInput?.focus();
+			qtyEditInput?.select();
+		}, 0);
+	}
+	function closeQtyEdit() {
+		qtyEditId = null;
+		qtyDraft = '';
+	}
+	function applyQtyEdit(e: Entry) {
+		if (qtyEditId !== e._id) return; // déjà refermée (Échap) ou autre ligne
+		const v = parseFloat(qtyDraft.replace(',', '.').trim());
+		if (isFinite(v) && v >= 1 && v <= 5000) {
+			const val = Math.round(v * 10) / 10;
+			qtyCommitted = { id: e._id, val };
+			if (val !== e.qtyGrams) onQty?.(e, val);
+		}
+		// Vide / 0 / négatif / invalide / > 5000 : refermé SANS appel réseau —
+		// la ligne garde sa valeur (mêmes bornes que updateEntryQtyForCoach).
+		closeQtyEdit();
+	}
+	/** − / + (comportement inchangé) : l'incrément part de la valeur validée
+	 *  à l'instant (blur) si la coach vient de saisir un montant, sinon de la
+	 *  valeur affichée — jamais d'une prop en retard sur le serveur. */
+	function bumpQty(e: Entry, delta: number) {
+		const base = qtyCommitted && qtyCommitted.id === e._id ? qtyCommitted.val : e.qtyGrams;
+		qtyCommitted = null;
+		onQty?.(e, delta < 0 ? Math.max(1, base + delta) : base + delta);
+	}
+
 	/* ————— Regroupement « repas analysé » (photo IA) —————
 	 * Les composants d'une même analyse partagent `mealGroup` : ils sont
 	 * retirés des listes plates et rendus comme UNE carte repliable
@@ -598,14 +645,40 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 				<div class="flex shrink-0 items-center gap-1">
 					<button
 						type="button"
-						onclick={() => onQty(e, Math.max(1, e.qtyGrams - 10))}
+						onclick={() => bumpQty(e, -10)}
 						class="grid h-7 w-7 place-items-center rounded-lg border-2 border-line text-sm font-bold text-ink transition hover:border-brand"
 						aria-label="Réduire la quantité"
 					>−</button>
-					<span class="w-16 text-center text-sm font-semibold text-ink">{e.qtyGrams} g</span>
+					<span class="w-16 text-center text-sm font-semibold text-ink tabular-nums">
+						{#if qtyEditId === e._id}
+							<!-- Saisie directe (mode coach) : champ discret, même largeur
+							     que l'affichage — aucune mise en page qui saute. -->
+							<input
+								bind:this={qtyEditInput}
+								type="text"
+								inputmode="decimal"
+								class="w-full rounded-md border-2 border-brand bg-white px-0.5 py-0.5 text-center text-sm font-semibold text-ink outline-none"
+								bind:value={qtyDraft}
+								aria-label="Quantité en grammes"
+								onkeydown={(ev) => {
+									if (ev.key === 'Enter') applyQtyEdit(e);
+									else if (ev.key === 'Escape') closeQtyEdit();
+								}}
+								onblur={() => applyQtyEdit(e)}
+							/>
+						{:else}
+							<button
+								type="button"
+								class="w-full rounded-md py-0.5 transition hover:bg-line/60"
+								title="Cliquer pour saisir la quantité"
+								aria-label={`Modifier la quantité (${e.qtyGrams} g)`}
+								onclick={() => openQtyEdit(e)}
+							>{e.qtyGrams} g</button>
+						{/if}
+					</span>
 					<button
 						type="button"
-						onclick={() => onQty(e, e.qtyGrams + 10)}
+						onclick={() => bumpQty(e, 10)}
 						class="grid h-7 w-7 place-items-center rounded-lg border-2 border-line text-sm font-bold text-ink transition hover:border-brand"
 						aria-label="Augmenter la quantité"
 					>＋</button>
