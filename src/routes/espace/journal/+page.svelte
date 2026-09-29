@@ -2650,32 +2650,42 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	   sans vider la recherche ni perdre les résultats ; le geste continue.
 	   Seuil : ignore les micro-mouvements et les taps sur un produit. */
 	function attachScrollDismiss(el: HTMLElement) {
-		/* On ne ferme le clavier QUE sur un geste doigt (touchstart → momentum
-		   ≤ 1 s). Le défilement automatique qu'iOS applique au conteneur pour
-		   révéler le champ focalisé ne doit PAS fermer le clavier. */
+		/* On ne ferme le clavier QUE sur un GESTE DOIGT en cours sur la liste
+		   (touchstart → touchend du MÊME geste). Fenêtre temporelle interdite :
+		   sur Android (viewport interactive-widget=resizes-content), le navigateur
+		   SCROLLE LUI-MÊME le conteneur pour révéler le champ focalisé quand le
+		   clavier s'ouvre — et l'app aussi (scrollFocusedIntoView, ~200 ms après
+		   le focus). Ces scrolls automatiques tombent dans la seconde qui suit le
+		   tap : une fenêtre « ≤ 1 s après le dernier toucher » les prenait pour
+		   des gestes et fermait le clavier en pleine saisie (blur intempestif).
+		   Les scrolls causés par l'APP (repositionnement du champ) sont également
+		   ignorés via programmaticScrollUntil. */
 		let touchActive = false;
-		let lastTouchEnd = 0;
 		const onTouchStart = () => (touchActive = true);
-		const onTouchEnd = () => {
-			touchActive = false;
-			lastTouchEnd = performance.now();
-		};
+		const onTouchEnd = () => (touchActive = false);
+		const onTouchCancel = () => (touchActive = false);
+		/* FRONTIÈRE UNIQUE : le doigt posé sur la liste. La révélation du champ
+		   par le navigateur (Android scrolle le conteneur quand le clavier
+		   s'ouvre) arrive TOUJOURS après le focusin, donc après touchend du tap
+		   (touchActive = false) — jamais prise pour un geste. Le momentum après
+		   un vrai glissé ne ferme pas non plus le clavier : seul le défilement
+		   pixels-sous-le-doigt compte. */
 		const onScroll = () => {
 			if (el.scrollTop < 8) return;
-			const recentGesture = touchActive || performance.now() - lastTouchEnd < 1000;
-			if (!recentGesture) return;
+			if (programmaticScrollUntil > performance.now()) return; // scroll de l'app
+			if (!touchActive) return; // aucun doigt posé = jamais un geste
 			const active = document.activeElement;
 			if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) active.blur();
 		};
 		el.addEventListener('scroll', onScroll, { passive: true });
 		el.addEventListener('touchstart', onTouchStart, { passive: true });
 		el.addEventListener('touchend', onTouchEnd, { passive: true });
-		el.addEventListener('touchcancel', onTouchEnd, { passive: true });
+		el.addEventListener('touchcancel', onTouchCancel, { passive: true });
 		return () => {
 			el.removeEventListener('scroll', onScroll);
 			el.removeEventListener('touchstart', onTouchStart);
 			el.removeEventListener('touchend', onTouchEnd);
-			el.removeEventListener('touchcancel', onTouchEnd);
+			el.removeEventListener('touchcancel', onTouchCancel);
 		};
 	}
 	$effect(() => {
@@ -2709,10 +2719,18 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		const delta = r.bottom - targetBottom;
 		if (delta > 0) scroller.scrollTop += delta;
 		else if (r.top < targetTop) scroller.scrollTop += r.top - targetTop;
+		/* Scroll causé par l'APP : les handlers scroll-dismiss l'ignorent
+		   (250 ms couvre la séquence de resizes du clavier Android). */
+		programmaticScrollUntil = performance.now() + 250;
 	}
 	/** Champ focalisé de l'éditeur « Créés par moi » : re-positionné quand le
 	    clavier s'ouvre (le visualViewport change APRÈS le focus). */
 	let focusedFieldEl: HTMLElement | null = null;
+	/** Timestamp jusqu'auquel les scrolls des listes sont causés par l'APP
+	 *  (repositionnement du champ focalisé au-dessus du clavier) : les handlers
+	 *  scroll-dismiss les ignorent — jamais de fermeture de clavier causée par
+	 *  notre propre scroll (bug clavier Android « disparition intempestive »). */
+	let programmaticScrollUntil = 0;
 	function focusScroll(_form: HTMLElement, target: EventTarget | null) {
 		/* iOS Safari : AUCUN scroll programmatique pendant le focus — le scroll
 		   instantané sous le doigt fait perdre le premier caractère au clavier
