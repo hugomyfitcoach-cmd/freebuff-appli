@@ -19,6 +19,7 @@
 	import { labelFor } from '../../lib/labels.js';
 	import { ONBOARDING_SECTIONS, readableAnswer } from '../../lib/onboarding.js';
 	import { avgLast7Completed } from '$lib/averages';
+	import { createFoodSearch } from '$lib/foodSearch.svelte';
 
 	let { data, form } = $props();
 
@@ -517,11 +518,14 @@
 	let journalMsg = $state('');
 
 	let searchOpen = $state(false);
-	let searchQ = $state('');
-	let searchBusy = $state(false);
-	let searchHits = $state<FoodHit[]>([]);
-	/** Fiches de référence Ciqual (ANSES) — bloc séparé, toujours au-dessus des produits. */
-	let ciqualHits = $state<FoodHit[]>([]);
+	/**
+	 * Moteur de recherche partagé avec la PWA cliente (foodSearch.svelte.ts) :
+	 * mêmes endpoints (`/api/foods/search`, `/api/foods/ciqual`), mêmes repères
+	 * Ciqual, même ranking OFF — recherche réactive pendant la frappe
+	 * (debounce 300 ms, seuil 2 caractères, anti-course : une réponse ancienne
+	 * ne peut jamais remplacer une requête plus récente).
+	 */
+	const foodSearch = createFoodSearch();
 	let addMeal = $state('petit-dej');
 	let addQty = $state('100');
 
@@ -562,41 +566,6 @@
 		}
 	}
 
-	async function doSearch() {
-		if (searchQ.trim().length < 2) return;
-		searchBusy = true;
-		try {
-			// Sources STRICTEMENT séparées : Ciqual (référence ANSES) en tête,
-			// produits OFF ensuite ; échec Ciqual silencieux (bloc absent).
-			const res = fetch(`/api/coach/search?q=${encodeURIComponent(searchQ.trim())}`);
-			const ciq = fetch(`/api/foods/ciqual?q=${encodeURIComponent(searchQ.trim())}`)
-				.then(async (r) => {
-					const j = await r.json();
-					ciqualHits = j.error
-						? []
-						: (j as { label: string; kcal: number; protein?: number; carbs?: number; fat?: number }[]).map((h) => ({
-								_id: h.label,
-								name: h.label,
-								kcal100: h.kcal,
-								carbs100: h.carbs ?? 0,
-								protein100: h.protein ?? 0,
-								fat100: h.fat ?? 0,
-								ciqual: true,
-							}));
-				})
-				.catch(() => {});
-			const r = await res;
-			const data = await r.json();
-			if (!r.ok) throw new Error(data.error ?? 'Recherche impossible.');
-			searchHits = data;
-			await ciq;
-		} catch (e) {
-			journalMsg = e instanceof Error ? e.message : 'Recherche impossible.';
-		} finally {
-			searchBusy = false;
-		}
-	}
-
 	async function addFood(hit: FoodHit) {
 		if (!selectedId) return;
 		// Préchauffage du miroir (fire-and-forget) — jamais dans le chemin critique.
@@ -616,9 +585,7 @@
 			const data = await res.json();
 			if (!res.ok) throw new Error(data.error ?? 'Ajout impossible.');
 			searchOpen = false;
-			searchHits = [];
-			ciqualHits = [];
-			searchQ = '';
+			foodSearch.clear();
 			await loadDay();
 		} catch (e) {
 			journalMsg = e instanceof Error ? e.message : 'Ajout impossible.';
@@ -2441,10 +2408,11 @@
 							<JournalDay
 								{day}
 								mode="coach"
-								onAdd={(meal) => {
-									addMeal = meal;
-									searchOpen = true;
-								}}
+							onAdd={(meal) => {
+								addMeal = meal;
+								foodSearch.clear(); // panneau propre à chaque ouverture
+								searchOpen = true;
+							}}
 								onQty={setQty}
 								onRemove={removeEntry}
 							/>
@@ -2461,15 +2429,27 @@
 							<h4 class="font-display text-base font-semibold text-ink">＋ Ajouter un aliment</h4>
 							<button onclick={() => (searchOpen = false)} class="rounded-lg px-2 py-1 text-lg text-mist hover:text-ink">✕</button>
 						</div>
-						<div class="mt-3 flex gap-2">
+						<!-- Recherche RÉACTIVE (moteur PWA) : les résultats se mettent à
+						     jour pendant la frappe (debounce 300 ms) — Enter reste un
+						     accéléateur, jamais obligatoire. Plus de bouton « Chercher ». -->
+						<div class="mt-3 flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2 focus-within:border-brand">
+							<Icon name="search" size={17} class="shrink-0 text-mist" />
 							<input
 								type="search"
-								bind:value={searchQ}
+								bind:value={foodSearch.state.q}
+								oninput={() => foodSearch.setQuery(foodSearch.state.q)}
+								onkeydown={(e) => e.key === 'Enter' && foodSearch.runNow()}
 								placeholder="Rechercher un aliment (ex. riz)…"
-								class="flex-1 rounded-xl border-2 border-line px-3 py-2 text-sm outline-none focus:border-brand"
-								onkeydown={(e) => e.key === 'Enter' && doSearch()}
+								class="w-full bg-transparent text-sm text-ink outline-none placeholder:text-mist"
 							/>
-							<button onclick={doSearch} disabled={searchBusy} class="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-50">{searchBusy ? '…' : 'Chercher'}</button>
+							{#if foodSearch.state.q}
+								<button
+									type="button"
+									class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-line/70 text-mist transition hover:bg-line"
+									aria-label="Effacer la recherche"
+									onclick={() => foodSearch.clear()}
+								><Icon name="x" size={13} /></button>
+							{/if}
 						</div>
 						<div class="mt-3 flex items-center gap-3">
 							<label class="block">
@@ -2484,46 +2464,64 @@
 								<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Quantité (g)</span>
 								<input type="number" bind:value={addQty} min="1" max="5000" class="w-24 rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
 							</label>
+							{#if foodSearch.state.searching}<span class="ml-auto text-[11px] text-mist">Recherche…</span>{/if}
 						</div>
 						<div class="mt-3 max-h-[50vh] space-y-1 overflow-y-auto">
-							{#if searchHits.length === 0 && ciqualHits.length === 0}
+							{#if foodSearch.state.error}
+								<p class="py-6 text-center text-xs text-danger">{foodSearch.state.error}</p>
+							{:else if foodSearch.state.q.trim().length < 2}
 								<p class="py-6 text-center text-xs text-mist">Tape au moins 2 lettres pour chercher dans la base.</p>
+							{:else if foodSearch.state.products.length === 0 && foodSearch.state.ciqual.length === 0 && !foodSearch.state.searching}
+								<p class="py-6 text-center text-xs text-mist">Aucun résultat pour « {foodSearch.state.q.trim()} ».</p>
 							{:else}
-								{#if ciqualHits.length > 0}
-									<p class="px-1 pb-1 text-[10px] font-bold uppercase tracking-widest text-mist">Aliments de référence · Ciqual – ANSES</p>
-									{#each ciqualHits as hit (hit._id)}
-										<button
-											onclick={() => addFood(hit)}
-											class="flex w-full items-center gap-3 rounded-xl border border-brand/30 bg-brand-light/40 px-3 py-2 text-left transition hover:border-brand"
-										>
-											<span class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-light"><Icon name="salad" size={18} class="text-brand" /></span>
-											<div class="min-w-0 flex-1">
-												<div class="truncate text-sm font-semibold text-ink">{hit.name}</div>
-												<div class="text-[11px] text-mist">{hit.kcal100} kcal/100 g · <span class="font-bold text-brand">Référence Ciqual – ANSES</span> · Idéal pour un suivi précis</div>
-											</div>
-											<span class="text-brand">＋</span>
-										</button>
-									{/each}
+								<!-- 1. CIQUAL : aliments de RÉFÉRENCE (génériques) — bloc séparé,
+								     toujours en tête ; aucun résultat pertinent = pas de bloc. -->
+								{#if foodSearch.state.ciqual.length > 0}
+									<div class="flex items-baseline justify-between px-1 pb-1">
+										<p class="text-[10px] font-bold uppercase tracking-widest text-mist">Aliments de référence</p>
+										<span class="text-[10px] text-mist">Ciqual – ANSES</span>
+									</div>
+									<div class="space-y-1">
+										{#each foodSearch.state.ciqual as hit (hit._id)}
+											<button
+												onclick={() => addFood(hit)}
+												class="flex w-full items-center gap-3 rounded-xl border border-brand/30 bg-brand-light/40 px-3 py-2 text-left transition hover:border-brand"
+											>
+												<span class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-light"><Icon name="salad" size={18} class="text-brand" /></span>
+												<div class="min-w-0 flex-1">
+													<div class="truncate text-sm font-semibold text-ink">{hit.name}</div>
+													<div class="text-[11px] text-mist">{hit.kcal100} kcal/100 g · <span class="font-bold text-brand">Référence Ciqual – ANSES</span> · Idéal pour un suivi précis</div>
+												</div>
+												<span class="text-brand">＋</span>
+											</button>
+										{/each}
+									</div>
 								{/if}
-								{#if searchHits.length > 0}
+								<!-- 2. PRODUITS : Open Food Facts (moteur classé PWA, ranking
+								     identique côté cliente ; la liste reste affichée pendant
+								     une nouvelle frappe, sans clignotement). -->
+								{#if foodSearch.state.products.length > 0}
 									<p class="px-1 pb-1 pt-2 text-[10px] font-bold uppercase tracking-widest text-mist">Produits · Open Food Facts</p>
-									{#each searchHits as hit (hit._id)}
-										<button
-											onclick={() => addFood(hit)}
-											class="flex w-full items-center gap-3 rounded-xl border border-line bg-white px-3 py-2 text-left transition hover:border-brand"
-										>
-											{#if hit.thumbUrl || hit.imageUrl}
-												<FoodImg src={hit.thumbUrl} fallbackSrc={hit.imageUrl} alt="" class="h-9 w-9 shrink-0 rounded-lg" />
-											{:else}
-												<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-line/60"><Icon name="apple" size={16} class="text-mist" /></div>
-											{/if}
-											<div class="min-w-0 flex-1">
-												<div class="truncate text-sm font-semibold text-ink">{hit.name}</div>
-												<div class="text-[11px] text-mist">{hit.kcal100} kcal/100 g{#if hit.kcalRecalculated}<span class="ml-1 rounded bg-line/70 px-1 py-px text-[9px] font-semibold text-mist">Valeur recalculée</span>{/if}{hit.brand ? ` · ${hit.brand}` : ''}</div>
-											</div>
-											<span class="text-brand">＋</span>
-										</button>
-									{/each}
+									<div class="space-y-1 transition-opacity {foodSearch.state.searching ? 'opacity-50' : ''}">
+										{#each foodSearch.state.products as hit (hit._id)}
+											<button
+												onclick={() => addFood(hit)}
+												class="flex w-full items-center gap-3 rounded-xl border border-line bg-white px-3 py-2 text-left transition hover:border-brand"
+											>
+												{#if hit.thumbUrl || hit.imageUrl}
+													<FoodImg src={hit.thumbUrl} fallbackSrc={hit.imageUrl} alt="" class="h-9 w-9 shrink-0 rounded-lg" />
+												{:else}
+													<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-line/60"><Icon name="apple" size={16} class="text-mist" /></div>
+												{/if}
+												<div class="min-w-0 flex-1">
+													<div class="truncate text-sm font-semibold text-ink">{hit.name}</div>
+													<div class="text-[11px] text-mist">{hit.kcal100} kcal/100 g{#if hit.kcalRecalculated}<span class="ml-1 rounded bg-line/70 px-1 py-px text-[9px] font-semibold text-mist">Valeur recalculée</span>{/if}{hit.brand ? ` · ${hit.brand}` : ''}</div>
+												</div>
+												<span class="text-brand">＋</span>
+											</button>
+										{/each}
+									</div>
+									{#if foodSearch.state.loadingMore}<p class="py-2 text-center text-xs text-mist">Chargement…</p>{/if}
 								{/if}
 							{/if}
 						</div>

@@ -805,6 +805,10 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	let searching = $state(false);
 	let searchError = $state('');
 	let searchTimer: ReturnType<typeof setTimeout> | undefined;
+	/** Compteur anti-course : seule la réponse de la DERNIÈRE requête lancée
+	 *  peut écrire les résultats (une frappe plus rapide jette les réponses
+	 *  anciennes — jamais de résultats d'une recherche périmée). */
+	let searchSeq = 0;
 
 	/** Fiche Ciqual → Food (l'_id porté par les flux est le LIBELLÉ officiel exact ;
 	 *  à l'ajout, le serveur résout les valeurs — jamais le client). */
@@ -822,11 +826,13 @@ import { journalTipForDay } from '$lib/data/journalTips';
 
 	async function runSearch(q: string) {
 		if (q.length < 2) {
+			searchSeq++;
 			results = [];
 			ciqualResults = [];
 			hasMore = false;
 			return;
 		}
+		const guard = ++searchSeq;
 		searching = true;
 		searchError = '';
 		showScrollHint = false;
@@ -857,6 +863,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			.then(() => null, () => 'ciqual' as const);
 		const err = await req;
 		await ciq;
+		if (guard !== searchSeq) return; // réponse périmée : une recherche plus récente a pris la main
 		if (err) {
 			searchError = err instanceof Error ? err.message : String(err);
 			results = [];
@@ -1535,6 +1542,8 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	let mealShowScrollHint = $state(false);
 	let mealSearching = $state(false);
 	let mealSearchTimer: ReturnType<typeof setTimeout> | undefined;
+	/** Anti-course (même règle que la recherche principale). */
+	let mealSearchSeq = 0;
 	/** Fenêtre de recherche d'aliments DANS l'éditeur de repas (bouton « Ajouter un produit »). */
 	let mealSearchOpen = $state(false);
 	/** Mode de la fenêtre produit : recherche par nom ou scan code-barres (capsule flottante). */
@@ -1602,6 +1611,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			mealShowScrollHint = false;
 			return;
 		}
+		const guard = ++mealSearchSeq;
 		mealSearching = true;
 		mealSearchError = '';
 		// Même séparation stricte que la recherche principale : Ciqual en tête,
@@ -1626,6 +1636,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			.then(() => null, () => 'ciqual' as const);
 		const err = await req;
 		await ciq;
+		if (guard !== mealSearchSeq) return; // réponse périmée : une recherche plus récente a pris la main
 		if (err) {
 			mealSearchError = err instanceof Error ? err.message : String(err);
 			mealResults = [];
@@ -2380,11 +2391,15 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		clearTimeout(mealAddTimer);
 		mealAddTimer = setTimeout(() => runMealAddSearch(mealAddQuery.trim()), 300);
 	}
+	/** Anti-course (même règle que la recherche principale). */
+	let mealAddSeq = 0;
 	async function runMealAddSearch(q: string) {
 		if (q.length < 2) {
+			mealAddSeq++;
 			mealAddResults = [];
 			return;
 		}
+		const guard = ++mealAddSeq;
 		mealAddSearching = true;
 		try {
 			const [prodR, ciqR] = await Promise.all([
@@ -2395,12 +2410,13 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			const ciq = ciqR.ok ? await ciqR.json() : [];
 			const ciqFoods: Food[] = (Array.isArray(ciq) ? ciq : []).map(ciqualToFood);
 			const prods: Food[] = Array.isArray(prod?.items) ? prod.items : [];
+			if (guard !== mealAddSeq) return; // réponse périmée
 			// La CIQUAL d'abord (génériques), puis les produits (déjà en base).
 			mealAddResults = [...ciqFoods, ...prods].slice(0, 15);
 		} catch {
-			mealAddResults = [];
+			if (guard === mealAddSeq) mealAddResults = [];
 		} finally {
-			mealAddSearching = false;
+			if (guard === mealAddSeq) mealAddSearching = false;
 		}
 	}
 	/** Sélection d'un aliment (ajout ou remplacement) — quantité par défaut 10 g
