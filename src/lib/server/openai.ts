@@ -383,7 +383,7 @@ export function parseMealComponents(json: unknown): MealResult {
 		const variant = str(r.variant);
 		items.push({
 			name,
-			qtyGrams: Math.max(1, Math.round(num(r.qtyGrams, 2000) ?? 100)),
+			qtyGrams: Math.max(1, Math.min(2000, Math.round(num(r.qtyGrams, 2000) ?? 100))),
 			brand,
 			variant,
 			barcode,
@@ -405,4 +405,124 @@ export function parseMealComponents(json: unknown): MealResult {
 export async function analyzeMealImage(imageDataUrl: string): Promise<{ result: MealResult; usage: AiUsage }> {
 	const { json, usage } = await callOpenAi(MEAL_PROMPT, imageDataUrl, 1100);
 	return { result: parseMealComponents(json), usage };
+}
+
+/* ─────────────── RECETTE PHOTOGRAPHIÉE (import de recette) ─────────────── */
+
+const RECIPE_PROMPT = `Tu lis la photo d'une RECETTE (page de livre de cuisine, fiche imprimée, capture d'écran, liste d'ingrédients tapée ou manuscrite) pour pré-remplir la création d'un repas dans un suivi nutritionnel. Tu extrais la LISTE D'INGRÉDIENTS avec leurs QUANTITÉS — tu n'es PAS la source nutritionnelle : ne calcule PAS de calories totales.
+
+TYPE DE PHOTO (photoType, obligatoire) :
+- "recipe" : une recette / liste d'ingrédients avec quantités est le sujet principal ;
+- "unclear" : photo floue au point de ne rien lire, ou qui ne montre PAS une liste d'ingrédients (ex. un plat déjà servi dans une assiette — ce cas est traité par une autre fonction).
+
+RÈGLES CRITIQUES — INGRÉDIENTS :
+- Liste chaque ingrédient DANS L'ORDRE de la recette, avec SA quantité exactement telle qu'écrite.
+- name : nom de l'ingrédient en français, simple et générique (ex. « quinoa », « brocolis », « blanc de poulet »). Pour un produit de marque listé (ex. « 1 yaourt Délisse Stracciatella ») : name = le produit, brand = la marque imprimée, variant = la variante imprimée, packaged = true. Pour un aliment générique : packaged = false, brand et variant = null.
+- qtyRaw : la quantité EXACTEMENT telle qu'écrite (ex. « 50 g », « 2 œufs », « 1 cuillère à soupe d'huile », « 150 ml »), null si aucune quantité n'est écrite.
+- unit : l'unité écrite : "g" (g/kg), "ml" (ml/cl/l), "piece" (pièces : œufs, tranches, filets…), "cuillere" (cuillère à soupe ou à café), null si ambigu ou absente.
+- qtyGrams : le poids en GRAMMES, UNIQUEMENT si la conversion est fiable :
+  · g/kg → direct (1 kg = 1000 g) ; cl/ml/l → ×1 pour les liquides courants (150 ml = 150) ;
+  · repères fiables : œuf moyen = 50 g, tranche de jambon blanc = 25 g, cuillère à soupe d'huile = 10 g, cuillère à soupe de liquide = 15 g, cuillère à café = 5 g ;
+  · SINON (« à discrétion », « 1 verre », « 1 bol », « une poignée », chiffre illisible) → qtyGrams = null et qtyUncertain = true. Ne devine JAMAIS un poids.
+- qtyUncertain = true aussi si la photo est floue sur CE chiffre précis ou si l'unité est ambiguë, même après conversion.
+- kcal100/carbs100/protein100/fat100 : FOURNIS tout de même une estimation prudente /100 g pour chaque ingrédient (bornes réalistes) — elle n'est affichée que si aucune fiche alimentaire fiable n'est trouvée. null si vraiment impossible.
+- 12 ingrédients maximum, du premier au dernier de la liste ; ignore le sel, le poivre et les épices négligeables ; ne fusionne PAS deux lignes.
+- servings : le nombre de personnes/portions UNIQUEMENT s'il est clairement écrit (ex. « Pour 4 personnes » → 4), sinon null. Ne calcule RIEN à partir de servings.
+- name (racine) : le TITRE de la recette UNIQUEMENT s'il est clairement visible (ex. « Poulet quinoa brocolis »), sinon null.
+
+INTERDIT — RÉPONSES VIDES : n'écris JAMAIS « no comment », « unknown », « non identifié » ou tout autre placeholder dans name. Photo inexploitable → items = [] et photoType = "unclear".
+
+Réponds STRICTEMENT en JSON avec ce schéma :
+{"photoType": "recipe"|"unclear", "name": string|null, "servings": number|null, "items": [{"name": string, "brand": string|null, "variant": string|null, "packaged": boolean, "qtyRaw": string|null, "unit": "g"|"ml"|"piece"|"cuillere"|null, "qtyGrams": number|null, "qtyUncertain": boolean, "kcal100": number|null, "carbs100": number|null, "protein100": number|null, "fat100": number|null, "note": string|null}]}`;
+
+export type RecipeUnit = 'g' | 'ml' | 'piece' | 'cuillere';
+
+export type RecipeIngredientAi = {
+	name: string;
+	/** Marque imprimée (produit de marque listé) — jamais inventée. */
+	brand?: string;
+	/** Variante imprimée (ex. « Stracciatella », « demi-écrémé »). */
+	variant?: string;
+	packaged?: boolean;
+	/** Quantité exactement telle qu'écrite sur la recette (ex. « 2 œufs »). */
+	qtyRaw?: string;
+	/** Unité écrite (après normalisation) — null si ambiguë. */
+	unit?: RecipeUnit;
+	/** Poids fiable en grammes (conversion standard) — ABSENT si incertain. */
+	qtyGrams?: number;
+	/** Quantité non convertible / illisible : l'utilisateur doit la renseigner. */
+	qtyUncertain?: boolean;
+	kcal100?: number;
+	carbs100?: number;
+	protein100?: number;
+	fat100?: number;
+	note?: string;
+};
+
+export type RecipeResult = {
+	photoType: 'recipe' | 'unclear';
+	/** Titre de la recette UNIQUEMENT s'il est clairement visible. */
+	name?: string;
+	/** Nombre de personnes/portions UNIQUEMENT s'il est clairement écrit. */
+	servings?: number;
+	items: RecipeIngredientAi[];
+};
+
+/**
+ * Valide la réponse Recette IA : bornes, placeholders interdits, quantités
+ * non inventées. Un ingrédient sans poids FIABLE sort avec qtyGrams absent
+ * ET qtyUncertain=true — jamais un poids deviné silencieusement.
+ */
+export function parseRecipeExtraction(json: unknown): RecipeResult {
+	const o = (json ?? {}) as Record<string, unknown>;
+	const photoType = o.photoType === 'recipe' ? 'recipe' : 'unclear';
+	const str = (v: unknown, max = 80): string | undefined => {
+		const s = typeof v === 'string' ? v.trim().slice(0, max) : '';
+		return s.length >= 2 ? s : undefined;
+	};
+	const num = (v: unknown, max: number): number | undefined => {
+		const n = typeof v === 'number' ? v : Number(v);
+		if (!isFinite(n) || n < 0) return undefined;
+		return Math.min(max, Math.round(n * 10) / 10);
+	};
+	const name = str(o.name);
+	const servingsRaw = num(o.servings, 30);
+	const items: RecipeIngredientAi[] = [];
+	for (const it of Array.isArray(o.items) ? o.items.slice(0, 12) : []) {
+		const r = (it ?? {}) as Record<string, unknown>;
+		const ingName = typeof r.name === 'string' ? r.name.trim().slice(0, 80) : '';
+		// Garde anti-« no comment » (même règle que le Repas IA).
+		const normalized = ingName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+		if (ingName.length < 2 || PLACEHOLDER_RE.test(normalized) || !/[a-z0-9]/i.test(ingName)) continue;
+		const brand = str(r.brand);
+		const variant = str(r.variant);
+		const unit = (['g', 'ml', 'piece', 'cuillere'] as const).includes(r.unit as RecipeUnit) ? (r.unit as RecipeUnit) : undefined;
+		const qtyGrams = num(r.qtyGrams, 5000);
+		items.push({
+			name: ingName,
+			brand,
+			variant,
+			packaged: r.packaged === true || !!brand,
+			qtyRaw: str(r.qtyRaw, 40),
+			unit,
+			// Poids fiabilisé UNIQUEMENT si la conversion est déclarée fiable :
+			// sinon qtyGrams absent (l'utilisateur devra compléter).
+			qtyGrams: r.qtyUncertain === true ? undefined : qtyGrams,
+			qtyUncertain: r.qtyUncertain === true || qtyGrams === undefined,
+			kcal100: num(r.kcal100, 900),
+			carbs100: num(r.carbs100, 100),
+			protein100: num(r.protein100, 100),
+			fat100: num(r.fat100, 100),
+			note: typeof r.note === 'string' && r.note.trim() ? r.note.trim().slice(0, 120) : undefined,
+		});
+		if (items.length >= 12) break;
+	}
+	return { photoType, name, servings: servingsRaw, items };
+}
+
+/** Analyse une photo de RECETTE → liste d'ingrédients + quantités (grammes
+ *  fiabilisés quand la conversion est standard, incertitude explicite sinon). */
+export async function analyzeRecipeImage(imageDataUrl: string): Promise<{ result: RecipeResult; usage: AiUsage }> {
+	const { json, usage } = await callOpenAi(RECIPE_PROMPT, imageDataUrl, 1500);
+	return { result: parseRecipeExtraction(json), usage };
 }

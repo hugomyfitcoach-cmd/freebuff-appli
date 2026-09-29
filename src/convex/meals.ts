@@ -55,6 +55,20 @@ const ingredientInput = v.object({
 	/** Fiche de RÉFÉRENCE Ciqual (libellé officiel exact) — exclusif avec foodId/customFoodId. */
 	ciqualLabel: v.optional(v.string()),
 	qtyGrams: v.number(),
+	/** Repli optionnel (additif rétrocompatible) : snapshot d'un ingrédient SANS
+	 *  identité (ex. « Estimation IA » d'une recette importée par photo) —
+	 *  identique au champ snapshot de createMealFromSelection. */
+	snapshot: v.optional(
+		v.object({
+			name: v.optional(v.string()),
+			brand: v.optional(v.string()),
+			imageUrl: v.optional(v.string()),
+			kcal: v.optional(v.number()),
+			carbs: v.optional(v.number()),
+			protein: v.optional(v.number()),
+			fat: v.optional(v.number()),
+		})
+	),
 });
 
 /**

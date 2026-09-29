@@ -5,23 +5,63 @@ import { api } from '../../../../convex/_generated/api.js';
 import { SESSION_COOKIE, requireRole } from '$lib/server/session';
 import { errMsg } from '$lib/errors.js';
 
-/** Modifie un repas (nom, description, ingrédients — totaux recalculés côté serveur). */
+/**
+ * Modifie un repas (nom, description, ingrédients — totaux recalculés côté serveur).
+ * Un ingrédient SANS identité (foodId/customFoodId/ciqualLabel) mais AVEC un
+ * snapshot (ex. « Estimation IA » d'une recette importée par photo) est transmis
+ * tel quel : updateMeal accepte ce repli (additif rétrocompatible) au lieu de
+ * rejeter tout le repas.
+ */
 export const PATCH: RequestHandler = async (event) => {
 	await requireRole(event, 'client', { next: '/espace/journal' });
 	const token = event.cookies.get(SESSION_COOKIE);
 	try {
 		const body = await event.request.json();
 		const ingredients = Array.isArray(body.ingredients)
-			? body.ingredients.map((i: { foodId?: string; customFoodId?: string; ciqualLabel?: string; qtyGrams: number }) => {
-					// Même mapping que POST /api/meals : fiche de RÉFÉRENCE Ciqual
-					// (ANSES), puis aliment personnel, puis produit OFF — sans
-					// JAMAIS envoyer de foodId vide (sinon Convex rejette le
-					// payload avant la mutation : ArgumentValidationError).
-					if (i.ciqualLabel) return { ciqualLabel: String(i.ciqualLabel), qtyGrams: Number(i.qtyGrams) };
-					if (i.customFoodId) return { customFoodId: String(i.customFoodId), qtyGrams: Number(i.qtyGrams) };
-					const foodId = String(i.foodId ?? '');
-					return foodId ? { foodId, qtyGrams: Number(i.qtyGrams) } : { qtyGrams: Number(i.qtyGrams) };
-				})
+			? body.ingredients.map(
+					(i: {
+						foodId?: string;
+						customFoodId?: string;
+						ciqualLabel?: string;
+						qtyGrams: number;
+						name?: string;
+						brand?: string;
+						imageUrl?: string;
+						kcal?: number;
+						carbs?: number;
+						protein?: number;
+						fat?: number;
+					}) => {
+						// Même mapping que POST /api/meals : fiche de RÉFÉRENCE Ciqual
+						// (ANSES), puis aliment personnel, puis produit OFF — sans
+						// JAMAIS envoyer de foodId vide (sinon Convex rejette le
+						// payload avant la mutation : ArgumentValidationError).
+						const identity = i.ciqualLabel
+							? { ciqualLabel: String(i.ciqualLabel) }
+							: i.customFoodId
+								? { customFoodId: String(i.customFoodId) }
+								: i.foodId
+									? { foodId: String(i.foodId) }
+									: {};
+						// Snapshot de secours (additif) : ingrédient SANS identité
+						// (« Estimation IA » d'une recette importée) OU fiche disparue —
+						// kcal/macros de la ligne exacte, transmis à updateMeal qui
+						// l'accepte au lieu de rejeter tout le repas.
+						const snapshot =
+							i.kcal !== undefined || i.name
+								? {
+										...(i.name ? { name: String(i.name) } : {}),
+										...(i.brand ? { brand: String(i.brand) } : {}),
+										...(i.imageUrl ? { imageUrl: String(i.imageUrl) } : {}),
+										...(i.kcal !== undefined ? { kcal: Number(i.kcal) } : {}),
+										...(i.carbs !== undefined ? { carbs: Number(i.carbs) } : {}),
+										...(i.protein !== undefined ? { protein: Number(i.protein) } : {}),
+										...(i.fat !== undefined ? { fat: Number(i.fat) } : {}),
+									}
+								: undefined;
+						return { ...identity, qtyGrams: Number(i.qtyGrams), ...(snapshot ? { snapshot } : {}) };
+					}
+				)
 			: [];
 		const res = await convex.mutation(api.meals.updateMeal, {
 			sessionToken: token,

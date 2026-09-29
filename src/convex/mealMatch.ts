@@ -325,6 +325,10 @@ export async function matchComponentsCore(
 		variant?: string;
 		/** Code-barres lisible — résolu en amont (off.resolveBarcodeInternal). */
 		preResolved?: PreResolvedBarcode;
+		/** Import de RECETTE : la liste donne des poids CRU/SEC (« 50 g de quinoa ») —
+		 *  la règle repas « servi cuit » ne s'applique PAS. Additif : absent =
+		 *  comportement inchangé (Repas IA). */
+		ignoreCookedRule?: boolean;
 	}[]
 ): Promise<MatchedComponent[]> {
 	const out: MatchedComponent[] = [];
@@ -387,7 +391,9 @@ export async function matchComponentsCore(
 			// l'ingrédient porte déjà « cru »/« sec » (photo d'aliment sec). La
 			// recherche générale (Journal) n'est PAS concernée : ce code ne vit
 			// que dans le matching des composants d'une photo.
-			const cookedTerm = preferCookedForMeal(label);
+			// Import de RECETTE (ignoreCookedRule) : la liste d'ingrédients donne
+			// des poids CRU/SEC — jamais réécrits en « cuit ».
+			const cookedTerm = c.ignoreCookedRule ? null : preferCookedForMeal(label);
 			m = await findBestMatch(ctx, userId, label, {
 				searchTerm: cookedTerm ?? label,
 				wantCooked: cookedTerm !== null,
@@ -481,6 +487,8 @@ export const matchComponentsInternal = internalQuery({
 				packaged: v.optional(v.boolean()),
 				brand: v.optional(v.string()),
 				variant: v.optional(v.string()),
+				/** Import de recette : poids crus — règle « servi cuit » neutralisée. */
+				ignoreCookedRule: v.optional(v.boolean()),
 				/** Produit DÉJÀ résolu par code-barres — assemblé CÔTÉ SERVEUR
 				 *  uniquement (aiAnalysis), jamais transmis par la cliente : la
 				 *  query publique matchComponents n'accepte PAS ce champ. */

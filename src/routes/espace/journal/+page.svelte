@@ -131,7 +131,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		sourceType?: string;
 		sourceRecipeId?: string;
 	};
-	type MealDraftItem = { food: Food; qty: number; custom?: boolean; customFoodId?: string; ciqualLabel?: string };
+	type MealDraftItem = { food: Food; qty: number; custom?: boolean; customFoodId?: string; ciqualLabel?: string; /** Ingrédient SANS fiche (« Estimation IA » d'une recette importée) : sauvegarde via fromSelection + snapshot. */ aiEstimate?: boolean };
 
 	let { data } = $props();
 
@@ -1588,6 +1588,9 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			custom: !!ing.customFoodId,
 			customFoodId: ing.customFoodId,
 			ciqualLabel: ing.ciqualLabel,
+			// Ingrédient SANS identité (« Estimation IA » d'une recette importée) :
+			// re-marqué pour que la sauvegarde reparte avec son snapshot.
+			aiEstimate: !ing.foodId && !ing.customFoodId && !ing.ciqualLabel,
 		}));			mealSearchQ = '';
 			mealResults = [];
 			mealHasMore = false;
@@ -1718,6 +1721,13 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	}
 	/** Sauvegarde depuis la feuille : ajout si un produit de la recherche est en attente, édition sinon. */
 	function saveIngredientQty2(qtyGrams: number) {
+		// Import de recette : la sélection produit nourrit l'écran de VALIDATION
+		// (remplacement ou ajout), JAMAIS directement l'éditeur.
+		if (recipeImportOpen) {
+			if (mealPickedFood) saveIngredientQtyForRecipe(qtyGrams);
+			ingEdit = null;
+			return;
+		}
 		if (mealPickedFood) {
 			mealItems = [
 				...mealItems,
@@ -1771,22 +1781,39 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		// Préchauffage du miroir des ingrédients (fire-and-forget, jamais bloquant).
 		warmFoodImages(mealItems.map((it) => it.food));
 		mealSaving = true;
-		mealError = '';
-		try {
+		mealError = '';		try {
+			// Repas contenant une « Estimation IA » (recette importée) : chaque
+			// ingrédient SANS fiche part avec son snapshot — le serveur l'accepte
+			// au lieu de rejeter tout (createMealFromSelection / updateMeal).
+			const hasAiEstimate = mealItems.some((it) => it.aiEstimate);
 			const r = await fetch(mealEditingId ? `/api/meals/${mealEditingId}` : '/api/meals', {
 				method: mealEditingId ? 'PATCH' : 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					name: mealName,
 					description: mealDesc.trim() || undefined,
-				ingredients: mealItems.map((it) => ({
-					...(it.ciqualLabel
-						? { ciqualLabel: it.ciqualLabel } // fiche de référence Ciqual (ANSES)
-						: it.custom
-							? { customFoodId: it.food._id }
-							: { foodId: it.food._id }),
-					qtyGrams: it.qty,
-				})),
+					...(hasAiEstimate && !mealEditingId ? { fromSelection: true } : {}),
+					ingredients: mealItems.map((it) => ({
+						...(it.ciqualLabel
+							? { ciqualLabel: it.ciqualLabel } // fiche de référence Ciqual (ANSES)
+							: it.custom
+								? { customFoodId: it.food._id }
+								: it.aiEstimate
+									? {} // Estimation IA : aucun identifiant — seul le snapshot parle
+									: { foodId: it.food._id }),
+						qtyGrams: it.qty,
+						...(it.aiEstimate
+							? {
+									// Snapshot de la ligne : kcal/macros EXACTS validés à l'écran.
+									name: it.food.name,
+									...(it.food.brand ? { brand: it.food.brand } : {}),
+									kcal: Math.round((it.food.kcal100 * it.qty) / 100),
+									carbs: Math.round(((it.food.carbs100 ?? 0) * it.qty) / 100),
+									protein: Math.round(((it.food.protein100 ?? 0) * it.qty) / 100),
+									fat: Math.round(((it.food.fat100 ?? 0) * it.qty) / 100),
+								}
+							: {}),
+					})),
 				}),
 			});
 			const j = await r.json();
@@ -1799,6 +1826,235 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		} finally {
 			mealSaving = false;
 		}
+	}
+
+	/* ————— Import de RECETTE par photo IA (pré-remplit ce constructeur) —————
+	     MÊME pipeline que « Photographier mon repas » (compression → IA serveur
+	     → match G-FLUX), spécialisé liste d'ingrédients + quantités écrites.
+	     AUCUN enregistrement automatique : écran de validation d'abord, puis
+	     remplissage du constructeur EXISTANT (aucun 2e système de recettes). */
+	type RecipeComp = {
+		label: string;
+		qtyGrams: number;
+		/** Quantité non convertible/illisible : « Quantité à compléter ». */
+		qtyUncertain: boolean;
+		/** Quantité exactement telle qu'écrite sur la recette (ex. « 2 œufs »). */
+		qtyRaw?: string;
+		matchSource: 'custom' | 'off_imported' | 'ciqual' | 'ai';
+		foodId?: string;
+		customFoodId?: string;
+		ciqualLabel?: string;
+		name: string;
+		brand?: string;
+		kcal100?: number;
+		carbs100?: number;
+		protein100?: number;
+		fat100?: number;
+		aiKcal100?: number;
+		aiCarbs100?: number;
+		aiProtein100?: number;
+		aiFat100?: number;
+	};
+	let recipeImportOpen = $state(false);
+	let recipeAnalyzing = $state(false);
+	let recipeError = $state('');
+	let recipeComps = $state<RecipeComp[] | null>(null);
+	let recipeTitle = $state('');
+	let recipeServings = $state<number | null>(null);
+	/** Édition de quantité dans l'écran de validation (même ergonomie que le Repas IA). */
+	let recipeQtyEditIdx = $state<number | null>(null);
+	let recipeQtyDraft = $state('');
+	/** Remplacement en cours dans la validation : index cible (null = ajout). */
+	let recipeReplaceIdx = $state<number | null>(null);
+	let recipePhotoInput: HTMLInputElement | undefined = $state();
+	let recipeGalleryInput: HTMLInputElement | undefined = $state();
+
+	function openRecipeImport() {
+		recipeImportOpen = true;
+		recipeError = '';
+		recipeComps = null;
+		recipeTitle = '';
+		recipeServings = null;
+	}
+	function closeRecipeImport() {
+		recipeImportOpen = false;
+		recipeQtyEditIdx = null;
+		recipeReplaceIdx = null;
+		// Une sélection produit peut être restée en attente (feuille de portion) :
+		// jamais de fuite vers l'éditeur après fermeture de la validation.
+		mealPickedFood = null;
+	}
+
+	async function analyzeRecipeFile(file: File) {
+		recipeAnalyzing = true;
+		recipeError = '';
+		try {
+			const imageDataUrl = await compressImage(file, 1280, 0.8);
+			const r = await fetch('/api/meals/analyze-recipe', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ imageDataUrl }),
+			});
+			const j = await r.json();
+			if (!r.ok || j.ok === false) {
+				// AUCUN texte brut du modèle : message orienté solution (jamais « no comment »).
+				throw new Error(
+					['ai-unavailable', 'unreachable', 'timeout'].includes(String(j.reason))
+						? "L'analyse IA est momentanément indisponible — ajoute tes ingrédients à la main en attendant."
+						: "Je n'arrive pas à lire suffisamment cette recette. Essaie de reprendre une photo plus nette."
+				);
+			}
+			const comps: RecipeComp[] = ((j.components ?? []) as Array<Record<string, unknown>>).map((c, i) => ({
+				label: String(c.label ?? ''),
+				qtyGrams: Number(c.qtyGrams ?? 100),
+				qtyUncertain: (j.uncertainQtyIdx as number[] | undefined)?.includes(i) ?? false,
+				qtyRaw: (j.qtyRaw as (string | undefined)[] | undefined)?.[i],
+				matchSource: c.matchSource as RecipeComp['matchSource'],
+				foodId: c.foodId as string | undefined,
+				customFoodId: c.customFoodId as string | undefined,
+				ciqualLabel: c.ciqualLabel as string | undefined,
+				name: String(c.name ?? c.label ?? ''),
+				brand: c.brand as string | undefined,
+				kcal100: c.kcal100 as number | undefined,
+				carbs100: c.carbs100 as number | undefined,
+				protein100: c.protein100 as number | undefined,
+				fat100: c.fat100 as number | undefined,
+				aiKcal100: c.aiKcal100 as number | undefined,
+				aiCarbs100: c.aiCarbs100 as number | undefined,
+				aiProtein100: c.aiProtein100 as number | undefined,
+				aiFat100: c.aiFat100 as number | undefined,
+			}));
+			if (comps.length === 0) {
+				throw new Error("Je n'arrive pas à lire suffisamment cette recette. Essaie de reprendre une photo plus nette.");
+			}
+			recipeComps = comps;
+			recipeTitle = typeof j.name === 'string' ? j.name : '';
+			recipeServings = typeof j.servings === 'number' ? j.servings : null;
+		} catch (e) {
+			recipeError = e instanceof Error && (e.message.startsWith("L'analyse IA") || e.message.startsWith("Je n'arrive pas"))
+				? e.message
+				: userErrMsg(e, "Impossible d'analyser cette photo pour le moment. Réessaie dans quelques instants.");
+		} finally {
+			recipeAnalyzing = false;
+		}
+	}
+
+	/** Totaux de la validation (recalcul instantané — mêmes règles que l'éditeur). */
+	const recipeTotals = $derived.by(() => {
+		const t = { kcal: 0, carbs: 0, protein: 0, fat: 0, weight: 0 };
+		for (const c of recipeComps ?? []) {
+			const p = compPer100(c);
+			const k = c.qtyGrams / 100;
+			t.kcal += p.kcal * k;
+			t.carbs += p.carbs * k;
+			t.protein += p.protein * k;
+			t.fat += p.fat * k;
+			t.weight += c.qtyGrams;
+		}
+		return {
+			kcal: Math.round(t.kcal),
+			carbs: Math.round(t.carbs * 10) / 10,
+			protein: Math.round(t.protein * 10) / 10,
+			fat: Math.round(t.fat * 10) / 10,
+			weight: Math.round(t.weight),
+		};
+	});
+
+	function openRecipeQty(i: number) {
+		const c = recipeComps?.[i];
+		if (!c || recipeQtyEditIdx === i) return; // déjà en édition : ne pas écraser la saisie
+		recipeQtyEditIdx = i;
+		recipeQtyDraft = String(Math.round(c.qtyGrams));
+	}
+	function applyRecipeQty() {
+		if (recipeQtyEditIdx === null || !recipeComps) return;
+		const v = Math.round(parseFloat(recipeQtyDraft.replace(',', '.')));
+		if (isFinite(v) && v > 0 && v <= 5000) {
+			const next = recipeComps.slice();
+			next[recipeQtyEditIdx] = { ...next[recipeQtyEditIdx], qtyGrams: v, qtyUncertain: false };
+			recipeComps = next;
+		}
+		recipeQtyEditIdx = null;
+	}
+	function removeRecipeComp(i: number) {
+		if (!recipeComps) return;
+		recipeComps = recipeComps.filter((_, idx) => idx !== i);
+	}
+	/** Remplacer / ajouter un ingrédient dans la validation : la fenêtre produit
+	 *  EXISTANTE de l'éditeur s'ouvre (mêmes résultats Ciqual + OFF, même feuille
+	 *  de portion) — saveIngredientQty2 routera vers la validation. */
+	function replaceRecipeComp(i: number) {
+		recipeReplaceIdx = i;
+		mealSearchQ = '';
+		mealResults = [];
+		mealCiqualResults = [];
+		mealSearchOpen = true;
+	}
+	function addRecipeComp() {
+		recipeReplaceIdx = null;
+		mealSearchQ = '';
+		mealResults = [];
+		mealCiqualResults = [];
+		mealSearchOpen = true;
+	}
+	/** Sélection (fenêtre produit) alors que la validation recette est ouverte :
+	 *  applique sur la validation (remplacement ou ajout), JAMAIS sur l'éditeur. */
+	function saveIngredientQtyForRecipe(qtyGrams: number) {
+		if (!recipeImportOpen || !mealPickedFood || !recipeComps) return;
+		const food = mealPickedFood;
+		const comp: RecipeComp = {
+			label: food.name,
+			qtyGrams,
+			qtyUncertain: false,
+			matchSource: food.ciqual ? 'ciqual' : food.custom ? 'custom' : 'off_imported',
+			foodId: food.custom || food.ciqual ? undefined : food._id,
+			customFoodId: food.custom ? food._id : undefined,
+			ciqualLabel: food.ciqual ? food._id : undefined,
+			name: food.name,
+			brand: food.brand,
+			kcal100: food.kcal100,
+			carbs100: food.carbs100,
+			protein100: food.protein100,
+			fat100: food.fat100,
+		};
+		const next = recipeComps.slice();
+		if (recipeReplaceIdx !== null && recipeReplaceIdx < next.length) next[recipeReplaceIdx] = comp;
+		else next.push(comp);
+		recipeComps = next;
+		recipeReplaceIdx = null;
+		mealPickedFood = null;
+		ingEdit = null;
+	}
+
+	/** Validation → remplissage du constructeur EXISTANT (jamais d'enregistrement
+	 *  direct) : ingrédients ajoutés, nom pré-rempli si vide, quantités manquantes
+	 *  refusées avant import. La sauvegarde reste le bouton « Enregistrer le repas ». */
+	function applyRecipeToMeal() {
+		if (!recipeComps || recipeComps.length === 0) return;
+		if (recipeComps.some((c) => c.qtyUncertain)) return;
+		mealItems = [
+			...mealItems,
+			...recipeComps.map((c) => ({
+				food: {
+					_id: c.foodId ?? c.customFoodId ?? c.ciqualLabel ?? c.name,
+					name: c.name,
+					brand: c.brand,
+					kcal100: (c.matchSource === 'ai' ? c.aiKcal100 : c.kcal100) ?? 0,
+					carbs100: (c.matchSource === 'ai' ? c.aiCarbs100 : c.carbs100) ?? 0,
+					protein100: (c.matchSource === 'ai' ? c.aiProtein100 : c.protein100) ?? 0,
+					fat100: (c.matchSource === 'ai' ? c.aiFat100 : c.fat100) ?? 0,
+					custom: c.matchSource === 'custom',
+					ciqual: c.matchSource === 'ciqual',
+				},
+				qty: Math.round(c.qtyGrams),
+				custom: c.matchSource === 'custom',
+				customFoodId: c.customFoodId,
+				ciqualLabel: c.ciqualLabel,
+				aiEstimate: c.matchSource === 'ai',
+			})),
+		];
+		if (!mealName.trim() && recipeTitle.trim().length >= 2) mealName = recipeTitle.trim();
+		closeRecipeImport();
 	}
 
 	/* ————— Feuille de quantité (aliment) ————— */
@@ -3358,6 +3614,17 @@ import { journalTipForDay } from '$lib/data/journalTips';
 								Ajouter un produit
 							</button>
 
+							{#if aiFlags.mealPhotoAi}
+								<!-- Import de recette par photo IA : extrait les ingrédients +
+								     quantités ÉCRITS, les matche aux fiches G-FLUX, puis
+								     remplit CE constructeur après validation. -->
+								<button type="button" class="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-brand/40 bg-brand-light/30 px-3 py-2.5 text-sm font-semibold text-brand-dark transition hover:bg-brand-light/60 disabled:opacity-60" disabled={recipeAnalyzing} onclick={openRecipeImport}>
+									<Icon name="sparkles" size={15} class={recipeAnalyzing ? 'animate-pulse' : ''} />
+									✨ Importer une recette avec l'IA
+									<span class="ml-1 rounded bg-brand-light px-1 py-px text-[9px] font-bold uppercase tracking-wide text-brand-dark align-middle">Bêta</span>
+								</button>
+							{/if}
+
 							{#if mealError}
 								<p class="mt-3 rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{mealError}</p>
 							{/if}
@@ -3745,6 +4012,115 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		</div>
 	</div>
 {/if}
+{#if recipeImportOpen}
+	<!-- ═══════════ Import de recette par photo IA ═══════════
+	     Photo (livre de recettes, fiche, capture d'écran) → extraction IA des
+	     ingrédients + quantités ÉCRITES → match fiches G-FLUX (Ciqual, OFF,
+	     aliments personnels, Estimation IA en dernier recours) → ÉCRAN DE
+	     VALIDATION obligatoire : quantités modifiables, remplacement, suppression,
+	     ajout, totaux recalculés. « Utiliser cette recette » remplit le
+	     CONSTRUCTEUR EXISTANT — jamais d'enregistrement direct ici.
+	     z-[55] : SOUS la feuille de portion (z-60) et la fenêtre produit (z-70)
+	     qui peuvent s'ouvrir par-dessus (Remplacer / Ajouter un ingrédient). -->
+	<div role="presentation" class="fixed inset-0 z-[55] flex items-end justify-center bg-ink/40 backdrop-blur-sm sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget && !recipeAnalyzing) closeRecipeImport(); }} onkeydown={(e) => { if (e.key === 'Escape' && !recipeAnalyzing) closeRecipeImport(); }}>
+		<div class="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 pb-[max(env(safe-area-inset-bottom),20px)] shadow-2xl sm:rounded-3xl">
+			<div class="mb-3 flex items-center justify-between">
+				<p class="font-display text-[17px] font-bold text-ink">Importer une recette</p>
+				<button type="button" class="grid h-8 w-8 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={closeRecipeImport} disabled={recipeAnalyzing}><Icon name="x" size={18} /></button>
+			</div>
+
+			{#if !recipeComps}
+				<!-- Capture : livre de recettes, fiche imprimée ou capture d'écran -->
+				<div class="flex w-full flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-brand/40 bg-brand-light/30 px-4 py-8 text-center">
+					<Icon name={recipeAnalyzing ? 'sparkles' : 'camera'} size={30} class="text-brand {recipeAnalyzing ? 'animate-pulse' : ''}" />
+					<span class="text-sm font-bold text-ink">{recipeAnalyzing ? 'Lecture de la recette…' : 'Photographie la liste d’ingrédients'}</span>
+					<span class="max-w-xs text-xs text-mist">{recipeAnalyzing ? 'Extraction des ingrédients et des quantités — encore quelques secondes.' : 'Livre de recettes, fiche ou capture : cadre bien la liste avec les quantités.'}</span>
+					<div class="mt-1 grid w-full grid-cols-2 gap-2">
+						<button type="button" class="flex items-center justify-center gap-1.5 rounded-full bg-brand px-3 py-2.5 text-[13px] font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={recipeAnalyzing} onclick={() => recipePhotoInput?.click()}>📷 Prendre une photo</button>
+						<button type="button" class="flex items-center justify-center gap-1.5 rounded-full border-2 border-brand/40 bg-white px-3 py-2.5 text-[13px] font-bold text-brand transition hover:bg-brand-light/50 disabled:opacity-60" disabled={recipeAnalyzing} onclick={() => recipeGalleryInput?.click()}>🖼 Choisir dans la galerie</button>
+					</div>
+				</div>
+				<p class="mt-3 text-center text-[11px] text-mist">L'IA extrait la liste écrite — la nutrition vient de la base G-FLUX (Ciqual, produits) : jamais inventée.</p>
+			{:else}
+				<!-- Bannière « RECETTE DÉTECTÉE » (même style que « REPAS ANALYSÉ ») -->
+				<div class="mb-3 flex items-center justify-between rounded-2xl bg-ink px-4 py-3 text-white">
+					<p class="flex items-center gap-2 text-[13px] font-bold tracking-wide">RECETTE DÉTECTÉE<span class="rounded bg-brand-light px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand-dark">Bêta</span></p>
+					<p class="text-lg font-bold text-emerald-300 tabular-nums">≈ {fmt(recipeTotals.kcal)} kcal</p>
+				</div>
+				{#if recipeTitle}
+					<p class="mb-2 text-center text-sm font-semibold text-ink">{recipeTitle}</p>
+				{/if}
+				{#if recipeServings && recipeServings > 0}
+					<!-- Informatif uniquement : aucun calcul automatique de portion. -->
+					<p class="mb-2 flex items-start gap-1.5 rounded-xl bg-brand-light/50 px-3 py-2 text-xs text-brand-dark"><Icon name="lightbulb" size={13} class="mt-0.5 shrink-0" />Pour {recipeServings} {recipeServings > 1 ? 'personnes' : 'personne'} — le repas sera créé avec ces quantités totales.</p>
+				{/if}
+
+				<ul class="flex flex-col divide-y divide-line/60 rounded-2xl border border-line">
+					{#each recipeComps as c, i (i)}
+						{@const per = compPer100(c)}
+						<li class="flex items-center gap-2 px-3 py-2">
+							<span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={16} class="text-brand" /></span>
+							<span class="min-w-0 flex-1">
+								<span class="block truncate text-[14px] font-semibold text-ink">{c.name}</span>
+								<span class="block text-[11px] text-mist tabular-nums">
+									<strong class="text-brand">{fmt(Math.round((per.kcal * c.qtyGrams) / 100))} kcal</strong>
+									{#if c.matchSource === 'ai'}
+										· <span class="rounded bg-warn-light px-1 py-px font-semibold text-warn">Estimation IA</span>
+									{:else if c.matchSource === 'ciqual'}
+										· Réf. Ciqual
+									{:else if c.matchSource === 'custom'}
+										· Mes aliments
+									{/if}
+									{#if c.qtyRaw}
+										· tel qu'écrit : {c.qtyRaw}
+									{/if}
+								</span>
+								{#if c.qtyUncertain}
+									<span class="mt-0.5 inline-block rounded bg-warn-light px-1.5 py-0.5 text-[10px] font-bold text-warn">Quantité à compléter</span>
+								{/if}
+							</span>
+							<!-- Quantité : tap → édition, recalcul instantané (même ergonomie que le Repas IA) -->
+							<button type="button" class="shrink-0 rounded-lg border-2 border-line px-2 py-1 text-sm font-bold text-ink tabular-nums transition {recipeQtyEditIdx === i ? 'border-brand text-brand' : 'hover:border-brand'}" onclick={() => openRecipeQty(i)}>
+								{#if recipeQtyEditIdx === i}
+									<input type="text" inputmode="numeric" class="w-14 bg-transparent text-right outline-none" bind:value={recipeQtyDraft} onkeydown={(e) => { if (e.key === 'Enter') applyRecipeQty(); }} onblur={applyRecipeQty} />
+								{:else}
+									{fmt(Math.round(c.qtyGrams))} g
+								{/if}
+							</button>
+							<button type="button" class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-mist transition hover:bg-line/70 hover:text-ink" aria-label={`Remplacer ${c.name}`} onclick={() => replaceRecipeComp(i)}><Icon name="repeat" size={14} /></button>
+							<button type="button" class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-mist transition hover:bg-danger-light hover:text-danger" aria-label={`Supprimer ${c.name}`} onclick={() => removeRecipeComp(i)}><Icon name="trash" size={14} /></button>
+						</li>
+					{/each}
+				</ul>
+
+				<button type="button" class="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-line px-3 py-2.5 text-sm font-semibold text-mist transition hover:border-brand hover:text-brand" onclick={addRecipeComp}>
+					<Icon name="plus" size={15} /> Ajouter un ingrédient
+				</button>
+
+				<!-- Totaux live (recalculés à chaque modification) -->
+				<p class="mt-3 flex flex-wrap items-baseline justify-center gap-x-1 text-center text-sm">
+					<span class="font-bold tabular-nums" style:color="#3b82f6">P {fmt(recipeTotals.protein)} g</span>
+					<span class="text-mist">·</span>
+					<span class="font-bold tabular-nums" style:color="#ec4899">G {fmt(recipeTotals.carbs)} g</span>
+					<span class="text-mist">·</span>
+					<span class="font-bold tabular-nums" style:color="#f97316">L {fmt(recipeTotals.fat)} g</span>
+				</p>
+				<p class="mt-1 text-center text-[11px] text-mist">Plat entier : {fmt(recipeTotals.weight)} g</p>
+			{/if}
+
+			{#if recipeError}
+				<p class="mt-3 rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{recipeError}</p>
+			{/if}
+
+			{#if recipeComps && recipeComps.length > 0}
+				<button type="button" class="mt-4 w-full rounded-full bg-brand py-3.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={recipeComps.some((c) => c.qtyUncertain)} onclick={applyRecipeToMeal}>
+					{recipeComps.some((c) => c.qtyUncertain) ? 'Complète les quantités manquantes' : 'Utiliser cette recette'}
+				</button>
+				<p class="mt-2 text-center text-[11px] text-mist">Les ingrédients remplissent le repas en cours — rien n'est enregistré avant « Enregistrer le repas ».</p>
+			{/if}
+		</div>
+	</div>
+{/if}
 {#if mealPhotoOpen}
 	<!-- ═══════════ Bottom sheet « Photographier mon repas » ═══════════
 	     1. Photo (capture directe) → analyse IA (composants + quantités) ;
@@ -3913,6 +4289,31 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		onchange={(e) => {
 			const f = (e.currentTarget as HTMLInputElement).files?.[0];
 			if (f) void analyzeMealPhoto(f);
+			(e.currentTarget as HTMLInputElement).value = '';
+		}}
+	/>
+	<!-- Recette IA : caméra (capture directe) + galerie — MÊME pipeline que le
+	     Repas IA (compression → IA serveur → match G-FLUX → validation). -->
+	<input
+		bind:this={recipePhotoInput}
+		type="file"
+		accept="image/*"
+		capture="environment"
+		class="hidden"
+		onchange={(e) => {
+			const f = (e.currentTarget as HTMLInputElement).files?.[0];
+			if (f) void analyzeRecipeFile(f);
+			(e.currentTarget as HTMLInputElement).value = '';
+		}}
+	/>
+	<input
+		bind:this={recipeGalleryInput}
+		type="file"
+		accept="image/*"
+		class="hidden"
+		onchange={(e) => {
+			const f = (e.currentTarget as HTMLInputElement).files?.[0];
+			if (f) void analyzeRecipeFile(f);
 			(e.currentTarget as HTMLInputElement).value = '';
 		}}
 	/>
