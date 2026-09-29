@@ -4292,31 +4292,6 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			(e.currentTarget as HTMLInputElement).value = '';
 		}}
 	/>
-	<!-- Recette IA : caméra (capture directe) + galerie — MÊME pipeline que le
-	     Repas IA (compression → IA serveur → match G-FLUX → validation). -->
-	<input
-		bind:this={recipePhotoInput}
-		type="file"
-		accept="image/*"
-		capture="environment"
-		class="hidden"
-		onchange={(e) => {
-			const f = (e.currentTarget as HTMLInputElement).files?.[0];
-			if (f) void analyzeRecipeFile(f);
-			(e.currentTarget as HTMLInputElement).value = '';
-		}}
-	/>
-	<input
-		bind:this={recipeGalleryInput}
-		type="file"
-		accept="image/*"
-		class="hidden"
-		onchange={(e) => {
-			const f = (e.currentTarget as HTMLInputElement).files?.[0];
-			if (f) void analyzeRecipeFile(f);
-			(e.currentTarget as HTMLInputElement).value = '';
-		}}
-	/>
 	<!-- Photothèque repas : MÊME pipeline (OpenAI → match G-FLUX → fiche) —
 	     + suggestion de type de repas d'après l'heure de prise de vue. -->
 	<input
@@ -4331,6 +4306,35 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		}}
 	/>
 {/if}
+<!-- Recette IA : caméra (capture directe) + galerie — MÊME pipeline que le
+     Repas IA (compression → IA serveur → match G-FLUX → validation).
+     RACINE du composant : TOUJOURS montés, indépendamment des feuilles —
+     sinon la modale recette n'a aucun input à déclencher (refs undefined
+     → clic no-op silencieux). onclick synchrone = geste utilisateur direct
+     (iPhone Safari / PWA : l'ouverture du sélecteur n'est pas bloquée). -->
+<input
+	bind:this={recipePhotoInput}
+	type="file"
+	accept="image/*"
+	capture="environment"
+	class="hidden"
+	onchange={(e) => {
+		const f = (e.currentTarget as HTMLInputElement).files?.[0];
+		if (f) void analyzeRecipeFile(f);
+		(e.currentTarget as HTMLInputElement).value = '';
+	}}
+/>
+<input
+	bind:this={recipeGalleryInput}
+	type="file"
+	accept="image/*"
+	class="hidden"
+	onchange={(e) => {
+		const f = (e.currentTarget as HTMLInputElement).files?.[0];
+		if (f) void analyzeRecipeFile(f);
+		(e.currentTarget as HTMLInputElement).value = '';
+	}}
+/>
 {#if createSheetOpen}
 	<!-- ═══════════ Bottom sheet « + Créer un aliment » ═══════════
 	     3 points d'entrée : scanner un code-barres, photographier une étiquette

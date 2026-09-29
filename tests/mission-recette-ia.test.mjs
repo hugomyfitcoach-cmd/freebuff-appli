@@ -195,6 +195,25 @@ test('Import \u2192 constructeur : pr\u00e9-remplissage du nom + Estimation IA m
 	assert.ok(apply.includes('aiEstimate: c.matchSource'), 'Estimation IA trac\u00e9e jusqu\u2019\u00e0 la sauvegarde');
 });
 
+test('Inputs photo/galerie recette montés à la RACINE (hors de tout bloc conditionnel)', () => {
+	// Régression Preview : inputs déclarés DANS {#if mealPhotoOpen} → refs
+	// undefined quand la modale recette s'ouvre seule → .click() no-op
+	// silencieux, boutons « Prendre une photo » / « Choisir dans la galerie »
+	// totalement inactifs (iPhone comme desktop).
+	const cam = journalPage.indexOf('bind:this={recipePhotoInput}');
+	const gal = journalPage.indexOf('bind:this={recipeGalleryInput}');
+	assert.ok(cam > -1 && gal > -1, 'les deux inputs recette existent');
+	// Racine = directement après la fermeture du bloc mealPhoto ({/if}),
+	// balise <input> non indentée (les inputs imbriqués seraient tabulés).
+	assert.ok(journalPage.includes('{/if}\n<!-- Recette IA'), 'bloc inputs recette placé APRÈS la fermeture du bloc mealPhoto');
+	assert.ok(journalPage.includes('\n<input\n\tbind:this={recipePhotoInput}'), 'input caméra au niveau racine (non indenté)');
+	assert.ok(journalPage.split('bind:this={recipePhotoInput}').length === 2, 'un seul input caméra recette');
+	assert.ok(journalPage.split('bind:this={recipeGalleryInput}').length === 2, 'un seul input galerie recette');
+	assert.ok(journalPage.includes('recipePhotoInput?.click()'), 'bouton caméra déclenche l\'input');
+	assert.ok(journalPage.includes('recipeGalleryInput?.click()'), 'bouton galerie déclenche l\'input');
+	assert.ok(journalPage.includes('accept="image/*"'), 'accept image/* sur les inputs recette');
+});
+
 test('saveMeal : chemin snapshot pour les ingr\u00e9dients SANS fiche \u2014 chemins existants inchang\u00e9s', () => {
 	const save = journalPage.slice(journalPage.indexOf('async function saveMeal()'), journalPage.indexOf('async function saveMeal()') + 3200);
 	assert.ok(save.includes('fromSelection: true'), 'cr\u00e9ation avec Estimation IA \u2192 createMealFromSelection (snapshot)');
