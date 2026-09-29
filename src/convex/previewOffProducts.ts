@@ -1,10 +1,12 @@
 /**
  * PRODUITS OFF DE RÉFÉRENCE POUR LA PREVIEW (échantillon de test).
  *
- * DONNÉES FACTUELLES PUBLIQUES — extraites de la base Open Food Facts
- * (licence ODbL, attribution : « Open Food Facts »), valeurs /100 g issues
- * des fiches réelles. AUCUNE donnée cliente, AUCUNE PII : uniquement des
- * produits de référence, seedés UNIQUEMENT sur le Convex Preview
+ * DONNÉES FACTUELLES PUBLIQUES — produits réels de la base Open Food Facts
+ * (licence ODbL, attribution : « Open Food Facts »). Les kcal/macros seedées
+ * sont INDICATIVES : dès qu'un produit est recherché ou matché, la fiche
+ * réelle remonte par la recherche live OFF et se met en cache (`foods`) —
+ * c'est elle qui fait foi. AUCUNE donnée cliente, AUCUNE PII : uniquement
+ * des produits de référence, seedés UNIQUEMENT sur le Convex Preview
  * (`--preview-run` + verrou assertNotProd) — jamais en production, où les
  * 780 000 produits réels sont déjà importés.
  *
