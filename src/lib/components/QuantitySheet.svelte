@@ -242,6 +242,41 @@
 		if (!valid || gramsNum == null || saving) return;
 		onSave(Math.round((gramsNum ?? 0) * 100) / 100, meal);
 	}
+
+	/* MODE FOCUS QUANTITÉ : pendant la saisie au clavier (quantité centrale
+	   focalisée), on masque hero, choix du repas et footer d'actions — il
+	   reste au-dessus du clavier : identité, onglets, quantité − / +,
+	   raccourcis et cartes macros. Done / ✓ / Enter (ou tap ailleurs) fait
+	   perdre le focus → retour automatique à la fiche complète. La valeur
+	   saisie reste l'état local (bind:value) : JAMAIS de sauvegarde
+	   automatique, l'enregistrement reste un geste explicite (CTA). Le blur
+	   n'intervient que sur un geste utilisateur (Enter/✓/tap ailleurs) —
+	   aucun blur programmatique au scroll, le correctif Android clavier est
+	   intact (la fiche n'a aucun scroll-dismiss). */
+	let qtyFocused = $state(false);
+	function endQtyFocus() {
+		qtyFocused = false;
+	}
+	function qtyKeydown(e: KeyboardEvent) {
+		// Enter = « valider la saisie » : ferme le clavier (blur), ne sauvegarde pas.
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			(e.currentTarget as HTMLInputElement).blur();
+		}
+	}
+	/* iOS Safari : un tap sur du texte/blanc ne fait PAS perdre le focus au
+	   champ (contrairement à Android). Tap ailleurs que la zone de saisie
+	   (− / + / raccourcis restent interactifs sans fermer le clavier) =
+	   « valider » : blur → retour à la fiche complète. Geste utilisateur réel,
+	   jamais déclenché par un scroll — le correctif Android clavier est hors
+	   de portée (la fiche n'a aucun scroll-dismiss). */
+	function sheetPointerDown(e: PointerEvent) {
+		if (!qtyFocused) return;
+		const t = e.target as HTMLElement | null;
+		if (t?.closest('[data-qty-zone]')) return;
+		const active = document.activeElement;
+		if (active instanceof HTMLInputElement) active.blur();
+	}
 </script>
 
 <!-- ═══ FICHE ALIMENT = VRAIE VUE PLEIN ÉCRAN OPAQUE ═══
@@ -263,7 +298,11 @@
 		<!-- Zone défilante : hero → identité → quantité → macros → choix du repas.
 	     Le footer d'actions est un FRÈRE (flex, hors flux de scroll) : espace
 	     réservé, aucun bouton ne peut recouvrir le contenu, même clavier ouvert. -->
-		<div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+		<div role="presentation" class="min-h-0 flex-1 overflow-y-auto overscroll-contain" onpointerdown={sheetPointerDown}>
+		<!-- MODE FOCUS QUANTITÉ : le clavier s'ouvre → hero/repas/actions masqués,
+	     il reste identité compacte + quantité + raccourcis + macros au-dessus
+	     du clavier ; Done / ✓ / Enter ou tap ailleurs restaure la fiche. -->
+			{#if !qtyFocused}
 		<!-- ─── Hero : image adaptative de l'aliment (référence UX Food) ───
 		     Hauteur dynamique : confortable sur écran standard, réduite sur
 		     petit écran (plafond 28dvh / 220 px). object-contain via FoodImg :
@@ -299,20 +338,26 @@
 						aria-label={favActive ? 'Retirer des favoris' : 'Ajouter aux favoris'}
 						onclick={onToggleFav}
 					>
-						<svg viewBox="0 0 24 24" width="18" height="18" class={favActive ? 'text-brand' : ''} fill={favActive ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-							<path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5" />
-						</svg>
-					</button>
-				{/if}
+						<svg viewBox="0 0 24 24" width="18" height="18" class={favActive ? 'text-brand' : ''} fill={favActive ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">						<path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5" />
+					</svg>
+				</button>
+			{/if}
 			</div>
+			{/if}
 
 			<!-- ─── Identité : nom complet (JAMAIS tronqué) + marque + référence ─── -->
 			<div class="px-5 pt-4">
 				<h2 class="break-words text-[17px] font-bold leading-snug text-ink">{food.name}</h2>
-				<p class="mt-0.5 text-[13px] leading-snug text-mist">
-					{#if hasBrand}<span class="font-semibold text-ink/80">{food.brand}</span> · {/if}{fmtQty(food.kcal100)} kcal pour 100 g{#if hasServing} · 1 portion = {fmtQty(servingQty)} g{/if}{#if repere && unitMode === 'repere'} · 1 {unitWord(1, repere)} ≈ {fmtQty(repere.grams)} {repere.unit}{/if}
-				</p>
-				<div class="mt-2 flex flex-wrap items-center gap-1.5">
+				{#if qtyFocused}
+					<!-- Mode focus : le nom reste visible au-dessus du clavier, la ligne
+				     kcal/100g et les badges sont masqués pour garder la quantité,
+				     les raccourcis et les macros dans la zone visible. -->
+					<div class="h-2"></div>
+				{:else}
+					<p class="mt-0.5 text-[13px] leading-snug text-mist">
+						{#if hasBrand}<span class="font-semibold text-ink/80">{food.brand}</span> · {/if}{fmtQty(food.kcal100)} kcal pour 100 g{#if hasServing} · 1 portion = {fmtQty(servingQty)} g{/if}{#if repere && unitMode === 'repere'} · 1 {unitWord(1, repere)} ≈ {fmtQty(repere.grams)} {repere.unit}{/if}
+					</p>
+					<div class="mt-2 flex flex-wrap items-center gap-1.5">
 					{#if source === 'ciqual'}
 						<span class="inline-flex items-center gap-1 rounded-full bg-brand-light px-2.5 py-1 text-[10px] font-bold text-brand">Référence Ciqual – ANSES</span>
 					{/if}
@@ -326,7 +371,8 @@
 						<!-- Garde-fou kcal↔macros : kcal OFF aberrantes → calculées depuis les macros. -->
 						<span class="inline-flex items-center gap-1 rounded-full bg-line/70 px-2.5 py-1 text-[10px] font-semibold text-mist">Valeur recalculée</span>
 					{/if}
-				</div>
+					</div>
+				{/if}
 			</div>
 
 			<!-- ─── Saisie de quantité (logique inchangée) ─── -->
@@ -338,27 +384,27 @@
 						<button
 							type="button"
 							class="rounded-full px-5 py-2 transition {unitMode === 'g' ? 'bg-brand text-white shadow-sm' : 'text-mist hover:text-ink'}"
-							onclick={() => switchMode('g')}
+							onclick={() => { if (!qtyFocused) switchMode('g'); }}
 						>Grammes</button>
 						{#if hasServing}
 							<button
 								type="button"
 								class="rounded-full px-5 py-2 transition {unitMode === 'portion' ? 'bg-brand text-white shadow-sm' : 'text-mist hover:text-ink'}"
-								onclick={() => switchMode('portion')}
+								onclick={() => { if (!qtyFocused) switchMode('portion'); }}
 							>Portions</button>
 						{/if}
 						{#if hasRepere}
 							<button
 								type="button"
 								class="rounded-full px-5 py-2 transition {unitMode === 'repere' ? 'bg-brand text-white shadow-sm' : 'text-mist hover:text-ink'}"
-								onclick={() => switchMode('repere')}
+								onclick={() => { if (!qtyFocused) switchMode('repere'); }}
 							>Repères G-FLUX</button>
 						{/if}
 					</div>
 				{/if}
 
 				<!-- Quantité centrale directement éditable -->
-				<div class="mt-3 flex items-center justify-between gap-3">
+				<div class="mt-3 flex items-center justify-between gap-3" data-qty-zone>
 					<button
 						type="button"
 						class="grid h-11 w-11 place-items-center rounded-xl border-2 border-line text-xl font-bold text-ink active:border-brand"
@@ -373,7 +419,11 @@
 								aria-label="Nombre de portions"
 								class="w-32 bg-transparent text-center text-4xl font-bold text-ink outline-none placeholder:text-mist"
 								bind:value={servingsText}
+								onfocus={() => (qtyFocused = true)}
+								onblur={endQtyFocus}
 								oninput={() => (servingsTouched = true)}
+								onkeydown={qtyKeydown}
+								enterkeyhint="done"
 							/>
 							<span class="pb-1 text-sm text-mist">{unitLabel}</span>
 						{:else if unitMode === 'repere'}
@@ -383,7 +433,11 @@
 								aria-label="Nombre de repères"
 								class="w-32 bg-transparent text-center text-4xl font-bold text-ink outline-none placeholder:text-mist"
 								bind:value={repereText}
+								onfocus={() => (qtyFocused = true)}
+								onblur={endQtyFocus}
 								oninput={() => (repereTouched = true)}
+								onkeydown={qtyKeydown}
+								enterkeyhint="done"
 							/>
 							<span class="pb-1 text-sm text-mist">{unitLabel}</span>
 						{:else}
@@ -393,7 +447,11 @@
 								aria-label="Quantité en grammes"
 								class="w-32 bg-transparent text-center text-4xl font-bold text-ink outline-none placeholder:text-mist"
 								bind:value={gramsText}
+								onfocus={() => (qtyFocused = true)}
+								onblur={endQtyFocus}
 								oninput={() => (gramsTouched = true)}
+								onkeydown={qtyKeydown}
+								enterkeyhint="done"
 							/>
 							<span class="pb-1 text-sm text-mist">g</span>
 						{/if}
@@ -421,7 +479,7 @@
 				{/if}
 
 				<!-- Raccourcis rapides -->
-				<div class="mt-3 flex flex-wrap justify-center gap-2">
+				<div class="mt-3 flex flex-wrap justify-center gap-2" data-qty-zone>
 					{#if unitMode === 'portion'}
 						{#each [0.5, 1, 1.5, 2] as p (p)}
 							<button
@@ -487,7 +545,8 @@
 					</div>
 				</div>
 
-				<!-- Choix du repas -->
+				{#if !qtyFocused}
+				<!-- Choix du repas (masqué en mode focus quantité) -->
 				<div class="mt-3 grid grid-cols-4 gap-2">
 					{#each mealDefs as m (m.id)}
 						<button
@@ -500,8 +559,11 @@
 						</button>
 					{/each}
 				</div>
+				{/if}
 			</div>
 		</div>
+
+		{#if !qtyFocused}
 
 		<!-- ─── Footer d'actions : barre SOLIDE intégrée à la fiche ───
 	     FRÈRE flex de la zone scrollable : espace réservé, fond blanc opaque +
@@ -587,5 +649,6 @@
 				{/if}
 			{/if}
 		</div>
+		{/if}
 	</div>
 </div>

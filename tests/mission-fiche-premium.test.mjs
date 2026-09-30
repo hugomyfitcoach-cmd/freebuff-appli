@@ -134,6 +134,26 @@ test('Macros : 4 cartes au code couleur du Journal', () => {
 	assert.ok(sheet.includes('bg-cream'), 'fond des cartes = token existant (aucune couleur inventée)');
 });
 
+/* ─── 6 bis. Mode focus quantité ─── */
+
+test('Mode focus quantité : clavier ouvert → identité+quantité+macros visibles, reste masqué', () => {
+	// Pendant la saisie (quantité centrale focalisée) : hero, badges secondaires,
+	// choix du repas et footer d'actions disparaissent ; il reste au-dessus du
+	// clavier : nom, onglets Grammes/Portions/Repères, quantité − / +,
+	// raccourcis 50/100/150/200 g et cartes macros.
+	assert.ok(sheet.includes('qtyFocused'), 'état de focus quantité présent');
+	assert.ok(sheet.includes('{#if !qtyFocused}'), 'hero, choix du repas et footer conditionnés au mode focus');
+	// Done / ✓ / Enter valident la SAISIE (blur), jamais l'aliment :
+	assert.ok(sheet.includes('onkeydown={qtyKeydown}'), 'Enter = valider la saisie (blur, aucune sauvegarde)');
+	assert.ok(sheet.includes('enterkeyhint="done"'), 'touche Done/✓ native (iOS + Android)');
+	assert.ok(sheet.includes('sheetPointerDown'), 'tap ailleurs = valider la saisie (iOS Safari)');
+	assert.ok(sheet.includes("closest('[data-qty-zone]')"), '− / + / raccourcis restent interactifs sans fermer le clavier');
+	assert.ok(sheet.includes('data-qty-zone'), 'zone de saisie protégée du tap-ailleurs');
+	// Aucune sauvegarde automatique : le CTA reste le seul geste d'enregistrement.
+	assert.ok(!/onblur=\{[^}]*save/.test(sheet), 'blur ne déclenche JAMAIS la sauvegarde');
+	assert.ok(sheet.includes('onSave(Math.round'), 'sauvegarde uniquement via save()/CTA (inchangé)');
+});
+
 /* ─── 6. Logique métier INTACTE ─── */
 
 test('Logique métier INTACTE : quantités, portions, repères, modes et actions', () => {
