@@ -254,6 +254,20 @@
 	   aucun blur programmatique au scroll, le correctif Android clavier est
 	   intact (la fiche n'a aucun scroll-dismiss). */
 	let qtyFocused = $state(false);
+	/* FICHE FIXE : la zone de contenu ne doit jamais garder un décalage de
+	   scroll — après la fermeture du clavier (validation Done/✓/Enter) ou un
+	   aller-retour du mode focus, un scrollTop résiduel coupait la croix et
+	   « mangeait » les vignettes repas. Re-ancrage en haut à chaque transition
+	   ; la croix/favori sont HORS de la zone scrollable (toujours visibles)
+	   et le hero laisse une marge pour que la fiche tienne sans scroll sur
+	   les téléphones standards. */
+	let scrollerEl: HTMLElement | undefined = $state();
+	$effect(() => {
+		if (scrollerEl) {
+			void qtyFocused; // re-ancrage à chaque entrée/sortie du mode focus
+			scrollerEl.scrollTop = 0;
+		}
+	});
 	function endQtyFocus() {
 		qtyFocused = false;
 	}
@@ -298,18 +312,46 @@
 		<!-- Zone défilante : hero → identité → quantité → macros → choix du repas.
 	     Le footer d'actions est un FRÈRE (flex, hors flux de scroll) : espace
 	     réservé, aucun bouton ne peut recouvrir le contenu, même clavier ouvert. -->
-		<div role="presentation" class="min-h-0 flex-1 overflow-y-auto overscroll-contain" onpointerdown={sheetPointerDown}>
+		<!-- ─── Contrôles flottants : HORS de la zone scrollable ───
+	     Croix (et favori) toujours visibles — aucun mini-scroll résiduel ne
+	     peut les faire disparaître ; visibles aussi pendant le mode focus. -->
+		<div class="absolute right-3 top-3 z-10 flex items-center gap-2">
+			{#if showFav && favFoodId}
+				<!-- Favori = cœur ENTIÈREMENT REMPLI en vert (fill), même logique qu'avant. -->
+				<button
+					type="button"
+					class="grid h-9 w-9 place-items-center rounded-full bg-white/90 shadow-md backdrop-blur transition {favActive ? 'text-brand' : 'text-mist hover:text-brand'}"
+					aria-label={favActive ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+					onclick={onToggleFav}
+				>
+					<svg viewBox="0 0 24 24" width="18" height="18" class={favActive ? 'text-brand' : ''} fill={favActive ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+						<path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5" />
+					</svg>
+				</button>
+			{/if}
+			<!-- Fermeture : toujours atteignable, contraste garanti. -->
+			<button
+				type="button"
+				class="grid h-9 w-9 place-items-center rounded-full bg-white/90 text-mist shadow-md backdrop-blur transition hover:text-ink"
+				aria-label="Fermer"
+				onclick={() => { if (!saving) onClose(); }}
+			>
+				<Icon name="x" size={18} />
+			</button>
+		</div>
+		<div role="presentation" class="min-h-0 flex-1 overflow-y-auto overscroll-contain" bind:this={scrollerEl} onpointerdown={sheetPointerDown}>
 		<!-- MODE FOCUS QUANTITÉ : le clavier s'ouvre → hero/repas/actions masqués,
 	     il reste identité compacte + quantité + raccourcis + macros au-dessus
 	     du clavier ; Done / ✓ / Enter ou tap ailleurs restaure la fiche. -->
 			{#if !qtyFocused}
 		<!-- ─── Hero : image adaptative de l'aliment (référence UX Food) ───
 		     Hauteur dynamique : confortable sur écran standard, réduite sur
-		     petit écran (plafond 28dvh / 220 px). object-contain via FoodImg :
-		     JAMAIS d'étirement ni de recadrage ; fond cream si l'image est plus
-		     petite que la zone ; placeholder G-FLUX si aucune image. -->
+		     petit écran (plafond 26dvh / 200 px — marge pour que la fiche
+		     tienne SANS scroll sur téléphone standard). object-contain via
+		     FoodImg : JAMAIS d'étirement ni de recadrage ; fond cream si
+		     l'image est plus petite que la zone ; placeholder G-FLUX. -->
 			<div class="relative shrink-0 bg-cream">
-				<div class="h-[min(28dvh,220px)] sm:h-[200px]">
+				<div class="h-[min(26dvh,200px)] sm:h-[200px]">
 					{#if heroSrc}
 						<FoodImg src={food.imageUrl} fallbackSrc={food.thumbUrl} alt={food.name} class="h-full w-full" fit="contain" eager />
 					{:else}
@@ -318,35 +360,13 @@
 							<div class="grid h-20 w-20 place-items-center rounded-3xl bg-brand-light">
 								<Icon name="utensils" size={34} class="text-brand" />
 							</div>
-						</div>
-					{/if}
+						</div>					{/if}
 				</div>
-				<!-- Fermeture : toujours atteignable, contraste garanti sur l'image. -->
-				<button
-					type="button"
-					class="absolute right-3 top-3 z-10 grid h-9 w-9 place-items-center rounded-full bg-white/90 text-mist shadow-md backdrop-blur transition hover:text-ink"
-					aria-label="Fermer"
-					onclick={() => { if (!saving) onClose(); }}
-				>
-					<Icon name="x" size={18} />
-				</button>
-				{#if showFav && favFoodId}
-					<!-- Favori = cœur ENTIÈREMENT REMPLI en vert (fill), même logique qu'avant. -->
-					<button
-						type="button"
-						class="absolute right-14 top-3 z-10 grid h-9 w-9 place-items-center rounded-full bg-white/90 shadow-md backdrop-blur transition {favActive ? 'text-brand' : 'text-mist hover:text-brand'}"
-						aria-label={favActive ? 'Retirer des favoris' : 'Ajouter aux favoris'}
-						onclick={onToggleFav}
-					>
-						<svg viewBox="0 0 24 24" width="18" height="18" class={favActive ? 'text-brand' : ''} fill={favActive ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">						<path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5" />
-					</svg>
-				</button>
-			{/if}
 			</div>
 			{/if}
 
 			<!-- ─── Identité : nom complet (JAMAIS tronqué) + marque + référence ─── -->
-			<div class="px-5 pt-4">
+			<div class="px-5 {qtyFocused ? 'pt-14' : 'pt-4'}">
 				<h2 class="break-words text-[17px] font-bold leading-snug text-ink">{food.name}</h2>
 				{#if qtyFocused}
 					<!-- Mode focus : le nom reste visible au-dessus du clavier, la ligne
