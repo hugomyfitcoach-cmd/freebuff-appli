@@ -639,8 +639,9 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		editPlanned
 			? {
 					name: editPlanned.name,
+					brand: editPlanned.brand,
 					imageUrl: editPlanned.imageUrl,
-					kcal100: editPlanned.qtyGrams > 0 ? (editPlanned.kcal / editPlanned.qtyGrams) * 100 : 0,
+					custom: !editPlanned.foodId && !editPlanned.ciqualLabel && !!editPlanned.customFoodId,					kcal100: editPlanned.qtyGrams > 0 ? (editPlanned.kcal / editPlanned.qtyGrams) * 100 : 0,
 					carbs100: editPlanned.qtyGrams > 0 ? (editPlanned.carbs / editPlanned.qtyGrams) * 100 : 0,
 					protein100: editPlanned.qtyGrams > 0 ? (editPlanned.protein / editPlanned.qtyGrams) * 100 : 0,
 					fat100: editPlanned.qtyGrams > 0 ? (editPlanned.fat / editPlanned.qtyGrams) * 100 : 0,
@@ -2802,7 +2803,9 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		editEntry
 			? {
 					name: editEntry.name,
+					brand: editEntry.brand,
 					imageUrl: editEntry.imageUrl,
+					custom: !editEntry.foodId && !editEntry.ciqualLabel && !!editEntry.customFoodId,
 					kcal100: editEntry.qtyGrams > 0 ? (editEntry.kcal / editEntry.qtyGrams) * 100 : 0,
 					carbs100: editEntry.qtyGrams > 0 ? (editEntry.carbs / editEntry.qtyGrams) * 100 : 0,
 					protein100: editEntry.qtyGrams > 0 ? (editEntry.protein / editEntry.qtyGrams) * 100 : 0,
@@ -4456,9 +4459,8 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		mealDefs={[]}
 		sheetTop={mobile ? vvTop : 0}
 		sheetHeight={mobile ? vvH : undefined}
-		initialQtyGrams={ingEdit.qty}
-		mode={mealPickedFood ? 'add' : 'edit'}
-		source={mealPickedFood?.ciqual ? 'ciqual' : undefined}
+		initialQtyGrams={ingEdit.qty}			mode={mealPickedFood ? 'add' : 'edit'}
+			source={(mealPickedFood ?? ingEdit?.food)?.ciqual ? 'ciqual' : undefined}
 		saving={false}
 		saveLabel={mealPickedFood ? 'Ajouter au repas' : undefined}
 		onSave={saveIngredientQty2}

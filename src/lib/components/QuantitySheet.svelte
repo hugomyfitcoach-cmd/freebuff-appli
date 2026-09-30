@@ -8,7 +8,16 @@
 	   envoyée à l'API à la sauvegarde. Les modes « Portion » (portion OFF
 	   fiable) et « Repère G-FLUX » (portion usuelle interne, whitelist) sont
 	   des aides de saisie : nombre de portions/repères → grammes → le moteur
-	   nutritionnel existant (kcal/100 g) fait le reste. */
+	   nutritionnel existant (kcal/100 g) fait le reste.
+
+	   FICHE PREMIUM (référence UX Food, identité G-FLUX conservée) :
+	     · hero image immersive en haut (grande zone visuelle, jamais étirée
+	       — object-contain), boutons fermer + favori en surimpression ;
+	     · nom complet SANS troncature (break-words), marque, source
+	       (Ciqual / Estimation IA / aliment personnalisé) en badges ;
+	     · macros en 4 cartes compactes (code couleur Journal) ;
+	     · CTA collant en bas (sticky) : toujours accessible au pouce,
+	       fonctionne avec le clavier (aucun recalcul de hauteur). */
 
 	type MealDef = { id: string; label: string; icon: string };
 
@@ -22,7 +31,7 @@
 		error = '',
 		/** Libellé du bouton principal (défaut : « Ajouter au journal » / « Enregistrer »). */
 		saveLabel = undefined,
-		/** « ciqual » : fiche de référence ANSES (badge officiel, pas de photo produit). */
+		/** « ciqual » : fiche de référence ANSES (badge officiel) · « ai » : estimation IA. */
 		source,
 		showFav = false,
 		favActive = false,
@@ -43,7 +52,10 @@
 	}: {
 		food: {
 			name: string;
+			brand?: string;
 			imageUrl?: string;
+			/** Miniature miroir G-FLUX — repli du hero si pas d'URL d'origine. */
+			thumbUrl?: string;
 			kcal100: number;
 			carbs100: number;
 			protein100: number;
@@ -62,7 +74,7 @@
 		error?: string;
 		saveLabel?: string;
 		/** « ciqual » : fiche de référence ANSES (badge officiel, pas de photo produit). */
-		source?: 'ciqual';
+		source?: 'ciqual' | 'ai';
 		showFav?: boolean;
 		favActive?: boolean;
 		/** Identifiant alimentaire stable du favori (foodId OFF) quand il existe. */
@@ -90,6 +102,12 @@
 	   (aucun repère inventé, l'onglet n'est alors pas affiché). */
 	const repereList = reperesForFood(food.name);
 	const hasRepere = repereList.length > 0;
+
+	/* Hero : image OFF d'ORIGINE (meilleure résolution) en priorité, repli sur
+	   la miniature miroir G-FLUX (cache) — FoodImg gère la chaîne de repli. */
+	const heroSrc = $derived(food.imageUrl ?? food.thumbUrl);
+	/* Marque fiable : présente et jamais la chaîne « null » héritée de l'API OFF. */
+	const hasBrand = $derived(!!food.brand && food.brand !== 'null');
 
 	let unitMode = $state<'g' | 'portion' | 'repere'>('g');
 	let gramsText = $state(fmtQty(initialQtyGrams));
@@ -223,288 +241,326 @@
 		if (e.key === 'Escape' && !saving) onClose();
 	}}
 >
-	<div class="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl" style:max-height={sheetHeight ? `min(92dvh, ${sheetHeight}px)` : undefined}>
-		<!-- En-tête : photo + nom + portion OFF -->
-		<div class="flex items-center gap-3">
-		{#if food.imageUrl}
-			<FoodImg src={food.imageUrl} alt="" class="h-14 w-14 rounded-xl" eager />
-		{:else}
-			<div class="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name="utensils" size={22} class="text-brand" /></div>
-		{/if}
-			<div class="min-w-0 flex-1">
-				<p class="truncate font-semibold text-ink">{food.name}</p>
-				<p class="text-xs text-mist">
-					{fmtQty(food.kcal100)} kcal pour 100 g{#if hasServing} · 1 portion = {fmtQty(servingQty)} g{/if}{#if repere && unitMode === 'repere'} · 1 {unitWord(1, repere)} ≈ {fmtQty(repere.grams)} {repere.unit}{/if}
-				</p>
+	<div
+		class="max-h-[92dvh] w-full max-w-lg overflow-y-auto overscroll-contain rounded-t-[2rem] bg-white shadow-2xl sm:rounded-[2rem]"
+		style:max-height={sheetHeight ? `min(92dvh, ${sheetHeight}px)` : undefined}
+	>
+		<!-- ─── Hero : grande image de l'aliment (référence UX Food) ───
+		     object-contain via FoodImg : JAMAIS d'étirement ni de recadrage
+		     agressif ; fond cream si l'image est plus petite que la zone. -->
+		<div class="relative shrink-0 bg-cream">
+			<div class="h-[240px] max-h-[42dvh] sm:h-[220px]">
+				{#if heroSrc}
+					<FoodImg src={food.imageUrl} fallbackSrc={food.thumbUrl} alt={food.name} class="h-full w-full" fit="contain" eager />
+				{:else}
+					<!-- Placeholder G-FLUX : grande tuile neutre, jamais d'icône cassée. -->
+					<div class="grid h-full w-full place-items-center">
+						<div class="grid h-20 w-20 place-items-center rounded-3xl bg-brand-light">
+							<Icon name="utensils" size={34} class="text-brand" />
+						</div>
+					</div>
+				{/if}
+			</div>
+			<!-- Fermeture : toujours atteignable, contraste garanti sur l'image. -->
+			<button
+				type="button"
+				class="absolute right-3 top-3 z-10 grid h-9 w-9 place-items-center rounded-full bg-white/90 text-mist shadow-md backdrop-blur transition hover:text-ink"
+				aria-label="Fermer"
+				onclick={() => { if (!saving) onClose(); }}
+			>
+				<Icon name="x" size={18} />
+			</button>
+			{#if showFav && favFoodId}
+				<!-- Favori = cœur ENTIÈREMENT REMPLI en vert (fill), même logique qu'avant. -->
+				<button
+					type="button"
+					class="absolute right-14 top-3 z-10 grid h-9 w-9 place-items-center rounded-full bg-white/90 shadow-md backdrop-blur transition {favActive ? 'text-brand' : 'text-mist hover:text-brand'}"
+					aria-label={favActive ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+					onclick={onToggleFav}
+				>
+					<svg viewBox="0 0 24 24" width="18" height="18" class={favActive ? 'text-brand' : ''} fill={favActive ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+						<path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5" />
+					</svg>
+				</button>
+			{/if}
+		</div>
+
+		<!-- ─── Identité : nom complet (JAMAIS tronqué) + marque + référence ─── -->
+		<div class="px-5 pt-4">
+			<h2 class="break-words text-[19px] font-bold leading-snug text-ink">{food.name}</h2>
+			<p class="mt-1 text-[13px] leading-snug text-mist">
+				{#if hasBrand}<span class="font-semibold text-ink/80">{food.brand}</span> · {/if}{fmtQty(food.kcal100)} kcal pour 100 g{#if hasServing} · 1 portion = {fmtQty(servingQty)} g{/if}{#if repere && unitMode === 'repere'} · 1 {unitWord(1, repere)} ≈ {fmtQty(repere.grams)} {repere.unit}{/if}
+			</p>
+			<div class="mt-2 flex flex-wrap items-center gap-1.5">
+				{#if source === 'ciqual'}
+					<span class="inline-flex items-center gap-1 rounded-full bg-brand-light px-2.5 py-1 text-[10px] font-bold text-brand">Référence Ciqual – ANSES</span>
+				{/if}
+				{#if source === 'ai'}
+					<span class="inline-flex items-center gap-1 rounded-full bg-[#eef2ff] px-2.5 py-1 text-[10px] font-bold text-[#4f46e5]">Estimation IA</span>
+				{/if}
+				{#if food.custom}
+					<span class="inline-flex items-center gap-1 rounded-full bg-line/70 px-2.5 py-1 text-[10px] font-bold text-mist">Aliment personnalisé</span>
+				{/if}
 				{#if food.kcalRecalculated}
 					<!-- Garde-fou kcal↔macros : kcal OFF aberrantes → calculées depuis les macros. -->
-					<span class="mt-0.5 inline-block rounded-full bg-line/70 px-2 py-0.5 text-[9px] font-semibold tracking-wide text-mist">Valeur recalculée</span>
-				{/if}
-				{#if source === 'ciqual'}
-					<span class="mt-0.5 inline-flex items-center gap-1 rounded-full bg-brand-light px-2 py-0.5 text-[10px] font-bold text-brand">Référence Ciqual – ANSES</span>
-					<p class="mt-0.5 text-xs text-mist">Idéal pour un suivi précis</p>
-				{/if}
-			</div>				{#if showFav && favFoodId}
-					<button
-						type="button"
-						class="grid h-9 w-9 shrink-0 place-items-center rounded-full transition {favActive ? 'text-brand' : 'text-mist hover:text-brand'}"
-						aria-label={favActive ? 'Retirer des favoris' : 'Ajouter aux favoris'}
-						onclick={onToggleFav}
-					>
-						<!-- Favori = cœur ENTIÈREMENT REMPLI en vert (fill), pas un simple contour vert. -->
-						<svg viewBox="0 0 24 24" width="18" height="18" class={favActive ? 'text-brand' : ''} fill={favActive ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-							<path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5" />
-						</svg>
-					</button>
-				{/if}
-		</div>
-
-		<!-- Bascule Grammes / Portions (si portion OFF fiable) / Repères G-FLUX
-		     (si un repère usuel correspond) — onglets dynamiques. -->
-		{#if tabCount > 1}
-			<div class="mt-4 flex items-center justify-center gap-1 rounded-full bg-line/50 p-1 text-xs font-bold {tabCount > 2 ? 'gap-0.5 px-0.5' : ''}">
-				<button
-					type="button"
-					class="rounded-full px-5 py-1.5 transition {unitMode === 'g' ? 'bg-brand text-white shadow-sm' : 'text-mist hover:text-ink'}"
-					onclick={() => switchMode('g')}
-				>Grammes</button>
-				{#if hasServing}
-					<button
-						type="button"
-						class="rounded-full px-5 py-1.5 transition {unitMode === 'portion' ? 'bg-brand text-white shadow-sm' : 'text-mist hover:text-ink'}"
-						onclick={() => switchMode('portion')}
-					>Portions</button>
-				{/if}
-				{#if hasRepere}
-					<button
-						type="button"
-						class="rounded-full px-5 py-1.5 transition {unitMode === 'repere' ? 'bg-brand text-white shadow-sm' : 'text-mist hover:text-ink'}"
-						onclick={() => switchMode('repere')}
-					>Repères G-FLUX</button>
+					<span class="inline-flex items-center gap-1 rounded-full bg-line/70 px-2.5 py-1 text-[10px] font-semibold text-mist">Valeur recalculée</span>
 				{/if}
 			</div>
-		{/if}
+		</div>
 
-		<!-- Quantité centrale directement éditable -->
-		<div class="mt-4 flex items-center justify-between gap-3">
-			<button
-				type="button"
-				class="grid h-12 w-12 place-items-center rounded-xl border-2 border-line text-xl font-bold text-ink active:border-brand"
-				aria-label="Moins"
-				onclick={() => (unitMode === 'portion' ? stepServings(-1) : unitMode === 'repere' ? stepReperes(-1) : stepGrams(-10))}
-			>−</button>
-			<div class="flex min-w-0 flex-1 items-end justify-center gap-1">
+		<!-- ─── Saisie de quantité (logique inchangée) ─── -->
+		<div class="px-5">
+			<!-- Bascule Grammes / Portions (si portion OFF fiable) / Repères G-FLUX
+			     (si un repère usuel correspond) — onglets dynamiques. -->
+			{#if tabCount > 1}
+				<div class="mt-4 flex items-center justify-center gap-1 rounded-full bg-line/50 p-1 text-xs font-bold {tabCount > 2 ? 'gap-0.5 px-0.5' : ''}">
+					<button
+						type="button"
+						class="rounded-full px-5 py-1.5 transition {unitMode === 'g' ? 'bg-brand text-white shadow-sm' : 'text-mist hover:text-ink'}"
+						onclick={() => switchMode('g')}
+					>Grammes</button>
+					{#if hasServing}
+						<button
+							type="button"
+							class="rounded-full px-5 py-1.5 transition {unitMode === 'portion' ? 'bg-brand text-white shadow-sm' : 'text-mist hover:text-ink'}"
+							onclick={() => switchMode('portion')}
+						>Portions</button>
+					{/if}
+					{#if hasRepere}
+						<button
+							type="button"
+							class="rounded-full px-5 py-1.5 transition {unitMode === 'repere' ? 'bg-brand text-white shadow-sm' : 'text-mist hover:text-ink'}"
+							onclick={() => switchMode('repere')}
+						>Repères G-FLUX</button>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Quantité centrale directement éditable -->
+			<div class="mt-4 flex items-center justify-between gap-3">
+				<button
+					type="button"
+					class="grid h-12 w-12 place-items-center rounded-xl border-2 border-line text-xl font-bold text-ink active:border-brand"
+					aria-label="Moins"
+					onclick={() => (unitMode === 'portion' ? stepServings(-1) : unitMode === 'repere' ? stepReperes(-1) : stepGrams(-10))}
+				>−</button>
+				<div class="flex min-w-0 flex-1 items-end justify-center gap-1">
+					{#if unitMode === 'portion'}
+						<input
+							type="text"
+							inputmode="decimal"
+							aria-label="Nombre de portions"
+							class="w-32 bg-transparent text-center text-4xl font-bold text-ink outline-none placeholder:text-mist"
+							bind:value={servingsText}
+							oninput={() => (servingsTouched = true)}
+						/>
+						<span class="pb-1 text-sm text-mist">{unitLabel}</span>
+					{:else if unitMode === 'repere'}
+						<input
+							type="text"
+							inputmode="decimal"
+							aria-label="Nombre de repères"
+							class="w-32 bg-transparent text-center text-4xl font-bold text-ink outline-none placeholder:text-mist"
+							bind:value={repereText}
+							oninput={() => (repereTouched = true)}
+						/>
+						<span class="pb-1 text-sm text-mist">{unitLabel}</span>
+					{:else}
+						<input
+							type="text"
+							inputmode="decimal"
+							aria-label="Quantité en grammes"
+							class="w-32 bg-transparent text-center text-4xl font-bold text-ink outline-none placeholder:text-mist"
+							bind:value={gramsText}
+							oninput={() => (gramsTouched = true)}
+						/>
+						<span class="pb-1 text-sm text-mist">g</span>
+					{/if}
+				</div>
+				<button
+					type="button"
+					class="grid h-12 w-12 place-items-center rounded-xl border-2 border-line text-xl font-bold text-ink active:border-brand"
+					aria-label="Plus"
+					onclick={() => (unitMode === 'portion' ? stepServings(1) : unitMode === 'repere' ? stepReperes(1) : stepGrams(10))}
+				>+</button>
+			</div>
+
+			<!-- Équivalence portions / repères → grammes (+ mention indicative) -->
+			{#if unitMode === 'portion' && valid}
+				<p class="mt-2 text-center text-xs text-mist">
+					{fmtQty(servingsNum ?? 0)} portion{(servingsNum ?? 0) > 1 ? 's' : ''} × {fmtQty(servingQty)} g =
+					<strong class="font-bold text-ink">{fmtQty(gramsNum ?? 0)} g</strong>
+				</p>
+			{:else if unitMode === 'repere' && repere && valid}
+				<p class="mt-2 text-center text-xs text-mist">
+					{fmtQty(repsNum ?? 0)} {unitWord(repsNum ?? 1, repere)} × {fmtQty(repere.grams)} {repere.unit} =
+					<strong class="font-bold text-ink">{fmtQty(gramsNum ?? 0)} {repere.unit}</strong>
+					<span class="mt-0.5 block text-[10px]">Valeur indicative</span>
+				</p>
+			{/if}
+
+			<!-- Raccourcis rapides -->
+			<div class="mt-3 flex flex-wrap justify-center gap-2">
 				{#if unitMode === 'portion'}
-					<input
-						type="text"
-						inputmode="decimal"
-						aria-label="Nombre de portions"
-						class="w-32 bg-transparent text-center text-4xl font-bold text-ink outline-none placeholder:text-mist"
-						bind:value={servingsText}
-						oninput={() => (servingsTouched = true)}
-					/>
-					<span class="pb-1 text-sm text-mist">{unitLabel}</span>
+					{#each [0.5, 1, 1.5, 2] as p (p)}
+						<button
+							type="button"
+							class="rounded-full border-2 border-line px-3 py-1.5 text-xs font-semibold text-ink {servingsNum === p ? '!border-brand !text-brand' : ''}"
+							onclick={() => setServings(p)}
+						>{fmtQty(p)} portion{p > 1 ? 's' : ''}</button>
+					{/each}
 				{:else if unitMode === 'repere'}
-					<input
-						type="text"
-						inputmode="decimal"
-						aria-label="Nombre de repères"
-						class="w-32 bg-transparent text-center text-4xl font-bold text-ink outline-none placeholder:text-mist"
-						bind:value={repereText}
-						oninput={() => (repereTouched = true)}
-					/>
-					<span class="pb-1 text-sm text-mist">{unitLabel}</span>
+					{#if repereList.length > 1}
+						<!-- Sélecteur du repère usuel (même style que les raccourcis) -->
+						{#each repereList as r, i (r.label)}
+							<button
+								type="button"
+								class="rounded-full px-3.5 py-1.5 text-xs font-bold transition {i === repereIdx ? 'bg-brand text-white shadow-sm' : 'border-2 border-line text-ink hover:border-brand hover:text-brand'}"
+								onclick={() => selectRepere(i)}
+							>{r.label}</button>
+						{/each}
+					{:else if repere}
+						{#each [1, 2, 3, 4] as p (p)}
+							<button
+								type="button"
+								class="rounded-full border-2 border-line px-3 py-1.5 text-xs font-semibold text-ink {repsNum === p ? '!border-brand !text-brand' : ''}"
+								onclick={() => setReperes(p)}
+							>{fmtQty(p)} {unitWord(p, repere)}</button>
+						{/each}
+					{/if}
 				{:else}
-					<input
-						type="text"
-						inputmode="decimal"
-						aria-label="Quantité en grammes"
-						class="w-32 bg-transparent text-center text-4xl font-bold text-ink outline-none placeholder:text-mist"
-						bind:value={gramsText}
-						oninput={() => (gramsTouched = true)}
-					/>
-					<span class="pb-1 text-sm text-mist">g</span>
-				{/if}
-			</div>
-			<button
-				type="button"
-				class="grid h-12 w-12 place-items-center rounded-xl border-2 border-line text-xl font-bold text-ink active:border-brand"
-				aria-label="Plus"
-				onclick={() => (unitMode === 'portion' ? stepServings(1) : unitMode === 'repere' ? stepReperes(1) : stepGrams(10))}
-			>+</button>
-		</div>
-
-		<!-- Équivalence portions / repères → grammes (+ mention indicative) -->
-		{#if unitMode === 'portion' && valid}
-			<p class="mt-2 text-center text-xs text-mist">
-				{fmtQty(servingsNum ?? 0)} portion{(servingsNum ?? 0) > 1 ? 's' : ''} × {fmtQty(servingQty)} g =
-				<strong class="font-bold text-ink">{fmtQty(gramsNum ?? 0)} g</strong>
-			</p>
-		{:else if unitMode === 'repere' && repere && valid}
-			<p class="mt-2 text-center text-xs text-mist">
-				{fmtQty(repsNum ?? 0)} {unitWord(repsNum ?? 1, repere)} × {fmtQty(repere.grams)} {repere.unit} =
-				<strong class="font-bold text-ink">{fmtQty(gramsNum ?? 0)} {repere.unit}</strong>
-				<span class="mt-0.5 block text-[10px]">Valeur indicative</span>
-			</p>
-		{/if}
-
-		<!-- Raccourcis rapides -->
-		<div class="mt-3 flex flex-wrap justify-center gap-2">
-			{#if unitMode === 'portion'}
-				{#each [0.5, 1, 1.5, 2] as p (p)}
-					<button
-						type="button"
-						class="rounded-full border-2 border-line px-3 py-1.5 text-xs font-semibold text-ink {servingsNum === p ? '!border-brand !text-brand' : ''}"
-						onclick={() => setServings(p)}
-					>{fmtQty(p)} portion{p > 1 ? 's' : ''}</button>
-				{/each}
-			{:else if unitMode === 'repere'}
-				{#if repereList.length > 1}
-					<!-- Sélecteur du repère usuel (même style que les raccourcis) -->
-					{#each repereList as r, i (r.label)}
+					{#each [50, 100, 150, 200] as g (g)}
 						<button
 							type="button"
-							class="rounded-full px-3.5 py-1.5 text-xs font-bold transition {i === repereIdx ? 'bg-brand text-white shadow-sm' : 'border-2 border-line text-ink hover:border-brand hover:text-brand'}"
-							onclick={() => selectRepere(i)}
-						>{r.label}</button>
-					{/each}
-				{:else if repere}
-					{#each [1, 2, 3, 4] as p (p)}
-						<button
-							type="button"
-							class="rounded-full border-2 border-line px-3 py-1.5 text-xs font-semibold text-ink {repsNum === p ? '!border-brand !text-brand' : ''}"
-							onclick={() => setReperes(p)}
-						>{fmtQty(p)} {unitWord(p, repere)}</button>
+							class="rounded-full border-2 border-line px-3 py-1.5 text-xs font-semibold text-ink {gramsNum === g ? '!border-brand !text-brand' : ''}"
+							onclick={() => setGrams(g)}
+						>{g} g</button>
 					{/each}
 				{/if}
-			{:else}
-				{#each [50, 100, 150, 200] as g (g)}
-					<button
-						type="button"
-						class="rounded-full border-2 border-line px-3 py-1.5 text-xs font-semibold text-ink {gramsNum === g ? '!border-brand !text-brand' : ''}"
-						onclick={() => setGrams(g)}
-					>{g} g</button>
-				{/each}
-			{/if}
-		</div>
-
-		<!-- Macros recalculées en direct — code couleur + icônes du Journal :
-	     flamme verte kcal · wheat rose · drumstick bleu · droplet orange,
-	     séparateurs gris. Les icônes héritent de la couleur du segment. -->
-		<p class="mt-3 flex flex-wrap items-center justify-center gap-x-1 text-center text-sm">
-			<span class="flex items-center gap-0.5">
-				<Icon name="flame" size={13} class="shrink-0 text-brand" />
-				<strong class="text-lg font-bold text-brand">{valid ? fmtQty(kcal) : '—'} kcal</strong>
-			</span>
-			<span class="text-mist">·</span>
-			<span class="flex items-center gap-0.5 font-bold tabular-nums" style:color="#ec4899">
-				<Icon name="wheat" size={13} class="shrink-0" />
-				{valid ? fmtQty(carbs) : '—'} g glucides
-			</span>
-			<span class="text-mist">·</span>
-			<span class="flex items-center gap-0.5 font-bold tabular-nums" style:color="#3b82f6">
-				<Icon name="drumstick" size={13} class="shrink-0" />
-				{valid ? fmtQty(protein) : '—'} g protéines
-			</span>
-			<span class="text-mist">·</span>
-			<span class="flex items-center gap-0.5 font-bold tabular-nums" style:color="#f97316">
-				<Icon name="droplet" size={13} class="shrink-0" />
-				{valid ? fmtQty(fat) : '—'} g lipides
-			</span>
-		</p>
-
-		<!-- Choix du repas -->
-		<div class="mt-3 grid grid-cols-4 gap-1.5">
-			{#each mealDefs as m (m.id)}
-				<button
-					type="button"
-					class="flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-semibold transition {meal === m.id ? 'bg-brand text-white' : 'bg-line/50 text-mist'}"
-					onclick={() => (meal = m.id)}
-				>
-					<Icon name={m.icon} size={16} class="shrink-0" />
-					{m.label.split(' ')[0]}
-				</button>
-			{/each}
-		</div>
-
-		{#if error}
-			<p class="mt-3 rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{error}</p>
-		{/if}
-
-		<!-- Actions -->
-		{#if mode === 'planned'}
-			<!-- Item PLANIFIÉ : Mangé = action principale (bascule immédiate vers
-	     consommé) ; la quantité s'enregistre sans consommer ; Remplacer et
-	     Supprimer ne touchent que CE jour (jamais le template coach). -->
-			<div class="mt-4 flex gap-2">
-				<button
-					type="button"
-					class="flex-1 rounded-full bg-brand px-3 py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
-					disabled={saving || !valid}
-					onclick={() => { if (gramsNum != null) onSave(Math.round(gramsNum * 100) / 100, meal); }}
-				>
-					{saving ? 'Enregistrement…' : 'Enregistrer la quantité'}
-				</button>
 			</div>
-			<div class="mt-2 flex gap-2">
-				{#if onEat}
-					<!-- « Mangé » : uniquement le jour même — on ne mange jamais demain. -->
+		</div>
+
+		<!-- ─── Macros en 4 cartes compactes (code couleur du Journal) ───
+		     vert kcal · rose glucides · bleu protéines · orange lipides. -->
+		<div class="mt-4 px-5">
+			<div class="grid grid-cols-4 gap-2">
+				<div class="rounded-2xl bg-cream px-1 py-2.5 text-center">
+					<p class="flex items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-wide text-brand"><Icon name="flame" size={11} class="shrink-0" />Calories</p>
+					<p class="mt-1 text-[17px] font-bold leading-none text-brand tabular-nums">{valid ? fmtQty(kcal) : '—'}</p>
+					<p class="mt-1 text-[9px] font-semibold text-mist">kcal</p>
+				</div>
+				<div class="rounded-2xl bg-cream px-1 py-2.5 text-center">
+					<p class="flex items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-wide" style:color="#ec4899"><Icon name="wheat" size={11} class="shrink-0" />Glucides</p>
+					<p class="mt-1 text-[17px] font-bold leading-none tabular-nums" style:color="#ec4899">{valid ? fmtQty(carbs) : '—'}</p>
+					<p class="mt-1 text-[9px] font-semibold text-mist">g</p>
+				</div>
+				<div class="rounded-2xl bg-cream px-1 py-2.5 text-center">
+					<p class="flex items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-wide" style:color="#3b82f6"><Icon name="drumstick" size={11} class="shrink-0" />Protéines</p>
+					<p class="mt-1 text-[17px] font-bold leading-none tabular-nums" style:color="#3b82f6">{valid ? fmtQty(protein) : '—'}</p>
+					<p class="mt-1 text-[9px] font-semibold text-mist">g</p>
+				</div>
+				<div class="rounded-2xl bg-cream px-1 py-2.5 text-center">
+					<p class="flex items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-wide" style:color="#f97316"><Icon name="droplet" size={11} class="shrink-0" />Lipides</p>
+					<p class="mt-1 text-[17px] font-bold leading-none tabular-nums" style:color="#f97316">{valid ? fmtQty(fat) : '—'}</p>
+					<p class="mt-1 text-[9px] font-semibold text-mist">g</p>
+				</div>
+			</div>
+
+			<!-- Choix du repas -->
+			<div class="mt-3 grid grid-cols-4 gap-1.5">
+				{#each mealDefs as m (m.id)}
 					<button
 						type="button"
-						class="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-ink px-3 py-3 text-sm font-bold text-white transition hover:bg-ink/85 disabled:opacity-60"
-						disabled={saving}
-						onclick={onEat}
+						class="flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-semibold transition {meal === m.id ? 'bg-brand text-white' : 'bg-line/50 text-mist'}"
+						onclick={() => (meal = m.id)}
 					>
-						<Icon name="check" size={16} strokeWidth={3} />
-						Mangé
+						<Icon name={m.icon} size={16} class="shrink-0" />
+						{m.label.split(' ')[0]}
 					</button>
-				{/if}
-				{#if onReplace}
-					<button
-						type="button"
-						class="flex-1 rounded-full border-2 border-line px-3 py-3 text-sm font-bold text-ink transition hover:border-brand hover:text-brand"
-						disabled={saving}
-						onclick={onReplace}
-					>Remplacer</button>
-				{/if}
-				{#if onDelete}
-					<button
-						type="button"
-						class="rounded-full border-2 border-danger px-4 py-3 text-sm font-bold text-danger transition hover:bg-danger-light"
-						disabled={saving}
-						onclick={onDelete}
-					>Supprimer</button>
-				{/if}
+				{/each}
 			</div>
-		{:else}
-			<div class="mt-4 flex gap-2">
-				{#if mode === 'edit'}
-					<button
-						type="button"
-						class="flex-1 rounded-full border-2 border-danger px-3 py-3 text-sm font-bold text-danger transition hover:bg-danger-light"
-						disabled={saving}
-						onclick={onDelete}
-					>Supprimer</button>
-				{/if}
-				<button
-					type="button"
-					class="flex-1 rounded-full bg-brand px-3 py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
-					disabled={saving || !valid}
-					onclick={save}
-				>
-					{saving ? 'Enregistrement…' : saveLabel ?? (mode === 'edit' ? 'Enregistrer' : 'Ajouter au journal')}
-				</button>
-			</div>
-			{#if mode === 'edit' && onUnEat}
-				<!-- Décocher un « Mangé » validé par erreur : retire immédiatement
-		     kcal/macros des totaux (recalcul parfaitement réversible). -->
-				<button
-					type="button"
-					class="mt-2 w-full rounded-full border-2 border-line px-3 py-2.5 text-sm font-bold text-mist transition hover:border-brand hover:text-brand"
-					disabled={saving}
-					onclick={onUnEat}
-				>↩︎ Remettre en planifié</button>
+		</div>
+
+		<!-- ─── CTA collant : toujours accessible au pouce, y compris clavier
+		     ouvert (in-flow : aucun recalcul de hauteur nécessaire) ─── -->
+		<div class="sticky bottom-0 -mx-0 mt-4 bg-gradient-to-t from-white via-white/95 to-white/0 px-5 pb-[max(env(safe-area-inset-bottom),14px)] pt-4">
+			{#if error}
+				<p class="mb-3 rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{error}</p>
 			{/if}
-		{/if}
+			{#if mode === 'planned'}
+				<!-- Item PLANIFIÉ : Mangé = action principale (bascule immédiate vers
+		     consommé) ; la quantité s'enregistre sans consommer ; Remplacer et
+		     Supprimer ne touchent que CE jour (jamais le template coach). -->
+				<div class="flex gap-2">
+					<button
+						type="button"
+						class="flex-1 rounded-full bg-brand px-3 py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
+						disabled={saving || !valid}
+						onclick={() => { if (gramsNum != null) onSave(Math.round(gramsNum * 100) / 100, meal); }}
+					>
+						{saving ? 'Enregistrement…' : 'Enregistrer la quantité'}
+					</button>
+				</div>
+				<div class="mt-2 flex gap-2">
+					{#if onEat}
+						<!-- « Mangé » : uniquement le jour même — on ne mange jamais demain. -->
+						<button
+							type="button"
+							class="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-ink px-3 py-3 text-sm font-bold text-white transition hover:bg-ink/85 disabled:opacity-60"
+							disabled={saving}
+							onclick={onEat}
+						>
+							<Icon name="check" size={16} strokeWidth={3} />
+							Mangé
+						</button>
+					{/if}
+					{#if onReplace}
+						<button
+							type="button"
+							class="flex-1 rounded-full border-2 border-line px-3 py-3 text-sm font-bold text-ink transition hover:border-brand hover:text-brand"
+							disabled={saving}
+							onclick={onReplace}
+						>Remplacer</button>
+					{/if}
+					{#if onDelete}
+						<button
+							type="button"
+							class="rounded-full border-2 border-danger px-4 py-3 text-sm font-bold text-danger transition hover:bg-danger-light"
+							disabled={saving}
+							onclick={onDelete}
+						>Supprimer</button>
+					{/if}
+				</div>
+			{:else}
+				<div class="flex gap-2">
+					{#if mode === 'edit'}
+						<button
+							type="button"
+							class="flex-1 rounded-full border-2 border-danger px-3 py-3 text-sm font-bold text-danger transition hover:bg-danger-light"
+							disabled={saving}
+							onclick={onDelete}
+						>Supprimer</button>
+					{/if}
+					<button
+						type="button"
+						class="flex-[2] rounded-full bg-brand px-3 py-3.5 text-[15px] font-bold text-white shadow-lg shadow-brand/30 transition hover:bg-brand-dark disabled:opacity-60"
+						disabled={saving || !valid}
+						onclick={save}
+					>
+						{saving ? 'Enregistrement…' : saveLabel ?? (mode === 'edit' ? 'Enregistrer' : 'Ajouter au journal')}
+					</button>
+				</div>
+				{#if mode === 'edit' && onUnEat}
+					<!-- Décocher un « Mangé » validé par erreur : retire immédiatement
+		     kcal/macros des totaux (recalcul parfaitement réversible). -->
+					<button
+						type="button"
+						class="mt-2 w-full rounded-full border-2 border-line px-3 py-2.5 text-sm font-bold text-mist transition hover:border-brand hover:text-brand"
+						disabled={saving}
+						onclick={onUnEat}
+					>↩︎ Remettre en planifié</button>
+				{/if}
+			{/if}
+		</div>
 	</div>
 </div>

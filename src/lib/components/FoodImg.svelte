@@ -27,6 +27,9 @@
 		alt = '',
 		class: cls = '',
 		eager = false,
+		/** contain = image ENTIÈRE visible (grande fiche premium, jamais étirée
+		 *  ni recadrée) · cover (défaut) = vignettes compactes sans bandes. */
+		fit = 'cover',
 	}: {
 		/** Source prioritaire : URL miroir G-FLUX (thumbUrl) si dispo. */
 		src?: string;
@@ -35,6 +38,7 @@
 		alt?: string;
 		class?: string;
 		eager?: boolean;
+		fit?: 'cover' | 'contain';
 	} = $props();
 
 	let failed = $state(false);
@@ -49,6 +53,8 @@
 	});
 
 	const fallbackResolved = $derived(offThumb100(fallbackSrc) ?? fallbackSrc);
+
+	const objectFit = $derived(fit === 'contain' ? 'object-contain' : 'object-cover');
 
 	/** La source principale a échoué → repli miniature OFF 100 px dérivée. */
 	function onPrimaryError() {
@@ -75,7 +81,7 @@
 			decoding="async"
 			fetchpriority={eager ? 'high' : 'auto'}
 			referrerpolicy="no-referrer"
-			class="absolute inset-0 h-full w-full object-cover"
+			class="absolute inset-0 h-full w-full {objectFit}"
 			onerror={onFallbackError}
 		/>
 	{:else if !failed && src}
@@ -87,7 +93,7 @@
 			decoding="async"
 			fetchpriority={eager ? 'high' : 'auto'}
 			referrerpolicy="no-referrer"
-			class="absolute inset-0 h-full w-full object-cover"
+			class="absolute inset-0 h-full w-full {objectFit}"
 			onerror={onPrimaryError}
 		/>
 	{:else if !failed && fallbackResolved}
@@ -99,7 +105,7 @@
 			decoding="async"
 			fetchpriority={eager ? 'high' : 'auto'}
 			referrerpolicy="no-referrer"
-			class="absolute inset-0 h-full w-full object-cover"
+			class="absolute inset-0 h-full w-full {objectFit}"
 			onerror={onFallbackError}
 		/>
 	{/if}
