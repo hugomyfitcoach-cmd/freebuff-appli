@@ -233,6 +233,24 @@ test('Message d\'erreur : « photo illisible » réservé aux vraies images inex
 	assert.ok(ui.includes("'ai-unavailable', 'unreachable', 'timeout'"), 'pannes connues → bucket « indisponible »');
 });
 
+test('Erreur réseau client (TypeError fetch) : JAMAIS de message brut type « Load failed »', () => {
+	// Safari/WebKit produit un TypeError « Load failed » (Chrome : « Failed to
+	// fetch ») quand le fetch part mais que le réseau lâche — cas vu en Preview :
+	// 1er essai « Load failed », 2e OK. Ces messages natifs doivent tomber dans
+	// le bucket « indisponible — réessaie » (userErrMsg + mapping raison BFF),
+	// jamais s'afficher bruts.
+	assert.ok(
+		/load failed\|failed to fetch\|networkerror/i.test(journalPage),
+		'journal : raisons réseau client → bucket « indisponible »'
+	);
+	const userErr = read('src/lib/errors.ts');
+	assert.ok(
+		/load failed\|failed to fetch\|networkerror/i.test(userErr),
+		'userErrMsg : messages réseau natifs → fallback propre (jamais le brut)'
+	);
+	assert.ok(userErr.includes('timeout of'), 'timeout HTTP reste filtré');
+});
+
 test('saveMeal : chemin snapshot pour les ingr\u00e9dients SANS fiche \u2014 chemins existants inchang\u00e9s', () => {
 	const save = journalPage.slice(journalPage.indexOf('async function saveMeal()'), journalPage.indexOf('async function saveMeal()') + 3200);
 	assert.ok(save.includes('fromSelection: true'), 'cr\u00e9ation avec Estimation IA \u2192 createMealFromSelection (snapshot)');

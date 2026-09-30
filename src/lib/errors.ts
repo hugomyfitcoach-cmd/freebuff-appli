@@ -24,7 +24,7 @@ export function userErrMsg(e: unknown, fallback: string): string {
 	const msg = errMsg(e);
 	if (!msg) return fallback;
 	if (
-		/\[CONVEX|Uncaught|TypeError|ReferenceError|internal error|Request ID|ECONN|fetch failed|timeout of/i.test(msg)
+		/\[CONVEX|Uncaught|TypeError|ReferenceError|internal error|Request ID|ECONN|fetch failed|timeout of|load failed|failed to fetch|networkerror/i.test(msg)
 	) {
 		return fallback;
 	}

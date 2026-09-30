@@ -1902,8 +1902,7 @@ import { journalTipForDay } from '$lib/data/journalTips';
 				// une panne/erreur serveur (OpenAI, Convex) affiche le message
 				// « indisponible » — jamais un reproche sur la photo.
 				const reason = String(j.reason ?? '');
-				throw new Error(
-					['ai-unavailable', 'unreachable', 'timeout'].includes(reason) || /convex|server error|indisponible/i.test(reason)
+				throw new Error(									['ai-unavailable', 'unreachable', 'timeout'].includes(reason) || /convex|server error|indisponible|load failed|failed to fetch|networkerror/i.test(reason)
 						? "L'analyse IA est momentanément indisponible — réessaie dans quelques instants."
 						: "Je n'arrive pas à lire suffisamment cette recette. Essaie de reprendre une photo plus nette."
 				);
