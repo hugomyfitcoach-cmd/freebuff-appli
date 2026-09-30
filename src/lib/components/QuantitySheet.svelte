@@ -242,9 +242,13 @@
 	}}
 >
 	<div
-		class="max-h-[92dvh] w-full max-w-lg overflow-y-auto overscroll-contain rounded-t-[2rem] bg-white shadow-2xl sm:rounded-[2rem]"
+		class="flex max-h-[92dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-[2rem] bg-white shadow-2xl sm:rounded-[2rem]"
 		style:max-height={sheetHeight ? `min(92dvh, ${sheetHeight}px)` : undefined}
 	>
+		<!-- Zone défilante : hero → identité → quantité → macros → choix du repas.
+	     Le footer d'actions est un FRÈRE (flex, hors flux de scroll) : aucun
+	     bouton ne peut recouvrir le contenu, même clavier ouvert. -->
+		<div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
 		<!-- ─── Hero : grande image de l'aliment (référence UX Food) ───
 		     object-contain via FoodImg : JAMAIS d'étirement ni de recadrage
 		     agressif ; fond cream si l'image est plus petite que la zone. -->
@@ -438,11 +442,9 @@
 					{/each}
 				{/if}
 			</div>
-		</div>
-
-		<!-- ─── Macros en 4 cartes compactes (code couleur du Journal) ───
-		     vert kcal · rose glucides · bleu protéines · orange lipides. -->
-		<div class="mt-4 px-5">
+		</div>		<!-- ─── Macros en 4 cartes compactes (code couleur du Journal) ───
+	     vert kcal · rose glucides · bleu protéines · orange lipides. -->
+		<div class="mt-4 px-5 pb-4">
 			<div class="grid grid-cols-4 gap-2">
 				<div class="rounded-2xl bg-cream px-1 py-2.5 text-center">
 					<p class="flex items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-wide text-brand"><Icon name="flame" size={11} class="shrink-0" />Calories</p>
@@ -479,11 +481,13 @@
 					</button>
 				{/each}
 			</div>
-		</div>
+		</div>		</div>
 
-		<!-- ─── CTA collant : toujours accessible au pouce, y compris clavier
-		     ouvert (in-flow : aucun recalcul de hauteur nécessaire) ─── -->
-		<div class="sticky bottom-0 -mx-0 mt-4 bg-gradient-to-t from-white via-white/95 to-white/0 px-5 pb-[max(env(safe-area-inset-bottom),14px)] pt-4">
+		<!-- ─── Footer d'actions : barre SOLIDE hors du flux de scroll ───
+	     Fond blanc opaque + séparateur : jamais de contenu visible derrière
+	     (l'ancien sticky + dégradé transparent laissait passer les boutons
+	     repas sous Supprimer/Enregistrer). Safe area iOS en bas. -->
+		<div class="shrink-0 border-t border-line bg-white px-5 pb-[max(env(safe-area-inset-bottom),14px)] pt-3">
 			{#if error}
 				<p class="mb-3 rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{error}</p>
 			{/if}

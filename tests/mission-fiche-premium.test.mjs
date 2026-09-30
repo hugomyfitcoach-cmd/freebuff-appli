@@ -111,8 +111,24 @@ test('Logique métier INTACTE : quantités, portions, repères, modes et actions
 
 /* ─── 6. UX mobile / accessibilité ─── */
 
-test('UX mobile premium : CTA sticky, safe areas, fermeture accessible', () => {
-	assert.ok(sheet.includes('sticky bottom-0'), 'CTA toujours accessible au pouce (sticky)');
+test('Footer d\'actions : barre SOLIDE hors flux — aucun recouvrement possible', () => {
+	// Régression iPhone (capture 11:34) : sticky + dégradé transparent →
+	// Supprimer/Enregistrer passaient VISUELLEMENT par-dessus les boutons
+	// Petit-déjeuner/Déjeuner. Désormais : zone de scroll (hero → quantité →
+	// cartes → repas) et footer d'actions sont des FRÈRES flex — la barre
+	// blanche opaque ne peut jamais recouvrir le contenu.
+	assert.ok(sheet.includes('min-h-0 flex-1 overflow-y-auto'), 'zone de contenu scrollable (frère du footer)');
+	assert.ok(sheet.includes("border-t border-line bg-white px-5"), 'footer opaque avec séparateur — rien ne passe derrière');
+	assert.ok(!sheet.includes('bg-gradient-to-t from-white'), 'plus de dégradé transparent sous les actions');
+	assert.ok(!sheet.includes('sticky bottom-0'), 'plus de footer sticky (cause du chevauchement)');
+	assert.ok(sheet.includes('pb-[max(env(safe-area-inset-bottom),14px)]'), 'safe area iOS conservée dans le footer');
+	// Ordre voulu : quantité → cartes → choix du repas → actions (le footer reste en dernier).
+	const scrollZone = sheet.slice(sheet.indexOf('min-h-0 flex-1'));
+	assert.ok(scrollZone.indexOf('Choix du repas') < scrollZone.indexOf("Footer d'actions"), 'choix du repas DANS la zone scrollable, avant le footer');
+});
+
+test('UX mobile premium : CTA toujours accessible, safe areas, fermeture accessible', () => {
+	assert.ok(sheet.includes("border-t border-line bg-white px-5"), 'CTA dans un footer solide toujours visible (accessible au pouce)');
 	assert.ok(sheet.includes('env(safe-area-inset-bottom)'), 'safe area iOS respectée');
 	assert.ok(sheet.includes('aria-label="Fermer"'), 'fermeture explicite en haut de fiche');
 	assert.ok(sheet.includes("e.key === 'Escape'"), 'Échap ferme la fiche (desktop)');
@@ -130,4 +146,23 @@ test('Points d\u2019entrée journal : marque / source / personnalisé propagés 
 	assert.ok(journalPage.includes('custom: !editEntry.foodId'), 'édition : badge personnalisé dérivé (snapshot sans foodId)');
 	assert.ok(journalPage.includes('custom: !editPlanned.foodId'), 'planifié : badge personnalisé dérivé');
 	assert.ok(journalPage.includes("(mealPickedFood ?? ingEdit?.food)?.ciqual ? 'ciqual'"), 'ingrédient de repas : badge Ciqual en édition comme en ajout');
+});
+
+/* ─── 8. Écran « Ajouter un aliment » : fond OPAQUE plein viewport ─── */
+
+test('Recherche aliment : le Journal n\'est JAMAIS visible derrière (mobile)', () => {
+	// Régression iPhone (capture 11:34) : l'overlay était dimensionné sur le
+	// visualViewport → clavier ouvert, le fond rétrécissait et les cartes du
+	// Journal fuyaient dans la bande au-dessus du clavier. Désormais : le FOND
+	// reste plein viewport opaque (bg-soft) ; seul le PANNEAU de contenu se
+	// positionne au-dessus du clavier (top/height = visualViewport).
+	const logScreen = journalPage.slice(journalPage.indexOf('{#if logOpen}'), journalPage.indexOf('{#if logOpen}') + 1400);
+	assert.ok(/class="fixed inset-0 z-50 bg-soft/.test(logScreen), 'fond plein viewport opaque (aucun style:top/height sur le fond)');
+	assert.ok(!/style:top=\{mobile/.test(logScreen.split('<div')[1] ?? ''), 'le fond ne rétrécit plus avec le clavier');
+	assert.ok(/absolute inset-x-0 top-0/.test(logScreen), 'panneau de contenu positionné (au-dessus du clavier via vvTop/vvH)');
+	assert.ok(/sm:relative/.test(logScreen), 'desktop inchangé : panneau centré arrondi');
+	assert.ok(journalPage.includes('Même principe que « Ajouter un aliment » : fond OPAQUE'), 'fenêtre produit de l\'éditeur : même correctif');
+	// Comportements conservés : fermeture par fond/Échap, clavier, tabs.
+	assert.ok(logScreen.includes('closeLog()'), 'fermeture conservée');
+	assert.ok(logScreen.includes("e.key === 'Escape'"), 'Échap conservé');
 });
