@@ -252,8 +252,8 @@
 		<!-- ─── Hero : grande image de l'aliment (référence UX Food) ───
 		     object-contain via FoodImg : JAMAIS d'étirement ni de recadrage
 		     agressif ; fond cream si l'image est plus petite que la zone. -->
-		<div class="relative shrink-0 bg-cream">
-			<div class="h-[240px] max-h-[42dvh] sm:h-[220px]">
+			<div class="relative shrink-0 bg-cream">
+			<div class="h-[150px] max-h-[26dvh] sm:h-[180px]">
 				{#if heroSrc}
 					<FoodImg src={food.imageUrl} fallbackSrc={food.thumbUrl} alt={food.name} class="h-full w-full" fit="contain" eager />
 				{:else}
@@ -290,12 +290,12 @@
 		</div>
 
 		<!-- ─── Identité : nom complet (JAMAIS tronqué) + marque + référence ─── -->
-		<div class="px-5 pt-4">
-			<h2 class="break-words text-[19px] font-bold leading-snug text-ink">{food.name}</h2>
-			<p class="mt-1 text-[13px] leading-snug text-mist">
+		<div class="px-5 pt-3">
+			<h2 class="break-words text-[17px] font-bold leading-snug text-ink">{food.name}</h2>
+			<p class="mt-0.5 text-[13px] leading-snug text-mist">
 				{#if hasBrand}<span class="font-semibold text-ink/80">{food.brand}</span> · {/if}{fmtQty(food.kcal100)} kcal pour 100 g{#if hasServing} · 1 portion = {fmtQty(servingQty)} g{/if}{#if repere && unitMode === 'repere'} · 1 {unitWord(1, repere)} ≈ {fmtQty(repere.grams)} {repere.unit}{/if}
 			</p>
-			<div class="mt-2 flex flex-wrap items-center gap-1.5">
+			<div class="mt-1.5 flex flex-wrap items-center gap-1.5">
 				{#if source === 'ciqual'}
 					<span class="inline-flex items-center gap-1 rounded-full bg-brand-light px-2.5 py-1 text-[10px] font-bold text-brand">Référence Ciqual – ANSES</span>
 				{/if}
@@ -317,7 +317,7 @@
 			<!-- Bascule Grammes / Portions (si portion OFF fiable) / Repères G-FLUX
 			     (si un repère usuel correspond) — onglets dynamiques. -->
 			{#if tabCount > 1}
-				<div class="mt-4 flex items-center justify-center gap-1 rounded-full bg-line/50 p-1 text-xs font-bold {tabCount > 2 ? 'gap-0.5 px-0.5' : ''}">
+				<div class="mt-3 flex items-center justify-center gap-1 rounded-full bg-line/50 p-1 text-xs font-bold {tabCount > 2 ? 'gap-0.5 px-0.5' : ''}">
 					<button
 						type="button"
 						class="rounded-full px-5 py-1.5 transition {unitMode === 'g' ? 'bg-brand text-white shadow-sm' : 'text-mist hover:text-ink'}"
@@ -341,10 +341,10 @@
 			{/if}
 
 			<!-- Quantité centrale directement éditable -->
-			<div class="mt-4 flex items-center justify-between gap-3">
+			<div class="mt-2.5 flex items-center justify-between gap-3">
 				<button
 					type="button"
-					class="grid h-12 w-12 place-items-center rounded-xl border-2 border-line text-xl font-bold text-ink active:border-brand"
+					class="grid h-11 w-11 place-items-center rounded-xl border-2 border-line text-xl font-bold text-ink active:border-brand"
 					aria-label="Moins"
 					onclick={() => (unitMode === 'portion' ? stepServings(-1) : unitMode === 'repere' ? stepReperes(-1) : stepGrams(-10))}
 				>−</button>
@@ -383,7 +383,7 @@
 				</div>
 				<button
 					type="button"
-					class="grid h-12 w-12 place-items-center rounded-xl border-2 border-line text-xl font-bold text-ink active:border-brand"
+					class="grid h-11 w-11 place-items-center rounded-xl border-2 border-line text-xl font-bold text-ink active:border-brand"
 					aria-label="Plus"
 					onclick={() => (unitMode === 'portion' ? stepServings(1) : unitMode === 'repere' ? stepReperes(1) : stepGrams(10))}
 				>+</button>
@@ -404,7 +404,7 @@
 			{/if}
 
 			<!-- Raccourcis rapides -->
-			<div class="mt-3 flex flex-wrap justify-center gap-2">
+			<div class="mt-2.5 flex flex-wrap justify-center gap-2">
 				{#if unitMode === 'portion'}
 					{#each [0.5, 1, 1.5, 2] as p (p)}
 						<button
@@ -444,39 +444,39 @@
 			</div>
 		</div>		<!-- ─── Macros en 4 cartes compactes (code couleur du Journal) ───
 	     vert kcal · rose glucides · bleu protéines · orange lipides. -->
-		<div class="mt-4 px-5 pb-4">
-			<div class="grid grid-cols-4 gap-2">
-				<div class="rounded-2xl bg-cream px-1 py-2.5 text-center">
+		<div class="mt-2.5 px-5 pb-3">
+			<div class="grid grid-cols-4 gap-1.5">
+				<div class="rounded-xl bg-cream px-1 py-2 text-center">
 					<p class="flex items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-wide text-brand"><Icon name="flame" size={11} class="shrink-0" />Calories</p>
-					<p class="mt-1 text-[17px] font-bold leading-none text-brand tabular-nums">{valid ? fmtQty(kcal) : '—'}</p>
-					<p class="mt-1 text-[9px] font-semibold text-mist">kcal</p>
+					<p class="mt-0.5 text-[17px] font-bold leading-none text-brand tabular-nums">{valid ? fmtQty(kcal) : '—'}</p>
+					<p class="text-[9px] font-semibold text-mist">kcal</p>
 				</div>
-				<div class="rounded-2xl bg-cream px-1 py-2.5 text-center">
+				<div class="rounded-xl bg-cream px-1 py-2 text-center">
 					<p class="flex items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-wide" style:color="#ec4899"><Icon name="wheat" size={11} class="shrink-0" />Glucides</p>
-					<p class="mt-1 text-[17px] font-bold leading-none tabular-nums" style:color="#ec4899">{valid ? fmtQty(carbs) : '—'}</p>
-					<p class="mt-1 text-[9px] font-semibold text-mist">g</p>
+					<p class="mt-0.5 text-[17px] font-bold leading-none tabular-nums" style:color="#ec4899">{valid ? fmtQty(carbs) : '—'}</p>
+					<p class="text-[9px] font-semibold text-mist">g</p>
 				</div>
-				<div class="rounded-2xl bg-cream px-1 py-2.5 text-center">
+				<div class="rounded-xl bg-cream px-1 py-2 text-center">
 					<p class="flex items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-wide" style:color="#3b82f6"><Icon name="drumstick" size={11} class="shrink-0" />Protéines</p>
-					<p class="mt-1 text-[17px] font-bold leading-none tabular-nums" style:color="#3b82f6">{valid ? fmtQty(protein) : '—'}</p>
-					<p class="mt-1 text-[9px] font-semibold text-mist">g</p>
+					<p class="mt-0.5 text-[17px] font-bold leading-none tabular-nums" style:color="#3b82f6">{valid ? fmtQty(protein) : '—'}</p>
+					<p class="text-[9px] font-semibold text-mist">g</p>
 				</div>
-				<div class="rounded-2xl bg-cream px-1 py-2.5 text-center">
+				<div class="rounded-xl bg-cream px-1 py-2 text-center">
 					<p class="flex items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-wide" style:color="#f97316"><Icon name="droplet" size={11} class="shrink-0" />Lipides</p>
-					<p class="mt-1 text-[17px] font-bold leading-none tabular-nums" style:color="#f97316">{valid ? fmtQty(fat) : '—'}</p>
-					<p class="mt-1 text-[9px] font-semibold text-mist">g</p>
+					<p class="mt-0.5 text-[17px] font-bold leading-none tabular-nums" style:color="#f97316">{valid ? fmtQty(fat) : '—'}</p>
+					<p class="text-[9px] font-semibold text-mist">g</p>
 				</div>
 			</div>
 
 			<!-- Choix du repas -->
-			<div class="mt-3 grid grid-cols-4 gap-1.5">
+			<div class="mt-2.5 grid grid-cols-4 gap-1.5">
 				{#each mealDefs as m (m.id)}
 					<button
 						type="button"
-						class="flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-semibold transition {meal === m.id ? 'bg-brand text-white' : 'bg-line/50 text-mist'}"
+						class="flex flex-col items-center gap-0.5 rounded-xl px-2 py-1.5 text-[11px] font-semibold transition {meal === m.id ? 'bg-brand text-white' : 'bg-line/50 text-mist'}"
 						onclick={() => (meal = m.id)}
 					>
-						<Icon name={m.icon} size={16} class="shrink-0" />
+						<Icon name={m.icon} size={15} class="shrink-0" />
 						{m.label.split(' ')[0]}
 					</button>
 				{/each}
@@ -487,7 +487,7 @@
 	     Fond blanc opaque + séparateur : jamais de contenu visible derrière
 	     (l'ancien sticky + dégradé transparent laissait passer les boutons
 	     repas sous Supprimer/Enregistrer). Safe area iOS en bas. -->
-		<div class="shrink-0 border-t border-line bg-white px-5 pb-[max(env(safe-area-inset-bottom),14px)] pt-3">
+		<div class="shrink-0 border-t border-line bg-white px-5 pb-[max(env(safe-area-inset-bottom),12px)] pt-2.5">
 			{#if error}
 				<p class="mb-3 rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{error}</p>
 			{/if}

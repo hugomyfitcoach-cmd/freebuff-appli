@@ -58,8 +58,8 @@ test('API du composant inchangée : zéro modification requise côté appelants 
 /* ─── 2. Hero image (référence UX Food) ─── */
 
 test('Hero image : grande zone visuelle, jamais étirée ni recadrée, repli propre', () => {
-	assert.ok(sheet.includes('h-[240px]'), 'grande image d\u2019en-tête (240 px)');
-	assert.ok(sheet.includes('max-h-[42dvh]'), 'plafond viewport mobile (petits iPhone)');
+	assert.ok(sheet.includes('h-[150px]'), 'image d\u2019en-tête compacte premium (150 px — fiche sans scroll)');
+	assert.ok(sheet.includes('max-h-[26dvh]'), 'plafond viewport mobile (petits iPhone)');
 	assert.ok(sheet.includes('fit="contain"'), 'image ENTIÈRE visible — jamais étirée/pixellisée');
 	assert.ok(sheet.includes('food.imageUrl ?? food.thumbUrl'), 'priorité à l\u2019image OFF d\u2019origine (meilleure résolution que la miniature)');
 	assert.ok(sheet.includes('bg-brand-light'), 'placeholder G-FLUX si aucune image (jamais d\u2019icône cassée)');
@@ -83,7 +83,7 @@ test('Identité : nom complet SANS troncature, marque, badges source', () => {
 /* ─── 4. Macros en cartes ─── */
 
 test('Macros : 4 cartes compactes au code couleur du Journal', () => {
-	assert.ok(sheet.includes('grid grid-cols-4 gap-2'), '4 cartes compactes');
+	assert.ok(sheet.includes('grid grid-cols-4 gap-1.5'), '4 cartes compactes');
 	assert.ok(sheet.includes('#ec4899'), 'glucides rose');
 	assert.ok(sheet.includes('#3b82f6'), 'protéines bleu');
 	assert.ok(sheet.includes('#f97316'), 'lipides orange');
@@ -111,6 +111,18 @@ test('Logique métier INTACTE : quantités, portions, repères, modes et actions
 
 /* ─── 6. UX mobile / accessibilité ─── */
 
+test('Fiche compacte : toutes les actions principales tiennent dans la fenêtre standard', () => {
+	// Dernier polish : 0 scroll pour les actions principales sur un téléphone
+	// standard — hero réduit (150 px), paddings/gaps resserrés, footer compact.
+	// La zone scrollable reste le filet de sécurité sur TRÈS petits écrans
+	// (jamais de bouton coupé ni de contenu masqué).
+	assert.ok(sheet.includes('min-h-0 flex-1 overflow-y-auto'), 'scroll interne de secours conservé (petits écrans)');
+	assert.ok(sheet.includes('h-[150px] max-h-[26dvh]'), 'hero réduit mais toujours mis en valeur (> anciennes vignettes 56 px)');
+	assert.ok(sheet.includes('grid grid-cols-4 gap-1.5'), 'macros compactées sans perte de lisibilité');
+	assert.ok(sheet.includes('py-1.5 text-[11px]'), 'boutons repas compactés');
+	assert.ok(sheet.includes('pb-[max(env(safe-area-inset-bottom),12px)]'), 'footer compact, safe area conservée');
+});
+
 test('Footer d\'actions : barre SOLIDE hors flux — aucun recouvrement possible', () => {
 	// Régression iPhone (capture 11:34) : sticky + dégradé transparent →
 	// Supprimer/Enregistrer passaient VISUELLEMENT par-dessus les boutons
@@ -121,7 +133,7 @@ test('Footer d\'actions : barre SOLIDE hors flux — aucun recouvrement possible
 	assert.ok(sheet.includes("border-t border-line bg-white px-5"), 'footer opaque avec séparateur — rien ne passe derrière');
 	assert.ok(!sheet.includes('bg-gradient-to-t from-white'), 'plus de dégradé transparent sous les actions');
 	assert.ok(!sheet.includes('sticky bottom-0'), 'plus de footer sticky (cause du chevauchement)');
-	assert.ok(sheet.includes('pb-[max(env(safe-area-inset-bottom),14px)]'), 'safe area iOS conservée dans le footer');
+	assert.ok(sheet.includes('pb-[max(env(safe-area-inset-bottom),12px)]'), 'safe area iOS conservée dans le footer');
 	// Ordre voulu : quantité → cartes → choix du repas → actions (le footer reste en dernier).
 	const scrollZone = sheet.slice(sheet.indexOf('min-h-0 flex-1'));
 	assert.ok(scrollZone.indexOf('Choix du repas') < scrollZone.indexOf("Footer d'actions"), 'choix du repas DANS la zone scrollable, avant le footer');
