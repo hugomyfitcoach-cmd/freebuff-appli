@@ -3953,14 +3953,19 @@ import { journalTipForDay } from '$lib/data/journalTips';
 
 					<div class="mx-auto mt-3 w-full max-w-sm">
 						<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2.5 focus-within:border-brand">														<Icon name="barcode" size={18} class="shrink-0 text-mist" />
-							<input
-								type="text"
-								inputmode="numeric"
-								class="w-full bg-transparent text-sm text-ink outline-none placeholder:text-mist"
-								placeholder="Ou saisis le code (ex. 3017620422003)"
-								bind:value={barcodeManual}
-								onkeydown={(e) => { if (e.key === 'Enter') submitManual(); }}
-							/>
+						<!-- Clavier iOS : le champ reste AU-DESSUS du clavier — le resize du
+						     visualViewport replace le champ focalisé dans la zone visible
+						     (scrollFocusedIntoView). Aucun blur(), aucun polling : compatible
+						     avec le correctif Android (scrolls programmatiques ignorés). -->
+						<input
+							type="text"
+							inputmode="numeric"
+							class="w-full bg-transparent text-sm text-ink outline-none placeholder:text-mist"
+							placeholder="Ou saisis le code (ex. 3017620422003)"
+							bind:value={barcodeManual}
+							onfocusin={(e) => focusScroll(e.currentTarget, e.target)}
+							onkeydown={(e) => { if (e.key === 'Enter') submitManual(); }}
+						/>
 						</div>
 						<button type="button" class="mt-2 w-full rounded-full bg-brand py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={barcodeBusy} onclick={() => submitManual()}>
 							{barcodeBusy ? 'Recherche…' : 'Rechercher le code'}
@@ -4596,14 +4601,17 @@ import { journalTipForDay } from '$lib/data/journalTips';
 					<div class="mx-auto mt-3 w-full max-w-sm">
 						<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2.5 focus-within:border-brand">
 							<Icon name="barcode" size={18} class="shrink-0 text-mist" />
-							<input
-								type="text"
-								inputmode="numeric"
-								class="w-full bg-transparent text-sm text-ink outline-none placeholder:text-mist"
-								placeholder="Ou saisis le code (ex. 3017620422003)"
-								bind:value={barcodeManual}
-								onkeydown={(e) => { if (e.key === 'Enter') void lookupCode(barcodeManual.replace(/\D/g, ''), 'meal'); }}
-							/>
+						<!-- Clavier iOS : même repositionnement que « Ajouter un aliment »
+						     (visualViewport → scrollFocusedIntoView, sans blur ni polling). -->
+						<input
+							type="text"
+							inputmode="numeric"
+							class="w-full bg-transparent text-sm text-ink outline-none placeholder:text-mist"
+							placeholder="Ou saisis le code (ex. 3017620422003)"
+							bind:value={barcodeManual}
+							onfocusin={(e) => focusScroll(e.currentTarget, e.target)}
+							onkeydown={(e) => { if (e.key === 'Enter') void lookupCode(barcodeManual.replace(/\D/g, ''), 'meal'); }}
+						/>
 						</div>
 						<button type="button" class="mt-2 w-full rounded-full bg-brand py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={barcodeBusy} onclick={() => submitManual('meal')}>
 							{barcodeBusy ? 'Recherche…' : 'Rechercher le code'}
