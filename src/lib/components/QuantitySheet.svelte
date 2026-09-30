@@ -346,12 +346,12 @@
 			{#if !qtyFocused}
 		<!-- ─── Hero : image adaptative de l'aliment (référence UX Food) ───
 		     Hauteur dynamique : confortable sur écran standard, réduite sur
-		     petit écran (plafond 26dvh / 200 px — marge pour que la fiche
+		     petit écran (plafond 24dvh / 180 px — calibré pour que la fiche
 		     tienne SANS scroll sur téléphone standard). object-contain via
 		     FoodImg : JAMAIS d'étirement ni de recadrage ; fond cream si
 		     l'image est plus petite que la zone ; placeholder G-FLUX. -->
 			<div class="relative shrink-0 bg-cream">
-				<div class="h-[min(26dvh,200px)] sm:h-[200px]">
+				<div class="h-[min(24dvh,180px)] sm:h-[180px]">
 					{#if heroSrc}
 						<FoodImg src={food.imageUrl} fallbackSrc={food.thumbUrl} alt={food.name} class="h-full w-full" fit="contain" eager />
 					{:else}
@@ -399,8 +399,7 @@
 			<div class="px-5">
 				<!-- Bascule Grammes / Portions (si portion OFF fiable) / Repères G-FLUX
 			     (si un repère usuel correspond) — onglets dynamiques. -->
-				{#if tabCount > 1}
-					<div class="mt-4 flex items-center justify-center gap-1 rounded-full bg-line/50 p-1 text-xs font-bold {tabCount > 2 ? 'gap-0.5 px-0.5' : ''}">
+				{#if tabCount > 1}						<div class="mt-3.5 flex items-center justify-center gap-1 rounded-full bg-line/50 p-1 text-xs font-bold {tabCount > 2 ? 'gap-0.5 px-0.5' : ''}">
 						<button
 							type="button"
 							class="rounded-full px-5 py-2 transition {unitMode === 'g' ? 'bg-brand text-white shadow-sm' : 'text-mist hover:text-ink'}"
@@ -539,9 +538,9 @@
 				</div>
 			</div>
 
-			<!-- ─── Macros en 4 cartes (code couleur du Journal) ───
+				<!-- ─── Macros en 4 cartes (code couleur du Journal) ───
 			     vert kcal · rose glucides · bleu protéines · orange lipides. -->
-			<div class="mt-4 px-5 pb-4">
+			<div class="mt-3.5 px-5 pb-3">
 				<div class="grid grid-cols-4 gap-2">
 					<div class="rounded-xl bg-cream px-1 py-2.5 text-center">
 						<p class="flex items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-wide text-brand"><Icon name="flame" size={11} class="shrink-0" />Calories</p>

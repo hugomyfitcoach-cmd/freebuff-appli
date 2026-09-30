@@ -87,10 +87,10 @@ test('Densité : plus de sur-compaction — quantité, macros, repas et CTA touj
 	// acceptable mais RIEN n'est jamais masqué.
 	assert.ok(sheet.includes('min-h-0 flex-1 overflow-y-auto'), 'scroll interne de secours (très petits écrans)');
 	assert.ok(sheet.includes("qtyFocused ? 'pt-14' : 'pt-4'"), 'bloc identité respiré (fin du compactage) + espacé sous la croix en mode focus');
-	assert.ok(sheet.includes('mt-4 flex items-center justify-center'), 'onglets unités respirés');
+	assert.ok(sheet.includes('mt-3.5 flex items-center justify-center'), 'onglets unités respirés');
 	assert.ok(sheet.includes('mt-3 flex items-center justify-between'), 'quantité centrale avec vraie marge');
 	assert.ok(sheet.includes('rounded-full border-2 border-line px-3.5 py-2'), 'raccourcis 50/100/150/200 g touchables (44 px)');
-	assert.ok(sheet.includes('mt-4 px-5 pb-4'), 'bloc macros respiré');
+	assert.ok(sheet.includes('mt-3.5 px-5 pb-3'), 'bloc macros respiré');
 	assert.ok(sheet.includes('grid grid-cols-4 gap-2'), 'macros et repas espacés (fin des gap-1.5 serrés)');
 	assert.ok(sheet.includes('px-2 py-2.5 text-[12px]'), 'boutons repas confortables (fin du py-1.5 text-[11px])');
 	assert.ok(sheet.includes('grid h-11 w-11 place-items-center'), 'boutons − / + 44 px (cible tactile)');
@@ -109,12 +109,12 @@ test('Fiche FIXE : croix toujours visible, aucun scroll parasite, vignettes inta
 	// Re-ancrage en haut à chaque transition du mode focus (fin du décalage). 
 	assert.ok(sheet.includes('scrollerEl.scrollTop = 0'), 're-ancrage scrollTop = 0 au retour de fiche complète');
 	// Hero resserré : la fiche tient SANS scroll sur téléphone standard.
-	assert.ok(sheet.includes('h-[min(26dvh,200px)] sm:h-[200px]'), 'hero adaptatif avec marge (fiche fixe sans scroll)');
+	assert.ok(sheet.includes('h-[min(24dvh,180px)] sm:h-[180px]'), 'hero adaptatif calibré (fiche fixe sans scroll)');
 	assert.ok(!sheet.includes('h-[min(28dvh,220px)]'), 'ancien hero trop haut supprimé');
 });
 
 test('Hero image : hauteur adaptative, jamais étiré ni recadré, repli propre', () => {
-	assert.ok(sheet.includes('h-[min(26dvh,200px)] sm:h-[200px]'), 'hauteur adaptative : confortable en standard, réduite sur petit écran');
+	assert.ok(sheet.includes('h-[min(24dvh,180px)] sm:h-[180px]'), 'hauteur adaptative : confortable en standard, réduite sur petit écran');
 	assert.ok(sheet.includes('fit="contain"'), 'image ENTIÈRE visible — jamais étirée/pixellisée');
 	assert.ok(sheet.includes('food.imageUrl ?? food.thumbUrl'), 'priorité à l\u2019image OFF d\u2019origine (meilleure résolution que la miniature)');
 	assert.ok(sheet.includes('bg-brand-light'), 'placeholder G-FLUX si aucune image (jamais d\u2019icône cassée)');
