@@ -1117,6 +1117,11 @@ import { optimizeImageFile } from '$lib/media';
 	let cfSalt = $state('');
 	let cfServing = $state('');
 	let cfSaving = $state(false);
+	/** Étape de sauvegarde pour le feedback bouton : 'photo' = upload du
+	 *  fichier en cours, 'save' = upload terminé, réponse serveur en cours,
+	 *  'idle' = hors sauvegarde. Aucun faux pourcentage : uniquement des
+	 *  frontières réelles. */
+	let cfSaveStep = $state<'photo' | 'save' | 'idle'>('idle');
 	let cfError = $state('');
 	/* ————— Photo de l'aliment (OPTIONNELLE) —————
 	 * Filchée (caméra) OU choisie dans la galerie, COMPRESSÉE immédiatement
@@ -1272,6 +1277,7 @@ import { optimizeImageFile } from '$lib/media';
 		bcStep = 'hidden';
 		bcCode = null;
 		bcExisting = null;
+		cfSaveStep = 'idle';
 		cfName = '';
 		cfBrand = '';
 		cfKcal = '';
@@ -1307,12 +1313,14 @@ import { optimizeImageFile } from '$lib/media';
 		bcStep = food.barcode ? 'attached' : 'add';
 		bcCode = food.barcode ?? null;
 		bcExisting = null;
+		cfSaveStep = 'idle';
 	}
 	function closeCustomEditor() {
 		customEditor = false;
 		removeCustomFoodPhoto();
 		cfExistingPhotoUrl = '';
 		cfHadStoredPhoto = false;
+		cfSaveStep = 'idle';
 	}
 	async function saveCustomFood() {
 		const num = (v: string) => {
@@ -1325,6 +1333,13 @@ import { optimizeImageFile } from '$lib/media';
 		}
 		cfSaving = true;
 		cfError = '';
+		/* Feedback immédiat HONNÊTE (aucun faux pourcentage) : quand une photo
+		   part en multipart, la compression est déjà faite au pick — l'étape
+		   visible côté bouton est l'UPLOAD du fichier puis l'enregistrement
+		   serveur. La frontière est la fin de l'upload (xhr.upload.onload),
+		   pas un timer. Bouton disabled + onclick gardé → double-clic
+		   impossible. */
+		cfSaveStep = 'photo';
 		try {
 			/* Anti-doublon : avec un code-barres, on vérifie la base commune AVANT
 			   de créer. Produit déjà connu → aucun doublon, aucun candidat : on
@@ -1369,12 +1384,7 @@ import { optimizeImageFile } from '$lib/media';
 				if (wantsClear) fd.set('clearPhoto', 'true');
 				if (code) fd.set('barcode', code);
 				if (code) fd.set('sourceKind', 'label_photo');
-				j = await (
-					await fetch(cfEditingId ? `/api/foods/custom?id=${cfEditingId}` : '/api/foods/custom', {
-						method: cfEditingId ? 'PUT' : 'POST',
-						body: fd,
-					})
-				).json();
+				j = await customFoodXhr(cfEditingId ? `/api/foods/custom?id=${cfEditingId}` : '/api/foods/custom', cfEditingId ? 'PUT' : 'POST', fd);
 			} else {
 				j = await (
 					await fetch(cfEditingId ? `/api/foods/custom?id=${cfEditingId}` : '/api/foods/custom', {
@@ -1415,10 +1425,36 @@ import { optimizeImageFile } from '$lib/media';
 				}
 			}
 		} catch (e) {
-			cfError = e instanceof Error ? e.message : String(e);
+			cfSaveStep = 'idle';
+			/* Message propre : on masque le détail réseau (« Failed to fetch »)
+			   derrière une phrase compréhensible + bouton Réessayer (bouton
+			   réactivé ci-dessous → la cliente peut relancer la sauvegarde). */
+			if (e instanceof Error && /network|fetch|load failed/i.test(e.message)) {
+				cfError = 'Connexion interrompue — vérifie ton réseau puis réessaie.';
+			} else {
+				cfError = e instanceof Error ? e.message : String(e);
+			}
 		} finally {
 			cfSaving = false;
+			cfSaveStep = 'idle';
 		}
+	}
+	/** POST/PUT multipart de l'aliment : bascule l'étape du bouton quand
+	 *  l'UPLOAD de la photo est TERMINÉ (réponse serveur en cours) — frontière
+	 *  réelle, pas de timer ni de faux pourcentage. */
+	function customFoodXhr(url: string, method: 'POST' | 'PUT', body: FormData): Promise<Record<string, unknown> | null> {
+		return new Promise((resolve, reject) => {
+			const xhr = new XMLHttpRequest();
+			xhr.open(method, url);
+			xhr.responseType = 'json';
+			xhr.upload.onload = () => {
+				cfSaveStep = 'save';
+			};
+			xhr.onload = () => resolve((xhr.response ?? null) as Record<string, unknown> | null);
+			xhr.onerror = () => reject(new Error('NetworkError'));
+			xhr.ontimeout = () => reject(new Error('NetworkError'));
+			xhr.send(body);
+		});
 	}
 	async function deleteCustomFood(food: Food) {
 		if (!confirm(`Supprimer l'aliment « ${food.name} » de ta base ?`)) return;
@@ -3109,9 +3145,10 @@ import { optimizeImageFile } from '$lib/media';
 		const vv = window.visualViewport;
 		const overlayTop = mobile ? (vv?.offsetTop ?? 0) : 0;
 		const visibleH = mobile ? Math.round(vv?.height ?? window.innerHeight) : window.innerHeight;
-		/* Marge basse : capsule flottante (~56 px) + sécurité clavier (iOS ancre
-		   la saisie ~40 px au-dessus de son bord) + aire de respiration. */
-		const bottomMargin = 56 + 40 + 12;
+		/* Marge basse : sécurité clavier (iOS ancre la saisie ~40 px au-dessus
+		   de son bord) + aire de respiration + capsule flottante (~56 px) UNIQUEMENT
+		   quand elle est affichée (masquée dans l'éditeur « Créés par moi »). */
+		const bottomMargin = focusedFieldBottomMargin();
 		const r = el.getBoundingClientRect();
 		const targetBottom = overlayTop + visibleH - bottomMargin;
 		const targetTop = overlayTop + 8;
@@ -3131,6 +3168,10 @@ import { optimizeImageFile } from '$lib/media';
 	/** Champ focalisé de l'éditeur « Créés par moi » : re-positionné quand le
 	    clavier s'ouvre (le visualViewport change APRÈS le focus). */
 	let focusedFieldEl: HTMLElement | null = null;
+	/* La capsule « Recherche / Code-barres / Repas IA » est MASQUÉE dans
+	   l'éditeur « Créés par moi » : la marge basse n'en tient plus compte
+	   (uniquement clavier + sécurité de saisie iOS + respiration). */
+	const focusedFieldBottomMargin = () => (customEditor ? 108 : 108 + 56);
 	/** Timestamp jusqu'auquel les scrolls des listes sont causés par l'APP
 	 *  (repositionnement du champ focalisé au-dessus du clavier) : les handlers
 	 *  scroll-dismiss les ignorent — jamais de fermeture de clavier causée par
@@ -3846,7 +3887,9 @@ import { optimizeImageFile } from '$lib/media';
 							<!-- PHOTO (OPTIONNELLE) : caméra OU galerie → compression + preview
 							     immédiats ; remplaçable/supprimable avant sauvegarde. La
 							     création SANS photo reste le comportement par défaut. -->
-							<div class="mt-3 rounded-xl border-2 border-dashed border-line bg-cream/60 px-3 py-3">
+							<!-- Espacement premium : la section photo respire (séparation nette
+							     d'avec l'intro, marge douce au-dessus du champ Nom). -->
+							<div class="mt-5 rounded-xl border-2 border-dashed border-line bg-cream/60 px-3 py-4">
 								<p class="text-xs font-bold text-ink">Photo de l'aliment <span class="font-normal text-mist">(optionnel)</span></p>
 								{#if cfPreviewUrl || cfExistingPhotoUrl}
 									<div class="mt-2 flex items-center gap-3">
@@ -3988,8 +4031,16 @@ import { optimizeImageFile } from '$lib/media';
 								<p class="mt-3 rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{cfError}</p>
 							{/if}
 
-							<button type="button" class="mt-4 w-full rounded-full bg-brand py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={cfSaving || cfName.trim().length < 2} onclick={saveCustomFood}>
-								{cfSaving ? 'Enregistrement…' : cfEditingId ? 'Enregistrer les modifications' : 'Créer mon aliment'}
+							<button type="button" class="mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-brand py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={cfSaving || cfName.trim().length < 2} onclick={saveCustomFood}>
+								{#if cfSaving}
+									<svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+										<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+										<path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v4a4 4 0 0 0-4 4H4z" />
+									</svg>
+									{cfSaveStep === 'photo' ? 'Préparation de la photo…' : 'Enregistrement…'}
+								{:else}
+									{cfEditingId ? 'Enregistrer les modifications' : 'Créer mon aliment'}
+								{/if}
 							</button>
 							</div>
 						{:else}
@@ -4176,7 +4227,12 @@ import { optimizeImageFile } from '$lib/media';
 			{/if}
 			<!-- Capsule flottante Recherche ⇄ Code-barres (type FOOD) : positionnée
 			     juste au-dessus du clavier (le conteneur suit le visualViewport),
-			     ne réserve aucune place dans le flux ; la liste défile dessous. -->
+			     ne réserve aucune place dans le flux ; la liste défile dessous.
+			     Masquée pendant la création/édition d'un aliment personnalisé :
+			     inutile dans ce contexte, elle grignotait la hauteur du formulaire
+			     (notamment avec le clavier numérique ouvert). Elle revient à la
+			     sortie de l'éditeur (retour à la liste). -->
+			{#if !customEditor}
 			<div class="pointer-events-none absolute inset-x-0 bottom-[calc(0.625rem+env(safe-area-inset-bottom))] z-10 flex justify-center px-4">
 				<!-- 3 zones équilibrées quand la bêta « Repas IA » est active pour le
 				     compte (méthode de TRACKING du journal — jamais une création
@@ -4211,6 +4267,7 @@ import { optimizeImageFile } from '$lib/media';
 					{/if}
 				</div>
 			</div>
+			{/if}
 		</div>
 	</div>
 {/if}
