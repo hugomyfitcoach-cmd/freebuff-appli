@@ -3145,22 +3145,31 @@ import { optimizeImageFile } from '$lib/media';
 		const vv = window.visualViewport;
 		const overlayTop = mobile ? (vv?.offsetTop ?? 0) : 0;
 		const visibleH = mobile ? Math.round(vv?.height ?? window.innerHeight) : window.innerHeight;
-		/* Marge basse : sécurité clavier (iOS ancre la saisie ~40 px au-dessus
-		   de son bord) + aire de respiration + capsule flottante (~56 px) UNIQUEMENT
-		   quand elle est affichée (masquée dans l'éditeur « Créés par moi »). */
-		const bottomMargin = focusedFieldBottomMargin();
+		/* Position RÉELLE de l'input par rapport au bord visible du
+		   visualViewport (mesurée à l'exécution, jamais estimée) : on scrolle
+		   UNIQUEMENT si le champ est masqué ou collé au bord — sinon on ne
+		   touche à rien (aucun mouvement parasite, aucun blur). */
 		const r = el.getBoundingClientRect();
-		const targetBottom = overlayTop + visibleH - bottomMargin;
-		const targetTop = overlayTop + 8;
+		const visibleBottom = overlayTop + visibleH;
+		const bottomMargin = focusedFieldBottomMargin();
 		/* Cherche le conteneur scrollable (la liste de l'écran « Ajouter »). */
 		let scroller: HTMLElement | null = el.parentElement;
 		while (scroller && getComputedStyle(scroller).overflowY !== 'auto' && getComputedStyle(scroller).overflowY !== 'scroll') {
 			scroller = scroller.parentElement;
 		}
 		if (!scroller) return;
-		const delta = r.bottom - targetBottom;
-		if (delta > 0) scroller.scrollTop += delta;
-		else if (r.top < targetTop) scroller.scrollTop += r.top - targetTop;
+		const delta = r.bottom - (visibleBottom - bottomMargin);
+		if (delta > 4) {
+			/* Champ masqué (ou trop près du bord) → le remonter JUSTE au-dessus
+			   du clavier, marge confortable (~24 px au-delà de la sécurité iOS). */
+			scroller.scrollTop += delta;
+		} else if (r.top < overlayTop + 8) {
+			/* Champ caché sous le header → le redescendre. */
+			scroller.scrollTop += r.top - (overlayTop + 8);
+		} else {
+			/* Déjà visible avec la marge voulue : ne rien faire. */
+			return;
+		}
 		/* Scroll causé par l'APP : les handlers scroll-dismiss l'ignorent
 		   (250 ms couvre la séquence de resizes du clavier Android). */
 		programmaticScrollUntil = performance.now() + 250;
@@ -3168,10 +3177,11 @@ import { optimizeImageFile } from '$lib/media';
 	/** Champ focalisé de l'éditeur « Créés par moi » : re-positionné quand le
 	    clavier s'ouvre (le visualViewport change APRÈS le focus). */
 	let focusedFieldEl: HTMLElement | null = null;
-	/* La capsule « Recherche / Code-barres / Repas IA » est MASQUÉE dans
-	   l'éditeur « Créés par moi » : la marge basse n'en tient plus compte
-	   (uniquement clavier + sécurité de saisie iOS + respiration). */
-	const focusedFieldBottomMargin = () => (customEditor ? 108 : 108 + 56);
+	/* Marge basse au-dessus du clavier : sécurité de saisie iOS (l'ancre
+	   native ~40 px) + respiration confortable (~24 px) + capsule flottante
+	   (~56 px) UNIQUEMENT quand elle est affichée (masquée dans l'éditeur
+	   « Créés par moi »). */
+	const focusedFieldBottomMargin = () => (customEditor ? 64 : 64 + 56);
 	/** Timestamp jusqu'auquel les scrolls des listes sont causés par l'APP
 	 *  (repositionnement du champ focalisé au-dessus du clavier) : les handlers
 	 *  scroll-dismiss les ignorent — jamais de fermeture de clavier causée par
@@ -3220,15 +3230,20 @@ import { optimizeImageFile } from '$lib/media';
 		const setVh = () => {
 			vvH = Math.round((vv?.height ?? window.innerHeight) ?? 0);
 			vvTop = vv?.offsetTop ?? 0;
-			const opened = vvH < prevVvH - 4;
+			/* Ouverture du clavier = la hauteur DIMINUE ; fermeture = elle
+			   AUGMENTE (le clavier libère l'écran). */
+			const closed = vvH > prevVvH + 4;
 			prevVvH = vvH;
 			/* Le clavier vient de s'ouvrir / se déplacer : replace le champ focalisé
 			   dans la zone visible — UNIQUEMENT après le jolt d'ouverture (~200 ms,
 			   clavier posé). Jamais DÈS le focusin : le scroll instantané sous le
 			   doigt fait perdre le premier caractère au clavier numérique iOS
 			   (cause du tap « ne répond pas » sur le champ Portion habituelle).
-			   Clavier qui se ferme : on arrête de suivre le champ. */
-			if (!opened) {
+			   Le suivi n'est ARRÊTÉ que sur une vraie FERMETURE : les événements
+			   « scroll sans changement de hauteur » (pannement du visualViewport à
+			   l'ouverture iOS, AVANT le resize) ne tuent plus le suivi avant le
+			   repositionnement. */
+			if (closed) {
 				clearTimeout(vvScrollTimer);
 				focusedFieldEl = null;
 			} else if (focusedFieldEl?.isConnected) {
@@ -3887,9 +3902,10 @@ import { optimizeImageFile } from '$lib/media';
 							<!-- PHOTO (OPTIONNELLE) : caméra OU galerie → compression + preview
 							     immédiats ; remplaçable/supprimable avant sauvegarde. La
 							     création SANS photo reste le comportement par défaut. -->
-							<!-- Espacement premium : la section photo respire (séparation nette
-							     d'avec l'intro, marge douce au-dessus du champ Nom). -->
-							<div class="mt-5 rounded-xl border-2 border-dashed border-line bg-cream/60 px-3 py-4">
+							<!-- La section photo respire : vraie marge ENTRE le bloc complet
+							     et le champ Nom ci-dessous (le contenu interne du bloc est
+							     inchangé). -->
+							<div class="mt-5 rounded-xl border-2 border-dashed border-line bg-cream/60 px-3 py-3">
 								<p class="text-xs font-bold text-ink">Photo de l'aliment <span class="font-normal text-mist">(optionnel)</span></p>
 								{#if cfPreviewUrl || cfExistingPhotoUrl}
 									<div class="mt-2 flex items-center gap-3">
@@ -3923,7 +3939,7 @@ import { optimizeImageFile } from '$lib/media';
 								<input bind:this={cfGalleryInput} type="file" accept="image/*" class="hidden" onchange={(e) => { const f = (e.currentTarget as HTMLInputElement).files?.[0]; void pickCustomFoodPhoto(f); }} />
 							</div>
 
-							<input type="text" class="w-full rounded-xl border-2 border-line bg-cream px-3 py-2.5 text-sm font-semibold text-ink outline-none focus:border-brand" placeholder="Nom (ex. Hachis parmentier)" bind:value={cfName} />
+							<input type="text" class="mt-3.5 w-full rounded-xl border-2 border-line bg-cream px-3 py-2.5 text-sm font-semibold text-ink outline-none focus:border-brand" placeholder="Nom (ex. Hachis parmentier)" bind:value={cfName} />
 							<input type="text" class="mt-2 w-full rounded-xl border-2 border-line bg-cream px-3 py-2.5 text-sm text-ink outline-none focus:border-brand" placeholder="Marque (optionnel)" bind:value={cfBrand} />
 
 							{#if cfAiNote}
