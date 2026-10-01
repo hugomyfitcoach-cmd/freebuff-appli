@@ -247,7 +247,8 @@ export const update = mutation({
 		food.globalStatus === "candidate" ||
 		(finalCode !== undefined && !(await barcodeExistsGlobally(ctx, finalCode)))
 			? "candidate"
-			: food.globalStatus;	await ctx.db.patch(customFoodId, {
+			: food.globalStatus;
+	await ctx.db.patch(customFoodId, {
 		...patch,
 		barcode: finalCode,
 		globalStatus,
@@ -266,7 +267,7 @@ export const update = mutation({
 		await deletePhotoSilently(ctx, oldPhoto);
 	}
 	return { ok: true, customFoodId };
-},
+	},
 });
 
 /** Les aliments personnels du client (du plus récent au plus ancien), avec photoUrl si photo. */
@@ -304,10 +305,10 @@ export const remove = mutation({
 export const byIds = query({
 	args: { sessionToken: v.optional(v.string()), ids: v.array(v.id("customFoods")) },
 	handler: async (ctx, { sessionToken, ids }) => {
-	const user = await requireClient(ctx, sessionToken);
-	const foods = await Promise.all(ids.map((id) => ctx.db.get(id)));
-	return withPhotoUrls(ctx, foods.filter((f): f is Doc<"customFoods"> => f !== null && f.userId === user._id));
-},
+		const user = await requireClient(ctx, sessionToken);
+		const foods = await Promise.all(ids.map((id) => ctx.db.get(id)));
+		return withPhotoUrls(ctx, foods.filter((f): f is Doc<"customFoods"> => f !== null && f.userId === user._id));
+	},
 });
 
 /**
