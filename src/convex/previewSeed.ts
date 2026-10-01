@@ -327,9 +327,66 @@ function assertNotProd(): void {
 	}
 }
 
+/**
+ * PHOTO DEMO (PNG 120 px généré — motif G-FLUX, AUCUNE donnée réelle) :
+ * permet de tester l'affichage de la photo d'un aliment « Créés par moi »
+ * dès l'ouverture de la preview, sans capturer une vraie image.
+ */
+const DEMO_PHOTO_PNG_BASE64 =
+	"iVBORw0KGgoAAAANSUhEUgAAAHgAAAB4CAIAAAC2BqGFAAACnUlEQVR4nO2dwU3DUBQEfxW0wY026ItK6DJcUeTEjuQ3uxsvynm0GpLb6P318fN1/PP5+338U/L/z4pbHEo+KtpncSj5kGirxaHkfdFui0PJO6INF4eSn4n2XBxKfijadnEoeVu08+JQ8oZo88Wh5HvR/otDyStucSh5xS0OJa+4xaHkFbc4lLziFoeSXxBtsjiUfFS0z+JQ8iHRVotDyfui3RaHkndEGy4OJT8T7bk4lPxQtO3iUPK2aOfFoeQN0eaLQ8n3ov0Xh5JX3OJQ8opbHEpecYtDyStucSj5hcjRZHEouTUpRG5NCpFbk0Lk1qStSd+L3JoUIrcmhcitSSFya1KI3JoUIitr0pviT/X/U9akzqJPt6GsSW1FT9hQ1qSeoodsKGtSQ9FzNpQ1qZvo0e+csia1Ej39y1bWpD6ipy2La1IT0YBlcU3qIJqxLK5J5aIxy+KaVCuatCyuSYWiYcvimlQlmrcsrkkloiWWxTWpuehzbShrUmfRp9tQ1qS2oidsKGtST9FDNpQ1qaHoORvKmtRN9Oh3TlmTWome/mUra1If0dOWxTWpiWjAsrgmdRDNWBbXpHLRmGVxTaoVTVoW16RC0bBlcU2qEs1bFtekEtESy61JIcutSSHLrUkhy61JIcutSSHLrUkhy61JIcutSSHLrUkhy71Neo2a9FLk3iaFyL1NCpF7mxQi9zYpRO5tUojc26QQubdJIXJvk0Lk3iaFyL1NCpF7mxQi9zYpRO5t0gvUpJci9zYpRO5tUojc26QQubdJIXJvk0LkvnQPkfvSPUTuS/cQuS/dQ+S+dA+R+9I9RO5L9xC5L91D5L5035r0vcitSSFya1KI3JoUIrcmhcitSSFya1KI3JoUIrcmhcitSSHyH8qhsOVrpx1rAAAAAElFTkSuQmCC";
+
+/** Aliment DEMO « Créés par moi » AVEC photo — ficèle de test de la mission photo. */
+const DEMO_CUSTOM_FOOD_NAME = "Bowl démo (photo de test)";
+
+/**
+ * Aliment personnel de DÉMONSTRATION avec photo (idempotent, 100 % fictif) :
+ * teste le chemin complet photo → storage → affichage (liste, recherche,
+ * journal, fiche premium). La photo est déposée sur le storage Convex via
+ * la MÊME mécanique que le miroir alimentaire (URL d'upload générée puis
+ * POST du fichier — pattern établi dans foodImages.ts).
+ */
+async function seedDemoCustomFood(
+	db: MutationCtx["db"],
+	storage: MutationCtx["storage"],
+	betaId: Id<"users">
+): Promise<{ created: boolean }> {
+	const existing = await db
+		.query("customFoods")
+		.withIndex("by_user", (q) => q.eq("userId", betaId))
+		.filter((q) => q.eq(q.field("name"), DEMO_CUSTOM_FOOD_NAME))
+		.first();
+	if (existing) return { created: false };
+	const bytes = Uint8Array.from(atob(DEMO_PHOTO_PNG_BASE64), (c) => c.charCodeAt(0));
+	const uploadUrl = await storage.generateUploadUrl();
+	const res = await fetch(uploadUrl, {
+		method: "POST",
+		headers: { "Content-Type": "image/png" },
+		body: bytes,
+	});
+	if (!res.ok) return { created: false };
+	const uploaded = (await res.json()) as { storageId?: Id<"_storage"> };
+	if (!uploaded.storageId) return { created: false };
+	await db.insert("customFoods", {
+		userId: betaId,
+		name: DEMO_CUSTOM_FOOD_NAME,
+		brand: "Démo",
+		kcal100: 145,
+		carbs100: 12,
+		protein100: 8,
+		fat100: 6,
+		servingQty: 100,
+		sourceKind: "manual",
+		photoStorageId: uploaded.storageId,
+		photoUpdatedAt: Date.now(),
+		createdAt: Date.now(),
+	});
+	return { created: true };
+}
+
 /** Écriture réelle (idempotente) — pure fonction sur le `db` du contexte. */
 async function seedCoreData(
-	db: MutationCtx["db"]
+	db: MutationCtx["db"],
+	storage: MutationCtx["storage"]
 ): Promise<{
 	coachEmail: string;
 	betaEmail: string;
@@ -339,6 +396,7 @@ async function seedCoreData(
 	testProgram: { created: boolean; scheduledCount: number };
 	vision360Demo: { ok: boolean; demoEmail: string; days: number } | { ok: false; error: string };
 	offProducts: { imported: number; created: number };
+	demoCustomFood: { created: boolean };
 }> {
 	// 1) Coach de test (fictif) — hash réappliqué à chaque seed (self-healing :
 	// le mot de passe documenté fonctionne toujours, même après N builds).
@@ -422,6 +480,10 @@ async function seedCoreData(
 		.collect();
 	const testProgram = await seedTestProgram(db, coachId, betaId, allOfficial);
 
+	// 5 bis) Aliment « Créés par moi » DEMO avec photo — la mission photo est
+	//    testable dès l'ouverture de la preview (Créés par moi → fiche → journal).
+	const demoCustomFood = await seedDemoCustomFood(db, storage, betaId);
+
 	// 6) Cliente DEMO Vision 360 (100 % synthétique — 3 semaines de données
 	//    poids/pas/alimentation/sport/mensurations + bilan démo). Idempotent,
 	//    verrou anti-prod propre au module ; non bloquant : un échec démo
@@ -447,6 +509,7 @@ async function seedCoreData(
 		},
 		vision360Demo,
 		offProducts,
+		demoCustomFood,
 	};
 }
 
@@ -480,7 +543,7 @@ export const seedPreviewData = mutation({
 	args: {},
 	handler: async (ctx) => {
 		assertNotProd();
-		return await seedCoreData(ctx.db);
+		return await seedCoreData(ctx.db, ctx.storage);
 	},
 });
 
@@ -488,7 +551,7 @@ export const seedPreviewData = mutation({
 export const seedPreviewDataInternal = internalMutation({
 	handler: async (ctx) => {
 		assertNotProd();
-		return await seedCoreData(ctx.db);
+		return await seedCoreData(ctx.db, ctx.storage);
 	},
 });
 

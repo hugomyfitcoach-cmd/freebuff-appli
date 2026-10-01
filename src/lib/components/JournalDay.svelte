@@ -31,6 +31,9 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 		imageUrl?: string;
 		/** Miniature miroir G-FLUX (copie OFF 100 px) — prioritaire sur imageUrl. */
 		thumbUrl?: string;
+		/** Photo posée par la cliente sur SON aliment (« Créés par moi ») —
+		 *  snapshot de l'URL signée à l'ajout, affichée comme toute image. */
+		photoUrl?: string;
 		qtyGrams: number;
 		kcal: number;
 		carbs: number;
@@ -57,6 +60,8 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 		imageUrl?: string;
 		/** Miniature miroir G-FLUX (copie OFF 100 px) — prioritaire sur imageUrl. */
 		thumbUrl?: string;
+		/** Photo posée par la cliente sur SON aliment (« Créés par moi »). */
+		photoUrl?: string;
 		qtyGrams: number;
 		kcal: number;
 		carbs: number;
@@ -706,7 +711,7 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 			onclick={() => onPlannedClick?.(p)}
 		>
 			{#if p.thumbUrl || p.imageUrl}
-				<FoodImg src={p.thumbUrl} fallbackSrc={p.imageUrl} alt="" eager={false} class="rounded-xl {compact ? 'h-[44px] w-[44px]' : 'h-9 w-9'} opacity-60 saturate-50" />
+				<FoodImg src={p.photoUrl ?? p.thumbUrl} fallbackSrc={p.imageUrl} alt="" eager={false} class="rounded-xl {compact ? 'h-[44px] w-[44px]' : 'h-9 w-9'} opacity-60 saturate-50" />
 			{:else}
 				<div class="grid shrink-0 place-items-center rounded-xl bg-brand-light/60 {compact ? 'h-[44px] w-[44px]' : 'h-9 w-9'} opacity-70"><Icon name="utensils" size={compact ? 15 : 16} class="text-brand/70" /></div>
 			{/if}
@@ -737,7 +742,7 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 
 {#snippet entryBody(e: Entry)}
 	{#if e.thumbUrl || e.imageUrl}
-		<FoodImg src={e.thumbUrl} fallbackSrc={e.imageUrl} alt="" eager={eagerEntryIds.has(e._id)} class="rounded-xl {compact ? 'h-[44px] w-[44px]' : 'h-9 w-9'}" />
+		<FoodImg src={e.photoUrl ?? e.thumbUrl} fallbackSrc={e.imageUrl} alt="" eager={eagerEntryIds.has(e._id)} class="rounded-xl {compact ? 'h-[44px] w-[44px]' : 'h-9 w-9'}" />
 	{:else}
 		<!-- Placeholder G-FLUX compact : même gabarit que la vignette (44 px),
 		     icône réduite pour rester proportionnée. -->

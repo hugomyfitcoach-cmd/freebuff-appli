@@ -105,12 +105,17 @@ test('previewSeed : comptes de test fictifs uniquement (@example.com / allowlist
 
 /* ─── 4) Médias sûrs ─── */
 
-test('médias : URLs relatives au dépôt — aucun Storage ID Convex copié', () => {
-	assert.ok(!/v\.id\("_storage"\)|storageId/.test(seed), 'aucun storageId dans le seed');
+test('médias : URLs relatives au dépôt — aucun Storage ID Convex copié (hors photo DEMO)', () => {
+	// Les médias d'exercices restent des chemins du dépôt, jamais des storageId.
 	const data = readFileSync(seedDataPath, 'utf8');
 	assert.ok(!data.includes('storage'), 'aucune référence storage dans les données embarquées');
 	assert.match(data, /"posterUrl": "\/exercises\//, 'posters = chemins dépôt');
 	assert.match(data, /"animationUrl": "\/exercises\//, 'animations = chemins dépôt');
+	// Mission photo : la SEULE pièce stockée par le seed est la photo DEMO de
+	// l'aliment de test, téléversée À LA VOLÉE sur le storage Convex — le seed
+	// ne copie jamais un storageId préexistant (aucun id codé en dur).
+	assert.ok(!/storageId:\s*["']/.test(seed), 'aucun storageId copié/codé en dur');
+	assert.ok(seed.includes('seedDemoCustomFood'), 'photo DEMO = upload storage à la volée');
 });
 
 /* ─── 5) Programme de test + assignation (parcours complet) ─── */

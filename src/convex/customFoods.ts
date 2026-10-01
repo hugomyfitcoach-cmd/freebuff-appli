@@ -3,7 +3,7 @@ import { v, ConvexError } from "convex/values";
 import { getSessionUser } from "./helpers";
 import { applyKcalGuard } from "../lib/nutritionGuard";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 
 /**
  * Aliments créés par le client (« Créés par moi »).
@@ -24,6 +24,72 @@ async function requireClient(ctx: Pick<QueryCtx, "db">, sessionToken: string | u
 }
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
+
+/* ═══════════ PHOTO DE L'ALIMENT (optionnelle, privée) ═══════════
+ *
+ * La photo appartient à la FICHE créée par la cliente (« Créés par moi ») :
+ * le fichier vit dans le file storage Convex, l'id est posé sur la ligne
+ * customFoods (photoStorageId). Le client n'appelle JAMAIS le storage direct :
+ * l'upload passe par le BFF (même chaîne que la photo de profil), la mutation
+ * vérifie le fichier (type image, taille) et la PROPRIÉTÉ de la fiche avant
+ * de basculer le champ — l'ancienne photo est supprimée du storage dans la
+ * MÊME transaction. L'URL signée est résolue à la lecture, uniquement pour
+ * les fiches de la cliente connectée (isolation stricte).
+ */
+
+/** Plafond large côté Convex : le BFF compresse déjà (WebP ~1600 px) et
+ *  plafonne à 10 Mo comme la photo de profil. */
+const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
+
+/** Résout les URL photo signées pour un lot de fiches DE LA MÊME cliente. */
+async function photoUrlsForOwner(
+	ctx: Pick<QueryCtx, "db" | "storage">,
+	rows: (Doc<"customFoods"> | null)[]
+): Promise<Map<string, string>> {
+	const out = new Map<string, string>();
+	for (const f of rows) {
+		if (!f?.photoStorageId) continue;
+		const url = await ctx.storage.getUrl(f.photoStorageId);
+		if (url) out.set(f._id, url);
+	}
+	return out;
+}
+
+/** Enrichit les fiches personnelles de la cliente avec leur photoUrl. */
+async function withPhotoUrls<T extends Doc<"customFoods">>(
+	ctx: Pick<QueryCtx, "db" | "storage">,
+	foods: T[]
+): Promise<(T & { photoUrl?: string })[]> {
+	if (!foods.length) return foods;
+	const urls = await photoUrlsForOwner(ctx, foods);
+	if (!urls.size) return foods;
+	return foods.map((f) => {
+		const photoUrl = urls.get(f._id);
+		return photoUrl ? { ...f, photoUrl } : f;
+	});
+}
+
+/**
+ * Vérifie un fichier candidat (existant, image, taille raisonnable) avant de
+ * le référencer sur une fiche. Le fichier a déjà été posé sur le storage par
+ * le BFF (URL d'upload générée côté serveur).
+ */
+async function requireValidPhoto(ctx: MutationCtx, storageId: Id<"_storage">) {
+	const meta = await ctx.storage.getMetadata(storageId);
+	if (!meta) throw new ConvexError("Photo introuvable — recommence l'ajout.");
+	if (!meta.contentType?.startsWith("image/")) throw new ConvexError("Le fichier doit être une image.");
+	if (meta.size > MAX_PHOTO_BYTES) throw new ConvexError("Photo trop lourde (10 Mo maximum).");
+}
+
+/** Supprime une photo du storage (silencieux si déjà disparue). */
+async function deletePhotoSilently(ctx: MutationCtx, storageId: Id<"_storage"> | undefined) {
+	if (!storageId) return;
+	try {
+		await ctx.storage.delete(storageId);
+	} catch {
+		// déjà supprimée (remplacement rapproché) : sans effet
+	}
+}
 
 function clamp(n: number, min: number, max: number, label: string): number {
 	if (!isFinite(n)) throw new ConvexError(`${label} invalide.`);
@@ -117,22 +183,30 @@ async function barcodeExistsGlobally(ctx: MutationCtx, code: string): Promise<bo
  * `globalStatus: "candidate"` — candidat à la base globale G-FLUX, mais
  * JAMAIS publié automatiquement (aucune écriture cliente dans `foods`).
  * Sans code-barres (recette maison…) : aliment privé, statut absent.
+ *
+ * PHOTO (optionnelle) : `photoStorageId` = fichier DÉJÀ uploadé sur le
+ * storage via le BFF (route /api/foods/custom, multipart) — vérifié ici
+ * (type image, taille) puis référencé sur la fiche. Aucune URL n'est jamais
+ * acceptée : seule une pièce réellement déposée par la cliente est liée.
  */
 export const create = mutation({
-	args: { sessionToken: v.optional(v.string()), ...foodFields },
-	handler: async (ctx, { sessionToken, barcode, sourceKind, ...fields }) => {
+	args: { sessionToken: v.optional(v.string()), photoStorageId: v.optional(v.id("_storage")), ...foodFields },
+	handler: async (ctx, { sessionToken, barcode, sourceKind, photoStorageId, ...fields }) => {
 	const user = await requireClient(ctx, sessionToken);
 	const clean = normalizeFields(fields);
 	const code = cleanBarcode(barcode);
 	// Anti-doublon serveur : candidat UNIQUEMENT si le code est inconnu de la
 	// base commune. Code déjà connu → aliment personnel simple, zéro candidat.
 	const globalStatus = code && !(await barcodeExistsGlobally(ctx, code)) ? "candidate" : undefined;
+	if (photoStorageId) await requireValidPhoto(ctx, photoStorageId);
 	const id = await ctx.db.insert("customFoods", {
 		userId: user._id,
 		...clean,
 		barcode: code,
 		globalStatus,
 		sourceKind: sourceKind === "label_photo" ? "label_photo" : "manual",
+		photoStorageId,
+		photoUpdatedAt: photoStorageId ? Date.now() : undefined,
 		createdAt: Date.now(),
 	});
 	return { ok: true, customFoodId: id };
@@ -143,10 +217,22 @@ export const create = mutation({
  * Modifie un aliment personnel existant (propriétaire uniquement).
  * Ne touche qu'à la fiche : les entrées du journal déjà enregistrées
  * conservent leur snapshot (nom, marque, valeurs) tel quel.
+ *
+ * PHOTO : `photoStorageId` (remplacement) ou `clearPhoto: true` (retrait)
+ * — l'ancienne photo est supprimée du storage dans la même transaction,
+ * jamais d'orphelin. Aucun autre champ n'est touché par ces options.
  */
 export const update = mutation({
-	args: { sessionToken: v.optional(v.string()), customFoodId: v.id("customFoods"), ...foodFields },
-	handler: async (ctx, { sessionToken, customFoodId, barcode, sourceKind, ...fields }) => {
+	args: {
+		sessionToken: v.optional(v.string()),
+		customFoodId: v.id("customFoods"),
+		/** Remplace la photo (fichier déjà uploadé via le BFF). */
+		photoStorageId: v.optional(v.id("_storage")),
+		/** Retire la photo (sans replacement). */
+		clearPhoto: v.optional(v.boolean()),
+		...foodFields,
+	},
+	handler: async (ctx, { sessionToken, customFoodId, barcode, sourceKind, photoStorageId, clearPhoto, ...fields }) => {
 		const user = await requireClient(ctx, sessionToken);
 		const food = await ctx.db.get(customFoodId);
 		if (!food || food.userId !== user._id) throw new ConvexError("Aliment introuvable.");
@@ -161,36 +247,54 @@ export const update = mutation({
 		food.globalStatus === "candidate" ||
 		(finalCode !== undefined && !(await barcodeExistsGlobally(ctx, finalCode)))
 			? "candidate"
-			: food.globalStatus;
-	await ctx.db.patch(customFoodId, {
+			: food.globalStatus;	await ctx.db.patch(customFoodId, {
 		...patch,
 		barcode: finalCode,
 		globalStatus,
 	});
+	// PHOTO — après le patch des champs nutritionnels (mêmes règles que la
+	// photo de profil : validation du fichier, ancienne copie supprimée).
+	const oldPhoto = food.photoStorageId;
+	if (photoStorageId) {
+		await requireValidPhoto(ctx, photoStorageId);
+		if (photoStorageId !== oldPhoto) {
+			await ctx.db.patch(customFoodId, { photoStorageId, photoUpdatedAt: Date.now() });
+			await deletePhotoSilently(ctx, oldPhoto);
+		}
+	} else if (clearPhoto && oldPhoto) {
+		await ctx.db.patch(customFoodId, { photoStorageId: undefined, photoUpdatedAt: Date.now() });
+		await deletePhotoSilently(ctx, oldPhoto);
+	}
 	return { ok: true, customFoodId };
-	},
+},
 });
 
-/** Les aliments personnels du client (du plus récent au plus ancien). */
+/** Les aliments personnels du client (du plus récent au plus ancien), avec photoUrl si photo. */
 export const list = query({
 	args: { sessionToken: v.optional(v.string()) },
 	handler: async (ctx, { sessionToken }) => {
 		const user = await requireClient(ctx, sessionToken);
-		return ctx.db
+		const rows = await ctx.db
 			.query("customFoods")
 			.withIndex("by_user", (q) => q.eq("userId", user._id))
 			.order("desc")
 			.collect();
+		return withPhotoUrls(ctx, rows);
 	},
 });
 
-/** Supprime un aliment personnel (propriétaire uniquement). */
+/** Supprime un aliment personnel (propriétaire uniquement) — sa photo avec lui. */
 export const remove = mutation({
 	args: { sessionToken: v.optional(v.string()), customFoodId: v.id("customFoods") },
 	handler: async (ctx, { sessionToken, customFoodId }) => {
 		const user = await requireClient(ctx, sessionToken);
 		const food = await ctx.db.get(customFoodId);
 		if (!food || food.userId !== user._id) throw new ConvexError("Aliment introuvable.");
+		// La photo appartient à CETTE fiche : supprimée du storage en même temps
+		// que la ligne (les snapshots journal gardent leur imageUrl — affichage
+		// historique, mais l'URL signée Convex cessera de répondre : FoodImg
+		// retombe sur son placeholder, jamais d'écran cassé).
+		await deletePhotoSilently(ctx, food.photoStorageId);
 		await ctx.db.delete(customFoodId);
 		return { ok: true };
 	},
@@ -200,10 +304,10 @@ export const remove = mutation({
 export const byIds = query({
 	args: { sessionToken: v.optional(v.string()), ids: v.array(v.id("customFoods")) },
 	handler: async (ctx, { sessionToken, ids }) => {
-		const user = await requireClient(ctx, sessionToken);
-		const foods = await Promise.all(ids.map((id) => ctx.db.get(id)));
-		return foods.filter((f): f is Doc<"customFoods"> => f !== null && f.userId === user._id);
-	},
+	const user = await requireClient(ctx, sessionToken);
+	const foods = await Promise.all(ids.map((id) => ctx.db.get(id)));
+	return withPhotoUrls(ctx, foods.filter((f): f is Doc<"customFoods"> => f !== null && f.userId === user._id));
+},
 });
 
 /**
@@ -300,6 +404,8 @@ export const byBarcodeGlobal = query({
 				protein100: own.protein100,
 				fat100: own.fat100,
 				servingQty: own.servingQty,
+				// Rescan d'un produit créé par la cliente : sa photo suit la fiche.
+				photoUrl: own.photoStorageId ? ((await ctx.storage.getUrl(own.photoStorageId)) ?? undefined) : undefined,
 			};
 		}
 		return null;

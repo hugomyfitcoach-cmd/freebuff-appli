@@ -251,6 +251,19 @@ export default defineSchema({
 		globalStatus: v.optional(customFoodGlobalStatus),
 		/** Origine de la création : "manual" (défaut) ou "label_photo". */
 		sourceKind: v.optional(v.string()),
+		/**
+		 * PHOTO de l'aliment (optionnelle) — file storage Convex, POSÉE par la
+		 * cliente qui crée SA fiche (« Créés par moi »). VIE PRIVÉE : l'image
+		 * reste STRICTEMENT liée à cet aliment (isolation par userId, même
+		 * contrat que profilePhotoStorageId) — jamais l'image d'un autre
+		 * utilisateur, jamais une donnée OFF, jamais injectée dans la base
+		 * commune ni partagée entre clientes. Servie par URL signée résolue à la
+		 * lecture (`photoUrl`) ; l'ancienne photo est supprimée du storage à
+		 * chaque remplacement / retrait.
+		 */
+		photoStorageId: v.optional(v.id("_storage")),
+		/** Moment (ms) de la pose/remplacement de la photo — cache navigateur. */
+		photoUpdatedAt: v.optional(v.number()),
 		createdAt: v.number(),
 	})
 		.index("by_user", ["userId"])

@@ -280,6 +280,9 @@ export type FoodHit = {
 	imageUrl?: string;
 	/** Miniature miroir G-FLUX prête (copie OFF 100 px) — prioritaire sur imageUrl. */
 	thumbUrl?: string;
+	/** PHOTO posée par la cliente sur SON aliment (« Créés par moi ») —
+	 *  jamais présent sur un produit OFF : reste strictement liée à SA fiche. */
+	photoUrl?: string;
 	servingQty?: number;
 	servingUnit?: string;
 };
@@ -305,7 +308,7 @@ export function toHit(f: Doc<"foods">): FoodHit {
 	};
 }
 
-function toCustomHit(f: Doc<"customFoods">): FoodHit {
+async function toCustomHit(ctx: Pick<QueryCtx, "db" | "storage">, f: Doc<"customFoods">): Promise<FoodHit> {
 	return {
 		_id: f._id,
 		custom: true,
@@ -316,6 +319,10 @@ function toCustomHit(f: Doc<"customFoods">): FoodHit {
 		protein100: f.protein100,
 		fat100: f.fat100,
 		servingQty: f.servingQty,
+		// PHOTO de la cliente (posée à la création de SA fiche, storage Convex,
+		// URL signée) — JAMAIS une image OFF : un aliment personnel sans photo
+		// n'en a pas (fallback G-FLUX habituel côté FoodImg).
+		photoUrl: f.photoStorageId ? ((await ctx.storage.getUrl(f.photoStorageId)) ?? undefined) : undefined,
 	};
 }
 
@@ -365,7 +372,10 @@ export const searchLocal = query({
 		// historique, pas paginés) : la pagination ne s'applique qu'aux produits
 		// de la base OFF, sans jamais les dupliquer.
 		const ranked = rankFoods(foods.map(toHit), term);
-		const items = [...ranked.slice(offset, offset + limit), ...(offset === 0 ? customs.map(toCustomHit) : [])];
+		const items = [
+			...ranked.slice(offset, offset + limit),
+			...(offset === 0 ? await Promise.all(customs.map((f) => toCustomHit(ctx, f))) : []),
+		];
 		// Miniatures miroir G-FLUX prêtes → thumbUrl (lecture pure, sinon le hit
 		// garde son imageUrl OFF pour le fallback FoodImg).
 		return { items: await attachThumbs(ctx, items), hasMore: offset + limit < ranked.length };
@@ -472,7 +482,9 @@ export const recentFoods = query({
 	]);
 	const hits = await attachThumbs(ctx, [
 		...foodRows.filter((f): f is Doc<"foods"> => f !== null).map(toHit),
-		...customRows.filter((f): f is Doc<"customFoods"> => f !== null).map(toCustomHit),
+		...(await Promise.all(
+			customRows.filter((f): f is Doc<"customFoods"> => f !== null).map((f) => toCustomHit(ctx, f))
+		)),
 	]);
 	return hits;
 },
@@ -698,6 +710,21 @@ export const getDay = query({
 		const servingByFood = new Map<string, { qty?: number; unit?: string }>();
 		for (const f of foodRows) if (f) servingByFood.set(f._id, { qty: f.servingQty, unit: f.servingUnit });
 		for (const f of customRows) if (f) servingByFood.set(f._id, { qty: f.servingQty });
+		// Photos des aliments « Créés par moi » → photoUrl sur les entrées et
+		// items planifiés concernés (MÊME mécanique d'affichage que thumbUrl :
+		// isolemment par la fiche, jamais partagée entre clientes).
+		const customPhotoByFoodId = new Map<string, string>();
+		for (const f of customRows) {
+			if (!f?.photoStorageId) continue;
+			const url = await ctx.storage.getUrl(f.photoStorageId);
+			if (url) customPhotoByFoodId.set(f._id, url);
+		}
+		const withCustomPhoto = <T extends { customFoodId?: Id<"customFoods">; imageUrl?: string }>(rows: T[]): T[] =>
+			rows.map((row) => {
+				const photoUrl = row.customFoodId ? customPhotoByFoodId.get(row.customFoodId) : undefined;
+				return photoUrl ? { ...row, photoUrl } : row;
+			});
+
 		const entriesOut = await attachThumbsForFoodIds(
 			ctx,
 			entries.map((e) => {
@@ -708,7 +735,7 @@ export const getDay = query({
 					servingUnit: info?.unit ?? undefined,
 				};
 			})
-		);
+		).then(withCustomPhoto);
 		const plannedOut = await attachThumbsForFoodIds(
 			ctx,
 			plannedRows.map((e) => {
@@ -719,7 +746,7 @@ export const getDay = query({
 					servingUnit: info?.unit ?? undefined,
 				};
 			})
-		);
+		).then(withCustomPhoto);
 
 		const totals = entries.reduce(
 			(acc, e) => {
@@ -957,6 +984,10 @@ export const addEntry = mutation({
 			if (food.userId !== user._id) throw new ConvexError("Cet aliment ne t'appartient pas.");
 			name = food.name;
 			brand = food.brand;
+			// PHOTO de l'aliment personnel : snapshot de l'URL signée dans
+			// l'entrée (même mécanique qu'imageUrl OFF) — le Journal affiche la
+			// photo comme pour n'importe quel aliment.
+			imageUrl = food.photoStorageId ? ((await ctx.storage.getUrl(food.photoStorageId)) ?? undefined) : undefined;
 			kcal100 = food.kcal100;
 			carbs100 = food.carbs100;
 			protein100 = food.protein100;
@@ -1189,6 +1220,14 @@ export const eatPlanned = mutation({
 			source: "planned_eaten",
 			createdAt: Date.now(),
 		});
+		// Photo de l'aliment personnel : si l'item planifié ne la portait pas
+		// encore (création postérieure au snapshot), elle est rafraîchie à la
+		// validation — sans jamais la retirer d'une entrée qui l'avait déjà.
+		if (p.customFoodId && !p.imageUrl) {
+			const cf = await ctx.db.get(p.customFoodId);
+			const url = cf?.photoStorageId ? await ctx.storage.getUrl(cf.photoStorageId) : null;
+			if (url) await ctx.db.patch(entryId, { imageUrl: url });
+		}
 		await ctx.db.delete(plannedId);
 		return { ok: true, entryId };
 	},
@@ -1314,6 +1353,8 @@ export const replacePlanned = mutation({
 			if (!food || food.userId !== user._id) throw new ConvexError("Cet aliment ne t'appartient pas.");
 			name = food.name;
 			brand = food.brand;
+			// Photo de l'aliment personnel (cf. addEntry) : suit le snapshot.
+			imageUrl = food.photoStorageId ? ((await ctx.storage.getUrl(food.photoStorageId)) ?? undefined) : undefined;
 			kcal100 = food.kcal100;
 			carbs100 = food.carbs100;
 			protein100 = food.protein100;

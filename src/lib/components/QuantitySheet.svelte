@@ -63,6 +63,10 @@
 			imageUrl?: string;
 			/** Miniature miroir G-FLUX — repli du hero si pas d'URL d'origine. */
 			thumbUrl?: string;
+			/** Photo posée par la cliente sur SON aliment (« Créés par moi ») —
+			 *  utilisée uniquement si aucune URL d'origine n'existe (jamais pour
+			 *  un produit OFF, qui garde son image / sa miniature miroir). */
+			photoUrl?: string;
 			kcal100: number;
 			carbs100: number;
 			protein100: number;
@@ -120,7 +124,9 @@
 
 	/* Hero : image OFF d'ORIGINE (meilleure résolution) en priorité, repli sur
 	   la miniature miroir G-FLUX (cache) — FoodImg gère la chaîne de repli. */
-	const heroSrc = $derived(food.imageUrl ?? food.thumbUrl);
+	/** Priorité affichage : snapshot d'origine (photo cliente pour un aliment
+	 *  personnalisé, image OFF sinon) → miniature miroir → photo cliente. */
+	const heroSrc = $derived(food.imageUrl ?? food.thumbUrl ?? food.photoUrl);
 	/* Marque fiable : présente et jamais la chaîne « null » héritée de l'API OFF. */
 	const hasBrand = $derived(!!food.brand && food.brand !== 'null');
 
@@ -353,7 +359,7 @@
 			<div class="relative shrink-0 bg-cream">
 				<div class="h-[min(24dvh,180px)] sm:h-[180px]">
 					{#if heroSrc}
-						<FoodImg src={food.imageUrl} fallbackSrc={food.thumbUrl} alt={food.name} class="h-full w-full" fit="contain" eager />
+						<FoodImg src={heroSrc} fallbackSrc={food.thumbUrl} alt={food.name} class="h-full w-full" fit="contain" eager />
 					{:else}
 						<!-- Placeholder G-FLUX : grande tuile neutre, jamais d'icône cassée. -->
 						<div class="grid h-full w-full place-items-center">

@@ -463,6 +463,16 @@ export const removeClient = mutation({
 			.withIndex("by_user_date", (q) => q.eq("userId", userId))
 			.collect();
 		for (const e of entries) await ctx.db.delete(e._id);
+		// Aliments « Créés par moi » + leurs PHOTOS privées (fichiers storage)
+		// — données personnelles de la cliente, supprimées avec sa fiche.
+		const customFoods = await ctx.db
+			.query("customFoods")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.collect();
+		for (const cf of customFoods) {
+			if (cf.photoStorageId) await ctx.storage.delete(cf.photoStorageId).catch(() => {});
+			await ctx.db.delete(cf._id);
+		}
 		const steps = await ctx.db
 			.query("dailySteps")
 			.withIndex("by_user", (q) => q.eq("userId", userId))

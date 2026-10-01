@@ -14,6 +14,7 @@
 import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 import { warmFoodImages } from '$lib/foodImageWarm';
 import { journalTipForDay } from '$lib/data/journalTips';
+import { optimizeImageFile } from '$lib/media';
 
 	type Goals = { kcal: number; carbs: number; protein: number; fat: number; maintenanceKcal?: number };
 	type Entry = {
@@ -23,6 +24,9 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		imageUrl?: string;
 		/** Miniature miroir G-FLUX (copie OFF 100 px) — prioritaire sur imageUrl. */
 		thumbUrl?: string;
+		/** Photo posée par la cliente sur SON aliment (« Créés par moi ») —
+		 *  snapshot de l'URL signée à l'ajout au Journal. */
+		photoUrl?: string;
 		qtyGrams: number;
 		kcal: number;
 		carbs: number;
@@ -45,15 +49,16 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	};
 	/** Item PLANIFIÉ — plan coach ou préparation cliente : grisé, 0 impact header. */
 	type PlannedItem = {
-		/** Date "yyyy-mm-dd" de l'item (frontière « Mangé » : jamais au futur). */
-		date: string;
-		_id: string;
-		name: string;
-		brand?: string;
-		imageUrl?: string;
-		/** Miniature miroir G-FLUX (copie OFF 100 px) — prioritaire sur imageUrl. */
-		thumbUrl?: string;
-		qtyGrams: number;
+		/** Date "yyyy-mm-dd" de l'item (frontière « Mangé » : jamais au futur). */			date: string;
+			_id: string;
+			name: string;
+			brand?: string;
+			imageUrl?: string;
+			/** Miniature miroir G-FLUX (copie OFF 100 px) — prioritaire sur imageUrl. */
+			thumbUrl?: string;
+			/** Photo posée par la cliente sur SON aliment (« Créés par moi »). */
+			photoUrl?: string;
+			qtyGrams: number;
 		kcal: number;
 		carbs: number;
 		protein: number;
@@ -92,6 +97,9 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		imageUrl?: string;
 		/** Miniature miroir G-FLUX prête (copie OFF 100 px) — prioritaire sur imageUrl. */
 		thumbUrl?: string;
+		/** PHOTO posée par la cliente sur SON aliment (« Créés par moi ») —
+		 *  jamais sur un produit OFF : reste liée à sa fiche personnelle. */
+		photoUrl?: string;
 		servingQty?: number;
 		/** Aliment personnel créé par le client (base « Créés par moi »). */
 		custom?: boolean;
@@ -641,6 +649,8 @@ import { journalTipForDay } from '$lib/data/journalTips';
 					name: editPlanned.name,
 					brand: editPlanned.brand,
 					imageUrl: editPlanned.imageUrl,
+					thumbUrl: editPlanned.thumbUrl,
+					photoUrl: editPlanned.photoUrl,
 					custom: !editPlanned.foodId && !editPlanned.ciqualLabel && !!editPlanned.customFoodId,					kcal100: editPlanned.qtyGrams > 0 ? (editPlanned.kcal / editPlanned.qtyGrams) * 100 : 0,
 					carbs100: editPlanned.qtyGrams > 0 ? (editPlanned.carbs / editPlanned.qtyGrams) * 100 : 0,
 					protein100: editPlanned.qtyGrams > 0 ? (editPlanned.protein / editPlanned.qtyGrams) * 100 : 0,
@@ -1108,6 +1118,91 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	let cfServing = $state('');
 	let cfSaving = $state(false);
 	let cfError = $state('');
+	/* ————— Photo de l'aliment (OPTIONNELLE) —————
+	 * Filchée (caméra) OU choisie dans la galerie, COMPRESSÉE immédiatement
+	 * côté client (optimizeImageFile : downscale 1600 px, WebP/JPEG, EXIF
+	 * enlevé, orientation iPhone respectée) puis montrée en preview. Envoyée
+	 * au BFF (multipart) uniquement à la sauvegarde ; remplaçable/supprimable
+	 * avant ET après enregistrement. Aucune dépendance à une URL locale : le
+	 * fichier part vers le storage Convex via le serveur (persistant). */
+	let cfPhotoBlob = $state<Blob | null>(null);
+	/** URL de preview locale (blob:) — révoquée à chaque remplacement/sortie. */
+	let cfPreviewUrl = $state('');
+	/** Photo EXISTANTE de la fiche (édition) : nommée pour replacer le bouton. */
+	let cfExistingPhotoUrl = $state('');
+	let cfCameraInput: HTMLInputElement | undefined;
+	let cfGalleryInput: HTMLInputElement | undefined;
+	let cfPhotoBusy = $state(false);
+	/** La fiche ouverte avait une photo stockée (édition : option « supprimer »). */
+	let cfHadStoredPhoto = $state(false);
+
+	/** Choisit/photographie une photo → compression immédiate + preview. */
+	async function pickCustomFoodPhoto(file: File | undefined | null) {
+		if (!file) return;
+		if (!file.type.startsWith('image/')) {
+			cfError = 'Le fichier choisi n\'est pas une image.';
+			return;
+		}
+		cfPhotoBusy = true;
+		cfError = '';
+		try {
+			const { blob } = await optimizeImageFile(file);
+			// Portrait par défaut : l'iPhone livre parfois le fichier en paysage
+			// « cru » — optimizeImageFile dessine via createImageBitmap/img
+			// (orientation EXIF respectée) : la preview reflète le résultat final.
+			if (cfPreviewUrl) {
+				try {
+					URL.revokeObjectURL(cfPreviewUrl);
+				} catch {
+					/* déjà révoquée */
+				}
+			}
+			cfPhotoBlob = blob;
+			cfPreviewUrl = URL.createObjectURL(blob);
+		} catch {
+			cfError = 'Impossible de lire cette image — essaie une autre photo.';
+		} finally {
+			cfPhotoBusy = false;
+		}
+	}
+	/** Supprime la photo AVANT sauvegarde (preview + fichier local jetés). */
+	function removeCustomFoodPhoto() {
+		cfExistingPhotoUrl = '';
+
+		if (cfPreviewUrl) {
+			try {
+				URL.revokeObjectURL(cfPreviewUrl);
+			} catch {
+				/* déjà révoquée */
+			}
+		}
+		cfPreviewUrl = '';
+		cfPhotoBlob = null;
+		if (cfCameraInput) cfCameraInput.value = '';
+		if (cfGalleryInput) cfGalleryInput.value = '';
+	}
+
+	/** Construit le corps multipart (avec la photo si une nouvelle est choisie). */
+	function customFoodFormData(withPhoto: boolean): FormData | null {
+		const num = (v: string) => {
+			const n = parseFloat(v.replace(',', '.'));
+			return v.trim() === '' || !isFinite(n) ? undefined : n;
+		};
+		const fd = new FormData();
+		fd.set('name', cfName);
+		if (cfBrand.trim()) fd.set('brand', cfBrand.trim());
+		fd.set('kcal100', String(num(cfKcal) ?? 0));
+		fd.set('carbs100', String(num(cfCarbs) ?? 0));
+		fd.set('protein100', String(num(cfProtein) ?? 0));
+		fd.set('fat100', String(num(cfFat) ?? 0));
+		if (num(cfFiber) !== undefined) fd.set('fiber100', String(num(cfFiber)));
+		if (num(cfSalt) !== undefined) fd.set('salt100', String(num(cfSalt)));
+		if (num(cfServing) !== undefined) fd.set('servingQty', String(num(cfServing)));
+		if (withPhoto && cfPhotoBlob) {
+			fd.set('photo', cfPhotoBlob, 'photo.jpg');
+		}
+		return fd;
+	}
 	/** Champs signalés « à vérifier » (photo d'étiquette ambiguë). */
 	let cfReview = $state<Set<string>>(new Set());
 	/** Note IA (« kcal converties depuis kJ »…) affichée au-dessus du formulaire. */
@@ -1151,6 +1246,8 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		servingQty?: number;
 		servingUnit?: string;
 		kcalRecalculated?: boolean;
+		/** Photo de la fiche perso de la cliente (source: 'own'). */
+		photoUrl?: string;
 	};
 
 	async function loadCustomFoods() {
@@ -1169,6 +1266,9 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		createSheetOpen = false;
 		cfEditingId = null;
 		pendingBarcode = null;
+		removeCustomFoodPhoto();
+		cfExistingPhotoUrl = '';
+		cfHadStoredPhoto = false;
 		bcStep = 'hidden';
 		bcCode = null;
 		bcExisting = null;
@@ -1186,7 +1286,12 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	/** Édition : pré-remplit le formulaire avec la fiche existante (sauvegarde → mise à jour). */
 	function openCustomEditorFor(food: Food) {
 		customEditor = true;
+		removeCustomFoodPhoto();
 		cfEditingId = food._id;
+		// Photo EXISTANTE de la fiche : preview initiale ; « Supprimer » la
+		// retirera du serveur (clearPhoto) — jamais de photo d'un autre produit.
+		cfExistingPhotoUrl = food.photoUrl ?? '';
+		cfHadStoredPhoto = !!food.photoUrl;
 		cfName = food.name;
 		cfBrand = food.brand ?? '';
 		cfKcal = String(food.kcal100);
@@ -1205,6 +1310,9 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	}
 	function closeCustomEditor() {
 		customEditor = false;
+		removeCustomFoodPhoto();
+		cfExistingPhotoUrl = '';
+		cfHadStoredPhoto = false;
 	}
 	async function saveCustomFood() {
 		const num = (v: string) => {
@@ -1245,25 +1353,50 @@ import { journalTipForDay } from '$lib/data/journalTips';
 				return;
 			}
 			/* Édition → PUT sur la fiche existante (pas de doublon, journal intact). */
-			const r = await fetch(cfEditingId ? `/api/foods/custom?id=${cfEditingId}` : '/api/foods/custom', {
-				method: cfEditingId ? 'PUT' : 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					name: cfName,
-					brand: cfBrand.trim() || undefined,
-					kcal100: num(cfKcal),
-					carbs100: num(cfCarbs) ?? 0,
-					protein100: num(cfProtein) ?? 0,
-					fat100: num(cfFat) ?? 0,
-					fiber100: num(cfFiber),
-					salt100: num(cfSalt),
-					servingQty: num(cfServing),
-					barcode: code || undefined,
-					sourceKind: code ? 'label_photo' : undefined,
-				}),
-			});
-			const j = await r.json();
-			if (j.error) throw new Error(j.error);
+			/* PHOTO : si une NOUVELLE photo est choisie (ou un retrait demandé
+			   sur une fiche qui en avait une), on passe en multipart ; sinon le
+			   contrat JSON historique est conservé (zéro régression). */
+			const wantsPhoto = !!cfPhotoBlob;
+			const wantsClear = cfEditingId !== null && cfHadStoredPhoto && !cfPhotoBlob && !cfExistingPhotoUrl;
+			let j: (Record<string, unknown> & { error?: string }) | null;
+			if (wantsPhoto || wantsClear) {
+				const fd = customFoodFormData(true);
+				if (!fd) {
+					cfError = 'Formulaire invalide.';
+					cfSaving = false;
+					return;
+				}
+				if (wantsClear) fd.set('clearPhoto', 'true');
+				if (code) fd.set('barcode', code);
+				if (code) fd.set('sourceKind', 'label_photo');
+				j = await (
+					await fetch(cfEditingId ? `/api/foods/custom?id=${cfEditingId}` : '/api/foods/custom', {
+						method: cfEditingId ? 'PUT' : 'POST',
+						body: fd,
+					})
+				).json();
+			} else {
+				j = await (
+					await fetch(cfEditingId ? `/api/foods/custom?id=${cfEditingId}` : '/api/foods/custom', {
+						method: cfEditingId ? 'PUT' : 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({
+							name: cfName,
+							brand: cfBrand.trim() || undefined,
+							kcal100: num(cfKcal),
+							carbs100: num(cfCarbs) ?? 0,
+							protein100: num(cfProtein) ?? 0,
+							fat100: num(cfFat) ?? 0,
+							fiber100: num(cfFiber),
+							salt100: num(cfSalt),
+							servingQty: num(cfServing),
+							barcode: code || undefined,
+							sourceKind: code ? 'label_photo' : undefined,
+						}),
+					})
+				).json();
+			}
+			if (j?.error) throw new Error(String(j.error));
 			pendingBarcode = null;
 			bcStep = 'hidden';
 			bcCode = null;
@@ -1387,6 +1520,9 @@ import { journalTipForDay } from '$lib/data/journalTips';
 		searchTab = 'crees';
 		customEditor = true;
 		cfEditingId = null;
+		removeCustomFoodPhoto();
+		cfExistingPhotoUrl = '';
+		cfHadStoredPhoto = false;
 		cfName = a.name ?? '';
 			cfBrand = a.brand ?? '';
 			cfKcal = a.kcal100 !== undefined ? String(a.kcal100) : '';
@@ -1510,6 +1646,8 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			servingQty: hit.servingQty,
 			kcalRecalculated: hit.kcalRecalculated,
 			custom: hit.source === 'own' ? true : undefined,
+			// Rescan d'un produit déjà créé : la photo de SA fiche suit.
+			photoUrl: hit.photoUrl,
 		};
 		openQty(food);
 	}
@@ -2070,7 +2208,10 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	let qtyError = $state('');
 
 	function openQty(food: Food) {
-		qtyFood = food;
+		// PHOTO d'un aliment personnel : la fiche doit refléter la photo POSÉE
+		// PAR LA CLIENTE même si l'entrée/le hit ne la snapshotte pas — la photo
+		// appartient à SA fiche, la relecture directe est toujours autorisée.
+		qtyFood = { ...food, photoUrl: food.photoUrl ?? customFoods.find((f) => f._id === food._id)?.photoUrl };
 		qtyGrams = food.servingQty && food.servingQty > 0 ? Math.round(food.servingQty) : 100;
 		qtyError = '';
 		// Préchauffage du miroir (fire-and-forget) : la sélection d'un produit
@@ -2798,20 +2939,21 @@ import { journalTipForDay } from '$lib/data/journalTips';
 			: null
 	);
 	/* Aliment « reconstruit » depuis l'entrée pour alimenter la feuille partagée
-	   (mêmes kcal/100 g — le serveur recalcule exactement pareil à l'enregistrement). */
-	const editFood = $derived(
+	   (mêmes kcal/100 g — le serveur recalcule exactement pareil à l'enregistrement). */	const editFood = $derived(
 		editEntry
 			? {
 					name: editEntry.name,
 					brand: editEntry.brand,
 					imageUrl: editEntry.imageUrl,
+					thumbUrl: editEntry.thumbUrl,
+					photoUrl: editEntry.photoUrl,
 					custom: !editEntry.foodId && !editEntry.ciqualLabel && !!editEntry.customFoodId,
 					kcal100: editEntry.qtyGrams > 0 ? (editEntry.kcal / editEntry.qtyGrams) * 100 : 0,
 					carbs100: editEntry.qtyGrams > 0 ? (editEntry.carbs / editEntry.qtyGrams) * 100 : 0,
 					protein100: editEntry.qtyGrams > 0 ? (editEntry.protein / editEntry.qtyGrams) * 100 : 0,
 					fat100: editEntry.qtyGrams > 0 ? (editEntry.fat / editEntry.qtyGrams) * 100 : 0,
 					servingQty: editEntry.servingQty,
-			}
+				}
 			: null
 	);
 	async function saveEdit(qtyGrams: number, meal: string) {
@@ -3472,7 +3614,11 @@ import { journalTipForDay } from '$lib/data/journalTips';
 	{@const fav = favSet.has(food._id)}
 	<li class="flex items-center gap-1">
 		<button type="button" class="flex min-w-0 flex-1 items-center gap-2.5 py-2 pl-1 pr-1 text-left transition hover:bg-line/30" onclick={() => openQty(food)}>
-			{#if food.thumbUrl || food.imageUrl}
+			{#if food.photoUrl}
+				<!-- Photo posée par la cliente sur SON aliment : prioritaire (jamais
+				     une image OFF — un aliment personnalisé n'a pas de fiche OFF). -->
+				<FoodImg src={food.photoUrl} alt="" class="h-10 w-10 rounded-lg" />
+			{:else if food.thumbUrl || food.imageUrl}
 				<FoodImg src={food.thumbUrl} fallbackSrc={food.imageUrl} alt="" class="h-10 w-10 rounded-lg" />
 			{:else}
 				<div class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={18} class="text-brand" /></div>
@@ -3697,6 +3843,43 @@ import { journalTipForDay } from '$lib/data/journalTips';
 							<p class="mb-1 text-sm font-semibold text-ink">{cfEditingId ? 'Modifier l\'aliment' : 'Nouvel aliment'}</p>
 							<p class="mb-3 text-xs text-mist">{cfEditingId ? 'Mets à jour les valeurs pour 100 g : les prochains ajouts au journal utiliseront les nouvelles valeurs.' : 'Reçois-tu un plat avec une étiquette nutritionnelle ? Saisis les valeurs pour 100 g : l\'aliment sera ajouté à ta base.'}</p>
 
+							<!-- PHOTO (OPTIONNELLE) : caméra OU galerie → compression + preview
+							     immédiats ; remplaçable/supprimable avant sauvegarde. La
+							     création SANS photo reste le comportement par défaut. -->
+							<div class="mt-3 rounded-xl border-2 border-dashed border-line bg-cream/60 px-3 py-3">
+								<p class="text-xs font-bold text-ink">Photo de l'aliment <span class="font-normal text-mist">(optionnel)</span></p>
+								{#if cfPreviewUrl || cfExistingPhotoUrl}
+									<div class="mt-2 flex items-center gap-3">
+										<img src={cfPreviewUrl || cfExistingPhotoUrl} alt="Photo de l'aliment" class="h-20 w-20 rounded-xl border border-line object-cover" />
+										<div class="flex flex-col gap-1.5">
+											<div class="flex gap-2">
+												<button type="button" class="flex items-center gap-1.5 rounded-full bg-brand px-3 py-1.5 text-xs font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={cfPhotoBusy} onclick={() => cfCameraInput?.click()}>
+													<Icon name="camera" size={13} />Remplacer
+												</button>
+												<button type="button" class="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold text-mist transition hover:text-danger" disabled={cfPhotoBusy} onclick={removeCustomFoodPhoto}>
+													<Icon name="trash" size={13} />Supprimer
+												</button>
+											</div>
+											<button type="button" class="text-left text-[11px] text-mist underline-offset-2 transition hover:text-ink hover:underline" disabled={cfPhotoBusy} onclick={() => cfGalleryInput?.click()}>Choisir dans la galerie</button>
+										</div>
+									</div>
+									{#if cfPhotoBusy}
+										<p class="mt-2 text-xs text-mist">Optimisation de la photo…</p>
+									{/if}
+								{:else}
+									<div class="mt-2 flex flex-wrap gap-2">
+										<button type="button" class="flex items-center gap-1.5 rounded-full bg-brand px-4 py-2 text-xs font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={cfPhotoBusy} onclick={() => cfCameraInput?.click()}>
+											<Icon name="camera" size={13} />{cfPhotoBusy ? 'Optimisation…' : 'Prendre une photo'}</button>
+										<button type="button" class="flex items-center gap-1.5 rounded-full border border-line bg-white px-4 py-2 text-xs font-bold text-ink transition hover:border-brand disabled:opacity-60" disabled={cfPhotoBusy} onclick={() => cfGalleryInput?.click()}>
+											<Icon name="image" size={13} />Choisir dans la galerie</button>
+									</div>
+								{/if}
+								<!-- capture : caméra (arrière par défaut) · non-capture : galerie.
+							     Aucun champ requis : le formulaire reste soumissible sans photo. -->
+								<input bind:this={cfCameraInput} type="file" accept="image/*" capture="environment" class="hidden" onchange={(e) => { const f = (e.currentTarget as HTMLInputElement).files?.[0]; void pickCustomFoodPhoto(f); }} />
+								<input bind:this={cfGalleryInput} type="file" accept="image/*" class="hidden" onchange={(e) => { const f = (e.currentTarget as HTMLInputElement).files?.[0]; void pickCustomFoodPhoto(f); }} />
+							</div>
+
 							<input type="text" class="w-full rounded-xl border-2 border-line bg-cream px-3 py-2.5 text-sm font-semibold text-ink outline-none focus:border-brand" placeholder="Nom (ex. Hachis parmentier)" bind:value={cfName} />
 							<input type="text" class="mt-2 w-full rounded-xl border-2 border-line bg-cream px-3 py-2.5 text-sm text-ink outline-none focus:border-brand" placeholder="Marque (optionnel)" bind:value={cfBrand} />
 
@@ -3826,11 +4009,14 @@ import { journalTipForDay } from '$lib/data/journalTips';
 								<ul class="flex flex-col gap-2">
 									{#each customFoods as food (food._id)}
 										<li class="flex items-center gap-2">
-											<button type="button" class="flex min-w-0 flex-1 items-center gap-3 rounded-2xl border border-line bg-white p-2.5 text-left shadow-sm transition hover:border-brand" onclick={() => openQty(food)}>
-												<div class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name="soup" size={20} class="text-brand" /></div>
-												<span class="min-w-0 flex-1">
-													<span class="block truncate text-sm font-semibold text-ink">{food.name}</span>
-												<span class="block text-xs text-mist"><strong class="font-bold text-brand">{fmt(food.kcal100)} kcal</strong> · 100 g{#if food.brand} · {food.brand}{/if}</span>
+											<button type="button" class="flex min-w-0 flex-1 items-center gap-3 rounded-2xl border border-line bg-white p-2.5 text-left shadow-sm transition hover:border-brand" onclick={() => openQty(food)}>															{#if food.photoUrl}
+																<FoodImg src={food.photoUrl} alt="" class="h-11 w-11 rounded-xl" />
+															{:else}
+																<div class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name="soup" size={20} class="text-brand" /></div>
+															{/if}
+														<span class="min-w-0 flex-1">
+														<span class="block truncate text-sm font-semibold text-ink">{food.name}</span>
+														<span class="block text-xs text-mist"><strong class="font-bold text-brand">{fmt(food.kcal100)} kcal</strong> · 100 g{#if food.brand} · {food.brand}{/if}</span>
 											</span>
 										</button>
 										<button type="button" class="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-mist transition hover:bg-line/70 hover:text-ink" aria-label={`Modifier ${food.name}`} onclick={() => openCustomEditorFor(food)}><Icon name="pencil" size={15} /></button>
