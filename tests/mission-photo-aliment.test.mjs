@@ -146,10 +146,15 @@ test('Scan d’un produit déjà créé : la photo de sa fiche suit le hit', () 
 
 /* ─── 6) Preview DEMO ─── */
 
-test('Seed preview : aliment DEMO avec photo (100 % fictif, idempotent, upload storage)', () => {
+test('Seed preview : aliment DEMO avec photo (100 % fictif, idempotent, upload storage côté action)', () => {
 	assert.ok(previewSeed.includes('seedDemoCustomFood'), 'aliment de démo avec photo');
 	assert.ok(previewSeed.includes('DEMO_CUSTOM_FOOD_NAME'), 'nom de test identifiable');
-	assert.ok(previewSeed.includes('storage.generateUploadUrl'), 'pattern storage établi (foodImages)');
+	// Contrainte runtime Convex : storage.store n'existe que dans une ACTION.
+	// Le hook --preview-run est donc une action (upload) → mutation interne
+	// pour les écritures ; un échec d'upload ne bloque JAMAIS le seed.
+	assert.ok(/export const seedPreviewData = action\(/.test(previewSeed), 'hook --preview-run = action (contexte action requis pour l\'upload)');
+	assert.ok(previewSeed.includes('ctx.storage.store'), 'upload via storage.store (jamais fetch en mutation)');
+	assert.ok(previewSeed.includes('seedCoreInternal'), 'écritures centralisées dans la mutation interne');
 });
 
 /* ─── 7) Non-régression — clavier, scanner, flux existants ─── */

@@ -59,9 +59,10 @@ export const POST = async () => {
 		return json({ enabled: true, convexUrl: url, error: 'refus: environnement ressemblant à la production' }, { status: 403 });
 	}
 	try {
-		// Seed self-healing (hash réappliqué) — la même mutation sert au hook
-		// --preview-run du workflow Convex × Netlify.
-		const r = await convex.mutation(api.previewSeed.seedPreviewData, {});
+		// Seed self-healing (hash réappliqué) — la même ACTION sert au hook
+		// --preview-run du workflow Convex × Netlify (action : l'upload de la
+		// photo DEMO au storage exige ce contexte).
+		const r = await convex.action(api.previewSeed.seedPreviewData, {});
 		return json({
 			enabled: true,
 			convexUrl: url,

@@ -1,5 +1,5 @@
 import { v, ConvexError } from "convex/values";
-import { mutation, internalMutation, httpAction } from "./_generated/server";
+import { mutation, action, internalMutation, httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
@@ -341,13 +341,14 @@ const DEMO_CUSTOM_FOOD_NAME = "Bowl démo (photo de test)";
 /**
  * Aliment personnel de DÉMONSTRATION avec photo (idempotent, 100 % fictif) :
  * teste le chemin complet photo → storage → affichage (liste, recherche,
- * journal, fiche premium). La photo est déposée sur le storage Convex via
- * la MÊME mécanique que le miroir alimentaire (URL d'upload générée puis
- * POST du fichier — pattern établi dans foodImages.ts).
+ * journal, fiche premium). Le FICHIER a déjà été déposé sur le storage par
+ * l'action appelante (`seedPreviewData`) — `storage.store`/`fetch` n'existent
+ * pas dans une mutation (doc Convex). Sans photo → fiche DEMO classique
+ * (comportement « création sans photo », mission testable par capture réelle).
  */
 async function seedDemoCustomFood(
 	db: MutationCtx["db"],
-	storage: MutationCtx["storage"],
+	demoPhotoStorageId: Id<"_storage"> | undefined,
 	betaId: Id<"users">
 ): Promise<{ created: boolean }> {
 	const existing = await db
@@ -356,16 +357,6 @@ async function seedDemoCustomFood(
 		.filter((q) => q.eq(q.field("name"), DEMO_CUSTOM_FOOD_NAME))
 		.first();
 	if (existing) return { created: false };
-	const bytes = Uint8Array.from(atob(DEMO_PHOTO_PNG_BASE64), (c) => c.charCodeAt(0));
-	const uploadUrl = await storage.generateUploadUrl();
-	const res = await fetch(uploadUrl, {
-		method: "POST",
-		headers: { "Content-Type": "image/png" },
-		body: bytes,
-	});
-	if (!res.ok) return { created: false };
-	const uploaded = (await res.json()) as { storageId?: Id<"_storage"> };
-	if (!uploaded.storageId) return { created: false };
 	await db.insert("customFoods", {
 		userId: betaId,
 		name: DEMO_CUSTOM_FOOD_NAME,
@@ -376,8 +367,8 @@ async function seedDemoCustomFood(
 		fat100: 6,
 		servingQty: 100,
 		sourceKind: "manual",
-		photoStorageId: uploaded.storageId,
-		photoUpdatedAt: Date.now(),
+		photoStorageId: demoPhotoStorageId,
+		photoUpdatedAt: demoPhotoStorageId ? Date.now() : undefined,
 		createdAt: Date.now(),
 	});
 	return { created: true };
@@ -386,7 +377,8 @@ async function seedDemoCustomFood(
 /** Écriture réelle (idempotente) — pure fonction sur le `db` du contexte. */
 async function seedCoreData(
 	db: MutationCtx["db"],
-	storage: MutationCtx["storage"]
+	/** Photo DEMO déjà déposée sur le storage par l'action appelante. */
+	demoPhotoStorageId: Id<"_storage"> | undefined
 ): Promise<{
 	coachEmail: string;
 	betaEmail: string;
@@ -482,7 +474,14 @@ async function seedCoreData(
 
 	// 5 bis) Aliment « Créés par moi » DEMO avec photo — la mission photo est
 	//    testable dès l'ouverture de la preview (Créés par moi → fiche → journal).
-	const demoCustomFood = await seedDemoCustomFood(db, storage, betaId);
+	//    Non bloquant : un échec photo n'empêche JAMAIS le seed.
+	let demoCustomFood: { created: boolean } = { created: false };
+	try {
+		demoCustomFood = await seedDemoCustomFood(db, demoPhotoStorageId, betaId);
+	} catch (e) {
+		demoCustomFood = { created: false };
+		console.warn("seed photo DEMO ignoré :", e instanceof Error ? e.message : e);
+	}
 
 	// 6) Cliente DEMO Vision 360 (100 % synthétique — 3 semaines de données
 	//    poids/pas/alimentation/sport/mensurations + bilan démo). Idempotent,
@@ -538,12 +537,47 @@ async function seedPreviewOffProducts(db: MutationCtx["db"]): Promise<{ imported
  * Hook `--preview-run` : SANS argument (exigence Convex), idempotent,
  * verrouillé contre la prod. Convex l'appelle automatiquement après chaque
  * déploiement d'un PREVIEW deployment — jamais en production.
+ *
+ * ACTION (et non mutation) : l'upload de la photo DEMO au storage Convex
+ * exige un contexte action (`storage.store` + `fetch` n'existent pas dans
+ * une mutation). Les écritures passent par les mutations internes ci-dessous
+ * — aucune logique dupliquée, `seedCoreData` reste la seule source.
  */
-export const seedPreviewData = mutation({
+/** Résultat du seed (annotation explicite : casse le cycle d'inférence
+ *  previewSeed → internal.previewSeed → previewSeed propre aux actions). */
+type SeedCoreResult = Awaited<ReturnType<typeof seedCoreData>>;
+
+export const seedPreviewData = action({
 	args: {},
-	handler: async (ctx) => {
+	handler: async (ctx): Promise<SeedCoreResult> => {
 		assertNotProd();
-		return await seedCoreData(ctx.db, ctx.storage);
+		// Photo DEMO : l'upload exige un contexte action (storage.store).
+		let demoPhotoStorageId: Id<"_storage"> | undefined;
+		try {
+			const bytes = Uint8Array.from(atob(DEMO_PHOTO_PNG_BASE64), (c) => c.charCodeAt(0));
+			const blob = new Blob([bytes as unknown as BlobPart], { type: "image/png" });
+			demoPhotoStorageId = await ctx.storage.store(blob);
+		} catch (e) {
+			// Non bloquant : le seed continue SANS photo (aliment DEMO classique).
+			console.warn("upload photo DEMO impossible :", e instanceof Error ? e.message : e);
+		}
+		return (await ctx.runMutation(internal.previewSeed.seedCoreInternal, {
+			demoPhotoStorageId,
+		})) as SeedCoreResult;
+	},
+});
+
+/**
+ * Cœur du seed (mutation interne) — écritures seules. La photo DEMO est
+ * déposée au préalable par l'action `seedPreviewData` (contexte action) et
+ * transmise ici via `demoPhotoStorageId` ; l'endpoint HTTP de secours passe
+ * sans photo (contexte mutation pur — pas de `storage.store`).
+ */
+export const seedCoreInternal = internalMutation({
+	args: { demoPhotoStorageId: v.optional(v.id("_storage")) },
+	handler: async (ctx, { demoPhotoStorageId }): Promise<SeedCoreResult> => {
+		assertNotProd();
+		return await seedCoreData(ctx.db, demoPhotoStorageId);
 	},
 });
 
@@ -551,7 +585,7 @@ export const seedPreviewData = mutation({
 export const seedPreviewDataInternal = internalMutation({
 	handler: async (ctx) => {
 		assertNotProd();
-		return await seedCoreData(ctx.db, ctx.storage);
+		return await seedCoreData(ctx.db, undefined);
 	},
 });
 
