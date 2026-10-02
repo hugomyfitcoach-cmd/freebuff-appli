@@ -403,8 +403,9 @@
 			</div>
 		</div>
 	{/if}
-	<!-- Sidebar desktop -->
-	<aside class="fixed inset-y-0 left-0 z-50 hidden w-64 flex-col border-r border-line bg-cream md:flex">
+	<!-- Sidebar desktop : coach = fond blanc premium (PASS 2, mockup) ;
+	     cliente = crème (inchangé). -->
+	<aside class="fixed inset-y-0 left-0 z-50 hidden w-64 flex-col border-r border-line md:flex {role === 'coach' ? 'ds-shell-crm' : 'bg-cream'}">
 		<div class="flex items-center gap-3 border-b border-line px-5 py-4">
 			<a href={role === 'coach' ? '/admin' : '/espace'} class="flex items-center gap-3">
 				<img src="/logo-header.png" alt="G-Flux" class="h-9 w-auto" />
@@ -428,10 +429,10 @@
 							data-sveltekit-prefetch
 							data-sveltekit-preload-data="hover"
 							aria-current={active ? 'page' : undefined}
-							class="btn-crm flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold transition
-								{active ? 'bg-ink text-white shadow-sm' : 'text-ink hover:bg-line/60'}"
+							class="btn-crm navlink-crm flex items-center gap-3 px-3 py-2.5 text-sm transition
+								{active ? 'active-crm' : ''}"
 						>
-							<Icon name={link.icon} size={17} class="shrink-0 {active ? '' : 'opacity-70'}" />
+							<Icon name={link.icon} size={17} strokeWidth={active ? 2.3 : 2} class="shrink-0 {active ? '' : 'opacity-70'}" />
 							<span class="flex-1">{link.label}</span>
 							{#if link.badge > 0}
 								<span class="badge-in grid h-5 min-w-5 place-items-center rounded-full bg-warn px-1 text-[11px] font-bold text-white">{link.badge}</span>
@@ -479,11 +480,11 @@
 		</div>
 	</aside>
 
-	<div class="flex min-w-0 flex-1 flex-col md:pl-64 {role === 'client' ? 'bg-soft' : ''}">
+	<div class="flex min-w-0 flex-1 flex-col md:pl-64 {role === 'client' ? 'bg-soft' : 'ds-page-crm'}">
 		<!-- Barre mobile : logo (Accueil) + Rafraîchir + menu utilisateur.
 		     Le Journal (vue plein écran) n'affiche AUCUN header global. -->
 		{#if !journalFullScreen}
-		<header class="sticky top-0 z-40 border-b border-line backdrop-blur md:hidden {role === 'client' ? 'bg-soft/90' : 'bg-cream/95'}">
+		<header class="sticky top-0 z-40 border-b border-line backdrop-blur md:hidden {role === 'client' ? 'bg-soft/90' : 'bg-white/95'}">
 			<div class="flex items-center justify-between gap-2 px-4 py-2">
 				{#if showBrand}
 					<a href={role === 'coach' ? '/admin' : '/espace'} class="flex items-center py-0.5" aria-label="Accueil G-FLUX">

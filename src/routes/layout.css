@@ -54,6 +54,204 @@
 .ds-crm {
 	/* Rythme du stagger des entrées de cartes (pages coach). */
 	--ds-stagger: 30ms;
+	/* ── PASS 2 « fidélité mockup » : cockpit plus lumineux — la zone contenu du
+	   coach passe sur fond blanc cassé (cartes détourées par la bordure fine),
+	   la sidebar reste crème. Aucun impact sur l'espace cliente. ── */
+	background: #fbfaf8;
+}
+
+/* Wrapper plein écran coach (PASS 2) : même fond lumineux que <main> pour
+   éviter les bandes crème autour du conteneur centré. Pose aussi le scope
+   sidebar .ds-shell-crm — la cliente ne porte AUCUNE de ces classes. */
+.ds-page-crm {
+	background: #fbfaf8;
+}
+
+/* ── Sidebar coach (mockup PASS 2) : fond blanc, halo vert très clair sur
+   l'item actif + indicateur latéral vert. Portée AppShell coach UNIQUEMENT
+   (la cliente ne porte pas .ds-shell-crm). ── */
+.ds-shell-crm {
+	background: #fdfdfc;
+}
+.ds-shell-crm .navlink-crm {
+	position: relative;
+	border-radius: 0.75rem;
+	font-weight: 700;
+	color: var(--ink);
+	transition: background-color 150ms var(--ds-ease), color 150ms var(--ds-ease);
+}
+.ds-shell-crm .navlink-crm:hover {
+	background: var(--soft);
+}
+.ds-shell-crm .navlink-crm.active-crm {
+	background: var(--brand-light);
+	color: var(--brand-deep);
+}
+.ds-shell-crm .navlink-crm.active-crm::before {
+	content: '';
+	position: absolute;
+	left: -0.75rem;
+	top: 50%;
+	transform: translateY(-50%);
+	height: 1.15rem;
+	width: 3px;
+	border-radius: 9999px;
+	background: var(--accent);
+}
+@media (max-width: 767px) {
+	/* Sur mobile la nav coach est hors écran (aside masqué) — règle par sûreté. */
+	.ds-shell-crm .navlink-crm.active-crm::before {
+		display: none;
+	}
+}
+
+/* ── Top header cockpit : barre blanche collée en haut de la zone contenu.
+   Marges négatives = compensation des paddings du conteneur AppShell coach
+   (px-4 py-6, sm:px-6) pour un rendu pleine largeur de la zone de contenu. ── */
+.ds-crm .topbar-crm {
+	position: sticky;
+	top: 0;
+	z-index: 30;
+	margin: -1.5rem -1rem 1.25rem;
+	padding: 0.8rem 1rem;
+	background: rgba(251, 250, 248, 0.92);
+	border-bottom: 1px solid var(--border);
+	backdrop-filter: blur(10px);
+}
+@media (min-width: 640px) {
+	.ds-crm .topbar-crm {
+		margin: -1.5rem -1.5rem 1.25rem;
+		padding: 0.8rem 1.5rem;
+	}
+}
+
+/* ── Tuile icône XL des KPI (mockup : tuile douce arrondie) ── */
+.ds-crm .kpi-tile-lg {
+	width: 3rem;
+	height: 3rem;
+	border-radius: 0.95rem;
+	display: grid;
+	place-items: center;
+	background: var(--kpi-tile-bg, var(--accent-light));
+	color: var(--kpi-tile-fg, var(--brand-deep));
+	flex-shrink: 0;
+}
+
+.ds-crm .kpi-tile-sm {
+	width: 1.75rem;
+	height: 1.75rem;
+	border-radius: 0.6rem;
+}
+
+/* ── Sparkline décorative (barres verticales façon mockup) ──
+   Purement visuelle : hauteur animée au chargement, aucune donnée affichée. */
+.ds-crm .spark-crm {
+	display: flex;
+	align-items: flex-end;
+	gap: 2.5px;
+	height: 26px;
+}
+.ds-crm .spark-crm i {
+	display: block;
+	width: 3.5px;
+	border-radius: 9999px;
+	background: var(--spark-color, rgba(29, 185, 84, 0.55));
+	height: calc(var(--h, 40) * 1%);
+	transform-origin: bottom;
+}
+.motion-armed .ds-crm .spark-crm i {
+	animation: spark-pop-crm 480ms var(--ds-ease) backwards;
+	animation-delay: calc(var(--m-i, 0) * 45ms + 150ms);
+}
+@keyframes spark-pop-crm {
+	from {
+		transform: scaleY(0.3);
+		opacity: 0;
+	}
+}
+
+.ds-crm .kpi-crm-plain {
+	padding: 1rem 1.125rem;
+}
+.ds-crm .kpi-crm-plain::before {
+	display: none;
+}
+
+/* ── Ligne « à traiter » compacte (3 visibles, chevron, badge) ── */
+.ds-crm .todo-row-crm {
+	display: flex;
+	align-items: center;
+	gap: 0.625rem;
+	background: #fff;
+	border: 1px solid var(--line-soft);
+	border-radius: 0.75rem;
+	padding: 0.4rem 0.55rem;
+	min-width: 0;
+	transition: border-color 150ms var(--ds-ease), background-color 150ms var(--ds-ease);
+}
+.ds-crm .todo-row-crm:hover {
+	border-color: var(--accent);
+	background: var(--brand-soft);
+}
+.ds-crm .todo-tile-crm {
+	width: 2rem;
+	height: 2rem;
+	border-radius: 0.55rem;
+	display: grid;
+	place-items: center;
+	flex-shrink: 0;
+}
+
+/* ── Ligne cliente dense (liste « Vue rapide ») ── */
+.ds-crm .crow-crm {
+	cursor: pointer;
+	transition: background 120ms;
+}
+.ds-crm .crow-crm:hover {
+	background: var(--brand-soft);
+}
+.ds-crm .crow-crm:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: -2px;
+}
+
+/* ── Chips filtres de la liste clientes ── */
+.ds-crm .chip-crm {
+	padding: 0.3rem 0.7rem;
+	border-radius: 9999px;
+	font-size: 12px;
+	font-weight: 700;
+	color: var(--muted);
+	background: transparent;
+	border: 1px solid transparent;
+	transition: background-color 150ms var(--ds-ease), color 150ms var(--ds-ease);
+	white-space: nowrap;
+}
+.ds-crm .chip-crm:hover {
+	color: var(--text);
+	background: var(--soft);
+}
+.ds-crm .chip-crm.active-crm {
+	background: var(--brand-light);
+	color: var(--brand-deep);
+	border-color: rgba(29, 185, 84, 0.25);
+}
+
+/* ── Segments de sparkline façon « blocs » (RDV) ── */
+.ds-crm .segs-crm {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+}
+.ds-crm .segs-crm i {
+	display: block;
+	width: 4px;
+	height: 14px;
+	border-radius: 2px;
+	background: var(--line-soft);
+}
+.ds-crm .segs-crm i.on {
+	background: var(--accent);
 }
 
 /* ── Titres ──────────────────────────────────────────────────────── */

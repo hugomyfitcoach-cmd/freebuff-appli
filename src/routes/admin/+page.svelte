@@ -182,16 +182,46 @@
 		}
 	}
 
-	const filtered = $derived(
-		query.trim()
-			? clients.filter((c: { user: { prenom: string; nom?: string | null; email: string } }) =>
-					`${fullName(c.user)} ${c.user.email}`.toLowerCase().includes(query.trim().toLowerCase())
-				)
-			: clients
-	);
-
 	const alert = $derived(form && 'action' in form ? (form as { action: string; error?: string; ok?: string; clientId?: string }) : null);
 	const initial = (name: string) => name.trim().charAt(0).toUpperCase() || '?';
+
+	/* ── PASS 2 (fidélité mockup) : état « Vue rapide des clientes » ──
+	   Filtres UI purs (aucune donnée supplémentaire, aucun backend) — même
+	   liste `clients` déjà chargée, tri et statuts dérivés localement. */
+	type ClientFilter = 'all' | 'active' | 'inactive';
+	let clientFilter = $state<ClientFilter>('all');
+	/** Statut dérivé : active = dernière connexion < 24 h (même critère KPI). */
+	function statusLabel(lastSeenAt: number | null): { label: string; cls: string } {
+		return lastSeenAt && Date.now() - lastSeenAt < 24 * 3600 * 1000
+			? { label: 'Active', cls: 'bg-brand-light text-brand-deep' }
+			: { label: 'Inactive', cls: 'bg-danger-light text-danger' };
+	}
+	const clientCounts = $derived.by(() => {
+		const active = clients.filter((c: { user: { lastSeenAt: number | null } }) => {
+			const ts = c.user.lastSeenAt;
+			return ts && Date.now() - ts < 24 * 3600 * 1000;
+		}).length;
+		return { all: clients.length, active, inactive: clients.length - active };
+	});
+	const filteredClients = $derived.by(() => {
+		let list = clients;
+		if (clientFilter === 'active') {
+			list = list.filter((c: { user: { lastSeenAt: number | null } }) => {
+				const ts = c.user.lastSeenAt;
+				return ts && Date.now() - ts < 24 * 3600 * 1000;
+			});
+		} else if (clientFilter === 'inactive') {
+			list = list.filter((c: { user: { lastSeenAt: number | null } }) => {
+				const ts = c.user.lastSeenAt;
+				return !ts || Date.now() - ts >= 24 * 3600 * 1000;
+			});
+		}
+		if (!query.trim()) return list;
+		const q = query.trim().toLowerCase();
+		return list.filter((c: { user: { prenom: string; nom?: string | null; email: string } }) =>
+			`${fullName(c.user)} ${c.user.email}`.toLowerCase().includes(q)
+		);
+	});
 
 	/** Âge calculé depuis la date de naissance (jamais saisi à la main) — jour/mois d'anniversaire inclus. */
 	const ageOf = $derived.by(() => {
@@ -397,6 +427,9 @@
 		}).length
 	);
 	const dashKpiWaiting = $derived(totalWaiting);
+	/** KPI : notifications non lues (badge déjà chargé par le layout) — remplaçe
+	 *  la carte « rendez-vous du jour » du mockup (pas de données RDV globales). */
+	const dashKpiNotifs = $derived(Number(data.notificationsBadge ?? 0));
 	/** 5 actions prioritaires max, dérivées de données déjà chargées — aucune
 	 *  requête ajoutée, aucune logique métier modifiée (simple réordonnancement). */
 	type DashTodo = {
@@ -1473,239 +1506,304 @@
 
 <svelte:head><title>CRM — G-Flux</title></svelte:head>
 
-<!-- ══════════ HERO DASHBOARD (north star : docs/refonte-preview) ══════════ -->
-<section class="m-in-crm flex flex-wrap items-end justify-between gap-4">
-	<div>
-		<h1 class="h1-crm">{dashTitle}</h1>
-		<p class="mt-1 text-sm font-medium text-mist">Voici l'état de ton coaching{#if dashLive}&nbsp;— {dashDateLine}{/if}</p>
+<!-- ══════════ TOP HEADER COCKPIT (PASS 2 — mockup) ══════════
+     Salutation + sous-titre à gauche · recherche cliente / cloche notifications
+     / coach à droite. Réutilise `query` (liste clientes) et le badge existant —
+     aucun backend ajouté. -->
+<header class="topbar-crm m-in-crm flex flex-wrap items-center justify-between gap-3" style="--m-i: 0">
+	<div class="min-w-0">
+		<h1 class="h1-crm text-[1.55rem] sm:text-[1.8rem]">{dashTitle}</h1>
+		<p class="mt-0.5 text-sm font-medium text-mist">Voici ce qui demande ton attention aujourd'hui.{#if dashLive}&nbsp;<span class="hidden lg:inline">· {dashDateLine}</span>{/if}</p>
 	</div>
-	<div class="flex flex-wrap items-center gap-2">
-		<a href="/admin/bilans" class="btn-crm inline-flex items-center gap-1.5 rounded-xl border-2 border-line bg-card px-3.5 py-2 text-sm font-bold text-ink transition hover:border-brand hover:text-brand">
-			<Icon name="clipboardList" size={14} class="shrink-0" /> Voir les bilans
-		</a>
-	</div>
-</section>
-
-<!-- ══════════ KPI CARDS PREMIUM (liseré coloré + tuile icône + count-up) ══════════ -->
-<section class="m-in-crm mt-5 grid gap-3.5 sm:grid-cols-2 xl:grid-cols-4" style="--m-i: 1">
-	<div class="kpi-crm card-crm-hover" style="--kpi-accent: var(--accent); --kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep)">
-		<div class="flex items-center justify-between gap-2">
-			<span class="kpi-tile"><Icon name="users" size={18} /></span>
-			<span class="rounded-full bg-soft px-2 py-0.5 text-[10.5px] font-bold text-mist">suivi global</span>
-		</div>
-		<div class="kpi-num-crm mt-3 text-[1.9rem] text-ink"><CountUp value={dashKpiClients} /></div>
-		<div class="mt-1 text-[12.5px] font-bold text-ink">Clientes suivies</div>
-		<div class="mt-2.5 flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11.5px] text-mist">
-			<span class="inline-flex items-center gap-1 font-bold text-brand-deep"><Icon name="trendingUp" size={12} /> {dashKpiActive}</span> active{dashKpiActive > 1 ? 's' : ''} aujourd'hui
-		</div>
-	</div>
-	<div class="kpi-crm card-crm-hover" style="--kpi-accent: var(--warn); --kpi-tile-bg: var(--warn-light); --kpi-tile-fg: var(--warn)">
-		<div class="flex items-center justify-between gap-2">
-			<span class="kpi-tile"><Icon name="clipboardCheck" size={18} /></span>
-			<span class="rounded-full bg-warn-light px-2 py-0.5 text-[10.5px] font-bold text-warn">priorité</span>
-		</div>
-		<div class="kpi-num-crm mt-3 text-[1.9rem] text-ink"><CountUp value={dashKpiWaiting} /></div>
-		<div class="mt-1 text-[12.5px] font-bold text-ink">Retours à envoyer</div>
-		<div class="mt-2.5 flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11.5px] text-mist">
-			<span class="inline-flex items-center gap-1 font-bold text-warn"><Icon name="clock" size={12} /> {dashTodos.filter((t) => t.tone === 'warn').length}</span> bilan{dashTodos.filter((t) => t.tone === 'warn').length > 1 ? 's' : ''} dans « à traiter »
-		</div>
-	</div>
-	<div class="kpi-crm card-crm-hover" style="--kpi-accent: var(--orange); --kpi-tile-bg: var(--warn-light); --kpi-tile-fg: var(--orange)">
-		<div class="flex items-center justify-between gap-2">
-			<span class="kpi-tile"><Icon name="activity" size={18} /></span>
-			<span class="rounded-full bg-soft px-2 py-0.5 text-[10.5px] font-bold text-mist">24 h</span>
-		</div>
-		<div class="kpi-num-crm mt-3 text-[1.9rem] text-ink"><CountUp value={dashKpiActive} /></div>
-		<div class="mt-1 text-[12.5px] font-bold text-ink">Actives aujourd'hui</div>
-		<div class="mt-2.5 flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11.5px] text-mist">
-			<span class="inline-flex items-center gap-1 font-bold text-ink"><Icon name="users" size={12} /> {dashKpiClients - dashKpiActive}</span> sans connexion (24 h)
-		</div>
-	</div>
-	<div class="kpi-crm card-crm-hover" style="--kpi-accent: var(--accent); --kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep)">
-		<div class="flex items-center justify-between gap-2">
-			<span class="kpi-tile"><Icon name="bell" size={18} /></span>
-			<span class="rounded-full bg-soft px-2 py-0.5 text-[10.5px] font-bold text-mist">notifications</span>
-		</div>
-		<div class="kpi-num-crm mt-3 text-[1.9rem] text-ink"><CountUp value={data.notificationsBadge ?? 0} /></div>
-		<div class="mt-1 text-[12.5px] font-bold text-ink">Notifications à consulter</div>
-		<div class="mt-2.5 flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11.5px] text-mist">
-			<a href="/admin/notifications" class="inline-flex items-center gap-1 font-bold text-brand-deep transition hover:underline"><Icon name="arrowRight" size={12} /> Ouvrir les notifications</a>
-		</div>
-	</div>
-</section>
-
-{#if alert && !(selected && view)}
-	<div
-		class="mt-4 flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm
-			{alert.error ? 'border-danger/40 bg-danger-light text-danger' : 'border-brand/40 bg-brand-light text-ink'}"
-	>
-		<span>{alert.error ?? alert.ok}</span>
-		<Icon name="info" size={15} class="shrink-0 text-mist" />
-	</div>
-{/if}
-
-{#if googleBanner}
-	<div
-		class="mt-4 flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm
-			{googleBanner.startsWith('google-error') ? 'border-danger/40 bg-danger-light text-danger' : 'border-brand/40 bg-brand-light text-ink'}"
-	>
-		<span>
-			{#if googleBanner === 'google-ok'}
-				<strong>Google Calendar connecté ✓</strong> — les rendez-vous peuvent être synchronisés avec ton agenda.
-			{:else}
-				<strong>Connexion Google échouée :</strong> {googleBanner.slice('google-error:'.length)}
-			{/if}
-		</span>
-		<Icon name={googleBanner.startsWith('google-error') ? 'info' : 'calendarCheck'} size={15} class="shrink-0 text-mist" />
-	</div>
-{/if}
-
-<!-- ═══ Google Calendar (compte du coach) ═══ -->
-<section class="mt-4 rounded-2xl border border-line bg-card p-4 shadow-sm">
-	<div class="flex flex-wrap items-center justify-between gap-3">
-		<div class="flex items-center gap-2">
-			<h2 class="flex items-center gap-2 font-display text-lg font-semibold text-ink">
-				<Icon name="calendarCheck" size={18} class="shrink-0 text-brand" /> Google Calendar
-			</h2>
-			{#if google}
-				<span class="rounded-full bg-brand px-2 py-0.5 text-[11px] font-bold text-white">Connecté ✓</span>
-			{:else}
-				<span class="rounded-full bg-cream px-2 py-0.5 text-[11px] font-bold text-mist">Non connecté</span>
-			{/if}
-		</div>
-		{#if google}
-			<div class="flex items-center gap-2">
-				<span class="text-xs text-mist">{google.email || 'Compte Google'} · tokens chiffrés côté serveur</span>
-				<button
-					type="button"
-					onclick={googleDisconnect}
-					disabled={googleBusy}
-					class="inline-flex items-center gap-1 rounded-lg border-2 border-line px-2.5 py-1 text-xs font-semibold text-ink transition hover:border-danger hover:text-danger disabled:opacity-50"
-				>Déconnecter</button>
-			</div>
-		{:else}
-			<a
-				href="/api/google/connect"
-				class="inline-flex items-center gap-1 rounded-lg bg-brand px-3 py-1.5 text-xs font-bold text-white transition hover:bg-brand-dark"
-			><Icon name="calendarRange" size={13} class="shrink-0" /> Connecter Google Calendar</a>
-		{/if}
-	</div>
-</section>
-
-<!-- ═══ Message global : clientes actives sur les 5 derniers jours (logistique coach) ═══
-     Côté cliente, rien ne change : la notification, la carte « Message de ton
-     coach » et l'historique sont exactement ceux d'un message classique. Ici,
-     tout est séparé de la Vision 360 : envoi groupé, retrait à tout moment,
-     disparition automatique du bloc après 24 h, zéro doublon d'envoi. -->
-<section class="mt-4 rounded-2xl border border-line bg-card p-4 shadow-sm">
-	<div class="flex flex-wrap items-center justify-between gap-2">
-		<h2 class="flex items-center gap-2 font-display text-lg font-semibold text-ink">
-			<Icon name="messageCircle" size={18} class="shrink-0 text-brand" /> Message global
-		</h2>
-		<span class="text-xs text-mist">Toutes les clientes actives sur les 5 derniers jours ({active5d}) · aucun impact sur les messages personnalisés de la Vision 360</span>
-	</div>
-
-	{#if globalMessage}
-		<!-- Envoi en cours : statut + retrait immédiat (disparaît seul après 24 h) -->
-		<div class="mt-3 rounded-xl border border-brand/40 bg-brand-light/50 p-3">
-			<div class="flex flex-wrap items-center justify-between gap-2">
-				<div class="flex flex-wrap items-center gap-2">
-					<span class="rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Envoi en cours</span>
-					<span class="text-xs text-mist">Publié {fmtDateTime(globalMessage.publishedAt)} · {globalMessage.recipientCount} destinataire{globalMessage.recipientCount > 1 ? 's' : ''} · {globalMessage.readCount} lu{globalMessage.readCount > 1 ? 's' : ''}</span>
-				</div>
-				<form
-					method="POST"
-					action="?/withdrawGlobalMessage"
-					onsubmit={(e) => {
-						if (!confirm('Retirer le message global de l\'accueil de toutes les clientes, maintenant ?')) e.preventDefault();
-					}}
-				>
-					<button type="submit" class="rounded-lg border-2 border-line bg-white px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-danger hover:text-danger">
-						Retirer maintenant
-					</button>
-				</form>
-			</div>
-			<p class="mt-2 whitespace-pre-line text-sm leading-relaxed text-ink">{globalMessage.text}</p>
-			<p class="mt-1.5 text-[11px] text-mist"><Icon name="timer" size={11} class="mr-0.5 inline shrink-0" /> Disparaît automatiquement dans {fmtRemaining(globalRemainingMs)} (et de ce tableau de bord au même moment).</p>
-		</div>
-	{:else}
-		<!-- Aucun envoi actif : composeur (fermé tant qu'un message global est actif) -->
-		<form method="POST" action="?/sendGlobalMessage" class="mt-3">
-			<div class="flex flex-col gap-2 sm:flex-row">
-				<textarea
-					name="message"
-					rows="2"
-					maxlength="500"						placeholder="Ex. Pense à bien remplir ton bilan avant dimanche 12h — message commun à toutes les clientes actives sur les 5 derniers jours"
-					class="min-h-14 flex-1 rounded-xl border-2 border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-brand"
-				></textarea>
-				<div class="flex shrink-0 items-start">
-					<button
-						type="submit"
-						disabled={active5d === 0}
-						class="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
-					>
-						Envoyer à toutes
-					</button>
-				</div>
-			</div>
-			<p class="mt-1.5 text-[11px] leading-relaxed text-mist">
-				Part vers les clientes actives sur les 5 derniers jours · visible chez elles comme un « Message coach du jour » classique (24 h max) · notification identique · retire-le à tout moment.
-				{#if active5d === 0}Aucune cliente active sur les 5 derniers jours — l'envoi est désactivé.{/if}
-			</p>
-		</form>
-	{/if}
-</section>
-
-<!-- ══════════ À TRAITER AUJOURD'HUI (actions prioritaires, données existantes) ══════════ -->
-<section class="m-in-crm mt-4 rounded-2xl border border-line bg-card p-4 shadow-sm" style="--m-i: 3">
-	<div class="flex flex-wrap items-center justify-between gap-2">
-		<h2 class="h2-crm flex items-center gap-2 text-base"><Icon name="target" size={17} class="shrink-0 text-brand" /> À traiter aujourd'hui
-			{#if dashTodos.length > 0}<span class="badge-in grid h-5 min-w-5 place-items-center rounded-full bg-warn px-1.5 text-[11px] font-bold text-white">{dashTodos.length}</span>{/if}
-		</h2>
-		<span class="text-[11px] text-mist">bilans en attente + clientes sans connexion depuis 24 h</span>
-	</div>
-	{#if dashTodos.length === 0}
-		<p class="mt-3 rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm text-mist">Rien à traiter — toutes tes clientes sont à jour ✓</p>
-	{:else}
-		<div class="mt-3 grid gap-2">
-			{#each dashTodos as t, i (t.key)}
-				<a
-					href={t.href}
-					class="person-crm group"
-					style={`transition-delay: ${i * 25}ms`}
-				>
-					<span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl {t.tone === 'warn' ? 'bg-warn-light text-warn' : t.tone === 'danger' ? 'bg-danger-light text-danger' : t.tone === 'blue' ? 'bg-soft text-ink' : 'bg-brand-light text-brand-deep'}">
-						<Icon name={t.icon} size={16} />
-					</span>
-					<div class="min-w-0 flex-1">
-						<p class="truncate text-[13.5px] font-bold text-ink">{t.title}</p>
-						<p class="truncate text-[11.5px] text-mist">{t.subtitle}</p>
-					</div>
-					<span class="shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wide {t.tone === 'warn' ? 'bg-warn-light text-warn' : t.tone === 'danger' ? 'bg-danger-light text-danger' : t.tone === 'blue' ? 'bg-soft text-ink' : 'bg-brand-light text-brand-deep'}">{t.toneLabel}</span>
-					<Icon name="chevronRight" size={15} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
-				</a>
-			{/each}
-		</div>
-	{/if}
-</section>
-
-<!-- ═══ Tableau unique des clients ═══ -->
-<div class="m-in-crm mt-6 overflow-hidden rounded-2xl border border-line bg-card shadow-sm" style="--m-i: 4">
-	<div class="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
-		<div class="flex items-center gap-3">
-			<h2 class="h2-crm flex items-center gap-2 text-base"><Icon name="users" size={17} class="shrink-0 text-brand" /> Clientes</h2>
-			<span class="rounded-full bg-line/60 px-2 py-0.5 text-xs font-semibold text-mist">{filtered.length}</span>
-		</div>
-		<div class="flex flex-wrap items-center gap-2">
+	<div class="ml-auto flex items-center gap-2 sm:gap-2.5">
+		<label class="relative hidden sm:block">
+			<span class="sr-only">Rechercher une cliente</span>
+			<Icon name="search" size={15} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-mist" />
 			<input
 				type="search"
 				bind:value={query}
-				placeholder="Rechercher (nom, email)…"
-				class="rounded-xl border-2 border-line bg-white px-3 py-2 text-sm outline-none transition focus:border-brand"
+				placeholder="Rechercher une cliente (nom, email)…"
+				class="w-44 rounded-xl border border-line bg-white py-2 pl-9 pr-3 text-sm text-ink outline-none transition placeholder:text-mist focus:border-brand md:w-56"
 			/>
+		</label>
+		<a
+			href="/admin/notifications"
+			aria-label="Notifications"
+			title="Notifications"
+			class="btn-crm relative grid h-10 w-10 shrink-0 place-items-center rounded-full border border-line bg-white text-ink transition hover:border-brand hover:text-brand"
+		>
+			<Icon name="bell" size={17} />
+			{#if Number(data.notificationsBadge ?? 0) > 0}
+				<span class="badge-in absolute -right-0.5 -top-0.5 grid h-5 min-w-5 place-items-center rounded-full bg-warn px-1 text-[10px] font-bold text-white ring-2 ring-white">{Number(data.notificationsBadge)}</span>
+			{/if}
+		</a>
+		<div class="flex shrink-0 items-center gap-2.5 rounded-full border border-line bg-white py-1 pl-1 pr-3">
+			<span class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brand text-[13px] font-black text-white">{initial(dashGreetingPrenom)}</span>
+			<span class="hidden min-w-0 leading-tight md:block">
+				<span class="block truncate text-[13px] font-bold text-ink">{dashGreetingPrenom}</span>
+				<span class="block text-[10.5px] font-medium text-mist">Coach G-FLUX</span>
+			</span>
+		</div>
+	</div>
+</header>
+
+
+<!-- ══════════ KPI CARDS (PASS 2 — tuile XL + sparkline, mockup) ══════════
+     Valeurs réelles existantes ; sparklines décoratives (pur CSS). -->
+<section class="m-in-crm mt-1 grid gap-3.5 sm:grid-cols-2 xl:grid-cols-4" style="--m-i: 2">
+	<div class="kpi-crm kpi-crm-plain card-crm-hover" style="--kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep); --m-i: 0">
+		<div class="flex items-start justify-between gap-2">
+			<span class="kpi-tile-lg"><Icon name="users" size={20} /></span>
+			<span class="spark-crm" aria-hidden="true" style="--spark-color: rgba(29, 185, 84, 0.5)">
+				<i style="--h: 30; --m-i: 0"></i><i style="--h: 46; --m-i: 1"></i><i style="--h: 38; --m-i: 2"></i><i style="--h: 62; --m-i: 3"></i><i style="--h: 54; --m-i: 4"></i><i style="--h: 80; --m-i: 5"></i><i style="--h: 100; --m-i: 6"></i>
+			</span>
+		</div>
+		<div class="kpi-num-crm mt-2.5 text-[2rem] text-ink"><CountUp value={dashKpiClients} /></div>
+		<div class="mt-0.5 text-[13px] font-bold text-ink">clientes</div>
+		<div class="mt-2 flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11.5px] text-mist">
+			<span class="inline-flex items-center gap-1 font-bold text-brand-deep"><Icon name="trendingUp" size={12} /> {dashKpiActive}</span>
+			<span>active{dashKpiActive > 1 ? 's' : ''} aujourd'hui</span>
+		</div>
+	</div>
+	<div class="kpi-crm kpi-crm-plain card-crm-hover" style="--kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep); --m-i: 1">
+		<div class="flex items-start justify-between gap-2">
+			<span class="kpi-tile-lg"><Icon name="trendingUp" size={20} /></span>
+			<span class="spark-crm" aria-hidden="true" style="--spark-color: rgba(29, 185, 84, 0.5)">
+				<i style="--h: 42; --m-i: 0"></i><i style="--h: 58; --m-i: 1"></i><i style="--h: 50; --m-i: 2"></i><i style="--h: 70; --m-i: 3"></i><i style="--h: 88; --m-i: 4"></i><i style="--h: 76; --m-i: 5"></i><i style="--h: 100; --m-i: 6"></i>
+			</span>
+		</div>
+		<div class="kpi-num-crm mt-2.5 text-[2rem] text-ink"><CountUp value={dashKpiActive} /></div>
+		<div class="mt-0.5 text-[13px] font-bold text-ink">actives aujourd'hui</div>
+		<div class="mt-2 flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11.5px] text-mist">
+			<span class="inline-flex items-center gap-1 font-bold text-brand-deep"><Icon name="trendingUp" size={12} /> {dashKpiClients > 0 ? Math.round((dashKpiActive / dashKpiClients) * 100) : 0} %</span>
+			<span>de ton total</span>
+		</div>
+	</div>
+	<div class="kpi-crm kpi-crm-plain card-crm-hover" style="--kpi-tile-bg: var(--warn-light); --kpi-tile-fg: var(--warn); --m-i: 2">
+		<div class="flex items-start justify-between gap-2">
+			<span class="kpi-tile-lg"><Icon name="clipboardCheck" size={20} /></span>
+			<span class="spark-crm" aria-hidden="true" style="--spark-color: rgba(255, 149, 0, 0.55)">
+				<i style="--h: 90; --m-i: 0"></i><i style="--h: 45; --m-i: 1"></i><i style="--h: 70; --m-i: 2"></i><i style="--h: 100; --m-i: 3"></i><i style="--h: 60; --m-i: 4"></i><i style="--h: 82; --m-i: 5"></i><i style="--h: 50; --m-i: 6"></i>
+			</span>
+		</div>
+		<div class="kpi-num-crm mt-2.5 text-[2rem] text-ink"><CountUp value={dashKpiWaiting} /></div>
+		<div class="mt-0.5 text-[13px] font-bold text-ink">retours à envoyer</div>
+		<div class="mt-2 flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11.5px] text-mist">
+			{#if dashKpiWaiting > 0}
+				<span class="inline-flex items-center gap-1 font-bold text-warn"><Icon name="clock" size={12} /> À traiter aujourd'hui</span>
+			{:else}
+				<span class="inline-flex items-center gap-1 font-bold text-brand-deep"><Icon name="circleCheck" size={12} /> Tout est traité ✓</span>
+			{/if}
+		</div>
+	</div>
+	<div class="kpi-crm kpi-crm-plain card-crm-hover" style={`--kpi-tile-bg: ${dashKpiNotifs > 0 ? 'var(--warn-light)' : 'var(--accent-light)'}; --kpi-tile-fg: ${dashKpiNotifs > 0 ? 'var(--warn)' : 'var(--brand-deep)'}; --m-i: 3`}>
+		<div class="flex items-start justify-between gap-2">
+			<span class="kpi-tile-lg"><Icon name="bell" size={20} /></span>
+			<span class="spark-crm" aria-hidden="true" style={`--spark-color: ${dashKpiNotifs > 0 ? 'rgba(255, 149, 0, 0.55)' : 'rgba(29, 185, 84, 0.5)'}`}>
+				<i style="--h: 55; --m-i: 0"></i><i style="--h: 40; --m-i: 1"></i><i style="--h: 65; --m-i: 2"></i><i style="--h: 35; --m-i: 3"></i><i style="--h: 75; --m-i: 4"></i><i style="--h: 50; --m-i: 5"></i><i style="--h: {dashKpiNotifs > 0 ? 100 : 60}; --m-i: 6"></i>
+			</span>
+		</div>
+		<div class="kpi-num-crm mt-2.5 text-[2rem] text-ink"><CountUp value={dashKpiNotifs} /></div>
+		<div class="mt-0.5 text-[13px] font-bold text-ink">notifications à consulter</div>
+		<div class="mt-2 flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11.5px] text-mist">
+			{#if dashKpiNotifs > 0}
+				<a href="/admin/notifications" class="inline-flex items-center gap-1 font-bold text-warn transition hover:text-danger"><Icon name="bell" size={12} /> À consulter aujourd'hui</a>
+			{:else}
+				<a href="/admin/notifications" class="inline-flex items-center gap-1 font-bold text-brand-deep transition hover:text-brand"><Icon name="circleCheck" size={12} /> Tout est lu ✓</a>
+			{/if}
+		</div>
+	</div>
+</section>
+
+<!-- ══════════ GRILLE COCKPIT (PASS 2) : GAUCHE = À traiter · DROITE = Google Calendar + Message global ══════════ -->
+<div class="m-in-crm mt-1 grid items-start gap-3.5 xl:grid-cols-12" style="--m-i: 3">
+	<!-- Colonne gauche : À traiter aujourd'hui -->
+	<div class="min-w-0 xl:col-span-5">
+		<section class="card-crm p-4">
+			<div class="flex items-center justify-between gap-2">
+				<h2 class="h2-crm flex items-center gap-2 text-base">
+					<span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand text-white"><Icon name="check" size={13} strokeWidth={3} /></span>
+					À traiter aujourd'hui
+				</h2>
+				<a href="/admin/bilans" class="btn-crm inline-flex items-center gap-1 rounded-full border border-line bg-white px-2.5 py-1 text-[11.5px] font-bold text-ink transition hover:border-brand hover:text-brand">
+					Voir tout <Icon name="arrowRight" size={12} />
+				</a>
+			</div>
+			{#if dashTodos.length === 0}
+				<p class="mt-3 rounded-xl border border-dashed border-line px-4 py-5 text-center text-[13px] text-mist">Rien à traiter — toutes tes clientes sont à jour ✓</p>
+			{:else}
+				<div class="mt-3 grid gap-1.5">
+					{#each dashTodos as t, i (t.key)}
+						<a href={t.href} class="todo-row-crm group" style={`transition-delay: ${i * 25}ms`}>
+							<span class="todo-tile-crm {t.tone === 'warn' ? 'bg-warn-light text-warn' : t.tone === 'danger' ? 'bg-danger-light text-danger' : t.tone === 'blue' ? 'bg-soft text-ink' : 'bg-brand-light text-brand-deep'}">
+								<Icon name={t.icon} size={14} />
+							</span>
+							<span class="min-w-0 flex-1">
+								<span class="block truncate text-[13px] font-bold text-ink">{t.title}</span>
+								<span class="block truncate text-[11px] text-mist">{t.subtitle}</span>
+							</span>
+							<span class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold {t.tone === 'warn' ? 'bg-warn-light text-warn' : t.tone === 'danger' ? 'bg-danger-light text-danger' : t.tone === 'blue' ? 'bg-soft text-ink' : 'bg-brand-light text-brand-deep'}">{t.toneLabel}</span>
+							<Icon name="chevronRight" size={14} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
+						</a>
+					{/each}
+				</div>
+				{#if dashTodos.length >= 3}
+					<a href="/admin/bilans" class="mt-2.5 block text-center text-[11.5px] font-bold text-mist transition hover:text-brand">Voir tout →</a>
+				{/if}
+			{/if}
+		</section>
+	</div>
+
+	<!-- Colonne droite : Google Calendar (haut) + Message global (bas) -->
+	<div class="min-w-0 grid gap-3.5 xl:col-span-7">
+		{#if alert && !(selected && view)}
+			<div class="flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm {alert.error ? 'border-danger/40 bg-danger-light text-danger' : 'border-brand/40 bg-brand-light text-ink'}">
+				<span>{alert.error ?? alert.ok}</span>
+				<Icon name="info" size={15} class="shrink-0 text-mist" />
+			</div>
+		{/if}
+		{#if googleBanner}
+			<div class="flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm {googleBanner.startsWith('google-error') ? 'border-danger/40 bg-danger-light text-danger' : 'border-brand/40 bg-brand-light text-ink'}">
+				<span>
+					{#if googleBanner === 'google-ok'}
+						<strong>Google Calendar connecté ✓</strong> — les rendez-vous peuvent être synchronisés avec ton agenda.
+					{:else}
+						<strong>Connexion Google échouée :</strong> {googleBanner.slice('google-error:'.length)}
+					{/if}
+				</span>
+				<Icon name={googleBanner.startsWith('google-error') ? 'info' : 'calendarCheck'} size={15} class="shrink-0 text-mist" />
+			</div>
+		{/if}
+
+		<!-- ══ Google Calendar (compte du coach) — logique conservée, carte cockpit ══ -->
+		<section class="card-crm p-4">
+			<div class="flex flex-wrap items-center justify-between gap-3">
+				<div class="flex min-w-0 items-center gap-2">
+					<h2 class="h2-crm flex items-center gap-2 text-base"><Icon name="calendarCheck" size={17} class="shrink-0 text-brand" /> Google Calendar</h2>
+					{#if google}
+						<span class="rounded-full bg-brand px-2 py-0.5 text-[10.5px] font-bold text-white">Connecté ✓</span>
+					{:else}
+						<span class="rounded-full bg-cream px-2 py-0.5 text-[10.5px] font-bold text-mist">Non connecté</span>
+					{/if}
+				</div>
+				{#if google}
+					<button
+						type="button"
+						onclick={googleDisconnect}
+						disabled={googleBusy}
+						class="btn-crm rounded-full border border-line bg-white px-3 py-1.5 text-[12px] font-bold text-ink transition hover:border-danger hover:text-danger disabled:opacity-50"
+					>Gérer</button>
+				{:else}
+					<a
+						href="/api/google/connect"
+						class="btn-crm inline-flex items-center gap-1 rounded-full bg-brand px-3.5 py-1.5 text-[12px] font-bold text-white transition hover:bg-brand-dark"
+					><Icon name="calendarRange" size={13} class="shrink-0" /> Connecter</a>
+				{/if}
+			</div>
+			<div class="mt-3 flex items-center gap-3 rounded-xl bg-soft/70 px-3.5 py-3">
+				<span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white text-[15px] font-black text-[#188038] shadow-sm" aria-hidden="true">31</span>
+				<div class="min-w-0">
+					<p class="text-[13.5px] font-bold text-ink">{google ? (google.email || 'Compte Google connecté') : 'Compte Google non connecté'}</p>
+					<p class="text-[12px] text-mist">{google ? 'Tes rendez-vous sont synchronisés automatiquement.' : 'Connecte ton agenda pour synchroniser tes rendez-vous.'}</p>
+				</div>
+			</div>
+			{#if google}
+				<p class="mt-2 text-[10.5px] text-mist">Tokens chiffrés côté serveur · déconnexion possible à tout moment.</p>
+			{/if}
+		</section>
+
+		<!-- ══ Message global — mêmes actions, composition compacte ══
+		     Côté cliente, rien ne change : la notification, la carte « Message de ton
+		     coach » et l'historique sont exactement ceux d'un message classique. -->
+		<section class="card-crm p-4">
+			<div class="flex flex-wrap items-center justify-between gap-2">
+				<h2 class="h2-crm flex items-center gap-2 text-base"><Icon name="messageCircle" size={17} class="shrink-0 text-brand" /> Message global <span class="text-[11.5px] font-medium text-mist">(optionnel)</span></h2>
+				<a href="/admin/templates" class="btn-crm rounded-full border border-line bg-white px-2.5 py-1 text-[11.5px] font-bold text-ink transition hover:border-brand hover:text-brand">Voir les modèles</a>
+			</div>
+
+			{#if globalMessage}
+				<!-- Envoi en cours : statut + retrait immédiat (disparaît seul après 24 h) -->
+				<div class="mt-3 rounded-xl border border-brand/40 bg-brand-light/50 p-3">
+					<div class="flex flex-wrap items-center justify-between gap-2">
+						<div class="flex flex-wrap items-center gap-2">
+							<span class="rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Envoi en cours</span>
+							<span class="text-[11.5px] text-mist">Publié {fmtDateTime(globalMessage.publishedAt)} · {globalMessage.recipientCount} destinataire{globalMessage.recipientCount > 1 ? 's' : ''} · {globalMessage.readCount} lu{globalMessage.readCount > 1 ? 's' : ''}</span>
+						</div>
+						<form
+							method="POST"
+							action="?/withdrawGlobalMessage"
+							onsubmit={(e) => {
+								if (!confirm('Retirer le message global de l\'accueil de toutes les clientes, maintenant ?')) e.preventDefault();
+							}}
+						>
+							<button type="submit" class="rounded-lg border-2 border-line bg-white px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-danger hover:text-danger">
+								Retirer maintenant
+							</button>
+						</form>
+					</div>
+					<p class="mt-2 whitespace-pre-line text-sm leading-relaxed text-ink">{globalMessage.text}</p>
+					<p class="mt-1.5 text-[11px] text-mist"><Icon name="timer" size={11} class="mr-0.5 inline shrink-0" /> Disparaît automatiquement dans {fmtRemaining(globalRemainingMs)} (et de ce tableau de bord au même moment).</p>
+				</div>
+			{:else}
+				<!-- Aucun envoi actif : composeur (fermé tant qu'un message global est actif) -->
+				<form method="POST" action="?/sendGlobalMessage" class="mt-3">
+					<textarea
+						name="message"
+						rows="2"
+						maxlength="500"
+						placeholder="Ex. Pense à bien remplir ton bilan avant dimanche 12h — message commun à toutes tes clientes…"
+						class="min-h-16 w-full rounded-xl border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition placeholder:text-mist focus:border-brand"
+					></textarea>
+					<div class="mt-2 flex flex-wrap items-center justify-between gap-2">
+						<span class="inline-flex min-w-0 items-center gap-1.5 text-[11.5px] text-mist">
+							<Icon name="users" size={13} class="shrink-0" />
+							À toutes les clientes actives sur 5 jours ({active5d})
+						</span>
+						<button
+							type="submit"
+							disabled={active5d === 0}
+							class="btn-crm inline-flex items-center gap-1.5 rounded-full bg-brand px-4 py-2 text-[12.5px] font-bold text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
+						>
+							<Icon name="arrowRight" size={13} class="shrink-0" /> Envoyer à toutes
+						</button>
+					</div>
+					<p class="mt-1.5 text-[11px] leading-relaxed text-mist">
+						Visible chez elles comme un « Message coach du jour » classique (24 h max) · notification identique · retire-le à tout moment · aucun impact sur les messages personnalisés de la Vision 360.
+						{#if active5d === 0}Aucune cliente active sur les 5 derniers jours — l'envoi est désactivé.{/if}
+					</p>
+				</form>
+			{/if}
+		</section>
+	</div>
+</div>
+
+<!-- ══════════ VUE RAPIDE DES CLIENTES (PASS 2) ══════════ -->
+<section class="card-crm m-in-crm mt-3.5 overflow-hidden" style="--m-i: 4">
+	<div class="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3.5">
+		<div class="flex min-w-0 items-center gap-2.5">
+			<span class="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-brand-light text-brand-deep"><Icon name="users" size={16} /></span>
+			<h2 class="h2-crm text-base">Vue rapide des clientes</h2>
+			<span class="badge-in rounded-full bg-brand-light px-2 py-0.5 text-[11px] font-bold text-brand-deep">{clientCounts.all}</span>
+		</div>
+		<div class="flex flex-wrap items-center gap-2">
+			<label class="relative">
+				<span class="sr-only">Rechercher une cliente</span>
+				<Icon name="search" size={14} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-mist" />
+				<input
+					type="search"
+					bind:value={query}
+					placeholder="Rechercher une cliente…"
+					class="w-44 rounded-full border border-line bg-white py-1.5 pl-8 pr-3 text-[13px] outline-none transition placeholder:text-mist focus:border-brand md:w-52"
+				/>
+			</label>
+			<div class="flex items-center rounded-full border border-line bg-white p-0.5" role="group" aria-label="Filtrer les clientes">
+				<button type="button" class="chip-crm {clientFilter === 'all' ? 'active-crm' : ''}" onclick={() => (clientFilter = 'all')} aria-pressed={clientFilter === 'all'}>Toutes</button>
+				<button type="button" class="chip-crm {clientFilter === 'active' ? 'active-crm' : ''}" onclick={() => (clientFilter = 'active')} aria-pressed={clientFilter === 'active'}>Actives ({clientCounts.active})</button>
+				<button type="button" class="chip-crm {clientFilter === 'inactive' ? 'active-crm' : ''}" onclick={() => (clientFilter = 'inactive')} aria-pressed={clientFilter === 'inactive'}>Inactives ({clientCounts.inactive})</button>
+			</div>
 			<details class="group relative">
-				<summary class="btn-crm cursor-pointer list-none rounded-xl bg-brand px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-brand-dark">
-					＋ Créer une cliente
+				<summary class="btn-crm inline-flex cursor-pointer list-none items-center gap-1.5 rounded-full bg-brand px-3.5 py-2 text-[12.5px] font-bold text-white shadow-sm transition hover:bg-brand-dark">
+					<Icon name="plus" size={14} strokeWidth={2.6} class="shrink-0" /> Ajouter une cliente
 				</summary>
 				<form method="POST" action="?/createClient" class="absolute right-0 top-11 z-20 w-80 rounded-2xl border border-line bg-white p-4 shadow-xl">
 					<label class="mb-1 block text-xs font-bold uppercase tracking-wide text-mist" for="nc-prenom">Prénom</label>
@@ -1720,69 +1818,77 @@
 		</div>
 	</div>
 
-	{#if filtered.length === 0}
+	{#if filteredClients.length === 0}
 		<p class="px-6 py-14 text-center text-sm text-mist">
-			Aucune cliente{query.trim() ? ' trouvée' : ' pour l’instant'}.<br />Crée la première avec « ＋ Créer une cliente ».
+			Aucune cliente{query.trim() || clientFilter !== 'all' ? ' trouvée' : ' pour l’instant'}.<br />Crée la première avec « Ajouter une cliente ».
 		</p>
-	{:else}			<div class="table-wrap overflow-x-auto">
-				<table class="tbl-crm w-full min-w-[760px] text-left">
+	{:else}
+		<div class="table-wrap overflow-x-auto">
+			<table class="tbl-crm w-full min-w-[860px] text-left">
 				<thead>
-					<tr class="border-b border-line text-[11px] font-bold uppercase tracking-wider text-mist">
-						<th class="px-5 py-3">Client</th>
-						<th class="px-3 py-3">Dernière connexion</th>
-						<th class="px-3 py-3">Bilans</th>
-						<th class="px-3 py-3">Retours</th>
-						<th class="px-3 py-3">Dernier bilan</th>
-						<th class="px-5 py-3 text-right">360°</th>
+					<tr>
+						<th class="px-5 py-2.5">Cliente</th>
+						<th class="px-3 py-2.5">Dernière connexion</th>
+						<th class="px-3 py-2.5">Bilans</th>
+						<th class="px-3 py-2.5">Retours</th>
+						<th class="px-3 py-2.5">Dernier bilan</th>
+						<th class="px-3 py-2.5">Statut</th>
+						<th class="px-5 py-2.5 text-right">Actions</th>
 					</tr>
 				</thead>
 				<tbody>
-					{#each filtered as client (client.user._id)}
+					{#each filteredClients as client (client.user._id)}
 						<tr
-							class="cursor-pointer border-b border-line/60 transition hover:bg-cream/60"
+							class="crow-crm border-b border-line/50 last:border-0"
 							tabindex="0"
 							role="link"
 							onclick={() => openClient(client.user._id)}
 							onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openClient(client.user._id); } }}
 							aria-label={`Ouvrir la Vision 360° de ${fullName(client.user)}`}
-						>						<td class="px-5 py-3">
-							<div class="flex items-center gap-3">
-								<div class="avatar-crm h-9 w-9 text-sm">
-									{initial(client.user.prenom)}
-								</div>
-								<div class="min-w-0">
-									<div class="flex items-center gap-2">
-										<span class="truncate font-bold text-ink">{fullName(client.user)}</span>
-										<span class="presence-crm {isOnline(client.user.lastSeenAt) ? 'on' : ''}" title={isOnline(client.user.lastSeenAt) ? 'En ligne' : 'Hors ligne'}></span>
+						>
+							<td class="px-5 py-2.5">
+								<div class="flex items-center gap-3">
+									<div class="avatar-crm h-9 w-9 text-sm">
+										{initial(client.user.prenom)}
 									</div>
-									<div class="truncate text-[11px] text-mist">{client.user.email}</div>
+									<div class="min-w-0">
+										<div class="flex items-center gap-2">
+											<span class="truncate font-bold text-ink">{fullName(client.user)}</span>
+											<span class="presence-crm {isOnline(client.user.lastSeenAt) ? 'on' : ''}" title={isOnline(client.user.lastSeenAt) ? 'En ligne' : 'Hors ligne'}></span>
+										</div>
+										<div class="truncate text-[11px] text-mist">{client.user.email}</div>
+									</div>
 								</div>
-							</div>
-						</td>
-							<td class="whitespace-nowrap px-3 py-3 text-sm text-mist">{fmtLastSeen(client.user.lastSeenAt)}</td>
-							<td class="px-3 py-3 text-sm text-ink">{client.count}</td>
-							<td class="px-3 py-3">
+							</td>
+							<td class="whitespace-nowrap px-3 py-2.5 text-[13px] text-mist">{fmtLastSeen(client.user.lastSeenAt)}</td>
+							<td class="px-3 py-2.5 text-[13px] font-semibold text-ink">{client.count}</td>
+							<td class="px-3 py-2.5">
 								{#if client.waiting > 0}
-									<span class="rounded-full bg-warn px-2 py-0.5 text-[11px] font-bold text-white">{client.waiting}</span>
+									<span class="badge-in grid h-5 min-w-5 place-items-center rounded-full bg-warn px-1.5 text-[11px] font-bold text-white">{client.waiting}</span>
 								{:else}
-									<span class="text-sm text-mist">—</span>
+									<span class="text-[13px] text-mist">—</span>
 								{/if}
 							</td>
-							<td class="whitespace-nowrap px-3 py-3 text-sm text-mist">{client.latest?.weekLabel ?? '—'}</td>
-						<td class="px-5 py-3 text-right">
-							<a
-								href={`/admin?client=${client.user._id}`}
-								onclick={(e) => { e.preventDefault(); openClient(client.user._id); }}
-								class="btn-crm inline-flex items-center gap-1 rounded-lg bg-ink px-3 py-1.5 text-xs font-bold text-white transition hover:bg-brand"
-							>Vision 360 <Icon name="arrowRight" size={12} /></a>
-						</td>
+							<td class="whitespace-nowrap px-3 py-2.5 text-[13px] text-mist">{client.latest?.weekLabel ?? '—'}</td>
+							<td class="px-3 py-2.5">
+								<span class="rounded-full px-2.5 py-1 text-[11.5px] font-bold {statusLabel(client.user.lastSeenAt).cls}">{statusLabel(client.user.lastSeenAt).label}</span>
+							</td>
+							<td class="px-5 py-2.5 text-right">
+								<a
+									href={`/admin?client=${client.user._id}`}
+									onclick={(e) => { e.preventDefault(); openClient(client.user._id); }}
+									class="btn-crm inline-flex items-center gap-1 rounded-full border border-line bg-white px-3 py-1.5 text-[12px] font-bold text-ink transition hover:border-brand hover:text-brand"
+								>Vision 360 <Icon name="arrowRight" size={12} /></a>
+							</td>
 						</tr>
 					{/each}
 				</tbody>
 			</table>
 		</div>
 	{/if}
-</div>	<!-- ═══ Vision 360° : occupe TOUT l'espace restant à droite de la sidebar
+</section>
+
+<!-- ═══ Vision 360° : occupe TOUT l'espace restant à droite de la sidebar
 	     CRM (md:pl-64 = largeur sidebar). Sur mobile, plein écran. ═══ -->
 	{#if selected && view}
 		<button type="button" class="fixed inset-0 z-50 cursor-pointer bg-ink/50 md:left-64" aria-label="Fermer la vue 360°" onclick={closeVision}></button>
