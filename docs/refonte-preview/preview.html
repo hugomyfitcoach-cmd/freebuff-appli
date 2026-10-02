@@ -1,0 +1,2235 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>G-FLUX Espace Coach — Refonte UX/UI · Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;800;900&display=swap" rel="stylesheet" />
+<style>
+/* ═══════════════════════════════════════════════════════════════════
+   G-FLUX — ESPACE COACH · REFONTE UX/UI PREMIUM
+   Design system de la preview (données 100 % fictives)
+   Typo : Lato — 900 titres · 700 actions/labels · 400 courant
+   ═══════════════════════════════════════════════════════════════════ */
+
+:root {
+	/* Couleurs — univers G-FLUX (vert énergie + crème chaud) */
+	--cream: #f7f5f0;
+	--cream-2: #f1efe8;
+	--card: #ffffff;
+	--soft: #f4f6f4;
+	--ink: #131512;
+	--ink-2: #3c423b;
+	--mist: #8a9087;
+	--mist-2: #b3b8ae;
+	--line: #e7e5de;
+	--line-2: #efede6;
+	--brand: #1db954;
+	--brand-dark: #17a349;
+	--brand-deep: #0d7c36;
+	--brand-light: #e9fbf0;
+	--brand-soft: #f3fcf7;
+	--warn: #f59e0b;
+	--warn-deep: #b45309;
+	--warn-light: #fdf3e1;
+	--danger: #e5484d;
+	--danger-deep: #b91c1c;
+	--danger-light: #fdeeee;
+	--violet: #7c5cfc;
+	--violet-light: #f1edff;
+	--blue: #2e90fa;
+	--blue-light: #eaf4ff;
+	--pink: #ec6bb4;
+	--pink-light: #fdeff6;
+
+	/* Élévation */
+	--sh-sm: 0 1px 2px rgba(19, 21, 18, 0.04), 0 1px 3px rgba(19, 21, 18, 0.03);
+	--sh-md: 0 2px 6px rgba(19, 21, 18, 0.05), 0 8px 24px rgba(19, 21, 18, 0.05);
+	--sh-lg: 0 8px 16px rgba(19, 21, 18, 0.06), 0 24px 56px rgba(19, 21, 18, 0.1);
+	--sh-brand: 0 4px 14px rgba(29, 185, 84, 0.3);
+
+	/* Rayons */
+	--r-sm: 10px;
+	--r-md: 14px;
+	--r-lg: 18px;
+	--r-xl: 24px;
+
+	/* Motion */
+	--ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* Icônes : le <i data-icon> ne génère pas de boîte — le SVG est dimensionné
+   par les règles contextuelles (.btn svg, .kpi-ico svg…). Les tailles inline
+   posées sur le <i> sont transférées sur le SVG par renderIcons(). */
+[data-icon] { display: contents; }
+
+html { scroll-behavior: smooth; }
+
+body {
+	font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
+	font-weight: 400;
+	background:
+		radial-gradient(1200px 500px at 85% -10%, rgba(29, 185, 84, 0.05), transparent 60%),
+		var(--cream);
+	color: var(--ink);
+	font-size: 14.5px;
+	line-height: 1.5;
+	-webkit-font-smoothing: antialiased;
+	min-height: 100vh;
+}
+
+img { display: block; max-width: 100%; }
+button { font: inherit; cursor: pointer; background: none; border: 0; color: inherit; }
+a { color: inherit; text-decoration: none; }
+::selection { background: rgba(29, 185, 84, 0.22); }
+
+/* ── Typographie ─────────────────────────────────────────────────── */
+.h1, .h2, .h3, .kpi-num { font-family: 'Lato', sans-serif; }
+.h1 {
+	font-size: 30px; font-weight: 900; letter-spacing: -0.03em; line-height: 1.02;
+}
+.h2 { font-size: 18px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.15; }
+.h3 { font-size: 14.5px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.15; }
+.page-sub { color: var(--mist); font-size: 14px; margin-top: 5px; }
+.eyebrow {
+	font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+	color: var(--mist);
+}
+.num { font-variant-numeric: tabular-nums; }
+
+/* ── Layout app ──────────────────────────────────────────────────── */
+.app { display: flex; min-height: 100vh; }
+
+/* Sidebar */
+.sidebar {
+	width: 248px; position: fixed; inset: 0 auto 0 0; z-index: 40;
+	background: var(--card);
+	border-right: 1px solid var(--line);
+	display: flex; flex-direction: column;
+	transition: transform 0.3s var(--ease);
+}
+.side-head { display: flex; align-items: center; gap: 10px; padding: 18px 20px 14px; }
+.logo-badge {
+	width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center;
+	background: linear-gradient(135deg, #21d05e, var(--brand-dark));
+	box-shadow: var(--sh-brand); color: #fff; flex-shrink: 0;
+}
+.logo-badge svg { width: 19px; height: 19px; }
+.side-brand { line-height: 1.05; }
+.side-brand b { display: block; font-weight: 900; letter-spacing: 0.02em; font-size: 15.5px; }
+.side-brand span { font-size: 9px; font-weight: 700; letter-spacing: 0.22em; color: var(--mist); text-transform: uppercase; }
+
+.side-nav { flex: 1; padding: 6px 12px; overflow-y: auto; }
+.nav-label { padding: 14px 10px 6px; }
+.side-item {
+	display: flex; align-items: center; gap: 11px; width: 100%;
+	padding: 9.5px 12px; border-radius: 12px;
+	font-weight: 700; font-size: 13.5px; color: var(--ink-2);
+	transition: background 0.15s var(--ease), color 0.15s var(--ease);
+	position: relative; text-align: left;
+}
+.side-item svg { width: 17px; height: 17px; opacity: 0.75; flex-shrink: 0; }
+.side-item:hover { background: var(--soft); color: var(--ink); }
+.side-item.active { background: var(--ink); color: #fff; }
+.side-item.active svg { opacity: 1; }
+.side-item .dot {
+	position: absolute; top: 9px; right: 12px;
+	min-width: 17px; height: 17px; padding: 0 5px; border-radius: 999px;
+	background: var(--warn); color: #fff; font-size: 10.5px; font-weight: 700;
+	display: grid; place-items: center;
+}
+.side-sep { height: 1px; background: var(--line-2); margin: 12px 10px; }
+
+.side-foot { padding: 12px; border-top: 1px solid var(--line-2); }
+.help-card {
+	background: var(--soft); border: 1px solid var(--line-2); border-radius: var(--r-md);
+	padding: 12px 13px; margin-bottom: 10px;
+}
+.help-card p { font-size: 12px; color: var(--ink-2); font-weight: 700; }
+.help-card span { font-size: 11px; color: var(--mist); display: block; margin-top: 1px; }
+.help-card button {
+	margin-top: 8px; width: 100%; background: #fff; border: 1px solid var(--line);
+	border-radius: 9px; padding: 6px; font-size: 12px; font-weight: 700;
+	transition: border-color 0.15s;
+}
+.help-card button:hover { border-color: var(--brand); color: var(--brand-deep); }
+.user-row { display: flex; align-items: center; gap: 10px; padding: 4px 6px; }
+.avatar {
+	width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+	display: grid; place-items: center; font-weight: 900; font-size: 14px;
+	background: linear-gradient(135deg, #21d05e, #0d7c36); color: #fff;
+}
+.avatar.sm { width: 30px; height: 30px; font-size: 12px; }
+.avatar.lg { width: 52px; height: 52px; font-size: 19px; }
+.avatar.neutral { background: var(--line-2); color: var(--mist); }
+.user-row b { display: block; font-size: 13px; font-weight: 800; line-height: 1.1; }
+.user-row span { font-size: 11px; color: var(--mist); }
+.user-row > div { flex: 1; min-width: 0; }
+
+/* Zone principale */
+.main { flex: 1; margin-left: 248px; min-width: 0; display: flex; flex-direction: column; }
+
+/* Topbar */
+.topbar {
+	position: sticky; top: 0; z-index: 30;
+	display: flex; align-items: center; gap: 14px;
+	padding: 12px 28px; background: rgba(247, 245, 240, 0.85);
+	backdrop-filter: blur(12px); border-bottom: 1px solid var(--line-2);
+}
+.search {
+	flex: 1; max-width: 420px; display: flex; align-items: center; gap: 9px;
+	background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+	padding: 8.5px 13px; color: var(--mist); transition: border-color 0.15s, box-shadow 0.15s;
+}
+.search:focus-within { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(29, 185, 84, 0.12); }
+.search svg { width: 15px; height: 15px; flex-shrink: 0; }
+.search input { border: 0; outline: 0; background: none; flex: 1; font: inherit; font-size: 13.5px; color: var(--ink); }
+.search kbd {
+	font-family: inherit; font-size: 10.5px; font-weight: 700; color: var(--mist);
+	background: var(--soft); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px;
+}
+.top-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.icon-btn {
+	position: relative; width: 38px; height: 38px; border-radius: 50%;
+	border: 1px solid var(--line); background: var(--card);
+	display: grid; place-items: center; color: var(--ink-2);
+	transition: border-color 0.15s, transform 0.1s;
+}
+.icon-btn:hover { border-color: var(--brand); color: var(--brand-deep); }
+.icon-btn:active { transform: scale(0.95); }
+.icon-btn svg { width: 17px; height: 17px; }
+.icon-btn .ping {
+	position: absolute; top: -2px; right: -2px; min-width: 16px; height: 16px; padding: 0 4px;
+	border-radius: 999px; background: var(--warn); border: 2px solid var(--cream);
+	color: #fff; font-size: 9.5px; font-weight: 800; display: grid; place-items: center;
+}
+.top-user { display: flex; align-items: center; gap: 9px; padding: 4px 6px; border-radius: 12px; }
+.top-user:hover { background: rgba(19,21,18,0.04); }
+.top-user b { font-size: 13px; font-weight: 800; display: block; line-height: 1.05; }
+.top-user span { font-size: 10.5px; color: var(--mist); }
+
+.content { padding: 24px 28px 60px; max-width: 1280px; width: 100%; margin: 0 auto; }
+
+/* ── Composants ──────────────────────────────────────────────────── */
+.card {
+	background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg);
+	box-shadow: var(--sh-sm);
+}
+.card-hd {
+	display: flex; align-items: center; justify-content: space-between; gap: 12px;
+	padding: 16px 18px; border-bottom: 1px solid var(--line-2);
+}
+.card-hd .title { display: flex; align-items: center; gap: 10px; }
+.card-hd .title svg { width: 17px; height: 17px; color: var(--brand); }
+.card-bd { padding: 18px; }
+.card-ft { padding: 12px 18px; border-top: 1px solid var(--line-2); }
+
+/* Boutons */
+.btn {
+	display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+	border-radius: 12px; padding: 9px 15px; font-weight: 700; font-size: 13.5px;
+	border: 1px solid transparent; transition: all 0.15s var(--ease); white-space: nowrap;
+}
+.btn svg { width: 15px; height: 15px; }
+.btn:active { transform: scale(0.97); }
+.btn-primary { background: var(--brand); color: #fff; box-shadow: var(--sh-brand); }
+.btn-primary:hover { background: var(--brand-dark); }
+.btn-dark { background: var(--ink); color: #fff; }
+.btn-dark:hover { background: #2a2e29; }
+.btn-ghost { background: var(--card); border-color: var(--line); color: var(--ink); }
+.btn-ghost:hover { border-color: var(--mist-2); }
+.btn-soft { background: var(--brand-soft); color: var(--brand-deep); border-color: rgba(29,185,84,0.25); }
+.btn-soft:hover { background: var(--brand-light); }
+.btn-danger-ghost { background: #fff; border-color: var(--line); color: var(--danger); }
+.btn-danger-ghost:hover { border-color: var(--danger); background: var(--danger-light); }
+.btn-sm { padding: 6.5px 11px; font-size: 12.5px; border-radius: 10px; }
+.btn-sm svg { width: 13px; height: 13px; }
+.btn-lg { padding: 12px 20px; font-size: 14.5px; border-radius: 13px; }
+.btn-block { width: 100%; }
+.btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+
+/* Tags / badges */
+.tag {
+	display: inline-flex; align-items: center; gap: 5px;
+	border-radius: 999px; padding: 3px 10px; font-size: 11px; font-weight: 700;
+	line-height: 1.5; white-space: nowrap;
+}
+.tag svg { width: 11px; height: 11px; }
+.tag-green { background: var(--brand-light); color: var(--brand-deep); }
+.tag-warn { background: var(--warn-light); color: var(--warn-deep); }
+.tag-red { background: var(--danger-light); color: var(--danger-deep); }
+.tag-neutral { background: var(--soft); color: var(--mist); }
+.tag-blue { background: var(--blue-light); color: #1570cd; }
+.tag-violet { background: var(--violet-light); color: #6039e8; }
+.tag-pink { background: var(--pink-light); color: #cf3f92; }
+.tag-ink { background: var(--ink); color: #fff; }
+.tag-outline { border: 1px solid var(--line); background: #fff; color: var(--ink-2); }
+
+.count-pill {
+	min-width: 22px; height: 22px; padding: 0 7px; border-radius: 999px;
+	display: inline-grid; place-items: center; font-size: 11.5px; font-weight: 800;
+}
+.count-pill.warn { background: var(--warn); color: #fff; }
+.count-pill.red { background: var(--danger); color: #fff; }
+.count-pill.soft { background: var(--line-2); color: var(--mist); }
+
+/* KPI cards premium */
+.kpi-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); }
+.kpi {
+	background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg);
+	padding: 16px 18px 14px; box-shadow: var(--sh-sm); position: relative; overflow: hidden;
+	transition: transform 0.2s var(--ease), box-shadow 0.2s var(--ease);
+}
+.kpi:hover { transform: translateY(-2px); box-shadow: var(--sh-md); }
+.kpi::before {
+	content: ''; position: absolute; inset: 0 auto 0 0; width: 3.5px;
+	background: var(--accent, var(--brand)); opacity: 0.9;
+}
+.kpi-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.kpi-ico {
+	width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center;
+	background: var(--accent-bg, var(--brand-light)); color: var(--accent-fg, var(--brand-deep));
+}
+.kpi-ico svg { width: 18px; height: 18px; }
+.kpi-num { font-size: 30px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; margin-top: 12px; }
+.kpi-num small { font-size: 14px; font-weight: 700; color: var(--mist); letter-spacing: 0; }
+.kpi-label { font-size: 12.5px; font-weight: 700; color: var(--ink-2); margin-top: 3px; }
+.kpi-foot { display: flex; align-items: center; gap: 5px; margin-top: 10px; font-size: 11.5px; color: var(--mist); }
+.trend { display: inline-flex; align-items: center; gap: 3px; font-weight: 800; }
+.trend svg { width: 12px; height: 12px; }
+.trend.up { color: var(--brand-deep); }
+.trend.down { color: var(--danger); }
+.trend.flat { color: var(--mist); }
+
+/* Sparkline décorative */
+.spark { display: flex; align-items: flex-end; gap: 3px; height: 34px; }
+.spark i {
+	width: 6px; border-radius: 3px 3px 1px 1px; background: var(--accent, var(--brand)); opacity: 0.28;
+}
+.spark i.hi { opacity: 1; }
+
+/* Tables premium */
+.table-wrap { overflow-x: auto; }
+table.tbl { width: 100%; border-collapse: collapse; min-width: 780px; }
+.tbl thead th {
+	font-size: 10.5px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+	color: var(--mist); text-align: left; padding: 10px 14px;
+	background: var(--soft); border-bottom: 1px solid var(--line);
+	position: sticky; top: 0;
+}
+.tbl tbody td { padding: 12px 14px; border-bottom: 1px solid var(--line-2); vertical-align: middle; }
+.tbl tbody tr { transition: background 0.12s; }
+.tbl tbody tr:hover { background: var(--brand-soft); }
+.tbl tbody tr:last-child td { border-bottom: 0; }
+.cell-user { display: flex; align-items: center; gap: 11px; }
+.cell-user b { font-weight: 800; font-size: 13.5px; display: flex; align-items: center; gap: 6px; }
+.cell-user span { display: block; font-size: 11.5px; color: var(--mist); }
+.presence { width: 7px; height: 7px; border-radius: 50%; background: var(--line-2); display: inline-block; }
+.presence.on { background: var(--brand); box-shadow: 0 0 0 3px rgba(29,185,84,0.18); }
+
+/* Listes « personnes » (bilans, notifs…) */
+.person {
+	display: flex; align-items: center; gap: 12px; padding: 11px 13px;
+	border: 1px solid var(--line-2); background: #fff; border-radius: var(--r-md);
+	transition: border-color 0.15s, transform 0.12s var(--ease), box-shadow 0.15s;
+}
+.person:hover { border-color: var(--brand); transform: translateX(2px); box-shadow: var(--sh-sm); }
+.person .who { flex: 1; min-width: 0; }
+.person .who b { font-size: 13.5px; font-weight: 800; display: block; }
+.person .who span { font-size: 11.5px; color: var(--mist); display: block; }
+.person .when { font-size: 11.5px; color: var(--mist); white-space: nowrap; }
+
+/* Section listes avec compteurs */
+.split-2 { display: grid; gap: 16px; grid-template-columns: 1.15fr 1fr; }
+@media (max-width: 1024px) { .split-2 { grid-template-columns: 1fr; } }
+
+/* Filtres segmentés */
+.filters { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip {
+	display: inline-flex; align-items: center; gap: 7px;
+	padding: 7.5px 14px; border-radius: 999px; border: 1px solid var(--line);
+	background: var(--card); font-size: 12.5px; font-weight: 700; color: var(--ink-2);
+	transition: all 0.15s var(--ease);
+}
+.chip:hover { border-color: var(--brand); color: var(--brand-deep); }
+.chip.active { background: var(--ink); border-color: var(--ink); color: #fff; }
+.chip .n { font-weight: 800; font-size: 11px; opacity: 0.75; }
+
+/* Champs */
+.field label { display: block; font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mist); margin-bottom: 6px; }
+.input, .select, .textarea {
+	width: 100%; border: 1.5px solid var(--line); border-radius: 12px;
+	padding: 10px 13px; font: inherit; font-size: 13.5px; font-weight: 700; color: var(--ink);
+	background: var(--soft); outline: 0; transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+.input:focus, .select:focus, .textarea:focus {
+	border-color: var(--brand); background: #fff; box-shadow: 0 0 0 3px rgba(29,185,84,0.12);
+}
+.textarea { font-weight: 400; resize: vertical; min-height: 84px; }
+.input::placeholder, .textarea::placeholder { color: var(--mist-2); font-weight: 400; }
+
+/* Étapes numérotées */
+.step-n {
+	width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
+	background: var(--brand); color: #fff; font-weight: 800; font-size: 13px;
+	display: grid; place-items: center; box-shadow: var(--sh-brand);
+}
+
+/* Bannière */
+.banner {
+	display: flex; align-items: flex-start; gap: 11px; padding: 13px 16px;
+	border-radius: var(--r-md); font-size: 13.5px; border: 1px solid;
+}
+.banner svg { width: 17px; height: 17px; flex-shrink: 0; margin-top: 1px; }
+.banner.green { background: var(--brand-soft); border-color: rgba(29,185,84,0.3); color: var(--brand-deep); }
+.banner.red { background: var(--danger-light); border-color: rgba(229,72,77,0.35); color: var(--danger-deep); }
+
+/* ── Dashboard north-star ────────────────────────────────────────── */
+.hero-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.hero-date { font-size: 12px; font-weight: 700; color: var(--mist); margin-top: 7px; display: flex; align-items: center; gap: 6px; }
+.hero-date svg { width: 13px; height: 13px; }
+
+.todo-grid { display: grid; gap: 10px; }
+.todo-item {
+	display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+	border-radius: var(--r-md); border: 1px solid var(--line-2); background: #fff;
+	transition: border-color 0.15s, transform 0.12s var(--ease);
+}
+.todo-item:hover { border-color: var(--brand); transform: translateX(3px); }
+.todo-item .ico {
+	width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0;
+	display: grid; place-items: center;
+}
+.todo-item .ico svg { width: 16px; height: 16px; }
+.todo-item .what { flex: 1; min-width: 0; }
+.todo-item .what b { display: block; font-size: 13.5px; font-weight: 800; }
+.todo-item .what span { font-size: 11.5px; color: var(--mist); }
+.todo-item .go { color: var(--mist); transition: color 0.15s, transform 0.15s; }
+.todo-item:hover .go { color: var(--brand-deep); transform: translateX(2px); }
+.todo-item .go svg { width: 16px; height: 16px; }
+
+/* Client quick view */
+.client-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(235px, 1fr)); }
+.client-tile {
+	background: #fff; border: 1px solid var(--line-2); border-radius: var(--r-md);
+	padding: 13px 14px; transition: border-color 0.15s, transform 0.15s var(--ease), box-shadow 0.15s;
+	cursor: pointer;
+}
+.client-tile:hover { border-color: var(--brand); transform: translateY(-2px); box-shadow: var(--sh-md); }
+.client-tile .row { display: flex; align-items: center; gap: 10px; }
+.client-tile .row b { font-size: 13.5px; font-weight: 800; display: flex; align-items: center; gap: 6px; }
+.client-tile .row span { display: block; font-size: 11px; color: var(--mist); }
+.client-tile .stats { display: flex; gap: 6px; margin-top: 11px; flex-wrap: wrap; }
+.mini-stat {
+	font-size: 11px; font-weight: 700; color: var(--ink-2);
+	background: var(--soft); border-radius: 7px; padding: 3px 8px;
+}
+
+/* ── Notifications ───────────────────────────────────────────────── */
+.notif-row {
+	display: flex; align-items: center; gap: 13px; padding: 13px 15px;
+	border: 1px solid var(--line-2); border-radius: var(--r-md); background: #fff;
+	transition: border-color 0.15s;
+}
+.notif-row:hover { border-color: var(--brand); }
+.notif-row.unread { border-left: 3px solid var(--warn); background: linear-gradient(90deg, rgba(245,158,11,0.045), #fff 22%); }
+.notif-ico { width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; flex-shrink: 0; }
+.notif-ico svg { width: 16px; height: 16px; }
+.notif-body { flex: 1; min-width: 0; }
+.notif-body .l1 { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.notif-body .l1 b { font-size: 13.5px; font-weight: 800; }
+.notif-body .l1 .kind { font-size: 11.5px; font-weight: 700; }
+.notif-body .l2 { font-size: 12px; color: var(--mist); margin-top: 1px; }
+.notif-when { font-size: 11.5px; color: var(--mist); white-space: nowrap; text-align: right; }
+.check-btn {
+	width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--line);
+	display: grid; place-items: center; color: var(--mist); flex-shrink: 0;
+	transition: all 0.15s;
+}
+.check-btn:hover { border-color: var(--brand); background: var(--brand-light); color: var(--brand-deep); }
+.check-btn.done { border-color: var(--brand); background: var(--brand); color: #fff; }
+.check-btn svg { width: 13px; height: 13px; }
+
+/* ── Photos ──────────────────────────────────────────────────────── */
+.thumbs { display: flex; gap: 6px; }
+.thumb {
+	width: 44px; height: 56px; border-radius: 9px; object-fit: cover;
+	border: 1px solid var(--line); background: var(--soft);
+}
+.thumb.more {
+	display: grid; place-items: center; font-size: 11px; font-weight: 800; color: var(--mist);
+	background: var(--soft); border-style: dashed;
+}
+.deposit-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); }
+.deposit {
+	background: #fff; border: 1px solid var(--line-2); border-radius: var(--r-lg);
+	padding: 15px; transition: border-color 0.15s, transform 0.15s var(--ease), box-shadow 0.2s;
+}
+.deposit:hover { border-color: var(--brand); transform: translateY(-2px); box-shadow: var(--sh-md); }
+.deposit .top { display: flex; align-items: center; gap: 11px; margin-bottom: 12px; }
+.deposit .top .who { flex: 1; min-width: 0; }
+.deposit .top .who b { font-size: 14px; font-weight: 800; display: flex; align-items: center; gap: 7px; }
+.deposit .top .who span { font-size: 11.5px; color: var(--mist); display: block; }
+.deposit .strip { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.deposit .strip .thumb { width: 100%; height: 74px; }
+.deposit .meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
+.deposit .meta .left { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* ── Templates ───────────────────────────────────────────────────── */
+.tpl-layout { display: grid; gap: 18px; grid-template-columns: 1.25fr 1fr; align-items: start; }
+@media (max-width: 1080px) { .tpl-layout { grid-template-columns: 1fr; } }
+.situation-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.situation {
+	position: relative; text-align: left; background: #fff; border: 1.5px solid var(--line);
+	border-radius: var(--r-md); padding: 15px 14px; transition: all 0.15s var(--ease);
+}
+.situation:hover { border-color: var(--brand); }
+.situation.active { border-color: var(--brand); background: var(--brand-soft); box-shadow: 0 0 0 3px rgba(29,185,84,0.1); }
+.situation .emo { font-size: 22px; }
+.situation b { display: block; font-size: 13px; font-weight: 800; margin-top: 8px; line-height: 1.25; }
+.situation span { display: block; font-size: 11px; color: var(--mist); margin-top: 4px; line-height: 1.4; }
+.situation .tick {
+	position: absolute; top: 10px; right: 10px; width: 20px; height: 20px; border-radius: 50%;
+	background: var(--brand); color: #fff; display: none; place-items: center;
+}
+.situation.active .tick { display: grid; }
+.situation .tick svg { width: 11px; height: 11px; }
+
+.msg-preview {
+	background: linear-gradient(180deg, var(--brand-soft), #fff 55%);
+	border: 1px solid rgba(29,185,84,0.28); border-radius: var(--r-lg); padding: 18px;
+	font-size: 13.5px; line-height: 1.7; color: var(--ink-2); white-space: pre-wrap;
+}
+.msg-preview .hello { font-weight: 800; color: var(--ink); font-size: 14.5px; }
+
+/* ── Planning ────────────────────────────────────────────────────── */
+.week-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+@media (max-width: 1080px) { .week-grid { grid-template-columns: repeat(4, 1fr); } }
+@media (max-width: 720px) { .week-grid { grid-template-columns: repeat(2, 1fr); } }
+.day-col { background: var(--soft); border: 1px solid var(--line-2); border-radius: var(--r-md); padding: 9px; min-height: 190px; }
+.day-col.today { border-color: rgba(29,185,84,0.45); background: var(--brand-soft); }
+.day-col .dh { text-align: center; font-size: 10.5px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--mist); padding-bottom: 8px; border-bottom: 1px dashed var(--line); margin-bottom: 8px; }
+.day-col.today .dh { color: var(--brand-deep); }
+.slot {
+	width: 100%; text-align: center; border-radius: 8px; padding: 5px 2px;
+	font-size: 11px; font-weight: 700; margin-bottom: 5px;
+	font-variant-numeric: tabular-nums;
+}
+.slot.free { background: #fff; border: 1px solid var(--line); color: var(--ink-2); }
+.slot.rdv { background: var(--brand); color: #fff; box-shadow: var(--sh-sm); }
+.slot.rdv small { display: block; font-size: 9.5px; font-weight: 800; opacity: 0.85; letter-spacing: 0.02em; }
+.slot.req { background: var(--warn); color: #fff; }
+.slot.rdv:hover { filter: brightness(1.06); }
+.slot.off { visibility: hidden; }
+
+/* ── Vision 360 ──────────────────────────────────────────────────── */
+.c360-header {
+	background: var(--card); border: 1px solid var(--line); border-radius: var(--r-xl);
+	box-shadow: var(--sh-sm); padding: 18px 20px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+}
+.c360-tabs {
+	display: flex; gap: 2px; background: var(--card); border: 1px solid var(--line);
+	padding: 5px; border-radius: 14px; overflow-x: auto; box-shadow: var(--sh-sm);
+}
+.c360-tab {
+	padding: 8px 15px; border-radius: 10px; font-size: 13px; font-weight: 700;
+	color: var(--mist); white-space: nowrap; transition: all 0.15s;
+}
+.c360-tab:hover { color: var(--ink); background: var(--soft); }
+.c360-tab.active { background: var(--ink); color: #fff; }
+.metric-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); }
+.metric {
+	background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg);
+	padding: 14px 16px; box-shadow: var(--sh-sm); position: relative;
+	transition: transform 0.18s var(--ease), box-shadow 0.18s;
+}
+.metric:hover { transform: translateY(-2px); box-shadow: var(--sh-md); }
+.metric .lbl { display: flex; align-items: center; gap: 7px; font-size: 11.5px; font-weight: 700; color: var(--mist); }
+.metric .lbl svg { width: 14px; height: 14px; }
+.metric .val { font-size: 23px; font-weight: 900; letter-spacing: -0.02em; margin-top: 8px; line-height: 1; }
+.metric .val small { font-size: 12.5px; font-weight: 700; color: var(--mist); letter-spacing: 0; }
+.metric .sub { font-size: 11px; color: var(--mist); margin-top: 4px; }
+.metric .delta { position: absolute; top: 14px; right: 14px; }
+
+/* Bar chart */
+.bars { display: flex; align-items: flex-end; gap: 9px; height: 120px; padding-top: 8px; }
+.bars .b { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; height: 100%; justify-content: flex-end; }
+.bars .b i {
+	width: 100%; max-width: 34px; border-radius: 7px 7px 3px 3px;
+	background: linear-gradient(180deg, #2ed268, var(--brand)); min-height: 4px;
+	transition: filter 0.15s;
+}
+.bars .b:hover i { filter: brightness(1.08); }
+.bars .b.under i { background: linear-gradient(180deg, #ffd08a, var(--warn)); }
+.bars .b em { font-style: normal; font-size: 9.5px; font-weight: 700; color: var(--mist); }
+.bars .b strong { font-size: 10px; font-weight: 800; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+/* Objectifs journaliers */
+.obj-tabs { display: flex; background: var(--soft); border: 1px solid var(--line-2); border-radius: 12px; padding: 4px; gap: 4px; }
+.obj-tab { flex: 1; text-align: center; padding: 8px 12px; border-radius: 9px; font-size: 12.5px; font-weight: 700; color: var(--mist); transition: all 0.15s; }
+.obj-tab.active { background: var(--brand); color: #fff; box-shadow: var(--sh-sm); }
+.macro-box { border: 1.5px solid var(--line); border-radius: var(--r-md); padding: 12px; background: #fff; }
+.macro-box .pct { font-size: 21px; font-weight: 900; letter-spacing: -0.02em; }
+.macro-box .nm { font-size: 11px; font-weight: 700; display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.macro-box .nm i { width: 8px; height: 8px; border-radius: 3px; display: inline-block; }
+
+/* Accès rapide */
+.quick-list { display: grid; gap: 9px; }
+.quick-item {
+	display: flex; align-items: center; gap: 12px; padding: 11.5px 13px;
+	background: #fff; border: 1px solid var(--line-2); border-radius: var(--r-md);
+	transition: border-color 0.15s, transform 0.12s var(--ease);
+	text-align: left; width: 100%;
+}
+.quick-item:hover { border-color: var(--brand); transform: translateX(2px); }
+.quick-item .qi {
+	width: 34px; height: 34px; border-radius: 10px; background: var(--soft);
+	display: grid; place-items: center; color: var(--ink-2); flex-shrink: 0;
+}
+.quick-item .qi svg { width: 16px; height: 16px; }
+.quick-item .qt { flex: 1; min-width: 0; }
+.quick-item .qt b { display: block; font-size: 13px; font-weight: 800; }
+.quick-item .qt span { font-size: 11px; color: var(--mist); }
+.quick-item > svg { width: 15px; height: 15px; color: var(--mist-2); }
+
+/* Timeline activité */
+.timeline { display: flex; flex-direction: column; }
+.tl-item { display: flex; gap: 12px; position: relative; padding-bottom: 16px; }
+.tl-item:last-child { padding-bottom: 0; }
+.tl-item::before {
+	content: ''; position: absolute; left: 15px; top: 32px; bottom: 2px; width: 2px;
+	background: var(--line-2); border-radius: 2px;
+}
+.tl-item:last-child::before { display: none; }
+.tl-ico {
+	width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0; z-index: 1;
+	display: grid; place-items: center; border: 1px solid var(--line); background: #fff;
+}
+.tl-ico svg { width: 14px; height: 14px; }
+.tl-body { flex: 1; min-width: 0; }
+.tl-body .l1 { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.tl-body b { font-size: 13px; font-weight: 800; }
+.tl-body .when { font-size: 11px; color: var(--mist); white-space: nowrap; }
+.tl-body .l2 { font-size: 12px; color: var(--mist); margin-top: 1px; }
+
+/* ── Entraînement ────────────────────────────────────────────────── */
+.prog-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(285px, 1fr)); }
+.prog-card {
+	background: #fff; border: 1px solid var(--line); border-radius: var(--r-lg);
+	overflow: hidden; box-shadow: var(--sh-sm);
+	transition: transform 0.18s var(--ease), box-shadow 0.2s, border-color 0.15s;
+}
+.prog-card:hover { transform: translateY(-3px); box-shadow: var(--sh-md); border-color: rgba(29,185,84,0.4); }
+.prog-cover { height: 108px; position: relative; overflow: hidden; }
+.prog-cover .ph { width: 100%; height: 100%; display: grid; place-items: center; color: rgba(255,255,255,0.85); }
+.prog-cover .ph svg { width: 30px; height: 30px; }
+.prog-cover .tags { position: absolute; top: 10px; left: 10px; display: flex; gap: 5px; }
+.prog-body { padding: 14px 15px 15px; }
+.prog-body h3 { font-size: 15px; font-weight: 800; letter-spacing: -0.01em; }
+.prog-body .desc { font-size: 11.5px; color: var(--mist); margin-top: 2px; }
+.prog-stats { display: flex; gap: 5px; margin-top: 11px; flex-wrap: wrap; }
+.prog-actions { display: flex; gap: 7px; margin-top: 13px; }
+
+/* Éditeur 3 colonnes */
+.editor-grid { display: grid; gap: 14px; grid-template-columns: 235px 1fr 300px; align-items: start; }
+@media (max-width: 1180px) { .editor-grid { grid-template-columns: 1fr 1fr; } .editor-col-right { grid-column: 1 / -1; } }
+@media (max-width: 820px) { .editor-grid { grid-template-columns: 1fr; } }
+.sess-item {
+	display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+	padding: 11px 12px; border-radius: var(--r-md); border: 1.5px solid var(--line-2);
+	background: #fff; transition: all 0.15s; margin-bottom: 8px;
+}
+.sess-item:hover { border-color: var(--mist-2); }
+.sess-item.active { border-color: var(--brand); background: var(--brand-soft); }
+.sess-item b { display: block; font-size: 13px; font-weight: 800; }
+.sess-item span { font-size: 11px; color: var(--mist); }
+.sess-item .sn { width: 24px; height: 24px; border-radius: 8px; background: var(--soft); display: grid; place-items: center; font-size: 11.5px; font-weight: 800; color: var(--ink-2); flex-shrink: 0; }
+.sess-item.active .sn { background: var(--brand); color: #fff; }
+
+.ex-row {
+	display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+	border: 1px solid var(--line-2); border-radius: var(--r-md); background: #fff;
+	transition: border-color 0.15s;
+	margin-bottom: 8px;
+}
+.ex-row:hover { border-color: var(--mist-2); }
+.ex-row.selected { border-color: var(--brand); background: var(--brand-soft); }
+.ex-thumb {
+	width: 44px; height: 44px; border-radius: 10px; flex-shrink: 0;
+	display: grid; place-items: center; color: #fff;
+}
+.ex-thumb svg { width: 19px; height: 19px; }
+.ex-info { flex: 1; min-width: 0; }
+.ex-info b { font-size: 13.5px; font-weight: 800; display: block; }
+.ex-info span { font-size: 11px; color: var(--mist); display: block; }
+.ex-params { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 5px; }
+.param { font-size: 10.5px; font-weight: 800; background: var(--soft); border-radius: 6px; padding: 2.5px 7px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.ex-order {
+	width: 22px; height: 22px; border-radius: 50%; background: var(--line-2); color: var(--mist);
+	font-size: 11px; font-weight: 800; display: grid; place-items: center; flex-shrink: 0;
+}
+.ex-row.selected .ex-order { background: var(--brand); color: #fff; }
+
+.presc-tabs { display: flex; gap: 2px; background: var(--soft); border-radius: 11px; padding: 4px; }
+.presc-tab { flex: 1; padding: 7px 8px; border-radius: 8px; font-size: 12px; font-weight: 700; color: var(--mist); text-align: center; transition: all 0.15s; }
+.presc-tab.active { background: #fff; color: var(--ink); box-shadow: var(--sh-sm); }
+.stepper { display: flex; align-items: center; border: 1.5px solid var(--line); border-radius: 11px; background: #fff; overflow: hidden; }
+.stepper button { width: 32px; align-self: stretch; display: grid; place-items: center; color: var(--mist); transition: background 0.12s; }
+.stepper button:hover { background: var(--soft); color: var(--ink); }
+.stepper button svg { width: 13px; height: 13px; }
+.stepper input { width: 100%; border: 0; outline: 0; text-align: center; font: inherit; font-size: 14px; font-weight: 800; padding: 9px 2px; font-variant-numeric: tabular-nums; background: none; }
+.field-lbl { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mist); margin-bottom: 6px; display: block; }
+
+/* Muscles ciblés */
+.muscle-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.muscle {
+	display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px;
+	border-radius: 999px; font-size: 11.5px; font-weight: 700;
+	background: var(--brand-light); color: var(--brand-deep); border: 1px solid rgba(29,185,84,0.3);
+}
+.muscle.sec { background: var(--soft); color: var(--mist); border-color: var(--line); }
+
+/* Bibliothèque */
+.lib-card {
+	background: #fff; border: 1px solid var(--line-2); border-radius: var(--r-lg);
+	overflow: hidden; transition: all 0.15s var(--ease);
+}
+.lib-card:hover { border-color: var(--brand); box-shadow: var(--sh-md); transform: translateY(-2px); }
+.lib-cover { height: 96px; display: grid; place-items: center; color: #fff; position: relative; }
+.lib-cover svg { width: 26px; height: 26px; }
+.lib-body { padding: 12px 13px 13px; }
+.lib-body b { font-size: 13px; font-weight: 800; display: block; }
+.lib-body span { font-size: 11px; color: var(--mist); display: block; margin-top: 1px; }
+
+/* ── Utilitaires ─────────────────────────────────────────────────── */
+.row { display: flex; align-items: center; gap: 10px; }
+.row-between { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.mt-0 { margin-top: 0; } .mt-1 { margin-top: 6px; } .mt-2 { margin-top: 10px; } .mt-3 { margin-top: 14px; }
+.mt-4 { margin-top: 18px; } .mt-5 { margin-top: 24px; } .mt-6 { margin-top: 32px; }
+.mb-2 { margin-bottom: 10px; } .mb-3 { margin-bottom: 14px; }
+.grow { flex: 1; min-width: 0; }
+.muted { color: var(--mist); }
+.small { font-size: 12px; }
+.xsmall { font-size: 11px; }
+.bold { font-weight: 800; }
+.hide { display: none !important; }
+.grid-2 { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; }
+@media (max-width: 860px) { .grid-2 { grid-template-columns: 1fr; } }
+
+/* Pages */
+.page { display: none; }
+.page.active { display: block; animation: page-in 0.35s var(--ease); }
+@keyframes page-in { from { opacity: 0; transform: translateY(8px); } }
+
+/* Sidebar mobile */
+.burger {
+	display: none; width: 38px; height: 38px; border-radius: 12px; border: 1px solid var(--line);
+	background: var(--card); place-items: center;
+}
+.burger svg { width: 18px; height: 18px; }
+.scrim {
+	display: none; position: fixed; inset: 0; background: rgba(19,21,18,0.4); z-index: 45;
+}
+@media (max-width: 980px) {
+	.sidebar { transform: translateX(-100%); box-shadow: none; }
+	.sidebar.open { transform: translateX(0); box-shadow: var(--sh-lg); }
+	.sidebar.open ~ .scrim { display: block; }
+	.main { margin-left: 0; }
+	.burger { display: grid; }
+	.content { padding: 18px 16px 60px; }
+	.topbar { padding: 10px 16px; }
+	.h1 { font-size: 25px; }
+}
+
+</style>
+</head>
+<body>
+
+<div class="app">
+	<!-- ══════════ SIDEBAR ══════════ -->
+	<aside class="sidebar" id="sidebar">
+		<div class="side-head">
+			<span class="logo-badge"><i data-icon="zap"></i></span>
+			<div class="side-brand"><b>G-FLUX</b><span>Espace coach</span></div>
+		</div>
+		<nav class="side-nav" aria-label="Navigation principale">
+			<div class="nav-label eyebrow">Pilotage</div>
+			<button class="side-item active" data-goto="dashboard"><i data-icon="home"></i>Dashboard</button>
+			<button class="side-item" data-goto="notifications"><i data-icon="bell"></i>Notifications<span class="dot">1</span></button>
+			<div class="nav-label eyebrow">Suivi clientes</div>
+			<button class="side-item" data-goto="photos"><i data-icon="camera"></i>Photos</button>
+			<button class="side-item" data-goto="bilans"><i data-icon="clipboardList"></i>Bilans</button>
+			<button class="side-item" data-goto="client"><i data-icon="users"></i>Vision 360</button>
+			<div class="nav-label eyebrow">Coaching</div>
+			<button class="side-item" data-goto="rendezvous"><i data-icon="calendarCheck"></i>Rendez-vous</button>
+			<button class="side-item" data-goto="templates"><i data-icon="messageCircle"></i>Templates</button>
+			<button class="side-item" data-goto="entrainement"><i data-icon="dumbbell"></i>Entraînement</button>
+		</nav>
+		<div class="side-foot">
+			<div class="help-card">
+				<p>Une question&nbsp;?</p>
+				<span>Besoin d'aide&nbsp;?</span>
+				<button type="button">Centre d'aide</button>
+			</div>
+			<div class="user-row">
+				<span class="avatar">H</span>
+				<div><b>Hugo</b><span>Coach G-FLUX</span></div>
+				<i data-icon="chevronRight" style="width:15px;height:15px;color:var(--mist-2)"></i>
+			</div>
+		</div>
+	</aside>
+	<div class="scrim" id="scrim"></div>
+
+	<!-- ══════════ MAIN ══════════ -->
+	<div class="main">
+		<div class="topbar">
+			<button class="burger" id="burger" aria-label="Ouvrir le menu"><i data-icon="menu"></i></button>
+			<label class="search">
+				<i data-icon="search"></i>
+				<input type="search" placeholder="Rechercher une cliente (nom, email)…" />
+				<kbd>⌘K</kbd>
+			</label>
+			<div class="top-actions">
+				<span class="tag tag-outline" title="Preview de refonte — données 100 % fictives"><i data-icon="sparkles"></i>Preview UI</span>
+				<button class="icon-btn" data-goto="notifications" aria-label="Notifications">
+					<i data-icon="bell"></i><span class="ping">1</span>
+				</button>
+				<button class="top-user" data-goto="dashboard">
+					<span class="avatar sm">H</span>
+					<div><b>Hugo</b><span>Coach G-FLUX</span></div>
+				</button>
+			</div>
+		</div>
+
+		<div class="content">
+
+		<!-- ══════════════════ 1 · DASHBOARD ══════════════════ -->
+		<section class="page active" id="page-dashboard">
+			<div class="hero-title">
+				<div>
+					<h1 class="h1">Bonjour Hugo 👋</h1>
+					<p class="page-sub">Voici l'état de ton coaching — vendredi 2 octobre, 9 h 12.</p>
+					<p class="hero-date"><i data-icon="calendarDays"></i> Vendredi 2 octobre 2026 · semaine 40</p>
+				</div>
+				<div class="row">
+					<button class="btn btn-ghost" data-goto="bilans"><i data-icon="clipboardList"></i>Voir les bilans</button>
+					<button class="btn btn-primary" data-goto="templates"><i data-icon="messageCircle"></i>Message du jour</button>
+				</div>
+			</div>
+
+			<div class="kpi-grid mt-5">
+				<div class="kpi" style="--accent:#1db954;--accent-bg:var(--brand-light);--accent-fg:var(--brand-deep)">
+					<div class="kpi-top"><span class="kpi-ico"><i data-icon="users"></i></span><span class="spark" style="--accent:#1db954"><i></i><i></i><i class="hi"></i><i></i><i></i></span></div>
+					<div class="kpi-num">28</div>
+					<div class="kpi-label">Clientes actives</div>
+					<div class="kpi-foot"><span class="trend up"><i data-icon="arrowUpRight"></i>+3</span> ce mois-ci</div>
+				</div>
+				<div class="kpi" style="--accent:#f59e0b;--accent-bg:var(--warn-light);--accent-fg:var(--warn-deep)">
+					<div class="kpi-top"><span class="kpi-ico"><i data-icon="clock"></i></span><span class="spark" style="--accent:#f59e0b"><i class="hi"></i><i></i><i></i><i class="hi"></i><i class="hi"></i></span></div>
+					<div class="kpi-num">6</div>
+					<div class="kpi-label">Bilans à traiter</div>
+					<div class="kpi-foot"><span class="trend up"><i data-icon="arrowUpRight"></i>+2</span> depuis hier</div>
+				</div>
+				<div class="kpi" style="--accent:#2e90fa;--accent-bg:var(--blue-light);--accent-fg:#1570cd">
+					<div class="kpi-top"><span class="kpi-ico"><i data-icon="camera"></i></span><span class="spark" style="--accent:#2e90fa"><i></i><i class="hi"></i><i></i><i></i><i class="hi"></i></span></div>
+					<div class="kpi-num">5</div>
+					<div class="kpi-label">Dépôts photos cette semaine</div>
+					<div class="kpi-foot"><span class="trend up"><i data-icon="arrowUpRight"></i>+12 %</span> vs S39</div>
+				</div>
+				<div class="kpi" style="--accent:#7c5cfc;--accent-bg:var(--violet-light);--accent-fg:#6039e8">
+					<div class="kpi-top"><span class="kpi-ico"><i data-icon="calendarCheck"></i></span><span class="spark" style="--accent:#7c5cfc"><i class="hi"></i><i></i><i class="hi"></i><i></i><i class="hi"></i></span></div>
+					<div class="kpi-num">4</div>
+					<div class="kpi-label">RDV cette semaine</div>
+					<div class="kpi-foot"><span class="trend flat">prochain : 14 h 30</span></div>
+				</div>
+			</div>
+
+			<div class="split-2 mt-5">
+				<!-- À traiter aujourd'hui -->
+				<div class="card">
+					<div class="card-hd">
+						<div class="title"><i data-icon="target"></i><h2 class="h2">À traiter aujourd'hui</h2><span class="count-pill warn">6</span></div>
+						<button class="btn btn-ghost btn-sm" data-goto="bilans">Tout voir <i data-icon="arrowRight"></i></button>
+					</div>
+					<div class="card-bd todo-grid">
+						<div class="todo-item" data-goto="client">
+							<span class="ico" style="background:var(--warn-light);color:var(--warn-deep)"><i data-icon="clipboardCheck"></i></span>
+							<div class="what"><b>Bilan de Pauline Debrie</b><span>Déposé il y a 1 min · retour à écrire</span></div>
+							<span class="tag tag-warn">Nouveau</span><span class="go"><i data-icon="chevronRight"></i></span>
+						</div>
+						<div class="todo-item" data-goto="client">
+							<span class="ico" style="background:var(--warn-light);color:var(--warn-deep)"><i data-icon="clipboardCheck"></i></span>
+							<div class="what"><b>Bilan de Cristina Sobas</b><span>Déposé il y a 13 min · retour à écrire</span></div>
+							<span class="tag tag-warn">Nouveau</span><span class="go"><i data-icon="chevronRight"></i></span>
+						</div>
+						<div class="todo-item" data-goto="rendezvous">
+							<span class="ico" style="background:var(--blue-light);color:#1570cd"><i data-icon="calendarClock"></i></span>
+							<div class="what"><b>RDV de suivi — Marine Labarre</b><span>Aujourd'hui · 14 h 30 – 14 h 45</span></div>
+							<span class="tag tag-blue">Agenda</span><span class="go"><i data-icon="chevronRight"></i></span>
+						</div>
+						<div class="todo-item" data-goto="photos">
+							<span class="ico" style="background:var(--violet-light);color:#6039e8"><i data-icon="camera"></i></span>
+							<div class="what"><b>Photos de progression — Floriane Baud</b><span>Mois 3 · 4 photos déposées hier</span></div>
+							<span class="tag tag-violet">À consulter</span><span class="go"><i data-icon="chevronRight"></i></span>
+						</div>
+						<div class="todo-item" data-goto="bilans">
+							<span class="ico" style="background:var(--danger-light);color:var(--danger-deep)"><i data-icon="triangleAlert"></i></span>
+							<div class="what"><b>2 bilans manquants</b><span>Estelle Delamare · Laeticia Bonfils</span></div>
+							<span class="tag tag-red">Relancer</span><span class="go"><i data-icon="chevronRight"></i></span>
+						</div>
+					</div>
+				</div>
+
+				<!-- Agenda Google -->
+				<div class="card">
+					<div class="card-hd">
+						<div class="title"><i data-icon="calendarRange"></i><h2 class="h2">Agenda — Google Calendar</h2><span class="tag tag-green"><i data-icon="check"></i>Connecté</span></div>
+						<button class="btn btn-ghost btn-sm" data-goto="rendezvous">Planning <i data-icon="arrowRight"></i></button>
+					</div>
+					<div class="card-bd">
+						<div class="row-between mb-2">
+							<b class="h3">Vendredi 2 octobre</b>
+							<span class="tag tag-neutral">Aujourd'hui</span>
+						</div>
+						<div class="todo-grid">
+							<div class="todo-item">
+								<span class="ico" style="background:var(--brand-light);color:var(--brand-deep)"><i data-icon="video"></i></span>
+								<div class="what"><b>Suivi — Marine Labarre</b><span>14 h 30 – 14 h 45 · visio</span></div>
+								<span class="tag tag-green">Confirmé</span>
+							</div>
+							<div class="todo-item">
+								<span class="ico" style="background:var(--brand-light);color:var(--brand-deep)"><i data-icon="video"></i></span>
+								<div class="what"><b>Démarrage — Nina Robert</b><span>16 h 00 – 17 h 00 · visio</span></div>
+								<span class="tag tag-green">Confirmé</span>
+							</div>
+						</div>
+						<div class="row-between mt-3">
+							<b class="h3">Semaine 40</b>
+							<span class="xsmall muted">2 RDV · 75 min planifiées</span>
+						</div>
+						<div class="week-grid mt-2" style="grid-template-columns:repeat(7,1fr)">
+							<div class="day-col today"><div class="dh">Ven 2</div><span class="slot rdv">14:30<small>Suivi</small></span><span class="slot rdv">16:00<small>Dém.</small></span></div>
+							<div class="day-col"><div class="dh">Sam 3</div></div>
+							<div class="day-col"><div class="dh">Dim 4</div></div>
+							<div class="day-col"><div class="dh">Lun 5</div><span class="slot rdv">09:15<small>Suivi</small></span></div>
+							<div class="day-col"><div class="dh">Mar 6</div></div>
+							<div class="day-col"><div class="dh">Mer 7</div><span class="slot rdv">11:00<small>Suivi</small></span></div>
+							<div class="day-col"><div class="dh">Jeu 8</div></div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- Message global -->
+			<div class="card mt-5" id="global-msg-card">
+				<div class="card-hd">
+					<div class="title"><i data-icon="megaphone"></i><h2 class="h2">Message global</h2><span class="tag tag-neutral">Envoi sortant · 24 h</span></div>
+					<span class="xsmall muted">24 clientes actives sur 5 jours</span>
+				</div>
+				<div class="card-bd">
+					<div class="banner green mb-2" style="align-items:center">
+						<i data-icon="info"></i>
+						<span>Un seul message pour toutes tes clientes actives — visible chez elles comme un « Message du coach du jour ». Aucune messagerie entrante&nbsp;: le coach envoie.</span>
+					</div>
+					<form id="global-msg-form" class="row" style="align-items:flex-start;flex-wrap:wrap">
+						<textarea class="textarea grow" rows="2" maxlength="500" placeholder="Ex. Pense à bien remplir ton bilan avant dimanche 12 h 💪">Pense à bien remplir ton bilan avant dimanche 12 h — je regarde tout lundi matin 🙌</textarea>
+						<button class="btn btn-primary" type="submit" id="global-msg-send"><i data-icon="send"></i>Envoyer à toutes</button>
+					</form>
+				</div>
+			</div>
+
+			<!-- Vue rapide clientes -->
+			<div class="card mt-5">
+				<div class="card-hd">
+					<div class="title"><i data-icon="users"></i><h2 class="h2">Vue rapide des clientes</h2><span class="count-pill soft">28</span></div>
+					<label class="search" style="max-width:250px;flex:none;padding:7px 11px">
+						<i data-icon="search"></i><input type="search" placeholder="Filtrer…" id="dash-filter" />
+					</label>
+				</div>
+				<div class="card-bd client-grid" id="dash-clients">
+					<div class="client-tile" data-goto="client" data-name="pauline debrie">
+						<div class="row"><span class="avatar sm">P</span><div><b>Pauline Debrie <span class="presence on"></span></b><span>Bilan nouveau · il y a 1 min</span></div></div>
+						<div class="stats"><span class="mini-stat">62,4 kg <b style="color:var(--brand-deep)">−0,8</b></span><span class="mini-stat">S38 · à traiter</span></div>
+					</div>
+					<div class="client-tile" data-goto="client" data-name="cristina sobas">
+						<div class="row"><span class="avatar sm">C</span><div><b>Cristina Sobas <span class="presence on"></span></b><span>Poids enregistré · il y a 1 h</span></div></div>
+						<div class="stats"><span class="mini-stat">58,1 kg <b style="color:var(--brand-deep)">−0,4</b></span><span class="mini-stat">Retour non lu</span></div>
+					</div>
+					<div class="client-tile" data-goto="client" data-name="floriane baud">
+						<div class="row"><span class="avatar sm">F</span><div><b>Floriane Baud <span class="presence on"></span></b><span>Photos déposées · hier</span></div></div>
+						<div class="stats"><span class="mini-stat">71,3 kg <b style="color:var(--brand-deep)">−1,1</b></span><span class="mini-stat">Mois 3 · photos</span></div>
+					</div>
+					<div class="client-tile" data-goto="client" data-name="marine labarre">
+						<div class="row"><span class="avatar sm">M</span><div><b>Marine Labarre <span class="presence on"></span></b><span>RDV aujourd'hui · 14 h 30</span></div></div>
+						<div class="stats"><span class="mini-stat">66,8 kg <b style="color:var(--brand-deep)">−0,6</b></span><span class="mini-stat">Validé S38</span></div>
+					</div>
+					<div class="client-tile" data-goto="client" data-name="estelle delamare">
+						<div class="row"><span class="avatar sm neutral">E</span><div><b>Estelle Delamare</b><span>Bilan manquant · 2 jours</span></div></div>
+						<div class="stats"><span class="mini-stat">62,1 kg <b style="color:var(--danger)">+0,2</b></span><span class="mini-stat tag-red" style="border-radius:7px;padding:3px 8px">Manquant</span></div>
+					</div>
+					<div class="client-tile" data-goto="client" data-name="laeticia bonfils">
+						<div class="row"><span class="avatar sm neutral">L</span><div><b>Laeticia Bonfils</b><span>À remettre aujourd'hui</span></div></div>
+						<div class="stats"><span class="mini-stat">69,4 kg <b style="color:var(--brand-deep)">−0,9</b></span><span class="mini-stat tag-warn" style="border-radius:7px;padding:3px 8px">En retard</span></div>
+					</div>
+					<div class="client-tile" data-goto="client" data-name="melissa phoutone">
+						<div class="row"><span class="avatar sm">M</span><div><b>Melissa Phoutone <span class="presence on"></span></b><span>Plan de repas consulté · il y a 5 j</span></div></div>
+						<div class="stats"><span class="mini-stat">1 850 kcal/j</span><span class="mini-stat">Validé S37</span></div>
+					</div>
+					<div class="client-tile" data-goto="client" data-name="dorothée rostaing">
+						<div class="row"><span class="avatar sm">D</span><div><b>Dorothée Rostaing</b><span>Photos dép. 28 août</span></div></div>
+						<div class="stats"><span class="mini-stat">64,0 kg <b style="color:var(--brand-deep)">−1,4</b></span><span class="mini-stat">Validé S36</span></div>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<!-- ══════════════════ 2 · NOTIFICATIONS ══════════════════ -->
+		<section class="page" id="page-notifications">
+			<div class="hero-title">
+				<div><h1 class="h1">Notifications</h1><p class="page-sub">Toute l'activité de tes clientes — au même endroit, bien rangée.</p></div>
+				<button class="btn btn-ghost" id="mark-all"><i data-icon="check"></i>Tout marquer comme vu</button>
+			</div>
+
+			<div class="filters mt-4" id="notif-filters">
+				<button class="chip active" data-kind="all">Toutes <span class="n">12</span></button>
+				<button class="chip" data-kind="bilans">Bilans <span class="n">4</span></button>
+				<button class="chip" data-kind="poids">Poids <span class="n">3</span></button>
+				<button class="chip" data-kind="mesures">Mensurations <span class="n">2</span></button>
+				<button class="chip" data-kind="rdv">Rendez-vous <span class="n">2</span></button>
+			</div>
+
+			<div class="split-2 mt-4">
+				<div class="card">
+					<div class="card-hd">
+						<div class="title"><i data-icon="bellRing" style="color:var(--warn)"></i><h2 class="h2">À consulter</h2><span class="count-pill warn" id="unread-count">6</span></div>
+					</div>
+					<div class="card-bd" style="display:grid;gap:9px" id="to-consult">
+						<div class="notif-row unread" data-kind="bilans">
+							<span class="notif-ico" style="background:var(--brand-light);color:var(--brand-deep)"><i data-icon="clipboardCheck"></i></span>
+							<div class="notif-body"><div class="l1"><b>Pauline Debrie</b><span class="kind" style="color:var(--brand-deep)">Bilan hebdo envoyé</span></div><div class="l2">Pauline a complété son bilan hebdomadaire.</div></div>
+							<span class="notif-when">il y a 12 min</span>
+							<button class="check-btn" title="Marquer comme vu" aria-label="Marquer comme vu"><i data-icon="check"></i></button>
+						</div>
+						<div class="notif-row unread" data-kind="poids">
+							<span class="notif-ico" style="background:var(--brand-light);color:var(--brand-deep)"><i data-icon="scale"></i></span>
+							<div class="notif-body"><div class="l1"><b>Cristina Sobas</b><span class="kind" style="color:var(--brand-deep)">Nouveau poids</span></div><div class="l2">Cristina a ajouté un nouveau poids : 62,3 kg (−0,8 kg).</div></div>
+							<span class="notif-when">il y a 1 h</span>
+							<button class="check-btn" title="Marquer comme vu" aria-label="Marquer comme vu"><i data-icon="check"></i></button>
+						</div>
+						<div class="notif-row unread" data-kind="mesures">
+							<span class="notif-ico" style="background:var(--violet-light);color:#6039e8"><i data-icon="ruler"></i></span>
+							<div class="notif-body"><div class="l1"><b>Floriane Baud</b><span class="kind" style="color:#6039e8">Nouvelles mensurations</span></div><div class="l2">Floriane a ajouté ses mensurations du mois.</div></div>
+							<span class="notif-when">il y a 2 h</span>
+							<button class="check-btn" title="Marquer comme vu" aria-label="Marquer comme vu"><i data-icon="check"></i></button>
+						</div>
+						<div class="notif-row unread" data-kind="rdv">
+							<span class="notif-ico" style="background:var(--blue-light);color:#1570cd"><i data-icon="calendarClock"></i></span>
+							<div class="notif-body"><div class="l1"><b>Marine Labarre</b><span class="kind" style="color:#1570cd">Demande de rendez-vous</span></div><div class="l2">Marine souhaite planifier un appel de suivi.</div></div>
+							<span class="notif-when">il y a 3 h</span>
+							<button class="check-btn" title="Marquer comme vu" aria-label="Marquer comme vu"><i data-icon="check"></i></button>
+						</div>
+						<div class="notif-row unread" data-kind="bilans">
+							<span class="notif-ico" style="background:var(--brand-light);color:var(--brand-deep)"><i data-icon="clipboardCheck"></i></span>
+							<div class="notif-body"><div class="l1"><b>Estelle Delamare</b><span class="kind" style="color:var(--brand-deep)">Bilan hebdo envoyé</span></div><div class="l2">Estelle a complété son bilan hebdomadaire.</div></div>
+							<span class="notif-when">il y a 5 h</span>
+							<button class="check-btn" title="Marquer comme vu" aria-label="Marquer comme vu"><i data-icon="check"></i></button>
+						</div>
+						<div class="notif-row unread" data-kind="poids">
+							<span class="notif-ico" style="background:var(--brand-light);color:var(--brand-deep)"><i data-icon="scale"></i></span>
+							<div class="notif-body"><div class="l1"><b>Léa Martin</b><span class="kind" style="color:var(--brand-deep)">Nouveau poids</span></div><div class="l2">Léa a ajouté un nouveau poids : 68,1 kg (+0,4 kg).</div></div>
+							<span class="notif-when">il y a 8 h</span>
+							<button class="check-btn" title="Marquer comme vu" aria-label="Marquer comme vu"><i data-icon="check"></i></button>
+						</div>
+					</div>
+				</div>
+
+				<div class="card">
+					<div class="card-hd">
+						<div class="title"><i data-icon="eye"></i><h2 class="h2">Vu</h2><span class="count-pill soft" id="seen-count">6</span></div>
+					</div>
+					<div class="card-bd" style="display:grid;gap:9px" id="seen">
+						<div class="notif-row" data-kind="mesures">
+							<span class="notif-ico" style="background:var(--line-2);color:var(--mist)"><i data-icon="ruler"></i></span>
+							<div class="notif-body"><div class="l1"><b>Julie Caron</b><span class="kind muted">Nouvelles mensurations</span></div><div class="l2">Julie a ajouté ses mensurations.</div></div>
+							<span class="notif-when">hier 14:32</span>
+						</div>
+						<div class="notif-row" data-kind="bilans">
+							<span class="notif-ico" style="background:var(--line-2);color:var(--mist)"><i data-icon="clipboardCheck"></i></span>
+							<div class="notif-body"><div class="l1"><b>Alice Moreau</b><span class="kind muted">Bilan mensuel envoyé</span></div><div class="l2">Alice a complété son bilan mensuel.</div></div>
+							<span class="notif-when">22 sept. 10:15</span>
+						</div>
+						<div class="notif-row" data-kind="rdv">
+							<span class="notif-ico" style="background:var(--line-2);color:var(--mist)"><i data-icon="calendarCheck"></i></span>
+							<div class="notif-body"><div class="l1"><b>Sophie Bernard</b><span class="kind muted">Rendez-vous confirmé</span></div><div class="l2">Sophie a confirmé son rendez-vous du 25 sept. à 14 h.</div></div>
+							<span class="notif-when">21 sept. 18:47</span>
+						</div>
+						<div class="notif-row" data-kind="poids">
+							<span class="notif-ico" style="background:var(--line-2);color:var(--mist)"><i data-icon="scale"></i></span>
+							<div class="notif-body"><div class="l1"><b>Manon Petit</b><span class="kind muted">Nouveau poids</span></div><div class="l2">Manon a ajouté un nouveau poids : 59,4 kg.</div></div>
+							<span class="notif-when">20 sept. 09:12</span>
+						</div>
+						<div class="notif-row" data-kind="bilans">
+							<span class="notif-ico" style="background:var(--line-2);color:var(--mist)"><i data-icon="clipboardCheck"></i></span>
+							<div class="notif-body"><div class="l1"><b>Clara Dubois</b><span class="kind muted">Bilan hebdo envoyé</span></div><div class="l2">Clara a complété son bilan hebdomadaire.</div></div>
+							<span class="notif-when">19 sept. 16:03</span>
+						</div>
+						<div class="notif-row" data-kind="mesures">
+							<span class="notif-ico" style="background:var(--line-2);color:var(--mist)"><i data-icon="ruler"></i></span>
+							<div class="notif-body"><div class="l1"><b>Nina Robert</b><span class="kind muted">Nouvelles mensurations</span></div><div class="l2">Nina a ajouté ses mensurations.</div></div>
+							<span class="notif-when">18 sept. 11:28</span>
+						</div>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<!-- ══════════════════ 3 · PHOTOS ══════════════════ -->
+		<section class="page" id="page-photos">
+			<div class="hero-title">
+				<div><h1 class="h1">Photos</h1><p class="page-sub">Historique permanent des dépôts de tes clientes — aperçus immédiats.</p></div>
+				<div class="kpi" style="--accent:#1db954;--accent-bg:var(--brand-light);--accent-fg:var(--brand-deep);max-width:230px">
+					<div class="kpi-top"><span class="kpi-ico"><i data-icon="images"></i></span></div>
+					<div class="kpi-num">247</div>
+					<div class="kpi-label">Dépôts photos au total</div>
+				</div>
+			</div>
+
+			<div class="filters mt-4" id="photo-filters">
+				<button class="chip active" data-period="all">Tous les dépôts</button>
+				<button class="chip" data-period="today">Aujourd'hui</button>
+				<button class="chip" data-period="7d">7 derniers jours</button>
+				<button class="chip" data-period="30d">30 derniers jours</button>
+				<button class="chip" data-period="month">Ce mois-ci</button>
+				<button class="chip" data-period="3m">3 derniers mois</button>
+			</div>
+
+			<div class="card mt-4">
+				<div class="card-hd">
+					<div class="title"><i data-icon="users"></i><h2 class="h2">Dépôts photos des clientes</h2><span class="count-pill soft" id="deposits-count">8</span></div>
+					<button class="btn btn-primary btn-sm"><i data-icon="plus"></i>Ajouter des photos</button>
+				</div>
+				<div class="card-bd deposit-grid" id="deposits">
+					<div class="deposit" data-period="today" data-goto="client">
+						<div class="top"><span class="avatar">P</span><div class="who"><b>Pauline Debrie <span class="presence on"></span></b><span>aujourd'hui à 14:22 · 5 photos</span></div><span class="tag tag-green">Sept. 2026</span></div>
+						<div class="strip">
+							<img class="thumb" alt="aperçu 1" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e8efe9'/%3E%3C/svg%3E" />
+							<img class="thumb" alt="aperçu 2" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e2ebe3'/%3E%3C/svg%3E" />
+							<img class="thumb" alt="aperçu 3" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23dfe9e0'/%3E%3C/svg%3E" />
+							<img class="thumb" alt="aperçu 4" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e8efe9'/%3E%3C/svg%3E" />
+							<img class="thumb" alt="aperçu 5" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e2ebe3'/%3E%3C/svg%3E" />
+							<span class="thumb more">+1</span>
+						</div>
+						<div class="meta"><div class="left"><span class="tag tag-neutral"><i data-icon="images"></i>6 photos</span><span class="tag tag-outline">Mois 2</span></div><span class="btn btn-ghost btn-sm">Voir <i data-icon="arrowRight"></i></span></div>
+					</div>
+					<div class="deposit" data-period="today" data-goto="client">
+						<div class="top"><span class="avatar">C</span><div class="who"><b>Cristina Sobas <span class="presence on"></span></b><span>hier à 18:36 · 3 photos</span></div><span class="tag tag-green">Sept. 2026</span></div>
+						<div class="strip">
+							<img class="thumb" alt="aperçu 1" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e8efe9'/%3E%3C/svg%3E" />
+							<img class="thumb" alt="aperçu 2" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23dfe9e0'/%3E%3C/svg%3E" />
+							<img class="thumb" alt="aperçu 3" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e2ebe3'/%3E%3C/svg%3E" />
+							<span class="thumb more">0</span>
+						</div>
+						<div class="meta"><div class="left"><span class="tag tag-neutral"><i data-icon="images"></i>3 photos</span><span class="tag tag-outline">Mois 1</span></div><span class="btn btn-ghost btn-sm">Voir <i data-icon="arrowRight"></i></span></div>
+					</div>
+					<div class="deposit" data-period="7d" data-goto="client">
+						<div class="top"><span class="avatar">F</span><div class="who"><b>Floriane Baud <span class="presence on"></span></b><span>25 sept. à 09:14 · 4 photos</span></div><span class="tag tag-green">Sept. 2026</span></div>
+						<div class="strip">
+							<img class="thumb" alt="aperçu 1" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e2ebe3'/%3E%3C/svg%3E" />
+							<img class="thumb" alt="aperçu 2" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e8efe9'/%3E%3C/svg%3E" />
+							<img class="thumb" alt="aperçu 3" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23dfe9e0'/%3E%3C/svg%3E" />
+							<img class="thumb" alt="aperçu 4" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e2ebe3'/%3E%3C/svg%3E" />
+							<span class="thumb more">+1</span>
+						</div>
+						<div class="meta"><div class="left"><span class="tag tag-neutral"><i data-icon="images"></i>5 photos</span><span class="tag tag-outline">Mois 3</span></div><span class="btn btn-ghost btn-sm">Voir <i data-icon="arrowRight"></i></span></div>
+					</div>
+					<div class="deposit" data-period="30d" data-goto="client">
+						<div class="top"><span class="avatar">E</span><div class="who"><b>Estelle Delamare</b><span>21 sept. à 16:02 · 3 photos</span></div><span class="tag tag-green">Sept. 2026</span></div>
+						<div class="strip">
+							<img class="thumb" alt="aperçu 1" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23dfe9e0'/%3E%3C/svg%3E" />
+							<img class="thumb" alt="aperçu 2" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e8efe9'/%3E%3C/svg%3E" />
+							<img class="thumb" alt="aperçu 3" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e2ebe3'/%3E%3C/svg%3E" />
+							<span class="thumb more">0</span>
+						</div>
+						<div class="meta"><div class="left"><span class="tag tag-neutral"><i data-icon="images"></i>3 photos</span><span class="tag tag-outline">Mois 2</span></div><span class="btn btn-ghost btn-sm">Voir <i data-icon="arrowRight"></i></span></div>
+					</div>
+					<div class="deposit" data-period="30d" data-goto="client">
+						<div class="top"><span class="avatar">M</span><div class="who"><b>Marine Labarre <span class="presence on"></span></b><span>14 sept. à 11:27 · 6 photos</span></div><span class="tag tag-green">Sept. 2026</span></div>
+						<div class="strip">
+							<img class="thumb" alt="aperçu 1" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e8efe9'/%3E%3C/svg%3E" />
+							<img class="thumb" alt="aperçu 2" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e2ebe3'/%3E%3C/svg%3E" />
+							<img class="thumb" alt="aperçu 3" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23dfe9e0'/%3E%3C/svg%3E" />
+							<img class="thumb" alt="aperçu 4" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e8efe9'/%3E%3C/svg%3E" />
+							<span class="thumb more">+2</span>
+						</div>
+						<div class="meta"><div class="left"><span class="tag tag-neutral"><i data-icon="images"></i>6 photos</span><span class="tag tag-outline">Mois 4</span></div><span class="btn btn-ghost btn-sm">Voir <i data-icon="arrowRight"></i></span></div>
+					</div>
+					<div class="deposit" data-period="month" data-goto="client">
+						<div class="top"><span class="avatar">L</span><div class="who"><b>Laeticia Bonfils</b><span>7 sept. à 10:11 · 4 photos</span></div><span class="tag tag-green">Sept. 2026</span></div>
+						<div class="strip">
+							<img class="thumb" alt="aperçu 1" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e2ebe3'/%3E%3C/svg%3E" />
+							<img class="thumb" alt="aperçu 2" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23dfe9e0'/%3E%3C/svg%3E" />
+							<img class="thumb" alt="aperçu 3" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e8efe9'/%3E%3C/svg%3E" />
+							<img class="thumb" alt="aperçu 4" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23dfe9e0'/%3E%3C/svg%3E" />
+							<span class="thumb more">0</span>
+						</div>
+						<div class="meta"><div class="left"><span class="tag tag-neutral"><i data-icon="images"></i>4 photos</span><span class="tag tag-outline">Mois 2</span></div><span class="btn btn-ghost btn-sm">Voir <i data-icon="arrowRight"></i></span></div>
+					</div>
+					<div class="deposit" data-period="3m" data-goto="client">
+						<div class="top"><span class="avatar">D</span><div class="who"><b>Dorothée Rostaing</b><span>2 sept. à 13:49 · 5 photos</span></div><span class="tag tag-green">Sept. 2026</span></div>
+						<div class="strip">
+							<img class="thumb" alt="aperçu 1" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23dfe9e0'/%3E%3C/svg%3E" />
+							<img class="thumb" alt="aperçu 2" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e2ebe3'/%3E%3C/svg%3E" />
+							<img class="thumb" alt="aperçu 3" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e8efe9'/%3E%3C/svg%3E" />
+							<img class="thumb" alt="aperçu 4" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e2ebe3'/%3E%3C/svg%3E" />
+							<span class="thumb more">+1</span>
+						</div>
+						<div class="meta"><div class="left"><span class="tag tag-neutral"><i data-icon="images"></i>5 photos</span><span class="tag tag-outline">Mois 3</span></div><span class="btn btn-ghost btn-sm">Voir <i data-icon="arrowRight"></i></span></div>
+					</div>
+					<div class="deposit" data-period="3m" data-goto="client">
+						<div class="top"><span class="avatar">M</span><div class="who"><b>Melissa Phoutone</b><span>28 août à 15:33 · 3 photos</span></div><span class="tag tag-warn">Août 2026</span></div>
+						<div class="strip">
+							<img class="thumb" alt="aperçu 1" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e8efe9'/%3E%3C/svg%3E" />
+							<img class="thumb" alt="aperçu 2" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23dfe9e0'/%3E%3C/svg%3E" />
+							<img class="thumb" alt="aperçu 3" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e2ebe3'/%3E%3C/svg%3E" />
+							<span class="thumb more">0</span>
+						</div>
+						<div class="meta"><div class="left"><span class="tag tag-neutral"><i data-icon="images"></i>3 photos</span><span class="tag tag-outline">Mois 5</span></div><span class="btn btn-ghost btn-sm">Voir <i data-icon="arrowRight"></i></span></div>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<!-- ══════════════════ 4 · BILANS ══════════════════ -->
+		<section class="page" id="page-bilans">
+			<div class="hero-title">
+				<div><h1 class="h1">Bilans</h1><p class="page-sub">Suis et gère les bilans de tes clientes — semaine par semaine.</p></div>
+			</div>
+
+			<div class="kpi-grid mt-5">
+				<div class="kpi" style="--accent:#1db954;--accent-bg:var(--brand-light);--accent-fg:var(--brand-deep)">
+					<div class="kpi-top"><span class="kpi-ico"><i data-icon="users"></i></span></div>
+					<div class="kpi-num">39</div><div class="kpi-label">Bilans cette semaine</div>
+					<div class="kpi-foot"><span class="trend up"><i data-icon="arrowUpRight"></i>+18 %</span> vs semaine dernière</div>
+				</div>
+				<div class="kpi" style="--accent:#f59e0b;--accent-bg:var(--warn-light);--accent-fg:var(--warn-deep)">
+					<div class="kpi-top"><span class="kpi-ico"><i data-icon="clock"></i></span></div>
+					<div class="kpi-num">6</div><div class="kpi-label">À traiter</div>
+					<div class="kpi-foot"><span class="trend up"><i data-icon="arrowUpRight"></i>+2</span> depuis hier</div>
+				</div>
+				<div class="kpi" style="--accent:#1db954;--accent-bg:var(--brand-light);--accent-fg:var(--brand-deep)">
+					<div class="kpi-top"><span class="kpi-ico"><i data-icon="check"></i></span></div>
+					<div class="kpi-num">28</div><div class="kpi-label">Validés</div>
+					<div class="kpi-foot"><span class="trend up"><i data-icon="arrowUpRight"></i>+12 %</span> vs semaine dernière</div>
+				</div>
+				<div class="kpi" style="--accent:#e5484d;--accent-bg:var(--danger-light);--accent-fg:var(--danger-deep)">
+					<div class="kpi-top"><span class="kpi-ico"><i data-icon="triangleAlert"></i></span></div>
+					<div class="kpi-num">5</div><div class="kpi-label">Bilans manquants</div>
+					<div class="kpi-foot"><span class="trend down"><i data-icon="arrowDown"></i>−2</span> vs semaine dernière</div>
+				</div>
+			</div>
+
+			<div class="row-between mt-5">
+				<div class="filters" id="bilan-weeks">
+					<button class="chip" data-week="S36">S36 <span class="n muted">1–7 sept.</span></button>
+					<button class="chip" data-week="S37">S37 <span class="n muted">8–14 sept.</span></button>
+					<button class="chip active" data-week="S38">S38 <span class="n muted">15–21 sept.</span></button>
+					<button class="chip" data-week="S39">S39 <span class="n muted">22–28 sept.</span></button>
+					<button class="chip" data-week="S40">S40 <span class="n muted">29 sept.–5 oct.</span></button>
+				</div>
+				<button class="btn btn-ghost btn-sm"><i data-icon="calendarDays"></i>Choisir une semaine</button>
+			</div>
+
+			<div class="split-2 mt-3">
+				<div class="card">
+					<div class="card-hd">
+						<div class="title"><i data-icon="clock" style="color:var(--warn)"></i><h2 class="h2">À traiter cette semaine</h2><span class="count-pill warn">6</span></div>
+						<span class="btn btn-ghost btn-sm" style="pointer-events:none">Voir tout <i data-icon="arrowRight"></i></span>
+					</div>
+					<div class="card-bd" style="display:grid;gap:9px">
+						<div class="person" data-goto="client"><span class="avatar sm">P</span><div class="who"><b>Pauline Debrie</b><span>paulinedebrie@gmail.com · il y a 1 min</span></div><span class="tag tag-warn">Nouveau</span></div>
+						<div class="person" data-goto="client"><span class="avatar sm">C</span><div class="who"><b>Cristina Sobas</b><span>crisobas91@gmail.com · il y a 13 min</span></div><span class="tag tag-warn">Nouveau</span></div>
+						<div class="person" data-goto="client"><span class="avatar sm">F</span><div class="who"><b>Floriane Baud</b><span>floriane.baud26@gmail.com · il y a 27 min</span></div><span class="tag tag-warn">Nouveau</span></div>
+					</div>
+					<div class="card-ft"><button class="btn btn-soft btn-sm btn-block">Voir tous les bilans à traiter <i data-icon="arrowRight"></i></button></div>
+				</div>
+				<div class="card">
+					<div class="card-hd">
+						<div class="title"><i data-icon="triangleAlert" style="color:var(--danger)"></i><h2 class="h2">Bilans manquants cette semaine</h2><span class="count-pill red">5</span></div>
+						<span class="btn btn-ghost btn-sm" style="pointer-events:none">Voir tout <i data-icon="arrowRight"></i></span>
+					</div>
+					<div class="card-bd" style="display:grid;gap:9px">
+						<div class="person" data-goto="client"><span class="avatar sm neutral">E</span><div class="who"><b>Estelle Delamare</b><span>estelledelamare@yahoo.fr</span></div><span class="tag tag-red">En retard de 2 jours</span><span class="when num">19 sept.</span></div>
+						<div class="person" data-goto="client"><span class="avatar sm neutral">S</span><div class="who"><b>Sarah Lerousseau</b><span>sarah.lerousseau@mail.com</span></div><span class="tag tag-red">En retard de 1 jour</span><span class="when num">20 sept.</span></div>
+						<div class="person" data-goto="client"><span class="avatar sm neutral">L</span><div class="who"><b>Laeticia Bonfils</b><span>laeticia.bonfils@gmail.com</span></div><span class="tag tag-warn">À remettre aujourd'hui</span><span class="when num">21 sept.</span></div>
+					</div>
+					<div class="card-ft"><button class="btn btn-danger-ghost btn-sm btn-block">Voir toutes les clientes en retard <i data-icon="arrowRight"></i></button></div>
+				</div>
+			</div>
+
+			<div class="card mt-4">
+				<div class="card-hd">
+					<div class="title"><i data-icon="listChecks"></i><h2 class="h2">Liste des bilans</h2><span class="count-pill soft">39</span></div>
+					<div class="row">
+						<label class="search" style="max-width:230px;flex:none;padding:7px 11px"><i data-icon="search"></i><input type="search" placeholder="Rechercher une cliente…" /></label>
+						<button class="btn btn-ghost btn-sm"><i data-icon="rows3"></i>Filtres</button>
+						<button class="btn btn-primary btn-sm"><i data-icon="plus"></i>Ajouter un bilan</button>
+					</div>
+				</div>
+				<div class="table-wrap">
+					<table class="tbl">
+						<thead><tr><th>Cliente</th><th>Date dépôt</th><th>Semaine</th><th>Poids</th><th>Tour de taille</th><th>Statut</th><th style="text-align:right">Actions</th></tr></thead>
+						<tbody>
+							<tr data-goto="client"><td><div class="cell-user"><span class="avatar sm">P</span><div><b>Pauline Debrie <span class="presence on"></span></b><span>paulinedebrie@gmail.com</span></div></div></td><td class="muted small">aujourd'hui · 08:01</td><td class="num">S38</td><td class="num">64,2 kg <span class="trend up" style="font-size:11px">−0,8</span></td><td class="num">72 cm <span class="trend up" style="font-size:11px">−1</span></td><td><span class="tag tag-warn">À traiter</span></td><td style="text-align:right"><span class="btn btn-ghost btn-sm">Vision 360 <i data-icon="arrowRight"></i></span></td></tr>
+							<tr data-goto="client"><td><div class="cell-user"><span class="avatar sm">C</span><div><b>Cristina Sobas <span class="presence on"></span></b><span>crisobas91@gmail.com</span></div></div></td><td class="muted small">il y a 13 min</td><td class="num">S38</td><td class="num">58,1 kg <span class="trend up" style="font-size:11px">−0,4</span></td><td class="num">68 cm <span class="trend up" style="font-size:11px">−1</span></td><td><span class="tag tag-warn">À traiter</span></td><td style="text-align:right"><span class="btn btn-ghost btn-sm">Vision 360 <i data-icon="arrowRight"></i></span></td></tr>
+							<tr data-goto="client"><td><div class="cell-user"><span class="avatar sm">F</span><div><b>Floriane Baud <span class="presence on"></span></b><span>floriane.baud26@gmail.com</span></div></div></td><td class="muted small">il y a 27 min</td><td class="num">S38</td><td class="num">71,3 kg <span class="trend up" style="font-size:11px">−1,1</span></td><td class="num">79 cm <span class="trend up" style="font-size:11px">−2</span></td><td><span class="tag tag-warn">À traiter</span></td><td style="text-align:right"><span class="btn btn-ghost btn-sm">Vision 360 <i data-icon="arrowRight"></i></span></td></tr>
+							<tr data-goto="client"><td><div class="cell-user"><span class="avatar sm">M</span><div><b>Marine Labarre <span class="presence on"></span></b><span>labarremarine252@orange.fr</span></div></div></td><td class="muted small">hier · 18:23</td><td class="num">S38</td><td class="num">66,8 kg <span class="trend up" style="font-size:11px">−0,6</span></td><td class="num">74 cm <span class="trend up" style="font-size:11px">−1</span></td><td><span class="tag tag-green">Validé</span></td><td style="text-align:right"><span class="btn btn-ghost btn-sm">Vision 360 <i data-icon="arrowRight"></i></span></td></tr>
+							<tr data-goto="client"><td><div class="cell-user"><span class="avatar sm">E</span><div><b>Estelle Delamare</b><span>estelledelamare@yahoo.fr</span></div></div></td><td class="muted small">19 sept. 2026</td><td class="num">S38</td><td class="num">62,1 kg <span class="trend down" style="font-size:11px">+0,2</span></td><td class="num">75 cm <span class="trend flat" style="font-size:11px">=</span></td><td><span class="tag tag-green">Validé</span></td><td style="text-align:right"><span class="btn btn-ghost btn-sm">Vision 360 <i data-icon="arrowRight"></i></span></td></tr>
+							<tr data-goto="client"><td><div class="cell-user"><span class="avatar sm">S</span><div><b>Sarah Lerousseau</b><span>sarah.lerousseau@mail.com</span></div></div></td><td class="muted small">—</td><td class="num">S38</td><td class="muted">—</td><td class="muted">—</td><td><span class="tag tag-red">Manquant</span></td><td style="text-align:right"><span class="btn btn-ghost btn-sm">Vision 360 <i data-icon="arrowRight"></i></span></td></tr>
+						</tbody>
+					</table>
+				</div>
+			</div>
+		</section>
+
+		<!-- ══════════════════ 5 · RENDEZ-VOUS ══════════════════ -->
+		<section class="page" id="page-rendezvous">
+			<div class="hero-title">
+				<div><h1 class="h1">Rendez-vous</h1><p class="page-sub">Ton cockpit de planning — synchronisé avec ton Google Calendar.</p></div>
+				<button class="btn btn-ghost"><i data-icon="clock"></i>Mes disponibilités</button>
+			</div>
+
+			<div class="banner green mt-4" style="align-items:center"><i data-icon="check"></i><span><b>Google Calendar connecté</b> — hugo.gourheux@gmail.com · chaque RDV confirmé crée l'événement côté Google.</span></div>
+
+			<div class="split-2 mt-4">
+				<div class="card" style="border-color:rgba(245,158,11,0.45)">
+					<div class="card-hd"><div class="title"><i data-icon="bell" style="color:var(--warn)"></i><h2 class="h2">Demandes à valider</h2><span class="count-pill warn">1</span></div></div>
+					<div class="card-bd">
+						<div class="person"><span class="avatar sm">M</span><div class="who"><b>Marine Labarre</b><span>Suivi · 15 min — lun. 5 oct. · 09:15</span></div>
+							<div class="row"><button class="btn btn-primary btn-sm">Confirmer</button><button class="btn btn-danger-ghost btn-sm">Refuser</button></div>
+						</div>
+					</div>
+				</div>
+				<div class="card">
+					<div class="card-hd"><div class="title"><i data-icon="calendarDays"></i><h2 class="h2">Prochains rendez-vous</h2></div></div>
+					<div class="card-bd" style="display:grid;gap:9px">
+						<div class="person" data-goto="client"><span class="avatar sm">M</span><div class="who"><b>Marine Labarre</b><span>Suivi · 15 min</span></div><span class="when num">auj. 14:30</span><span class="tag tag-green">Confirmé</span></div>
+						<div class="person" data-goto="client"><span class="avatar sm">N</span><div class="who"><b>Nina Robert</b><span>Démarrage · 60 min</span></div><span class="when num">auj. 16:00</span><span class="tag tag-green">Confirmé</span></div>
+						<div class="person" data-goto="client"><span class="avatar sm">P</span><div class="who"><b>Pauline Debrie</b><span>Suivi · 15 min</span></div><span class="when num">lun. 09:15</span><span class="tag tag-green">Confirmé</span></div>
+					</div>
+				</div>
+			</div>
+
+			<div class="card mt-4">
+				<div class="card-hd">
+					<div class="title"><i data-icon="calendarRange"></i><h2 class="h2">Semaine du 28 sept. — 4 oct.</h2></div>
+					<div class="row">
+						<div class="filters">
+							<button class="chip" id="mode-suivi"><i data-icon="video"></i>Réserver · Suivi 15 min</button>
+							<button class="chip" id="mode-demarrage"><i data-icon="rocket"></i>Démarrage 60 min</button>
+						</div>
+						<button class="icon-btn" aria-label="Semaine précédente"><i data-icon="chevronLeft"></i></button>
+						<button class="btn btn-ghost btn-sm">Aujourd'hui</button>
+						<button class="icon-btn" aria-label="Semaine suivante"><i data-icon="chevronRight"></i></button>
+					</div>
+				</div>
+				<div class="card-bd">
+					<div class="week-grid" id="planner">
+						<div class="day-col"><div class="dh">Lun 28</div>
+							<span class="slot free">09:00</span><span class="slot free">09:15</span><span class="slot free">09:30</span><span class="slot free">10:00</span><span class="slot free">11:00</span><span class="slot off">x</span>
+						</div>
+						<div class="day-col"><div class="dh">Mar 29</div><span class="slot off">x</span></div>
+						<div class="day-col"><div class="dh">Mer 30</div>
+							<span class="slot free">09:00</span><span class="slot rdv">09:15<small>P · Suivi</small></span><span class="slot free">09:30</span><span class="slot free">10:00</span><span class="slot free">11:00</span>
+						</div>
+						<div class="day-col"><div class="dh">Jeu 1</div><span class="slot free">14:00</span><span class="slot free">14:15</span><span class="slot free">15:00</span><span class="slot free">16:00</span></div>
+						<div class="day-col today"><div class="dh">Ven 2 · auj.</div>
+							<span class="slot free">14:15</span><span class="slot rdv">14:30<small>M · Suivi</small></span><span class="slot rdv">16:00<small>N · Dém.</small></span><span class="slot free">17:00</span>
+						</div>
+						<div class="day-col"><div class="dh">Sam 3</div><span class="slot off">x</span></div>
+						<div class="day-col"><div class="dh">Dim 4</div><span class="slot off">x</span></div>
+					</div>
+					<p class="xsmall muted mt-2" id="planner-hint">Mode observation : clique « Réserver » pour afficher les créneaux réellement disponibles (moteur serveur — buffers et Google exclus).</p>
+				</div>
+			</div>
+		</section>
+
+		<!-- ══════════════════ 6 · TEMPLATES ══════════════════ -->
+		<section class="page" id="page-templates">
+			<div class="hero-title">
+				<div><h1 class="h1">Templates</h1><p class="page-sub">Gagne du temps et génère des messages personnalisés en quelques secondes.</p></div>
+			</div>
+
+			<div class="filters mt-4" id="tpl-tabs">
+				<button class="chip active" data-tpl="onboarding"><i data-icon="users"></i>Onboarding</button>
+				<button class="chip" data-tpl="relance"><i data-icon="chartBar"></i>Relance bilan</button>
+				<button class="chip" data-tpl="rdv"><i data-icon="calendarDays"></i>Rendez-vous</button>
+				<button class="chip" data-tpl="motivation"><i data-icon="heart"></i>Motivation</button>
+				<button class="chip" data-tpl="nutrition"><i data-icon="utensils"></i>Nutrition</button>
+				<button class="chip" data-tpl="entrainement"><i data-icon="dumbbell"></i>Entraînement</button>
+				<button class="chip" data-tpl="divers"><i data-icon="layers"></i>Divers</button>
+			</div>
+
+			<div class="tpl-layout mt-4">
+				<!-- Colonne gauche : étapes -->
+				<div style="display:grid;gap:14px">
+					<div class="card">
+						<div class="card-bd">
+							<div class="row mb-2"><span class="step-n">1</span><div><h2 class="h2">Choisis la situation</h2><p class="xsmall muted">Sélectionne le type de message que tu souhaites générer.</p></div></div>
+							<div class="situation-grid" id="situations">
+								<button class="situation active" data-sit="welcome"><span class="tick"><i data-icon="check"></i></span><span class="emo">👋</span><b>Accueillir une nouvelle cliente</b><span>Message de bienvenue pour commencer l'accompagnement.</span></button>
+								<button class="situation" data-sit="deroule"><span class="tick"><i data-icon="check"></i></span><span class="emo">📅</span><b>Expliquer le déroulé</b><span>Présente les prochaines étapes et le fonctionnement.</span></button>
+								<button class="situation" data-sit="actions"><span class="tick"><i data-icon="check"></i></span><span class="emo">💪</span><b>Fixer les premières actions</b><span>Donne des consignes concrètes pour démarrer sereinement.</span></button>
+							</div>
+						</div>
+					</div>
+					<div class="card">
+						<div class="card-bd">
+							<div class="row mb-2"><span class="step-n">2</span><div><h2 class="h2">Renseigne les informations</h2><p class="xsmall muted">Ces informations seront automatiquement intégrées dans ton message.</p></div></div>
+							<div class="grid-2">
+								<div class="field"><label>Prénom de la cliente *</label><input class="input" id="tpl-prenom" placeholder="Ex. Pauline" /></div>
+								<div class="field"><label>Jour du rendez-vous <span class="muted" style="text-transform:none;letter-spacing:0">(optionnel)</span></label><input class="input" id="tpl-jour" placeholder="Ex. lundi 5 octobre" /></div>
+								<div class="field"><label>Heure du rendez-vous <span class="muted" style="text-transform:none;letter-spacing:0">(optionnel)</span></label><input class="input" id="tpl-heure" placeholder="Ex. 14h30" /></div>
+								<div class="field"><label>Ton prénom / signature</label><input class="input" id="tpl-sign" value="Hugo" /></div>
+							</div>
+						</div>
+					</div>
+					<div class="card">
+						<div class="card-bd">
+							<div class="row mb-2"><span class="step-n">3</span><div><h2 class="h2">Génère ton message</h2><p class="xsmall muted">Clique sur le bouton pour créer ton message personnalisé.</p></div></div>
+							<button class="btn btn-primary btn-lg btn-block" id="tpl-generate"><i data-icon="sparkles"></i>Générer le message<i data-icon="chevronRight"></i></button>
+						</div>
+					</div>
+				</div>
+
+				<!-- Colonne droite : aperçu -->
+				<div style="display:grid;gap:14px">
+					<div class="card">
+						<div class="card-hd">
+							<div class="title"><i data-icon="messageCircle"></i><h2 class="h2">Aperçu du message</h2></div>
+							<span class="tag tag-green" id="tpl-status">Message généré</span>
+						</div>
+						<div class="card-bd">
+							<div class="msg-preview" id="tpl-preview">Bonjour <span class="hello">Pauline</span> ! 👋
+
+Je suis ravi(e) de t'accueillir dans l'accompagnement G-FLUX ! Tu fais maintenant partie d'une belle aventure, et je suis là pour t'aider à atteindre tes objectifs. 💪
+
+Notre premier rendez-vous est fixé au <b>lundi 5 octobre à 14h30</b>. Lors de cet échange, nous ferons le point sur tes objectifs, ton mode de vie et je t'expliquerai en détail le déroulé de l'accompagnement.
+
+En attendant, je t'invite à remplir ton bilan initial si ce n'est pas déjà fait, afin que je puisse préparer au mieux notre échange. Tu recevras également un petit questionnaire par email.
+
+Si tu as la moindre question d'ici là, n'hésite pas à m'écrire ici !
+
+À très bientôt,
+Hugo</div>
+						</div>
+						<div class="card-ft" style="display:grid;gap:9px">
+							<button class="btn btn-primary btn-block" id="tpl-copy"><i data-icon="copy"></i>Copier le message</button>
+							<div class="row">
+								<button class="btn btn-ghost btn-sm" style="flex:1" id="tpl-reset"><i data-icon="rotateCcw"></i>Réinitialiser</button>
+								<button class="btn btn-ghost btn-sm" style="flex:1"><i data-icon="bookmark"></i>Sauvegarder comme modèle</button>
+							</div>
+						</div>
+					</div>
+					<div class="banner green" style="align-items:flex-start"><i data-icon="lightbulb"></i><span><b>Astuce</b> — tu peux personnaliser ce message après génération avant de le copier. Les variables renseignées seront automatiquement intégrées.</span></div>
+				</div>
+			</div>
+		</section>
+
+		<!-- ══════════════════ 7 · VISION 360 ══════════════════ -->
+		<section class="page" id="page-client">
+			<button class="btn btn-ghost btn-sm mb-3" data-goto="dashboard"><i data-icon="arrowLeft"></i>Retour aux clientes</button>
+
+			<!-- Header client premium -->
+			<div class="c360-header">
+				<span class="avatar lg">P</span>
+				<div class="grow">
+					<div class="row" style="gap:9px;flex-wrap:wrap">
+						<h1 class="h2" style="font-size:21px">Pauline Debrie</h1>
+						<span class="presence on"></span>
+						<span class="tag tag-green">Active</span>
+						<span class="tag tag-outline">Coaching en cours</span>
+					</div>
+					<p class="xsmall muted mt-1" style="display:flex;gap:12px;flex-wrap:wrap">
+						<span class="row" style="gap:5px"><i data-icon="mail" style="width:13px;height:13px"></i>paulinedebrie@gmail.com</span>
+						<span class="row" style="gap:5px"><i data-icon="cake" style="width:13px;height:13px"></i>28 ans</span>
+						<span class="row" style="gap:5px"><i data-icon="ruler" style="width:13px;height:13px"></i>161 cm</span>
+						<span class="row" style="gap:5px"><i data-icon="clock" style="width:13px;height:13px"></i>il y a 4 min</span>
+					</p>
+				</div>
+				<div class="row" style="flex-wrap:wrap">
+					<button class="btn btn-ghost btn-sm"><i data-icon="settings"></i>Fiche</button>
+					<button class="btn btn-ghost btn-sm"><i data-icon="lock"></i>Mot de passe</button>
+					<button class="btn btn-soft btn-sm"><i data-icon="messageCircle"></i>Message</button>
+					<button class="btn btn-danger-ghost btn-sm"><i data-icon="trash"></i></button>
+				</div>
+			</div>
+
+			<!-- Onglets -->
+			<div class="c360-tabs mt-3" id="c360-tabs">
+				<button class="c360-tab active" data-sec="apercu">Aperçu</button>
+				<button class="c360-tab" data-sec="analyse">Analyse</button>
+				<button class="c360-tab" data-sec="entrainement">Entraînement</button>
+				<button class="c360-tab" data-sec="photos">Photos (6)</button>
+				<button class="c360-tab" data-sec="bilans">Bilans</button>
+				<button class="c360-tab" data-sec="rdv">Rendez-vous</button>
+			</div>
+
+			<!-- APERÇU -->
+			<div class="c360-sec mt-4" data-sec="apercu" style="display:grid;gap:16px">
+				<div class="card" style="border-color:rgba(29,185,84,0.35);background:linear-gradient(135deg,var(--brand-soft),#fff 45%)">
+					<div class="card-bd row-between">
+						<div class="row" style="align-items:flex-start">
+							<span class="kpi-ico" style="background:var(--brand-light);color:var(--brand-deep)"><i data-icon="rocket"></i></span>
+							<div>
+								<div class="row" style="gap:8px"><h2 class="h2">Cliente activée et en coaching</h2><span class="tag tag-green"><i data-icon="check"></i>Compte connecté</span></div>
+								<p class="small muted mt-1">Pauline accède à son espace Vision 360 et suit son programme.</p>
+								<ul class="mt-2" style="list-style:none;display:grid;gap:5px">
+									<li class="small row" style="gap:7px"><i data-icon="check" style="width:14px;height:14px;color:var(--brand)"></i>Compte créé le 14 sept. 2024</li>
+									<li class="small row" style="gap:7px"><i data-icon="check" style="width:14px;height:14px;color:var(--brand)"></i>Connexion confirmée il y a 1 min</li>
+									<li class="small row" style="gap:7px"><i data-icon="check" style="width:14px;height:14px;color:var(--brand)"></i>Programme d'entraînement assigné · plan de repas actif</li>
+								</ul>
+							</div>
+						</div>
+						<button class="btn btn-ghost btn-sm">Voir les détails du démarrage <i data-icon="arrowRight"></i></button>
+					</div>
+				</div>
+
+				<div class="split-2">
+					<!-- Message du coach -->
+					<div class="card">
+						<div class="card-hd">
+							<div class="title"><i data-icon="messageCircle"></i><h2 class="h2">Message du coach du jour</h2><span class="tag tag-neutral">optionnel</span></div>
+							<button class="btn btn-ghost btn-sm" data-goto="templates">Voir les modèles</button>
+						</div>
+						<div class="card-bd">
+							<textarea class="textarea" rows="3" placeholder="Ex. Bravo pour ta régularité cette semaine ! N'oublie pas de bien t'hydrater 💧…">Bravo pour ta régularité cette semaine Pauline, la progression sur tes fessiers est visible 💪 On continue comme ça !</textarea>
+							<div class="row-between mt-2">
+								<button class="btn btn-ghost btn-sm"><i data-icon="mic"></i>Enregistrer un message vocal</button>
+								<button class="btn btn-primary btn-sm"><i data-icon="send"></i>Envoyer à Pauline</button>
+							</div>
+							<p class="xsmall muted mt-2"><i data-icon="users" style="width:11px;height:11px;vertical-align:-1px"></i> Visible uniquement par cette cliente · expirera dans 24 h · aucune messagerie entrante.</p>
+						</div>
+					</div>
+					<!-- Synthèse -->
+					<div class="card">
+						<div class="card-hd"><div class="title"><i data-icon="chartBar"></i><h2 class="h2">Synthèse de la semaine</h2></div><span class="tag tag-outline">22 – 28 sept.</span></div>
+						<div class="card-bd metric-grid" style="grid-template-columns:1fr 1fr">
+							<div class="metric"><div class="lbl"><i data-icon="scale"></i>Poids actuel</div><div class="val">62,4 <small>kg</small></div><div class="sub"><span class="trend up"><i data-icon="arrowDown"></i>−1,2 kg</span> depuis 4 sem.</div></div>
+							<div class="metric"><div class="lbl"><i data-icon="flame"></i>Calories / jour</div><div class="val">1 850 <small>kcal</small></div><div class="sub">Objectif nutritionnel</div></div>
+							<div class="metric"><div class="lbl"><i data-icon="footprints"></i>Pas / jour</div><div class="val">8 420</div><div class="sub"><span class="trend up"><i data-icon="arrowUpRight"></i>+12 %</span> vs objectif</div></div>
+							<div class="metric"><div class="lbl"><i data-icon="heartPulse"></i>Cycle</div><div class="val">J18 <small>/ 28</small></div><div class="sub">Phase lutéale</div></div>
+						</div>
+					</div>
+				</div>
+
+				<div class="split-2">
+					<!-- Accès rapide -->
+					<div class="card">
+						<div class="card-hd"><div class="title"><i data-icon="zap"></i><h2 class="h2">Accès rapide</h2></div></div>
+						<div class="card-bd quick-list">
+							<button class="quick-item" data-sec-goto="bilans"><span class="qi"><i data-icon="clipboardList"></i></span><div class="qt"><b>Voir la fiche complète</b><span>Informations personnelles, objectifs, préférences…</span></div><i data-icon="chevronRight"></i></button>
+							<button class="quick-item" data-sec-goto="entrainement"><span class="qi"><i data-icon="dumbbell"></i></span><div class="qt"><b>Modifier le programme d'entraînement</b><span>Programmes et séances assignés</span></div><i data-icon="chevronRight"></i></button>
+							<button class="quick-item"><span class="qi"><i data-icon="utensils"></i></span><div class="qt"><b>Modifier le plan de repas</b><span>Plan nutritionnel actuel</span></div><i data-icon="chevronRight"></i></button>
+							<button class="quick-item" data-sec-goto="rdv"><span class="qi"><i data-icon="calendarCheck"></i></span><div class="qt"><b>Ajouter un rendez-vous</b><span>Visio, présentiel ou appel</span></div><i data-icon="chevronRight"></i></button>
+						</div>
+					</div>
+					<!-- Activité -->
+					<div class="card">
+						<div class="card-hd"><div class="title"><i data-icon="clock"></i><h2 class="h2">Dernières activités</h2></div><button class="btn btn-ghost btn-sm">Voir tout <i data-icon="arrowRight"></i></button></div>
+						<div class="card-bd timeline">
+							<div class="tl-item"><span class="tl-ico" style="color:var(--brand-deep)"><i data-icon="smartphone"></i></span><div class="tl-body"><div class="l1"><b>Connexion</b><span class="when">il y a 1 min</span></div><div class="l2">Sur Vision 360 (mobile)</div></div></div>
+							<div class="tl-item"><span class="tl-ico" style="color:var(--brand-deep)"><i data-icon="dumbbell"></i></span><div class="tl-body"><div class="l1"><b>Entraînement complété</b><span class="when">il y a 2 h</span></div><div class="l2">Jambe · 45 min</div></div></div>
+							<div class="tl-item"><span class="tl-ico" style="color:var(--brand-deep)"><i data-icon="scale"></i></span><div class="tl-body"><div class="l1"><b>Poids enregistré</b><span class="when">il y a 1 jour</span></div><div class="l2">62,4 kg (−0,3 kg)</div></div></div>
+							<div class="tl-item"><span class="tl-ico" style="color:var(--brand-deep)"><i data-icon="camera"></i></span><div class="tl-body"><div class="l1"><b>Photo ajoutée</b><span class="when">il y a 3 jours</span></div><div class="l2">Photo de progression</div></div></div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- ANALYSE -->
+			<div class="c360-sec mt-4" data-sec="analyse" style="display:none;gap:16px;grid-template-columns:1fr">
+				<div class="split-2">
+					<div class="card">
+						<div class="card-hd">
+							<div class="title"><i data-icon="flame" style="color:var(--warn)"></i><h2 class="h2">Calories consommées par jour</h2></div>
+							<span class="tag tag-outline">7 derniers jours</span>
+						</div>
+						<div class="card-bd">
+							<div class="row mb-2" style="gap:8px;flex-wrap:wrap">
+								<div class="metric" style="flex:1;min-width:120px"><div class="lbl">Moyenne journalière</div><div class="val">1 281 <small>kcal</small></div><div class="sub"><span class="trend up"><i data-icon="arrowDown"></i>−8 %</span> vs objectif</div></div>
+								<div class="metric" style="flex:1;min-width:120px"><div class="lbl">Objectif quotidien</div><div class="val">1 390 <small>kcal</small></div><div class="sub">Recommandation</div></div>
+								<div class="metric" style="flex:1;min-width:120px"><div class="lbl">Écart moyen / jour</div><div class="val">−190 <small>kcal</small></div><div class="sub">Sous l'objectif</div></div>
+							</div>
+							<div class="bars" id="kcal-bars">
+								<div class="b under"><strong>1 245</strong><i style="height:62%"></i><em>Lun 22</em></div>
+								<div class="b"><strong>1 380</strong><i style="height:72%"></i><em>Mar 23</em></div>
+								<div class="b"><strong>1 420</strong><i style="height:76%"></i><em>Mer 24</em></div>
+								<div class="b under"><strong>1 310</strong><i style="height:68%"></i><em>Jeu 25</em></div>
+								<div class="b under"><strong>1 150</strong><i style="height:55%"></i><em>Ven 26</em></div>
+								<div class="b under"><strong>1 290</strong><i style="height:66%"></i><em>Sam 27</em></div>
+								<div class="b under"><strong>1 180</strong><i style="height:58%"></i><em>Dim 28</em></div>
+							</div>
+						</div>
+					</div>
+					<div class="card">
+						<div class="card-hd">
+							<div class="title"><i data-icon="footprints" style="color:var(--brand)"></i><h2 class="h2">Nombre de pas par jour</h2></div>
+							<span class="tag tag-outline">7 derniers jours</span>
+						</div>
+						<div class="card-bd">
+							<div class="row mb-2" style="gap:8px;flex-wrap:wrap">
+								<div class="metric" style="flex:1;min-width:120px"><div class="lbl">Moyenne journalière</div><div class="val">8 420</div><div class="sub"><span class="trend up"><i data-icon="arrowUpRight"></i>+12 %</span> vs objectif</div></div>
+								<div class="metric" style="flex:1;min-width:120px"><div class="lbl">Objectif quotidien</div><div class="val">7 500 <small>pas</small></div><div class="sub">Recommandation</div></div>
+								<div class="metric" style="flex:1;min-width:120px"><div class="lbl">Écart moyen / jour</div><div class="val">+920 <small>pas</small></div><div class="sub">Au-dessus</div></div>
+							</div>
+							<div class="bars">
+								<div class="b"><strong>7 230</strong><i style="height:48%"></i><em>Lun 22</em></div>
+								<div class="b"><strong>9 547</strong><i style="height:78%"></i><em>Mar 23</em></div>
+								<div class="b"><strong>8 912</strong><i style="height:70%"></i><em>Mer 24</em></div>
+								<div class="b"><strong>8 120</strong><i style="height:62%"></i><em>Jeu 25</em></div>
+								<div class="b"><strong>6 842</strong><i style="height:44%"></i><em>Ven 26</em></div>
+								<div class="b"><strong>9 871</strong><i style="height:82%"></i><em>Sam 27</em></div>
+								<div class="b"><strong>8 008</strong><i style="height:60%"></i><em>Dim 28</em></div>
+							</div>
+						</div>
+					</div>
+				</div>
+
+				<div class="card">
+					<div class="card-hd">
+						<div class="title"><i data-icon="target"></i><h2 class="h2">Objectifs journaliers</h2></div>
+						<button class="btn btn-soft btn-sm"><i data-icon="rotateCcw"></i>Réinitialiser aux recommandations</button>
+					</div>
+					<div class="card-bd">
+						<div class="obj-tabs mb-3" id="obj-tabs">
+							<button class="obj-tab active" data-obj="pct">Calories + répartition %</button>
+							<button class="obj-tab" data-obj="g">Méthode macros (g)</button>
+						</div>
+						<div class="split-2" style="grid-template-columns:1.4fr 1fr">
+							<div>
+								<div class="grid-2 mb-2">
+									<div class="field"><label>Calories quotidiennes</label>
+										<div class="row" style="gap:8px"><input class="input" value="1 390" style="flex:1" /><span class="tag tag-neutral">kcal</span></div>
+									</div>
+								</div>
+								<p class="field-lbl">Répartition des macronutriments</p>
+								<div class="row" style="gap:10px;align-items:stretch;flex-wrap:wrap">
+									<div class="macro-box" style="flex:1;min-width:110px"><div class="pct">50 %</div><div class="nm" style="color:var(--brand-deep)"><i style="background:var(--brand)"></i>Glucides</div></div>
+									<div class="macro-box" style="flex:1;min-width:110px"><div class="pct">25 %</div><div class="nm" style="color:var(--warn-deep)"><i style="background:var(--warn)"></i>Protéines</div></div>
+									<div class="macro-box" style="flex:1;min-width:110px"><div class="pct">25 %</div><div class="nm" style="color:#b8860b"><i style="background:#eab308"></i>Lipides</div></div>
+								</div>
+								<p class="xsmall muted mt-2"><i data-icon="info" style="width:11px;height:11px;vertical-align:-1px"></i> Les pourcentages sont calculés sur le total calorique quotidien.</p>
+							</div>
+							<div style="display:grid;gap:12px">
+								<div class="card" style="box-shadow:none">
+									<div class="card-bd">
+										<div class="row-between"><span class="field-lbl" style="margin:0">⚡ Maintenance calorique estimée</span><button class="btn btn-ghost btn-sm"><i data-icon="refreshCw"></i>Recalculer</button></div>
+										<div class="val" style="font-size:22px;font-weight:900;letter-spacing:-0.02em;margin-top:6px">2 030 <small style="font-size:12px;color:var(--mist);font-weight:700">kcal / jour</small></div>
+										<p class="xsmall muted mt-1">Estimation basée sur les données actuelles (poids, taille, âge, niveau d'activité). À ajuster selon l'évolution.</p>
+									</div>
+								</div>
+								<div class="card" style="box-shadow:none">
+									<div class="card-bd">
+										<span class="field-lbl">👟 Objectif quotidien de pas</span>
+										<div class="row" style="gap:8px"><input class="input" value="7 500" style="flex:1" /><span class="tag tag-neutral">pas</span></div>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- ENTRAÎNEMENT (assigné) -->
+			<div class="c360-sec mt-4" data-sec="entrainement" style="display:none;gap:16px">
+				<div class="card">
+					<div class="card-hd">
+						<div class="title"><i data-icon="dumbbell"></i><h2 class="h2">Programme assigné — Remise en forme Full body</h2></div>
+						<div class="row"><span class="tag tag-green">Actif</span><button class="btn btn-ghost btn-sm" data-goto="entrainement">Ouvrir l'éditeur <i data-icon="arrowRight"></i></button></div>
+					</div>
+					<div class="card-bd">
+						<div class="prog-stats mb-2">
+							<span class="mini-stat">3 séances / semaine</span><span class="mini-stat">8 semaines</span><span class="mini-stat">Débutante</span><span class="mini-stat">Semaine 3 en cours</span>
+						</div>
+						<div style="display:grid;gap:9px">
+							<div class="ex-row selected"><span class="ex-order">1</span><span class="ex-thumb" style="background:linear-gradient(135deg,#34d399,#0d7c36)"><i data-icon="dumbbell"></i></span><div class="ex-info"><b>Séance 1 — Bas du corps</b><span>8 exercices · 45 min environ</span></div><span class="tag tag-green">Complétée</span></div>
+							<div class="ex-row"><span class="ex-order">2</span><span class="ex-thumb" style="background:linear-gradient(135deg,#60a5fa,#1d4ed8)"><i data-icon="dumbbell"></i></span><div class="ex-info"><b>Séance 2 — Haut du corps</b><span>7 exercices · 40 min environ</span></div><span class="tag tag-green">Complétée</span></div>
+							<div class="ex-row"><span class="ex-order">3</span><span class="ex-thumb" style="background:linear-gradient(135deg,#fbbf24,#d97706)"><i data-icon="dumbbell"></i></span><div class="ex-info"><b>Séance 3 — Full body</b><span>6 exercices · 35 min environ</span></div><span class="tag tag-warn">À faire</span></div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- PHOTOS (cliente) -->
+			<div class="c360-sec mt-4" data-sec="photos" style="display:none">
+				<div class="card">
+					<div class="card-hd"><div class="title"><i data-icon="camera"></i><h2 class="h2">Photos de progression</h2><span class="count-pill soft">6 dépôts</span></div><span class="tag tag-outline">Historique permanent</span></div>
+					<div class="card-bd deposit-grid">
+						<div class="deposit"><div class="top"><span class="avatar sm">P</span><div class="who"><b>Mois 2 — 28 sept.</b><span>5 photos · 14:22</span></div><span class="tag tag-green">Récent</span></div>
+							<div class="strip"><img class="thumb" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e8efe9'/%3E%3C/svg%3E" /><img class="thumb" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e2ebe3'/%3E%3C/svg%3E" /><img class="thumb" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23dfe9e0'/%3E%3C/svg%3E" /><img class="thumb" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e8efe9'/%3E%3C/svg%3E" /><img class="thumb" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e2ebe3'/%3E%3C/svg%3E" /><span class="thumb more">+1</span></div>
+							<div class="meta"><div class="left"><span class="tag tag-neutral"><i data-icon="images"></i>5 photos</span></div><button class="btn btn-ghost btn-sm">Ouvrir <i data-icon="arrowRight"></i></button></div>
+						</div>
+						<div class="deposit"><div class="top"><span class="avatar sm">P</span><div class="who"><b>Mois 1 — 28 août</b><span>3 photos · 15:33</span></div><span class="tag tag-neutral">Archive</span></div>
+							<div class="strip"><img class="thumb" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23dfe9e0'/%3E%3C/svg%3E" /><img class="thumb" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e8efe9'/%3E%3C/svg%3E" /><img class="thumb" alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='56'%3E%3Crect width='44' height='56' fill='%23e2ebe3'/%3E%3C/svg%3E" /><span class="thumb more">0</span></div>
+							<div class="meta"><div class="left"><span class="tag tag-neutral"><i data-icon="images"></i>3 photos</span></div><button class="btn btn-ghost btn-sm">Ouvrir <i data-icon="arrowRight"></i></button></div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- BILANS (cliente) -->
+			<div class="c360-sec mt-4" data-sec="bilans" style="display:none">
+				<div class="card">
+					<div class="card-hd"><div class="title"><i data-icon="clipboardList"></i><h2 class="h2">Bilans hebdomadaires</h2></div><span class="tag tag-outline">12 bilans</span></div>
+					<div class="card-bd" style="display:grid;gap:9px">
+						<div class="person"><span class="avatar sm">P</span><div class="who"><b>S38 — 15 au 21 sept.</b><span>Déposé aujourd'hui · 08:01 · 64,2 kg (−0,8)</span></div><span class="tag tag-warn">À traiter</span><span class="btn btn-ghost btn-sm">Ouvrir</span></div>
+						<div class="person"><span class="avatar sm">P</span><div class="who"><b>S37 — 8 au 14 sept.</b><span>Validé · retour lu le 12 sept.</span></div><span class="tag tag-green">Validé</span><span class="btn btn-ghost btn-sm">Ouvrir</span></div>
+						<div class="person"><span class="avatar sm">P</span><div class="who"><b>S36 — 1 au 7 sept.</b><span>Validé · retour lu le 5 sept.</span></div><span class="tag tag-green">Validé</span><span class="btn btn-ghost btn-sm">Ouvrir</span></div>
+					</div>
+				</div>
+			</div>
+
+			<!-- RDV (cliente) -->
+			<div class="c360-sec mt-4" data-sec="rdv" style="display:none">
+				<div class="card">
+					<div class="card-hd"><div class="title"><i data-icon="calendarCheck"></i><h2 class="h2">Rendez-vous de Pauline</h2></div><button class="btn btn-primary btn-sm"><i data-icon="plus"></i>Nouveau RDV</button></div>
+					<div class="card-bd" style="display:grid;gap:9px">
+						<div class="person"><span class="avatar sm">P</span><div class="who"><b>Suivi — 15 min</b><span>lun. 5 oct. · 09:15 – 09:30 · visio</span></div><span class="tag tag-green">Confirmé</span><span class="tag tag-outline">Google ✓</span></div>
+						<div class="person"><span class="avatar sm neutral">P</span><div class="who"><b>Suivi — 15 min</b><span>21 sept. · 09:15 – 09:30 · visio</span></div><span class="tag tag-neutral">Passé</span></div>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<!-- ══════════════════ 8 · ENTRAÎNEMENT ══════════════════ -->
+		<section class="page" id="page-entrainement">
+			<div class="row-between">
+				<div class="filters" id="tr-tabs">
+					<button class="chip active" data-tr="programmes"><i data-icon="listChecks"></i>Programmes</button>
+					<button class="chip" data-tr="editeur"><i data-icon="edit"></i>Éditeur</button>
+					<button class="chip" data-tr="bibliotheque"><i data-icon="bookOpen"></i>Bibliothèque</button>
+				</div>
+				<button class="btn btn-primary" id="btn-new-prog"><i data-icon="plus"></i>Nouveau programme</button>
+			</div>
+
+			<!-- PROGRAMMES -->
+			<div class="tr-sec mt-4" data-tr="programmes">
+				<div class="kpi-grid">
+					<div class="kpi" style="--accent:#1db954;--accent-bg:var(--brand-light);--accent-fg:var(--brand-deep)"><div class="kpi-top"><span class="kpi-ico"><i data-icon="listChecks"></i></span></div><div class="kpi-num">12</div><div class="kpi-label">Programmes</div><div class="kpi-foot"><span class="trend up"><i data-icon="arrowUpRight"></i>+3</span> ce mois-ci</div></div>
+					<div class="kpi" style="--accent:#2e90fa;--accent-bg:var(--blue-light);--accent-fg:#1570cd"><div class="kpi-top"><span class="kpi-ico"><i data-icon="users"></i></span></div><div class="kpi-num">28</div><div class="kpi-label">Clientes assignées</div><div class="kpi-foot"><span class="trend up"><i data-icon="arrowUpRight"></i>12 %</span> ce mois-ci</div></div>
+					<div class="kpi" style="--accent:#f59e0b;--accent-bg:var(--warn-light);--accent-fg:var(--warn-deep)"><div class="kpi-top"><span class="kpi-ico"><i data-icon="target"></i></span></div><div class="kpi-num">6</div><div class="kpi-label">Objectifs différents</div><div class="kpi-foot"><span class="trend flat">Perte de poids, prise de masse…</span></div></div>
+					<div class="kpi" style="--accent:#7c5cfc;--accent-bg:var(--violet-light);--accent-fg:#6039e8"><div class="kpi-top"><span class="kpi-ico"><i data-icon="layers"></i></span></div><div class="kpi-num">18</div><div class="kpi-label">Modèles dans la bibliothèque</div><div class="kpi-foot"><span class="trend flat">Prêts à l'emploi</span></div></div>
+				</div>
+
+				<div class="card mt-4">
+					<div class="card-bd row" style="flex-wrap:wrap">
+						<label class="search grow" style="max-width:320px"><i data-icon="search"></i><input type="search" placeholder="Rechercher un programme…" /></label>
+						<select class="select" style="width:auto"><option>Objectif · Tous</option><option>Perte de poids</option><option>Hypertrophie</option></select>
+						<select class="select" style="width:auto"><option>Niveau · Tous</option><option>Débutante</option><option>Intermédiaire</option></select>
+						<select class="select" style="width:auto"><option>Fréquence · Toutes</option><option>3 séances/sem.</option><option>4 séances/sem.</option></select>
+						<button class="btn btn-ghost btn-sm"><i data-icon="rows3"></i>Filtres</button>
+					</div>
+				</div>
+
+				<div class="prog-grid mt-4">
+					<article class="prog-card" data-open-editor>
+						<div class="prog-cover" style="background:linear-gradient(135deg,#34d399,#0f9d58)"><div class="tags"><span class="tag tag-ink">Actif · 8 clientes</span></div><span class="ph"><i data-icon="dumbbell"></i></span></div>
+						<div class="prog-body">
+							<h3>Perte de poids — Débutante</h3><p class="desc">Full body accessible et progressif</p>
+							<div class="prog-stats"><span class="mini-stat">3 séances/sem.</span><span class="mini-stat">8 semaines</span><span class="tag tag-pink">Perte de poids</span></div>
+							<div class="prog-actions"><button class="btn btn-primary btn-sm" style="flex:1" data-open-editor><i data-icon="pencil"></i>Modifier</button><button class="btn btn-ghost btn-sm" title="Dupliquer"><i data-icon="copy"></i></button><button class="btn btn-danger-ghost btn-sm" title="Supprimer"><i data-icon="trash"></i></button></div>
+						</div>
+					</article>
+					<article class="prog-card" data-open-editor>
+						<div class="prog-cover" style="background:linear-gradient(135deg,#60a5fa,#2563eb)"><div class="tags"><span class="tag tag-ink">Actif · 12 clientes</span></div><span class="ph"><i data-icon="dumbbell"></i></span></div>
+						<div class="prog-body">
+							<h3>Prise de masse — Volume</h3><p class="desc">Programme hypertrophie en 4 jours</p>
+							<div class="prog-stats"><span class="mini-stat">4 séances/sem.</span><span class="mini-stat">12 semaines</span><span class="tag tag-warn">Prise de masse</span></div>
+							<div class="prog-actions"><button class="btn btn-primary btn-sm" style="flex:1" data-open-editor><i data-icon="pencil"></i>Modifier</button><button class="btn btn-ghost btn-sm" title="Dupliquer"><i data-icon="copy"></i></button><button class="btn btn-danger-ghost btn-sm" title="Supprimer"><i data-icon="trash"></i></button></div>
+						</div>
+					</article>
+					<article class="prog-card" data-open-editor>
+						<div class="prog-cover" style="background:linear-gradient(135deg,#f472b6,#db2777)"><div class="tags"><span class="tag tag-ink">Actif · 5 clientes</span></div><span class="ph"><i data-icon="dumbbell"></i></span></div>
+						<div class="prog-body">
+							<h3>Renforcement bas du corps</h3><p class="desc">Spécial fessiers et jambes</p>
+							<div class="prog-stats"><span class="mini-stat">3 séances/sem.</span><span class="mini-stat">8 semaines</span><span class="tag tag-violet">Tonification</span></div>
+							<div class="prog-actions"><button class="btn btn-primary btn-sm" style="flex:1" data-open-editor><i data-icon="pencil"></i>Modifier</button><button class="btn btn-ghost btn-sm" title="Dupliquer"><i data-icon="copy"></i></button><button class="btn btn-danger-ghost btn-sm" title="Supprimer"><i data-icon="trash"></i></button></div>
+						</div>
+					</article>
+					<article class="prog-card" data-open-editor>
+						<div class="prog-cover" style="background:linear-gradient(135deg,#fbbf24,#d97706)"><div class="tags"><span class="tag tag-ink">Brouillon</span></div><span class="ph"><i data-icon="house"></i></span></div>
+						<div class="prog-body">
+							<h3>Full body — Maison</h3><p class="desc">Sans matériel, efficace et rapide</p>
+							<div class="prog-stats"><span class="mini-stat">3 séances/sem.</span><span class="mini-stat">6 semaines</span><span class="tag tag-green">Entretien</span></div>
+							<div class="prog-actions"><button class="btn btn-primary btn-sm" style="flex:1" data-open-editor><i data-icon="pencil"></i>Modifier</button><button class="btn btn-ghost btn-sm" title="Dupliquer"><i data-icon="copy"></i></button><button class="btn btn-danger-ghost btn-sm" title="Supprimer"><i data-icon="trash"></i></button></div>
+						</div>
+					</article>
+				</div>
+			</div>
+
+			<!-- ÉDITEUR -->
+			<div class="tr-sec mt-4" data-tr="editeur" style="display:none">
+				<div class="row-between mb-3">
+					<div>
+						<div class="row" style="gap:10px"><h1 class="h2" style="font-size:21px">Programme Maison Deborah</h1><span class="tag tag-warn">Brouillon</span></div>
+						<p class="xsmall muted mt-1">2 séances · 4 séances/semaine · Hypertrophie · Débutante — dernière sauvegarde il y a 2 min</p>
+					</div>
+					<div class="row">
+						<button class="btn btn-ghost btn-sm"><i data-icon="settings"></i>Paramètres</button>
+						<button class="btn btn-ghost btn-sm"><i data-icon="copy"></i>Dupliquer</button>
+						<button class="btn btn-ghost btn-sm"><i data-icon="eye"></i>Aperçu</button>
+						<button class="btn btn-primary btn-sm"><i data-icon="check"></i>Enregistrer</button>
+					</div>
+				</div>
+
+				<div class="editor-grid">
+					<!-- Séances -->
+					<div class="card">
+						<div class="card-hd"><div class="title"><h2 class="h3">Séances</h2><span class="count-pill soft">2</span></div><button class="btn btn-soft btn-sm"><i data-icon="plus"></i>Ajouter</button></div>
+						<div class="card-bd">
+							<button class="sess-item active"><span class="sn">1</span><div class="grow"><b>Bas du corps</b><span>8 exercices</span></div><i data-icon="rows3" style="width:14px;height:14px;color:var(--mist-2)"></i></button>
+							<button class="sess-item"><span class="sn">2</span><div class="grow"><b>Haut du corps</b><span>7 exercices</span></div><i data-icon="rows3" style="width:14px;height:14px;color:var(--mist-2)"></i></button>
+						</div>
+					</div>
+
+					<!-- Exercices -->
+					<div class="card">
+						<div class="card-hd">
+							<div class="title"><h2 class="h3">Exercices de la séance 1</h2><span class="count-pill soft">8</span></div>
+							<button class="btn btn-soft btn-sm"><i data-icon="plus"></i>Ajouter un exercice</button>
+						</div>
+						<div class="card-bd">
+							<div class="ex-row selected"><span class="ex-order">1</span><span class="ex-thumb" style="background:linear-gradient(135deg,#34d399,#0d7c36)"><i data-icon="dumbbell"></i></span><div class="ex-info"><b>Squat barre</b><span>Quadriceps · Fessiers</span><div class="ex-params"><span class="param">4 × 8–10</span><span class="param">70 kg</span><span class="param">⏱ 2 min</span></div></div><i data-icon="rows3" style="width:14px;height:14px;color:var(--mist-2)"></i></div>
+							<div class="ex-row"><span class="ex-order">2</span><span class="ex-thumb" style="background:linear-gradient(135deg,#60a5fa,#1d4ed8)"><i data-icon="dumbbell"></i></span><div class="ex-info"><b>Hip thrust</b><span>Fessiers · Ischios</span><div class="ex-params"><span class="param">4 × 10–12</span><span class="param">60 kg</span><span class="param">⏱ 2 min</span></div></div><i data-icon="rows3" style="width:14px;height:14px;color:var(--mist-2)"></i></div>
+							<div class="ex-row"><span class="ex-order">3</span><span class="ex-thumb" style="background:linear-gradient(135deg,#fbbf24,#d97706)"><i data-icon="dumbbell"></i></span><div class="ex-info"><b>Fentes marchées</b><span>Quadriceps · Fessiers</span><div class="ex-params"><span class="param">3 × 12 /jambe</span><span class="param">20 kg</span><span class="param">⏱ 1 min 30</span></div></div><i data-icon="rows3" style="width:14px;height:14px;color:var(--mist-2)"></i></div>
+							<div class="ex-row"><span class="ex-order">4</span><span class="ex-thumb" style="background:linear-gradient(135deg,#f87171,#b91c1c)"><i data-icon="dumbbell"></i></span><div class="ex-info"><b>Soulevé de terre roumain</b><span>Ischios · Fessiers</span><div class="ex-params"><span class="param">4 × 10–12</span><span class="param">50 kg</span><span class="param">⏱ 2 min</span></div></div><i data-icon="rows3" style="width:14px;height:14px;color:var(--mist-2)"></i></div>
+							<div class="ex-row"><span class="ex-order">5</span><span class="ex-thumb" style="background:linear-gradient(135deg,#a78bfa,#6d28d9)"><i data-icon="dumbbell"></i></span><div class="ex-info"><b>Presse à cuisses</b><span>Quadriceps · Fessiers</span><div class="ex-params"><span class="param">3 × 12–15</span><span class="param">80 kg</span><span class="param">⏱ 1 min 30</span></div></div><i data-icon="rows3" style="width:14px;height:14px;color:var(--mist-2)"></i></div>
+							<div class="ex-row"><span class="ex-order">6</span><span class="ex-thumb" style="background:linear-gradient(135deg,#34d399,#0d7c36)"><i data-icon="dumbbell"></i></span><div class="ex-info"><b>Leg curl allongé</b><span>Ischios</span><div class="ex-params"><span class="param">3 × 12–15</span><span class="param">35 kg</span><span class="param">⏱ 1 min 30</span></div></div><i data-icon="rows3" style="width:14px;height:14px;color:var(--mist-2)"></i></div>
+							<div class="ex-row"><span class="ex-order">7</span><span class="ex-thumb" style="background:linear-gradient(135deg,#60a5fa,#1d4ed8)"><i data-icon="dumbbell"></i></span><div class="ex-info"><b>Mollets debout</b><span>Mollets</span><div class="ex-params"><span class="param">4 × 15–20</span><span class="param">40 kg</span><span class="param">⏱ 1 min</span></div></div><i data-icon="rows3" style="width:14px;height:14px;color:var(--mist-2)"></i></div>
+							<div class="ex-row"><span class="ex-order">8</span><span class="ex-thumb" style="background:linear-gradient(135deg,#fbbf24,#d97706)"><i data-icon="dumbbell"></i></span><div class="ex-info"><b>Gainage planche</b><span>Abdominaux · Gaine</span><div class="ex-params"><span class="param">3 × 45 s</span><span class="param">—</span><span class="param">⏱ 1 min</span></div></div><i data-icon="rows3" style="width:14px;height:14px;color:var(--mist-2)"></i></div>
+						</div>
+					</div>
+
+					<!-- Prescription -->
+					<div class="card editor-col-right">
+						<div class="card-hd">
+							<div class="title"><span class="ex-order" style="background:var(--brand);color:#fff">1</span><h2 class="h3">Squat barre</h2></div>
+							<button class="btn btn-ghost btn-sm"><i data-icon="shuffle"></i>Remplacer</button>
+						</div>
+						<div class="card-bd">
+							<p class="xsmall muted mb-2">Quadriceps · Fessiers · Jambes</p>
+							<div class="presc-tabs mb-3">
+								<button class="presc-tab active">Prescription</button><button class="presc-tab">Notes</button><button class="presc-tab">Consignes</button><button class="presc-tab">Vidéo</button>
+							</div>
+							<div class="grid-2 mb-2">
+								<div><span class="field-lbl">Séries</span><div class="stepper"><button type="button"><i data-icon="minus"></i></button><input value="4" /><button type="button"><i data-icon="plus"></i></button></div></div>
+								<div><span class="field-lbl">Répétitions</span><div class="stepper"><button type="button"><i data-icon="minus"></i></button><input value="8–10" /><button type="button"><i data-icon="plus"></i></button></div></div>
+							</div>
+							<div class="grid-2 mb-2">
+								<div><span class="field-lbl">Charge</span><div class="stepper"><input value="70" /><span style="align-self:center;padding-right:10px;font-size:12px;font-weight:700;color:var(--mist)">kg</span></div></div>
+								<div><span class="field-lbl">Repos entre séries</span><div class="stepper"><input value="2" /><span style="align-self:center;padding-right:10px;font-size:12px;font-weight:700;color:var(--mist)">min</span></div></div>
+							</div>
+							<div class="grid-2 mb-3">
+								<div><span class="field-lbl">RIR (optionnel)</span><select class="select"><option>2</option><option>1</option><option>0</option></select></div>
+								<div><span class="field-lbl">Tempo (optionnel)</span><div class="row" style="gap:5px"><input class="input" value="2" style="text-align:center" /><input class="input" value="2" style="text-align:center" /><input class="input" value="2" style="text-align:center" /><input class="input" value="2" style="text-align:center" /></div></div>
+							</div>
+							<div class="card" style="background:var(--brand-soft);border-color:rgba(29,185,84,0.3);box-shadow:none;margin-bottom:12px">
+								<div class="card-bd">
+									<p class="field-lbl" style="color:var(--brand-deep)">🎯 Groupes musculaires ciblés</p>
+									<div class="muscle-row"><span class="muscle">Quadriceps</span><span class="muscle">Fessiers</span><span class="muscle sec">Jambes</span></div>
+								</div>
+							</div>
+							<div class="field mb-3"><label>Notes personnelles (optionnel)</label><textarea class="textarea" rows="2" placeholder="Ex. « Penser à bien garder le dos droit et à descendre jusqu'à 90° »"></textarea></div>
+							<div class="row-between">
+								<button class="btn btn-danger-ghost btn-sm"><i data-icon="trash"></i>Supprimer de la séance</button>
+								<button class="btn btn-ghost btn-sm"><i data-icon="copy"></i>Dupliquer</button>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- BIBLIOTHÈQUE -->
+			<div class="tr-sec mt-4" data-tr="bibliotheque" style="display:none">
+				<div class="card">
+					<div class="card-bd row" style="flex-wrap:wrap">
+						<label class="search grow" style="max-width:340px"><i data-icon="search"></i><input type="search" placeholder="Chercher un exercice (nom, muscle, matériel)…" /></label>
+						<select class="select" style="width:auto"><option>Groupe musculaire · Tous</option><option>Fessiers</option><option>Quadriceps</option><option>Ischios</option></select>
+						<select class="select" style="width:auto"><option>Matériel · Tous</option><option>Barre</option><option>Haltères</option><option>Poids du corps</option></select>
+					</div>
+				</div>
+				<div class="prog-grid mt-4">
+					<div class="lib-card"><div class="lib-cover" style="background:linear-gradient(135deg,#34d399,#0d7c36)"><i data-icon="dumbbell"></i></div><div class="lib-body"><b>Squat barre</b><span>Quadriceps · Fessiers · Barre</span></div></div>
+					<div class="lib-card"><div class="lib-cover" style="background:linear-gradient(135deg,#60a5fa,#1d4ed8)"><i data-icon="dumbbell"></i></div><div class="lib-body"><b>Hip thrust</b><span>Fessiers · Barre · Banc</span></div></div>
+					<div class="lib-card"><div class="lib-cover" style="background:linear-gradient(135deg,#fbbf24,#d97706)"><i data-icon="dumbbell"></i></div><div class="lib-body"><b>Fentes marchées</b><span>Quadriceps · Fessiers · Haltères</span></div></div>
+					<div class="lib-card"><div class="lib-cover" style="background:linear-gradient(135deg,#f87171,#b91c1c)"><i data-icon="dumbbell"></i></div><div class="lib-body"><b>Soulevé de terre roumain</b><span>Ischios · Barre</span></div></div>
+					<div class="lib-card"><div class="lib-cover" style="background:linear-gradient(135deg,#a78bfa,#6d28d9)"><i data-icon="dumbbell"></i></div><div class="lib-body"><b>Presse à cuisses</b><span>Quadriceps · Machine</span></div></div>
+					<div class="lib-card"><div class="lib-cover" style="background:linear-gradient(135deg,#2dd4bf,#0f766e)"><i data-icon="dumbbell"></i></div><div class="lib-body"><b>Leg curl allongé</b><span>Ischios · Machine</span></div></div>
+					<div class="lib-card"><div class="lib-cover" style="background:linear-gradient(135deg,#fb923c,#c2410c)"><i data-icon="dumbbell"></i></div><div class="lib-body"><b>Mollets debout</b><span>Mollets · Machine</span></div></div>
+					<div class="lib-card"><div class="lib-cover" style="background:linear-gradient(135deg,#f472b6,#be185d)"><i data-icon="dumbbell"></i></div><div class="lib-body"><b>Gainage planche</b><span>Abdominaux · Poids du corps</span></div></div>
+				</div>
+			</div>
+		</section>
+
+		</div><!-- /content -->
+	</div><!-- /main -->
+</div><!-- /app -->
+
+<!-- Toast -->
+<div id="toast" class="hide" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:100;background:var(--ink);color:#fff;padding:11px 18px;border-radius:12px;font-size:13px;font-weight:700;box-shadow:var(--sh-lg);display:flex;align-items:center;gap:8px">
+	<i data-icon="check" style="width:15px;height:15px;color:#2ed268"></i><span id="toast-msg"></span>
+</div>
+
+<script>
+/* G-FLUX — Preview de refonte : interactions (données 100 % fictives) */
+
+/* Icônes Lucide inline (SVG 24×24, stroke 2) */
+const ICONS = {
+	home: '<path d="M3 9.5 12 3l9 6.5V21a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/>',
+	bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+	bellRing: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><path d="M4 2C2.8 2.99 2 4.23 2 5.5"/>',
+	camera: '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3.5"/>',
+	images: '<path d="M18 22H4a2 2 0 0 1-2-2V6"/><path d="m22 13-1.5-7A2 2 0 0 0 18.5 4H14l-3 3-3.5 1L4 14v6a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4z"/><circle cx="9" cy="9" r="1.2"/>',
+	users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+	user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+	clipboardList: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6"/><path d="M9 16h6"/>',
+	clipboardCheck: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/>',
+	calendarCheck: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><path d="m9 16 2 2 4-4"/>',
+	calendarDays: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/><path d="M16 18h.01"/>',
+	calendarClock: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><circle cx="12" cy="16" r="3"/>',
+	calendarRange: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/><path d="M8 2v4"/>',
+	messageCircle: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
+	megaphone: '<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
+	send: '<path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/>',
+	search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+	menu: '<line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="18" y2="18"/>',
+	zap: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
+	settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.13-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.13.08a2 2 0 0 1 1 1.73V12a2 2 0 0 1-1 1.73l-.13.08a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.13-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.13.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.13-.08a2 2 0 0 1-1-1.73V12a2 2 0 0 1 1-1.73l.13-.08a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.13.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+	chevronRight: '<path d="m9 18 6-6-6-6"/>',
+	chevronLeft: '<path d="m15 18-6-6 6-6"/>',
+	arrowRight: '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+	arrowLeft: '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+	arrowUpRight: '<path d="M7 7h10v10"/><path d="M7 17 17 7"/>',
+	arrowDown: '<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>',
+	check: '<path d="M20 6 9 17l-5-5"/>',
+	eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
+	clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+	scale: '<path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>',
+	ruler: '<path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.4 2.4 0 0 1 0-3.4l2.6-2.6a2.4 2.4 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m13.5 15.5 2-2"/><path d="m10.5 12.5 2-2"/>',
+	footprints: '<path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 10 3.8 10 5.5c0 3.11-2 5.66-2 8.68V16a2 2 0 1 1-4 0z"/><path d="M20 20v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 6 14 7.8 14 9.5c0 3.11 2 5.66 2 8.68V20a2 2 0 1 0 4 0z"/>',
+	dumbbell: '<path d="M14.4 14.4 9.6 19.2"/><path d="M18.657 21.485a2 2 0 1 1-2.829-2.828l-1.767 1.768a2 2 0 1 1-2.829-2.829l6.364-6.364a2 2 0 1 1 2.829 2.829l1.768-1.767a2 2 0 1 1 2.828 2.829z"/><path d="m21.5 21.5-1.4-1.4"/><path d="M3.9 3.9 2.5 2.5"/><path d="M6.404 12.768a2 2 0 1 1-2.829-2.829l1.768-1.767a2 2 0 1 1-2.828-2.829l2.828-2.828a2 2 0 1 1 2.829 2.828l1.767-1.768a2 2 0 1 1 2.829 2.829z"/>',
+	bookOpen: '<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+	heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7z"/>',
+	utensils: '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zm0 0v7"/>',
+	listChecks: '<path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/>',
+	rows3: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/>',
+	layers: '<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>',
+	sparkles: '<path d="M9.94 15.5 8.5 21l-1.44-5.5L1.5 14l5.56-1.5L8.5 7l1.44 5.5L15.5 14z"/><path d="M19 3v4"/><path d="M17 5h4"/><path d="M19 17v4"/><path d="M17 19h4"/>',
+	copy: '<rect x="8" y="8" width="14" height="14" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+	trash: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+	plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+	minus: '<path d="M5 12h14"/>',
+	rotateCcw: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
+	refreshCw: '<path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/>',
+	shuffle: '<path d="M2 18h1.4c1.3 0 2.5-.6 3.3-1.7l6.1-8.6c.8-1.1 2-1.7 3.3-1.7H22"/><path d="m18 2 4 4-4 4"/><path d="M2 6h1.9c1.5 0 2.9.9 3.6 2.2"/><path d="M22 18h-5.9c-1.3 0-2.6-.7-3.3-1.8l-.5-.8"/><path d="m18 14 4 4-4 4"/>',
+	edit: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M18.4 2.6a2.1 2.1 0 0 1 3 3L21.4 5.6l-4-4z"/>',
+	pencil: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.352-1.321a2 2 0 0 0 .83-.5z"/>',
+	target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+	chartBar: '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
+	flame: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
+	heartPulse: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7z"/><path d="M3.22 12H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27"/>',
+	video: '<path d="m22 8-6 4 6 4V8z"/><rect x="2" y="6" width="14" height="12" rx="2"/>',
+	mail: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
+	lock: '<rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 5-5 5 5 0 0 1 5 5v4"/>',
+	rocket: '<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>',
+	mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>',
+	smartphone: '<rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/>',
+	lightbulb: '<path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.2 1 2V18h6v-1.3c0-.8.4-1.5 1-2A7 7 0 0 0 12 2z"/>',
+	info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+	triangleAlert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+	cake: '<path d="M20 21v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8"/><path d="M4 16c.5.5 1.2 1 2 1s1.5-.5 2-1c.5.5 1.2 1 2 1s1.5-.5 2-1c.5.5 1.2 1 2 1s1.5-.5 2-1c.5.5 1.2 1 2 1s1.5-.5 2-1"/><path d="M2 21h20"/><path d="M7 11v-3"/><path d="M12 11v-3"/><path d="M17 11v-3"/><path d="M7 8a2 2 0 1 1 0-4c.6 0 .9.2 1.2.5C8.5 4 8.8 2 12 2s3.5 2 3.8 2.5c.3-.3.6-.5 1.2-.5a2 2 0 1 1 0 4"/>',
+};
+
+function renderIcons() {
+	document.querySelectorAll('[data-icon]').forEach((el) => {
+		const name = el.dataset.icon;
+		const svg = ICONS[name];
+		if (!svg) return;
+		// Aucune taille inline par défaut : le CSS contextual dimensionne
+		// (.btn svg, .kpi-ico svg…). Seules les tailles EXPLICITES posées sur
+		// le <i> (style="width:13px;height:13px") sont transférées sur le SVG.
+		const inlineStyle = el.getAttribute('style') ?? '';
+		const w = inlineStyle.match(/width:\s*([\d.]+)px/);
+		const h = inlineStyle.match(/height:\s*([\d.]+)px/);
+		let extra = '';
+		if (w && h) extra = `width:${w[1]}px;height:${h[1]}px;`;
+		el.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;flex-shrink:0;${extra}">${svg}</svg>`;
+	});
+}
+
+/* ── Toast ── */
+let toastTimer;
+function toast(msg) {
+	const t = document.getElementById('toast');
+	document.getElementById('toast-msg').textContent = msg;
+	t.classList.remove('hide');
+	clearTimeout(toastTimer);
+	toastTimer = setTimeout(() => t.classList.add('hide'), 2400);
+}
+
+/* ── Navigation ── */
+function goto(pageId) {
+	document.querySelectorAll('.page').forEach((p) => p.classList.remove('active'));
+	const target = document.getElementById('page-' + pageId);
+	if (!target) return;
+	target.classList.add('active');
+	document.querySelectorAll('.side-item[data-goto]').forEach((b) => {
+		b.classList.toggle('active', b.dataset.goto === pageId);
+	});
+	document.getElementById('sidebar').classList.remove('open');
+	window.scrollTo({ top: 0, behavior: 'instant' });
+}
+
+document.addEventListener('click', (e) => {
+	// Navigation générique via data-goto (boutons sidebar, cartes, lignes)
+	const nav = e.target.closest('[data-goto]');
+	if (nav) {
+		goto(nav.dataset.goto);
+		return;
+	}
+	// Sidebar mobile
+	if (e.target.closest('#burger')) {
+		document.getElementById('sidebar').classList.add('open');
+		return;
+	}
+	if (e.target.closest('#scrim')) {
+		document.getElementById('sidebar').classList.remove('open');
+		return;
+	}
+	// Notifications : coche « marquer comme vu »
+	const chk = e.target.closest('.check-btn');
+	if (chk) {
+		const row = chk.closest('.notif-row');
+		row.classList.remove('unread');
+		row.querySelector('.notif-ico').style.background = 'var(--line-2)';
+		row.querySelector('.notif-ico').style.color = 'var(--mist)';
+		const kind = row.querySelector('.kind');
+		if (kind) { kind.classList.add('muted'); }
+		chk.classList.add('done');
+		const seen = document.getElementById('seen');
+		seen.prepend(row);
+		updateNotifCounts();
+		return;
+	}
+	// « Tout marquer comme vu »
+	if (e.target.closest('#mark-all')) {
+		document.querySelectorAll('#to-consult .check-btn').forEach((b) => b.click());
+		toast('Toutes les notifications sont marquées comme vues ✓');
+		return;
+	}
+	// Bilans : changement de semaine
+	const week = e.target.closest('#bilan-weeks .chip');
+	if (week) {
+		document.querySelectorAll('#bilan-weeks .chip').forEach((c) => c.classList.remove('active'));
+		week.classList.add('active');
+		toast(`Semaine ${week.dataset.week} affichée`);
+		return;
+	}
+	// Photos : filtres période
+	const period = e.target.closest('#photo-filters .chip');
+	if (period) {
+		document.querySelectorAll('#photo-filters .chip').forEach((c) => c.classList.remove('active'));
+		period.classList.add('active');
+		const p = period.dataset.period;
+		let visible = 0;
+		document.querySelectorAll('#deposits .deposit').forEach((d) => {
+			const show = p === 'all' || d.dataset.period === p;
+			d.style.display = show ? '' : 'none';
+			if (show) visible++;
+		});
+		document.getElementById('deposits-count').textContent = visible;
+		return;
+	}
+	// Templates : changement de catégorie
+	const tpl = e.target.closest('#tpl-tabs .chip');
+	if (tpl) {
+		document.querySelectorAll('#tpl-tabs .chip').forEach((c) => c.classList.remove('active'));
+		tpl.classList.add('active');
+		return;
+	}
+	// Templates : choix de situation
+	const sit = e.target.closest('.situation');
+	if (sit) {
+		document.querySelectorAll('.situation').forEach((s) => s.classList.remove('active'));
+		sit.classList.add('active');
+		return;
+	}
+	// Templates : générer
+	if (e.target.closest('#tpl-generate')) {
+		const prenom = document.getElementById('tpl-prenom').value.trim() || 'Pauline';
+		const jour = document.getElementById('tpl-jour').value.trim() || 'lundi 5 octobre';
+		const heure = document.getElementById('tpl-heure').value.trim() || '14h30';
+		const sign = document.getElementById('tpl-sign').value.trim() || 'Hugo';
+		document.getElementById('tpl-preview').textContent =
+			`Bonjour ${prenom} ! 👋\n\n` +
+			`Je suis ravi(e) de t'accueillir dans l'accompagnement G-FLUX ! Tu fais maintenant partie d'une belle aventure, et je suis là pour t'aider à atteindre tes objectifs. 💪\n\n` +
+			`Notre premier rendez-vous est fixé au ${jour} à ${heure}. Lors de cet échange, nous ferons le point sur tes objectifs, ton mode de vie et je t'expliquerai en détail le déroulé de l'accompagnement.\n\n` +
+			`En attendant, je t'invite à remplir ton bilan initial si ce n'est pas déjà fait, afin que je puisse préparer au mieux notre échange. Tu recevras également un petit questionnaire par email.\n\n` +
+			`Si tu as la moindre question d'ici là, n'hésite pas à m'écrire ici !\n\n` +
+			`À très bientôt,\n${sign}`;
+		document.getElementById('tpl-status').textContent = 'Message généré';
+		toast('Message généré ✓ — tu peux le personnaliser avant de copier.');
+		return;
+	}
+	// Templates : copier
+	if (e.target.closest('#tpl-copy')) {
+		const txt = document.getElementById('tpl-preview').textContent;
+		navigator.clipboard?.writeText(txt).catch(() => {});
+		toast('Message copié dans le presse-papiers ✓');
+		return;
+	}
+	// Templates : réinitialiser
+	if (e.target.closest('#tpl-reset')) {
+		document.getElementById('tpl-prenom').value = '';
+		document.getElementById('tpl-jour').value = '';
+		document.getElementById('tpl-heure').value = '';
+		document.getElementById('tpl-status').textContent = 'Message généré';
+		toast('Champs réinitialisés.');
+		return;
+	}
+	// Vision 360 : onglets
+	const tab = e.target.closest('#c360-tabs .c360-tab');
+	if (tab) {
+		document.querySelectorAll('#c360-tabs .c360-tab').forEach((t) => t.classList.remove('active'));
+		tab.classList.add('active');
+		document.querySelectorAll('.c360-sec').forEach((s) => {
+			s.style.display = s.dataset.sec === tab.dataset.sec ? '' : 'none';
+		});
+		return;
+	}
+	// Accès rapide → onglet 360
+	const secGo = e.target.closest('[data-sec-goto]');
+	if (secGo) {
+		const btn = document.querySelector(`#c360-tabs .c360-tab[data-sec="${secGo.dataset.secGoto}"]`);
+		if (btn) btn.click();
+		return;
+	}
+	// Objectifs : mode
+	const obj = e.target.closest('#obj-tabs .obj-tab');
+	if (obj) {
+		document.querySelectorAll('#obj-tabs .obj-tab').forEach((t) => t.classList.remove('active'));
+		obj.classList.add('active');
+		return;
+	}
+	// Prescription : onglets
+	const pt = e.target.closest('.presc-tab');
+	if (pt) {
+		pt.closest('.presc-tabs').querySelectorAll('.presc-tab').forEach((t) => t.classList.remove('active'));
+		pt.classList.add('active');
+		return;
+	}
+	// Entraînement : onglets
+	const tr = e.target.closest('#tr-tabs .chip');
+	if (tr) {
+		document.querySelectorAll('#tr-tabs .chip').forEach((c) => c.classList.remove('active'));
+		tr.classList.add('active');
+		document.querySelectorAll('.tr-sec').forEach((s) => {
+			s.style.display = s.dataset.tr === tr.dataset.tr ? '' : 'none';
+		});
+		return;
+	}
+	// Entraînement : ouvrir l'éditeur
+	if (e.target.closest('[data-open-editor]')) {
+		document.querySelector('#tr-tabs .chip[data-tr="editeur"]')?.click();
+		return;
+	}
+	// Entraînement : séances
+	const sess = e.target.closest('.sess-item');
+	if (sess) {
+		sess.parentElement.querySelectorAll('.sess-item').forEach((s) => s.classList.remove('active'));
+		sess.classList.add('active');
+		return;
+	}
+	// Entraînement : exercices sélectionnables
+	const ex = e.target.closest('#page-entrainement .ex-row');
+	if (ex && !e.target.closest('button')) {
+		const list = ex.parentElement.querySelectorAll('.ex-row');
+		if (list[0].closest('.editor-grid')) {
+			list.forEach((r) => r.classList.remove('selected'));
+			ex.classList.add('selected');
+		}
+		return;
+	}
+	// Planning : mode réservation
+	const mode = e.target.closest('#mode-suivi, #mode-demarrage');
+	if (mode) {
+		document.querySelectorAll('#mode-suivi, #mode-demarrage').forEach((m) => m.classList.remove('active'));
+		mode.classList.add('active');
+		document.querySelectorAll('#planner .slot.free').forEach((s) => {
+			s.style.background = 'var(--brand-light)';
+			s.style.borderColor = 'var(--brand)';
+			s.style.color = 'var(--brand-deep)';
+			s.style.boxShadow = 'inset 0 0 0 1px rgba(29,185,84,0.35)';
+		});
+		document.getElementById('planner-hint').textContent = 'Mode réservation — les créneaux en vert sont réellement disponibles (moteur serveur : disponibilités − Google − RDV − buffers).';
+		return;
+	}
+	// Message global : envoi simulé
+	if (e.target.closest('#global-msg-send')) {
+		document.getElementById('global-msg-send').type = 'button';
+		e.preventDefault();
+		toast('Message global envoyé à 24 clientes actives ✓ (simulation preview)');
+		return;
+	}
+	// Nouveau programme
+	if (e.target.closest('#btn-new-prog')) {
+		toast('Modale « Nouveau programme » — gérée par l’app réelle (aperçu du design).');
+		return;
+	}
+});
+
+function updateNotifCounts() {
+	const unread = document.querySelectorAll('#to-consult .notif-row.unread').length;
+	const seen = document.querySelectorAll('#seen .notif-row').length;
+	document.getElementById('unread-count').textContent = unread;
+	document.getElementById('seen-count').textContent = seen;
+	document.querySelector('.side-item[data-goto="notifications"] .dot').textContent = unread;
+	document.querySelector('.side-item[data-goto="notifications"] .dot').style.display = unread > 0 ? '' : 'none';
+	document.querySelector('.icon-btn .ping').textContent = unread;
+	document.querySelector('.icon-btn .ping').style.display = unread > 0 ? '' : 'none';
+}
+
+/* Filtres notifications */
+document.querySelectorAll('#notif-filters .chip').forEach((chip) => {
+	chip.addEventListener('click', () => {
+		document.querySelectorAll('#notif-filters .chip').forEach((c) => c.classList.remove('active'));
+		chip.classList.add('active');
+		const kind = chip.dataset.kind;
+		let n1 = 0, n2 = 0;
+		document.querySelectorAll('#to-consult .notif-row, #seen .notif-row').forEach((r) => {
+			const show = kind === 'all' || r.dataset.kind === kind;
+			r.style.display = show ? '' : 'none';
+		});
+		n1 = [...document.querySelectorAll('#to-consult .notif-row')].filter((r) => r.style.display !== 'none').length;
+		document.getElementById('unread-count').textContent = n1;
+	});
+});
+
+/* Dashboard : filtre clientes */
+document.getElementById('dash-filter')?.addEventListener('input', (e) => {
+	const q = e.target.value.toLowerCase();
+	document.querySelectorAll('#dash-clients .client-tile').forEach((t) => {
+		t.style.display = t.dataset.name.includes(q) ? '' : 'none';
+	});
+});
+
+renderIcons();
+updateNotifCounts();
+
+</script>
+</body>
+</html>

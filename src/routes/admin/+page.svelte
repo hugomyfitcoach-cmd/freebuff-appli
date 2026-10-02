@@ -20,8 +20,12 @@
 	import { ONBOARDING_SECTIONS, readableAnswer } from '../../lib/onboarding.js';
 	import { avgLast7Completed } from '$lib/averages';
 	import { createFoodSearch } from '$lib/foodSearch.svelte';
+	import CountUp from '$lib/components/CountUp.svelte';
 
 	let { data, form } = $props();
+	/* « vivant » uniquement côté navigateur : la date/heure du hero est locale
+	   à la coach, jamais celle du serveur (SSR : ligne date absente). */
+	let dashLive = $state(false);
 
 	const clients = $derived(data.clients ?? []);
 	const selectedId = $derived(data.selectedId ?? null);
@@ -346,6 +350,87 @@
 	});
 
 	const isOnline = (ts: number | null) => !!ts && Date.now() - ts < 5 * 60 * 1000;
+
+	/* ── Refonte UX/UI premium (north star : docs/refonte-preview) ─────────
+	   Hero dashboard : salutation « Bonjour {prenom} 👋 » + date longue du jour
+	   + sous-titre métier, selon le mockup validé. Côté serveur (SSR) : titre
+	   neutre « Tableau de bord — CRM coach » (aucune information d'heure, la
+	   date vivant côté navigateur pour suivre le fuseau de la coach) ; après
+	   hydratation le titre devient « Bonjour Hugo 👋 » et la ligne date se
+	   révèle — stable pendant TOUTE la session (pas de re-rendu à la minute). */
+	const dashNow = $derived.by(() => {
+		if (!dashLive) return null;
+		return new Date();
+	});
+	/** Prénom du coach : fourni par le layout /admin (SSR compris) — jamais codé en dur. */
+	const dashGreetingPrenom = $derived((page.data.user as { prenom?: string } | undefined)?.prenom ?? 'coach');
+	const dashTitle = $derived(
+		dashLive ? `Bonjour ${dashGreetingPrenom} 👋` : 'Tableau de bord — CRM coach'
+	);
+	const dashDateLine = $derived.by(() => {
+		if (!dashNow) return '';
+		const long = dashNow.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+		const time = dashNow.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+		// Numéro de semaine ISO 8601 (semaine commençant lundi).
+		const thursday = new Date(dashNow.getFullYear(), dashNow.getMonth(), dashNow.getDate() + 3 - ((dashNow.getDay() + 6) % 7));
+		const week = 1 + Math.round((thursday.getTime() - new Date(thursday.getFullYear(), 0, 4).getTime()) / 604_800_000);
+		return `${long.charAt(0).toUpperCase()}${long.slice(1)} · ${time} · semaine ${week}`;
+	});
+	/** KPI : clientes actives sur les 24 dernières heures — même définition
+	 *  que le compteur existant « Actif·ve·s aujourd’hui » (lastSeenAt). */
+	const dashKpiClients = $derived(clients.length);
+	const dashKpiActive = $derived(
+		clients.filter((c: { user: { lastSeenAt: number | null } }) => {
+			const ts = c.user.lastSeenAt;
+			return ts && Date.now() - ts < 24 * 3600 * 1000;
+		}).length
+	);
+	const dashKpiWaiting = $derived(totalWaiting);
+	/** 5 actions prioritaires max, dérivées de données déjà chargées — aucune
+	 *  requête ajoutée, aucune logique métier modifiée (simple réordonnancement). */
+	type DashTodo = {
+		key: string;
+		icon: string;
+		title: string;
+		subtitle: string;
+		tone: 'warn' | 'danger' | 'brand' | 'blue';
+		toneLabel: string;
+		href: string;
+	};
+	const dashTodos = $derived.by<DashTodo[]>(() => {
+		const out: DashTodo[] = [];
+		// 1) Bilans déposés en attente de retour (client.waiting déjà calculé côté Convex).
+		for (const c of [...clients].sort((a: { waiting: number }, b: { waiting: number }) => b.waiting - a.waiting)) {
+			if (c.waiting <= 0) break;
+			out.push({
+				key: `waiting-${c.user._id}`,
+				icon: 'clipboardCheck',
+				title: `Bilan de ${fullName(c.user)} à traiter`,
+				subtitle: c.latest?.weekLabel ? `${c.waiting} retour${c.waiting > 1 ? 's' : ''} à écrire · dernier bilan ${c.latest.weekLabel}` : 'Retour à écrire',
+				tone: 'warn',
+				toneLabel: 'À traiter',
+				href: `/admin?client=${c.user._id}&section=bilans`,
+			});
+			if (out.length >= 3) break;
+		}
+		// 2) Inactivité 24 h : la coach voit d'un œil qui n'a pas ouvert l'app.
+		const inactive = clients.filter((c: { user: { lastSeenAt: number | null } }) => {
+			const ts = c.user.lastSeenAt;
+			return !ts || Date.now() - ts >= 24 * 3600 * 1000;
+		}).slice(0, 2);
+		for (const c of inactive) {
+			out.push({
+				key: `idle-${c.user._id}`,
+				icon: 'bellOff',
+				title: `${fullName(c.user)} n'a pas ouvert l'app`,
+				subtitle: fmtLastSeen(c.user.lastSeenAt),
+				tone: 'blue',
+				toneLabel: 'À relancer',
+				href: `/admin?client=${c.user._id}`, // ouverture sur l'Aperçu (section=apercu par défaut)
+			});
+		}
+		return out.slice(0, 5);
+	});
 
 	/* ── Objectifs journaliers : deux modes de saisie ────────────── */
 	/*
@@ -1377,19 +1462,64 @@
 
 <svelte:head><title>CRM — G-Flux</title></svelte:head>
 
-<!-- Statistiques -->
-<section class="grid gap-3 sm:grid-cols-3">
-	<div class="rounded-2xl border border-line bg-card p-4">
-		<div class="font-display text-3xl font-semibold text-ink">{clients.length}</div>
-		<div class="text-xs font-semibold uppercase tracking-wide text-mist">Client·e·s</div>
+<!-- ══════════ HERO DASHBOARD (north star : docs/refonte-preview) ══════════ -->
+<section class="m-in-crm flex flex-wrap items-end justify-between gap-4">
+	<div>
+		<h1 class="h1-crm">{dashTitle}</h1>
+		<p class="mt-1 text-sm font-medium text-mist">Voici l'état de ton coaching{#if dashLive}&nbsp;— {dashDateLine}{/if}</p>
 	</div>
-	<div class="rounded-2xl border border-line bg-card p-4">
-		<div class="font-display text-3xl font-semibold text-brand">{activeToday}</div>
-		<div class="text-xs font-semibold uppercase tracking-wide text-mist">Actif·ve·s aujourd’hui</div>
+	<div class="flex flex-wrap items-center gap-2">
+		<a href="/admin/bilans" class="btn-crm inline-flex items-center gap-1.5 rounded-xl border-2 border-line bg-card px-3.5 py-2 text-sm font-bold text-ink transition hover:border-brand hover:text-brand">
+			<Icon name="clipboardList" size={14} class="shrink-0" /> Voir les bilans
+		</a>
 	</div>
-	<div class="rounded-2xl border border-line bg-card p-4">
-		<div class="font-display text-3xl font-semibold text-warn">{totalWaiting}</div>
-		<div class="text-xs font-semibold uppercase tracking-wide text-mist">Retours à envoyer</div>
+</section>
+
+<!-- ══════════ KPI CARDS PREMIUM (liseré coloré + tuile icône + count-up) ══════════ -->
+<section class="m-in-crm mt-5 grid gap-3.5 sm:grid-cols-2 xl:grid-cols-4" style="--m-i: 1">
+	<div class="kpi-crm card-crm-hover" style="--kpi-accent: var(--accent); --kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep)">
+		<div class="flex items-center justify-between gap-2">
+			<span class="kpi-tile"><Icon name="users" size={18} /></span>
+			<span class="rounded-full bg-soft px-2 py-0.5 text-[10.5px] font-bold text-mist">suivi global</span>
+		</div>
+		<div class="kpi-num-crm mt-3 text-[1.9rem] text-ink"><CountUp value={dashKpiClients} /></div>
+		<div class="mt-1 text-[12.5px] font-bold text-ink">Clientes suivies</div>
+		<div class="mt-2.5 flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11.5px] text-mist">
+			<span class="inline-flex items-center gap-1 font-bold text-brand-deep"><Icon name="trendingUp" size={12} /> {dashKpiActive}</span> active{dashKpiActive > 1 ? 's' : ''} aujourd'hui
+		</div>
+	</div>
+	<div class="kpi-crm card-crm-hover" style="--kpi-accent: var(--warn); --kpi-tile-bg: var(--warn-light); --kpi-tile-fg: var(--warn)">
+		<div class="flex items-center justify-between gap-2">
+			<span class="kpi-tile"><Icon name="clipboardCheck" size={18} /></span>
+			<span class="rounded-full bg-warn-light px-2 py-0.5 text-[10.5px] font-bold text-warn">priorité</span>
+		</div>
+		<div class="kpi-num-crm mt-3 text-[1.9rem] text-ink"><CountUp value={dashKpiWaiting} /></div>
+		<div class="mt-1 text-[12.5px] font-bold text-ink">Retours à envoyer</div>
+		<div class="mt-2.5 flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11.5px] text-mist">
+			<span class="inline-flex items-center gap-1 font-bold text-warn"><Icon name="clock" size={12} /> {dashTodos.filter((t) => t.tone === 'warn').length}</span> bilan{dashTodos.filter((t) => t.tone === 'warn').length > 1 ? 's' : ''} dans « à traiter »
+		</div>
+	</div>
+	<div class="kpi-crm card-crm-hover" style="--kpi-accent: var(--orange); --kpi-tile-bg: var(--warn-light); --kpi-tile-fg: var(--orange)">
+		<div class="flex items-center justify-between gap-2">
+			<span class="kpi-tile"><Icon name="activity" size={18} /></span>
+			<span class="rounded-full bg-soft px-2 py-0.5 text-[10.5px] font-bold text-mist">24 h</span>
+		</div>
+		<div class="kpi-num-crm mt-3 text-[1.9rem] text-ink"><CountUp value={dashKpiActive} /></div>
+		<div class="mt-1 text-[12.5px] font-bold text-ink">Actives aujourd'hui</div>
+		<div class="mt-2.5 flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11.5px] text-mist">
+			<span class="inline-flex items-center gap-1 font-bold text-ink"><Icon name="users" size={12} /> {dashKpiClients - dashKpiActive}</span> sans connexion (24 h)
+		</div>
+	</div>
+	<div class="kpi-crm card-crm-hover" style="--kpi-accent: var(--accent); --kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep)">
+		<div class="flex items-center justify-between gap-2">
+			<span class="kpi-tile"><Icon name="bell" size={18} /></span>
+			<span class="rounded-full bg-soft px-2 py-0.5 text-[10.5px] font-bold text-mist">notifications</span>
+		</div>
+		<div class="kpi-num-crm mt-3 text-[1.9rem] text-ink"><CountUp value={data.notificationsBadge ?? 0} /></div>
+		<div class="mt-1 text-[12.5px] font-bold text-ink">Notifications à consulter</div>
+		<div class="mt-2.5 flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11.5px] text-mist">
+			<a href="/admin/notifications" class="inline-flex items-center gap-1 font-bold text-brand-deep transition hover:underline"><Icon name="arrowRight" size={12} /> Ouvrir les notifications</a>
+		</div>
 	</div>
 </section>
 
@@ -1515,11 +1645,44 @@
 	{/if}
 </section>
 
+<!-- ══════════ À TRAITER AUJOURD'HUI (actions prioritaires, données existantes) ══════════ -->
+<section class="m-in-crm mt-4 rounded-2xl border border-line bg-card p-4 shadow-sm" style="--m-i: 3">
+	<div class="flex flex-wrap items-center justify-between gap-2">
+		<h2 class="h2-crm flex items-center gap-2 text-base"><Icon name="target" size={17} class="shrink-0 text-brand" /> À traiter aujourd'hui
+			{#if dashTodos.length > 0}<span class="badge-in grid h-5 min-w-5 place-items-center rounded-full bg-warn px-1.5 text-[11px] font-bold text-white">{dashTodos.length}</span>{/if}
+		</h2>
+		<span class="text-[11px] text-mist">bilans en attente + clientes sans connexion depuis 24 h</span>
+	</div>
+	{#if dashTodos.length === 0}
+		<p class="mt-3 rounded-xl border border-dashed border-line px-4 py-6 text-center text-sm text-mist">Rien à traiter — toutes tes clientes sont à jour ✓</p>
+	{:else}
+		<div class="mt-3 grid gap-2">
+			{#each dashTodos as t, i (t.key)}
+				<a
+					href={t.href}
+					class="person-crm group"
+					style={`transition-delay: ${i * 25}ms`}
+				>
+					<span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl {t.tone === 'warn' ? 'bg-warn-light text-warn' : t.tone === 'danger' ? 'bg-danger-light text-danger' : t.tone === 'blue' ? 'bg-soft text-ink' : 'bg-brand-light text-brand-deep'}">
+						<Icon name={t.icon} size={16} />
+					</span>
+					<div class="min-w-0 flex-1">
+						<p class="truncate text-[13.5px] font-bold text-ink">{t.title}</p>
+						<p class="truncate text-[11.5px] text-mist">{t.subtitle}</p>
+					</div>
+					<span class="shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wide {t.tone === 'warn' ? 'bg-warn-light text-warn' : t.tone === 'danger' ? 'bg-danger-light text-danger' : t.tone === 'blue' ? 'bg-soft text-ink' : 'bg-brand-light text-brand-deep'}">{t.toneLabel}</span>
+					<Icon name="chevronRight" size={15} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
+				</a>
+			{/each}
+		</div>
+	{/if}
+</section>
+
 <!-- ═══ Tableau unique des clients ═══ -->
-<div class="mt-6 rounded-2xl border border-line bg-card shadow-sm">
+<div class="m-in-crm mt-6 overflow-hidden rounded-2xl border border-line bg-card shadow-sm" style="--m-i: 4">
 	<div class="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
 		<div class="flex items-center gap-3">
-			<h2 class="font-display text-lg font-semibold text-ink">Clients</h2>
+			<h2 class="h2-crm flex items-center gap-2 text-base"><Icon name="users" size={17} class="shrink-0 text-brand" /> Clientes</h2>
 			<span class="rounded-full bg-line/60 px-2 py-0.5 text-xs font-semibold text-mist">{filtered.length}</span>
 		</div>
 		<div class="flex flex-wrap items-center gap-2">
@@ -1530,8 +1693,8 @@
 				class="rounded-xl border-2 border-line bg-white px-3 py-2 text-sm outline-none transition focus:border-brand"
 			/>
 			<details class="group relative">
-				<summary class="cursor-pointer list-none rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark">
-					＋ Créer un client
+				<summary class="btn-crm cursor-pointer list-none rounded-xl bg-brand px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-brand-dark">
+					＋ Créer une cliente
 				</summary>
 				<form method="POST" action="?/createClient" class="absolute right-0 top-11 z-20 w-80 rounded-2xl border border-line bg-white p-4 shadow-xl">
 					<label class="mb-1 block text-xs font-bold uppercase tracking-wide text-mist" for="nc-prenom">Prénom</label>
@@ -1548,11 +1711,10 @@
 
 	{#if filtered.length === 0}
 		<p class="px-6 py-14 text-center text-sm text-mist">
-			Aucun compte client{query.trim() ? ' trouvé' : ' pour l’instant'}.<br />Crée le premier avec « ＋ Créer un client ».
+			Aucune cliente{query.trim() ? ' trouvée' : ' pour l’instant'}.<br />Crée la première avec « ＋ Créer une cliente ».
 		</p>
-	{:else}
-		<div class="overflow-x-auto">
-			<table class="w-full min-w-[760px] text-left">
+	{:else}			<div class="table-wrap overflow-x-auto">
+				<table class="tbl-crm w-full min-w-[760px] text-left">
 				<thead>
 					<tr class="border-b border-line text-[11px] font-bold uppercase tracking-wider text-mist">
 						<th class="px-5 py-3">Client</th>
@@ -1572,21 +1734,20 @@
 							onclick={() => openClient(client.user._id)}
 							onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openClient(client.user._id); } }}
 							aria-label={`Ouvrir la Vision 360° de ${fullName(client.user)}`}
-						>
-							<td class="px-5 py-3">
-								<div class="flex items-center gap-3">
-									<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand/15 font-display text-sm font-semibold text-brand-dark">
-										{initial(client.user.prenom)}
-									</div>
-									<div class="min-w-0">
-									<div class="flex items-center gap-2">
-										<span class="truncate font-semibold text-ink">{fullName(client.user)}</span>
-											<span class="h-2 w-2 shrink-0 rounded-full {isOnline(client.user.lastSeenAt) ? 'bg-brand' : 'bg-line'}" title={isOnline(client.user.lastSeenAt) ? 'En ligne' : 'Hors ligne'}></span>
-										</div>
-										<div class="truncate text-[11px] text-mist">{client.user.email}</div>
-									</div>
+						>						<td class="px-5 py-3">
+							<div class="flex items-center gap-3">
+								<div class="avatar-crm h-9 w-9 text-sm">
+									{initial(client.user.prenom)}
 								</div>
-							</td>
+								<div class="min-w-0">
+									<div class="flex items-center gap-2">
+										<span class="truncate font-bold text-ink">{fullName(client.user)}</span>
+										<span class="presence-crm {isOnline(client.user.lastSeenAt) ? 'on' : ''}" title={isOnline(client.user.lastSeenAt) ? 'En ligne' : 'Hors ligne'}></span>
+									</div>
+									<div class="truncate text-[11px] text-mist">{client.user.email}</div>
+								</div>
+							</div>
+						</td>
 							<td class="whitespace-nowrap px-3 py-3 text-sm text-mist">{fmtLastSeen(client.user.lastSeenAt)}</td>
 							<td class="px-3 py-3 text-sm text-ink">{client.count}</td>
 							<td class="px-3 py-3">
@@ -1597,13 +1758,13 @@
 								{/if}
 							</td>
 							<td class="whitespace-nowrap px-3 py-3 text-sm text-mist">{client.latest?.weekLabel ?? '—'}</td>
-							<td class="px-5 py-3 text-right">
-								<a
-									href={`/admin?client=${client.user._id}`}
-									onclick={(e) => { e.preventDefault(); openClient(client.user._id); }}
-									class="inline-flex items-center gap-1 rounded-lg bg-ink px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand"
-								>360° →</a>
-							</td>
+						<td class="px-5 py-3 text-right">
+							<a
+								href={`/admin?client=${client.user._id}`}
+								onclick={(e) => { e.preventDefault(); openClient(client.user._id); }}
+								class="btn-crm inline-flex items-center gap-1 rounded-lg bg-ink px-3 py-1.5 text-xs font-bold text-white transition hover:bg-brand"
+							>Vision 360 <Icon name="arrowRight" size={12} /></a>
+						</td>
 						</tr>
 					{/each}
 				</tbody>
@@ -1626,15 +1787,18 @@
 			aria-label="Retour au tableau de bord"
 			title="Retour au tableau de bord"
 		><Icon name="arrowLeft" size={16} /></button>
-		<!-- En-tête du tiroir -->
-		<div class="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-card px-5 py-3">
+		<!-- En-tête du tiroir — refonte premium (north star : docs/refonte-preview) -->
+		<div class="m-in-crm flex flex-wrap items-center justify-between gap-3 border-b border-line bg-card px-5 py-3">
 			<div class="flex items-center gap-3">
-				<div class="flex h-10 w-10 items-center justify-center rounded-full bg-brand font-display text-lg font-semibold text-white">
+				<div class="avatar-crm h-11 w-11 text-base text-white" style="background: linear-gradient(135deg, #21d05e, var(--brand-dark)); box-shadow: 0 4px 14px rgba(29, 185, 84, 0.3)">
 					{initial(selected.user.prenom)}
-				</div>
-			<div>
-				<h2 class="font-display text-lg font-semibold text-ink">{fullName(selected.user)}</h2>
-				<p class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-mist">
+				</div>				<div class="min-w-0">
+					<div class="flex flex-wrap items-center gap-2">
+						<h2 class="h2-crm text-lg">{fullName(selected.user)}</h2>
+						<span class="presence-crm {isOnline(selected.user.lastSeenAt) ? 'on' : ''}"></span>
+						{#if isOnline(selected.user.lastSeenAt)}<span class="text-[10.5px] font-bold uppercase tracking-wide text-brand-deep">En ligne</span>{/if}
+					</div>
+					<p class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-mist">
 					<span class="truncate">{selected.user.email}</span>
 					{#if selected.user.birthDate}
 						<span class="inline-flex items-center gap-1"><Icon name="cake" size={12} class="shrink-0" /> {fmtDateShort(selected.user.birthDate)}{ageOf != null ? ` · ${ageOf} ans` : ''}</span>
@@ -1718,18 +1882,24 @@
 			</div>
 		</div>
 
-		<!-- Onglets du 360° -->
-		<div class="flex gap-1 overflow-x-auto border-b border-line bg-card px-5 pt-2">
-			{#each sectionTabs as t}
-				<button
-					onclick={() => (section = t.id)}
-					class="whitespace-nowrap rounded-t-lg px-3 py-2 text-sm font-semibold transition
-						{section === t.id ? 'border-b-2 border-brand text-brand' : 'text-mist hover:text-ink'}"
-				>{t.label}</button>
-			{/each}
+		<!-- Onglets du 360° — pills premium (tous les onglets métier conservés) -->
+		<div class="border-b border-line bg-card px-5 py-2.5">
+			<div class="tabs-crm w-fit max-w-full overflow-x-auto">
+				{#each sectionTabs as t (t.id)}
+					<button
+						onclick={() => (section = t.id)}
+						aria-pressed={section === t.id}
+						class="tab-crm {section === t.id ? 'active-crm' : ''}"
+					>{t.label}</button>
+				{/each}
+			</div>
 		</div>
 
-		<div class="flex-1 space-y-5 overflow-y-auto px-5 py-5">
+		<div class="flex-1 overflow-y-auto px-5 py-5">
+			<!-- {#key section} : rejoue le fondu d'entrée à chaque changement d'onglet
+			     (180 ms, opacity seule — zéro CLS) et remonte le scroll en haut. -->
+			{#key section}
+			<div class="tabfade-crm space-y-5">
 			<!-- Feedback discret après une sauvegarde (le tiroir reste ouvert) -->
 			{#if alert}
 				<div
@@ -1743,11 +1913,11 @@
 
 			<!-- ═══ Aperçu : message du coach + dernières données + diagramme calories ═══ -->
 			{#if section === 'apercu'}
-				<!-- Raccourci formulaire de démarrage (onboarding, discret) -->
-				<div class="rounded-2xl border border-line bg-card p-4 shadow-sm">
+				<!-- Raccourci formulaire de démarrage (onboarding) — carte statut premium -->
+				<div class="m-in-crm rounded-2xl border p-4 shadow-sm" style="--m-i: 0; border-color: rgba(29, 185, 84, 0.35); background: linear-gradient(135deg, var(--brand-soft, #f3fcf7), #fff 45%)">
 					<div class="flex flex-wrap items-center justify-between gap-3">
 						<div class="flex items-center gap-2.5">
-							<span class="grid h-8 w-8 place-items-center rounded-full bg-brand-light"><Icon name="rocket" size={15} class="text-brand" /></span>
+							<span class="kpi-tile" style="--kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep)"><Icon name="rocket" size={17} /></span>
 							<div class="min-w-0">
 								<p class="text-[11px] font-bold uppercase tracking-wider text-mist">Onboarding de démarrage</p>
 								<p class="mt-0.5 text-xs text-mist">
@@ -1772,7 +1942,7 @@
 				</div>
 
 				<!-- Message du coach du jour (champ dédié, éphémère — visible par la cliente 24 h après publication) -->
-				<div class="rounded-2xl border border-line bg-card p-4 shadow-sm">
+				<div class="m-in-crm rounded-2xl border border-line bg-card p-4 shadow-sm" style="--m-i: 1">
 					<div class="flex flex-wrap items-center justify-between gap-2">
 						<div class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="messageCircle" size={13} class="shrink-0 text-brand" /> Message du coach du jour</div>
 						<div class="flex items-center gap-1.5">
@@ -1817,19 +1987,23 @@
 					</form>
 				</div>
 
-				<div class="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
+				<!-- Poids actuel / Mensurations / Calories / Cycle — cartes de synthèse premium
+				     (liseré coloré + tuile icône + chiffre Lato 900 ; données et actions
+				     strictement identiques : mêmes boutons quick-sheet, mêmes valeurs). -->
+				<div class="m-in-crm grid gap-3 sm:grid-cols-2 md:grid-cols-4" style="--m-i: 2">
 					<button
 						type="button"
 						onclick={() => openQuickSheet('weight')}
-						class="group cursor-pointer rounded-2xl border border-line bg-card p-4 text-left transition hover:border-brand focus-visible:outline-2 focus-visible:outline-brand"
+						class="kpi-crm card-crm-hover group cursor-pointer text-left focus-visible:outline-2 focus-visible:outline-brand"
+						style="--kpi-accent: var(--accent); --kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep)"
 						aria-label="Ajouter une prise de poids"
 					>
 						<div class="flex items-center justify-between gap-1 text-[11px] font-bold uppercase tracking-wider text-mist">
-							<span class="flex items-center gap-1"><Icon name="scale" size={12} /> Poids actuel</span>
+							<span class="flex items-center gap-2"><span class="kpi-tile" style="width:1.75rem;height:1.75rem"><Icon name="scale" size={14} /></span> Poids actuel</span>
 							<span class="grid h-5 w-5 place-items-center rounded-full border border-line text-mist transition group-hover:border-brand group-hover:text-brand"><Icon name="plus" size={11} /></span>
 						</div>
 						<div class="mt-1 flex items-baseline gap-2">
-							<span class="font-display text-3xl font-semibold text-ink">{latestAny.weightKg != null ? `${String(latestAny.weightKg.value).replace('.', ',')} kg` : '—'}</span>
+							<span class="kpi-num-crm text-[1.65rem] text-ink">{latestAny.weightKg != null ? `${String(latestAny.weightKg.value).replace('.', ',')} kg` : '—'}</span>
 							{#if weightDelta != null}
 								<span class="text-sm font-bold {weightDelta <= 0 ? 'text-brand' : 'text-warn'}">{weightDelta <= 0 ? '↓' : '↑'} {String(Math.abs(weightDelta)).replace('.', ',')} kg</span>
 							{/if}
@@ -1839,33 +2013,34 @@
 					<button
 						type="button"
 						onclick={() => openQuickSheet('mensurations')}
-						class="group cursor-pointer rounded-2xl border border-line bg-card p-4 text-left transition hover:border-brand focus-visible:outline-2 focus-visible:outline-brand"
+						class="kpi-crm card-crm-hover group cursor-pointer text-left focus-visible:outline-2 focus-visible:outline-brand"
+						style="--kpi-accent: var(--orange); --kpi-tile-bg: var(--warn-light); --kpi-tile-fg: var(--orange)"
 						aria-label="Ajouter des mensurations"
 					>
 						<div class="flex items-center justify-between gap-1 text-[11px] font-bold uppercase tracking-wider text-mist">
-							<span class="flex items-center gap-1"><Icon name="ruler" size={12} /> Mensurations</span>
+							<span class="flex items-center gap-2"><span class="kpi-tile" style="width:1.75rem;height:1.75rem"><Icon name="ruler" size={14} /></span> Mensurations</span>
 							<span class="grid h-5 w-5 place-items-center rounded-full border border-line text-mist transition group-hover:border-brand group-hover:text-brand"><Icon name="plus" size={11} /></span>
 						</div>
 						<div class="mt-1 grid grid-cols-3 gap-2 text-center">
 							<div>
-								<div class="font-display text-lg font-semibold text-ink">{latestAny.waistCm != null ? fmtCm(latestAny.waistCm.value) : '—'}</div>
+								<div class="kpi-num-crm text-[1.65rem] text-ink">{latestAny.waistCm != null ? fmtCm(latestAny.waistCm.value) : '—'}</div>
 								<div class="text-[10px] text-mist">taille fine</div>
 							</div>
 							<div>
-								<div class="font-display text-lg font-semibold text-ink">{latestAny.hipCm != null ? fmtCm(latestAny.hipCm.value) : '—'}</div>
+								<div class="kpi-num-crm text-[1.65rem] text-ink">{latestAny.hipCm != null ? fmtCm(latestAny.hipCm.value) : '—'}</div>
 								<div class="text-[10px] text-mist">fessiers</div>
 							</div>
 							<div>
-								<div class="font-display text-lg font-semibold text-ink">{latestAny.neckCm != null ? fmtCm(latestAny.neckCm.value) : '—'}</div>
+								<div class="kpi-num-crm text-[1.65rem] text-ink">{latestAny.neckCm != null ? fmtCm(latestAny.neckCm.value) : '—'}</div>
 								<div class="text-[10px] text-mist">cou</div>
 							</div>
 						</div>
 						<div class="mt-1 text-[11px] text-mist">en cm {mensDate ? `· ${fmtDateShort(mensDate)}` : '· aucune prise'}</div>
 					</button>
-					<div class="rounded-2xl border border-line bg-card p-4">
-						<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="flame" size={12} /> Calories / jour</div>
+					<div class="kpi-crm" style="--kpi-accent: var(--warn); --kpi-tile-bg: var(--warn-light); --kpi-tile-fg: var(--warn)">
+						<div class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-mist"><span class="kpi-tile" style="width:1.75rem;height:1.75rem"><Icon name="flame" size={14} /></span> Calories / jour</div>
 						<div class="mt-1 flex items-baseline gap-2">
-							<span class="font-display text-3xl font-semibold text-ink">{weekAvg || '—'}</span>
+							<span class="kpi-num-crm text-[1.65rem] text-ink">{weekAvg || '—'}</span>
 							{#if view && weekAvg > 0}
 								<span class="text-sm font-bold {kcalTrend <= 5 ? 'text-brand' : 'text-warn'}">{kcalTrend > 0 ? '+' : ''}{kcalTrend} %</span>
 							{/if}
@@ -1878,8 +2053,8 @@
 						</div>
 					</div>
 					<!-- Cycle — mêmes données et formule que le dashboard de la cliente -->
-					<div class="rounded-2xl border border-line bg-card p-4">
-						<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="flower2" size={12} /> Cycle</div>
+					<div class="kpi-crm" style="--kpi-accent: #ec4899; --kpi-tile-bg: #fdeff6; --kpi-tile-fg: #db2777">
+						<div class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-mist"><span class="kpi-tile" style="width:1.75rem;height:1.75rem"><Icon name="flower2" size={14} /></span> Cycle</div>
 						{#if selCycleState.kind === 'empty'}
 							<div class="mt-1.5 text-sm text-mist">Non renseigné</div>
 						{:else if selCycleState.kind === 'hormonal'}
@@ -1900,9 +2075,9 @@
 			     semaine CALENDAIRE courante (indépendante du dernier bilan).
 			     kcal = REPÈRE, jamais un crédit calorique. Tendance calculée sur
 			     les semaines closes uniquement (jamais la semaine partielle). -->
-				<div class="rounded-2xl border border-line bg-card p-4 shadow-sm">
+				<div class="m-in-crm kpi-crm rounded-2xl" style="--m-i: 3; --kpi-accent: var(--accent); --kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep)">
 					<div class="flex items-center justify-between gap-2">
-						<div class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="zap" size={13} class="shrink-0 text-brand" /> Dépense sportive</div>
+						<div class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-mist"><span class="kpi-tile" style="width:1.75rem;height:1.75rem"><Icon name="zap" size={14} /></span> Dépense sportive</div>
 						{#if sportOverview?.trainingCount}
 							<span class="rounded-full bg-soft px-2 py-0.5 text-[10px] font-semibold text-mist">{sportOverview.trainingCount} séance{sportOverview.trainingCount > 1 ? 's' : ''} G-FLUX</span>
 						{:else if sportOverview?.manualCount}
@@ -1911,7 +2086,7 @@
 					</div>
 					{#if sportOverview && (sportOverview.activities > 0 || (sportOverview.previous ?? []).some((p) => p.durationMin > 0))}
 						<div class="mt-1 flex flex-wrap items-baseline gap-x-2">
-							<span class="font-display text-3xl font-semibold text-ink">≈ {sportOverview.kcal.toLocaleString('fr-FR')} kcal</span>
+							<span class="kpi-num-crm text-[1.65rem] text-ink">≈ {sportOverview.kcal.toLocaleString('fr-FR')} kcal</span>
 							{#if sportOverview.trend === 'up'}
 								<span class="rounded-full bg-brand-light px-1.5 py-0.5 text-[10px] font-bold text-brand-dark">↑ Volume sportif</span>
 							{:else if sportOverview.trend === 'down'}
@@ -3310,6 +3485,8 @@
 				<!-- Dossier : notes privées coach + ressources partagées (« Ressources » côté cliente) -->
 				<DossierPanel clientId={selected.user._id} clientName={fullName(selected.user)} />
 			{/if}
+		</div>
+		{/key}
 		</div>
 	</aside>
 {:else if clients.length === 0}
