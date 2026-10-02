@@ -136,6 +136,10 @@
 	border: 1px solid var(--line-soft);
 	border-radius: 0.875rem;
 	padding: 0.75rem 0.875rem;
+	/* Item de grille/flex : autorise le rétrécissement sous la largeur du
+	   contenu (les textes `truncate` sont nowrap → largeur intrinsèque forte,
+	   sinon débordement horizontal sur mobile). */
+	min-width: 0;
 	transition: border-color 150ms var(--ds-ease), transform 150ms var(--ds-ease), box-shadow 150ms var(--ds-ease);
 }
 .ds-crm .person-crm:hover {
