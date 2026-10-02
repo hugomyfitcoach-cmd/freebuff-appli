@@ -24,8 +24,13 @@
 
 	let { data, form } = $props();
 	/* « vivant » uniquement côté navigateur : la date/heure du hero est locale
-	   à la coach, jamais celle du serveur (SSR : ligne date absente). */
+	   à la coach, jamais celle du serveur (SSR : ligne date absente). L'effet
+	   ci-dessous bascule l'état après hydratation — le titre SSR neutre évite
+	   tout flash d'heure serveur et toute hydromismatch. */
 	let dashLive = $state(false);
+	$effect(() => {
+		dashLive = true;
+	});
 
 	const clients = $derived(data.clients ?? []);
 	const selectedId = $derived(data.selectedId ?? null);
@@ -362,8 +367,14 @@
 		if (!dashLive) return null;
 		return new Date();
 	});
-	/** Prénom du coach : fourni par le layout /admin (SSR compris) — jamais codé en dur. */
-	const dashGreetingPrenom = $derived((page.data.user as { prenom?: string } | undefined)?.prenom ?? 'coach');
+	/** Prénom du coach : fourni par le layout /admin (prop `data` des pages
+	 *  enfants — cf. `let { data, children } = $props()` du layout). SSR compris.
+	 *  Repli : prénom de la cliente (« Démo ») sur le backend de démo. */
+	const dashGreetingPrenom = $derived(
+		(data as { user?: { prenom?: string } } | null)?.user?.prenom
+			?? (clients[0] as { user?: { prenom?: string } } | undefined)?.user?.prenom
+			?? 'coach'
+	);
 	const dashTitle = $derived(
 		dashLive ? `Bonjour ${dashGreetingPrenom} 👋` : 'Tableau de bord — CRM coach'
 	);
