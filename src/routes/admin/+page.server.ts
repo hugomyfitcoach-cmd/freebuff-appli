@@ -173,6 +173,11 @@ export const actions: Actions = {
 		const heightRaw = String(form.get('heightCm') ?? '');
 		// Checkbox + jumeau caché (0) : présent dans tous les cas → vrai toggle.
 		const onboardingEnabled = String(form.get('onboardingEnabled') ?? '0') === '1';
+		// Statut d'accompagnement : "coaching" → null (retire le champ, fallback
+		// coaching global), "autonomy" → "autonomy", vide → inchangé.
+		const coachingModeRaw = String(form.get('coachingMode') ?? '');
+		const coachingMode =
+			coachingModeRaw === 'autonomy' ? 'autonomy' : coachingModeRaw === 'coaching' ? null : undefined;
 		const token = event.cookies.get(SESSION_COOKIE);
 		try {
 			await convex.mutation(api.coach.updateClient, {
@@ -186,6 +191,7 @@ export const actions: Actions = {
 				gsheetUrl,
 				heightCm: heightRaw ? Number(heightRaw) : undefined,
 				onboardingEnabled,
+				coachingMode,
 			});
 			return { action: 'updateFiche', ok: 'Fiche client mise à jour.', clientId: userId };
 		} catch (e) {

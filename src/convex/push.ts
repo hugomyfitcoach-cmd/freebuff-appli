@@ -157,7 +157,12 @@ export const progressionSnoozeState = query({
 		await requireCoach(ctx, sessionToken);
 		const u = await ctx.db.get(userId);
 		if (!u) return null;
-		return { measurementsSnoozeUntil: u.measurementsSnoozeUntil ?? null, photosSnoozeUntil: u.photosSnoozeUntil ?? null };
+		/** Mode d'accompagnement — les pushs progression sont coupés en Autonomie. */
+		return {
+			measurementsSnoozeUntil: u.measurementsSnoozeUntil ?? null,
+			photosSnoozeUntil: u.photosSnoozeUntil ?? null,
+			coachingMode: u.coachingMode ?? "coaching",
+		};
 	},
 });
 

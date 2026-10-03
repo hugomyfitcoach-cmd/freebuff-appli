@@ -11,10 +11,20 @@
 	 */
 	const DECLINED_KEY = 'gflux_push_declined';
 
+	/**
+	 * MODE AUTONOMIE (post-coaching) : la cliente garde son app mais ne reçoit
+	 * plus de sollicitations coaching → on ne demande JAMAIS la permission push
+	 * et on ne s'abonne plus silencieusement. Le serveur expose la règle
+	 * (dashboard.pushOptInAllowed) : absent sur anciens dashboards = true
+	 * (comportement historique strictement conservé).
+	 */
+	let { allowed = true }: { allowed?: boolean } = $props();
+
 	let phase = $state<'hidden' | 'idle' | 'busy'>('hidden');
 	let declined = $state(false);
 
 	$effect(() => {
+		if (!allowed) return; // autonomie : aucune demande push, aucun abonnement
 		if (!pushSupported()) return;
 		watchPushSubscriptionChange();
 		try {
@@ -69,7 +79,7 @@
 	}
 </script>
 
-{#if phase !== 'hidden'}
+{#if allowed && phase !== 'hidden'}
 	<div
 		role="status"
 		class="fixed inset-x-3 bottom-20 z-50 mx-auto max-w-md rounded-2xl border border-line bg-white p-4 shadow-lg sm:bottom-6"

@@ -29,6 +29,17 @@ export const programLevel = v.union(
 );
 export const userRole = v.union(v.literal("coach"), v.literal("client"));
 /**
+ * MODE AUTONOMIE / POST-COACHING — statut d'accompagnement d'une cliente.
+ * Champ OPTIONNEL sur `users.coachingMode` : absent = "coaching" (repli sûr,
+ * toutes les clientes existantes gardent EXACTEMENT leur comportement).
+ * "autonomy" : l'app reste pleinement utilisable (journal, poids, mesures,
+ * photos, sport, entraînement, historique…) mais les sollicitations liées au
+ * coaching actif s'arrêtent : nouveau bilan hebdo, rappels pesées/
+ * mensurations/photos, RDV de suivi, pushes coaching, retours à traiter.
+ * L'objectif reste coach-driven (future option selfManage* non implémentée).
+ */
+export const coachingModeKind = v.union(v.literal("coaching"), v.literal("autonomy"));
+/**
  * Source d'une dépense sportive : saisie manuelle de la cliente ou création
  * automatique depuis une séance G-FLUX explicitement terminée.
  */
@@ -160,6 +171,12 @@ export default defineSchema({
 		 * validation de schéma refuserait un push si on le supprimait).
 		 */
 		lastHealthSyncAt: v.optional(v.number()),
+		/**
+		 * STATUT D'ACCOMPAGNEMENT — "coaching" (défaut implicite, champ absent)
+		 * ou "autonomy" (post-coaching : outils conservés, sollicitations coupées).
+		 * Additif pur : jamais de migration, le repli lecture = coaching.
+		 */
+		coachingMode: v.optional(coachingModeKind),
 		/** Suivi de cycle (carte Accueil cliente + Vision 360 coach) — mêmes questions et formule que l'outil historique. */
 		cycle: v.optional(
 			v.object({

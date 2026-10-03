@@ -2,7 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { checkinStatus } from "./schema";
+import { checkinStatus, coachingModeKind } from "./schema";
 import {
 	EMAIL_RE,
 	addDaysISO,
@@ -76,6 +76,8 @@ function publicUser(user: UserRow) {
 		lastSeenAt: user.lastSeenAt ?? null,
 		/** Suivi de cycle (mêmes données que le dashboard cliente). */
 		cycle: user.cycle ?? null,
+		/** Mode d'accompagnement (fallback "coaching" = comportement historique). */
+		coachingMode: user.coachingMode ?? "coaching",
 	};
 }
 
@@ -178,6 +180,9 @@ export const bilansBoard = query({
 
 		for (const u of users) {
 			if (u.disabled) continue;
+			// Mode Autonomie : la cliente n'est plus suivie en coaching actif —
+			// elle n'apparaît plus dans les colonnes à traiter / retours envoyés.
+			if ((u.coachingMode ?? "coaching") === "autonomy") continue;
 			for (const c of byUser.get(u._id) ?? []) {
 				const row: Row = { userId: u._id, prenom: u.prenom, nom: u.nom ?? null, weekStart: c.weekStart, weekLabel: c.weekLabel, checkin: c };
 				all.push(row);
@@ -211,6 +216,8 @@ export const bilansBoard = query({
 			const clients = users
 				.filter((u) => {
 					if (u.disabled) return false;
+					// Mode Autonomie : plus de bilans hebdomadaires attendus.
+					if ((u.coachingMode ?? "coaching") === "autonomy") return false;
 					// Éligible : suivie et démarrée au plus tard le vendredi
 					// d'ouverture (une cliente onboardée samedi/dimanche n'est
 					// pas un « manquant » pour cette semaine).
@@ -341,14 +348,21 @@ export const updateClient = mutation({
 		onboardingEnabled: v.optional(v.boolean()),
 		/** Lien du tableur Google Sheets G-FLUX (coach uniquement). */
 		gsheetUrl: v.optional(v.string()),
+		/** Mode d'accompagnement : "coaching" (défaut) ou "autonomy" ; null = retour au coaching. */
+		coachingMode: v.optional(v.union(coachingModeKind, v.null())),
 	},
-	handler: async (ctx, { sessionToken, userId, prenom, nom, email, birthDate, startDate, heightCm, onboardingEnabled, gsheetUrl }) => {
+	handler: async (ctx, { sessionToken, userId, prenom, nom, email, birthDate, startDate, heightCm, onboardingEnabled, gsheetUrl, coachingMode }) => {
 		await requireCoach(ctx, sessionToken);
 		const target = await ctx.db.get(userId);
 		if (!target || target.role !== "client") throw new ConvexError("Client introuvable.");
 		const patch: Partial<
-			Pick<UserRow, "prenom" | "nom" | "email" | "birthDate" | "startDate" | "heightCm" | "onboardingEnabled" | "gsheetUrl">
+			Pick<UserRow, "prenom" | "nom" | "email" | "birthDate" | "startDate" | "heightCm" | "onboardingEnabled" | "gsheetUrl" | "coachingMode">
 		> = {};
+		if (coachingMode !== undefined) {
+			// null = retour au mode Coaching : on retire le champ (le fallback
+			// global "coaching" reprend la main, aucune donnée n'est perdue).
+			patch.coachingMode = coachingMode === "autonomy" ? "autonomy" : undefined;
+		}
 		if (onboardingEnabled !== undefined) {
 			// Simple activation : on ne supprime jamais les réponses déjà envoyées
 			// (réactiver l'onboarding réutilise les étapes déjà complétées).

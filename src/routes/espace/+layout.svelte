@@ -84,8 +84,9 @@
 	{@render children()}
 </AppShell>
 
-<!-- Notifications push : opt-in discret (repli : badge interne sans push). -->
-<PushOptIn />
+<!-- Notifications push : opt-in discret (repli : badge interne sans push).
+     Désactivé en mode Autonomie (la cliente n'est plus sollicitée par le coaching). -->
+<PushOptIn allowed={data.dashboard?.pushOptInAllowed ?? true} />
 
 <style>
 	/* Fond « gris très doux » de l'espace cliente (mobile d'abord, cohérent desktop).

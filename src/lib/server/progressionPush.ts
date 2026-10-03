@@ -16,7 +16,12 @@ import { api } from '../../convex/_generated/api.js';
  * `coachToken` = jeton de session coach (lecture gated coach, comme sendPushToUser).
  */
 
-type SnoozeState = { measurementsSnoozeUntil?: number | null; photosSnoozeUntil?: number | null };
+type SnoozeState = {
+	measurementsSnoozeUntil?: number | null;
+	photosSnoozeUntil?: number | null;
+	/** Mode d'accompagnement — "autonomy" coupe tout push de progression. */
+	coachingMode?: 'coaching' | 'autonomy';
+};
 
 async function snoozeState(userId: string, coachToken: string | undefined | null): Promise<SnoozeState | null> {
 	return (await convex.query(api.push.progressionSnoozeState, {
@@ -64,11 +69,19 @@ export async function sendProgressionPush(
 	reminder: 'mensurations' | 'photos',
 	coachToken: string | undefined | null
 ): Promise<number> {
-	const snoozed =
-		reminder === 'mensurations'
-			? await measurementsSnoozed(userId, coachToken)
-			: await photosSnoozed(userId, coachToken);
-	if (snoozed) return 0;
+	try {
+		const state = await snoozeState(userId, coachToken);
+		// Mode Autonomie : plus de sollicitations de coaching — aucun push
+		// progression (mensurations / photos), même avec un report actif.
+		if (state?.coachingMode === 'autonomy') return 0;
+		const snoozed =
+			reminder === 'mensurations'
+				? (state?.measurementsSnoozeUntil ?? 0) > Date.now()
+				: (state?.photosSnoozeUntil ?? 0) > Date.now();
+		if (snoozed) return 0;
+	} catch {
+		// en cas d'indisponibilité, on ne coupe jamais par erreur (comportement inchangé).
+	}
 	const { sendPushToUser } = await import('./push.js');
 	return sendPushToUser(userId, payload, coachToken);
 }

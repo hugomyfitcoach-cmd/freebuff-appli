@@ -37,6 +37,10 @@
 			read: boolean;
 		} | null;
 		tracking: { kcal: number; kcalGoal: number; maintenanceKcal: number | null };
+		/** MODE AUTONOMIE (absent sur anciens dashboards = coaching). */
+		coachingMode?: 'coaching' | 'autonomy';
+		/** La PWA peut demander la permission push (false en autonomie). */
+		pushOptInAllowed?: boolean;
 		steps: { today: number | null; goal: number | null; week: { date: string; count: number }[] };
 		progression: {
 			lastWeightKg: number | null;
@@ -128,6 +132,12 @@
 	let { data } = $props();
 	const user = $derived(data.user);
 	const dash = $derived<Dashboard | null>(data.dashboard ?? null);
+
+	/* ── MODE AUTONOMIE (post-coaching) — repli sûr : absent = coaching ──
+	   Outils et données 100 % conservés ; seules les sollicitations du coaching
+	   actif disparaissent de l'Accueil (compteur 3 pesées, bilan à faire, badge
+	   bilans, échéances mensurations/photos) et la PWA ne demande plus le push. */
+	const autonomy = $derived((dash?.coachingMode ?? 'coaching') === 'autonomy');
 
 	/* ————— Historique « Mes retours de bilan » (mêmes données que la page Mes bilans) ————— */
 	type CheckinRow = {
@@ -404,7 +414,8 @@
 	const fmtShortDate = (iso: string | null) =>
 		iso ? new Date(iso + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : '';
 	/* Pesées de la semaine (lundi → dimanche, calcul G-FLUX serveur) — l'objectif
-	   est 3 : au-delà on affiche toujours « 3/3 » (objectif atteint, pas de score). */
+	   est 3 : au-delà on affiche toujours « 3/3 » (objectif atteint, pas de score).
+	   En AUTONOMIE : le compteur d'obligation disparaît (la saisie reste libre). */
 	const peseesCount = $derived(Math.min(dash?.progression.weighinsThisWeek ?? 0, 3));
 	const peseesDone = $derived(peseesCount >= 3);
 	const peseesLabel = $derived(dash ? `${peseesCount} / 3${peseesDone ? ' ✓' : ''}` : '');
@@ -1130,15 +1141,17 @@
 				</p>
 				<div class="mt-1.5 flex items-center justify-between gap-2">
 					<p class="min-w-0 truncate text-xs text-mist">
-						{#if weightDelta !== null}<span class="font-semibold {weightDelta <= 0.05 ? 'text-brand-dark' : 'text-mist'}">{weightDeltaLabel(weightDelta)}</span>{:else}Ta progression ici{/if}
-					</p>
-					{#if peseesDone}
-						<span class="inline-flex shrink-0 items-center gap-1 rounded-full bg-brand-light px-2 py-0.5 text-[11px] font-bold text-brand-dark">
-							<Icon name="circleCheck" size={12} class="shrink-0" /> Pesées 3/3
-						</span>
-					{:else}
-						<span class="shrink-0 text-[11px] font-semibold tabular-nums text-mist">Pesées {peseesCount}/3</span>
-					{/if}
+						{#if weightDelta !== null}<span class="font-semibold {weightDelta <= 0.05 ? 'text-brand-dark' : 'text-mist'}">{weightDeltaLabel(weightDelta)}</span>{:else}Ta progression ici{/if}					</p>
+						{#if !autonomy}
+
+							{#if peseesDone}
+								<span class="inline-flex shrink-0 items-center gap-1 rounded-full bg-brand-light px-2 py-0.5 text-[11px] font-bold text-brand-dark">
+									<Icon name="circleCheck" size={12} class="shrink-0" /> Pesées 3/3
+								</span>
+							{:else}
+								<span class="shrink-0 text-[11px] font-semibold tabular-nums text-mist">Pesées {peseesCount}/3</span>
+							{/if}
+						{/if}
 				</div>
 			</a>
 
@@ -1233,7 +1246,7 @@
 			</p>
 			{#if weightDelta !== null}
 				<p class="mt-1.5 text-xs font-semibold {weightDelta <= 0.05 ? 'text-brand-dark' : 'text-mist'}">{weightDeltaLabel(weightDelta)} · dernière pesée {fmtShortDate(lastWeightDateShown)}</p>
-			{:else}
+			{:else if !autonomy}
 				<p class="mt-1.5 text-xs text-mist">Pesées cette semaine : <strong class="font-bold text-ink">{peseesLabel}</strong></p>
 			{/if}
 		</div>
@@ -1396,7 +1409,7 @@
 				</div>
 			</div>
 			<div class="flex flex-wrap gap-x-5 gap-y-1 text-sm text-ink">
-				<span class="inline-flex items-center gap-1"><Icon name="scale" size={14} class="shrink-0" /> Pesées : <strong>{Math.min(recap.weighins.count, recap.weighins.goal)} / {recap.weighins.goal}</strong>{recap.weighins.count >= recap.weighins.goal ? ' ✓' : ''}</span>
+				{#if !autonomy}<span class="inline-flex items-center gap-1"><Icon name="scale" size={14} class="shrink-0" /> Pesées : <strong>{Math.min(recap.weighins.count, recap.weighins.goal)} / {recap.weighins.goal}</strong>{recap.weighins.count >= recap.weighins.goal ? ' ✓' : ''}</span>{/if}
 				<span class="inline-flex items-center gap-1"><Icon name="clipboardList" size={14} class="shrink-0" /> Bilan : <strong>{recap.bilan.sent ? 'Envoyé ✓' : 'Non envoyé'}</strong></span>
 			</div>
 		</div>

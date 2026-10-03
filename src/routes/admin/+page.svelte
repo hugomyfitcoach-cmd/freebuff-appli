@@ -93,7 +93,11 @@
 	const selCycle = $derived(selected?.user.cycle ?? null);
 	const selCycleState = $derived(cycleState(selCycle));
 
-	const totalWaiting = $derived(clients.reduce((s: number, c: { waiting: number }) => s + c.waiting, 0));
+	const totalWaiting = $derived(
+		// KPI « à traiter » : les clientes en Autonomie ne génèrent plus de
+		// sollicitations (bilans) → leur compteur ne pollue pas le KPI coach.
+		clients.reduce((s: number, c: { waiting: number; user: { coachingMode?: string | null } }) => s + (coachingModeOf(c.user) === 'autonomy' ? 0 : c.waiting), 0)
+	);
 
 	/* ── Google Calendar (connexion OAuth du coach) ── */
 	const google = $derived(data.google ?? null);
@@ -189,8 +193,11 @@
 	/* ── PASS 2 (fidélité mockup) : état « Vue rapide des clientes » ──
 	   Filtres UI purs (aucune donnée supplémentaire, aucun backend) — même
 	   liste `clients` déjà chargée, tri et statuts dérivés localement. */
-	type ClientFilter = 'all' | 'active' | 'inactive';
+	type ClientFilter = 'all' | 'active' | 'inactive' | 'coaching' | 'autonomy';
 	let clientFilter = $state<ClientFilter>('all');
+	/** Mode d'accompagnement : 'autonomy' si posé, sinon 'coaching' (clientes historiques). */
+	const coachingModeOf = (u: { coachingMode?: string | null }): 'coaching' | 'autonomy' =>
+		u.coachingMode === 'autonomy' ? 'autonomy' : 'coaching';
 	/** Statut dérivé : active = dernière connexion < 24 h (même critère KPI). */
 	function statusLabel(lastSeenAt: number | null): { label: string; cls: string } {
 		return lastSeenAt && Date.now() - lastSeenAt < 24 * 3600 * 1000
@@ -202,7 +209,8 @@
 			const ts = c.user.lastSeenAt;
 			return ts && Date.now() - ts < 24 * 3600 * 1000;
 		}).length;
-		return { all: clients.length, active, inactive: clients.length - active };
+		const autonomy = clients.filter((c: { user: { coachingMode?: string | null } }) => coachingModeOf(c.user) === 'autonomy').length;
+		return { all: clients.length, active, inactive: clients.length - active, coaching: clients.length - autonomy, autonomy };
 	});
 	const filteredClients = $derived.by(() => {
 		let list = clients;
@@ -216,6 +224,10 @@
 				const ts = c.user.lastSeenAt;
 				return !ts || Date.now() - ts >= 24 * 3600 * 1000;
 			});
+		} else if (clientFilter === 'coaching') {
+			list = list.filter((c: { user: { coachingMode?: string | null } }) => coachingModeOf(c.user) === 'coaching');
+		} else if (clientFilter === 'autonomy') {
+			list = list.filter((c: { user: { coachingMode?: string | null } }) => coachingModeOf(c.user) === 'autonomy');
 		}
 		if (!query.trim()) return list;
 		const q = query.trim().toLowerCase();
@@ -1841,6 +1853,8 @@
 				<button type="button" class="chip-crm {clientFilter === 'all' ? 'active-crm' : ''}" onclick={() => (clientFilter = 'all')} aria-pressed={clientFilter === 'all'}>Toutes</button>
 				<button type="button" class="chip-crm {clientFilter === 'active' ? 'active-crm' : ''}" onclick={() => (clientFilter = 'active')} aria-pressed={clientFilter === 'active'}>Actives ({clientCounts.active})</button>
 				<button type="button" class="chip-crm {clientFilter === 'inactive' ? 'active-crm' : ''}" onclick={() => (clientFilter = 'inactive')} aria-pressed={clientFilter === 'inactive'}>Inactives ({clientCounts.inactive})</button>
+				<button type="button" class="chip-crm {clientFilter === 'coaching' ? 'active-crm' : ''}" onclick={() => (clientFilter = 'coaching')} aria-pressed={clientFilter === 'coaching'}>Coaching ({clientCounts.coaching})</button>
+				<button type="button" class="chip-crm {clientFilter === 'autonomy' ? 'active-crm' : ''}" onclick={() => (clientFilter = 'autonomy')} aria-pressed={clientFilter === 'autonomy'}>Autonomie ({clientCounts.autonomy})</button>
 			</div>
 			<details class="group relative">
 				<summary class="btn-crm inline-flex cursor-pointer list-none items-center gap-1.5 rounded-full bg-brand px-3.5 py-2 text-[12.5px] font-bold text-white shadow-sm transition hover:bg-brand-dark">
@@ -1912,7 +1926,12 @@
 							</td>
 							<td class="whitespace-nowrap px-3 py-2.5 text-[13px] text-mist">{client.latest?.weekLabel ?? '—'}</td>
 							<td class="px-3 py-2.5">
-								<span class="rounded-full px-2.5 py-1 text-[11.5px] font-bold {statusLabel(client.user.lastSeenAt).cls}">{statusLabel(client.user.lastSeenAt).label}</span>
+								<div class="flex flex-wrap items-center gap-1">
+									<span class="rounded-full px-2.5 py-1 text-[11.5px] font-bold {statusLabel(client.user.lastSeenAt).cls}">{statusLabel(client.user.lastSeenAt).label}</span>
+									{#if coachingModeOf(client.user) === 'autonomy'}
+										<span class="rounded-full bg-warn-light px-2.5 py-1 text-[11.5px] font-bold text-warn" title="Mode Autonomie : sollicitations de coaching coupées, accès app et historique conservés">Autonomie</span>
+									{/if}
+								</div>
 							</td>
 							<td class="px-5 py-2.5 text-right">
 								<a
@@ -1958,6 +1977,9 @@
 						<h2 class="truncate font-display text-[1.35rem] font-black leading-tight tracking-tight text-ink">{fullName(selected.user)}</h2>
 						<span class="presence-crm {isOnline(selected.user.lastSeenAt) ? 'on' : ''}" title={isOnline(selected.user.lastSeenAt) ? 'En ligne' : 'Hors ligne'}></span>
 						<span class="rounded-full px-2.5 py-1 text-[11px] font-bold {statusLabel(selected.user.lastSeenAt).cls}">{statusLabel(selected.user.lastSeenAt).label}</span>
+						{#if coachingModeOf(selected.user) === 'autonomy'}
+							<span class="rounded-full bg-warn-light px-2.5 py-1 text-[11px] font-bold text-warn" title="Mode Autonomie : sollicitations de coaching coupées, accès app et historique conservés">Autonomie</span>
+						{/if}
 					</div>
 					<p class="mt-0.5 flex items-center gap-1.5 text-[12.5px] font-medium text-mist">
 						<Icon name="mail" size={12} class="shrink-0" />
@@ -2006,6 +2028,14 @@
 						<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-gsheet">Tableur de suivi G-FLUX (lien Google Sheets)</label>
 						<input id="f-gsheet" name="gsheetUrl" type="url" value={selected.user.gsheetUrl ?? ''} placeholder="https://docs.google.com/spreadsheets/d/…" class="mb-3 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
 						<p class="-mt-1.5 mb-3 text-[10px] text-mist">Réservé au coach — jamais visible côté cliente. S'ouvre dans un nouvel onglet.</p>
+						<div class="mb-3 rounded-lg border-2 border-line bg-cream/50 px-3 py-2.5">
+							<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-mode">Statut d'accompagnement</label>
+							<select id="f-mode" name="coachingMode" class="w-full rounded-lg border-2 border-line bg-white px-2 py-1.5 text-sm outline-none focus:border-brand">
+								<option value="coaching" selected={coachingModeOf(selected.user) === 'coaching'}>Coaching actif (défaut)</option>
+								<option value="autonomy" selected={coachingModeOf(selected.user) === 'autonomy'}>Autonomie / Post-coaching</option>
+							</select>
+							<p class="mt-1.5 text-[11px] leading-snug text-mist">En Autonomie, la cliente garde son compte, son historique et tous ses outils, mais les sollicitations de coaching s'arrêtent : bilans hebdo, rappels mensurations/photos, rappel RDV 12 h, alerte d'inactivité et notifications push.</p>
+						</div>
 						<div class="mb-3 rounded-lg border-2 border-dashed border-line bg-cream/50 px-3 py-2.5">
 							<label class="flex cursor-pointer items-start gap-2 text-sm text-ink">
 								<input type="checkbox" name="onboardingEnabled" value="1" checked={selected.user.onboardingEnabled} class="accent-brand" />

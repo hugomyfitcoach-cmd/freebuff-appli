@@ -169,6 +169,15 @@ export const getDashboard = query({
 		const nextMonday = addDaysISO(weekStart, 7);
 		const weighinsThisWeek = weightRows.filter((m) => m.date >= weekStart && m.date < nextMonday).length;
 
+		/* ── MODE AUTONOMIE (post-coaching) ──
+	   La cliente garde TOUT : outils, historique, données, objectifs affichés.
+	   Seules les SOLICITATIONS du coaching actif sont coupées (bilan hebdo,
+	   échéances pesées/mensurations/photos, RDV de suivi). Repli sûr : champ
+	   absent = "coaching" — aucune cliente existante ne change de comportement.
+	   L'objectif reste coach-driven (future option selfManage* non implémentée). */
+		const coachingMode = user.coachingMode ?? "coaching";
+		const autonomy = coachingMode === "autonomy";
+
 		/* ── Échéances, date à date depuis la date de démarrage ── */
 		const startDate = user.startDate ?? localTodayISO(new Date(user._creationTime));
 		const daysSince = daysBetweenISO(day, startDate);
@@ -185,7 +194,7 @@ export const getDashboard = query({
 		// chaque lecture : dès la saisie valide enregistrée, badge et carte
 		// disparaissent immédiatement.
 		let measurementsDue = false;
-		if (daysSince >= MEASUREMENTS_PERIOD_DAYS) {
+		if (!autonomy && daysSince >= MEASUREMENTS_PERIOD_DAYS) {
 			const period = Math.floor(daysSince / MEASUREMENTS_PERIOD_DAYS);
 			const windowStart = addDaysISO(startDate, period * MEASUREMENTS_PERIOD_DAYS - MEASUREMENTS_EARLY_TOLERANCE_DAYS);
 			measurementsDue = !metrics.some((m) => hasMensuration(m) && m.date >= windowStart);
@@ -194,7 +203,7 @@ export const getDashboard = query({
 		// Photos : échéance mensuelle (démarrage + n mois).
 		const monthsSince = monthsBetweenISO(day, startDate);
 		let photosDue = false;
-		if (monthsSince >= 1) {
+		if (!autonomy && monthsSince >= 1) {
 			const windowStart = addMonthsISO(startDate, monthsSince);
 			photosDue = !photos.some((p) => p.date >= windowStart);
 		}
@@ -212,7 +221,9 @@ export const getDashboard = query({
 		/* ── Bilan hebdo : fenêtre ouverte ET pas encore soumis ── */
 		const windowOpen = isBilanWindowOpen(new Date(ts));
 		const currentWeekCheckin = checkins.find((c) => c.weekStart === weekStart) ?? null;
-		const bilanDue = windowOpen && !currentWeekCheckin;
+		// Autonomie : plus de « bilan à remplir » — l'outil reste utilisable (la
+		// cliente peut toujours consulter / envoyer une semaine), la DEMANDE disparaît.
+		const bilanDue = !autonomy && windowOpen && !currentWeekCheckin;
 
 		/* ── Retours coach publiés : chaque retour non consulté compte réellement
 		   (jamais un simple « 1 » codé en dur) ── */
@@ -295,7 +306,7 @@ export const getDashboard = query({
 			nextStartMs = startAtMs;
 			nextAppt = a;
 		}
-		if (nextAppt && nextStartMs - ts <= 12 * 3600 * 1000) {
+		if (nextAppt && !autonomy && nextStartMs - ts <= 12 * 3600 * 1000) {
 			appointmentReminder = {
 				appointmentId: nextAppt._id,
 				date: nextAppt.date,
@@ -377,6 +388,10 @@ export const getDashboard = query({
 
 		return {
 			today: day,
+			coachingMode,
+			/** Autonomie : la PWA ne demande JAMAIS la permission push (plus de
+			 *  sollicitations coaching — future option « reprendre le push » côté coach). */
+			pushOptInAllowed: !autonomy,
 			coachMessage,
 			onboarding,
 			appointmentReminder,

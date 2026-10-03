@@ -264,6 +264,9 @@ export const tick = internalMutation({
 		/* ── 1) Inactivité (≥ 4 jours) ───────────────────────────────────── */
 		for (const u of users) {
 			if (u.disabled) continue;
+			// Mode Autonomie : plus de sollicitations de coaching — pas d'alerte
+			// d'inactivité au coach (la cliente reste libre d'utiliser l'app).
+			if ((u.coachingMode ?? "coaching") === "autonomy") continue;
 			const key = `inact:${u._id}`;
 			const existing = await ctx.db
 				.query("coachNotifications")

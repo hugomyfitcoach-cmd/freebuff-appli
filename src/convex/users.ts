@@ -26,7 +26,15 @@ export const internalUserById = internalQuery({
 	handler: async (ctx, { userId }) => {
 		const u = await ctx.db.get(userId);
 		if (!u) return null;
-		return { _id: u._id, role: u.role, prenom: u.prenom, timeZone: u.timeZone ?? null, pushPermission: u.pushPermission ?? null };
+		return {
+			_id: u._id,
+			role: u.role,
+			prenom: u.prenom,
+			timeZone: u.timeZone ?? null,
+			pushPermission: u.pushPermission ?? null,
+			/** Mode d'accompagnement — le rappel RDV 12 h est coupé en Autonomie. */
+			coachingMode: u.coachingMode ?? "coaching",
+		};
 	},
 });
 

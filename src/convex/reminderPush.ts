@@ -59,6 +59,9 @@ export const tick = internalAction({
 				userId: r.clientId as never,
 			});
 			if (!user) continue;
+			// Mode Autonomie : plus de sollicitations de coaching — pas de rappel
+			// de rendez-vous push (le RDV reste visible dans l'espace cliente).
+			if ((user.coachingMode ?? "coaching") === "autonomy") continue;
 
 			// Heure affichée : fuseau de la cliente (repli Europe/Paris).
 			const hhmm = new Intl.DateTimeFormat("fr-FR", {
