@@ -407,12 +407,19 @@
 	     cliente = crème (inchangé). -->
 	<aside class="fixed inset-y-0 left-0 z-50 hidden w-64 flex-col border-r border-line md:flex {role === 'coach' ? 'ds-shell-crm' : 'bg-cream'}">
 		<div class="flex items-center gap-3 border-b border-line px-5 py-4">
-			<a href={role === 'coach' ? '/admin' : '/espace'} class="flex items-center gap-3">
+			<a href={role === 'coach' ? '/admin' : '/espace'} class="flex shrink-0 items-center">
 				<img src="/logo-header.png" alt="G-Flux" class="h-9 w-auto" />
 			</a>
-			<span class="font-display text-xs font-semibold uppercase tracking-widest text-mist">
-				{role === 'coach' ? 'Espace Coach' : 'Espace client'}
-			</span>
+			{#if role === 'coach'}
+				<!-- Verrou « ESPACE COACH » premium : bold, sombre, souligné vert
+				     (refonte header — plus lisible et plus affirmé). -->
+				<span class="flex min-w-0 flex-col gap-1.5 border-l border-line pl-3">
+					<span class="font-display text-[12.5px] font-black uppercase leading-none tracking-[0.18em] text-ink">Espace Coach</span>
+					<span class="h-[3px] w-9 rounded-full bg-gradient-to-r from-brand to-brand/25" aria-hidden="true"></span>
+				</span>
+			{:else}
+				<span class="font-display text-xs font-semibold uppercase tracking-widest text-mist">Espace client</span>
+			{/if}
 		</div>
 
 		<nav class="flex-1 space-y-1 overflow-y-auto px-3 py-4" aria-label="Navigation principale">
