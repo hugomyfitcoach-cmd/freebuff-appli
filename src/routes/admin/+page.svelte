@@ -1588,6 +1588,7 @@
 </script>
 
 <svelte:head><title>Espace Coach — G-Flux</title></svelte:head>
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape' && quickSheet) quickSheet = null; }} />
 
 <!-- ══════════ TOP HEADER COCKPIT (PASS 2 — mockup) ══════════
      Salutation + sous-titre à gauche · recherche cliente / cloche notifications
@@ -2217,7 +2218,7 @@
 					<button
 						type="button"
 						onclick={() => openQuickSheet('weight')}
-						class="kpi-crm card-crm-hover group cursor-pointer text-left focus-visible:outline-2 focus-visible:outline-brand"
+						class="kpi-crm card-crm-hover group cursor-pointer text-left active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-brand"
 						style="--kpi-accent: var(--accent); --kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep)"
 						aria-label="Ajouter une prise de poids"
 					>
@@ -2236,7 +2237,7 @@
 					<button
 						type="button"
 						onclick={() => openQuickSheet('mensurations')}
-						class="kpi-crm card-crm-hover group cursor-pointer text-left focus-visible:outline-2 focus-visible:outline-brand"
+						class="kpi-crm card-crm-hover group cursor-pointer text-left active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-brand"
 						style="--kpi-accent: var(--orange); --kpi-tile-bg: var(--warn-light); --kpi-tile-fg: var(--orange)"
 						aria-label="Ajouter des mensurations"
 					>
@@ -2333,14 +2334,15 @@
 				<!-- Ajout rapide depuis l'Aperçu : même endpoint que « Poids & mesures »,
 			     la vue est rechargée après enregistrement → cartes à jour immédiatement. -->
 				{#if quickSheet}
-					<button type="button" class="fixed inset-0 z-[80] cursor-pointer bg-ink/50" aria-label="Fermer" onclick={() => (quickSheet = null)}></button>
-					<div class="fixed inset-x-4 top-1/2 z-[80] mx-auto max-w-sm -translate-y-1/2 rounded-2xl bg-white p-5 shadow-2xl sm:left-1/2 sm:right-auto sm:-translate-x-1/2" role="dialog" aria-modal="true">
-						<div class="flex items-center justify-between">
-							<h4 class="flex items-center gap-1.5 font-display text-base font-semibold text-ink">
-								<Icon name={quickSheet.kind === 'weight' ? 'scale' : 'ruler'} size={16} class="shrink-0 text-brand" />
+					<button type="button" class="qs-backdrop-crm fixed inset-0 z-[80] cursor-pointer bg-ink/45 backdrop-blur-[2px]" aria-label="Fermer" onclick={() => (quickSheet = null)}></button>
+					<div class="fixed inset-x-4 top-1/2 z-[80] mx-auto max-w-sm -translate-y-1/2 sm:left-1/2 sm:right-auto sm:-translate-x-1/2" role="dialog" aria-modal="true">
+						<div class="qs-card-crm rounded-2xl bg-white p-5 shadow-2xl">
+						<div class="flex items-center justify-between gap-2 border-b border-line pb-3">
+							<h4 class="flex items-center gap-2.5 font-display text-base font-bold text-ink">
+								<span class="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-brand-light text-brand-deep"><Icon name={quickSheet.kind === 'weight' ? 'scale' : 'ruler'} size={15} /></span>
 								{quickSheet.kind === 'weight' ? 'Ajouter un poids' : 'Ajouter des mensurations'}
 							</h4>
-							<button type="button" onclick={() => (quickSheet = null)} class="rounded-lg px-2 py-1 text-lg text-mist hover:text-ink" aria-label="Fermer">✕</button>
+							<button type="button" onclick={() => (quickSheet = null)} class="grid h-7 w-7 place-items-center rounded-full text-mist transition hover:bg-soft hover:text-ink" aria-label="Fermer"><Icon name="x" size={14} /></button>
 						</div>
 
 						{#if quickSheet.kind === 'weight'}
@@ -2387,6 +2389,7 @@
 						{#if quickMsg}
 							<p class="mt-2 rounded-lg bg-warn-light px-3 py-2 text-xs font-semibold text-ink">{quickMsg}</p>
 						{/if}
+						</div>
 					</div>
 				{/if}				<!-- Analyses des 7 derniers jours — calories + pas côte à côte (fenêtre J-7 → J-1, aujourd'hui exclu) -->
 				<section class="m-in-crm rounded-2xl border border-line bg-card px-5 py-4 shadow-sm" style="--m-i: 2">

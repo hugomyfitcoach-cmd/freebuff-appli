@@ -440,6 +440,28 @@
 	background: var(--brand);
 }
 
+/* ── Modale premium (quick-sheet Vision 360) ─────────────────────────
+   Ouverture fluide : fondu du fond flouté + pop discret de la carte
+   (transform/opacity uniquement, courbes premium, neutralisé par le
+   filet global prefers-reduced-motion existant). */
+.ds-crm .qs-backdrop-crm {
+	animation: qs-fade-crm 160ms var(--ds-ease);
+}
+.ds-crm .qs-card-crm {
+	animation: qs-pop-crm 220ms var(--ds-ease);
+}
+@keyframes qs-fade-crm {
+	from {
+		opacity: 0;
+	}
+}
+@keyframes qs-pop-crm {
+	from {
+		opacity: 0;
+		transform: translateY(10px) scale(0.96);
+	}
+}
+
 /* ── Animations : entrées de cartes + stagger léger ────────────────
    Même philosophie que la fondation « MOTION G-FLUX » : une seule fois au
    chargement complet, transform/opacity uniquement, courbe premium, durées
