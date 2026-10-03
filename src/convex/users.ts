@@ -51,6 +51,8 @@ export const resolveSession = query({
 			prenom: user.prenom,
 			// Statut onboarding installation PWA (survit au logout — lié au compte).
 			pwaInstallStatus: user.pwaInstallStatus ?? "not_seen",
+			/** MODE AUTONOMIE — sert au gating visuel « Rendez-vous » côté serveur SvelteKit. */
+			coachingMode: user.coachingMode ?? "coaching",
 		};
 	},
 });

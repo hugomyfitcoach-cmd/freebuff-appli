@@ -13,6 +13,8 @@ export type SessionUser = {
 	prenom: string;
 	/** Statut onboarding installation PWA ("not_seen" par défaut) — survit au logout. */
 	pwaInstallStatus: 'not_seen' | 'skipped' | 'tutorial_completed' | 'installed_confirmed';
+	/** MODE AUTONOMIE ("coaching" par défaut — champ absent = coaching). */
+	coachingMode: 'coaching' | 'autonomy';
 };
 
 type ResolveResult = {
@@ -21,6 +23,7 @@ type ResolveResult = {
 	role: 'coach' | 'client';
 	prenom: string;
 	pwaInstallStatus?: 'not_seen' | 'skipped' | 'tutorial_completed' | 'installed_confirmed';
+	coachingMode?: 'coaching' | 'autonomy';
 } | null;
 
 async function resolve(token: string | undefined): Promise<SessionUser | null> {
@@ -29,7 +32,12 @@ async function resolve(token: string | undefined): Promise<SessionUser | null> {
 		sessionToken: token,
 	})) as ResolveResult;
 	if (!u) return null;
-	return { ...u, pwaInstallStatus: u.pwaInstallStatus ?? 'not_seen' };
+	return {
+		...u,
+		pwaInstallStatus: u.pwaInstallStatus ?? 'not_seen',
+		// MODE AUTONOMIE — repli sûr : session sans champ = coaching.
+		coachingMode: u.coachingMode ?? 'coaching',
+	};
 }
 
 /** Récupère l'utilisateur connecté (cookie) ou null. */

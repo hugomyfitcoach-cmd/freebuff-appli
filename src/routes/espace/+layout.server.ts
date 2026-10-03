@@ -23,7 +23,7 @@ import { api } from '../../convex/_generated/api.js';	export const load = async 
 	// est guidée vers l'installation (jamais en mode standalone — règle gérée
 	// côté client qui redirige aussitôt ; le layout ne bloque jamais l'accès).
 	if (user.pwaInstallStatus === 'not_seen') {
-		return { user, dashboard, today, profilePhotoUrl, pwaInstallNeeded: true };
+		return { user, dashboard, today, profilePhotoUrl, pwaInstallNeeded: true, rdvAccessAllowed: dashboard?.rdvAccessAllowed ?? true };
 	}
-	return { user, dashboard, today, profilePhotoUrl, pwaInstallNeeded: false };
+	return { user, dashboard, today, profilePhotoUrl, pwaInstallNeeded: false, rdvAccessAllowed: dashboard?.rdvAccessAllowed ?? true };
 };

@@ -33,6 +33,11 @@ const espaceLayout = read('src/routes/espace/+layout.svelte');
 const pushOptIn = read('src/lib/components/PushOptIn.svelte');
 const adminPage = read('src/routes/admin/+page.svelte');
 const adminServer = read('src/routes/admin/+page.server.ts');
+const appShell = read('src/lib/components/AppShell.svelte');
+const sessionServer = read('src/lib/server/session.ts');
+const espaceLayoutServer = read('src/routes/espace/+layout.server.ts');
+const rdvServer = read('src/routes/espace/rendez-vous/+page.server.ts');
+const bilanPage = read('src/routes/bilan/+page.svelte');
 
 test('SCHEMA : champ additif optionnel coachingMode — union coaching/autonomy', () => {
 	assert.ok(schema.includes('export const coachingModeKind = v.union(v.literal("coaching"), v.literal("autonomy"))'), 'union exportée');
@@ -138,6 +143,30 @@ test('RÉTROCOMPATIBILITÉ : le fallback "coaching" est partout (aucune cliente 
 	assert.ok(dblQuotes(push) >= 1, 'push');
 	assert.ok(sq(espacePage) >= 1, 'espace page');
 	assert.ok(coach.includes('coachingMode: user.coachingMode ?? "coaching"'), 'aucun champ forcé à autonomy');
+});
+
+test('RDV : accès masqué en autonomie — navigation, raccourci, rappel, CTA bilan, page directe', () => {
+	// Convex : règle serveur exposée au front (dashboard) + session SvelteKit.
+	assert.ok(dashboard.includes('rdvAccessAllowed: !autonomy,'), 'dashboard expose rdvAccessAllowed');
+	assert.ok(users.includes('coachingMode: user.coachingMode ?? "coaching",'), 'resolveSession expose le mode (fallback coaching)');
+	assert.ok(sessionServer.includes("coachingMode: u.coachingMode ?? 'coaching',"), 'session.ts fallback coaching');
+	assert.ok(espaceLayoutServer.includes('rdvAccessAllowed: dashboard?.rdvAccessAllowed ?? true'), 'layout espace relaie la règle');
+	// Navigation cliente (AppShell) : défaut true = coaching inchangé.
+	assert.ok(appShell.includes('allowRendezVous = true'), 'prop AppShell avec défaut coaching');
+	assert.ok(appShell.includes("...(allowRendezVous ? [{ href: '/espace/rendez-vous', label: 'Rendez-vous', icon: 'calendarCheck' }] : []),"), 'entrée nav conditionnelle');
+	// Accueil : raccourci + rappel 12 h conditionnels (autonomy dérivé déjà testé).
+	assert.ok(espacePage.includes("...(autonomy ? [] : [{ href: '/espace/rendez-vous'")	, 'raccourci conditionnel');
+	assert.ok(espacePage.includes('{#if reminder && !autonomy}'), 'rappel RDV non rendu');
+	// Page directe : redirection douce vers l Accueil (aucune donnée supprimée).
+	assert.ok(rdvServer.includes("if (user.coachingMode === 'autonomy') throw redirect(303, '/espace');"), 'page directe gated serveur');
+	// Page bilan : CTA agenda masqué.
+	assert.ok(bilanPage.includes("(data?.user?.coachingMode ?? 'coaching') !== 'autonomy'"), 'règle bilan avec fallback');
+	assert.ok(bilanPage.includes('{#if allowRendezVous}'), 'CTA + hint conditionnels');
+});
+
+test('RDV : en coaching, tout réapparaît (défauts true, aucun hard-disable)', () => {
+	assert.ok(!/allowRendezVous\s*=\s*false|allowRendezVous=\{false\}/.test(appShell + espaceLayoutServer + bilanPage), 'jamais forcé à false dans le code');
+	assert.ok(appShell.includes("{ href: '/espace/rendez-vous', label: 'Rendez-vous', icon: 'calendarCheck' }"), 'entrée nav coaching intacte');
 });
 
 test('AUCUNE DONNÉE SUPPRIMÉE : le retrait du champ ne touche que coachingMode (updateClient)', () => {

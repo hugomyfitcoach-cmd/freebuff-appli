@@ -21,6 +21,7 @@
 		showFooter = false,
 		badges = {},
 		profilePhotoUrl = null,
+		allowRendezVous = true,
 	}: {
 		children: Snippet;
 		role: Role;
@@ -28,6 +29,8 @@
 		contentWidth?: 'std' | 'wide' | 'full';
 		showFooter?: boolean;
 		profilePhotoUrl?: string | null;
+		/** MODE AUTONOMIE : masque l'entrée « Rendez-vous » de la navigation cliente. */
+		allowRendezVous?: boolean;
 		badges?: {
 			bilans?: number;
 			retours?: number;
@@ -288,7 +291,9 @@
 					{ href: '/espace/progression', label: 'Progression', icon: 'trendingUp', badge: menuBadges.progression ?? 0 },
 					{ href: '/espace/messages', label: 'Messages', icon: 'messageCircle', badge: menuBadges.message ?? 0 },
 					{ href: '/espace/historique', label: 'Bilans & retours', icon: 'clipboardCheck', badge: menuBadges.retours ?? 0 },
-					{ href: '/espace/rendez-vous', label: 'Rendez-vous', icon: 'calendarCheck' },
+					// MODE AUTONOMIE : « Rendez-vous » disparaît de la navigation (retour
+					// en Coaching = réapparition immédiate — aucune donnée supprimée).
+					...(allowRendezVous ? [{ href: '/espace/rendez-vous', label: 'Rendez-vous', icon: 'calendarCheck' }] : []),
 					{ href: '/espace/ressources', label: 'Drive', icon: 'cloud', badge: menuBadges.drive ?? 0 },
 					{ href: '/recettes', label: 'Recettes & nutrition', icon: 'chefHat' },
 					{ href: '/outils', label: 'Outils & calibrage', icon: 'wrench' },

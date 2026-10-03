@@ -389,6 +389,9 @@ export const getDashboard = query({
 		return {
 			today: day,
 			coachingMode,
+			/** MODE AUTONOMIE — l'accès « Rendez-vous » disparaît de toute l'interface
+			 *  cliente (nav, raccourci, CTA) ; aucune donnée n'est touchée. */
+			rdvAccessAllowed: !autonomy,
 			/** Autonomie : la PWA ne demande JAMAIS la permission push (plus de
 			 *  sollicitations coaching — future option « reprendre le push » côté coach). */
 			pushOptInAllowed: !autonomy,

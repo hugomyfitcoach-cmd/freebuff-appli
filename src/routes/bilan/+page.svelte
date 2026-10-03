@@ -9,6 +9,9 @@
 	// ── Session & état d'affichage ────────────────────────────────────
 	const user = $derived(data?.user ?? null);
 	const merci = $derived(data?.merci ?? null);
+	/** MODE AUTONOMIE : le CTA « Réserver mon créneau dans l'agenda » est masqué
+	 *  (accès Rendez-vous coupé côté cliente) ; retour en Coaching = réapparaît. */
+	const allowRendezVous = $derived((data?.user?.coachingMode ?? 'coaching') !== 'autonomy');
 	const formOpen = $state(isFormOpen());
 	let confettiDone = $state(false);
 
@@ -248,10 +251,12 @@
 					<h2>Merci {user.prenom} !</h2>
 					<p>Tu as demandé un rendez-vous. Choisis directement ton créneau dans l'agenda.</p>
 					<div class="info-msg"><Icon name="phone" size={17} class="info-msg-icon" /> <span>Ta demande d'appel est bien reçue : on échangera sur les points que tu as indiqués.</span></div>
-					<a href="/espace/rendez-vous" class="btn-cta">
-						<Icon name="calendarCheck" size={17} class="btn-cta-icon" /> Réserver mon créneau dans l'agenda
-					</a>
-					<p class="ty-hint">Tu recevras une confirmation dès que ton rendez-vous est réservé.</p>
+					{#if allowRendezVous}
+						<a href="/espace/rendez-vous" class="btn-cta">
+							<Icon name="calendarCheck" size={17} class="btn-cta-icon" /> Réserver mon créneau dans l'agenda
+						</a>
+						<p class="ty-hint">Tu recevras une confirmation dès que ton rendez-vous est réservé.</p>
+					{/if}
 				</div>
 			{/if}
 	{:else}

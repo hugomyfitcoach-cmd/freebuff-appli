@@ -262,9 +262,10 @@
 		return `${fmt(start)} à ${hhmm}`;
 	});
 	/** Raccourcis horizontaux de l'Accueil (désengorgent le dashboard).
-	    « Rendez-vous » : libellé INVARIABLE, même gabarit que les autres (§16). */
+	    « Rendez-vous » : libellé INVARIABLE, même gabarit que les autres (§16).
+	    MODE AUTONOMIE : le raccourci disparaît (retour Coaching = réapparaît). */
 	const chips = $derived([
-		{ href: '/espace/rendez-vous', label: 'Rendez-vous', icon: 'calendarCheck', badge: 0 },
+		...(autonomy ? [] : [{ href: '/espace/rendez-vous', label: 'Rendez-vous', icon: 'calendarCheck', badge: 0 }]),
 		{ href: '/recettes', label: 'Recettes', icon: 'chefHat', badge: 0 },
 		{ href: '/espace/ressources', label: 'Drive', icon: 'cloud', badge: 0 },
 		{ href: '/espace/historique', label: 'Bilans', icon: 'clipboardCheck', badge: dash?.badges.bilans ?? 0 },
@@ -804,7 +805,7 @@
 </header>
 
 <!-- ═══════════ Rappel rendez-vous 12 h (compact, en haut de l'Accueil) ═══════════ -->
-{#if reminder}
+{#if reminder && !autonomy}
 	<a
 		href="/espace/rendez-vous"
 		class="m-in tap mb-4 flex items-center gap-3 rounded-2xl border border-brand/40 bg-brand-light/70 px-4 py-3 shadow-sm hover:border-brand"
