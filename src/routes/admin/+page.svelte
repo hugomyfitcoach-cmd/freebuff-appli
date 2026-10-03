@@ -397,6 +397,10 @@
 	const stepsTotal = $derived(stepBars.reduce((s, b) => s + (b.value ?? 0), 0));
 	/** Moyenne UNIQUEMENT sur les jours réellement renseignés — jamais divisée par 7. */
 	const stepsAvg = $derived(stepsAvgResult.avg ?? 0);
+	/** Écarts moyenne ↔ objectif (cartes « Analyses » de la Vision 360). */
+	const kcalGoalVal = $derived(view?.cockpit?.calories?.goal ?? goalKcal);
+	const kcalGap = $derived(weekAvg > 0 ? Math.round(weekAvg - kcalGoalVal) : null);
+	const stepsGap = $derived(stepsAvg > 0 && stepGoalVal ? Math.round(stepsAvg - stepGoalVal) : null);
 	const fmtN = (n: number) => Math.round(n).toLocaleString('fr-FR');
 
 	const weightPoints = $derived.by(() => {
@@ -1354,7 +1358,7 @@
 	let section = $state('apercu');
 
 	const sectionTabs = $derived([
-		{ id: 'apercu', label: 'Aperçu' },
+		{ id: 'apercu', label: 'Vision 360' },
 		{ id: 'journal', label: 'Journal' },
 		{ id: 'plan', label: 'Plan de repas' },
 		{ id: 'entrainement', label: 'Entraînement' },
@@ -1365,6 +1369,20 @@
 		{ id: 'dossier', label: 'Drive' },
 		{ id: 'demarrage', label: 'Démarrage' },
 	]);
+
+	/** Bloc « Accès rapide » (Vision 360) : navigation directe vers les onglets
+	 *  métier — simple raccourci UI, aucune donnée ni action ajoutée. */
+	const quickAccess = [
+		{ id: 'journal', label: 'Journal alimentaire', icon: 'bookOpen' },
+		{ id: 'plan', label: 'Plan de repas', icon: 'utensils' },
+		{ id: 'entrainement', label: "Programme d'entraînement", icon: 'dumbbell' },
+		{ id: 'corps', label: 'Poids & mesures', icon: 'scale' },
+		{ id: 'photos', label: 'Photos', icon: 'camera' },
+		{ id: 'bilans', label: 'Bilans hebdomadaires', icon: 'clipboardList' },
+		{ id: 'rdv', label: 'Rendez-vous', icon: 'calendarDays' },
+		{ id: 'dossier', label: 'Drive & documents', icon: 'cloud' },
+		{ id: 'demarrage', label: 'Formulaire de démarrage', icon: 'rocket' },
+	] as const;
 
 	// Deep-link : un lien de la file des bilans ouvre le 360° directement sur
 	// l'onglet Bilans (?section=bilans). Un simple clic d'onglet reste libre.
@@ -2096,10 +2114,12 @@
 				</div>
 			{/if}
 
-			<!-- ═══ Aperçu : message du coach + dernières données + diagramme calories ═══ -->
+			<!-- ═══ Vision 360 (onglet principal) : synthèse + analyses + objectifs ═══ -->
 			{#if section === 'apercu'}
+				<!-- Zone haute : statut onboarding (gauche) + message du coach (droite) -->
+				<div class="m-in-crm grid gap-3 lg:grid-cols-2" style="--m-i: 0">
 				<!-- Raccourci formulaire de démarrage (onboarding) — carte statut premium -->
-				<div class="m-in-crm rounded-2xl border p-4 shadow-sm" style="--m-i: 0; border-color: rgba(29, 185, 84, 0.35); background: linear-gradient(135deg, var(--brand-soft, #f3fcf7), #fff 45%)">
+				<div class="rounded-2xl border p-4 shadow-sm" style="border-color: rgba(29, 185, 84, 0.35); background: linear-gradient(135deg, var(--brand-soft, #f3fcf7), #fff 45%)">
 					<div class="flex flex-wrap items-center justify-between gap-3">
 						<div class="flex items-center gap-2.5">
 							<span class="kpi-tile" style="--kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep)"><Icon name="rocket" size={17} /></span>
@@ -2127,7 +2147,7 @@
 				</div>
 
 				<!-- Message du coach du jour (champ dédié, éphémère — visible par la cliente 24 h après publication) -->
-				<div class="m-in-crm rounded-2xl border border-line bg-card p-4 shadow-sm" style="--m-i: 1">
+				<div class="rounded-2xl border border-line bg-card p-4 shadow-sm">
 					<div class="flex flex-wrap items-center justify-between gap-2">
 						<div class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="messageCircle" size={13} class="shrink-0 text-brand" /> Message du coach du jour</div>
 						<div class="flex items-center gap-1.5">
@@ -2162,20 +2182,21 @@
 						<!-- Audio du message : enregistrement possible + état actuel (brouillon jamais publié tant qu'on n'envoie pas). -->
 						<div class="mt-2 rounded-xl border border-line bg-card/60 p-3">
 							<p class="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-mist"><Icon name="mic" size={12} /> Avec un message audio (optionnel)</p>
-							<CoachMedia
-								mode="message"
-								userId={selected.user._id}
-								existing={messageAudio}
-								bind:stagedAudioId={msgAudioDraft}
-							/>
-						</div>
-					</form>
+						<CoachMedia
+							mode="message"
+							userId={selected.user._id}
+							existing={messageAudio}
+							bind:stagedAudioId={msgAudioDraft}
+						/>
+					</div>
+				</form>
+			</div>
 				</div>
 
 				<!-- Poids actuel / Mensurations / Calories / Cycle — cartes de synthèse premium
 				     (liseré coloré + tuile icône + chiffre Lato 900 ; données et actions
 				     strictement identiques : mêmes boutons quick-sheet, mêmes valeurs). -->
-				<div class="m-in-crm grid gap-3 sm:grid-cols-2 md:grid-cols-4" style="--m-i: 2">
+				<div class="m-in-crm grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" style="--m-i: 1">
 					<button
 						type="button"
 						onclick={() => openQuickSheet('weight')}
@@ -2254,13 +2275,12 @@
 							<div class="mt-1 text-[11px] leading-snug text-mist">règles : {selCycle?.lmp ? fmtDateShort(selCycle.lmp) : '—'} · durée {selCycle?.len ?? '—'} j · ovulation ~ J{selCycleState.ovulationDay}</div>
 						{/if}
 					</div>
-				</div>
 
 				<!-- DÉPENSE SPORTIVE — même encart que l'onglet Bilans, mais sur la
 			     semaine CALENDAIRE courante (indépendante du dernier bilan).
 			     kcal = REPÈRE, jamais un crédit calorique. Tendance calculée sur
 			     les semaines closes uniquement (jamais la semaine partielle). -->
-				<div class="m-in-crm kpi-crm rounded-2xl" style="--m-i: 3; --kpi-accent: var(--accent); --kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep)">
+				<div class="kpi-crm" style="--kpi-accent: var(--accent); --kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep)">
 					<div class="flex items-center justify-between gap-2">
 						<div class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-mist"><span class="kpi-tile" style="width:1.75rem;height:1.75rem"><Icon name="zap" size={14} /></span> Dépense sportive</div>
 						{#if sportOverview?.trainingCount}
@@ -2284,22 +2304,13 @@
 							{sportOverview.activities} activité{sportOverview.activities > 1 ? 's' : ''}
 							· {Math.floor(sportOverview.durationMin / 60)} h {String(sportOverview.durationMin % 60).padStart(2, '0')} cette semaine
 						</p>
-						{#if (sportOverview.previous ?? []).some((p) => p.durationMin > 0)}
-							<!-- Lecture rapide : semaines closes précédentes (S-1 à S-4) —
-							     numérotation réelle même si une semaine intermédiaire est vide. -->
-							<div class="mt-2 space-y-0.5 border-t border-line/60 pt-2">
-								{#each sportOverview.previous ?? [] as pw, i (pw.weekStart)}
-									{#if pw.durationMin > 0}
-										<p class="text-[11px] text-mist tabular-nums">
-											S-{i + 1} · {Math.floor(pw.durationMin / 60)} h {String(pw.durationMin % 60).padStart(2, '0')} · ≈ {pw.kcal.toLocaleString('fr-FR')} kcal
-										</p>
-									{/if}
-								{/each}
-							</div>
-						{/if}
+						<button type="button" onclick={() => (section = 'bilans')} class="mt-2 flex w-full items-center gap-1 border-t border-line/60 pt-2 text-left text-[10.5px] font-semibold text-mist transition hover:text-brand">
+							Historique semaine par semaine : onglet Bilans <Icon name="arrowRight" size={11} class="shrink-0" />
+						</button>
 					{:else}
 						<p class="mt-1 text-sm italic text-mist">Aucune activité cette semaine</p>
 					{/if}
+				</div>
 				</div>
 
 				<!-- Ajout rapide depuis l'Aperçu : même endpoint que « Poids & mesures »,
@@ -2360,47 +2371,73 @@
 							<p class="mt-2 rounded-lg bg-warn-light px-3 py-2 text-xs font-semibold text-ink">{quickMsg}</p>
 						{/if}
 					</div>
-				{/if}
-
-				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
+				{/if}				<!-- Analyses des 7 derniers jours — calories + pas côte à côte (fenêtre J-7 → J-1, aujourd'hui exclu) -->
+				<section class="m-in-crm rounded-2xl border border-line bg-card px-5 py-4 shadow-sm" style="--m-i: 2">
 					<div class="flex flex-wrap items-center justify-between gap-2">
-							<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="chartBar" size={17} class="shrink-0 text-brand" /> Calories — tendance des 7 derniers jours terminés</h3>
-						<span class="text-[11px] text-mist">barres : kcal consommées · ligne pointillée : objectif · ligne verte : moyenne</span>
+						<div class="min-w-0">
+							<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="chartBar" size={17} class="shrink-0 text-brand" /> Analyses des 7 derniers jours</h3>
+							<p class="mt-0.5 text-xs text-mist">Suivi des calories et de l'activité par rapport aux objectifs — 7 journées terminées (J-7 → J-1, aujourd'hui exclu).</p>
+						</div>
+						<span class="rounded-full bg-soft px-2.5 py-1 text-[10.5px] font-bold text-mist">7 derniers jours</span>
 					</div>
-					{#if calBars.some((b) => b.value != null)}
-						<div class="mt-3">
-							<WeeklyTrendChart bars={calBars} goal={view?.cockpit?.calories?.goal ?? goalKcal} avg={weekAvg} fmt={fmtN} ariaLabel="Calories de la semaine" />
+					<div class="mt-3 grid gap-3 xl:grid-cols-2">
+						<div class="rounded-xl border border-line/70 bg-white p-3.5">
+							<div class="flex flex-wrap items-center justify-between gap-2">
+								<h4 class="flex items-center gap-1.5 text-[13px] font-bold text-ink"><Icon name="flame" size={14} class="shrink-0 text-warn" /> Calories consommées par jour</h4>
+								<span class="text-[10px] text-mist">barres : consommé · pointillé : objectif · verte : moyenne</span>
+							</div>
+							<div class="mt-2 grid grid-cols-3 gap-2">
+								<div class="rounded-lg bg-soft/80 px-2.5 py-1.5">
+									<div class="text-[9.5px] font-bold uppercase tracking-wider text-mist">Moyenne</div>
+									<div class="text-[13px] font-bold tabular-nums text-ink">{weekAvg || '—'} kcal {#if view && weekAvg > 0}<span class="text-[10px] font-bold {kcalTrend <= 0 ? 'text-brand' : 'text-warn'}">{kcalTrend > 0 ? '+' : ''}{kcalTrend} %</span>{/if}</div>
+								</div>
+								<div class="rounded-lg bg-soft/80 px-2.5 py-1.5">
+									<div class="text-[9.5px] font-bold uppercase tracking-wider text-mist">Objectif</div>
+									<div class="text-[13px] font-bold tabular-nums text-ink">{kcalGoalVal.toLocaleString('fr-FR')} kcal</div>
+								</div>
+								<div class="rounded-lg bg-soft/80 px-2.5 py-1.5">
+									<div class="text-[9.5px] font-bold uppercase tracking-wider text-mist">Écart / jour</div>
+									<div class="text-[13px] font-bold tabular-nums {kcalGap == null ? 'text-mist' : kcalGap <= 0 ? 'text-brand' : 'text-warn'}">{kcalGap == null ? '—' : `${kcalGap > 0 ? '+' : ''}${fmtN(kcalGap)} kcal`}</div>
+								</div>
+							</div>
+							{#if calBars.some((b) => b.value != null)}
+								<div class="mt-2.5">
+									<WeeklyTrendChart bars={calBars} goal={kcalGoalVal} avg={weekAvg} fmt={fmtN} ariaLabel="Calories de la semaine" />
+								</div>								<p class="mt-2 text-[10.5px] leading-relaxed text-mist"><strong class="text-ink">Moyenne : {weekAvg} kcal/jour</strong> sur {cockpit?.calories?.trackedDays ?? loggedDays} jour(s) exploitable(s) · seuil journée complète {cockpit?.calories?.thresholdKcal ?? 960} kcal = max(800, 60 % de l'objectif){cockpit?.calories?.partialExcluded ? ` · ${cockpit.calories.partialExcluded} partielle(s) exclue(s)` : ''} — le Journal reste intact.</p>
+							{:else}
+								<p class="mt-2.5 rounded-lg border border-dashed border-line px-3 py-6 text-center text-[13px] text-mist">Aucune donnée de journal sur les 7 derniers jours.</p>
+							{/if}
 						</div>
-						<div class="mt-2 flex items-start gap-1.5 rounded-xl bg-brand-light px-4 py-2.5 text-xs text-ink">
-							<Icon name="ruler" size={13} class="mt-0.5 shrink-0" /> <span><strong>Moyenne constatée : {weekAvg} kcal/jour</strong> sur {cockpit?.calories?.trackedDays ?? loggedDays} jour(s) exploitable(s) — 7 journées TERMINÉES (J-7 → J-1, aujourd'hui exclu), jours trop incomplètement renseignés exclus du calcul (seuil {cockpit?.calories?.thresholdKcal ?? 960} kcal = max(800, 60 % de l'objectif){cockpit?.calories?.partialExcluded ? ` · ${cockpit.calories.partialExcluded} journée(s) partielle(s) exclue(s)` : ''} — le Journal reste intact ; objectif (dernier jour de la fenêtre) : {view?.cockpit?.calories?.goal ?? goalKcal} kcal).</span>
+						<div class="rounded-xl border border-line/70 bg-white p-3.5">
+							<div class="flex flex-wrap items-center justify-between gap-2">
+								<h4 class="flex items-center gap-1.5 text-[13px] font-bold text-ink"><Icon name="footprints" size={14} class="shrink-0 text-brand" /> Nombre de pas par jour</h4>
+								<span class="text-[10px] text-mist">barres : pas · pointillé : objectif · verte : moyenne</span>
+							</div>
+							<div class="mt-2 grid grid-cols-3 gap-2">
+								<div class="rounded-lg bg-soft/80 px-2.5 py-1.5">
+									<div class="text-[9.5px] font-bold uppercase tracking-wider text-mist">Moyenne</div>
+									<div class="text-[13px] font-bold tabular-nums text-ink">{stepsAvg > 0 ? fmtN(stepsAvg) : '—'} pas {#if stepsGap != null}<span class="text-[10px] font-bold {stepsGap <= 0 ? 'text-brand' : 'text-warn'}">{stepsGap > 0 ? '+' : ''}{Math.round((stepsAvg - (stepGoalVal ?? stepsAvg)) / (stepGoalVal ?? stepsAvg) * 100)} %</span>{/if}</div>
+								</div>
+								<div class="rounded-lg bg-soft/80 px-2.5 py-1.5">
+									<div class="text-[9.5px] font-bold uppercase tracking-wider text-mist">Objectif</div>
+									<div class="text-[13px] font-bold tabular-nums text-ink">{stepGoalVal ? `${fmtN(stepGoalVal)} pas` : '—'}</div>
+								</div>
+								<div class="rounded-lg bg-soft/80 px-2.5 py-1.5">
+									<div class="text-[9.5px] font-bold uppercase tracking-wider text-mist">Écart / jour</div>
+									<div class="text-[13px] font-bold tabular-nums {stepsGap == null ? 'text-mist' : stepsGap <= 0 ? 'text-brand' : 'text-warn'}">{stepsGap == null ? '—' : `${stepsGap > 0 ? '+' : ''}${fmtN(stepsGap)} pas`}</div>
+								</div>
+							</div>
+							{#if stepsTracked > 0}
+								<div class="mt-2.5">
+									<WeeklyTrendChart bars={stepBars} goal={stepGoalVal} avg={stepsAvg} fmt={fmtN} unit=" pas" ariaLabel="Pas de la semaine" />
+								</div>
+								<p class="mt-2 text-[10.5px] leading-relaxed text-mist"><strong class="text-ink">Moyenne : {fmtN(stepsAvg)} pas/jour</strong> sur {stepsTracked} jour(s) renseigné(s) · total {fmtN(stepsTotal)} pas — somme des 7 journées terminées (J-7 → J-1, aujourd'hui exclu).</p>
+							{:else}
+								<p class="mt-2.5 rounded-lg border border-dashed border-line px-3 py-6 text-center text-[13px] text-mist">Aucun pas renseigné sur les 7 derniers jours.</p>
+							{/if}
 						</div>
-					{:else}
-						<p class="mt-3 rounded-xl border border-dashed border-line px-4 py-8 text-center text-sm text-mist">Aucune donnée de journal sur les 7 derniers jours.</p>
-					{/if}
-				</div>
-
-				<!-- Pas — tendance des 7 derniers jours (même design system que Calories) -->
-				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
-					<div class="flex flex-wrap items-center justify-between gap-2">
-						<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="footprints" size={17} class="shrink-0 text-brand" /> Pas — tendance des 7 derniers jours terminés</h3>
-						<span class="text-[11px] text-mist">barres : pas saisis · ligne pointillée : objectif · ligne verte : moyenne</span>
 					</div>
-					{#if stepsTracked > 0}
-						<div class="mt-3">
-							<WeeklyTrendChart bars={stepBars} goal={stepGoalVal} avg={stepsAvg} fmt={fmtN} unit=" pas" ariaLabel="Pas de la semaine" />
-						</div>
-						<div class="mt-2 flex flex-wrap items-start gap-x-3 gap-y-1 rounded-xl bg-brand-light px-4 py-2.5 text-xs text-ink">
-							<Icon name="footprints" size={13} class="mt-0.5 shrink-0" />
-							<span>
-								<strong>Moyenne constatée : {fmtN(stepsAvg)} pas/jour</strong>
-								sur {stepsTracked} jour(s) renseigné(s) — calcul : somme des pas des 7 journées TERMINÉES (J-7 → J-1, aujourd'hui exclu) ÷ nombre de ces jours saisis{stepGoalVal ? ` (objectif : ${fmtN(stepGoalVal)} pas/jour)` : ''}.
-							</span>
-							<span class="ml-auto whitespace-nowrap font-semibold text-mist">Total : {fmtN(stepsTotal)} pas</span>
-						</div>
-					{:else}
-						<p class="mt-3 rounded-xl border border-dashed border-line px-4 py-8 text-center text-sm text-mist">Aucun pas renseigné sur les 7 derniers jours.</p>
-					{/if}
-				</div>
+				</section>
 
 				{#if weightPoints && weightPoints.coords.length > 0}
 					<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
@@ -2446,38 +2483,51 @@
 						<form method="POST" action="?/setGoals&client={selected.user._id}&section={section}" class="mt-3">
 							<input type="hidden" name="userId" value={selected.user._id} />
 
+							<div class="grid gap-3 xl:grid-cols-5">
+							<div class="min-w-0 xl:col-span-3">
 							<!-- Choix du mode de saisie -->
-							<div class="mb-3 flex overflow-hidden rounded-lg border-2 border-line text-xs font-semibold sm:text-sm" role="radiogroup" aria-label="Mode de saisie des objectifs">
+							<div class="mb-3 flex gap-1 rounded-full border border-line bg-white p-1 text-xs font-semibold sm:text-sm" role="radiogroup" aria-label="Mode de saisie des objectifs">
 								<button
 									type="button"
-									class="flex-1 px-3 py-2 transition {goalsMode === 'pct' ? 'bg-brand text-white' : 'text-ink hover:bg-line/40'}"
+									class="flex-1 rounded-full px-3 py-2 transition {goalsMode === 'pct' ? 'bg-brand text-white' : 'text-ink hover:bg-soft'}"
 									onclick={() => switchGoalsMode('pct')}													><span class="inline-flex items-center gap-1.5"><Icon name="target" size={14} /> Calories + répartition %</span></button>
 								<button
 									type="button"
-									class="flex-1 px-3 py-2 transition {goalsMode === 'grams' ? 'bg-brand text-white' : 'text-ink hover:bg-line/40'}"
+									class="flex-1 rounded-full px-3 py-2 transition {goalsMode === 'grams' ? 'bg-brand text-white' : 'text-ink hover:bg-soft'}"
 									onclick={() => switchGoalsMode('grams')}													><span class="inline-flex items-center gap-1.5"><Icon name="drumstick" size={14} /> Méthode macros (g)</span></button>
 							</div>
 
 							{#if goalsMode === 'pct'}
-								<div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
-									<label class="block">
-										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Calories / jour</span>
-										<input type="number" name="kcal" required min="800" max="6000" bind:value={pctKcal} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
+								<!-- Répartition macros — même langage visuel que la PWA cliente
+								     (MacroLine : Glucides #ec4899 · Protéines #3b82f6 · Lipides #f97316) -->
+								<div class="grid grid-cols-2 gap-2.5">
+									<label class="rounded-xl border-2 border-line bg-white px-3 py-2.5 transition focus-within:border-brand">
+										<span class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-mist"><Icon name="flame" size={12} class="shrink-0 text-warn" /> Calories / jour</span>
+										<div class="mt-1 flex items-baseline gap-1">
+											<input type="number" name="kcal" required min="800" max="6000" bind:value={pctKcal} class="w-24 border-0 bg-transparent p-0 font-display text-xl font-bold text-ink outline-none" />
+											<span class="text-[11px] font-semibold text-mist">kcal</span>
+										</div>
 									</label>
-									<label class="block">
-										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Glucides (%)</span>
-										<input type="number" min="0" max="100" step="1" bind:value={pctCarbs} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
-										<span class="mt-0.5 block text-[11px] text-mist">≈ {goalsValues.carbs} g</span>
+									<label class="rounded-xl border-2 border-line bg-white px-3 py-2.5 transition focus-within:border-brand">
+										<span class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider" style="color:#ec4899"><span class="h-2 w-2 shrink-0 rounded-full" style="background:#ec4899"></span> Glucides</span>
+										<div class="mt-1 flex items-baseline gap-1">
+											<input type="number" min="0" max="100" step="1" bind:value={pctCarbs} class="w-14 border-0 bg-transparent p-0 font-display text-xl font-bold text-ink outline-none" />
+											<span class="text-[11px] font-semibold text-mist">% · ≈ {goalsValues.carbs} g</span>
+										</div>
 									</label>
-									<label class="block">
-										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Protéines (%)</span>
-										<input type="number" min="0" max="100" step="1" bind:value={pctProtein} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
-										<span class="mt-0.5 block text-[11px] text-mist">≈ {goalsValues.protein} g</span>
+									<label class="rounded-xl border-2 border-line bg-white px-3 py-2.5 transition focus-within:border-brand">
+										<span class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider" style="color:#3b82f6"><span class="h-2 w-2 shrink-0 rounded-full" style="background:#3b82f6"></span> Protéines</span>
+										<div class="mt-1 flex items-baseline gap-1">
+											<input type="number" min="0" max="100" step="1" bind:value={pctProtein} class="w-14 border-0 bg-transparent p-0 font-display text-xl font-bold text-ink outline-none" />
+											<span class="text-[11px] font-semibold text-mist">% · ≈ {goalsValues.protein} g</span>
+										</div>
 									</label>
-									<label class="block">
-										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Lipides (%)</span>
-										<input type="number" min="0" max="100" step="1" bind:value={pctFat} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
-										<span class="mt-0.5 block text-[11px] text-mist">≈ {goalsValues.fat} g</span>
+									<label class="rounded-xl border-2 border-line bg-white px-3 py-2.5 transition focus-within:border-brand">
+										<span class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider" style="color:#f97316"><span class="h-2 w-2 shrink-0 rounded-full" style="background:#f97316"></span> Lipides</span>
+										<div class="mt-1 flex items-baseline gap-1">
+											<input type="number" min="0" max="100" step="1" bind:value={pctFat} class="w-14 border-0 bg-transparent p-0 font-display text-xl font-bold text-ink outline-none" />
+											<span class="text-[11px] font-semibold text-mist">% · ≈ {goalsValues.fat} g</span>
+										</div>
 									</label>
 								</div>
 								<p class="mt-2 text-xs font-semibold {pctOk ? 'text-brand' : 'text-danger'}">
@@ -2487,20 +2537,20 @@
 								<input type="hidden" name="protein" value={goalsValues.protein} />
 								<input type="hidden" name="fat" value={goalsValues.fat} />
 							{:else}
-								<div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
-									<div class="rounded-lg border-2 border-brand/40 bg-brand-light px-2 py-2">
-										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-brand">Calories calculées</span>
-										<span class="font-display text-lg font-semibold text-brand-dark">{goalsValues.kcal} <span class="text-xs font-semibold text-mist">kcal</span></span>
+								<div class="grid grid-cols-2 gap-2.5">
+									<div class="rounded-xl border-2 border-brand/40 bg-brand-light px-3 py-2.5">
+										<span class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-brand"><Icon name="flame" size={12} class="shrink-0" /> Calories calculées</span>
+										<span class="mt-1 block font-display text-xl font-bold text-brand-dark">{goalsValues.kcal} <span class="text-xs font-semibold text-mist">kcal</span></span>
 									</div>
-									<label class="block">
-										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Glucides (g)</span>										<input type="number" name="carbs" required min="0" max="1000" bind:value={gCarbs} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
+									<label class="rounded-xl border-2 border-line bg-white px-3 py-2.5 transition focus-within:border-brand">
+										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider " style="color:#ec4899"><span class="h-2 w-2 shrink-0 rounded-full" style="background:#ec4899"></span> Glucides (g)</span>										<input type="number" name="carbs" required min="0" max="1000" bind:value={gCarbs} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
 											</label>
 											<label class="block">
-												<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Protéines (g)</span>
+												<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider " style="color:#3b82f6"><span class="h-2 w-2 shrink-0 rounded-full" style="background:#3b82f6"></span> Protéines (g)</span>
 												<input type="number" name="protein" required min="0" max="400" bind:value={gProtein} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
 											</label>
 											<label class="block">
-												<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Lipides (g)</span>
+												<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider " style="color:#f97316"><span class="h-2 w-2 shrink-0 rounded-full" style="background:#f97316"></span> Lipides (g)</span>
 												<input type="number" name="fat" required min="0" max="300" bind:value={gFat} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
 									</label>
 								</div>
@@ -2511,9 +2561,12 @@
 							{#if goalsError}
 								<p class="mt-2 rounded-lg bg-danger-light px-3 py-2 text-xs font-semibold text-danger">{goalsError}</p>
 							{/if}
+							</div>
 
+							<!-- Colonne droite : filets de sécurité + enregistrement -->
+							<div class="grid content-start gap-3 xl:col-span-2">
 							<!-- Filet de sécurité : maintenance calorique (repère secondaire, jamais une 2ᵉ cible) -->
-							<div class="mt-3 rounded-xl border-2 border-dashed border-brand/30 bg-brand-light/50 px-3 py-2.5">
+							<div class="rounded-xl border-2 border-dashed border-brand/30 bg-brand-light/50 px-3 py-2.5">
 								<label class="flex items-center justify-between gap-3">
 									<span class="min-w-0">
 										<span class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-brand-dark"><Icon name="lifeBuoy" size={12} class="shrink-0" /> Maintenance calorique (optionnel)</span>
@@ -2539,7 +2592,7 @@
 							</div>
 
 							<!-- Objectif quotidien de pas (saisi manuellement, propre à chaque cliente) -->
-							<div class="mt-3 rounded-xl border-2 border-dashed border-line bg-cream/50 px-3 py-2.5">
+							<div class="rounded-xl border-2 border-dashed border-line bg-cream/50 px-3 py-2.5">
 								<label class="flex items-center justify-between gap-3">
 									<span class="min-w-0">
 										<span class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-mist"><Icon name="footprints" size={12} class="shrink-0" /> Objectif quotidien de pas (optionnel)</span>
@@ -2564,11 +2617,91 @@
 								{/if}
 							</div>
 
-							<button type="submit" disabled={!!goalsError} class="mt-3 w-full rounded-lg bg-brand px-3 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark disabled:opacity-60">
+							<button type="submit" disabled={!!goalsError} class="w-full rounded-full bg-brand px-3 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60">
 								Enregistrer les objectifs
 							</button>
+							</div>
+							</div>
 						</form>
 					{/key}
+				</div>
+
+				<!-- Blocs secondaires : accès rapide (onglets métier) + dernières activités (données existantes) -->
+				<div class="m-in-crm grid gap-3 lg:grid-cols-2" style="--m-i: 5">
+					<div class="rounded-2xl border border-line bg-card p-4 shadow-sm">
+						<div class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="zap" size={13} class="shrink-0 text-brand" /> Accès rapide</div>
+						<div class="mt-2.5 grid gap-1.5">
+							{#each quickAccess as q (q.id)}
+								<button type="button" onclick={() => (section = q.id)} class="group flex items-center gap-2.5 rounded-xl border border-line bg-white px-3 py-2 text-left transition hover:border-brand/50 hover:bg-brand-light/30">
+									<span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-soft text-ink transition group-hover:bg-brand-light group-hover:text-brand-deep"><Icon name={q.icon} size={13} /></span>
+									<span class="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink">{q.label}{#if q.id === 'photos'} ({totalPhotos}){/if}</span>
+									<Icon name="chevronRight" size={13} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
+								</button>
+							{/each}
+						</div>
+					</div>
+					<div class="rounded-2xl border border-line bg-card p-4 shadow-sm">
+						<div class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="clock3" size={13} class="shrink-0 text-brand" /> Dernières activités</div>
+						<div class="mt-2.5 grid gap-1.5">
+							{#if selected.user.lastSeenAt}
+								<div class="flex items-center gap-2.5 rounded-xl border border-line/70 bg-white px-3 py-2">
+									<span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-brand-light text-brand-deep"><Icon name="smartphone" size={13} /></span>
+									<span class="min-w-0 flex-1">
+										<span class="block text-[13px] font-semibold text-ink">Connexion</span>
+										<span class="block text-[11px] text-mist">{fmtLastSeen(selected.user.lastSeenAt)}</span>
+									</span>
+								</div>
+							{/if}
+							{#if latestAny.weightKg}
+								<div class="flex items-center gap-2.5 rounded-xl border border-line/70 bg-white px-3 py-2">
+									<span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-brand-light text-brand-deep"><Icon name="scale" size={13} /></span>
+									<span class="min-w-0 flex-1">
+										<span class="block text-[13px] font-semibold text-ink">Poids enregistré</span>
+										<span class="block text-[11px] text-mist">{String(latestAny.weightKg.value).replace('.', ',')} kg · {fmtDateShort(latestAny.weightKg.date)}</span>
+									</span>
+								</div>
+							{/if}
+							{#if mensDate}
+								<div class="flex items-center gap-2.5 rounded-xl border border-line/70 bg-white px-3 py-2">
+									<span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-warn-light text-warn"><Icon name="ruler" size={13} /></span>
+									<span class="min-w-0 flex-1">
+										<span class="block text-[13px] font-semibold text-ink">Mensurations</span>
+										<span class="block text-[11px] text-mist">mises à jour le {fmtDateShort(mensDate)}</span>
+									</span>
+								</div>
+							{/if}
+							{#if sportOverview && sportOverview.activities > 0}
+								<div class="flex items-center gap-2.5 rounded-xl border border-line/70 bg-white px-3 py-2">
+									<span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-brand-light text-brand-deep"><Icon name="dumbbell" size={13} /></span>
+									<span class="min-w-0 flex-1">
+										<span class="block text-[13px] font-semibold text-ink">Entraînement</span>
+										<span class="block text-[11px] text-mist">{sportOverview.activities} activité{sportOverview.activities > 1 ? 's' : ''} · {Math.floor(sportOverview.durationMin / 60)} h {String(sportOverview.durationMin % 60).padStart(2, '0')} cette semaine</span>
+									</span>
+								</div>
+							{/if}
+							{#if lastPhotoDate}
+								<div class="flex items-center gap-2.5 rounded-xl border border-line/70 bg-white px-3 py-2">
+									<span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-soft text-ink"><Icon name="camera" size={13} /></span>
+									<span class="min-w-0 flex-1">
+										<span class="block text-[13px] font-semibold text-ink">Photos</span>
+										<span class="block text-[11px] text-mist">{totalPhotos} photo{totalPhotos > 1 ? 's' : ''} · dernière le {fmtDateShort(lastPhotoDate)}</span>
+									</span>
+								</div>
+							{/if}
+							{#if messageLog.length > 0}
+								<div class="flex items-center gap-2.5 rounded-xl border border-line/70 bg-white px-3 py-2">
+									<span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-brand-light text-brand-deep"><Icon name="messageCircle" size={13} /></span>
+									<span class="min-w-0 flex-1">
+										<span class="block text-[13px] font-semibold text-ink">Message publié</span>
+										<span class="block text-[11px] text-mist">{fmtDateTime(messageLog[0].publishedAt)}{#if messageLog[0].isGlobal} · global{/if}</span>
+									</span>
+								</div>
+							{/if}
+							{#if !selected.user.lastSeenAt && !latestAny.weightKg && !mensDate && !(sportOverview && sportOverview.activities > 0) && !lastPhotoDate && messageLog.length === 0}
+								<p class="rounded-xl border border-dashed border-line px-3 py-5 text-center text-[13px] text-mist">Aucune activité pour le moment.</p>
+							{/if}
+						</div>
+					</div>
 				</div>
 
 				<!-- Historique des messages envoyés (journal CRM : daté, lu/non lu, réécoute) —
