@@ -418,9 +418,26 @@
 	background: var(--soft);
 }
 .ds-crm .tab-crm[aria-selected='true'],
+.ds-crm .tab-crm[aria-pressed='true'],
 .ds-crm .tab-crm.active-crm {
-	background: var(--ink);
-	color: #fff;
+	/* Onglet actif IMMÉDIATEMENT identifiable : fond teinté léger + texte vert
+	   foncé + underline assumée (direction mockup premium validé). */
+	position: relative;
+	background: var(--brand-light);
+	color: var(--brand-deep);
+	font-weight: 800;
+}
+.ds-crm .tab-crm[aria-selected='true']::after,
+.ds-crm .tab-crm[aria-pressed='true']::after,
+.ds-crm .tab-crm.active-crm::after {
+	content: '';
+	position: absolute;
+	left: 20%;
+	right: 20%;
+	bottom: 3px;
+	height: 3px;
+	border-radius: 999px;
+	background: var(--brand);
 }
 
 /* ── Animations : entrées de cartes + stagger léger ────────────────

@@ -272,6 +272,14 @@
 		if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age--;
 		return age;
 	});
+	/** « Membre depuis le » — début du suivi si renseigné, sinon création du compte. */
+	const memberSince = $derived.by(() => {
+		const u = selected?.user;
+		if (!u) return null;
+		if (u.startDate) return fmtDateShort(u.startDate);
+		if (u.createdAt) return fmtDateShort(new Date(u.createdAt).toISOString().slice(0, 10));
+		return null;
+	});
 
 	/* ── Formatage ─────────────────────────────────────────────── */
 	function fmtLastSeen(ts: number | null): string {
@@ -1990,40 +1998,49 @@
 			aria-label="Retour au tableau de bord"
 			title="Retour au tableau de bord"
 		><Icon name="arrowLeft" size={16} /></button>
-		<!-- En-tête du tiroir — refonte premium (north star : docs/refonte-preview) -->
-		<div class="m-in-crm flex flex-wrap items-center justify-between gap-3 border-b border-line bg-card px-5 py-3">
-			<div class="flex items-center gap-3">
-				<div class="avatar-crm h-11 w-11 text-base text-white" style="background: linear-gradient(135deg, #21d05e, var(--brand-dark)); box-shadow: 0 4px 14px rgba(29, 185, 84, 0.3)">
+		<!-- En-tête du tiroir — premium (north star : docs/refonte-preview) : identité forte,
+		     statut Active + infos rapides organisées (membre depuis / dernière connexion),
+		     actions intégrées (Fiche / Mot de passe / Supprimer). -->
+		<div class="m-in-crm flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-line bg-card px-5 py-4">
+			<div class="flex min-w-0 items-center gap-3.5">
+				<div class="avatar-crm h-14 w-14 shrink-0 text-xl text-white" style="background: linear-gradient(135deg, #21d05e, var(--brand-dark)); box-shadow: 0 4px 14px rgba(29, 185, 84, 0.3)">
 					{initial(selected.user.prenom)}
-				</div>				<div class="min-w-0">
+				</div>
+				<div class="min-w-0">
 					<div class="flex flex-wrap items-center gap-2">
-						<h2 class="h2-crm text-lg">{fullName(selected.user)}</h2>
-						<span class="presence-crm {isOnline(selected.user.lastSeenAt) ? 'on' : ''}"></span>
-						{#if isOnline(selected.user.lastSeenAt)}<span class="text-[10.5px] font-bold uppercase tracking-wide text-brand-deep">En ligne</span>{/if}
+						<h2 class="truncate font-display text-[1.35rem] font-black leading-tight tracking-tight text-ink">{fullName(selected.user)}</h2>
+						<span class="presence-crm {isOnline(selected.user.lastSeenAt) ? 'on' : ''}" title={isOnline(selected.user.lastSeenAt) ? 'En ligne' : 'Hors ligne'}></span>
+						<span class="rounded-full px-2.5 py-1 text-[11px] font-bold {statusLabel(selected.user.lastSeenAt).cls}">{statusLabel(selected.user.lastSeenAt).label}</span>
 					</div>
-					<p class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-mist">
-					<span class="truncate">{selected.user.email}</span>
-					{#if selected.user.birthDate}
-						<span class="inline-flex items-center gap-1"><Icon name="cake" size={12} class="shrink-0" /> {fmtDateShort(selected.user.birthDate)}{ageOf != null ? ` · ${ageOf} ans` : ''}</span>
+					<p class="mt-0.5 flex items-center gap-1.5 text-[12.5px] font-medium text-mist">
+						<Icon name="mail" size={12} class="shrink-0" />
+						<span class="truncate">{selected.user.email}</span>
+					</p>
+					<div class="mt-1.5 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[11.5px] font-medium text-mist">
+						{#if ageOf != null}
+							<span class="inline-flex items-center gap-1"><Icon name="cake" size={12} class="shrink-0" /> {ageOf} ans</span>
+						{/if}
+						{#if selected.user.heightCm}
+							<span class="inline-flex items-center gap-1"><Icon name="ruler" size={12} class="shrink-0" /> {selected.user.heightCm} cm</span>
+						{/if}
+						{#if memberSince}
+							<span class="inline-flex items-center gap-1"><Icon name="calendarDays" size={12} class="shrink-0" /> Membre depuis le {memberSince}</span>
+						{/if}
+						<span class="inline-flex items-center gap-1"><Icon name="clock3" size={12} class="shrink-0" /> Dernière connexion : {fmtLastSeen(selected.user.lastSeenAt)}</span>
+					</div>
+					{#if selected.user.gsheetUrl}
+						<a
+							href={selected.user.gsheetUrl}
+							target="_blank"
+							rel="noopener noreferrer"
+							class="mt-1.5 inline-flex items-center gap-1 rounded-lg border border-brand/40 bg-brand-light/50 px-2 py-1 text-[11px] font-semibold text-brand-dark transition hover:border-brand hover:bg-brand-light"
+						><Icon name="externalLink" size={12} class="shrink-0" /> Ouvrir le tableur G-FLUX</a>
 					{/if}
-					{#if selected.user.heightCm}
-						<span class="inline-flex items-center gap-1"><Icon name="ruler" size={12} class="shrink-0" /> {selected.user.heightCm} cm</span>
-					{/if}
-					<span class="inline-flex items-center gap-1"><Icon name="clock" size={12} class="shrink-0" /> {fmtLastSeen(selected.user.lastSeenAt)}</span>
-				</p>
-				{#if selected.user.gsheetUrl}
-					<a
-						href={selected.user.gsheetUrl}
-						target="_blank"
-						rel="noopener noreferrer"
-						class="mt-1 inline-flex items-center gap-1 rounded-lg border border-brand/40 bg-brand-light/50 px-2 py-1 text-[11px] font-semibold text-brand-dark transition hover:border-brand hover:bg-brand-light"
-					><Icon name="externalLink" size={12} class="shrink-0" /> Ouvrir le tableur G-FLUX</a>
-				{/if}
+				</div>
 			</div>
-		</div>
 			<div class="flex flex-wrap items-center gap-2">
 				<details class="group relative">
-					<summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-lg border-2 border-line px-3 py-1.5 text-sm text-ink transition hover:border-brand hover:text-brand"><Icon name="settings" size={14} class="shrink-0" /> Fiche</summary>
+					<summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-xl border border-line bg-white px-3.5 py-2 text-[13px] font-bold text-ink shadow-sm transition hover:border-brand hover:text-brand"><Icon name="clipboardList" size={14} class="shrink-0 text-brand" /> Fiche</summary>
 					<form method="POST" action="?/updateFiche&client={selected.user._id}&section={section}" class="absolute right-0 top-10 z-20 w-80 rounded-xl border border-line bg-white p-4 shadow-xl">
 						<input type="hidden" name="userId" value={selected.user._id} />
 						<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-prenom">Prénom</label>
@@ -2056,7 +2073,7 @@
 					</form>
 				</details>
 				<details class="group relative">
-					<summary class="cursor-pointer list-none rounded-lg border-2 border-line px-3 py-1.5 text-sm text-ink transition hover:border-warn hover:text-warn">Mot de passe</summary>
+					<summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-xl border border-line bg-white px-3.5 py-2 text-[13px] font-bold text-ink shadow-sm transition hover:border-warn hover:text-warn"><Icon name="lock" size={13} class="shrink-0" /> Mot de passe</summary>
 					<form method="POST" action="?/resetPassword&client={selected.user._id}&section={section}" class="absolute right-0 top-10 z-20 w-72 rounded-xl border border-line bg-white p-3 shadow-xl">
 						<input type="hidden" name="userId" value={selected.user._id} />
 						<input name="newPassword" type="text" required minlength="8" placeholder="Nouveau mot de passe (8+ car.)" class="mb-2 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-warn" />
@@ -2064,7 +2081,7 @@
 					</form>
 				</details>
 				<details class="group relative">
-					<summary class="cursor-pointer list-none rounded-lg border-2 border-line px-3 py-1.5 text-sm text-danger transition hover:border-danger hover:bg-danger-light">Supprimer</summary>
+					<summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-xl border border-danger/30 bg-white px-3.5 py-2 text-[13px] font-bold text-danger shadow-sm transition hover:bg-danger-light"><Icon name="trash" size={13} class="shrink-0" /> Supprimer</summary>
 					<form method="POST" action="?/removeClient" class="absolute right-0 top-10 z-20 w-80 rounded-xl border border-danger/40 bg-white p-3 shadow-xl">
 						<input type="hidden" name="userId" value={selected.user._id} />
 						<p class="text-xs leading-relaxed text-ink">Supprimer <strong>{selected.user.prenom}</strong> et toutes ses données ? Action irréversible.</p>
