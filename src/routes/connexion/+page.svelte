@@ -22,7 +22,7 @@
 <svelte:head><title>Connexion — G-Flux</title></svelte:head>
 
 <main
-	class="relative flex min-h-dvh items-center justify-center overflow-hidden bg-[#f6f8f6] px-4"
+	class="relative flex min-h-dvh justify-center bg-[#f6f8f6] px-4"
 	style="padding-top: max(env(safe-area-inset-top), 20px); padding-bottom: max(env(safe-area-inset-bottom), 20px)"
 >
 	<!-- ═══ Fond clair : formes vertes très discrètes (esprit mockup) ═══ -->
@@ -43,8 +43,9 @@
 		<div class="absolute bottom-[18%] left-[22%] h-2 w-2 rounded-full bg-brand/15"></div>
 	</div>
 
-	<!-- ═══ Carte de connexion ═══ -->
-	<div class="relative w-full max-w-md">
+	<!-- ═══ Carte de connexion (my-auto : centrée, mais 100 % scrollable si
+	     le viewport est plus court — paysage iPhone, jamais rognée) ═══ -->
+	<div class="relative my-auto w-full max-w-md">
 		<div class="rounded-[28px] border border-line bg-white/95 p-6 shadow-[0_28px_80px_-32px_rgba(16,44,28,0.28)] backdrop-blur-sm sm:p-9">
 			<!-- Logo -->
 			<div class="mx-auto grid h-[74px] w-[74px] place-items-center rounded-full bg-brand-light shadow-[inset_0_-8px_18px_rgba(29,185,84,0.10)]">
