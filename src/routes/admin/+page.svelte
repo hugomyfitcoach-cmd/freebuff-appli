@@ -2010,7 +2010,15 @@
 			<div class="flex flex-wrap items-center gap-2">
 				<details class="group relative">
 					<summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-xl border border-line bg-white px-3.5 py-2 text-[13px] font-bold text-ink shadow-sm transition hover:border-brand hover:text-brand"><Icon name="clipboardList" size={14} class="shrink-0 text-brand" /> Fiche</summary>
-					<form method="POST" action="?/updateFiche&client={selected.user._id}&section={section}" class="absolute right-0 top-10 z-20 w-80 rounded-xl border border-line bg-white p-4 shadow-xl">
+					<!-- DRAWER « Fiche » : limité au viewport (max-h) avec contenu scrollable
+							(overflow-y-auto + overscroll-contain) — les champs du bas restent
+							accessibles même avec un contenu plus long que l'écran. Le scroll
+							interne ne se propage jamais à la page derrière (overscroll-behavior).
+							Petits écrans : full-fixed avec safe-area (mobile-first). -->
+					<form method="POST" action="?/updateFiche&client={selected.user._id}&section={section}" class="fixed inset-x-0 bottom-0 z-20 max-h-[calc(100dvh-4rem)] w-full overflow-y-auto overscroll-contain rounded-t-2xl border border-line bg-white p-4 shadow-xl sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-10 sm:max-h-[min(42rem,calc(100vh-4.5rem))] sm:w-80 sm:rounded-xl">
+						<div class="sticky top-0 z-10 -mx-4 -mt-4 mb-3 flex items-center gap-2 border-b border-line bg-white/95 px-4 pb-2.5 pt-3 backdrop-blur">
+							<span class="text-[10px] font-bold uppercase tracking-widest text-mist">Fiche cliente</span>
+						</div>
 						<input type="hidden" name="userId" value={selected.user._id} />
 						<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-prenom">Prénom</label>
 						<input id="f-prenom" name="prenom" required value={selected.user.prenom} class="mb-3 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
@@ -2047,6 +2055,8 @@
 							<input type="hidden" name="onboardingEnabled" value="0" />
 						</div>
 						<button type="submit" class="w-full rounded-lg bg-brand px-3 py-2 text-sm font-semibold text-white hover:bg-brand-dark">Enregistrer la fiche</button>
+						<!-- Safe-area mobile (home indicator) : spacer nul sur desktop. -->
+						<div class="h-[env(safe-area-inset-bottom)]" aria-hidden="true"></div>
 					</form>
 				</details>
 				<details class="group relative">
