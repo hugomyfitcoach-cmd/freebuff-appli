@@ -26,11 +26,48 @@
 	/* « vivant » uniquement côté navigateur : la date/heure du hero est locale
 	   à la coach, jamais celle du serveur (SSR : ligne date absente). L'effet
 	   ci-dessous bascule l'état après hydratation — le titre SSR neutre évite
-	   tout flash d'heure serveur et toute hydromismatch. */
-	let dashLive = $state(false);
+	   tout flash d'heure serveur et toute hydromismatch. */		let dashLive = $state(false);
 	$effect(() => {
 		dashLive = true;
 	});
+
+	/* ── Photo de profil coach (100 % frontend, aucun backend) : choix de
+	   fichier → recadrage carré 128 px → dataURL léger persisté en localStorage. ── */
+	let coachAvatar = $state<string | null>(null);
+	$effect(() => {
+		// Restaure la photo persistée (client uniquement, après hydratation).
+		try {
+			coachAvatar = localStorage.getItem('coach-avatar');
+		} catch {
+			/* navigation privée — aperçu de session seul */
+		}
+	});
+	function handleAvatarPick(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+		const img = new Image();
+		img.onload = () => {
+			const c = document.createElement('canvas');
+			c.width = 128;
+			c.height = 128;
+			const ctx = c.getContext('2d');
+			if (!ctx) return;
+			const side = Math.min(img.naturalWidth, img.naturalHeight);
+			ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, 128, 128);
+			const url = c.toDataURL('image/jpeg', 0.85);
+			try {
+				localStorage.setItem('coach-avatar', url);
+			} catch {
+				/* quota dépassé — l'aperçu reste actif pour la session */
+			}
+			coachAvatar = url;
+			URL.revokeObjectURL(img.src);
+		};
+		img.onerror = () => URL.revokeObjectURL(img.src);
+		img.src = URL.createObjectURL(file);
+		input.value = '';
+	}
 
 	const clients = $derived(data.clients ?? []);
 	const selectedId = $derived(data.selectedId ?? null);
@@ -406,7 +443,7 @@
 			?? 'coach'
 	);
 	const dashTitle = $derived(
-		dashLive ? `Bonjour ${dashGreetingPrenom} 👋` : 'Tableau de bord — CRM coach'
+		dashLive ? `Bonjour ${dashGreetingPrenom} 👋` : 'Tableau de bord — Espace coach'
 	);
 	const dashDateLine = $derived.by(() => {
 		if (!dashNow) return '';
@@ -427,9 +464,29 @@
 		}).length
 	);
 	const dashKpiWaiting = $derived(totalWaiting);
-	/** KPI : notifications non lues (badge déjà chargé par le layout) — remplaçe
-	 *  la carte « rendez-vous du jour » du mockup (pas de données RDV globales). */
-	const dashKpiNotifs = $derived(Number(data.notificationsBadge ?? 0));
+	/* ── KPI « Rendez-vous du jour » — API existante GET /api/appointments (tous
+	   les RDV du coach), simple lecture côté client : aucun changement backend. ── */
+	type DashRdv = { _id: string; date: string; time: string; clientName?: string };
+	let kpiRdvAll = $state<DashRdv[]>([]);
+	let kpiRdvLoading = $state(true);
+	$effect(() => {
+		void (async () => {
+			try {
+				const j = await fetch('/api/appointments').then((x) => x.json());
+				kpiRdvAll = (j.appointments ?? []) as DashRdv[];
+			} catch {
+				kpiRdvAll = [];
+			} finally {
+				kpiRdvLoading = false;
+			}
+		})();
+	});
+	/** RDV dont la date locale (yyyy-mm-dd) est aujourd'hui, triés par heure. */
+	const kpiRdvToday = $derived.by(() => {
+		const n = new Date();
+		const key = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+		return kpiRdvAll.filter((r) => r.date === key).sort((a, b) => a.time.localeCompare(b.time));
+	});
 	/** 5 actions prioritaires max, dérivées de données déjà chargées — aucune
 	 *  requête ajoutée, aucune logique métier modifiée (simple réordonnancement). */
 	type DashTodo = {
@@ -1504,7 +1561,7 @@
 	}
 </script>
 
-<svelte:head><title>CRM — G-Flux</title></svelte:head>
+<svelte:head><title>Espace Coach — G-Flux</title></svelte:head>
 
 <!-- ══════════ TOP HEADER COCKPIT (PASS 2 — mockup) ══════════
      Salutation + sous-titre à gauche · recherche cliente / cloche notifications
@@ -1538,7 +1595,19 @@
 			{/if}
 		</a>
 		<div class="flex shrink-0 items-center gap-2.5 rounded-full border border-line bg-white py-1 pl-1 pr-3">
-			<span class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brand text-[13px] font-black text-white">{initial(dashGreetingPrenom)}</span>
+			<label class="group relative block h-8 w-8 shrink-0 cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand" title="Changer la photo de profil">
+				<span class="sr-only">Changer la photo de profil</span>
+				{#if coachAvatar}
+					<img src={coachAvatar} alt="Avatar de {dashGreetingPrenom}" class="h-8 w-8 rounded-full object-cover ring-1 ring-line" />
+				{:else}
+					<span class="grid h-8 w-8 place-items-center rounded-full bg-brand text-[13px] font-black text-white">{initial(dashGreetingPrenom)}</span>
+				{/if}
+				<!-- Indicateur d'édition discret -->
+				<span class="absolute -bottom-0.5 -right-0.5 grid h-3.5 w-3.5 place-items-center rounded-full bg-white text-ink shadow-sm ring-1 ring-line transition group-hover:bg-brand group-hover:text-white" aria-hidden="true">
+					<Icon name="camera" size={8} strokeWidth={2.8} />
+				</span>
+				<input type="file" accept="image/*" class="hidden" onchange={handleAvatarPick} />
+			</label>
 			<span class="hidden min-w-0 leading-tight md:block">
 				<span class="block truncate text-[13px] font-bold text-ink">{dashGreetingPrenom}</span>
 				<span class="block text-[10.5px] font-medium text-mist">Coach G-FLUX</span>
@@ -1596,20 +1665,22 @@
 			{/if}
 		</div>
 	</div>
-	<div class="kpi-crm kpi-crm-plain card-crm-hover" style={`--kpi-tile-bg: ${dashKpiNotifs > 0 ? 'var(--warn-light)' : 'var(--accent-light)'}; --kpi-tile-fg: ${dashKpiNotifs > 0 ? 'var(--warn)' : 'var(--brand-deep)'}; --m-i: 3`}>
+	<div class="kpi-crm kpi-crm-plain card-crm-hover" style="--kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep); --m-i: 3">
 		<div class="flex items-start justify-between gap-2">
-			<span class="kpi-tile-lg"><Icon name="bell" size={20} /></span>
-			<span class="spark-crm" aria-hidden="true" style={`--spark-color: ${dashKpiNotifs > 0 ? 'rgba(255, 149, 0, 0.55)' : 'rgba(29, 185, 84, 0.5)'}`}>
-				<i style="--h: 55; --m-i: 0"></i><i style="--h: 40; --m-i: 1"></i><i style="--h: 65; --m-i: 2"></i><i style="--h: 35; --m-i: 3"></i><i style="--h: 75; --m-i: 4"></i><i style="--h: 50; --m-i: 5"></i><i style="--h: {dashKpiNotifs > 0 ? 100 : 60}; --m-i: 6"></i>
+			<span class="kpi-tile-lg"><Icon name="calendarCheck" size={20} /></span>
+			<span class="spark-crm" aria-hidden="true" style="--spark-color: rgba(29, 185, 84, 0.5)">
+				<i style="--h: 45; --m-i: 0"></i><i style="--h: 60; --m-i: 1"></i><i style="--h: 35; --m-i: 2"></i><i style="--h: 70; --m-i: 3"></i><i style="--h: 50; --m-i: 4"></i><i style="--h: 85; --m-i: 5"></i><i style="--h: 65; --m-i: 6"></i>
 			</span>
 		</div>
-		<div class="kpi-num-crm mt-2.5 text-[2rem] text-ink"><CountUp value={dashKpiNotifs} /></div>
-		<div class="mt-0.5 text-[13px] font-bold text-ink">notifications à consulter</div>
+		<div class="kpi-num-crm mt-2.5 text-[2rem] text-ink"><CountUp value={kpiRdvToday.length} /></div>
+		<div class="mt-0.5 text-[13px] font-bold text-ink">rendez-vous du jour</div>
 		<div class="mt-2 flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11.5px] text-mist">
-			{#if dashKpiNotifs > 0}
-				<a href="/admin/notifications" class="inline-flex items-center gap-1 font-bold text-warn transition hover:text-danger"><Icon name="bell" size={12} /> À consulter aujourd'hui</a>
+			{#if kpiRdvLoading}
+				<span>Chargement des rendez-vous…</span>
+			{:else if kpiRdvToday.length === 0}
+				<a href="/admin/rendez-vous" class="inline-flex items-center gap-1 transition hover:text-brand"><Icon name="calendarRange" size={12} /> Aucun rendez-vous aujourd'hui</a>
 			{:else}
-				<a href="/admin/notifications" class="inline-flex items-center gap-1 font-bold text-brand-deep transition hover:text-brand"><Icon name="circleCheck" size={12} /> Tout est lu ✓</a>
+				<a href="/admin/rendez-vous" class="inline-flex min-w-0 items-center gap-1 font-bold text-brand-deep transition hover:text-brand"><Icon name="clock" size={12} class="shrink-0" /> Prochain : {kpiRdvToday[0].time}{#if kpiRdvToday[0].clientName}&nbsp;· <span class="truncate">{kpiRdvToday[0].clientName}</span>{/if}</a>
 			{/if}
 		</div>
 	</div>
@@ -1621,11 +1692,11 @@
 	<div class="min-w-0 xl:col-span-5">
 		<section class="card-crm p-4">
 			<div class="flex items-center justify-between gap-2">
-				<h2 class="h2-crm flex items-center gap-2 text-base">
+				<h2 class="h2-crm flex items-center gap-2 text-[15px]">
 					<span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand text-white"><Icon name="check" size={13} strokeWidth={3} /></span>
 					À traiter aujourd'hui
 				</h2>
-				<a href="/admin/bilans" class="btn-crm inline-flex items-center gap-1 rounded-full border border-line bg-white px-2.5 py-1 text-[11.5px] font-bold text-ink transition hover:border-brand hover:text-brand">
+				<a href="/admin/bilans" class="btn-crm inline-flex items-center gap-1 rounded-full border border-line bg-white px-2 py-0.5 text-[11px] font-bold text-ink transition hover:border-brand hover:text-brand">
 					Voir tout <Icon name="arrowRight" size={12} />
 				</a>
 			</div>
@@ -1675,11 +1746,10 @@
 			</div>
 		{/if}
 
-		<!-- ══ Google Calendar (compte du coach) — logique conservée, carte cockpit ══ -->
-		<section class="card-crm p-4">
-			<div class="flex flex-wrap items-center justify-between gap-3">
-				<div class="flex min-w-0 items-center gap-2">
-					<h2 class="h2-crm flex items-center gap-2 text-base"><Icon name="calendarCheck" size={17} class="shrink-0 text-brand" /> Google Calendar</h2>
+		<!-- ══ Google Calendar (compte du coach) — logique conservée, carte cockpit ══ -->			<section class="card-crm p-4">
+				<div class="flex flex-wrap items-center justify-between gap-3">
+					<div class="flex min-w-0 items-center gap-2">
+						<h2 class="h2-crm flex items-center gap-2 text-[15px]"><Icon name="calendarCheck" size={16} class="shrink-0 text-brand" /> Google Calendar</h2>
 					{#if google}
 						<span class="rounded-full bg-brand px-2 py-0.5 text-[10.5px] font-bold text-white">Connecté ✓</span>
 					{:else}
@@ -1700,34 +1770,33 @@
 					><Icon name="calendarRange" size={13} class="shrink-0" /> Connecter</a>
 				{/if}
 			</div>
-			<div class="mt-3 flex items-center gap-3 rounded-xl bg-soft/70 px-3.5 py-3">
-				<span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white text-[15px] font-black text-[#188038] shadow-sm" aria-hidden="true">31</span>
+			<div class="mt-2.5 flex items-center gap-3 rounded-xl bg-soft/70 px-3 py-2.5">
+				<img src="/img/google-calendar.svg" alt="Logo Google Calendar" class="h-9 w-9 shrink-0" />
 				<div class="min-w-0">
-					<p class="text-[13.5px] font-bold text-ink">{google ? (google.email || 'Compte Google connecté') : 'Compte Google non connecté'}</p>
-					<p class="text-[12px] text-mist">{google ? 'Tes rendez-vous sont synchronisés automatiquement.' : 'Connecte ton agenda pour synchroniser tes rendez-vous.'}</p>
+					<p class="truncate text-[13px] font-bold text-ink">{google ? (google.email || 'Compte Google connecté') : 'Compte Google non connecté'}</p>
+					<p class="text-[11.5px] text-mist">{google ? 'Tes rendez-vous sont synchronisés automatiquement.' : 'Connecte ton agenda pour synchroniser tes rendez-vous.'}</p>
 				</div>
 			</div>
 			{#if google}
-				<p class="mt-2 text-[10.5px] text-mist">Tokens chiffrés côté serveur · déconnexion possible à tout moment.</p>
+				<p class="mt-1.5 text-[10px] text-mist">Tokens chiffrés côté serveur · déconnexion possible à tout moment.</p>
 			{/if}
 		</section>
 
 		<!-- ══ Message global — mêmes actions, composition compacte ══
 		     Côté cliente, rien ne change : la notification, la carte « Message de ton
-		     coach » et l'historique sont exactement ceux d'un message classique. -->
-		<section class="card-crm p-4">
-			<div class="flex flex-wrap items-center justify-between gap-2">
-				<h2 class="h2-crm flex items-center gap-2 text-base"><Icon name="messageCircle" size={17} class="shrink-0 text-brand" /> Message global <span class="text-[11.5px] font-medium text-mist">(optionnel)</span></h2>
-				<a href="/admin/templates" class="btn-crm rounded-full border border-line bg-white px-2.5 py-1 text-[11.5px] font-bold text-ink transition hover:border-brand hover:text-brand">Voir les modèles</a>
-			</div>
+		     coach » et l'historique sont exactement ceux d'un message classique. -->			<section class="card-crm p-4">
+				<div class="flex flex-wrap items-center justify-between gap-2">
+					<h2 class="h2-crm flex items-center gap-2 text-[15px]"><Icon name="messageCircle" size={16} class="shrink-0 text-brand" /> Message global <span class="text-[10.5px] font-medium text-mist">(optionnel)</span></h2>
+					<a href="/admin/templates" class="btn-crm rounded-full border border-line bg-white px-2 py-0.5 text-[11px] font-bold text-ink transition hover:border-brand hover:text-brand">Voir les modèles</a>
+				</div>
 
 			{#if globalMessage}
 				<!-- Envoi en cours : statut + retrait immédiat (disparaît seul après 24 h) -->
-				<div class="mt-3 rounded-xl border border-brand/40 bg-brand-light/50 p-3">
+				<div class="mt-2 rounded-xl border border-brand/40 bg-brand-light/50 p-2.5">
 					<div class="flex flex-wrap items-center justify-between gap-2">
 						<div class="flex flex-wrap items-center gap-2">
 							<span class="rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Envoi en cours</span>
-							<span class="text-[11.5px] text-mist">Publié {fmtDateTime(globalMessage.publishedAt)} · {globalMessage.recipientCount} destinataire{globalMessage.recipientCount > 1 ? 's' : ''} · {globalMessage.readCount} lu{globalMessage.readCount > 1 ? 's' : ''}</span>
+							<span class="text-[11px] text-mist">Publié {fmtDateTime(globalMessage.publishedAt)} · {globalMessage.recipientCount} destinataire{globalMessage.recipientCount > 1 ? 's' : ''} · {globalMessage.readCount} lu{globalMessage.readCount > 1 ? 's' : ''}</span>
 						</div>
 						<form
 							method="POST"
@@ -1736,40 +1805,39 @@
 								if (!confirm('Retirer le message global de l\'accueil de toutes les clientes, maintenant ?')) e.preventDefault();
 							}}
 						>
-							<button type="submit" class="rounded-lg border-2 border-line bg-white px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-danger hover:text-danger">
+							<button type="submit" class="rounded-lg border-2 border-line bg-white px-2.5 py-1 text-[11.5px] font-semibold text-ink transition hover:border-danger hover:text-danger">
 								Retirer maintenant
 							</button>
 						</form>
 					</div>
-					<p class="mt-2 whitespace-pre-line text-sm leading-relaxed text-ink">{globalMessage.text}</p>
-					<p class="mt-1.5 text-[11px] text-mist"><Icon name="timer" size={11} class="mr-0.5 inline shrink-0" /> Disparaît automatiquement dans {fmtRemaining(globalRemainingMs)} (et de ce tableau de bord au même moment).</p>
+					<p class="mt-1.5 whitespace-pre-line text-[13px] leading-relaxed text-ink">{globalMessage.text}</p>
+					<p class="mt-1 text-[10.5px] text-mist"><Icon name="timer" size={11} class="mr-0.5 inline shrink-0" /> Disparaît automatiquement dans {fmtRemaining(globalRemainingMs)}.</p>
 				</div>
 			{:else}
 				<!-- Aucun envoi actif : composeur (fermé tant qu'un message global est actif) -->
-				<form method="POST" action="?/sendGlobalMessage" class="mt-3">
+				<form method="POST" action="?/sendGlobalMessage" class="mt-2">
 					<textarea
 						name="message"
 						rows="2"
 						maxlength="500"
-						placeholder="Ex. Pense à bien remplir ton bilan avant dimanche 12h — message commun à toutes tes clientes…"
-						class="min-h-16 w-full rounded-xl border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition placeholder:text-mist focus:border-brand"
+						placeholder="Message commun à toutes tes clientes…"
+						class="min-h-0 w-full rounded-xl border border-line bg-white px-3 py-1.5 text-[13px] leading-snug text-ink outline-none transition placeholder:text-mist focus:border-brand"
 					></textarea>
-					<div class="mt-2 flex flex-wrap items-center justify-between gap-2">
-						<span class="inline-flex min-w-0 items-center gap-1.5 text-[11.5px] text-mist">
-							<Icon name="users" size={13} class="shrink-0" />
-							À toutes les clientes actives sur 5 jours ({active5d})
+					<div class="mt-1.5 flex flex-wrap items-center justify-between gap-2">
+						<span class="inline-flex min-w-0 items-center gap-1.5 text-[11px] text-mist">
+							<Icon name="users" size={12} class="shrink-0" />
+							Actives sur 5 jours ({active5d})
 						</span>
 						<button
 							type="submit"
 							disabled={active5d === 0}
-							class="btn-crm inline-flex items-center gap-1.5 rounded-full bg-brand px-4 py-2 text-[12.5px] font-bold text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
+							class="btn-crm inline-flex items-center gap-1 rounded-full bg-brand px-3 py-1.5 text-[12px] font-bold text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
 						>
-							<Icon name="arrowRight" size={13} class="shrink-0" /> Envoyer à toutes
+							<Icon name="arrowRight" size={12} class="shrink-0" /> Envoyer à toutes
 						</button>
 					</div>
-					<p class="mt-1.5 text-[11px] leading-relaxed text-mist">
-						Visible chez elles comme un « Message coach du jour » classique (24 h max) · notification identique · retire-le à tout moment · aucun impact sur les messages personnalisés de la Vision 360.
-						{#if active5d === 0}Aucune cliente active sur les 5 derniers jours — l'envoi est désactivé.{/if}
+					<p class="mt-1 text-[10.5px] leading-relaxed text-mist">
+						Visible 24 h max · notification identique · retire-le à tout moment.{#if active5d === 0} Aucune cliente active sur 5 jours — envoi désactivé.{/if}
 					</p>
 				</form>
 			{/if}

@@ -411,7 +411,7 @@
 				<img src="/logo-header.png" alt="G-Flux" class="h-9 w-auto" />
 			</a>
 			<span class="font-display text-xs font-semibold uppercase tracking-widest text-mist">
-				{role === 'coach' ? 'CRM Coach' : 'Espace client'}
+				{role === 'coach' ? 'Espace Coach' : 'Espace client'}
 			</span>
 		</div>
 
