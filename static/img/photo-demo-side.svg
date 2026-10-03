@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 160" role="img" aria-label="Photo de suivi (exemple, profil)">
+	<defs>
+		<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+			<stop offset="0" stop-color="#f5f4f1"/>
+			<stop offset="1" stop-color="#e7e3dc"/>
+		</linearGradient>
+	</defs>
+	<rect width="120" height="160" fill="url(#bg)"/>
+	<ellipse cx="62" cy="147" rx="30" ry="6" fill="#cfc9be" opacity="0.65"/>
+	<circle cx="52" cy="34" r="12.5" fill="#9a8f83"/>
+	<path d="M60 26 Q66 34 63 44 L56 42 Z" fill="#8b8175" opacity="0.8"/>
+	<rect x="50" y="45" width="9" height="9" rx="4" fill="#9a8f83"/>
+	<path d="M46 57 Q62 51 74 58 L77 99 Q60 106 47 100 Z" fill="#7e7466"/>
+	<path d="M70 60 Q82 74 80 94" stroke="#8b8175" stroke-width="8.5" stroke-linecap="round" fill="none"/>
+	<path d="M48 94 Q64 101 75 94 L74 114 Q60 120 49 114 Z" fill="#665e52"/>
+	<path d="M54 116 L53 145" stroke="#9a8f83" stroke-width="11" stroke-linecap="round" fill="none"/>
+	<path d="M68 116 L69 145" stroke="#9a8f83" stroke-width="11" stroke-linecap="round" fill="none"/>
+</svg>

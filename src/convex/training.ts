@@ -263,6 +263,7 @@ export const programFull = query({
 					coachNote: se.coachNote,
 					techniqueNote: se.techniqueNote,
 					phase: se.phase,
+					supersetGroup: se.supersetGroup,
 							exercise: ex
 								? {
 										_id: ex._id,
@@ -459,6 +460,7 @@ export async function copyProgramInto(
 				coachNote: se.coachNote,
 				techniqueNote: se.techniqueNote,
 				...(se.phase ? { phase: se.phase } : {}),
+				...(se.supersetGroup ? { supersetGroup: se.supersetGroup } : {}),
 				createdAt: now,
 			});
 			const sets = await ctx.db
@@ -579,35 +581,37 @@ export const duplicateSession = mutation({
 			.collect();
 		ses.sort((a, b) => a.order - b.order);
 		for (const se of ses) {
-			const newSeId = await ctx.db.insert("trainingSessionExercises", {
-				sessionId: newSessionId,
-				exerciseId: se.exerciseId,
-				order: se.order,
-				mode: se.mode,
-				tempo: se.tempo,
-				coachNote: se.coachNote,
-				techniqueNote: se.techniqueNote,
-				createdAt: now,
+		const newSeId = await ctx.db.insert("trainingSessionExercises", {
+			sessionId: newSessionId,
+			exerciseId: se.exerciseId,
+			order: se.order,
+			mode: se.mode,
+			tempo: se.tempo,
+			coachNote: se.coachNote,
+			techniqueNote: se.techniqueNote,
+			...(se.phase ? { phase: se.phase } : {}),
+			...(se.supersetGroup ? { supersetGroup: se.supersetGroup } : {}),
+			createdAt: now,
+		});
+		const sets = await ctx.db
+			.query("trainingSets")
+			.withIndex("by_sessionExercise", (q) => q.eq("sessionExerciseId", se._id))
+			.collect();
+		for (const st of sets) {
+			await ctx.db.insert("trainingSets", {
+				sessionExerciseId: newSeId,
+				order: st.order,
+				repsMin: st.repsMin,
+				repsMax: st.repsMax,
+				targetWeight: st.targetWeight,
+				targetRir: st.targetRir,
+				restSeconds: st.restSeconds,
+				durationSeconds: st.durationSeconds,
 			});
-			const sets = await ctx.db
-				.query("trainingSets")
-				.withIndex("by_sessionExercise", (q) => q.eq("sessionExerciseId", se._id))
-				.collect();
-			for (const st of sets) {
-				await ctx.db.insert("trainingSets", {
-					sessionExerciseId: newSeId,
-					order: st.order,
-					repsMin: st.repsMin,
-					repsMax: st.repsMax,
-					targetWeight: st.targetWeight,
-					targetRir: st.targetRir,
-					restSeconds: st.restSeconds,
-					durationSeconds: st.durationSeconds,
-				});
-			}
 		}
+	}
 
-		// Réordonne : la copie passe juste après la source (ordres contigus).
+	// Réordonne : la copie passe juste après la source (ordres contigus).
 		siblings.sort((a, b) => a.order - b.order);
 		const ordered = siblings.map((s) => s._id);
 		ordered.splice(ordered.indexOf(src._id) + 1, 0, newSessionId);
@@ -756,6 +760,9 @@ export const duplicateSessionExercise = mutation({
 			tempo: src.tempo,
 			coachNote: src.coachNote,
 			techniqueNote: src.techniqueNote,
+			// La copie EST l'exercice d'origine dans un groupe : si la source est
+			// liée, la copie se sépare (exercice isolé) — dupliquer un exercice
+			// d'un superset ne crée jamais une 2e référence au même groupe.
 			createdAt: now,
 		});
 		const sets = await ctx.db
@@ -833,7 +840,6 @@ export const updateSessionExercise = mutation({
 		if (coachNote !== undefined) patch.coachNote = coachNote?.trim() || undefined;
 		if (techniqueNote !== undefined) patch.techniqueNote = techniqueNote?.trim() || undefined;
 		await ctx.db.patch(sessionExerciseId, patch as never);
-
 		// Changement de mode : complète les séries existantes avec le défaut du
 		// nouveau mode (durée 60 s / reps 10) SANS écraser ce que la coach a
 		// déjà réglé (le repos, notamment, est conservé).
@@ -856,6 +862,83 @@ export const updateSessionExercise = mutation({
 		}
 		const session = await ctx.db.get(se.sessionId);
 		if (session) await ctx.db.patch(session.programId, { updatedAt: Date.now() });
+		return { ok: true };
+	},
+});
+
+/* ═══════════ Supersets / trisets ═══════════ */
+
+/**
+ * Lie ou délie des exercices d'une MÊME séance dans un superset/triset.
+ *
+ * ADDITIF PUR : le champ `supersetGroup` (optionnel) est le seul changement
+ * de schéma — aucune migration, aucun backfill, les séances existantes
+ * (champ absent) restent des exercices isolés. La liaison est un simple
+ * patch de N lignes ; le déliage est un patch à undefined. L'ordre
+ * d'affichage reste porté par `order` : un groupe se lit par contiguïté.
+ *
+ * Garde-fous : 2 à 6 exercices par groupe, tous de la même séance (propriété
+ * coach vérifiée ligne par ligne). Réutiliser le même identifiant pour
+ * étendre/réduire un groupe existant est autorisé.
+ */
+export const setSupersetGroup = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		/** Exercices à marquer (ordre = ordre d'affichage souhaité). */
+		orderedIds: v.array(v.id("trainingSessionExercises")),
+		/** null = délier totalement (tous les membres deviennent isolés). */
+		group: v.optional(v.union(v.string(), v.null())),
+	},
+	handler: async (ctx, { sessionToken, orderedIds, group }) => {
+		const coach = await requireCoach(ctx, sessionToken);
+		if (group === null || group === undefined) {
+			// DÉLIAGE : retire l'appartenance de chaque ligne (individuel ou total).
+			for (const id of orderedIds) {
+				const se = await requireSessionExercise(ctx, coach._id, id);
+				await ctx.db.patch(se._id, { supersetGroup: undefined } as never);
+			}
+		} else {
+			if (orderedIds.length < 2 || orderedIds.length > 6) {
+				throw new ConvexError("Un superset réunit 2 à 6 exercices.");
+			}
+			const rows: Doc<"trainingSessionExercises">[] = [];
+			for (const id of orderedIds) {
+				rows.push(await requireSessionExercise(ctx, coach._id, id));
+			}
+			const sessionId = rows[0].sessionId;
+			if (!rows.every((r) => r.sessionId === sessionId)) {
+				throw new ConvexError("Les exercices d'un superset doivent appartenir à la même séance.");
+			}
+			// Patch de groupe : les ids reçoivent le même identifiant, réordonnés
+			// par contiguïté (le 1er du groupe amorce la position, les suivants
+			// viennent se placer juste après, dans l'ordre fourni).
+			const siblings = await ctx.db
+				.query("trainingSessionExercises")
+				.withIndex("by_session", (q) => q.eq("sessionId", sessionId))
+				.collect();
+			siblings.sort((a, b) => a.order - b.order || a.createdAt - b.createdAt);
+			const chosen = new Set(orderedIds);
+			const ordered = siblings.map((s) => s._id);
+			// Retire puis réinsère les membres en contiguïté à la position du premier.
+			const rest = ordered.filter((id) => !chosen.has(id));
+			const firstPos = ordered.findIndex((id) => chosen.has(id));
+			rest.splice(firstPos < 0 ? rest.length : firstPos, 0, ...orderedIds);
+			await Promise.all(
+				rest.map((id, i) =>
+					ctx.db.patch(id, i < firstPos || i >= firstPos + orderedIds.length
+						? { order: i } as never
+						: ({ order: i, supersetGroup: group } as never))
+				)
+			);
+		}
+		// Toucher updatedAt du programme (parent du 1er id) pour l'ordre de la liste.
+		if (orderedIds[0]) {
+			const first = await ctx.db.get(orderedIds[0]);
+			if (first) {
+				const session = await ctx.db.get(first.sessionId);
+				if (session) await ctx.db.patch(session.programId, { updatedAt: Date.now() });
+			}
+		}
 		return { ok: true };
 	},
 });

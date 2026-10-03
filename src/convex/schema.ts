@@ -1160,6 +1160,15 @@ export default defineSchema({
 		phase: v.optional(trainingPhase),
 		/** Consigne technique affichée avec la prescription. */
 		techniqueNote: v.optional(v.string()),
+		/**
+		 * SUPERSERSET / TRISET : identifiant de groupe partagé par 2+ exercices
+		 * de la MÊME séance. Optionnel : absent = exercice isolé (100 %
+		 * rétrocompatible — les séances existantes et les copies assignées
+		 * restent inchangées). Format : "sup:<12 hex>" généré à la liaison.
+		 * Réordonner/dupliquer/supprimer un exercice conserve son groupe ;
+		 * supprimer un membre ne touche jamais les autres.
+		 */
+		supersetGroup: v.optional(v.string()),
 		createdAt: v.number(),
 	}).index("by_session", ["sessionId"]),
 

@@ -20,8 +20,18 @@
 	import { ONBOARDING_SECTIONS, readableAnswer } from '../../lib/onboarding.js';
 	import { avgLast7Completed } from '$lib/averages';
 	import { createFoodSearch } from '$lib/foodSearch.svelte';
+	import CountUp from '$lib/components/CountUp.svelte';
+	import CoachIdentity from '$lib/components/CoachIdentity.svelte';
+	import { coachIdentity, type CoachUserLike } from '$lib/coachIdentity';
 
 	let { data, form } = $props();
+	/* « vivant » uniquement côté navigateur : la date/heure du hero est locale
+	   à la coach, jamais celle du serveur (SSR : ligne date absente). L'effet
+	   ci-dessous bascule l'état après hydratation — le titre SSR neutre évite
+	   tout flash d'heure serveur et toute hydromismatch. */		let dashLive = $state(false);
+	$effect(() => {
+		dashLive = true;
+	});
 
 	const clients = $derived(data.clients ?? []);
 	const selectedId = $derived(data.selectedId ?? null);
@@ -173,16 +183,46 @@
 		}
 	}
 
-	const filtered = $derived(
-		query.trim()
-			? clients.filter((c: { user: { prenom: string; nom?: string | null; email: string } }) =>
-					`${fullName(c.user)} ${c.user.email}`.toLowerCase().includes(query.trim().toLowerCase())
-				)
-			: clients
-	);
-
 	const alert = $derived(form && 'action' in form ? (form as { action: string; error?: string; ok?: string; clientId?: string }) : null);
 	const initial = (name: string) => name.trim().charAt(0).toUpperCase() || '?';
+
+	/* ── PASS 2 (fidélité mockup) : état « Vue rapide des clientes » ──
+	   Filtres UI purs (aucune donnée supplémentaire, aucun backend) — même
+	   liste `clients` déjà chargée, tri et statuts dérivés localement. */
+	type ClientFilter = 'all' | 'active' | 'inactive';
+	let clientFilter = $state<ClientFilter>('all');
+	/** Statut dérivé : active = dernière connexion < 24 h (même critère KPI). */
+	function statusLabel(lastSeenAt: number | null): { label: string; cls: string } {
+		return lastSeenAt && Date.now() - lastSeenAt < 24 * 3600 * 1000
+			? { label: 'Active', cls: 'bg-brand-light text-brand-deep' }
+			: { label: 'Inactive', cls: 'bg-danger-light text-danger' };
+	}
+	const clientCounts = $derived.by(() => {
+		const active = clients.filter((c: { user: { lastSeenAt: number | null } }) => {
+			const ts = c.user.lastSeenAt;
+			return ts && Date.now() - ts < 24 * 3600 * 1000;
+		}).length;
+		return { all: clients.length, active, inactive: clients.length - active };
+	});
+	const filteredClients = $derived.by(() => {
+		let list = clients;
+		if (clientFilter === 'active') {
+			list = list.filter((c: { user: { lastSeenAt: number | null } }) => {
+				const ts = c.user.lastSeenAt;
+				return ts && Date.now() - ts < 24 * 3600 * 1000;
+			});
+		} else if (clientFilter === 'inactive') {
+			list = list.filter((c: { user: { lastSeenAt: number | null } }) => {
+				const ts = c.user.lastSeenAt;
+				return !ts || Date.now() - ts >= 24 * 3600 * 1000;
+			});
+		}
+		if (!query.trim()) return list;
+		const q = query.trim().toLowerCase();
+		return list.filter((c: { user: { prenom: string; nom?: string | null; email: string } }) =>
+			`${fullName(c.user)} ${c.user.email}`.toLowerCase().includes(q)
+		);
+	});
 
 	/** Âge calculé depuis la date de naissance (jamais saisi à la main) — jour/mois d'anniversaire inclus. */
 	const ageOf = $derived.by(() => {
@@ -195,6 +235,14 @@
 		const m = now.getMonth() - birth.getMonth();
 		if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age--;
 		return age;
+	});
+	/** « Membre depuis le » — début du suivi si renseigné, sinon création du compte. */
+	const memberSince = $derived.by(() => {
+		const u = selected?.user;
+		if (!u) return null;
+		if (u.startDate) return fmtDateShort(u.startDate);
+		if (u.createdAt) return fmtDateShort(new Date(u.createdAt).toISOString().slice(0, 10));
+		return null;
 	});
 
 	/* ── Formatage ─────────────────────────────────────────────── */
@@ -321,6 +369,10 @@
 	const stepsTotal = $derived(stepBars.reduce((s, b) => s + (b.value ?? 0), 0));
 	/** Moyenne UNIQUEMENT sur les jours réellement renseignés — jamais divisée par 7. */
 	const stepsAvg = $derived(stepsAvgResult.avg ?? 0);
+	/** Écarts moyenne ↔ objectif (cartes « Analyses » de la Vision 360). */
+	const kcalGoalVal = $derived(view?.cockpit?.calories?.goal ?? goalKcal);
+	const kcalGap = $derived(weekAvg > 0 ? Math.round(weekAvg - kcalGoalVal) : null);
+	const stepsGap = $derived(stepsAvg > 0 && stepGoalVal ? Math.round(stepsAvg - stepGoalVal) : null);
 	const fmtN = (n: number) => Math.round(n).toLocaleString('fr-FR');
 
 	const weightPoints = $derived.by(() => {
@@ -346,6 +398,114 @@
 	});
 
 	const isOnline = (ts: number | null) => !!ts && Date.now() - ts < 5 * 60 * 1000;
+
+	/* ── Refonte UX/UI premium (north star : docs/refonte-preview) ─────────
+	   Hero dashboard : salutation « Bonjour {prenom} 👋 » + date longue du jour
+	   + sous-titre métier, selon le mockup validé. Côté serveur (SSR) : titre
+	   neutre « Tableau de bord — CRM coach » (aucune information d'heure, la
+	   date vivant côté navigateur pour suivre le fuseau de la coach) ; après
+	   hydratation le titre devient « Bonjour Hugo 👋 » et la ligne date se
+	   révèle — stable pendant TOUTE la session (pas de re-rendu à la minute). */
+	const dashNow = $derived.by(() => {
+		if (!dashLive) return null;
+		return new Date();
+	});
+	/** Identité coach (affichage) : prénom/email réels de la session (layout
+	 *  /admin — SSR compris), sinon coach fictif réaliste pour la Preview.
+	 *  Le compte de test s'appelle littéralement « Coach » : sans ce repli,
+	 *  le hero afficherait « Bonjour Coach ». 100 % frontend. */
+	const dashCoach = $derived(coachIdentity((data as { user?: CoachUserLike } | null)?.user));
+	const dashGreetingPrenom = $derived(dashCoach.prenom);
+	const dashTitle = $derived(
+		dashLive ? `Bonjour ${dashGreetingPrenom} 👋` : 'Tableau de bord — Espace coach'
+	);
+	const dashDateLine = $derived.by(() => {
+		if (!dashNow) return '';
+		const long = dashNow.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+		const time = dashNow.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+		// Numéro de semaine ISO 8601 (semaine commençant lundi).
+		const thursday = new Date(dashNow.getFullYear(), dashNow.getMonth(), dashNow.getDate() + 3 - ((dashNow.getDay() + 6) % 7));
+		const week = 1 + Math.round((thursday.getTime() - new Date(thursday.getFullYear(), 0, 4).getTime()) / 604_800_000);
+		return `${long.charAt(0).toUpperCase()}${long.slice(1)} · ${time} · semaine ${week}`;
+	});
+	/** KPI : clientes actives sur les 24 dernières heures — même définition
+	 *  que le compteur existant « Actif·ve·s aujourd’hui » (lastSeenAt). */
+	const dashKpiClients = $derived(clients.length);
+	const dashKpiActive = $derived(
+		clients.filter((c: { user: { lastSeenAt: number | null } }) => {
+			const ts = c.user.lastSeenAt;
+			return ts && Date.now() - ts < 24 * 3600 * 1000;
+		}).length
+	);
+	const dashKpiWaiting = $derived(totalWaiting);
+	/* ── KPI « Rendez-vous du jour » — API existante GET /api/appointments (tous
+	   les RDV du coach), simple lecture côté client : aucun changement backend. ── */
+	type DashRdv = { _id: string; date: string; time: string; clientName?: string };
+	let kpiRdvAll = $state<DashRdv[]>([]);
+	let kpiRdvLoading = $state(true);
+	$effect(() => {
+		void (async () => {
+			try {
+				const j = await fetch('/api/appointments').then((x) => x.json());
+				kpiRdvAll = (j.appointments ?? []) as DashRdv[];
+			} catch {
+				kpiRdvAll = [];
+			} finally {
+				kpiRdvLoading = false;
+			}
+		})();
+	});
+	/** RDV dont la date locale (yyyy-mm-dd) est aujourd'hui, triés par heure. */
+	const kpiRdvToday = $derived.by(() => {
+		const n = new Date();
+		const key = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+		return kpiRdvAll.filter((r) => r.date === key).sort((a, b) => a.time.localeCompare(b.time));
+	});
+	/** 5 actions prioritaires max, dérivées de données déjà chargées — aucune
+	 *  requête ajoutée, aucune logique métier modifiée (simple réordonnancement). */
+	type DashTodo = {
+		key: string;
+		icon: string;
+		title: string;
+		subtitle: string;
+		tone: 'warn' | 'danger' | 'brand' | 'blue';
+		toneLabel: string;
+		href: string;
+	};
+	const dashTodos = $derived.by<DashTodo[]>(() => {
+		const out: DashTodo[] = [];
+		// 1) Bilans déposés en attente de retour (client.waiting déjà calculé côté Convex).
+		for (const c of [...clients].sort((a: { waiting: number }, b: { waiting: number }) => b.waiting - a.waiting)) {
+			if (c.waiting <= 0) break;
+			out.push({
+				key: `waiting-${c.user._id}`,
+				icon: 'clipboardCheck',
+				title: `Bilan de ${fullName(c.user)} à traiter`,
+				subtitle: c.latest?.weekLabel ? `${c.waiting} retour${c.waiting > 1 ? 's' : ''} à écrire · dernier bilan ${c.latest.weekLabel}` : 'Retour à écrire',
+				tone: 'warn',
+				toneLabel: 'À traiter',
+				href: `/admin?client=${c.user._id}&section=bilans`,
+			});
+			if (out.length >= 3) break;
+		}
+		// 2) Inactivité 24 h : la coach voit d'un œil qui n'a pas ouvert l'app.
+		const inactive = clients.filter((c: { user: { lastSeenAt: number | null } }) => {
+			const ts = c.user.lastSeenAt;
+			return !ts || Date.now() - ts >= 24 * 3600 * 1000;
+		}).slice(0, 2);
+		for (const c of inactive) {
+			out.push({
+				key: `idle-${c.user._id}`,
+				icon: 'bellOff',
+				title: `${fullName(c.user)} n'a pas ouvert l'app`,
+				subtitle: fmtLastSeen(c.user.lastSeenAt),
+				tone: 'blue',
+				toneLabel: 'À relancer',
+				href: `/admin?client=${c.user._id}`, // ouverture sur l'Aperçu (section=apercu par défaut)
+			});
+		}
+		return out.slice(0, 5);
+	});
 
 	/* ── Objectifs journaliers : deux modes de saisie ────────────── */
 	/*
@@ -1168,7 +1328,7 @@
 	let section = $state('apercu');
 
 	const sectionTabs = $derived([
-		{ id: 'apercu', label: 'Aperçu' },
+		{ id: 'apercu', label: 'Vision 360' },
 		{ id: 'journal', label: 'Journal' },
 		{ id: 'plan', label: 'Plan de repas' },
 		{ id: 'entrainement', label: 'Entraînement' },
@@ -1179,6 +1339,20 @@
 		{ id: 'dossier', label: 'Drive' },
 		{ id: 'demarrage', label: 'Démarrage' },
 	]);
+
+	/** Bloc « Accès rapide » (Vision 360) : navigation directe vers les onglets
+	 *  métier — simple raccourci UI, aucune donnée ni action ajoutée. */
+	const quickAccess = [
+		{ id: 'journal', label: 'Journal alimentaire', icon: 'bookOpen' },
+		{ id: 'plan', label: 'Plan de repas', icon: 'utensils' },
+		{ id: 'entrainement', label: "Programme d'entraînement", icon: 'dumbbell' },
+		{ id: 'corps', label: 'Poids & mesures', icon: 'scale' },
+		{ id: 'photos', label: 'Photos', icon: 'camera' },
+		{ id: 'bilans', label: 'Bilans hebdomadaires', icon: 'clipboardList' },
+		{ id: 'rdv', label: 'Rendez-vous', icon: 'calendarDays' },
+		{ id: 'dossier', label: 'Drive & documents', icon: 'cloud' },
+		{ id: 'demarrage', label: 'Formulaire de démarrage', icon: 'rocket' },
+	] as const;
 
 	// Deep-link : un lien de la file des bilans ouvre le 360° directement sur
 	// l'onglet Bilans (?section=bilans). Un simple clic d'onglet reste libre.
@@ -1375,163 +1549,302 @@
 	}
 </script>
 
-<svelte:head><title>CRM — G-Flux</title></svelte:head>
+<svelte:head><title>Espace Coach — G-Flux</title></svelte:head>
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape' && quickSheet) quickSheet = null; }} />
 
-<!-- Statistiques -->
-<section class="grid gap-3 sm:grid-cols-3">
-	<div class="rounded-2xl border border-line bg-card p-4">
-		<div class="font-display text-3xl font-semibold text-ink">{clients.length}</div>
-		<div class="text-xs font-semibold uppercase tracking-wide text-mist">Client·e·s</div>
+<!-- ══════════ TOP HEADER COCKPIT (PASS 2 — mockup) ══════════
+     Salutation + sous-titre à gauche · recherche cliente / cloche notifications
+     / coach à droite. Réutilise `query` (liste clientes) et le badge existant —
+     aucun backend ajouté. -->
+<header class="topbar-crm m-in-crm flex flex-wrap items-center justify-between gap-3" style="--m-i: 0">
+	<div class="min-w-0">
+		<h1 class="h1-crm text-[1.55rem] sm:text-[1.8rem]">{dashTitle}</h1>
+		<p class="mt-0.5 text-sm font-medium text-mist">Voici ce qui demande ton attention aujourd'hui.{#if dashLive}&nbsp;<span class="hidden lg:inline">· {dashDateLine}</span>{/if}</p>
 	</div>
-	<div class="rounded-2xl border border-line bg-card p-4">
-		<div class="font-display text-3xl font-semibold text-brand">{activeToday}</div>
-		<div class="text-xs font-semibold uppercase tracking-wide text-mist">Actif·ve·s aujourd’hui</div>
-	</div>
-	<div class="rounded-2xl border border-line bg-card p-4">
-		<div class="font-display text-3xl font-semibold text-warn">{totalWaiting}</div>
-		<div class="text-xs font-semibold uppercase tracking-wide text-mist">Retours à envoyer</div>
-	</div>
-</section>
-
-{#if alert && !(selected && view)}
-	<div
-		class="mt-4 flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm
-			{alert.error ? 'border-danger/40 bg-danger-light text-danger' : 'border-brand/40 bg-brand-light text-ink'}"
-	>
-		<span>{alert.error ?? alert.ok}</span>
-		<Icon name="info" size={15} class="shrink-0 text-mist" />
-	</div>
-{/if}
-
-{#if googleBanner}
-	<div
-		class="mt-4 flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm
-			{googleBanner.startsWith('google-error') ? 'border-danger/40 bg-danger-light text-danger' : 'border-brand/40 bg-brand-light text-ink'}"
-	>
-		<span>
-			{#if googleBanner === 'google-ok'}
-				<strong>Google Calendar connecté ✓</strong> — les rendez-vous peuvent être synchronisés avec ton agenda.
-			{:else}
-				<strong>Connexion Google échouée :</strong> {googleBanner.slice('google-error:'.length)}
-			{/if}
-		</span>
-		<Icon name={googleBanner.startsWith('google-error') ? 'info' : 'calendarCheck'} size={15} class="shrink-0 text-mist" />
-	</div>
-{/if}
-
-<!-- ═══ Google Calendar (compte du coach) ═══ -->
-<section class="mt-4 rounded-2xl border border-line bg-card p-4 shadow-sm">
-	<div class="flex flex-wrap items-center justify-between gap-3">
-		<div class="flex items-center gap-2">
-			<h2 class="flex items-center gap-2 font-display text-lg font-semibold text-ink">
-				<Icon name="calendarCheck" size={18} class="shrink-0 text-brand" /> Google Calendar
-			</h2>
-			{#if google}
-				<span class="rounded-full bg-brand px-2 py-0.5 text-[11px] font-bold text-white">Connecté ✓</span>
-			{:else}
-				<span class="rounded-full bg-cream px-2 py-0.5 text-[11px] font-bold text-mist">Non connecté</span>
-			{/if}
-		</div>
-		{#if google}
-			<div class="flex items-center gap-2">
-				<span class="text-xs text-mist">{google.email || 'Compte Google'} · tokens chiffrés côté serveur</span>
-				<button
-					type="button"
-					onclick={googleDisconnect}
-					disabled={googleBusy}
-					class="inline-flex items-center gap-1 rounded-lg border-2 border-line px-2.5 py-1 text-xs font-semibold text-ink transition hover:border-danger hover:text-danger disabled:opacity-50"
-				>Déconnecter</button>
-			</div>
-		{:else}
-			<a
-				href="/api/google/connect"
-				class="inline-flex items-center gap-1 rounded-lg bg-brand px-3 py-1.5 text-xs font-bold text-white transition hover:bg-brand-dark"
-			><Icon name="calendarRange" size={13} class="shrink-0" /> Connecter Google Calendar</a>
-		{/if}
-	</div>
-</section>
-
-<!-- ═══ Message global : clientes actives sur les 5 derniers jours (logistique coach) ═══
-     Côté cliente, rien ne change : la notification, la carte « Message de ton
-     coach » et l'historique sont exactement ceux d'un message classique. Ici,
-     tout est séparé de la Vision 360 : envoi groupé, retrait à tout moment,
-     disparition automatique du bloc après 24 h, zéro doublon d'envoi. -->
-<section class="mt-4 rounded-2xl border border-line bg-card p-4 shadow-sm">
-	<div class="flex flex-wrap items-center justify-between gap-2">
-		<h2 class="flex items-center gap-2 font-display text-lg font-semibold text-ink">
-			<Icon name="messageCircle" size={18} class="shrink-0 text-brand" /> Message global
-		</h2>
-		<span class="text-xs text-mist">Toutes les clientes actives sur les 5 derniers jours ({active5d}) · aucun impact sur les messages personnalisés de la Vision 360</span>
-	</div>
-
-	{#if globalMessage}
-		<!-- Envoi en cours : statut + retrait immédiat (disparaît seul après 24 h) -->
-		<div class="mt-3 rounded-xl border border-brand/40 bg-brand-light/50 p-3">
-			<div class="flex flex-wrap items-center justify-between gap-2">
-				<div class="flex flex-wrap items-center gap-2">
-					<span class="rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Envoi en cours</span>
-					<span class="text-xs text-mist">Publié {fmtDateTime(globalMessage.publishedAt)} · {globalMessage.recipientCount} destinataire{globalMessage.recipientCount > 1 ? 's' : ''} · {globalMessage.readCount} lu{globalMessage.readCount > 1 ? 's' : ''}</span>
-				</div>
-				<form
-					method="POST"
-					action="?/withdrawGlobalMessage"
-					onsubmit={(e) => {
-						if (!confirm('Retirer le message global de l\'accueil de toutes les clientes, maintenant ?')) e.preventDefault();
-					}}
-				>
-					<button type="submit" class="rounded-lg border-2 border-line bg-white px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-danger hover:text-danger">
-						Retirer maintenant
-					</button>
-				</form>
-			</div>
-			<p class="mt-2 whitespace-pre-line text-sm leading-relaxed text-ink">{globalMessage.text}</p>
-			<p class="mt-1.5 text-[11px] text-mist"><Icon name="timer" size={11} class="mr-0.5 inline shrink-0" /> Disparaît automatiquement dans {fmtRemaining(globalRemainingMs)} (et de ce tableau de bord au même moment).</p>
-		</div>
-	{:else}
-		<!-- Aucun envoi actif : composeur (fermé tant qu'un message global est actif) -->
-		<form method="POST" action="?/sendGlobalMessage" class="mt-3">
-			<div class="flex flex-col gap-2 sm:flex-row">
-				<textarea
-					name="message"
-					rows="2"
-					maxlength="500"						placeholder="Ex. Pense à bien remplir ton bilan avant dimanche 12h — message commun à toutes les clientes actives sur les 5 derniers jours"
-					class="min-h-14 flex-1 rounded-xl border-2 border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-brand"
-				></textarea>
-				<div class="flex shrink-0 items-start">
-					<button
-						type="submit"
-						disabled={active5d === 0}
-						class="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
-					>
-						Envoyer à toutes
-					</button>
-				</div>
-			</div>
-			<p class="mt-1.5 text-[11px] leading-relaxed text-mist">
-				Part vers les clientes actives sur les 5 derniers jours · visible chez elles comme un « Message coach du jour » classique (24 h max) · notification identique · retire-le à tout moment.
-				{#if active5d === 0}Aucune cliente active sur les 5 derniers jours — l'envoi est désactivé.{/if}
-			</p>
-		</form>
-	{/if}
-</section>
-
-<!-- ═══ Tableau unique des clients ═══ -->
-<div class="mt-6 rounded-2xl border border-line bg-card shadow-sm">
-	<div class="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
-		<div class="flex items-center gap-3">
-			<h2 class="font-display text-lg font-semibold text-ink">Clients</h2>
-			<span class="rounded-full bg-line/60 px-2 py-0.5 text-xs font-semibold text-mist">{filtered.length}</span>
-		</div>
-		<div class="flex flex-wrap items-center gap-2">
+	<div class="ml-auto flex items-center gap-2 sm:gap-2.5">
+		<label class="relative hidden sm:block">
+			<span class="sr-only">Rechercher une cliente</span>
+			<Icon name="search" size={15} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-mist" />
 			<input
 				type="search"
 				bind:value={query}
-				placeholder="Rechercher (nom, email)…"
-				class="rounded-xl border-2 border-line bg-white px-3 py-2 text-sm outline-none transition focus:border-brand"
+				placeholder="Rechercher une cliente (nom, email)…"
+				class="w-44 rounded-xl border border-line bg-white py-2 pl-9 pr-3 text-sm text-ink outline-none transition placeholder:text-mist focus:border-brand md:w-56"
 			/>
+		</label>
+		<a
+			href="/admin/notifications"
+			aria-label="Notifications"
+			title="Notifications"
+			class="btn-crm relative grid h-10 w-10 shrink-0 place-items-center rounded-full border border-line bg-white text-ink transition hover:border-brand hover:text-brand"
+		>
+			<Icon name="bell" size={17} />
+			{#if Number(data.notificationsBadge ?? 0) > 0}
+				<span class="badge-in absolute -right-0.5 -top-0.5 grid h-5 min-w-5 place-items-center rounded-full bg-warn px-1 text-[10px] font-bold text-white ring-2 ring-white">{Number(data.notificationsBadge)}</span>
+			{/if}
+		</a>
+		<!-- Identité coach : prénom (+ nom) / email + avatar photo (localStorage,
+		     composant partagé avec la page Photos). -->
+		<CoachIdentity prenom={dashCoach.prenom} nom={dashCoach.nom} email={dashCoach.email} />
+	</div>
+</header>
+
+
+<!-- ══════════ KPI CARDS (PASS 2 — tuile XL + sparkline, mockup) ══════════
+     Valeurs réelles existantes ; sparklines décoratives (pur CSS). -->
+<section class="m-in-crm mt-1 grid gap-3.5 sm:grid-cols-2 xl:grid-cols-4" style="--m-i: 2">
+	<div class="kpi-crm kpi-crm-plain card-crm-hover" style="--kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep); --m-i: 0">
+		<div class="flex items-start justify-between gap-2">
+			<span class="kpi-tile-lg"><Icon name="users" size={20} /></span>
+			<span class="spark-crm" aria-hidden="true" style="--spark-color: rgba(29, 185, 84, 0.5)">
+				<i style="--h: 30; --m-i: 0"></i><i style="--h: 46; --m-i: 1"></i><i style="--h: 38; --m-i: 2"></i><i style="--h: 62; --m-i: 3"></i><i style="--h: 54; --m-i: 4"></i><i style="--h: 80; --m-i: 5"></i><i style="--h: 100; --m-i: 6"></i>
+			</span>
+		</div>
+		<div class="kpi-num-crm mt-2.5 text-[2rem] text-ink"><CountUp value={dashKpiClients} /></div>
+		<div class="mt-0.5 text-[13px] font-bold text-ink">clientes</div>
+		<div class="mt-2 flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11.5px] text-mist">
+			<span class="inline-flex items-center gap-1 font-bold text-brand-deep"><Icon name="trendingUp" size={12} /> {dashKpiActive}</span>
+			<span>active{dashKpiActive > 1 ? 's' : ''} aujourd'hui</span>
+		</div>
+	</div>
+	<div class="kpi-crm kpi-crm-plain card-crm-hover" style="--kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep); --m-i: 1">
+		<div class="flex items-start justify-between gap-2">
+			<span class="kpi-tile-lg"><Icon name="trendingUp" size={20} /></span>
+			<span class="spark-crm" aria-hidden="true" style="--spark-color: rgba(29, 185, 84, 0.5)">
+				<i style="--h: 42; --m-i: 0"></i><i style="--h: 58; --m-i: 1"></i><i style="--h: 50; --m-i: 2"></i><i style="--h: 70; --m-i: 3"></i><i style="--h: 88; --m-i: 4"></i><i style="--h: 76; --m-i: 5"></i><i style="--h: 100; --m-i: 6"></i>
+			</span>
+		</div>
+		<div class="kpi-num-crm mt-2.5 text-[2rem] text-ink"><CountUp value={dashKpiActive} /></div>
+		<div class="mt-0.5 text-[13px] font-bold text-ink">actives aujourd'hui</div>
+		<div class="mt-2 flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11.5px] text-mist">
+			<span class="inline-flex items-center gap-1 font-bold text-brand-deep"><Icon name="trendingUp" size={12} /> {dashKpiClients > 0 ? Math.round((dashKpiActive / dashKpiClients) * 100) : 0} %</span>
+			<span>de ton total</span>
+		</div>
+	</div>
+	<div class="kpi-crm kpi-crm-plain card-crm-hover" style="--kpi-tile-bg: var(--warn-light); --kpi-tile-fg: var(--warn); --m-i: 2">
+		<div class="flex items-start justify-between gap-2">
+			<span class="kpi-tile-lg"><Icon name="clipboardCheck" size={20} /></span>
+			<span class="spark-crm" aria-hidden="true" style="--spark-color: rgba(255, 149, 0, 0.55)">
+				<i style="--h: 90; --m-i: 0"></i><i style="--h: 45; --m-i: 1"></i><i style="--h: 70; --m-i: 2"></i><i style="--h: 100; --m-i: 3"></i><i style="--h: 60; --m-i: 4"></i><i style="--h: 82; --m-i: 5"></i><i style="--h: 50; --m-i: 6"></i>
+			</span>
+		</div>
+		<div class="kpi-num-crm mt-2.5 text-[2rem] text-ink"><CountUp value={dashKpiWaiting} /></div>
+		<div class="mt-0.5 text-[13px] font-bold text-ink">retours à envoyer</div>
+		<div class="mt-2 flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11.5px] text-mist">
+			{#if dashKpiWaiting > 0}
+				<span class="inline-flex items-center gap-1 font-bold text-warn"><Icon name="clock" size={12} /> À traiter aujourd'hui</span>
+			{:else}
+				<span class="inline-flex items-center gap-1 font-bold text-brand-deep"><Icon name="circleCheck" size={12} /> Tout est traité ✓</span>
+			{/if}
+		</div>
+	</div>
+	<div class="kpi-crm kpi-crm-plain card-crm-hover" style="--kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep); --m-i: 3">
+		<div class="flex items-start justify-between gap-2">
+			<span class="kpi-tile-lg"><Icon name="calendarCheck" size={20} /></span>
+			<span class="spark-crm" aria-hidden="true" style="--spark-color: rgba(29, 185, 84, 0.5)">
+				<i style="--h: 45; --m-i: 0"></i><i style="--h: 60; --m-i: 1"></i><i style="--h: 35; --m-i: 2"></i><i style="--h: 70; --m-i: 3"></i><i style="--h: 50; --m-i: 4"></i><i style="--h: 85; --m-i: 5"></i><i style="--h: 65; --m-i: 6"></i>
+			</span>
+		</div>
+		<div class="kpi-num-crm mt-2.5 text-[2rem] text-ink"><CountUp value={kpiRdvToday.length} /></div>
+		<div class="mt-0.5 text-[13px] font-bold text-ink">rendez-vous du jour</div>
+		<div class="mt-2 flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11.5px] text-mist">
+			{#if kpiRdvLoading}
+				<span>Chargement des rendez-vous…</span>
+			{:else if kpiRdvToday.length === 0}
+				<a href="/admin/rendez-vous" class="inline-flex items-center gap-1 transition hover:text-brand"><Icon name="calendarRange" size={12} /> Aucun rendez-vous aujourd'hui</a>
+			{:else}
+				<a href="/admin/rendez-vous" class="inline-flex min-w-0 items-center gap-1 font-bold text-brand-deep transition hover:text-brand"><Icon name="clock" size={12} class="shrink-0" /> Prochain : {kpiRdvToday[0].time}{#if kpiRdvToday[0].clientName}&nbsp;· <span class="truncate">{kpiRdvToday[0].clientName}</span>{/if}</a>
+			{/if}
+		</div>
+	</div>
+</section>
+
+<!-- ══════════ GRILLE COCKPIT (PASS 2) : GAUCHE = À traiter · DROITE = Google Calendar + Message global ══════════ -->
+<div class="m-in-crm mt-1 grid items-start gap-3.5 xl:grid-cols-12" style="--m-i: 3">
+	<!-- Colonne gauche : À traiter aujourd'hui -->
+	<div class="min-w-0 xl:col-span-5">
+		<section class="card-crm p-4">
+			<div class="flex items-center justify-between gap-2">
+				<h2 class="h2-crm flex items-center gap-2 text-[15px]">
+					<span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand text-white"><Icon name="check" size={13} strokeWidth={3} /></span>
+					À traiter aujourd'hui
+				</h2>
+				<a href="/admin/bilans" class="btn-crm inline-flex items-center gap-1 rounded-full border border-line bg-white px-2 py-0.5 text-[11px] font-bold text-ink transition hover:border-brand hover:text-brand">
+					Voir tout <Icon name="arrowRight" size={12} />
+				</a>
+			</div>
+			{#if dashTodos.length === 0}
+				<p class="mt-3 rounded-xl border border-dashed border-line px-4 py-5 text-center text-[13px] text-mist">Rien à traiter — toutes tes clientes sont à jour ✓</p>
+			{:else}
+				<div class="mt-3 grid gap-1.5">
+					{#each dashTodos as t, i (t.key)}
+						<a href={t.href} class="todo-row-crm group" style={`transition-delay: ${i * 25}ms`}>
+							<span class="todo-tile-crm {t.tone === 'warn' ? 'bg-warn-light text-warn' : t.tone === 'danger' ? 'bg-danger-light text-danger' : t.tone === 'blue' ? 'bg-soft text-ink' : 'bg-brand-light text-brand-deep'}">
+								<Icon name={t.icon} size={14} />
+							</span>
+							<span class="min-w-0 flex-1">
+								<span class="block truncate text-[13px] font-bold text-ink">{t.title}</span>
+								<span class="block truncate text-[11px] text-mist">{t.subtitle}</span>
+							</span>
+							<span class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold {t.tone === 'warn' ? 'bg-warn-light text-warn' : t.tone === 'danger' ? 'bg-danger-light text-danger' : t.tone === 'blue' ? 'bg-soft text-ink' : 'bg-brand-light text-brand-deep'}">{t.toneLabel}</span>
+							<Icon name="chevronRight" size={14} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
+						</a>
+					{/each}
+				</div>
+				{#if dashTodos.length >= 3}
+					<a href="/admin/bilans" class="mt-2.5 block text-center text-[11.5px] font-bold text-mist transition hover:text-brand">Voir tout →</a>
+				{/if}
+			{/if}
+		</section>
+	</div>
+
+	<!-- Colonne droite : Google Calendar (haut) + Message global (bas) -->
+	<div class="min-w-0 grid gap-3.5 xl:col-span-7">
+		{#if alert && !(selected && view)}
+			<div class="flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm {alert.error ? 'border-danger/40 bg-danger-light text-danger' : 'border-brand/40 bg-brand-light text-ink'}">
+				<span>{alert.error ?? alert.ok}</span>
+				<Icon name="info" size={15} class="shrink-0 text-mist" />
+			</div>
+		{/if}
+		{#if googleBanner}
+			<div class="flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm {googleBanner.startsWith('google-error') ? 'border-danger/40 bg-danger-light text-danger' : 'border-brand/40 bg-brand-light text-ink'}">
+				<span>
+					{#if googleBanner === 'google-ok'}
+						<strong>Google Calendar connecté ✓</strong> — les rendez-vous peuvent être synchronisés avec ton agenda.
+					{:else}
+						<strong>Connexion Google échouée :</strong> {googleBanner.slice('google-error:'.length)}
+					{/if}
+				</span>
+				<Icon name={googleBanner.startsWith('google-error') ? 'info' : 'calendarCheck'} size={15} class="shrink-0 text-mist" />
+			</div>
+		{/if}
+
+		<!-- ══ Google Calendar (compte du coach) — logique conservée, carte cockpit ══ -->			<section class="card-crm p-4">
+				<div class="flex flex-wrap items-center justify-between gap-3">
+					<div class="flex min-w-0 items-center gap-2">
+						<h2 class="h2-crm flex items-center gap-2 text-[15px]"><Icon name="calendarCheck" size={16} class="shrink-0 text-brand" /> Google Calendar</h2>
+					{#if google}
+						<span class="rounded-full bg-brand px-2 py-0.5 text-[10.5px] font-bold text-white">Connecté ✓</span>
+					{:else}
+						<span class="rounded-full bg-cream px-2 py-0.5 text-[10.5px] font-bold text-mist">Non connecté</span>
+					{/if}
+				</div>
+				{#if google}
+					<button
+						type="button"
+						onclick={googleDisconnect}
+						disabled={googleBusy}
+						class="btn-crm rounded-full border border-line bg-white px-3 py-1.5 text-[12px] font-bold text-ink transition hover:border-danger hover:text-danger disabled:opacity-50"
+					>Gérer</button>
+				{:else}
+					<a
+						href="/api/google/connect"
+						class="btn-crm inline-flex items-center gap-1 rounded-full bg-brand px-3.5 py-1.5 text-[12px] font-bold text-white transition hover:bg-brand-dark"
+					><Icon name="calendarRange" size={13} class="shrink-0" /> Connecter</a>
+				{/if}
+			</div>
+			<div class="mt-2.5 flex items-center gap-3 rounded-xl bg-soft/70 px-3 py-2.5">
+				<img src="/img/google-calendar.svg" alt="Logo Google Calendar" class="h-9 w-9 shrink-0" />
+				<div class="min-w-0">
+					<p class="truncate text-[13px] font-bold text-ink">{google ? (google.email || 'Compte Google connecté') : 'Compte Google non connecté'}</p>
+					<p class="text-[11.5px] text-mist">{google ? 'Tes rendez-vous sont synchronisés automatiquement.' : 'Connecte ton agenda pour synchroniser tes rendez-vous.'}</p>
+				</div>
+			</div>
+			{#if google}
+				<p class="mt-1.5 text-[10px] text-mist">Tokens chiffrés côté serveur · déconnexion possible à tout moment.</p>
+			{/if}
+		</section>
+
+		<!-- ══ Message global — mêmes actions, composition compacte ══
+		     Côté cliente, rien ne change : la notification, la carte « Message de ton
+		     coach » et l'historique sont exactement ceux d'un message classique. -->			<section class="card-crm p-4">
+				<div class="flex flex-wrap items-center justify-between gap-2">
+					<h2 class="h2-crm flex items-center gap-2 text-[15px]"><Icon name="messageCircle" size={16} class="shrink-0 text-brand" /> Message global <span class="text-[10.5px] font-medium text-mist">(optionnel)</span></h2>
+					<a href="/admin/templates" class="btn-crm rounded-full border border-line bg-white px-2 py-0.5 text-[11px] font-bold text-ink transition hover:border-brand hover:text-brand">Voir les modèles</a>
+				</div>
+
+			{#if globalMessage}
+				<!-- Envoi en cours : statut + retrait immédiat (disparaît seul après 24 h) -->
+				<div class="mt-2 rounded-xl border border-brand/40 bg-brand-light/50 p-2.5">
+					<div class="flex flex-wrap items-center justify-between gap-2">
+						<div class="flex flex-wrap items-center gap-2">
+							<span class="rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Envoi en cours</span>
+							<span class="text-[11px] text-mist">Publié {fmtDateTime(globalMessage.publishedAt)} · {globalMessage.recipientCount} destinataire{globalMessage.recipientCount > 1 ? 's' : ''} · {globalMessage.readCount} lu{globalMessage.readCount > 1 ? 's' : ''}</span>
+						</div>
+						<form
+							method="POST"
+							action="?/withdrawGlobalMessage"
+							onsubmit={(e) => {
+								if (!confirm('Retirer le message global de l\'accueil de toutes les clientes, maintenant ?')) e.preventDefault();
+							}}
+						>
+							<button type="submit" class="rounded-lg border-2 border-line bg-white px-2.5 py-1 text-[11.5px] font-semibold text-ink transition hover:border-danger hover:text-danger">
+								Retirer maintenant
+							</button>
+						</form>
+					</div>
+					<p class="mt-1.5 whitespace-pre-line text-[13px] leading-relaxed text-ink">{globalMessage.text}</p>
+					<p class="mt-1 text-[10.5px] text-mist"><Icon name="timer" size={11} class="mr-0.5 inline shrink-0" /> Disparaît automatiquement dans {fmtRemaining(globalRemainingMs)}.</p>
+				</div>
+			{:else}
+				<!-- Aucun envoi actif : composeur (fermé tant qu'un message global est actif) -->
+				<form method="POST" action="?/sendGlobalMessage" class="mt-2">
+					<textarea
+						name="message"
+						rows="2"
+						maxlength="500"
+						placeholder="Message commun à toutes tes clientes…"
+						class="min-h-0 w-full rounded-xl border border-line bg-white px-3 py-1.5 text-[13px] leading-snug text-ink outline-none transition placeholder:text-mist focus:border-brand"
+					></textarea>
+					<div class="mt-1.5 flex flex-wrap items-center justify-between gap-2">
+						<span class="inline-flex min-w-0 items-center gap-1.5 text-[11px] text-mist">
+							<Icon name="users" size={12} class="shrink-0" />
+							Actives sur 5 jours ({active5d})
+						</span>
+						<button
+							type="submit"
+							disabled={active5d === 0}
+							class="btn-crm inline-flex items-center gap-1 rounded-full bg-brand px-3 py-1.5 text-[12px] font-bold text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
+						>
+							<Icon name="arrowRight" size={12} class="shrink-0" /> Envoyer à toutes
+						</button>
+					</div>
+					<p class="mt-1 text-[10.5px] leading-relaxed text-mist">
+						Visible 24 h max · notification identique · retire-le à tout moment.{#if active5d === 0} Aucune cliente active sur 5 jours — envoi désactivé.{/if}
+					</p>
+				</form>
+			{/if}
+		</section>
+	</div>
+</div>
+
+<!-- ══════════ VUE RAPIDE DES CLIENTES (PASS 2) ══════════ -->
+<section class="card-crm m-in-crm mt-3.5 overflow-hidden" style="--m-i: 4">
+	<div class="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3.5">
+		<div class="flex min-w-0 items-center gap-2.5">
+			<span class="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-brand-light text-brand-deep"><Icon name="users" size={16} /></span>
+			<h2 class="h2-crm text-base">Vue rapide des clientes</h2>
+			<span class="badge-in rounded-full bg-brand-light px-2 py-0.5 text-[11px] font-bold text-brand-deep">{clientCounts.all}</span>
+		</div>
+		<div class="flex flex-wrap items-center gap-2">
+			<label class="relative">
+				<span class="sr-only">Rechercher une cliente</span>
+				<Icon name="search" size={14} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-mist" />
+				<input
+					type="search"
+					bind:value={query}
+					placeholder="Rechercher une cliente…"
+					class="w-44 rounded-full border border-line bg-white py-1.5 pl-8 pr-3 text-[13px] outline-none transition placeholder:text-mist focus:border-brand md:w-52"
+				/>
+			</label>
+			<div class="flex items-center rounded-full border border-line bg-white p-0.5" role="group" aria-label="Filtrer les clientes">
+				<button type="button" class="chip-crm {clientFilter === 'all' ? 'active-crm' : ''}" onclick={() => (clientFilter = 'all')} aria-pressed={clientFilter === 'all'}>Toutes</button>
+				<button type="button" class="chip-crm {clientFilter === 'active' ? 'active-crm' : ''}" onclick={() => (clientFilter = 'active')} aria-pressed={clientFilter === 'active'}>Actives ({clientCounts.active})</button>
+				<button type="button" class="chip-crm {clientFilter === 'inactive' ? 'active-crm' : ''}" onclick={() => (clientFilter = 'inactive')} aria-pressed={clientFilter === 'inactive'}>Inactives ({clientCounts.inactive})</button>
+			</div>
 			<details class="group relative">
-				<summary class="cursor-pointer list-none rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark">
-					＋ Créer un client
+				<summary class="btn-crm inline-flex cursor-pointer list-none items-center gap-1.5 rounded-full bg-brand px-3.5 py-2 text-[12.5px] font-bold text-white shadow-sm transition hover:bg-brand-dark">
+					<Icon name="plus" size={14} strokeWidth={2.6} class="shrink-0" /> Ajouter une cliente
 				</summary>
 				<form method="POST" action="?/createClient" class="absolute right-0 top-11 z-20 w-80 rounded-2xl border border-line bg-white p-4 shadow-xl">
 					<label class="mb-1 block text-xs font-bold uppercase tracking-wide text-mist" for="nc-prenom">Prénom</label>
@@ -1546,63 +1859,67 @@
 		</div>
 	</div>
 
-	{#if filtered.length === 0}
+	{#if filteredClients.length === 0}
 		<p class="px-6 py-14 text-center text-sm text-mist">
-			Aucun compte client{query.trim() ? ' trouvé' : ' pour l’instant'}.<br />Crée le premier avec « ＋ Créer un client ».
+			Aucune cliente{query.trim() || clientFilter !== 'all' ? ' trouvée' : ' pour l’instant'}.<br />Crée la première avec « Ajouter une cliente ».
 		</p>
 	{:else}
-		<div class="overflow-x-auto">
-			<table class="w-full min-w-[760px] text-left">
+		<div class="table-wrap overflow-x-auto">
+			<table class="tbl-crm w-full min-w-[860px] text-left">
 				<thead>
-					<tr class="border-b border-line text-[11px] font-bold uppercase tracking-wider text-mist">
-						<th class="px-5 py-3">Client</th>
-						<th class="px-3 py-3">Dernière connexion</th>
-						<th class="px-3 py-3">Bilans</th>
-						<th class="px-3 py-3">Retours</th>
-						<th class="px-3 py-3">Dernier bilan</th>
-						<th class="px-5 py-3 text-right">360°</th>
+					<tr>
+						<th class="px-5 py-2.5">Cliente</th>
+						<th class="px-3 py-2.5">Dernière connexion</th>
+						<th class="px-3 py-2.5">Bilans</th>
+						<th class="px-3 py-2.5">Retours</th>
+						<th class="px-3 py-2.5">Dernier bilan</th>
+						<th class="px-3 py-2.5">Statut</th>
+						<th class="px-5 py-2.5 text-right">Actions</th>
 					</tr>
 				</thead>
 				<tbody>
-					{#each filtered as client (client.user._id)}
+					{#each filteredClients as client (client.user._id)}
 						<tr
-							class="cursor-pointer border-b border-line/60 transition hover:bg-cream/60"
+							class="crow-crm border-b border-line/50 last:border-0"
 							tabindex="0"
 							role="link"
 							onclick={() => openClient(client.user._id)}
 							onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openClient(client.user._id); } }}
 							aria-label={`Ouvrir la Vision 360° de ${fullName(client.user)}`}
 						>
-							<td class="px-5 py-3">
+							<td class="px-5 py-2.5">
 								<div class="flex items-center gap-3">
-									<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand/15 font-display text-sm font-semibold text-brand-dark">
+									<div class="avatar-crm h-9 w-9 text-sm">
 										{initial(client.user.prenom)}
 									</div>
 									<div class="min-w-0">
-									<div class="flex items-center gap-2">
-										<span class="truncate font-semibold text-ink">{fullName(client.user)}</span>
-											<span class="h-2 w-2 shrink-0 rounded-full {isOnline(client.user.lastSeenAt) ? 'bg-brand' : 'bg-line'}" title={isOnline(client.user.lastSeenAt) ? 'En ligne' : 'Hors ligne'}></span>
+										<div class="flex items-center gap-2">
+											<span class="truncate font-bold text-ink">{fullName(client.user)}</span>
+											<span class="presence-crm {isOnline(client.user.lastSeenAt) ? 'on' : ''}" title={isOnline(client.user.lastSeenAt) ? 'En ligne' : 'Hors ligne'}></span>
 										</div>
 										<div class="truncate text-[11px] text-mist">{client.user.email}</div>
 									</div>
 								</div>
 							</td>
-							<td class="whitespace-nowrap px-3 py-3 text-sm text-mist">{fmtLastSeen(client.user.lastSeenAt)}</td>
-							<td class="px-3 py-3 text-sm text-ink">{client.count}</td>
-							<td class="px-3 py-3">
+							<td class="whitespace-nowrap px-3 py-2.5 text-[13px] text-mist">{fmtLastSeen(client.user.lastSeenAt)}</td>
+							<td class="px-3 py-2.5 text-[13px] font-semibold text-ink">{client.count}</td>
+							<td class="px-3 py-2.5">
 								{#if client.waiting > 0}
-									<span class="rounded-full bg-warn px-2 py-0.5 text-[11px] font-bold text-white">{client.waiting}</span>
+									<span class="badge-in grid h-5 min-w-5 place-items-center rounded-full bg-warn px-1.5 text-[11px] font-bold text-white">{client.waiting}</span>
 								{:else}
-									<span class="text-sm text-mist">—</span>
+									<span class="text-[13px] text-mist">—</span>
 								{/if}
 							</td>
-							<td class="whitespace-nowrap px-3 py-3 text-sm text-mist">{client.latest?.weekLabel ?? '—'}</td>
-							<td class="px-5 py-3 text-right">
+							<td class="whitespace-nowrap px-3 py-2.5 text-[13px] text-mist">{client.latest?.weekLabel ?? '—'}</td>
+							<td class="px-3 py-2.5">
+								<span class="rounded-full px-2.5 py-1 text-[11.5px] font-bold {statusLabel(client.user.lastSeenAt).cls}">{statusLabel(client.user.lastSeenAt).label}</span>
+							</td>
+							<td class="px-5 py-2.5 text-right">
 								<a
 									href={`/admin?client=${client.user._id}`}
 									onclick={(e) => { e.preventDefault(); openClient(client.user._id); }}
-									class="inline-flex items-center gap-1 rounded-lg bg-ink px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand"
-								>360° →</a>
+									class="btn-crm inline-flex items-center gap-1 rounded-full border border-line bg-white px-3 py-1.5 text-[12px] font-bold text-ink transition hover:border-brand hover:text-brand"
+								>Vision 360 <Icon name="arrowRight" size={12} /></a>
 							</td>
 						</tr>
 					{/each}
@@ -1610,7 +1927,9 @@
 			</table>
 		</div>
 	{/if}
-</div>	<!-- ═══ Vision 360° : occupe TOUT l'espace restant à droite de la sidebar
+</section>
+
+<!-- ═══ Vision 360° : occupe TOUT l'espace restant à droite de la sidebar
 	     CRM (md:pl-64 = largeur sidebar). Sur mobile, plein écran. ═══ -->
 	{#if selected && view}
 		<button type="button" class="fixed inset-0 z-50 cursor-pointer bg-ink/50 md:left-64" aria-label="Fermer la vue 360°" onclick={closeVision}></button>
@@ -1626,37 +1945,49 @@
 			aria-label="Retour au tableau de bord"
 			title="Retour au tableau de bord"
 		><Icon name="arrowLeft" size={16} /></button>
-		<!-- En-tête du tiroir -->
-		<div class="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-card px-5 py-3">
-			<div class="flex items-center gap-3">
-				<div class="flex h-10 w-10 items-center justify-center rounded-full bg-brand font-display text-lg font-semibold text-white">
+		<!-- En-tête du tiroir — premium (north star : docs/refonte-preview) : identité forte,
+		     statut Active + infos rapides organisées (membre depuis / dernière connexion),
+		     actions intégrées (Fiche / Mot de passe / Supprimer). -->
+		<div class="m-in-crm flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-line bg-card px-5 py-4">
+			<div class="flex min-w-0 items-center gap-3.5">
+				<div class="avatar-crm h-14 w-14 shrink-0 text-xl text-white" style="background: linear-gradient(135deg, #21d05e, var(--brand-dark)); box-shadow: 0 4px 14px rgba(29, 185, 84, 0.3)">
 					{initial(selected.user.prenom)}
 				</div>
-			<div>
-				<h2 class="font-display text-lg font-semibold text-ink">{fullName(selected.user)}</h2>
-				<p class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-mist">
-					<span class="truncate">{selected.user.email}</span>
-					{#if selected.user.birthDate}
-						<span class="inline-flex items-center gap-1"><Icon name="cake" size={12} class="shrink-0" /> {fmtDateShort(selected.user.birthDate)}{ageOf != null ? ` · ${ageOf} ans` : ''}</span>
+				<div class="min-w-0">
+					<div class="flex flex-wrap items-center gap-2">
+						<h2 class="truncate font-display text-[1.35rem] font-black leading-tight tracking-tight text-ink">{fullName(selected.user)}</h2>
+						<span class="presence-crm {isOnline(selected.user.lastSeenAt) ? 'on' : ''}" title={isOnline(selected.user.lastSeenAt) ? 'En ligne' : 'Hors ligne'}></span>
+						<span class="rounded-full px-2.5 py-1 text-[11px] font-bold {statusLabel(selected.user.lastSeenAt).cls}">{statusLabel(selected.user.lastSeenAt).label}</span>
+					</div>
+					<p class="mt-0.5 flex items-center gap-1.5 text-[12.5px] font-medium text-mist">
+						<Icon name="mail" size={12} class="shrink-0" />
+						<span class="truncate">{selected.user.email}</span>
+					</p>
+					<div class="mt-1.5 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[11.5px] font-medium text-mist">
+						{#if ageOf != null}
+							<span class="inline-flex items-center gap-1"><Icon name="cake" size={12} class="shrink-0" /> {ageOf} ans</span>
+						{/if}
+						{#if selected.user.heightCm}
+							<span class="inline-flex items-center gap-1"><Icon name="ruler" size={12} class="shrink-0" /> {selected.user.heightCm} cm</span>
+						{/if}
+						{#if memberSince}
+							<span class="inline-flex items-center gap-1"><Icon name="calendarDays" size={12} class="shrink-0" /> Membre depuis le {memberSince}</span>
+						{/if}
+						<span class="inline-flex items-center gap-1"><Icon name="clock3" size={12} class="shrink-0" /> Dernière connexion : {fmtLastSeen(selected.user.lastSeenAt)}</span>
+					</div>
+					{#if selected.user.gsheetUrl}
+						<a
+							href={selected.user.gsheetUrl}
+							target="_blank"
+							rel="noopener noreferrer"
+							class="mt-1.5 inline-flex items-center gap-1 rounded-lg border border-brand/40 bg-brand-light/50 px-2 py-1 text-[11px] font-semibold text-brand-dark transition hover:border-brand hover:bg-brand-light"
+						><Icon name="externalLink" size={12} class="shrink-0" /> Ouvrir le tableur G-FLUX</a>
 					{/if}
-					{#if selected.user.heightCm}
-						<span class="inline-flex items-center gap-1"><Icon name="ruler" size={12} class="shrink-0" /> {selected.user.heightCm} cm</span>
-					{/if}
-					<span class="inline-flex items-center gap-1"><Icon name="clock" size={12} class="shrink-0" /> {fmtLastSeen(selected.user.lastSeenAt)}</span>
-				</p>
-				{#if selected.user.gsheetUrl}
-					<a
-						href={selected.user.gsheetUrl}
-						target="_blank"
-						rel="noopener noreferrer"
-						class="mt-1 inline-flex items-center gap-1 rounded-lg border border-brand/40 bg-brand-light/50 px-2 py-1 text-[11px] font-semibold text-brand-dark transition hover:border-brand hover:bg-brand-light"
-					><Icon name="externalLink" size={12} class="shrink-0" /> Ouvrir le tableur G-FLUX</a>
-				{/if}
+				</div>
 			</div>
-		</div>
 			<div class="flex flex-wrap items-center gap-2">
 				<details class="group relative">
-					<summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-lg border-2 border-line px-3 py-1.5 text-sm text-ink transition hover:border-brand hover:text-brand"><Icon name="settings" size={14} class="shrink-0" /> Fiche</summary>
+					<summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-xl border border-line bg-white px-3.5 py-2 text-[13px] font-bold text-ink shadow-sm transition hover:border-brand hover:text-brand"><Icon name="clipboardList" size={14} class="shrink-0 text-brand" /> Fiche</summary>
 					<form method="POST" action="?/updateFiche&client={selected.user._id}&section={section}" class="absolute right-0 top-10 z-20 w-80 rounded-xl border border-line bg-white p-4 shadow-xl">
 						<input type="hidden" name="userId" value={selected.user._id} />
 						<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-prenom">Prénom</label>
@@ -1689,7 +2020,7 @@
 					</form>
 				</details>
 				<details class="group relative">
-					<summary class="cursor-pointer list-none rounded-lg border-2 border-line px-3 py-1.5 text-sm text-ink transition hover:border-warn hover:text-warn">Mot de passe</summary>
+					<summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-xl border border-line bg-white px-3.5 py-2 text-[13px] font-bold text-ink shadow-sm transition hover:border-warn hover:text-warn"><Icon name="lock" size={13} class="shrink-0" /> Mot de passe</summary>
 					<form method="POST" action="?/resetPassword&client={selected.user._id}&section={section}" class="absolute right-0 top-10 z-20 w-72 rounded-xl border border-line bg-white p-3 shadow-xl">
 						<input type="hidden" name="userId" value={selected.user._id} />
 						<input name="newPassword" type="text" required minlength="8" placeholder="Nouveau mot de passe (8+ car.)" class="mb-2 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-warn" />
@@ -1697,7 +2028,7 @@
 					</form>
 				</details>
 				<details class="group relative">
-					<summary class="cursor-pointer list-none rounded-lg border-2 border-line px-3 py-1.5 text-sm text-danger transition hover:border-danger hover:bg-danger-light">Supprimer</summary>
+					<summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-xl border border-danger/30 bg-white px-3.5 py-2 text-[13px] font-bold text-danger shadow-sm transition hover:bg-danger-light"><Icon name="trash" size={13} class="shrink-0" /> Supprimer</summary>
 					<form method="POST" action="?/removeClient" class="absolute right-0 top-10 z-20 w-80 rounded-xl border border-danger/40 bg-white p-3 shadow-xl">
 						<input type="hidden" name="userId" value={selected.user._id} />
 						<p class="text-xs leading-relaxed text-ink">Supprimer <strong>{selected.user.prenom}</strong> et toutes ses données ? Action irréversible.</p>
@@ -1718,18 +2049,24 @@
 			</div>
 		</div>
 
-		<!-- Onglets du 360° -->
-		<div class="flex gap-1 overflow-x-auto border-b border-line bg-card px-5 pt-2">
-			{#each sectionTabs as t}
-				<button
-					onclick={() => (section = t.id)}
-					class="whitespace-nowrap rounded-t-lg px-3 py-2 text-sm font-semibold transition
-						{section === t.id ? 'border-b-2 border-brand text-brand' : 'text-mist hover:text-ink'}"
-				>{t.label}</button>
-			{/each}
+		<!-- Onglets du 360° — pills premium (tous les onglets métier conservés) -->
+		<div class="border-b border-line bg-card px-5 py-2.5">
+			<div class="tabs-crm w-fit max-w-full overflow-x-auto">
+				{#each sectionTabs as t (t.id)}
+					<button
+						onclick={() => (section = t.id)}
+						aria-pressed={section === t.id}
+						class="tab-crm {section === t.id ? 'active-crm' : ''}"
+					>{t.label}</button>
+				{/each}
+			</div>
 		</div>
 
-		<div class="flex-1 space-y-5 overflow-y-auto px-5 py-5">
+		<div class="flex-1 overflow-y-auto px-5 py-5">
+			<!-- {#key section} : rejoue le fondu d'entrée à chaque changement d'onglet
+			     (180 ms, opacity seule — zéro CLS) et remonte le scroll en haut. -->
+			{#key section}
+			<div class="tabfade-crm space-y-5">
 			<!-- Feedback discret après une sauvegarde (le tiroir reste ouvert) -->
 			{#if alert}
 				<div
@@ -1741,13 +2078,15 @@
 				</div>
 			{/if}
 
-			<!-- ═══ Aperçu : message du coach + dernières données + diagramme calories ═══ -->
+			<!-- ═══ Vision 360 (onglet principal) : synthèse + analyses + objectifs ═══ -->
 			{#if section === 'apercu'}
-				<!-- Raccourci formulaire de démarrage (onboarding, discret) -->
-				<div class="rounded-2xl border border-line bg-card p-4 shadow-sm">
+				<!-- Zone haute : statut onboarding (gauche) + message du coach (droite) -->
+				<div class="m-in-crm grid gap-3 lg:grid-cols-2" style="--m-i: 0">
+				<!-- Raccourci formulaire de démarrage (onboarding) — carte statut premium -->
+				<div class="rounded-2xl border p-4 shadow-sm" style="border-color: rgba(29, 185, 84, 0.35); background: linear-gradient(135deg, var(--brand-soft, #f3fcf7), #fff 45%)">
 					<div class="flex flex-wrap items-center justify-between gap-3">
 						<div class="flex items-center gap-2.5">
-							<span class="grid h-8 w-8 place-items-center rounded-full bg-brand-light"><Icon name="rocket" size={15} class="text-brand" /></span>
+							<span class="kpi-tile" style="--kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep)"><Icon name="rocket" size={17} /></span>
 							<div class="min-w-0">
 								<p class="text-[11px] font-bold uppercase tracking-wider text-mist">Onboarding de démarrage</p>
 								<p class="mt-0.5 text-xs text-mist">
@@ -1807,29 +2146,34 @@
 						<!-- Audio du message : enregistrement possible + état actuel (brouillon jamais publié tant qu'on n'envoie pas). -->
 						<div class="mt-2 rounded-xl border border-line bg-card/60 p-3">
 							<p class="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-mist"><Icon name="mic" size={12} /> Avec un message audio (optionnel)</p>
-							<CoachMedia
-								mode="message"
-								userId={selected.user._id}
-								existing={messageAudio}
-								bind:stagedAudioId={msgAudioDraft}
-							/>
-						</div>
-					</form>
+						<CoachMedia
+							mode="message"
+							userId={selected.user._id}
+							existing={messageAudio}
+							bind:stagedAudioId={msgAudioDraft}
+						/>
+					</div>
+				</form>
+			</div>
 				</div>
 
-				<div class="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
+				<!-- Poids actuel / Mensurations / Calories / Cycle — cartes de synthèse premium
+				     (liseré coloré + tuile icône + chiffre Lato 900 ; données et actions
+				     strictement identiques : mêmes boutons quick-sheet, mêmes valeurs). -->
+				<div class="m-in-crm grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" style="--m-i: 1">
 					<button
 						type="button"
 						onclick={() => openQuickSheet('weight')}
-						class="group cursor-pointer rounded-2xl border border-line bg-card p-4 text-left transition hover:border-brand focus-visible:outline-2 focus-visible:outline-brand"
+						class="kpi-crm card-crm-hover group cursor-pointer text-left active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-brand"
+						style="--kpi-accent: var(--accent); --kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep)"
 						aria-label="Ajouter une prise de poids"
 					>
 						<div class="flex items-center justify-between gap-1 text-[11px] font-bold uppercase tracking-wider text-mist">
-							<span class="flex items-center gap-1"><Icon name="scale" size={12} /> Poids actuel</span>
+							<span class="flex items-center gap-2"><span class="kpi-tile" style="width:1.75rem;height:1.75rem"><Icon name="scale" size={14} /></span> Poids actuel</span>
 							<span class="grid h-5 w-5 place-items-center rounded-full border border-line text-mist transition group-hover:border-brand group-hover:text-brand"><Icon name="plus" size={11} /></span>
 						</div>
 						<div class="mt-1 flex items-baseline gap-2">
-							<span class="font-display text-3xl font-semibold text-ink">{latestAny.weightKg != null ? `${String(latestAny.weightKg.value).replace('.', ',')} kg` : '—'}</span>
+							<span class="kpi-num-crm text-[1.65rem] text-ink">{latestAny.weightKg != null ? `${String(latestAny.weightKg.value).replace('.', ',')} kg` : '—'}</span>
 							{#if weightDelta != null}
 								<span class="text-sm font-bold {weightDelta <= 0 ? 'text-brand' : 'text-warn'}">{weightDelta <= 0 ? '↓' : '↑'} {String(Math.abs(weightDelta)).replace('.', ',')} kg</span>
 							{/if}
@@ -1839,33 +2183,34 @@
 					<button
 						type="button"
 						onclick={() => openQuickSheet('mensurations')}
-						class="group cursor-pointer rounded-2xl border border-line bg-card p-4 text-left transition hover:border-brand focus-visible:outline-2 focus-visible:outline-brand"
+						class="kpi-crm card-crm-hover group cursor-pointer text-left active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-brand"
+						style="--kpi-accent: var(--orange); --kpi-tile-bg: var(--warn-light); --kpi-tile-fg: var(--orange)"
 						aria-label="Ajouter des mensurations"
 					>
 						<div class="flex items-center justify-between gap-1 text-[11px] font-bold uppercase tracking-wider text-mist">
-							<span class="flex items-center gap-1"><Icon name="ruler" size={12} /> Mensurations</span>
+							<span class="flex items-center gap-2"><span class="kpi-tile" style="width:1.75rem;height:1.75rem"><Icon name="ruler" size={14} /></span> Mensurations</span>
 							<span class="grid h-5 w-5 place-items-center rounded-full border border-line text-mist transition group-hover:border-brand group-hover:text-brand"><Icon name="plus" size={11} /></span>
 						</div>
 						<div class="mt-1 grid grid-cols-3 gap-2 text-center">
 							<div>
-								<div class="font-display text-lg font-semibold text-ink">{latestAny.waistCm != null ? fmtCm(latestAny.waistCm.value) : '—'}</div>
+								<div class="kpi-num-crm text-[1.65rem] text-ink">{latestAny.waistCm != null ? fmtCm(latestAny.waistCm.value) : '—'}</div>
 								<div class="text-[10px] text-mist">taille fine</div>
 							</div>
 							<div>
-								<div class="font-display text-lg font-semibold text-ink">{latestAny.hipCm != null ? fmtCm(latestAny.hipCm.value) : '—'}</div>
+								<div class="kpi-num-crm text-[1.65rem] text-ink">{latestAny.hipCm != null ? fmtCm(latestAny.hipCm.value) : '—'}</div>
 								<div class="text-[10px] text-mist">fessiers</div>
 							</div>
 							<div>
-								<div class="font-display text-lg font-semibold text-ink">{latestAny.neckCm != null ? fmtCm(latestAny.neckCm.value) : '—'}</div>
+								<div class="kpi-num-crm text-[1.65rem] text-ink">{latestAny.neckCm != null ? fmtCm(latestAny.neckCm.value) : '—'}</div>
 								<div class="text-[10px] text-mist">cou</div>
 							</div>
 						</div>
 						<div class="mt-1 text-[11px] text-mist">en cm {mensDate ? `· ${fmtDateShort(mensDate)}` : '· aucune prise'}</div>
 					</button>
-					<div class="rounded-2xl border border-line bg-card p-4">
-						<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="flame" size={12} /> Calories / jour</div>
+					<div class="kpi-crm" style="--kpi-accent: var(--warn); --kpi-tile-bg: var(--warn-light); --kpi-tile-fg: var(--warn)">
+						<div class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-mist"><span class="kpi-tile" style="width:1.75rem;height:1.75rem"><Icon name="flame" size={14} /></span> Calories / jour</div>
 						<div class="mt-1 flex items-baseline gap-2">
-							<span class="font-display text-3xl font-semibold text-ink">{weekAvg || '—'}</span>
+							<span class="kpi-num-crm text-[1.65rem] text-ink">{weekAvg || '—'}</span>
 							{#if view && weekAvg > 0}
 								<span class="text-sm font-bold {kcalTrend <= 5 ? 'text-brand' : 'text-warn'}">{kcalTrend > 0 ? '+' : ''}{kcalTrend} %</span>
 							{/if}
@@ -1878,8 +2223,8 @@
 						</div>
 					</div>
 					<!-- Cycle — mêmes données et formule que le dashboard de la cliente -->
-					<div class="rounded-2xl border border-line bg-card p-4">
-						<div class="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="flower2" size={12} /> Cycle</div>
+					<div class="kpi-crm" style="--kpi-accent: #ec4899; --kpi-tile-bg: #fdeff6; --kpi-tile-fg: #db2777">
+						<div class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-mist"><span class="kpi-tile" style="width:1.75rem;height:1.75rem"><Icon name="flower2" size={14} /></span> Cycle</div>
 						{#if selCycleState.kind === 'empty'}
 							<div class="mt-1.5 text-sm text-mist">Non renseigné</div>
 						{:else if selCycleState.kind === 'hormonal'}
@@ -1894,15 +2239,14 @@
 							<div class="mt-1 text-[11px] leading-snug text-mist">règles : {selCycle?.lmp ? fmtDateShort(selCycle.lmp) : '—'} · durée {selCycle?.len ?? '—'} j · ovulation ~ J{selCycleState.ovulationDay}</div>
 						{/if}
 					</div>
-				</div>
 
 				<!-- DÉPENSE SPORTIVE — même encart que l'onglet Bilans, mais sur la
 			     semaine CALENDAIRE courante (indépendante du dernier bilan).
 			     kcal = REPÈRE, jamais un crédit calorique. Tendance calculée sur
 			     les semaines closes uniquement (jamais la semaine partielle). -->
-				<div class="rounded-2xl border border-line bg-card p-4 shadow-sm">
+				<div class="kpi-crm" style="--kpi-accent: var(--accent); --kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep)">
 					<div class="flex items-center justify-between gap-2">
-						<div class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="zap" size={13} class="shrink-0 text-brand" /> Dépense sportive</div>
+						<div class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-mist"><span class="kpi-tile" style="width:1.75rem;height:1.75rem"><Icon name="zap" size={14} /></span> Dépense sportive</div>
 						{#if sportOverview?.trainingCount}
 							<span class="rounded-full bg-soft px-2 py-0.5 text-[10px] font-semibold text-mist">{sportOverview.trainingCount} séance{sportOverview.trainingCount > 1 ? 's' : ''} G-FLUX</span>
 						{:else if sportOverview?.manualCount}
@@ -1911,7 +2255,7 @@
 					</div>
 					{#if sportOverview && (sportOverview.activities > 0 || (sportOverview.previous ?? []).some((p) => p.durationMin > 0))}
 						<div class="mt-1 flex flex-wrap items-baseline gap-x-2">
-							<span class="font-display text-3xl font-semibold text-ink">≈ {sportOverview.kcal.toLocaleString('fr-FR')} kcal</span>
+							<span class="kpi-num-crm text-[1.65rem] text-ink">≈ {sportOverview.kcal.toLocaleString('fr-FR')} kcal</span>
 							{#if sportOverview.trend === 'up'}
 								<span class="rounded-full bg-brand-light px-1.5 py-0.5 text-[10px] font-bold text-brand-dark">↑ Volume sportif</span>
 							{:else if sportOverview.trend === 'down'}
@@ -1924,35 +2268,27 @@
 							{sportOverview.activities} activité{sportOverview.activities > 1 ? 's' : ''}
 							· {Math.floor(sportOverview.durationMin / 60)} h {String(sportOverview.durationMin % 60).padStart(2, '0')} cette semaine
 						</p>
-						{#if (sportOverview.previous ?? []).some((p) => p.durationMin > 0)}
-							<!-- Lecture rapide : semaines closes précédentes (S-1 à S-4) —
-							     numérotation réelle même si une semaine intermédiaire est vide. -->
-							<div class="mt-2 space-y-0.5 border-t border-line/60 pt-2">
-								{#each sportOverview.previous ?? [] as pw, i (pw.weekStart)}
-									{#if pw.durationMin > 0}
-										<p class="text-[11px] text-mist tabular-nums">
-											S-{i + 1} · {Math.floor(pw.durationMin / 60)} h {String(pw.durationMin % 60).padStart(2, '0')} · ≈ {pw.kcal.toLocaleString('fr-FR')} kcal
-										</p>
-									{/if}
-								{/each}
-							</div>
-						{/if}
+						<button type="button" onclick={() => (section = 'bilans')} class="mt-2 flex w-full items-center gap-1 border-t border-line/60 pt-2 text-left text-[10.5px] font-semibold text-mist transition hover:text-brand">
+							Historique semaine par semaine : onglet Bilans <Icon name="arrowRight" size={11} class="shrink-0" />
+						</button>
 					{:else}
 						<p class="mt-1 text-sm italic text-mist">Aucune activité cette semaine</p>
 					{/if}
+				</div>
 				</div>
 
 				<!-- Ajout rapide depuis l'Aperçu : même endpoint que « Poids & mesures »,
 			     la vue est rechargée après enregistrement → cartes à jour immédiatement. -->
 				{#if quickSheet}
-					<button type="button" class="fixed inset-0 z-[80] cursor-pointer bg-ink/50" aria-label="Fermer" onclick={() => (quickSheet = null)}></button>
-					<div class="fixed inset-x-4 top-1/2 z-[80] mx-auto max-w-sm -translate-y-1/2 rounded-2xl bg-white p-5 shadow-2xl sm:left-1/2 sm:right-auto sm:-translate-x-1/2" role="dialog" aria-modal="true">
-						<div class="flex items-center justify-between">
-							<h4 class="flex items-center gap-1.5 font-display text-base font-semibold text-ink">
-								<Icon name={quickSheet.kind === 'weight' ? 'scale' : 'ruler'} size={16} class="shrink-0 text-brand" />
+					<button type="button" class="qs-backdrop-crm fixed inset-0 z-[80] cursor-pointer bg-ink/45 backdrop-blur-[2px]" aria-label="Fermer" onclick={() => (quickSheet = null)}></button>
+					<div class="fixed inset-x-4 top-1/2 z-[80] mx-auto max-w-sm -translate-y-1/2 sm:left-1/2 sm:right-auto sm:-translate-x-1/2" role="dialog" aria-modal="true">
+						<div class="qs-card-crm rounded-2xl bg-white p-5 shadow-2xl">
+						<div class="flex items-center justify-between gap-2 border-b border-line pb-3">
+							<h4 class="flex items-center gap-2.5 font-display text-base font-bold text-ink">
+								<span class="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-brand-light text-brand-deep"><Icon name={quickSheet.kind === 'weight' ? 'scale' : 'ruler'} size={15} /></span>
 								{quickSheet.kind === 'weight' ? 'Ajouter un poids' : 'Ajouter des mensurations'}
 							</h4>
-							<button type="button" onclick={() => (quickSheet = null)} class="rounded-lg px-2 py-1 text-lg text-mist hover:text-ink" aria-label="Fermer">✕</button>
+							<button type="button" onclick={() => (quickSheet = null)} class="grid h-7 w-7 place-items-center rounded-full text-mist transition hover:bg-soft hover:text-ink" aria-label="Fermer"><Icon name="x" size={14} /></button>
 						</div>
 
 						{#if quickSheet.kind === 'weight'}
@@ -1999,48 +2335,75 @@
 						{#if quickMsg}
 							<p class="mt-2 rounded-lg bg-warn-light px-3 py-2 text-xs font-semibold text-ink">{quickMsg}</p>
 						{/if}
+						</div>
 					</div>
-				{/if}
-
-				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
+				{/if}				<!-- Analyses des 7 derniers jours — calories + pas côte à côte (fenêtre J-7 → J-1, aujourd'hui exclu) -->
+				<section class="m-in-crm rounded-2xl border border-line bg-card px-5 py-4 shadow-sm" style="--m-i: 2">
 					<div class="flex flex-wrap items-center justify-between gap-2">
-							<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="chartBar" size={17} class="shrink-0 text-brand" /> Calories — tendance des 7 derniers jours terminés</h3>
-						<span class="text-[11px] text-mist">barres : kcal consommées · ligne pointillée : objectif · ligne verte : moyenne</span>
+						<div class="min-w-0">
+							<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="chartBar" size={17} class="shrink-0 text-brand" /> Analyses des 7 derniers jours</h3>
+							<p class="mt-0.5 text-xs text-mist">Suivi des calories et de l'activité par rapport aux objectifs — 7 journées terminées (J-7 → J-1, aujourd'hui exclu).</p>
+						</div>
+						<span class="rounded-full bg-soft px-2.5 py-1 text-[10.5px] font-bold text-mist">7 derniers jours</span>
 					</div>
-					{#if calBars.some((b) => b.value != null)}
-						<div class="mt-3">
-							<WeeklyTrendChart bars={calBars} goal={view?.cockpit?.calories?.goal ?? goalKcal} avg={weekAvg} fmt={fmtN} ariaLabel="Calories de la semaine" />
+					<div class="mt-3 grid gap-3 xl:grid-cols-2">
+						<div class="rounded-xl border border-line/70 bg-white p-3.5">
+							<div class="flex flex-wrap items-center justify-between gap-2">
+								<h4 class="flex items-center gap-1.5 text-[13px] font-bold text-ink"><Icon name="flame" size={14} class="shrink-0 text-warn" /> Calories consommées par jour</h4>
+								<span class="text-[10px] text-mist">barres : consommé · pointillé : objectif · verte : moyenne</span>
+							</div>
+							<div class="mt-2 grid grid-cols-3 gap-2">
+								<div class="rounded-lg bg-soft/80 px-2.5 py-1.5">
+									<div class="text-[9.5px] font-bold uppercase tracking-wider text-mist">Moyenne</div>
+									<div class="text-[13px] font-bold tabular-nums text-ink">{weekAvg || '—'} kcal {#if view && weekAvg > 0}<span class="text-[10px] font-bold {kcalTrend <= 0 ? 'text-brand' : 'text-warn'}">{kcalTrend > 0 ? '+' : ''}{kcalTrend} %</span>{/if}</div>
+								</div>
+								<div class="rounded-lg bg-soft/80 px-2.5 py-1.5">
+									<div class="text-[9.5px] font-bold uppercase tracking-wider text-mist">Objectif</div>
+									<div class="text-[13px] font-bold tabular-nums text-ink">{kcalGoalVal.toLocaleString('fr-FR')} kcal</div>
+								</div>
+								<div class="rounded-lg bg-soft/80 px-2.5 py-1.5">
+									<div class="text-[9.5px] font-bold uppercase tracking-wider text-mist">Écart / jour</div>
+									<div class="text-[13px] font-bold tabular-nums {kcalGap == null ? 'text-mist' : kcalGap <= 0 ? 'text-brand' : 'text-warn'}">{kcalGap == null ? '—' : `${kcalGap > 0 ? '+' : ''}${fmtN(kcalGap)} kcal`}</div>
+								</div>
+							</div>
+							{#if calBars.some((b) => b.value != null)}
+								<div class="mt-2.5">
+									<WeeklyTrendChart bars={calBars} goal={kcalGoalVal} avg={weekAvg} fmt={fmtN} ariaLabel="Calories de la semaine" />
+								</div>								<p class="mt-2 text-[10.5px] leading-relaxed text-mist"><strong class="text-ink">Moyenne : {weekAvg} kcal/jour</strong> sur {cockpit?.calories?.trackedDays ?? loggedDays} jour(s) exploitable(s) · seuil journée complète {cockpit?.calories?.thresholdKcal ?? 960} kcal = max(800, 60 % de l'objectif){cockpit?.calories?.partialExcluded ? ` · ${cockpit.calories.partialExcluded} partielle(s) exclue(s)` : ''} — le Journal reste intact.</p>
+							{:else}
+								<p class="mt-2.5 rounded-lg border border-dashed border-line px-3 py-6 text-center text-[13px] text-mist">Aucune donnée de journal sur les 7 derniers jours.</p>
+							{/if}
 						</div>
-						<div class="mt-2 flex items-start gap-1.5 rounded-xl bg-brand-light px-4 py-2.5 text-xs text-ink">
-							<Icon name="ruler" size={13} class="mt-0.5 shrink-0" /> <span><strong>Moyenne constatée : {weekAvg} kcal/jour</strong> sur {cockpit?.calories?.trackedDays ?? loggedDays} jour(s) exploitable(s) — 7 journées TERMINÉES (J-7 → J-1, aujourd'hui exclu), jours trop incomplètement renseignés exclus du calcul (seuil {cockpit?.calories?.thresholdKcal ?? 960} kcal = max(800, 60 % de l'objectif){cockpit?.calories?.partialExcluded ? ` · ${cockpit.calories.partialExcluded} journée(s) partielle(s) exclue(s)` : ''} — le Journal reste intact ; objectif (dernier jour de la fenêtre) : {view?.cockpit?.calories?.goal ?? goalKcal} kcal).</span>
+						<div class="rounded-xl border border-line/70 bg-white p-3.5">
+							<div class="flex flex-wrap items-center justify-between gap-2">
+								<h4 class="flex items-center gap-1.5 text-[13px] font-bold text-ink"><Icon name="footprints" size={14} class="shrink-0 text-brand" /> Nombre de pas par jour</h4>
+								<span class="text-[10px] text-mist">barres : pas · pointillé : objectif · verte : moyenne</span>
+							</div>
+							<div class="mt-2 grid grid-cols-3 gap-2">
+								<div class="rounded-lg bg-soft/80 px-2.5 py-1.5">
+									<div class="text-[9.5px] font-bold uppercase tracking-wider text-mist">Moyenne</div>
+									<div class="text-[13px] font-bold tabular-nums text-ink">{stepsAvg > 0 ? fmtN(stepsAvg) : '—'} pas {#if stepsGap != null}<span class="text-[10px] font-bold {stepsGap <= 0 ? 'text-brand' : 'text-warn'}">{stepsGap > 0 ? '+' : ''}{Math.round((stepsAvg - (stepGoalVal ?? stepsAvg)) / (stepGoalVal ?? stepsAvg) * 100)} %</span>{/if}</div>
+								</div>
+								<div class="rounded-lg bg-soft/80 px-2.5 py-1.5">
+									<div class="text-[9.5px] font-bold uppercase tracking-wider text-mist">Objectif</div>
+									<div class="text-[13px] font-bold tabular-nums text-ink">{stepGoalVal ? `${fmtN(stepGoalVal)} pas` : '—'}</div>
+								</div>
+								<div class="rounded-lg bg-soft/80 px-2.5 py-1.5">
+									<div class="text-[9.5px] font-bold uppercase tracking-wider text-mist">Écart / jour</div>
+									<div class="text-[13px] font-bold tabular-nums {stepsGap == null ? 'text-mist' : stepsGap <= 0 ? 'text-brand' : 'text-warn'}">{stepsGap == null ? '—' : `${stepsGap > 0 ? '+' : ''}${fmtN(stepsGap)} pas`}</div>
+								</div>
+							</div>
+							{#if stepsTracked > 0}
+								<div class="mt-2.5">
+									<WeeklyTrendChart bars={stepBars} goal={stepGoalVal} avg={stepsAvg} fmt={fmtN} unit=" pas" ariaLabel="Pas de la semaine" />
+								</div>
+								<p class="mt-2 text-[10.5px] leading-relaxed text-mist"><strong class="text-ink">Moyenne : {fmtN(stepsAvg)} pas/jour</strong> sur {stepsTracked} jour(s) renseigné(s) · total {fmtN(stepsTotal)} pas — somme des 7 journées terminées (J-7 → J-1, aujourd'hui exclu).</p>
+							{:else}
+								<p class="mt-2.5 rounded-lg border border-dashed border-line px-3 py-6 text-center text-[13px] text-mist">Aucun pas renseigné sur les 7 derniers jours.</p>
+							{/if}
 						</div>
-					{:else}
-						<p class="mt-3 rounded-xl border border-dashed border-line px-4 py-8 text-center text-sm text-mist">Aucune donnée de journal sur les 7 derniers jours.</p>
-					{/if}
-				</div>
-
-				<!-- Pas — tendance des 7 derniers jours (même design system que Calories) -->
-				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
-					<div class="flex flex-wrap items-center justify-between gap-2">
-						<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="footprints" size={17} class="shrink-0 text-brand" /> Pas — tendance des 7 derniers jours terminés</h3>
-						<span class="text-[11px] text-mist">barres : pas saisis · ligne pointillée : objectif · ligne verte : moyenne</span>
 					</div>
-					{#if stepsTracked > 0}
-						<div class="mt-3">
-							<WeeklyTrendChart bars={stepBars} goal={stepGoalVal} avg={stepsAvg} fmt={fmtN} unit=" pas" ariaLabel="Pas de la semaine" />
-						</div>
-						<div class="mt-2 flex flex-wrap items-start gap-x-3 gap-y-1 rounded-xl bg-brand-light px-4 py-2.5 text-xs text-ink">
-							<Icon name="footprints" size={13} class="mt-0.5 shrink-0" />
-							<span>
-								<strong>Moyenne constatée : {fmtN(stepsAvg)} pas/jour</strong>
-								sur {stepsTracked} jour(s) renseigné(s) — calcul : somme des pas des 7 journées TERMINÉES (J-7 → J-1, aujourd'hui exclu) ÷ nombre de ces jours saisis{stepGoalVal ? ` (objectif : ${fmtN(stepGoalVal)} pas/jour)` : ''}.
-							</span>
-							<span class="ml-auto whitespace-nowrap font-semibold text-mist">Total : {fmtN(stepsTotal)} pas</span>
-						</div>
-					{:else}
-						<p class="mt-3 rounded-xl border border-dashed border-line px-4 py-8 text-center text-sm text-mist">Aucun pas renseigné sur les 7 derniers jours.</p>
-					{/if}
-				</div>
+				</section>
 
 				{#if weightPoints && weightPoints.coords.length > 0}
 					<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
@@ -2086,38 +2449,51 @@
 						<form method="POST" action="?/setGoals&client={selected.user._id}&section={section}" class="mt-3">
 							<input type="hidden" name="userId" value={selected.user._id} />
 
+							<div class="grid gap-3 xl:grid-cols-5">
+							<div class="min-w-0 xl:col-span-3">
 							<!-- Choix du mode de saisie -->
-							<div class="mb-3 flex overflow-hidden rounded-lg border-2 border-line text-xs font-semibold sm:text-sm" role="radiogroup" aria-label="Mode de saisie des objectifs">
+							<div class="mb-3 flex gap-1 rounded-full border border-line bg-white p-1 text-xs font-semibold sm:text-sm" role="radiogroup" aria-label="Mode de saisie des objectifs">
 								<button
 									type="button"
-									class="flex-1 px-3 py-2 transition {goalsMode === 'pct' ? 'bg-brand text-white' : 'text-ink hover:bg-line/40'}"
+									class="flex-1 rounded-full px-3 py-2 transition {goalsMode === 'pct' ? 'bg-brand text-white' : 'text-ink hover:bg-soft'}"
 									onclick={() => switchGoalsMode('pct')}													><span class="inline-flex items-center gap-1.5"><Icon name="target" size={14} /> Calories + répartition %</span></button>
 								<button
 									type="button"
-									class="flex-1 px-3 py-2 transition {goalsMode === 'grams' ? 'bg-brand text-white' : 'text-ink hover:bg-line/40'}"
+									class="flex-1 rounded-full px-3 py-2 transition {goalsMode === 'grams' ? 'bg-brand text-white' : 'text-ink hover:bg-soft'}"
 									onclick={() => switchGoalsMode('grams')}													><span class="inline-flex items-center gap-1.5"><Icon name="drumstick" size={14} /> Méthode macros (g)</span></button>
 							</div>
 
 							{#if goalsMode === 'pct'}
-								<div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
-									<label class="block">
-										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Calories / jour</span>
-										<input type="number" name="kcal" required min="800" max="6000" bind:value={pctKcal} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
+								<!-- Répartition macros — même langage visuel que la PWA cliente
+								     (MacroLine : Glucides #ec4899 · Protéines #3b82f6 · Lipides #f97316) -->
+								<div class="grid grid-cols-2 gap-2.5">
+									<label class="rounded-xl border-2 border-line bg-white px-3 py-2.5 transition focus-within:border-brand">
+										<span class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-mist"><Icon name="flame" size={12} class="shrink-0 text-warn" /> Calories / jour</span>
+										<div class="mt-1 flex items-baseline gap-1">
+											<input type="number" name="kcal" required min="800" max="6000" bind:value={pctKcal} class="w-24 border-0 bg-transparent p-0 font-display text-xl font-bold text-ink outline-none" />
+											<span class="text-[11px] font-semibold text-mist">kcal</span>
+										</div>
 									</label>
-									<label class="block">
-										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Glucides (%)</span>
-										<input type="number" min="0" max="100" step="1" bind:value={pctCarbs} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
-										<span class="mt-0.5 block text-[11px] text-mist">≈ {goalsValues.carbs} g</span>
+									<label class="rounded-xl border-2 border-line bg-white px-3 py-2.5 transition focus-within:border-brand">
+										<span class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider" style="color:#ec4899"><span class="h-2 w-2 shrink-0 rounded-full" style="background:#ec4899"></span> Glucides</span>
+										<div class="mt-1 flex items-baseline gap-1">
+											<input type="number" min="0" max="100" step="1" bind:value={pctCarbs} class="w-14 border-0 bg-transparent p-0 font-display text-xl font-bold text-ink outline-none" />
+											<span class="text-[11px] font-semibold text-mist">% · ≈ {goalsValues.carbs} g</span>
+										</div>
 									</label>
-									<label class="block">
-										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Protéines (%)</span>
-										<input type="number" min="0" max="100" step="1" bind:value={pctProtein} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
-										<span class="mt-0.5 block text-[11px] text-mist">≈ {goalsValues.protein} g</span>
+									<label class="rounded-xl border-2 border-line bg-white px-3 py-2.5 transition focus-within:border-brand">
+										<span class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider" style="color:#3b82f6"><span class="h-2 w-2 shrink-0 rounded-full" style="background:#3b82f6"></span> Protéines</span>
+										<div class="mt-1 flex items-baseline gap-1">
+											<input type="number" min="0" max="100" step="1" bind:value={pctProtein} class="w-14 border-0 bg-transparent p-0 font-display text-xl font-bold text-ink outline-none" />
+											<span class="text-[11px] font-semibold text-mist">% · ≈ {goalsValues.protein} g</span>
+										</div>
 									</label>
-									<label class="block">
-										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Lipides (%)</span>
-										<input type="number" min="0" max="100" step="1" bind:value={pctFat} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
-										<span class="mt-0.5 block text-[11px] text-mist">≈ {goalsValues.fat} g</span>
+									<label class="rounded-xl border-2 border-line bg-white px-3 py-2.5 transition focus-within:border-brand">
+										<span class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider" style="color:#f97316"><span class="h-2 w-2 shrink-0 rounded-full" style="background:#f97316"></span> Lipides</span>
+										<div class="mt-1 flex items-baseline gap-1">
+											<input type="number" min="0" max="100" step="1" bind:value={pctFat} class="w-14 border-0 bg-transparent p-0 font-display text-xl font-bold text-ink outline-none" />
+											<span class="text-[11px] font-semibold text-mist">% · ≈ {goalsValues.fat} g</span>
+										</div>
 									</label>
 								</div>
 								<p class="mt-2 text-xs font-semibold {pctOk ? 'text-brand' : 'text-danger'}">
@@ -2127,20 +2503,20 @@
 								<input type="hidden" name="protein" value={goalsValues.protein} />
 								<input type="hidden" name="fat" value={goalsValues.fat} />
 							{:else}
-								<div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
-									<div class="rounded-lg border-2 border-brand/40 bg-brand-light px-2 py-2">
-										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-brand">Calories calculées</span>
-										<span class="font-display text-lg font-semibold text-brand-dark">{goalsValues.kcal} <span class="text-xs font-semibold text-mist">kcal</span></span>
+								<div class="grid grid-cols-2 gap-2.5">
+									<div class="rounded-xl border-2 border-brand/40 bg-brand-light px-3 py-2.5">
+										<span class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-brand"><Icon name="flame" size={12} class="shrink-0" /> Calories calculées</span>
+										<span class="mt-1 block font-display text-xl font-bold text-brand-dark">{goalsValues.kcal} <span class="text-xs font-semibold text-mist">kcal</span></span>
 									</div>
-									<label class="block">
-										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Glucides (g)</span>										<input type="number" name="carbs" required min="0" max="1000" bind:value={gCarbs} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
+									<label class="rounded-xl border-2 border-line bg-white px-3 py-2.5 transition focus-within:border-brand">
+										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider " style="color:#ec4899"><span class="h-2 w-2 shrink-0 rounded-full" style="background:#ec4899"></span> Glucides (g)</span>										<input type="number" name="carbs" required min="0" max="1000" bind:value={gCarbs} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
 											</label>
 											<label class="block">
-												<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Protéines (g)</span>
+												<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider " style="color:#3b82f6"><span class="h-2 w-2 shrink-0 rounded-full" style="background:#3b82f6"></span> Protéines (g)</span>
 												<input type="number" name="protein" required min="0" max="400" bind:value={gProtein} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
 											</label>
 											<label class="block">
-												<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Lipides (g)</span>
+												<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider " style="color:#f97316"><span class="h-2 w-2 shrink-0 rounded-full" style="background:#f97316"></span> Lipides (g)</span>
 												<input type="number" name="fat" required min="0" max="300" bind:value={gFat} class="w-full rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
 									</label>
 								</div>
@@ -2151,9 +2527,12 @@
 							{#if goalsError}
 								<p class="mt-2 rounded-lg bg-danger-light px-3 py-2 text-xs font-semibold text-danger">{goalsError}</p>
 							{/if}
+							</div>
 
+							<!-- Colonne droite : filets de sécurité + enregistrement -->
+							<div class="grid content-start gap-3 xl:col-span-2">
 							<!-- Filet de sécurité : maintenance calorique (repère secondaire, jamais une 2ᵉ cible) -->
-							<div class="mt-3 rounded-xl border-2 border-dashed border-brand/30 bg-brand-light/50 px-3 py-2.5">
+							<div class="rounded-xl border-2 border-dashed border-brand/30 bg-brand-light/50 px-3 py-2.5">
 								<label class="flex items-center justify-between gap-3">
 									<span class="min-w-0">
 										<span class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-brand-dark"><Icon name="lifeBuoy" size={12} class="shrink-0" /> Maintenance calorique (optionnel)</span>
@@ -2179,7 +2558,7 @@
 							</div>
 
 							<!-- Objectif quotidien de pas (saisi manuellement, propre à chaque cliente) -->
-							<div class="mt-3 rounded-xl border-2 border-dashed border-line bg-cream/50 px-3 py-2.5">
+							<div class="rounded-xl border-2 border-dashed border-line bg-cream/50 px-3 py-2.5">
 								<label class="flex items-center justify-between gap-3">
 									<span class="min-w-0">
 										<span class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-mist"><Icon name="footprints" size={12} class="shrink-0" /> Objectif quotidien de pas (optionnel)</span>
@@ -2204,11 +2583,91 @@
 								{/if}
 							</div>
 
-							<button type="submit" disabled={!!goalsError} class="mt-3 w-full rounded-lg bg-brand px-3 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark disabled:opacity-60">
+							<button type="submit" disabled={!!goalsError} class="w-full rounded-full bg-brand px-3 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60">
 								Enregistrer les objectifs
 							</button>
+							</div>
+							</div>
 						</form>
 					{/key}
+				</div>
+
+				<!-- Blocs secondaires : accès rapide (onglets métier) + dernières activités (données existantes) -->
+				<div class="m-in-crm grid gap-3 lg:grid-cols-2" style="--m-i: 5">
+					<div class="rounded-2xl border border-line bg-card p-4 shadow-sm">
+						<div class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="zap" size={13} class="shrink-0 text-brand" /> Accès rapide</div>
+						<div class="mt-2.5 grid gap-1.5">
+							{#each quickAccess as q (q.id)}
+								<button type="button" onclick={() => (section = q.id)} class="group flex items-center gap-2.5 rounded-xl border border-line bg-white px-3 py-2 text-left transition hover:border-brand/50 hover:bg-brand-light/30">
+									<span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-soft text-ink transition group-hover:bg-brand-light group-hover:text-brand-deep"><Icon name={q.icon} size={13} /></span>
+									<span class="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink">{q.label}{#if q.id === 'photos'} ({totalPhotos}){/if}</span>
+									<Icon name="chevronRight" size={13} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
+								</button>
+							{/each}
+						</div>
+					</div>
+					<div class="rounded-2xl border border-line bg-card p-4 shadow-sm">
+						<div class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-mist"><Icon name="clock3" size={13} class="shrink-0 text-brand" /> Dernières activités</div>
+						<div class="mt-2.5 grid gap-1.5">
+							{#if selected.user.lastSeenAt}
+								<div class="flex items-center gap-2.5 rounded-xl border border-line/70 bg-white px-3 py-2">
+									<span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-brand-light text-brand-deep"><Icon name="smartphone" size={13} /></span>
+									<span class="min-w-0 flex-1">
+										<span class="block text-[13px] font-semibold text-ink">Connexion</span>
+										<span class="block text-[11px] text-mist">{fmtLastSeen(selected.user.lastSeenAt)}</span>
+									</span>
+								</div>
+							{/if}
+							{#if latestAny.weightKg}
+								<div class="flex items-center gap-2.5 rounded-xl border border-line/70 bg-white px-3 py-2">
+									<span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-brand-light text-brand-deep"><Icon name="scale" size={13} /></span>
+									<span class="min-w-0 flex-1">
+										<span class="block text-[13px] font-semibold text-ink">Poids enregistré</span>
+										<span class="block text-[11px] text-mist">{String(latestAny.weightKg.value).replace('.', ',')} kg · {fmtDateShort(latestAny.weightKg.date)}</span>
+									</span>
+								</div>
+							{/if}
+							{#if mensDate}
+								<div class="flex items-center gap-2.5 rounded-xl border border-line/70 bg-white px-3 py-2">
+									<span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-warn-light text-warn"><Icon name="ruler" size={13} /></span>
+									<span class="min-w-0 flex-1">
+										<span class="block text-[13px] font-semibold text-ink">Mensurations</span>
+										<span class="block text-[11px] text-mist">mises à jour le {fmtDateShort(mensDate)}</span>
+									</span>
+								</div>
+							{/if}
+							{#if sportOverview && sportOverview.activities > 0}
+								<div class="flex items-center gap-2.5 rounded-xl border border-line/70 bg-white px-3 py-2">
+									<span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-brand-light text-brand-deep"><Icon name="dumbbell" size={13} /></span>
+									<span class="min-w-0 flex-1">
+										<span class="block text-[13px] font-semibold text-ink">Entraînement</span>
+										<span class="block text-[11px] text-mist">{sportOverview.activities} activité{sportOverview.activities > 1 ? 's' : ''} · {Math.floor(sportOverview.durationMin / 60)} h {String(sportOverview.durationMin % 60).padStart(2, '0')} cette semaine</span>
+									</span>
+								</div>
+							{/if}
+							{#if lastPhotoDate}
+								<div class="flex items-center gap-2.5 rounded-xl border border-line/70 bg-white px-3 py-2">
+									<span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-soft text-ink"><Icon name="camera" size={13} /></span>
+									<span class="min-w-0 flex-1">
+										<span class="block text-[13px] font-semibold text-ink">Photos</span>
+										<span class="block text-[11px] text-mist">{totalPhotos} photo{totalPhotos > 1 ? 's' : ''} · dernière le {fmtDateShort(lastPhotoDate)}</span>
+									</span>
+								</div>
+							{/if}
+							{#if messageLog.length > 0}
+								<div class="flex items-center gap-2.5 rounded-xl border border-line/70 bg-white px-3 py-2">
+									<span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-brand-light text-brand-deep"><Icon name="messageCircle" size={13} /></span>
+									<span class="min-w-0 flex-1">
+										<span class="block text-[13px] font-semibold text-ink">Message publié</span>
+										<span class="block text-[11px] text-mist">{fmtDateTime(messageLog[0].publishedAt)}{#if messageLog[0].isGlobal} · global{/if}</span>
+									</span>
+								</div>
+							{/if}
+							{#if !selected.user.lastSeenAt && !latestAny.weightKg && !mensDate && !(sportOverview && sportOverview.activities > 0) && !lastPhotoDate && messageLog.length === 0}
+								<p class="rounded-xl border border-dashed border-line px-3 py-5 text-center text-[13px] text-mist">Aucune activité pour le moment.</p>
+							{/if}
+						</div>
+					</div>
 				</div>
 
 				<!-- Historique des messages envoyés (journal CRM : daté, lu/non lu, réécoute) —
@@ -3310,6 +3769,8 @@
 				<!-- Dossier : notes privées coach + ressources partagées (« Ressources » côté cliente) -->
 				<DossierPanel clientId={selected.user._id} clientName={fullName(selected.user)} />
 			{/if}
+		</div>
+		{/key}
 		</div>
 	</aside>
 {:else if clients.length === 0}

@@ -9,6 +9,7 @@
 	import { page } from '$app/state';
 	import Icon from '$lib/components/Icon.svelte';
 	import ExerciseLibraryBrowser from '$lib/components/ExerciseLibraryBrowser.svelte';
+	import CountUp from '$lib/components/CountUp.svelte';
 	import TrainingEditor from '$lib/components/TrainingEditor.svelte';
 	import { type ProgramRow } from '$lib/training';
 
@@ -26,6 +27,14 @@
 	];
 	const goalLabel = (v?: string) => GOALS.find((g) => g.value === v)?.label;
 	const levelLabel = (v?: string) => LEVELS.find((l) => l.value === v)?.label;
+	/** Couleur de badge par objectif (langage Vision 360 / Notifications). */
+	const GOAL_BADGE: Record<string, string> = {
+		hypertrophie: 'bg-brand-light text-brand-deep',
+		perte_de_gras: 'bg-[#fdeff6] text-[#db2777]',
+		remise_en_forme: 'bg-warn-light text-warn',
+		force: 'bg-[#e8f0fe] text-[#1a73e8]',
+		autre: 'bg-soft text-ink/70',
+	};
 
 	type Tab = 'programmes' | 'editeur' | 'bibliotheque';
 	const tab = $derived((page.url.searchParams.get('tab') as Tab) || 'programmes');
@@ -208,49 +217,89 @@
 	}
 
 	const spwChoices = $derived([...new Set(programs.map((p) => p.sessionsPerWeek).filter((n): n is number => !!n))].sort((a, b) => a - b));
-</script>
+
+	/* ── KPI premium (compteurs simples sur les données déjà chargées) ── */
+	const kpiPrograms = $derived(programs.length);
+	const kpiObjectifs = $derived(new Set(programs.map((p) => p.goal).filter(Boolean)).size);</script>
 
 <svelte:head><title>Entraînement — CRM G-Flux</title></svelte:head>
 
-<div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-	<div class="flex gap-1 rounded-2xl border border-line bg-card p-1 shadow-sm">
-		{#each [['programmes', 'Programmes'], ['editeur', 'Éditeur'], ['bibliotheque', 'Bibliothèque']] as [t, label] (t)}
-			<button
-				type="button"
-				onclick={() => openTab(t as Tab)}
-				class="rounded-xl px-4 py-1.5 text-sm font-bold transition {tab === t ? 'bg-brand text-white shadow-sm' : 'text-mist hover:text-ink'}"
-			>
-				{label}
-			</button>
-		{/each}
+<!-- ═══ En-tête premium + onglets (même langage que Dashboard) ═══ -->
+<header class="m-in-crm flex flex-wrap items-end justify-between gap-3" style="--m-i: 0">
+	<div class="min-w-0">
+		<h1 class="flex items-center gap-2.5 font-display text-2xl font-black tracking-tight text-ink">
+			<span class="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-brand-light text-brand-deep"><Icon name="dumbbell" size={20} /></span>
+			Entraînement
+		</h1>
+		<p class="mt-1.5 text-sm text-mist">Crée, gère et assigne tes programmes d'entraînement.</p>
 	</div>
 	{#if tab === 'editeur'}
-		<span class="flex items-center gap-1.5 text-xs font-semibold {saveState === 'error' ? 'text-red-600' : 'text-mist'}">
+		<span class="flex items-center gap-1.5 text-xs font-semibold {saveState === 'error' ? 'text-danger' : 'text-mist'}">
 			{#if saveState === 'saving'}
 				<Icon name="clock" size={13} /> Enregistrement…
 			{:else if saveState === 'saved'}
-				<Icon name="circleCheck" size={13} class="text-green-600" /> Enregistré
+				<Icon name="circleCheck" size={13} class="text-brand" /> Enregistré
 			{:else if saveState === 'error'}
 				<Icon name="triangleAlert" size={13} /> Erreur d'enregistrement
 			{/if}
 		</span>
 	{/if}
-</div>
+</header>
+
+<nav class="m-in-crm tabs-crm mt-4" style="--m-i: 1" aria-label="Sections Entraînement">
+	{#each [['programmes', 'Programmes'], ['editeur', 'Éditeur'], ['bibliotheque', 'Bibliothèque']] as [t, label] (t)}
+		<button type="button" class="tab-crm {tab === t ? 'active-crm' : ''}" onclick={() => openTab(t as Tab)} aria-pressed={tab === t}>
+			{#if t === 'programmes'}<Icon name="dumbbell" size={14} class="shrink-0" />{:else if t === 'editeur'}<Icon name="edit" size={14} class="shrink-0" />{:else}<Icon name="bookOpen" size={14} class="shrink-0" />{/if}
+			{label}
+		</button>
+	{/each}
+</nav>
 
 {#if tab === 'programmes'}
+	<!-- KPI premium (langage Dashboard : tuile icône + chiffre 900) -->
+	<section class="m-in-crm mt-4 grid gap-3.5 sm:grid-cols-3" style="--m-i: 2">
+		<div class="kpi-crm card-crm-hover" style="--kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep)">
+			<div class="flex items-center gap-3">
+				<span class="kpi-tile-lg"><Icon name="layers" size={20} /></span>
+				<div class="min-w-0">
+					<div class="kpi-num-crm text-[1.8rem] leading-none text-ink"><CountUp value={kpiPrograms} /></div>
+					<div class="mt-1 text-[12px] font-bold text-ink">programmes</div>
+				</div>
+			</div>
+		</div>
+		<div class="kpi-crm card-crm-hover" style="--kpi-tile-bg: var(--warn-light); --kpi-tile-fg: var(--warn)">
+			<div class="flex items-center gap-3">
+				<span class="kpi-tile-lg"><Icon name="target" size={20} /></span>
+				<div class="min-w-0">
+					<div class="kpi-num-crm text-[1.8rem] leading-none text-ink"><CountUp value={kpiObjectifs} /></div>
+					<div class="mt-1 text-[12px] font-bold text-ink">objectifs différents</div>
+				</div>
+			</div>
+		</div>
+		<div class="kpi-crm card-crm-hover" style="--kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep)">
+			<div class="flex items-center gap-3">
+				<span class="kpi-tile-lg"><Icon name="chartColumn" size={20} /></span>
+				<div class="min-w-0">
+					<div class="kpi-num-crm text-[1.8rem] leading-none text-ink"><CountUp value={programs.reduce((s, p) => s + p.sessionCount, 0)} /></div>
+					<div class="mt-1 text-[12px] font-bold text-ink">séances au total</div>
+				</div>
+			</div>
+		</div>
+	</section>
+
 	<!-- ═══════════ ONGLET PROGRAMMES ═══════════ -->
-	<div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-		<h1 class="font-display text-2xl font-bold text-ink">Programmes d'entraînement</h1>
+	<div class="m-in-crm mt-4 flex flex-wrap items-center justify-between gap-3" style="--m-i: 3">
+		<h2 class="flex items-center gap-2 font-display text-lg font-black text-ink">Tous tes programmes <span class="badge-in rounded-full bg-brand-light px-2 py-0.5 text-[11px] font-bold text-brand-deep">{filtered.length}</span></h2>
 		<button
 			type="button"
 			onclick={openCreate}
-			class="flex items-center gap-1.5 rounded-full bg-brand px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:brightness-110"
+			class="flex items-center gap-1.5 rounded-full bg-brand px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-brand-dark"
 		>
 			<Icon name="plus" size={15} /> Nouveau programme
 		</button>
 	</div>
 
-	<section class="mb-4 rounded-2xl border border-line bg-card p-4 shadow-sm">
+	<section class="card-crm m-in-crm mt-3 p-3.5" style="--m-i: 4">
 		<div class="flex flex-wrap items-center gap-2">
 			<div class="flex min-w-56 flex-1 items-center gap-2 rounded-xl border border-line bg-white px-3 py-2 focus-within:border-brand">
 				<Icon name="search" size={16} class="shrink-0 text-mist" />
@@ -276,39 +325,41 @@
 	</section>
 
 	{#if listErr}
-		<p class="mb-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{listErr}</p>
+		<p class="m-in-crm mt-3 rounded-xl border border-danger/40 bg-danger-light px-3 py-2 text-sm text-danger">{listErr}</p>
 	{/if}
 
 	{#if listLoading}
 		<p class="py-16 text-center text-sm text-mist">Chargement…</p>
 	{:else if filtered.length === 0}
-		<div class="rounded-2xl border border-dashed border-line bg-card px-6 py-16 text-center">
+		<div class="m-in-crm mt-4 rounded-2xl border border-dashed border-line bg-card px-6 py-16 text-center">
 			<div class="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-brand-light">
 				<Icon name="dumbbell" size={26} class="text-brand" />
 			</div>
-			<p class="font-semibold text-ink">{programs.length === 0 ? 'Aucun programme pour le moment' : 'Aucun programme ne correspond aux filtres'}</p>
+			<p class="font-display font-bold text-ink">{programs.length === 0 ? 'Aucun programme pour le moment' : 'Aucun programme ne correspond aux filtres'}</p>
 			<p class="mx-auto mt-1 max-w-sm text-sm text-mist">
 				{programs.length === 0 ? 'Crée ton premier programme : nom, objectif, niveau, puis compose tes séances depuis la bibliothèque.' : 'Ajuste la recherche ou les filtres.'}
 			</p>
 		</div>
 	{:else}
-		<div class="flex flex-col gap-3">
+		<div class="m-in-crm mt-4 flex flex-col gap-3">
 			{#each filtered as p (p._id)}
-				<article class="flex items-center gap-4 overflow-hidden rounded-2xl border border-line bg-card shadow-sm transition hover:border-brand">
+				<article class="card-crm card-crm-hover flex items-center gap-4 overflow-hidden">
 					<span class="relative block h-20 w-32 shrink-0 bg-line/40 sm:h-24 sm:w-40">
 						{#if p.imageUrl}
 							<img src={p.imageUrl} alt="" loading="lazy" class="h-full w-full object-cover" />
 						{:else}
-							<span class="grid h-full w-full place-items-center"><Icon name="dumbbell" size={22} class="text-mist" /></span>
+							<span class="grid h-full w-full place-items-center bg-gradient-to-br from-brand-light/70 to-white"><Icon name="dumbbell" size={22} class="text-brand/60" /></span>
 						{/if}
 					</span>
 					<div class="min-w-0 flex-1 py-3 pr-2">
-						<h2 class="truncate font-display text-lg font-bold text-ink">{p.name}</h2>
-						<p class="mt-0.5 text-xs text-mist">
-							{p.sessionCount} séance{p.sessionCount > 1 ? 's' : ''}
-							{#if p.sessionsPerWeek} · {p.sessionsPerWeek} séance{p.sessionsPerWeek > 1 ? 's' : ''}/semaine{/if}
-							{#if p.goalLabel} · {p.goalLabel}{/if}
-							{#if p.levelLabel} · {p.levelLabel}{/if}
+						<div class="flex flex-wrap items-center gap-2">
+							<h2 class="truncate font-display text-lg font-black text-ink">{p.name}</h2>
+							{#if p.goal}<span class="badge-in shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-bold {GOAL_BADGE[p.goal] ?? 'bg-soft text-ink/70'}">{p.goalLabel}</span>{/if}
+							{#if p.levelLabel}<span class="badge-in shrink-0 rounded-full bg-soft px-2 py-0.5 text-[10.5px] font-bold text-ink/70">{p.levelLabel}</span>{/if}
+						</div>
+						<p class="mt-0.5 text-xs font-semibold text-mist">
+							<span class="inline-flex items-center gap-1"><Icon name="layers" size={12} /> {p.sessionCount} séance{p.sessionCount > 1 ? 's' : ''}</span>
+							{#if p.sessionsPerWeek}<span class="inline-flex items-center gap-1"><Icon name="calendarDays" size={12} /> {p.sessionsPerWeek}/semaine</span>{/if}
 						</p>
 						{#if p.description}
 							<p class="mt-1 line-clamp-1 text-xs text-mist">{p.description}</p>
@@ -318,7 +369,7 @@
 						<button
 							type="button"
 							onclick={() => openEditor(p._id)}
-							class="flex items-center gap-1 rounded-full bg-brand px-3.5 py-1.5 text-xs font-bold text-white transition hover:brightness-110"
+							class="flex items-center gap-1 rounded-full bg-brand px-3.5 py-1.5 text-xs font-bold text-white transition hover:bg-brand-dark"
 						>
 							<Icon name="pencil" size={13} /> Modifier
 						</button>
@@ -336,7 +387,7 @@
 							title="Supprimer"
 							disabled={busyId === p._id}
 							onclick={() => deleteProgram(p)}
-							class="rounded-xl border border-line bg-white p-2 text-mist transition hover:border-red-300 hover:text-red-600 disabled:opacity-50"
+							class="rounded-xl border border-line bg-white p-2 text-mist transition hover:border-danger hover:text-danger disabled:opacity-50"
 						>
 							<Icon name="trash" size={15} />
 						</button>
@@ -371,8 +422,18 @@
 	{/if}
 {:else}
 	<!-- ═══════════ ONGLET BIBLIOTHÈQUE ═══════════ -->
-	<h1 class="mb-4 font-display text-2xl font-bold text-ink">Bibliothèque d'exercices</h1>
-	<ExerciseLibraryBrowser variant="page" />
+	<section class="card-crm m-in-crm mt-4 overflow-hidden" style="--m-i: 2">
+		<div class="flex items-center gap-2.5 border-b border-line px-5 py-3.5">
+			<span class="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-brand-light text-brand-deep"><Icon name="bookOpen" size={15} /></span>
+			<div class="min-w-0">
+				<h2 class="font-display text-[15px] font-bold text-ink">Bibliothèque d'exercices</h2>
+				<p class="text-[11.5px] text-mist">La banque G-FLUX : modèles officiels + exercices personnalisés.</p>
+			</div>
+		</div>
+		<div class="p-4">
+			<ExerciseLibraryBrowser variant="page" />
+		</div>
+	</section>
 {/if}
 
 <!-- ═══════════ Modale de création ═══════════ -->

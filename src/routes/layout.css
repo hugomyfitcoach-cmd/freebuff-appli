@@ -6,10 +6,14 @@
 	--color-ink: #111110;
 	--color-brand: #1db954;
 	--color-brand-dark: #17a349;
+	--color-brand-deep: #0d7c36;
 	--color-brand-light: #e8fef0;
+	--color-brand-soft: #f3fcf7;
 	--color-mist: #999990;
+	--color-mist-strong: #6f736b;
 	--color-card: #ffffff;
 	--color-line: #e5e3dc;
+	--color-line-soft: #efede6;
 	/* Espace cliente : fond gris très doux à nuance verte (direction mobile premium). */
 	--color-soft: #f4f6f4;
 	--color-soft-deep: #e9ede9;
@@ -34,6 +38,454 @@
 	--red-l: #fff0f0;
 	--orange: #ff9500;
 	--orange-l: #fff8f0;
+	/* ── Design system CRM premium (refonte 2026) — consommé par les
+	   composants des pages coach (/admin) via les classes ci-dessous. ── */
+	--ds-sh-sm: 0 1px 2px rgba(17, 17, 16, 0.05), 0 1px 3px rgba(17, 17, 16, 0.03);
+	--ds-sh-md: 0 2px 6px rgba(17, 17, 16, 0.05), 0 10px 28px rgba(17, 17, 16, 0.06);
+	--ds-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   DESIGN SYSTEM CRM PREMIUM — espace coach (refonte UX/UI 2026)
+   North star : docs/refonte-preview/preview.html (dashboard mockup validé).
+   Portée volontairement limitée aux pages coach : aucun impact sur l'espace
+   cliente (le sélecteur racine verrouille les règles au conteneur .ds-crm).
+   ══   ═══════════════════════════════════════════════════════════════════════ */
+.ds-crm {
+	/* Rythme du stagger des entrées de cartes (pages coach). */
+	--ds-stagger: 30ms;
+	/* ── PASS 2 « fidélité mockup » : cockpit plus lumineux — la zone contenu du
+	   coach passe sur fond blanc cassé (cartes détourées par la bordure fine),
+	   la sidebar reste crème. Aucun impact sur l'espace cliente. ── */
+	background: #fbfaf8;
+}
+
+/* Wrapper plein écran coach (PASS 2) : même fond lumineux que <main> pour
+   éviter les bandes crème autour du conteneur centré. Pose aussi le scope
+   sidebar .ds-shell-crm — la cliente ne porte AUCUNE de ces classes. */
+.ds-page-crm {
+	background: #fbfaf8;
+}
+
+/* ── Sidebar coach (mockup PASS 2) : fond blanc, halo vert très clair sur
+   l'item actif + indicateur latéral vert. Portée AppShell coach UNIQUEMENT
+   (la cliente ne porte pas .ds-shell-crm). ── */
+.ds-shell-crm {
+	background: #fdfdfc;
+}
+.ds-shell-crm .navlink-crm {
+	position: relative;
+	border-radius: 0.75rem;
+	font-weight: 700;
+	color: var(--ink);
+	transition: background-color 150ms var(--ds-ease), color 150ms var(--ds-ease);
+}
+.ds-shell-crm .navlink-crm:hover {
+	background: var(--soft);
+}
+.ds-shell-crm .navlink-crm.active-crm {
+	background: var(--brand-light);
+	color: var(--brand-deep);
+}
+.ds-shell-crm .navlink-crm.active-crm::before {
+	content: '';
+	position: absolute;
+	left: -0.75rem;
+	top: 50%;
+	transform: translateY(-50%);
+	height: 1.15rem;
+	width: 3px;
+	border-radius: 9999px;
+	background: var(--accent);
+}
+@media (max-width: 767px) {
+	/* Sur mobile la nav coach est hors écran (aside masqué) — règle par sûreté. */
+	.ds-shell-crm .navlink-crm.active-crm::before {
+		display: none;
+	}
+}
+
+/* ── Top header cockpit : barre blanche collée en haut de la zone contenu.
+   Marges négatives = compensation des paddings du conteneur AppShell coach
+   (px-4 py-6, sm:px-6) pour un rendu pleine largeur de la zone de contenu. ── */
+.ds-crm .topbar-crm {
+	position: sticky;
+	top: 0;
+	z-index: 30;
+	margin: -1.5rem -1rem 1.25rem;
+	padding: 0.8rem 1rem;
+	background: rgba(251, 250, 248, 0.92);
+	border-bottom: 1px solid var(--border);
+	backdrop-filter: blur(10px);
+}
+@media (min-width: 640px) {
+	.ds-crm .topbar-crm {
+		margin: -1.5rem -1.5rem 1.25rem;
+		padding: 0.8rem 1.5rem;
+	}
+}
+
+/* ── Tuile icône XL des KPI (mockup : tuile douce arrondie) ── */
+.ds-crm .kpi-tile-lg {
+	width: 3rem;
+	height: 3rem;
+	border-radius: 0.95rem;
+	display: grid;
+	place-items: center;
+	background: var(--kpi-tile-bg, var(--accent-light));
+	color: var(--kpi-tile-fg, var(--brand-deep));
+	flex-shrink: 0;
+}
+
+.ds-crm .kpi-tile-sm {
+	width: 1.75rem;
+	height: 1.75rem;
+	border-radius: 0.6rem;
+}
+
+/* ── Sparkline décorative (barres verticales façon mockup) ──
+   Purement visuelle : hauteur animée au chargement, aucune donnée affichée. */
+.ds-crm .spark-crm {
+	display: flex;
+	align-items: flex-end;
+	gap: 2.5px;
+	height: 26px;
+}
+.ds-crm .spark-crm i {
+	display: block;
+	width: 3.5px;
+	border-radius: 9999px;
+	background: var(--spark-color, rgba(29, 185, 84, 0.55));
+	height: calc(var(--h, 40) * 1%);
+	transform-origin: bottom;
+}
+.motion-armed .ds-crm .spark-crm i {
+	animation: spark-pop-crm 480ms var(--ds-ease) backwards;
+	animation-delay: calc(var(--m-i, 0) * 45ms + 150ms);
+}
+@keyframes spark-pop-crm {
+	from {
+		transform: scaleY(0.3);
+		opacity: 0;
+	}
+}
+
+.ds-crm .kpi-crm-plain {
+	padding: 1rem 1.125rem;
+}
+.ds-crm .kpi-crm-plain::before {
+	display: none;
+}
+
+/* ── Ligne « à traiter » compacte (3 visibles, chevron, badge) ── */
+.ds-crm .todo-row-crm {
+	display: flex;
+	align-items: center;
+	gap: 0.625rem;
+	background: #fff;
+	border: 1px solid var(--line-soft);
+	border-radius: 0.75rem;
+	padding: 0.4rem 0.55rem;
+	min-width: 0;
+	transition: border-color 150ms var(--ds-ease), background-color 150ms var(--ds-ease);
+}
+.ds-crm .todo-row-crm:hover {
+	border-color: var(--accent);
+	background: var(--brand-soft);
+}
+.ds-crm .todo-tile-crm {
+	width: 2rem;
+	height: 2rem;
+	border-radius: 0.55rem;
+	display: grid;
+	place-items: center;
+	flex-shrink: 0;
+}
+
+/* ── Ligne cliente dense (liste « Vue rapide ») ── */
+.ds-crm .crow-crm {
+	cursor: pointer;
+	transition: background 120ms;
+}
+.ds-crm .crow-crm:hover {
+	background: var(--brand-soft);
+}
+.ds-crm .crow-crm:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: -2px;
+}
+
+/* ── Chips filtres de la liste clientes ── */
+.ds-crm .chip-crm {
+	padding: 0.3rem 0.7rem;
+	border-radius: 9999px;
+	font-size: 12px;
+	font-weight: 700;
+	color: var(--muted);
+	background: transparent;
+	border: 1px solid transparent;
+	transition: background-color 150ms var(--ds-ease), color 150ms var(--ds-ease);
+	white-space: nowrap;
+}
+.ds-crm .chip-crm:hover {
+	color: var(--text);
+	background: var(--soft);
+}
+.ds-crm .chip-crm.active-crm {
+	background: var(--brand-light);
+	color: var(--brand-deep);
+	border-color: rgba(29, 185, 84, 0.25);
+}
+
+/* ── Segments de sparkline façon « blocs » (RDV) ── */
+.ds-crm .segs-crm {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+}
+.ds-crm .segs-crm i {
+	display: block;
+	width: 4px;
+	height: 14px;
+	border-radius: 2px;
+	background: var(--line-soft);
+}
+.ds-crm .segs-crm i.on {
+	background: var(--accent);
+}
+
+/* ── Titres ──────────────────────────────────────────────────────── */
+.ds-crm .h1-crm {
+	font-family: 'Lato', sans-serif;
+	font-weight: 900;
+	letter-spacing: -0.03em;
+	line-height: 1.02;
+	font-size: 1.75rem;
+	color: var(--ink);
+}
+@media (min-width: 640px) {
+	.ds-crm .h1-crm { font-size: 1.9rem; }
+}
+.ds-crm .h2-crm {
+	font-family: 'Lato', sans-serif;
+	font-weight: 700;
+	letter-spacing: -0.01em;
+	line-height: 1.15;
+	color: var(--ink);
+}
+.ds-crm .kpi-num-crm {
+	font-family: 'Lato', sans-serif;
+	font-weight: 900;
+	letter-spacing: -0.03em;
+	line-height: 1;
+	font-variant-numeric: tabular-nums;
+}
+
+/* ── Cartes ──────────────────────────────────────────────────────── */
+.ds-crm .card-crm {
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: 1.125rem;
+	box-shadow: var(--ds-sh-sm);
+}
+.ds-crm .card-crm-hover {
+	transition: transform 180ms var(--ds-ease), box-shadow 180ms var(--ds-ease), border-color 180ms var(--ds-ease);
+}
+.ds-crm .card-crm-hover:hover {
+	transform: translateY(-2px);
+	box-shadow: var(--ds-sh-md);
+	border-color: rgba(29, 185, 84, 0.4);
+}
+
+/* ── KPI cards premium (liseré coloré + icône tuile) ────────────── */
+.ds-crm .kpi-crm {
+	position: relative;
+	overflow: hidden;
+	background: var(--card);
+	border: 1px solid var(--border);
+	border-radius: 1.125rem;
+	box-shadow: var(--ds-sh-sm);
+	padding: 1rem 1.125rem 0.875rem;
+}
+.ds-crm .kpi-crm::before {
+	content: '';
+	position: absolute;
+	inset: 0 auto 0 0;
+	width: 3.5px;
+	background: var(--kpi-accent, var(--accent));
+	opacity: 0.9;
+}
+.ds-crm .kpi-tile {
+	width: 2.375rem;
+	height: 2.375rem;
+	border-radius: 0.75rem;
+	display: grid;
+	place-items: center;
+	background: var(--kpi-tile-bg, var(--accent-light));
+	color: var(--kpi-tile-fg, var(--accent-dark));
+}
+
+/* ── Listes « personne » (à traiter, actions prioritaires…) ─────── */
+.ds-crm .person-crm {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	background: #fff;
+	border: 1px solid var(--line-soft);
+	border-radius: 0.875rem;
+	padding: 0.75rem 0.875rem;
+	/* Item de grille/flex : autorise le rétrécissement sous la largeur du
+	   contenu (les textes `truncate` sont nowrap → largeur intrinsèque forte,
+	   sinon débordement horizontal sur mobile). */
+	min-width: 0;
+	transition: border-color 150ms var(--ds-ease), transform 150ms var(--ds-ease), box-shadow 150ms var(--ds-ease);
+}
+.ds-crm .person-crm:hover {
+	border-color: var(--accent);
+	transform: translateX(2px);
+	box-shadow: var(--ds-sh-sm);
+}
+
+/* ── Avatar initiale + pastille présence ─────────────────────────── */
+.ds-crm .avatar-crm {
+	display: grid;
+	place-items: center;
+	border-radius: 9999px;
+	background: rgba(29, 185, 84, 0.15);
+	color: var(--brand-deep);
+	font-weight: 900;
+	font-family: 'Lato', sans-serif;
+	flex-shrink: 0;
+}
+.ds-crm .presence-crm {
+	display: inline-block;
+	width: 7px;
+	height: 7px;
+	border-radius: 9999px;
+	background: var(--line-soft);
+	flex-shrink: 0;
+}
+.ds-crm .presence-crm.on {
+	background: var(--accent);
+	box-shadow: 0 0 0 3px rgba(29, 185, 84, 0.18);
+}
+
+/* ── Table premium ───────────────────────────────────────────────── */
+.ds-crm .tbl-crm thead th {
+	font-size: 10.5px;
+	font-weight: 700;
+	letter-spacing: 0.09em;
+	text-transform: uppercase;
+	color: var(--muted);
+	background: var(--soft);
+}
+.ds-crm .tbl-crm tbody tr {
+	transition: background 120ms;
+}
+.ds-crm .tbl-crm tbody tr:hover {
+	background: var(--brand-soft);
+}
+
+/* ── Boutons : feedback tactile unifié (léger, sans gadget) ──────── */
+.ds-crm .btn-crm {
+	transition: background-color 150ms var(--ds-ease), border-color 150ms var(--ds-ease), color 150ms var(--ds-ease), transform 100ms var(--ds-ease), box-shadow 150ms var(--ds-ease);
+}
+.ds-crm .btn-crm:active {
+	transform: scale(0.97);
+}
+
+/* ── Onglets pill (Vision 360) ───────────────────────────────────── */
+.ds-crm .tabs-crm {
+	display: flex;
+	gap: 2px;
+	background: var(--card);
+	border: 1px solid var(--border);
+	padding: 5px;
+	border-radius: 0.875rem;
+	box-shadow: var(--ds-sh-sm);
+}
+.ds-crm .tab-crm {
+	padding: 0.5rem 0.875rem;
+	border-radius: 0.625rem;
+	font-size: 0.8125rem;
+	font-weight: 700;
+	color: var(--muted);
+	white-space: nowrap;
+	transition: background-color 150ms var(--ds-ease), color 150ms var(--ds-ease);
+}
+.ds-crm .tab-crm:hover {
+	color: var(--text);
+	background: var(--soft);
+}
+.ds-crm .tab-crm[aria-selected='true'],
+.ds-crm .tab-crm[aria-pressed='true'],
+.ds-crm .tab-crm.active-crm {
+	/* Onglet actif IMMÉDIATEMENT identifiable : fond teinté léger + texte vert
+	   foncé + underline assumée (direction mockup premium validé). */
+	position: relative;
+	background: var(--brand-light);
+	color: var(--brand-deep);
+	font-weight: 800;
+}
+.ds-crm .tab-crm[aria-selected='true']::after,
+.ds-crm .tab-crm[aria-pressed='true']::after,
+.ds-crm .tab-crm.active-crm::after {
+	content: '';
+	position: absolute;
+	left: 20%;
+	right: 20%;
+	bottom: 3px;
+	height: 3px;
+	border-radius: 999px;
+	background: var(--brand);
+}
+
+/* ── Modale premium (quick-sheet Vision 360) ─────────────────────────
+   Ouverture fluide : fondu du fond flouté + pop discret de la carte
+   (transform/opacity uniquement, courbes premium, neutralisé par le
+   filet global prefers-reduced-motion existant). */
+.ds-crm .qs-backdrop-crm {
+	animation: qs-fade-crm 160ms var(--ds-ease);
+}
+.ds-crm .qs-card-crm {
+	animation: qs-pop-crm 220ms var(--ds-ease);
+}
+@keyframes qs-fade-crm {
+	from {
+		opacity: 0;
+	}
+}
+@keyframes qs-pop-crm {
+	from {
+		opacity: 0;
+		transform: translateY(10px) scale(0.96);
+	}
+}
+
+/* ── Animations : entrées de cartes + stagger léger ────────────────
+   Même philosophie que la fondation « MOTION G-FLUX » : une seule fois au
+   chargement complet, transform/opacity uniquement, courbe premium, durées
+   courtes, neutralisé par le filet global prefers-reduced-motion existant. */
+.motion-armed .ds-crm .m-in-crm {
+	animation: m-in-crm 320ms var(--ds-ease) backwards;
+	animation-delay: calc(var(--m-i, 0) * var(--ds-stagger));
+}
+@keyframes m-in-crm {
+	from {
+		opacity: 0;
+		transform: translateY(10px);
+	}
+}
+
+/* Transition des contenus d'onglets (Vision 360) — fondu discret, sans
+   déplacement (zéro CLS), jouée à chaque changement d'onglet. */
+.ds-crm .tabfade-crm {
+	animation: tabfade-crm 180ms var(--ds-ease);
+}
+@keyframes tabfade-crm {
+	from {
+		opacity: 0;
+	}
 }
 
 html,

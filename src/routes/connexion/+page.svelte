@@ -4,281 +4,175 @@
 	let { form, data } = $props();
 	const next = $derived(String(data?.next ?? ''));
 
-	/** Fonctionnalités G-FLUX réelles présentées dans le carrousel. */
-	const cards = [
-		{ name: 'Nutrition', icon: 'salad', accent: 'top-4 left-3' },
-		{ name: 'Journal', icon: 'notebook', accent: 'top-6 right-4' },
-		{ name: 'Progression', icon: 'chartLine', accent: 'top-4 right-3' },
-		{ name: 'Bilans', icon: 'clipboardCheck', accent: 'bottom-4 left-4' },
-		{ name: 'Recettes', icon: 'chefHat', accent: 'top-5 left-4' },
-		{ name: 'Cycle', icon: 'moon', accent: 'top-4 right-4' },
-		{ name: 'Drive', icon: 'cloud', accent: 'bottom-5 right-4' },
-		{ name: 'Pas', icon: 'footprints', accent: 'top-5 right-3' },
-		{ name: 'Poids', icon: 'scale', accent: 'top-4 left-4' },
-		{ name: 'Calories', icon: 'flame', accent: 'top-5 right-4' },
-		{ name: 'Mensurations', icon: 'ruler', accent: 'bottom-4 right-5' }
-	];
-
-	let track: HTMLElement | undefined = $state();
-	let active = $state(0);
-	let showLogin = $state(false);
-
-	const reducedMotion =
-		typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-	function stepWidth() {
-		const first = track?.firstElementChild as HTMLElement | null;
-		return first ? first.offsetWidth + 12 : 1;
-	}
-
-	function onScroll() {
-		if (!track) return;
-		active = Math.max(0, Math.min(cards.length - 1, Math.round(track.scrollLeft / stepWidth())));
-	}
-
-	function goTo(i: number, smooth = true) {
-		if (!track) return;
-		const target = Math.max(0, Math.min(cards.length - 1, i));
-		track.scrollTo({ left: target * stepWidth(), behavior: smooth ? 'smooth' : 'auto' });
-	}
-
-	/** Auto-défilement lent, en pause pendant l'interaction, désactivé si reduced-motion. */
-	$effect(() => {
-		if (!track || reducedMotion) return;
-		let timer: ReturnType<typeof setTimeout>;
-		let pauseUntil = 0;
-
-		const advance = () => {
-			if (Date.now() < pauseUntil) {
-				timer = setTimeout(advance, 1200);
-				return;
-			}
-			if (active >= cards.length - 1) {
-				goTo(0, false);
-			} else {
-				goTo(active + 1, true);
-			}
-			timer = setTimeout(advance, 3200);
-		};
-		const onPointer = () => {
-			pauseUntil = Date.now() + 7000;
-		};
-		const onVis = () => {
-			clearTimeout(timer);
-			if (!document.hidden) timer = setTimeout(advance, 1600);
-		};
-
-		track.addEventListener('pointerdown', onPointer);
-		document.addEventListener('visibilitychange', onVis);
-		timer = setTimeout(advance, 2600);
-
-		return () => {
-			clearTimeout(timer);
-			track?.removeEventListener('pointerdown', onPointer);
-			document.removeEventListener('visibilitychange', onVis);
-		};
-	});
-
-	// Pagination intelligente : fenêtre de 5 points centrée sur la position réelle.
-	const WINDOW = 5;
-	const dotStart = $derived(
-		Math.max(0, Math.min(active - Math.floor(WINDOW / 2), cards.length - WINDOW))
-	);
-	const dots = $derived(
-		Array.from({ length: Math.min(WINDOW, cards.length) }, (_, i) => dotStart + i)
-	);
-
-	// Le formulaire s'ouvre automatiquement en cas d'erreur de connexion.
-	$effect(() => {
-		if (form?.error) showLogin = true;
-	});
-
-	// Focus du champ email à l'ouverture (le clic sur le CTA bloque l'autofocus natif).
-	$effect(() => {
-		if (!showLogin) return;
-		const email = document.querySelector<HTMLInputElement>('#email');
-		const t = setTimeout(() => email?.focus(), 60);
-		return () => clearTimeout(t);
-	});
-
-	// Verrouille le scroll de fond quand le formulaire plein écran est ouvert.
-	$effect(() => {
-		if (showLogin) {
-			document.documentElement.style.overflow = 'hidden';
-			return () => {
-				document.documentElement.style.overflow = '';
-			};
-		}
-	});
+	/**
+	 * Switch « Espace coach / Espace client » — UX uniquement.
+	 *
+	 * L'authentification reste 100 % serveur (aucun changement ici) : le rôle
+	 * RÉEL renvoyé par l'API après vérification email + mot de passe détermine
+	 * la destination (`resolveNext` dans +page.server.ts) et `requireRole`
+	 * protège chaque espace. Sélectionner « Espace coach » n'ouvre donc JAMAIS
+	 * l'admin à une cliente : elle est automatiquement renvoyée vers son espace.
+	 */
+	type Space = 'coach' | 'client';
+	let space = $state<Space>('coach');
+	let showPassword = $state(false);
+	let forgotHint = $state(false);
 </script>
 
 <svelte:head><title>Connexion — G-Flux</title></svelte:head>
 
-<main class="flex min-h-dvh flex-col bg-cream">
-	<div class="mx-auto flex w-full max-w-md flex-1 flex-col px-5">
-		<!-- Logo -->
-		<header
-			class="pt-[max(env(safe-area-inset-top),20px)]"
-			aria-label="G-FLUX"
-		>
-			<img
-				src="/logo-header.png"
-				alt="G-FLUX™"
-				class="mx-auto h-14 w-auto select-none"
-				draggable="false"
-			/>
-		</header>
-
-		<!-- Carrousel + pagination -->
-		<div class="mt-auto flex flex-col pt-2 pb-4">
-			<div
-				bind:this={track}
-				onscroll={onScroll}
-				class="scrollable -mx-5 flex snap-x snap-mandatory gap-3 overflow-x-auto px-[9%] py-2"
-				role="region"
-				aria-roledescription="carrousel"
-				aria-label="Découvre G-FLUX"
-			>
-				{#each cards as card, i (card.name)}
-					<article
-						class="flex h-64 w-[72%] shrink-0 snap-center flex-col rounded-[28px] border border-line/70 bg-white p-4 transition-shadow duration-300 {active === i
-							? 'shadow-[0_18px_40px_-16px_rgba(0,0,0,0.18)]'
-							: 'shadow-[0_8px_24px_-16px_rgba(0,0,0,0.12)]'}"
-						aria-roledescription="carte"
-						aria-label={card.name}
-					>
-						<!-- Illustration -->
-						<div class="relative flex flex-1 items-center justify-center">
-							<div
-								class="absolute h-24 w-24 rounded-full bg-gradient-to-br from-brand-light to-[#d3f3df] shadow-[inset_0_-6px_14px_rgba(23,163,73,0.12)]"
-							></div>
-							<div class="absolute rounded-full bg-brand/10 blur-xl h-20 w-20"></div>
-							<div class="relative text-brand drop-shadow-sm">
-								<Icon name={card.icon} size={52} />
-							</div>
-							<span
-								class="absolute h-1.5 w-1.5 rounded-full bg-brand/35 {card.accent}"
-								aria-hidden="true"
-							></span>
-							<span
-								class="absolute right-3 bottom-6 h-1 w-1 rounded-full bg-brand/25"
-								aria-hidden="true"
-							></span>
-						</div>
-
-						<!-- Titre -->
-						<h2 class="mt-3 text-center text-[17px] font-bold text-ink">{card.name}</h2>
-
-						<!-- Chip icône -->
-						<div class="mt-3 flex justify-center">
-							<span class="flex h-8 w-8 items-center justify-center rounded-[10px] bg-brand-light">
-								<Icon name={card.icon} size={16} class="text-brand-dark" />
-							</span>
-						</div>
-					</article>
-				{/each}
-			</div>
-
-			<!-- Pagination -->
-			<div class="mt-4 flex items-center justify-center gap-1.5" role="tablist" aria-label="Position du carrousel">
-				{#each dots as d}
-					<button
-						type="button"
-						aria-label={`Carte ${d + 1} sur ${cards.length}`}
-						aria-current={d === active ? 'true' : undefined}
-						onclick={() => goTo(d)}
-						class="flex h-6 w-5 items-center justify-center"
-					>
-						<span
-							class="block rounded-full transition-all duration-300 {d === active
-								? 'h-2 w-5 bg-brand'
-								: 'h-2 w-2 bg-line'}"
-						></span>
-					</button>
-				{/each}
-			</div>
-		</div>
-
-		<!-- CTA unique -->
-		<footer class="mb-auto pb-[max(env(safe-area-inset-bottom),28px)] pt-2">
-			<button
-				type="button"
-				onclick={() => (showLogin = true)}
-				class="relative w-full rounded-full bg-brand py-4 pl-6 pr-14 text-base font-bold text-white shadow-[0_14px_30px_-10px_rgba(29,185,84,0.55)] transition active:scale-[0.985]"
-			>
-				<span class="block text-center">Se connecter</span>
-				<span
-					class="absolute right-4 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white/15"
-				>
-					<Icon name="arrowRight" size={18} />
-				</span>
-			</button>
-		</footer>
+<main
+	class="relative flex min-h-dvh justify-center bg-[#f6f8f6] px-4"
+	style="padding-top: max(env(safe-area-inset-top), 20px); padding-bottom: max(env(safe-area-inset-bottom), 20px)"
+>
+	<!-- ═══ Fond clair : formes vertes très discrètes (esprit mockup) ═══ -->
+	<div class="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+		<svg class="absolute -top-24 -left-28 h-[26rem] w-[26rem] text-brand/[0.07]" viewBox="0 0 400 400" fill="currentColor">
+			<path d="M120 20 C 220 -20, 360 40, 380 150 C 395 240, 300 300, 200 320 C 90 340, 10 260, 20 160 C 27 90, 60 45, 120 20 Z" />
+		</svg>
+		<svg class="absolute -right-32 top-1/4 h-[30rem] w-[30rem] text-brand/[0.06]" viewBox="0 0 400 400" fill="currentColor">
+			<path d="M230 10 C 330 30, 400 130, 390 230 C 380 330, 280 400, 180 380 C 80 360, 10 270, 30 170 C 50 70, 130 -10, 230 10 Z" />
+		</svg>
+		<svg class="absolute -bottom-28 -left-16 h-[22rem] w-[22rem] text-brand/[0.05]" viewBox="0 0 400 400" fill="currentColor">
+			<path d="M200 20 C 290 40, 370 120, 360 210 C 350 300, 260 370, 160 350 C 60 330, 0 240, 20 150 C 40 60, 110 0, 200 20 Z" />
+		</svg>
+		<div class="absolute -top-24 left-1/3 h-80 w-80 rounded-full bg-brand/[0.05] blur-3xl"></div>
+		<div class="absolute bottom-10 right-1/4 h-72 w-72 rounded-full bg-brand/[0.05] blur-3xl"></div>
+		<div class="absolute left-[11%] top-[24%] h-3 w-3 rounded-full bg-brand/25"></div>
+		<div class="absolute right-[13%] top-[62%] h-2.5 w-2.5 rounded-full bg-brand/20"></div>
+		<div class="absolute bottom-[18%] left-[22%] h-2 w-2 rounded-full bg-brand/15"></div>
 	</div>
-</main>
 
-<!-- Écran plein : saisie des identifiants (logique d'authentification inchangée) -->
-{#if showLogin}
-	<div class="fixed inset-0 z-50 flex flex-col bg-cream">
-		<div class="pt-[max(env(safe-area-inset-top),14px)]">
-			<div class="flex items-center justify-between px-4">
-				<span class="w-11"></span>
-				<h1 class="text-sm font-bold uppercase tracking-wider text-ink">Connexion</h1>
+	<!-- ═══ Carte de connexion (my-auto : centrée, mais 100 % scrollable si
+	     le viewport est plus court — paysage iPhone, jamais rognée) ═══ -->
+	<div class="relative my-auto w-full max-w-md">
+		<div class="rounded-[28px] border border-line bg-white/95 p-6 shadow-[0_28px_80px_-32px_rgba(16,44,28,0.28)] backdrop-blur-sm sm:p-9">
+			<!-- Logo -->
+			<div class="mx-auto grid h-[74px] w-[74px] place-items-center rounded-full bg-brand-light shadow-[inset_0_-8px_18px_rgba(29,185,84,0.10)]">
+				<img src="/icons/icon-192.png" alt="G-FLUX" class="h-11 w-11 select-none" draggable="false" />
+			</div>
+
+			<!-- Titre + sous-titre -->
+			<h1 class="mt-5 text-center font-display text-[26px] font-black leading-tight tracking-tight text-ink sm:text-[30px]">Connexion à G-FLUX</h1>
+			<p class="mt-2 text-center text-[15px] leading-snug text-mist">Accédez à votre espace coach ou à votre espace client.</p>
+
+			<!-- Switch Espace coach / Espace client (UX — le rôle réel est décidé
+			     par le serveur après connexion, cf. requireRole + resolveNext) -->
+			<div class="mt-6 grid grid-cols-2 gap-1.5 rounded-2xl bg-soft p-1.5" role="group" aria-label="Choisir un espace">
 				<button
 					type="button"
-					onclick={() => (showLogin = false)}
-					class="flex h-11 w-11 items-center justify-center rounded-full text-mist transition hover:text-ink"
-					aria-label="Fermer"
+					onclick={() => (space = 'coach')}
+					aria-pressed={space === 'coach'}
+					class="flex items-center justify-center gap-2 rounded-xl py-2.5 text-[14px] font-bold transition {space === 'coach'
+						? 'bg-brand-light text-brand-deep shadow-sm ring-1 ring-brand/25'
+						: 'text-mist hover:text-ink'}"
 				>
-					<Icon name="x" size={22} />
+					<Icon name="chartColumn" size={16} strokeWidth={2.4} /> Espace coach
+				</button>
+				<button
+					type="button"
+					onclick={() => (space = 'client')}
+					aria-pressed={space === 'client'}
+					class="flex items-center justify-center gap-2 rounded-xl py-2.5 text-[14px] font-bold transition {space === 'client'
+						? 'bg-brand-light text-brand-deep shadow-sm ring-1 ring-brand/25'
+						: 'text-mist hover:text-ink'}"
+				>
+					<Icon name="user" size={16} strokeWidth={2.4} /> Espace client
 				</button>
 			</div>
-		</div>
 
-		<div class="mx-auto w-full max-w-sm flex-1 overflow-y-auto px-5 pb-[max(env(safe-area-inset-bottom),28px)] pt-8">
-			<img
-				src="/logo-header.png"
-				alt="G-FLUX™"
-				class="mx-auto mb-8 h-8 w-auto select-none"
-				draggable="false"
-			/>
+			<!-- Erreur serveur (identifiants invalides, etc.) -->
 			{#if form?.error}
-				<div
-					class="mb-4 flex items-center gap-2 rounded-xl border border-danger/40 bg-danger-light px-4 py-3 text-sm text-danger"
-				>
+				<div class="mt-5 flex items-center gap-2 rounded-xl border border-danger/40 bg-danger-light px-4 py-3 text-sm text-danger">
 					<Icon name="triangleAlert" size={16} class="shrink-0" /> {form.error}
 				</div>
 			{/if}
-			<form method="POST" action="?/login" class="rounded-2xl border border-line bg-card p-5 shadow-sm">
+
+			<!-- ═══ Formulaire (action serveur ?/login inchangée) ═══ -->
+			<form method="POST" action="?/login" class="mt-6">
 				<input type="hidden" name="next" value={next} />
-				<label for="email" class="mb-1.5 block text-sm font-semibold text-ink">Email</label>
-				<input
-					id="email"
-					name="email"
-					type="email"
-					required
-					autofocus
-					autocomplete="email"
-					value={form?.email ?? ''}
-					class="mb-4 w-full rounded-xl border-2 border-line bg-white px-4 py-2.5 text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/15"
-				/>
-				<label for="password" class="mb-1.5 block text-sm font-semibold text-ink">Mot de passe</label>
-				<input
-					id="password"
-					name="password"
-					type="password"
-					required
-					autocomplete="current-password"
-					class="w-full rounded-xl border-2 border-line bg-white px-4 py-2.5 text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/15"
-				/>
+
+				<label for="email" class="mb-1.5 block text-[13.5px] font-bold text-ink">Adresse e-mail</label>
+				<div class="relative">
+					<Icon name="mail" size={16} class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-mist" />
+					<input
+						id="email"
+						name="email"
+						type="email"
+						required
+						autofocus
+						autocomplete="email"
+						inputmode="email"
+						autocapitalize="none"
+						spellcheck="false"
+						placeholder="votre@email.com"
+						value={form?.email ?? ''}
+						class="w-full rounded-xl border border-line bg-white py-3 pl-10 pr-3.5 text-[15px] text-ink outline-none transition placeholder:text-mist/70 focus:border-brand focus:ring-2 focus:ring-brand/15"
+					/>
+				</div>
+
+				<label for="password" class="mb-1.5 mt-4 block text-[13.5px] font-bold text-ink">Mot de passe</label>
+				<div class="relative">
+					<Icon name="lock" size={16} class="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-mist" />
+					<input
+						id="password"
+						name="password"
+						type={showPassword ? 'text' : 'password'}
+						required
+						autocomplete="current-password"
+						placeholder="Votre mot de passe"
+						class="w-full rounded-xl border border-line bg-white py-3 pl-10 pr-11 text-[15px] text-ink outline-none transition placeholder:text-mist/70 focus:border-brand focus:ring-2 focus:ring-brand/15"
+					/>
+					<button
+						type="button"
+						onclick={() => (showPassword = !showPassword)}
+						aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+						aria-pressed={showPassword}
+						class="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-mist transition hover:bg-soft hover:text-ink"
+					>
+						<Icon name={showPassword ? 'eyeOff' : 'eye'} size={17} />
+					</button>
+				</div>
+
+				<!-- Mot de passe oublié : le reset est un acte coach/support
+				     (fonction existante), pas un flux self-service côté client. -->
+				<div class="mt-2 flex justify-end">
+					<button
+						type="button"
+						onclick={() => (forgotHint = !forgotHint)}
+						aria-expanded={forgotHint}
+						class="text-[13.5px] font-bold text-brand underline underline-offset-2 transition hover:text-brand-dark"
+					>Mot de passe oublié ?</button>
+				</div>
+				{#if forgotHint}
+					<p class="mt-2 flex items-start gap-1.5 rounded-lg bg-soft px-3 py-2 text-[12.5px] leading-relaxed text-ink/80">
+						<Icon name="info" size={13} class="mt-0.5 shrink-0 text-brand" />
+						Contacte ton coach ou le support G-FLUX : un nouveau mot de passe peut être généré depuis l'espace coach.
+					</p>
+				{/if}
+
+				<!-- CTA principal -->
 				<button
 					type="submit"
-					class="mt-5 flex w-full items-center justify-center gap-2 rounded-full bg-brand py-3.5 font-bold text-white transition active:scale-[0.99]"
+					class="group relative mt-5 w-full overflow-hidden rounded-full bg-brand py-4 pl-6 pr-16 text-[16.5px] font-black text-white shadow-[0_16px_34px_-12px_rgba(29,185,84,0.55)] transition hover:bg-brand-dark active:scale-[0.99]"
 				>
-					Se connecter
-					<Icon name="arrowRight" size={18} />
+					<span class="block text-center">Se connecter</span>
+					<span class="absolute right-3 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full bg-white/20 transition group-hover:bg-white/30">
+						<Icon name="arrowRight" size={18} />
+					</span>
 				</button>
 			</form>
+
+			<!-- Accès sécurisé -->
+			<div class="mt-6 flex flex-col items-center gap-1 border-t border-line/70 pt-5 text-center">
+				<p class="flex items-center gap-1.5 text-[13px] font-bold text-ink">
+					<Icon name="lock" size={14} strokeWidth={2.4} /> Accès sécurisé
+				</p>
+				<p class="text-[12px] text-mist">Vos données personnelles restent protégées.</p>
+			</div>
 		</div>
+
+		<!-- Signature de marque (PNG transparent, mission logo-header) -->
+		<img src="/logo-header.png" alt="G-FLUX™" class="mx-auto mt-6 h-8 w-auto select-none opacity-70" draggable="false" />
 	</div>
-{/if}
+</main>

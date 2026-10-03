@@ -13,6 +13,17 @@ export const PATCH: RequestHandler = async (event) => {
 	if (!id) return json({ error: 'Exercice introuvable.' }, { status: 400 });
 	try {
 		const body = (await event.request.json()) as Record<string, unknown>;
+		// Superset : endpoint dédié (lier N exercices / délier) — jamais mélangé
+		// aux champs de prescription (contrats séparés, aucune régression).
+		if (body.superset !== undefined) {
+			const { orderedIds, group } = body.superset as { orderedIds: string[]; group: string | null };
+			await convex.mutation(api.training.setSupersetGroup, {
+				sessionToken: token,
+				orderedIds: orderedIds as never,
+				...(group !== undefined ? { group } : {}),
+			});
+			return json({ ok: true });
+		}
 		await convex.mutation(api.training.updateSessionExercise, {
 			sessionToken: token,
 			sessionExerciseId: id as never,

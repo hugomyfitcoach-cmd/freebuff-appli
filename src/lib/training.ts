@@ -26,6 +26,8 @@ export type SessionExerciseView = {
 	techniqueNote?: string;
 	/** Phase du parcours (échauffement / principal / finisher) — défaut : principal. */
 	phase?: 'echauffement' | 'principal' | 'finisher';
+	/** Superset/triset : identifiant de groupe partagé (absent = exercice isolé). */
+	supersetGroup?: string;
 	exercise: {
 		_id: string;
 		gfluxExerciseId: string;
@@ -97,6 +99,38 @@ export function exercisePreview(e: SessionExerciseView): string {
 			? `${n} × ${first.durationSeconds ?? '?'} s`
 			: `${n} × ${setSummary({ ...first, restSeconds: undefined }, 'reps')}`;
 	return rest != null ? `${head} · ${rest} s` : head;
+}
+
+/**
+ * Regroupe les exercices d'une séance par blocs d'affichage : un bloc isolé
+ * (un exercice sans groupe) ou un bloc superset (2+ exercices partageant le
+ * même `supersetGroup`, contigus). Sert à l'éditeur ET au runner cliente.
+ */
+export type SupersetBlock<T> = { group: string | null; exercises: T[] };
+export function supersetBlocks<T extends { supersetGroup?: string | null }>(exs: T[]): SupersetBlock<T>[] {
+	const blocks: SupersetBlock<T>[] = [];
+	for (const ex of exs) {
+		const g = ex.supersetGroup ?? null;
+		const prev = blocks[blocks.length - 1];
+		if (g && prev?.group === g) prev.exercises.push(ex);
+		else blocks.push({ group: g, exercises: [ex] });
+	}
+	return blocks;
+}
+
+/** Nouvel identifiant de groupe (côté navigateur) — "sup:<12 hex>". */
+export function newSupersetId(): string {
+	const hex = (typeof crypto !== 'undefined' && 'getRandomValues' in crypto
+		? [...crypto.getRandomValues(new Uint8Array(6))].map((b) => b.toString(16).padStart(2, '0')).join('')
+		: Math.random().toString(16).slice(2, 14).padEnd(12, '0'));
+	return `sup:${hex}`;
+}
+
+/** Libellé d'un bloc selon sa taille (2 = superset, 3+ = triset/…). */
+export function supersetLabel(n: number): string {
+	if (n <= 2) return 'Superset';
+	if (n === 3) return 'Triset';
+	return `Circuit × ${n}`;
 }
 
 /** "8-12" → { repsMin: 8, repsMax: 12 } · "10" → { repsMin: 10, repsMax: 10 }. */

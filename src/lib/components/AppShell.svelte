@@ -244,6 +244,37 @@
 	}
 
 	type Link = { href: string; label: string; icon?: string; accent?: boolean; badge?: number };
+	/** Sections de la sidebar coach (refonte premium) : regroupement métier
+	 *  + labels discrets. La cliente garde sa liste pleine (inchangée). */
+	const COACH_GROUPS: { label: string; items: { href: string; label: string; icon: string }[] }[] = [
+		{
+			label: 'Pilotage',
+			items: [
+				{ href: '/admin', label: 'Tableau de bord', icon: 'chartBar' },
+				{ href: '/admin/notifications', label: 'Notifications', icon: 'bell' },
+			],
+		},
+		{
+			label: 'Suivi clientes',
+			items: [
+				{ href: '/admin/photos', label: 'Photos', icon: 'camera' },
+				{ href: '/admin/bilans', label: 'Bilans', icon: 'clipboardList' },
+			],
+		},
+		{
+			label: 'Coaching',
+			items: [
+				{ href: '/admin/plans', label: 'Plans de repas', icon: 'utensils' },
+				{ href: '/admin/entrainement', label: 'Entraînement', icon: 'dumbbell' },
+				{ href: '/admin/rendez-vous', label: 'Rendez-vous', icon: 'calendarCheck' },
+				{ href: '/admin/templates', label: 'Templates', icon: 'messageCircle' },
+				{ href: '/recettes', label: 'Guide nutrition & recettes', icon: 'chefHat' },
+				{ href: '/outils', label: 'Outils & calibrage', icon: 'wrench' },
+			],
+		},
+	];
+	/** Aplat des liens coach (même contenu qu'avant — aucune entrée retirée). */
+	const coachLinks: Link[] = COACH_GROUPS.flatMap((g) => g.items);
 	/** Badge de l'Accueil = actions bilans + message du coach non lu + rappel RDV 12 h.
 	    Le rappel compte pour 1 (point, §21) : une information importante est
 	    disponible sur l'Accueil — sans déformer l'icône ni agrandir le bouton. */
@@ -262,19 +293,12 @@
 					{ href: '/recettes', label: 'Recettes & nutrition', icon: 'chefHat' },
 					{ href: '/outils', label: 'Outils & calibrage', icon: 'wrench' },
 				]
-			: [
-					{ href: '/admin', label: 'Tableau de bord', icon: 'chartBar' },
-					{ href: '/admin/notifications', label: 'Notifications', icon: 'bell', badge: menuBadges.notifications ?? 0 },
-					{ href: '/admin/photos', label: 'Photos', icon: 'camera' },
-					{ href: '/admin/bilans', label: 'Bilans', icon: 'clipboardList' },
-					{ href: '/admin/plans', label: 'Plans de repas', icon: 'utensils' },
-					{ href: '/admin/entrainement', label: 'Entraînement', icon: 'dumbbell' },
-					{ href: '/admin/rendez-vous', label: 'Rendez-vous', icon: 'calendarCheck' },
-					{ href: '/admin/templates', label: 'Templates', icon: 'messageCircle' },
-					{ href: '/recettes', label: 'Guide nutrition & recettes', icon: 'chefHat' },
-					{ href: '/outils', label: 'Outils & calibrage', icon: 'wrench' },
-				]
+			: coachLinks
 	);
+
+	/* Badge de la sidebar coach : Notifications porte le compteur CRM live. */
+	const coachBadgeFor = (href: string): number =>
+		href === '/admin/notifications' ? (menuBadges.notifications ?? 0) : 0;
 
 	function isActive(link: Link): boolean {
 		// Pendant une navigation (même très courte), l'onglet cible s'active
@@ -379,35 +403,67 @@
 			</div>
 		</div>
 	{/if}
-	<!-- Sidebar desktop -->
-	<aside class="fixed inset-y-0 left-0 z-50 hidden w-64 flex-col border-r border-line bg-cream md:flex">
+	<!-- Sidebar desktop : coach = fond blanc premium (PASS 2, mockup) ;
+	     cliente = crème (inchangé). -->
+	<aside class="fixed inset-y-0 left-0 z-50 hidden w-64 flex-col border-r border-line md:flex {role === 'coach' ? 'ds-shell-crm' : 'bg-cream'}">
 		<div class="flex items-center gap-3 border-b border-line px-5 py-4">
-			<a href={role === 'coach' ? '/admin' : '/espace'} class="flex items-center gap-3">
+			<a href={role === 'coach' ? '/admin' : '/espace'} class="flex shrink-0 items-center">
 				<img src="/logo-header.png" alt="G-Flux" class="h-9 w-auto" />
 			</a>
-			<span class="font-display text-xs font-semibold uppercase tracking-widest text-mist">
-				{role === 'coach' ? 'CRM Coach' : 'Espace client'}
-			</span>
+			{#if role === 'coach'}
+				<!-- Verrou « ESPACE COACH » premium : bold, sombre, souligné vert
+				     (refonte header — plus lisible et plus affirmé). -->
+				<span class="flex min-w-0 flex-col gap-1.5 border-l border-line pl-3">
+					<span class="font-display text-[12.5px] font-black uppercase leading-none tracking-[0.18em] text-ink">Espace Coach</span>
+					<span class="h-[3px] w-9 rounded-full bg-gradient-to-r from-brand to-brand/25" aria-hidden="true"></span>
+				</span>
+			{:else}
+				<span class="font-display text-xs font-semibold uppercase tracking-widest text-mist">Espace client</span>
+			{/if}
 		</div>
 
 		<nav class="flex-1 space-y-1 overflow-y-auto px-3 py-4" aria-label="Navigation principale">
-			{#each links as link (link.href)}
-				<a
-					href={link.href}
-					data-sveltekit-prefetch
-					data-sveltekit-preload-data="hover"
-					class="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition
-						{isActive(link) ? 'bg-ink text-white' : 'text-ink hover:bg-line/60'}"
-				>
-					{#if link.icon}<Icon name={link.icon} size={18} class="shrink-0" />{/if}
-					<span class="flex-1">{link.label}</span>
-					{#if link.badge && link.badge > 0}
-						<span class="grid h-5 min-w-5 place-items-center rounded-full bg-warn px-1 text-[11px] font-bold text-white">{link.badge}</span>
-					{/if}
-				</a>
-			{/each}
+			{#if role === 'coach'}
+				<!-- Refonte premium : navigation sectionnée (Pilotage / Suivi clientes /
+				     Coaching) — mêmes liens, meilleure hiérarchie visuelle. -->
+				{#each COACH_GROUPS as group (group.label)}
+					<p class="px-3 pb-1 pt-3 text-[10px] font-bold uppercase tracking-[0.14em] text-mist">{group.label}</p>
+					{#each group.items as item (item.href)}
+						{@const link = { ...item, badge: coachBadgeFor(item.href) }}
+						{@const active = isActive(link)}
+						<a
+							href={link.href}
+							data-sveltekit-prefetch
+							data-sveltekit-preload-data="hover"
+							aria-current={active ? 'page' : undefined}
+							class="btn-crm navlink-crm flex items-center gap-3 px-3 py-2.5 text-sm transition
+								{active ? 'active-crm' : ''}"
+						>
+							<Icon name={link.icon} size={17} strokeWidth={active ? 2.3 : 2} class="shrink-0 {active ? '' : 'opacity-70'}" />
+							<span class="flex-1">{link.label}</span>
+							{#if link.badge > 0}
+								<span class="badge-in grid h-5 min-w-5 place-items-center rounded-full bg-warn px-1 text-[11px] font-bold text-white">{link.badge}</span>
+							{/if}
+						</a>
+					{/each}
+				{/each}
+			{:else}
+				{#each links as link (link.href)}
+					<a
+						href={link.href}
+						data-sveltekit-prefetch
+						data-sveltekit-preload-data="hover"
+						class="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition
+							{isActive(link) ? 'bg-ink text-white' : 'text-ink hover:bg-line/60'}"
+					>
+						{#if link.icon}<Icon name={link.icon} size={18} class="shrink-0" />{/if}
+						<span class="flex-1">{link.label}</span>
+						{#if link.badge && link.badge > 0}
+							<span class="grid h-5 min-w-5 place-items-center rounded-full bg-warn px-1 text-[11px] font-bold text-white">{link.badge}</span>
+						{/if}
+					</a>
+				{/each}
 
-			{#if role === 'client'}
 				<div class="pt-3">
 					<a
 						href="/bilan"
@@ -431,11 +487,11 @@
 		</div>
 	</aside>
 
-	<div class="flex min-w-0 flex-1 flex-col md:pl-64 {role === 'client' ? 'bg-soft' : ''}">
+	<div class="flex min-w-0 flex-1 flex-col md:pl-64 {role === 'client' ? 'bg-soft' : 'ds-page-crm'}">
 		<!-- Barre mobile : logo (Accueil) + Rafraîchir + menu utilisateur.
 		     Le Journal (vue plein écran) n'affiche AUCUN header global. -->
 		{#if !journalFullScreen}
-		<header class="sticky top-0 z-40 border-b border-line backdrop-blur md:hidden {role === 'client' ? 'bg-soft/90' : 'bg-cream/95'}">
+		<header class="sticky top-0 z-40 border-b border-line backdrop-blur md:hidden {role === 'client' ? 'bg-soft/90' : 'bg-white/95'}">
 			<div class="flex items-center justify-between gap-2 px-4 py-2">
 				{#if showBrand}
 					<a href={role === 'coach' ? '/admin' : '/espace'} class="flex items-center py-0.5" aria-label="Accueil G-FLUX">
@@ -577,7 +633,7 @@
 		</header>
 		{/if}
 
-		<main class={mainClass}>
+		<main class="{mainClass} {role === 'coach' ? 'ds-crm' : ''}">
 			{@render children()}
 		</main>				{#if showFooter}
 			<footer class="px-4 pb-6 pt-2 text-center text-[11px] text-mist/80">

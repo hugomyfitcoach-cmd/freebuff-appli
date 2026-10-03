@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Google Calendar">
+	<!-- Google Calendar icon (2020) — formes géométriques simples, domaine public (WP:PD-textlogo). -->
+	<!-- Bleu : bandeau haut + colonne gauche (L). -->
+	<path fill="#4285F4" d="M0 40A40 40 0 0 1 40 0h115v47.5H48.5V200H40A40 40 0 0 1 0 160Z"/>
+	<!-- Bleu foncé : carré haut-droit. -->
+	<path fill="#1967D2" d="M155 0h5a40 40 0 0 1 40 40v7.5h-45Z"/>
+	<!-- Blanc : bloc central. -->
+	<path fill="#FFFFFF" d="M48.5 47.5h103v104.5h-103z"/>
+	<!-- Ambre : colonne droite. -->
+	<path fill="#F9AB00" d="M155 47.5h45v104.5h-45z"/>
+	<!-- Vert foncé : carré bas-gauche. -->
+	<path fill="#188038" d="M0 152h48.5v48H40a40 40 0 0 1-40-40Z"/>
+	<!-- Vert : bandeau bas. -->
+	<path fill="#34A853" d="M48.5 152h103v48h-103z"/>
+	<!-- Rouge : coin replié (page pliée) bas-droit. -->
+	<path fill="#EA4335" d="M155 200 200 152v48Z"/>
+	<!-- « 31 ». -->
+	<text x="100" y="122" text-anchor="middle" fill="#4285F4" font-family="'Google Sans','Product Sans',Roboto,Arial,sans-serif" font-size="74" font-weight="700">31</text>
+</svg>

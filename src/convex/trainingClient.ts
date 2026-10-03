@@ -192,6 +192,8 @@ export const scheduledSession = query({
 					order: se.order,
 					mode: se.mode,
 					phase: se.phase ?? "principal",
+					/** Superset/triset : identifiant de groupe partagé (null = isolé). */
+					supersetGroup: se.supersetGroup ?? null,
 					tempo: se.tempo ?? null,
 					coachNote: se.coachNote ?? null,
 					techniqueNote: se.techniqueNote ?? null,

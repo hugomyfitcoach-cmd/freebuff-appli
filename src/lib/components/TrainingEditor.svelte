@@ -24,6 +24,9 @@
 		exercisePreview,
 		repsLabel,
 		parseRepsField,
+		supersetBlocks,
+		supersetLabel,
+		newSupersetId,
 	} from '$lib/training';
 
 	type Props = {
@@ -73,6 +76,7 @@
 	function selectSession(id: string) {
 		selectedSessionId = id;
 		selectedExerciseId = null;
+		clearSel(); // jamais d'ids d'une autre séance dans une liaison
 	}
 
 	/* ── Sauvegarde : état + helpers ── */
@@ -218,6 +222,54 @@
 		if (!confirm('Retirer cet exercice de la séance ?')) return;
 		if (selectedExerciseId === id) selectedExerciseId = null;
 		if (await send('DELETE', `/api/coach/training/session-exercises/${id}`)) await onReload();
+	}
+
+	/* ── Supersets / trisets : sélection multiple + liaison ──
+	   Le champ supersetGroup (additif, optionnel) est écrit via PATCH
+	   { superset: { orderedIds, group } } → api.training.setSupersetGroup.
+	   Lier = tous les ids sélectionnés reçoivent un NOUVEL identifiant de
+	   groupe ; délier = chaque membre redevient un exercice isolé. */
+	let selIds = $state<Set<string>>(new Set());
+	const selCount = $derived(selIds.size);
+
+	function toggleSel(id: string) {
+		const next = new Set(selIds);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		selIds = next;
+	}
+	function clearSel() {
+		selIds = new Set();
+	}
+
+	/** Lier : 1 bloc unique = tous les membres reçoivent le MÊME identifiant. */
+	async function linkSelection() {
+		if (!selectedSession || selCount < 2) return;
+		const orderedIds = [...selIds];
+		const group = newSupersetId();
+		if (await send('PATCH', `/api/coach/training/session-exercises/${orderedIds[0]}`, { superset: { orderedIds, group } })) {
+			clearSel();
+			await onReload();
+		}
+	}
+
+	/** Délier : chaque membre du groupe redevient un exercice isolé. */
+	async function unlinkGroup(group: string) {
+		if (!selectedSession) return;
+		const members = selectedSession.exercises.filter((x) => x.supersetGroup === group).map((x) => x._id);
+		if (members.length === 0) return;
+		if (await send('PATCH', `/api/coach/training/session-exercises/${members[0]}`, { superset: { orderedIds: members, group: null } })) {
+			clearSel();
+			await onReload();
+		}
+	}
+
+	/** Réordonne le groupe : membres contigus dans l'ordre demandé. */
+	async function reorderSuperset(group: string, orderedIds: string[]) {
+		if (!selectedSession || orderedIds.length < 2) return;
+		if (await send('PATCH', `/api/coach/training/session-exercises/${orderedIds[0]}`, { superset: { orderedIds, group } })) {
+			await onReload();
+		}
 	}
 
 	/* ── Drag & drop exercices ── */
@@ -453,50 +505,129 @@
 					</div>
 					<p class="text-sm font-semibold text-ink">Séance vide</p>
 					<p class="mt-1 text-xs text-mist">« Ajouter un exercice » ouvre la bibliothèque G-FLUX.</p>
-				</div>
-			{:else}
-				<ul class="max-h-[62vh] overflow-y-auto p-2">
-					{#each selectedSession.exercises as ex (ex._id)}
-						<li
-							draggable="true"
-							ondragstart={(e) => onExDragStart(e, ex._id)}
-							ondragover={(e) => onExDragOver(e, ex._id)}
-							ondragleave={() => (dragOverExId === ex._id ? (dragOverExId = null) : null)}
-							ondrop={(e) => onExDrop(e, ex._id)}
-							class="group mb-1 rounded-xl border transition {selectedExerciseId === ex._id
-								? 'border-brand bg-brand-light/60'
+				</div>			{:else}
+				{#snippet ExRow(ex: SessionExerciseView, inGroup: boolean)}
+					<li
+						draggable="true"
+						ondragstart={(e) => onExDragStart(e, ex._id)}
+						ondragover={(e) => onExDragOver(e, ex._id)}
+						ondragleave={() => (dragOverExId === ex._id ? (dragOverExId = null) : null)}
+						ondrop={(e) => onExDrop(e, ex._id)}
+						class="group mb-1 rounded-xl border transition {selectedExerciseId === ex._id
+							? 'border-brand bg-white shadow-sm'
+							: inGroup
+								? 'border-line bg-white'
 								: 'border-transparent hover:border-line'} {dragOverExId === ex._id ? 'border-t-2 border-t-brand' : ''}"
-						>
-							<div class="flex items-center gap-2.5 px-2 py-2">
-								<Icon name="rows3" size={13} class="cursor-grab shrink-0 text-mist" />
-								<button type="button" class="flex min-w-0 flex-1 items-center gap-2.5 text-left" onclick={() => (selectedExerciseId = ex._id)}>										<span class="relative block h-10 w-14 shrink-0 overflow-hidden rounded-lg bg-line/40">
-											<ExerciseMedia media={ex.exercise ?? undefined} class="h-full w-full object-cover" />
-										</span>
-									<span class="min-w-0">
-										<span class="block truncate text-[13px] font-semibold text-ink">{ex.exercise?.name ?? 'Exercice supprimé'}</span>
-										<span class="block truncate text-[11px] text-mist">{exercisePreview(ex)}</span>
-									</span>
-								</button>
-								<span class="flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
-									<button
-										type="button"
-										title="Dupliquer"
-										class="rounded-lg p-1 text-mist transition hover:bg-white hover:text-brand"
-										onclick={() => duplicateExercise(ex._id)}
-									>
-										<Icon name="copy" size={13} />
-									</button>
-									<button
-										type="button"
-										title="Retirer"
-										class="rounded-lg p-1 text-mist transition hover:bg-white hover:text-red-600"
-										onclick={() => removeExercise(ex._id)}
-									>
-										<Icon name="trash" size={13} />
-									</button>
+					>
+						<div class="flex items-center gap-2.5 px-2 py-2">
+							<Icon name="rows3" size={13} class="cursor-grab shrink-0 text-mist" />
+							<!-- Contrôle de sélection superset (coche discrète, esprit Virtuagym) -->
+							<button
+								type="button"
+								role="checkbox"
+								aria-checked={selIds.has(ex._id)}
+								aria-label="Sélectionner pour un superset"
+								title="Sélectionner pour un superset"
+								onclick={() => toggleSel(ex._id)}
+								class="grid h-5 w-5 shrink-0 place-items-center rounded-md border-2 transition {selIds.has(ex._id)
+									? 'border-brand bg-brand text-white'
+									: 'border-line bg-white text-transparent hover:border-brand/60'}"
+							>
+								<Icon name="check" size={11} strokeWidth={3} />
+							</button>
+							<button type="button" class="flex min-w-0 flex-1 items-center gap-2.5 text-left" onclick={() => (selectedExerciseId = ex._id)}>
+								<span class="relative block h-10 w-14 shrink-0 overflow-hidden rounded-lg bg-line/40">
+									<ExerciseMedia media={ex.exercise ?? undefined} class="h-full w-full object-cover" />
 								</span>
-							</div>
-						</li>
+								<span class="min-w-0">
+									<span class="block truncate text-[13px] font-semibold text-ink">{ex.exercise?.name ?? 'Exercice supprimé'}</span>
+									<span class="block truncate text-[11px] text-mist">{exercisePreview(ex)}</span>
+								</span>
+							</button>
+							<span class="flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
+								<button
+									type="button"
+									title="Dupliquer"
+									class="rounded-lg p-1 text-mist transition hover:bg-white hover:text-brand"
+									onclick={() => duplicateExercise(ex._id)}
+								>
+									<Icon name="copy" size={13} />
+								</button>
+								<button
+									type="button"
+									title="Retirer"
+									class="rounded-lg p-1 text-mist transition hover:bg-white hover:text-red-600"
+									onclick={() => removeExercise(ex._id)}
+								>
+									<Icon name="trash" size={13} />
+								</button>
+							</span>
+						</div>
+					</li>
+				{/snippet}
+
+				<!-- Bannière d'action superset (sélection active) — esprit Virtuagym :
+				     sélectionner plusieurs cartes puis « Lier ». -->
+				{#if selCount > 0}
+					<div class="m-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-brand/40 bg-brand-light/60 px-3 py-2">
+						<p class="text-[12.5px] font-bold text-ink">
+							{selCount} exercice{selCount > 1 ? 's' : ''} sélectionné{selCount > 1 ? 's' : ''}
+							<span class="font-semibold text-mist">— 2 minimum pour lier</span>
+						</p>
+						<span class="flex items-center gap-1.5">
+							<button
+								type="button"
+								onclick={linkSelection}
+								disabled={selCount < 2}
+								class="flex items-center gap-1.5 rounded-full bg-brand px-3 py-1.5 text-[12px] font-bold text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-50"
+							>
+								<Icon name="link" size={13} /> Créer un superset
+							</button>
+							<button type="button" onclick={clearSel} class="rounded-full border border-line bg-white px-3 py-1.5 text-[12px] font-bold text-ink transition hover:border-brand">Annuler</button>
+						</span>
+					</div>
+				{/if}
+
+				<ul class="max-h-[62vh] overflow-y-auto p-2">
+					{#each supersetBlocks(selectedSession.exercises) as block, bi (block.group ?? `iso-${bi}`)}
+						<!-- Bloc superset : carte englobante premium (groupe visible d'un coup d'œil) -->
+						{#if block.group}
+							<li class="mb-2.5 rounded-2xl border-2 border-brand/35 bg-brand-light/25 p-1.5">
+								<div class="flex items-center justify-between gap-2 px-1.5 pb-1 pt-0.5">
+									<p class="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-brand-deep">
+										<Icon name="link" size={12} strokeWidth={2.6} /> {supersetLabel(block.exercises.length)}
+										<span class="font-bold normal-case tracking-normal text-mist">· enchaîner les {block.exercises.length} exercices avec un minimum de repos</span>
+									</p>
+									<span class="flex items-center gap-0.5">
+										{#if block.exercises.length > 2}
+											<button
+												type="button"
+												title="Réordonner le groupe (1er → dernier)"
+												class="rounded-lg p-1 text-mist transition hover:bg-white hover:text-brand"
+												onclick={() => reorderSuperset(block.group!, [...block.exercises.slice(1).map((x) => x._id), block.exercises[0]._id])}
+											>
+												<Icon name="rotateCcw" size={13} />
+											</button>
+										{/if}
+										<button
+											type="button"
+											title="Délier le groupe"
+											class="rounded-lg p-1 text-mist transition hover:bg-white hover:text-danger"
+											onclick={() => unlinkGroup(block.group!)}
+										>
+											<Icon name="unlink" size={13} />
+										</button>
+									</span>
+								</div>
+								<ul>
+									{#each block.exercises as ex (ex._id)}
+										{@render ExRow(ex, true)}
+									{/each}
+								</ul>
+							</li>
+						{:else}
+							{@render ExRow(block.exercises[0], false)}
+						{/if}
 					{/each}
 				</ul>
 			{/if}
@@ -528,6 +659,26 @@
 							<p class="mt-0.5 text-[11px] text-mist">
 								{selectedExercise.exercise?.muscleGroup ?? '—'}{selectedExercise.exercise?.equipment ? ` · ${selectedExercise.exercise.equipment}` : ''}
 							</p>
+							{#if selectedExercise.supersetGroup && selectedSession}
+								{@const members = selectedSession.exercises.filter((x) => x.supersetGroup === selectedExercise.supersetGroup)}
+								{#if members.length > 1}
+									<p class="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-brand-light px-2.5 py-0.5 text-[10.5px] font-bold text-brand-deep">
+										<Icon name="link" size={11} strokeWidth={2.6} /> {supersetLabel(members.length)} · n° {members.findIndex((m) => m._id === selectedExercise._id) + 1}/{members.length}
+									</p>
+									<button
+										type="button"
+										title="Retirer cet exercice du superset"
+										class="ml-1.5 inline-flex items-center gap-1 rounded-full border border-line bg-white px-2 py-0.5 text-[10.5px] font-bold text-mist transition hover:border-danger hover:text-danger"
+										onclick={() => {
+											const rest = members.filter((m) => m._id !== selectedExercise!._id).map((m) => m._id);
+											if (rest.length >= 2) void reorderSuperset(selectedExercise!.supersetGroup!, rest);
+											else void unlinkGroup(selectedExercise!.supersetGroup!);
+										}}
+									>
+										<Icon name="unlink" size={10} /> Sortir du groupe
+									</button>
+								{/if}
+							{/if}
 						</div>
 					</div>
 

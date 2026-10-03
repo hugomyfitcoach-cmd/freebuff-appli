@@ -16,6 +16,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { loadScheduledSession, SESSION_LOAD_ERROR_MESSAGE } from '$lib/sessionLoad';
+	import { supersetBlocks, supersetLabel } from '$lib/training';
 
 	type ExSet = {
 		order: number;
@@ -31,6 +32,8 @@
 		order: number;
 		mode: 'reps' | 'time';
 		phase: string;
+		/** Superset/triset : identifiant de groupe partagé (null = isolé). */
+		supersetGroup: string | null;
 		tempo: string | null;
 		coachNote: string | null;
 		techniqueNote: string | null;
@@ -927,7 +930,7 @@
 							{PHASE_LABELS[phase] ?? phase}
 						</h2>
 					{/if}
-					{#each data.exercises.filter((e) => (e.phase ?? 'principal') === phase) as ex (ex._id)}
+					{#snippet FreeEx(ex: Ex)}
 						{@const doneCount = ex.loggedSets.filter((l) => l.done).length}
 						<article class="mb-3 overflow-hidden rounded-2xl border border-line bg-card shadow-sm {doneCount === ex.sets.length && ex.sets.length > 0 ? 'opacity-70' : ''}">
 							<div class="flex items-start gap-3 p-3.5">
@@ -1037,6 +1040,23 @@
 								{/each}
 							</div>
 						</article>
+					{/snippet}
+					<!-- Supersets : les exercices liés s'affichent dans une même carte
+				     englobante (groupe visible, enchaînement explicite) — même
+				     prescription, même saisie, aucun changement de log. -->
+					{#each supersetBlocks(data.exercises.filter((e) => (e.phase ?? 'principal') === phase)) as block, bi (bi)}
+						{#if block.group}
+							<div class="mb-4 rounded-2xl border-2 border-brand/35 bg-brand-light/25 p-1.5">
+								<p class="mb-1 flex items-center gap-1.5 px-1.5 pt-0.5 text-[10.5px] font-black uppercase tracking-wider text-brand-deep">
+									<Icon name="link" size={12} strokeWidth={2.6} /> {supersetLabel(block.exercises.length)} · enchaîne les {block.exercises.length} exercices avec un minimum de repos
+								</p>
+								{#each block.exercises as ex (ex._id)}
+									{@render FreeEx(ex)}
+								{/each}
+							</div>
+						{:else}
+							{@render FreeEx(block.exercises[0])}
+						{/if}
 					{/each}
 				</section>
 			{/each}
