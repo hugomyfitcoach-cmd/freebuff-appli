@@ -28,6 +28,8 @@ import type { MediaTrackConstraintSet } from './barcodeTypes';
 export type BarcodeScannerHandle = {
 	/** Arrête la caméra + le décodage et retire les éléments injectés. */
 	stop: () => Promise<void>;
+	/** Suspend/reprend le DÉCODAGE sans couper la caméra (mode saisie manuelle). */
+	setPaused: (paused: boolean) => void;
 };
 
 /** Capacités utiles du track caméra (lampe/zoom), si supportées. */
@@ -247,6 +249,9 @@ export async function startBarcodeScanner(
 	let stream: MediaStream | null = null;
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	let decoding = false;
+	/** Décodage suspendu (mode « saisie manuelle ») : caméra allumée, boucle
+	 *  vivante, mais plus aucune frame décodée ni callback émis. */
+	let paused = false;
 	let zxingMod: ZXing | null = null;
 	let nativeDetector: NativeDetector | null = null;
 
@@ -290,6 +295,7 @@ export async function startBarcodeScanner(
 		for (const t of stream.getTracks()) t.stop();
 		return {
 			stop: async () => {},
+			setPaused: () => {},
 			toggleTorch: async () => false,
 			hasTorch: () => false,
 			zoom: async () => false,
@@ -558,7 +564,7 @@ export async function startBarcodeScanner(
 	// Boucle de scan (avec garde anti-chevauchement).
 	const tick = async () => {
 		if (stopped) return;
-		if (!decoding) {
+		if (!decoding && !paused) {
 			decoding = true;
 			try {
 				if (!vw && video.videoWidth) resizeCanvas();
@@ -646,6 +652,20 @@ export async function startBarcodeScanner(
 			if (greenTimer) clearTimeout(greenTimer);
 			if (stream) for (const t of stream.getTracks()) t.stop();
 			container.replaceChildren();
+		},
+		/** Caméra maintenue allumée, boucle maintenue vivante : seule la
+		 *  détection est court-circuitée. À la pause, l'état de confirmation
+		 *  (porte anti faux codes) est remis à zéro — aucune re-validation
+		 *  fantôme quand l'utilisateur reprend le scan. */
+		setPaused: (value: boolean) => {
+			paused = value;
+			if (value) {
+				gate.reset();
+				lastCode = '';
+				lastCodeAt = 0;
+				hintUntil = 0;
+				setScanHint(false);
+			}
 		},
 		...torch,
 	};

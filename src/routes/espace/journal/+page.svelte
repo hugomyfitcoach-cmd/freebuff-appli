@@ -2409,6 +2409,13 @@ import { optimizeImageFile } from '$lib/media';
 	/* ————— Code-barres ————— */
 	let barcodeStatus = $state<'idle' | 'scanning' | 'notfound' | 'error' | 'perm'>('idle');
 	let barcodeManual = $state('');
+	/** Mode « Saisie manuelle » : le champ code-barres est focalisé — la caméra
+	 *  se replie en bandeau compact, le champ remonte en tête de panneau et le
+	 *  décodage est suspendu (setPaused). Sortie : CTA « Reprendre le scan »,
+	 *  blur les mains vides, ou arrêt du scanner. */
+	let bcManualMode = $state(false);
+	let bcManualFocused = $state(false);
+	let bcManualBlurTimer: ReturnType<typeof setTimeout> | undefined;
 	let barcodeBusy = $state(false);
 	let barcodeError = $state('');
 	/* Caméra refusée/bloquée : message dédié + « Réessayer » (voir startScanner). */
@@ -2488,6 +2495,9 @@ import { optimizeImageFile } from '$lib/media';
 		}
 		scannerCaps = null;
 		torchOn = false;
+		/* Scanner arrêté (produit trouvé, changement de mode, fermeture) → on
+		   sort proprement du mode saisie manuelle. */
+		exitBcManual();
 	}
 	/**
 	 * REPRISE DU LECTEUR après fermeture d'une feuille ouverte DEPUIS un scan
@@ -2516,6 +2526,7 @@ import { optimizeImageFile } from '$lib/media';
 	/** « Réessayer » après un refus/blocage caméra : relance le scan sur le bon
 	 *  lecteur (fenêtre produit si elle est ouverte, sinon « Ajouter un aliment »). */
 	function retryScanner() {
+		exitBcManual(); // on relance la caméra : on quitte le mode saisie
 		barcodeStatus = 'idle';
 		barcodeError = '';
 		barcodePermBlocked = false;
@@ -2603,6 +2614,49 @@ import { optimizeImageFile } from '$lib/media';
 		const code = barcodeManual.replace(/\D/g, '');
 		if (code.length >= 8) void lookupCode(code, target);
 		else barcodeError = 'Saisis un code-barres complet (8 à 14 chiffres).';
+	}
+	/* ═══ Mode « Saisie manuelle » ═══
+	   Taper dans le champ bascule l'écran : la caméra se replie en bandeau
+	   compact (max-height animée, stream maintenu), le champ remonte en tête
+	   de panneau (ordre flex) et le DÉCODAGE est suspendu (setPaused — caméra
+	   allumée, zéro CPU de décodage). Le champ vit dans le flux du panneau :
+	   toujours au-dessus du clavier via l'infra visualViewport existante
+	   (scrollFocusedIntoView), sur iOS Safari, PWA et Android. Aucune hauteur
+	   de clavier estimée, aucun hack spécifique. */
+	function enterBcManual() {
+		if (bcManualMode) return;
+		bcManualMode = true;
+		scanner?.setPaused(true);
+	}
+	function onBcManualFocus() {
+		/* Re-focus dans la fenêtre de sortie différée : on annule la sortie. */
+		if (bcManualBlurTimer) {
+			clearTimeout(bcManualBlurTimer);
+			bcManualBlurTimer = undefined;
+		}
+		bcManualFocused = true;
+		enterBcManual();
+	}
+	function onBcManualBlur() {
+		bcManualFocused = false;
+		if (bcManualBlurTimer) clearTimeout(bcManualBlurTimer);
+		/* Sortie DIFFÉRÉE : un tap sur « Rechercher le code » fait perdre le
+		   focus AVANT le click — le champ rempli doit rester en mode manuel
+		   (et iOS peut re-focus sans saut). On ne sort que si le champ est
+		   RESTÉ vide et non re-focusé. */
+		bcManualBlurTimer = setTimeout(() => {
+			bcManualBlurTimer = undefined;
+			if (!bcManualFocused && !barcodeManual.trim()) exitBcManual();
+		}, 220);
+	}
+	function exitBcManual() {
+		if (bcManualBlurTimer) {
+			clearTimeout(bcManualBlurTimer);
+			bcManualBlurTimer = undefined;
+		}
+		bcManualMode = false;
+		bcManualFocused = false;
+		scanner?.setPaused(false);
 	}
 	/** Capsule Recherche ⇄ Code-barres de la fenêtre produit (éditeur de repas). */
 	async function switchMealSearchMode(m: 'search' | 'barcode') {
@@ -4193,12 +4247,12 @@ import { optimizeImageFile } from '$lib/media';
 						</div>
 					{/if}
 				{:else}
-				<!-- ═══════ Scanner code-barres (cadre portrait stable) ═══════ -->
-				<div bind:this={bcListEl} class="flex-1 overflow-y-auto overscroll-contain px-3 pb-24 pt-3">
-					<p class="mb-2.5 text-center text-xs text-mist">Scanne le code-barres du produit (ça marche même à distance) ou saisis-le à la main : on le retrouve dans la base G-Flux.</p>
-					<div id="bc-reader" class="relative mx-auto aspect-[3/4] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-colors {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}"></div>
-					{#if scannerCaps && (scannerCaps.torch || scannerCaps.zoom)}
-						<div class="mx-auto mt-2 flex w-full max-w-sm items-center justify-center gap-3">
+				<!-- ═══════ Scanner code-barres (cadre portrait stable) ═══════ -->						<div bind:this={bcListEl} class="flex flex-1 flex-col overflow-y-auto overscroll-contain px-3 pb-28 pt-3">						<p class="mb-2.5 text-center text-xs text-mist {bcManualMode ? 'order-3' : 'order-1'}">Scanne le code-barres du produit (ça marche même à distance) ou saisis-le à la main : on le retrouve dans la base G-Flux.</p>						<div
+							id="bc-reader"
+							class="relative order-2 mx-auto aspect-[3/4] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-[max-height,border-color,box-shadow] duration-300 ease-out {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}"
+							style:max-height={bcManualMode ? '7rem' : '120vh'}
+						></div>						{#if !bcManualMode && scannerCaps && (scannerCaps.torch || scannerCaps.zoom)}
+						<div class="{bcManualMode ? 'order-5' : 'order-3'} mx-auto mt-2 flex w-full max-w-sm items-center justify-center gap-3">
 							{#if scannerCaps.torch}
 								<button type="button" class="grid h-10 w-10 place-items-center rounded-full border-2 transition {torchOn ? 'border-warn bg-warn-light text-warn' : 'border-line bg-white text-mist'}" aria-label={torchOn ? 'Éteindre la lampe' : 'Allumer la lampe'} onclick={toggleScannerTorch}><Icon name="sun" size={18} /></button>
 							{/if}
@@ -4208,29 +4262,39 @@ import { optimizeImageFile } from '$lib/media';
 						</div>
 					{/if}
 
-					<div class="mx-auto mt-3 w-full max-w-sm">
-						<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2.5 focus-within:border-brand">														<Icon name="barcode" size={18} class="shrink-0 text-mist" />
+					<div class="{bcManualMode ? 'order-1' : 'order-4'} mx-auto mt-3 w-full max-w-sm">
+						<div class="flex items-center gap-2 rounded-xl border-2 {bcManualMode ? 'border-brand bg-white' : 'border-line bg-cream'} px-3 py-2.5 focus-within:border-brand">														<Icon name="barcode" size={18} class="shrink-0 text-mist" />
 						<!-- Clavier iOS : le champ reste AU-DESSUS du clavier — le resize du
 						     visualViewport replace le champ focalisé dans la zone visible
 						     (scrollFocusedIntoView). Aucun blur(), aucun polling : compatible
 						     avec le correctif Android (scrolls programmatiques ignorés). -->
 						<input
 							type="text"
-							inputmode="numeric"
-							class="w-full bg-transparent text-sm text-ink outline-none placeholder:text-mist"
+							inputmode="numeric" enterkeyhint="search"
+							class="w-full bg-transparent text-base font-semibold text-ink outline-none placeholder:font-normal placeholder:text-mist"
 							placeholder="Ou saisis le code (ex. 3017620422003)"
 							bind:value={barcodeManual}
+							onfocus={onBcManualFocus}
 							onfocusin={(e) => focusScroll(e.currentTarget, e.target)}
+							onfocusout={onBcManualBlur}
 							onkeydown={(e) => { if (e.key === 'Enter') submitManual(); }}
 						/>
 						</div>
-						<button type="button" class="mt-2 w-full rounded-full bg-brand py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={barcodeBusy} onclick={() => submitManual()}>
-							{barcodeBusy ? 'Recherche…' : 'Rechercher le code'}
-						</button>
+						<div class="mt-2 flex items-center gap-2">
+							<button type="button" class="min-w-0 flex-1 rounded-full bg-brand py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={barcodeBusy} onclick={() => submitManual()}>
+								{barcodeBusy ? 'Recherche…' : 'Rechercher le code'}
+							</button>
+							{#if bcManualMode}
+								<button type="button" class="flex shrink-0 items-center gap-1.5 rounded-full border-2 border-line bg-white px-3.5 py-2 text-xs font-bold text-ink transition hover:border-brand" onclick={exitBcManual}>
+									<Icon name="camera" size={14} />
+									Reprendre le scan
+								</button>
+							{/if}
+						</div>
 					</div>
 
 					{#if barcodeError}
-						<div class="mx-auto mt-3 w-full max-w-sm rounded-xl bg-danger-light px-3 py-2.5 text-center text-sm text-danger">
+						<div class="{bcManualMode ? 'order-4' : 'order-5'} mx-auto mt-3 w-full max-w-sm rounded-xl bg-danger-light px-3 py-2.5 text-center text-sm text-danger">
 							{#if barcodePermBlocked}
 								<span class="mb-1 flex items-center justify-center gap-1.5 font-bold"><Icon name="lock" size={15} /> Accès caméra désactivé</span>
 							{/if}
@@ -4241,7 +4305,7 @@ import { optimizeImageFile } from '$lib/media';
 							{/if}
 						</div>
 					{:else if barcodeStatus === 'scanning'}
-						<p class="mt-3 text-center text-xs text-mist">Caméra active — présente le code-barres à plat devant l'objectif, même à distance : dès qu'il est lu, l'encadré passe au vert.</p>
+						<p class="mt-3 text-center text-xs text-mist {bcManualMode ? 'order-4' : 'order-5'}">{bcManualMode ? 'Décodage en pause pendant la saisie — « Reprendre le scan » relance la caméra.' : 'Caméra active — présente le code-barres à plat devant l’objectif, même à distance : dès qu’il est lu, l’encadré passe au vert.'}</p>
 					{/if}
 				</div>
 			{/if}
@@ -4846,12 +4910,12 @@ import { optimizeImageFile } from '$lib/media';
 					</div>
 				{/if}
 			{:else}
-				<!-- ═══════ Scanner code-barres de la fenêtre produit (même rendu que « Ajouter un aliment ») ═══════ -->
-				<div bind:this={mealBcListEl} class="flex-1 overflow-y-auto overscroll-contain px-3 pb-24 pt-3">
-					<p class="mb-2.5 text-center text-xs text-mist">Scanne le code-barres du produit : dès qu'il est lu, la feuille de portion s'ouvre directement.</p>
-					<div id="meal-bc-reader" class="relative mx-auto aspect-[3/4] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-colors {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}"></div>
-					{#if scannerCaps && (scannerCaps.torch || scannerCaps.zoom)}
-						<div class="mx-auto mt-2 flex w-full max-w-sm items-center justify-center gap-3">
+				<!-- ═══════ Scanner code-barres de la fenêtre produit (même rendu que « Ajouter un aliment ») ═══════ -->						<div bind:this={mealBcListEl} class="flex flex-1 flex-col overflow-y-auto overscroll-contain px-3 pb-28 pt-3">						<p class="mb-2.5 text-center text-xs text-mist {bcManualMode ? 'order-3' : 'order-1'}">Scanne le code-barres du produit : dès qu'il est lu, la feuille de portion s'ouvre directement.</p>						<div
+							id="meal-bc-reader"
+							class="relative order-2 mx-auto aspect-[3/4] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-[max-height,border-color,box-shadow] duration-300 ease-out {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}"
+							style:max-height={bcManualMode ? '7rem' : '120vh'}
+						></div>						{#if !bcManualMode && scannerCaps && (scannerCaps.torch || scannerCaps.zoom)}
+						<div class="{bcManualMode ? 'order-5' : 'order-3'} mx-auto mt-2 flex w-full max-w-sm items-center justify-center gap-3">
 							{#if scannerCaps.torch}
 								<button type="button" class="grid h-10 w-10 place-items-center rounded-full border-2 transition {torchOn ? 'border-warn bg-warn-light text-warn' : 'border-line bg-white text-mist'}" aria-label={torchOn ? 'Éteindre la lampe' : 'Allumer la lampe'} onclick={toggleScannerTorch}><Icon name="sun" size={18} /></button>
 							{/if}
@@ -4861,28 +4925,38 @@ import { optimizeImageFile } from '$lib/media';
 						</div>
 					{/if}
 
-					<div class="mx-auto mt-3 w-full max-w-sm">
-						<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2.5 focus-within:border-brand">
+					<div class="{bcManualMode ? 'order-1' : 'order-4'} mx-auto mt-3 w-full max-w-sm">
+						<div class="flex items-center gap-2 rounded-xl border-2 {bcManualMode ? 'border-brand bg-white' : 'border-line bg-cream'} px-3 py-2.5 focus-within:border-brand">
 							<Icon name="barcode" size={18} class="shrink-0 text-mist" />
 						<!-- Clavier iOS : même repositionnement que « Ajouter un aliment »
 						     (visualViewport → scrollFocusedIntoView, sans blur ni polling). -->
 						<input
 							type="text"
-							inputmode="numeric"
-							class="w-full bg-transparent text-sm text-ink outline-none placeholder:text-mist"
+							inputmode="numeric" enterkeyhint="search"
+							class="w-full bg-transparent text-base font-semibold text-ink outline-none placeholder:font-normal placeholder:text-mist"
 							placeholder="Ou saisis le code (ex. 3017620422003)"
 							bind:value={barcodeManual}
+							onfocus={onBcManualFocus}
 							onfocusin={(e) => focusScroll(e.currentTarget, e.target)}
+							onfocusout={onBcManualBlur}
 							onkeydown={(e) => { if (e.key === 'Enter') void lookupCode(barcodeManual.replace(/\D/g, ''), 'meal'); }}
 						/>
 						</div>
-						<button type="button" class="mt-2 w-full rounded-full bg-brand py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={barcodeBusy} onclick={() => submitManual('meal')}>
-							{barcodeBusy ? 'Recherche…' : 'Rechercher le code'}
-						</button>
+						<div class="mt-2 flex items-center gap-2">
+							<button type="button" class="min-w-0 flex-1 rounded-full bg-brand py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={barcodeBusy} onclick={() => submitManual('meal')}>
+								{barcodeBusy ? 'Recherche…' : 'Rechercher le code'}
+							</button>
+							{#if bcManualMode}
+								<button type="button" class="flex shrink-0 items-center gap-1.5 rounded-full border-2 border-line bg-white px-3.5 py-2 text-xs font-bold text-ink transition hover:border-brand" onclick={exitBcManual}>
+									<Icon name="camera" size={14} />
+									Reprendre le scan
+								</button>
+							{/if}
+						</div>
 					</div>
 
 					{#if barcodeError}
-						<div class="mx-auto mt-3 w-full max-w-sm rounded-xl bg-danger-light px-3 py-2.5 text-center text-sm text-danger">
+						<div class="{bcManualMode ? 'order-4' : 'order-5'} mx-auto mt-3 w-full max-w-sm rounded-xl bg-danger-light px-3 py-2.5 text-center text-sm text-danger">
 							{#if barcodePermBlocked}
 								<span class="mb-1 flex items-center justify-center gap-1.5 font-bold"><Icon name="lock" size={15} /> Accès caméra désactivé</span>
 							{/if}
@@ -4893,7 +4967,7 @@ import { optimizeImageFile } from '$lib/media';
 							{/if}
 						</div>
 					{:else if barcodeStatus === 'scanning'}
-						<p class="mt-3 text-center text-xs text-mist">Caméra active — présente le code-barres à plat devant l'objectif : dès qu'il est lu, la feuille de portion s'ouvre.</p>
+						<p class="mt-3 text-center text-xs text-mist {bcManualMode ? 'order-4' : 'order-5'}">{bcManualMode ? 'Décodage en pause pendant la saisie — « Reprendre le scan » relance la caméra.' : 'Caméra active — présente le code-barres à plat devant l’objectif : dès qu’il est lu, la feuille de portion s’ouvre.'}</p>
 					{/if}
 				</div>
 			{/if}
