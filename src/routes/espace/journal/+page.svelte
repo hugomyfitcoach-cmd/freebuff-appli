@@ -2539,8 +2539,12 @@ import { optimizeImageFile } from '$lib/media';
 	}
 	async function handleScan(decoded: string, target: 'journal' | 'meal' | 'editor' = 'journal') {
 		if (scannerBusy || barcodeBusy) return;
-		const code = decoded.replace(/\D/g, '');
-		if (code.length < 8) return;
+		// Le scanner (createScanGate) ne délivre que des GTIN normalisés validés
+		// (longueur + checksum + 2 lectures identiques) : on refait ici les
+		// mêmes vérifications pures, au cas où un autre appelant existerait un
+		// jour — un code invalide n'atteint JAMAIS lookupCode ni Convex/OFF.
+		const code = normalizeProductCode(decoded) ?? '';
+		if (!code) return;
 		if (target === 'editor') {
 			// Scan lancé DEPUIS l'étape code-barres de l'éditeur d'aliment. Si
 			// l'éditeur a été fermé entre-temps (annulation du formulaire), le

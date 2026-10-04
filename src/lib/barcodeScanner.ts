@@ -15,6 +15,12 @@
  * Le décodage couvre TOUTE l'image (pas de recadrage) : le cadre affiché n'est
  * qu'un repère visuel, ce qui rend le scan beaucoup plus tolérant à la
  * distance et à l'alignement.
+ *
+ * Fiabilité (mission scan guard) : chaque lecture brute passe par la PORTE
+ * createScanGate — normalisation GTIN + checksum GS1 + 2 lectures identiques
+ * consécutives — AVANT tout callback. Un code invalide est ignoré en
+ * silence : jamais de recherche Convex/OFF, jamais de « produit introuvable »
+ * avec un code manifestement invalide.
  */
 
 import type { MediaTrackConstraintSet } from './barcodeTypes';
@@ -51,14 +57,20 @@ function vibrateOk(): void {
 }
 
 /**
- * Valide un code lu : EAN-13 / EAN-8 / UPC-A (12, réécrit en 13 avec 0
- * préfixe) — checksum obligatoire. UPC-E (8 avec 0/1 en tête) accepté.
- * Retourne le code normalisé, ou null si le format ne correspond pas
- * (QR, CODE_128 interne, lecture partielle…).
+ * Valide un code lu : EAN-13 / GTIN-14 (14 chiffres) / UPC-A (12, réécrit en
+ * 13 avec 0 préfixe) / EAN-8 — checksum GS1 obligatoire. UPC-E (8 avec 0/1
+ * en tête) accepté. Retourne le code normalisé, ou null si le format ne
+ * correspond pas (QR, CODE_128/ITF logistique, lecture partielle…) : c'est
+ * LE filtre anti « faux codes » — toute lecture non GTIN est rejetée AVANT
+ * toute recherche Convex/OFF.
  */
 export function normalizeProductCode(raw: string): string | null {
 	const digits = (raw ?? '').replace(/\D/g, '');
 	if (digits.length === 13) {
+		return eanChecksumValid(digits) ? digits : null;
+	}
+	if (digits.length === 14) {
+		// GTIN-14 (ITF-14 sur cartons) : checksum GS1, jamais réécrit.
 		return eanChecksumValid(digits) ? digits : null;
 	}
 	if (digits.length === 12) {
@@ -73,15 +85,75 @@ export function normalizeProductCode(raw: string): string | null {
 	return null;
 }
 
-/** Checksum modulo 10 EAN/UPC (dernier chiffre = clé). */
+/**
+ * Checksum modulo 10 GS1/GTIN (dernier chiffre = clé), valable pour toutes
+ * les longueurs GTIN (8/12/13/14) : en partant de la DROITE de la chaîne de
+ * DONNÉES, les chiffres sont pondérés alternativement ×3 puis ×1.
+ * (L'ancienne formule indexait depuis la gauche : résultat faux pour les
+ * 14 chiffres — poids inversés.)
+ */
 function eanChecksumValid(d: string): boolean {
 	let sum = 0;
-	for (let i = 0; i < d.length - 1; i++) {
-		const n = Number(d[i]);
-		// De droite à gauche, poids alternés 3/1 ; d.length-1-i donne la position.
-		sum += n * ((d.length - 1 - i) % 2 === 0 ? 3 : 1);
+	for (let i = d.length - 2; i >= 0; i--) {
+		sum += Number(d[i]) * ((d.length - 2 - i) % 2 === 0 ? 3 : 1);
 	}
 	return (10 - (sum % 10)) % 10 === Number(d[d.length - 1]);
+}
+
+/** Verdict d'une lecture brute passée dans la porte de confirmation. */
+export type ScanGateResult = {
+	/** rejected = code invalide (ignorer en silence) ; pending = lecture valide en attente ; confirmed = 2 lectures identiques. */
+	verdict: 'rejected' | 'pending' | 'confirmed';
+	/** Code GTIN normalisé ('' si rejeté). */
+	code: string;
+};
+
+export type ScanGate = {
+	submit: (raw: string) => ScanGateResult;
+	/** Remet le compteur de confirmation à zéro (après ouverture de feuille). */
+	reset: () => void;
+};
+
+/**
+ * PORTE de fiabilité au-dessus du moteur de décodage (BarcodeDetector COMME
+ * ZXing) : une lecture brute n'est transmise à l'appelant que si
+ *   1. normalizeProductCode l'accepte (longueur GTIN 8/12/13/14 + checksum),
+ *   2. la MÊME valeur normalisée est relue RAPPROCHEE (≤ maxGapMs) — 2
+ *      lectures identiques consécutives, une frame seule ne suffit plus.
+ * Toute lecture invalide est rejetée SILENCIEUSEMENT : pas de recherche,
+ * pas de message, le scan continue. Deux lectures DIFFÉRENTES réinitialisent
+ * le compteur (protection contre l'alternance EAN ↔ code logistique voisin).
+ */
+export function createScanGate(required = 2, maxGapMs = 700): ScanGate {
+	let last: string | null = null;
+	let count = 0;
+	let lastAt = 0;
+	return {
+		submit(raw: string): ScanGateResult {
+			const code = normalizeProductCode(raw);
+			if (!code) {
+				last = null;
+				count = 0;
+				lastAt = 0;
+				return { verdict: 'rejected', code: '' };
+			}
+			const now = Date.now();
+			if (code === last && now - lastAt <= maxGapMs) count++;
+			else {
+				last = code;
+				count = 1;
+			}
+			lastAt = now;
+			return count >= required
+				? { verdict: 'confirmed', code }
+				: { verdict: 'pending', code };
+		},
+		reset() {
+			last = null;
+			count = 0;
+			lastAt = 0;
+		},
+	};
 }
 
 type NativeDetector = {
@@ -124,6 +196,15 @@ const RESOLUTION_LADDER = [
 const FRAME_INTERVAL_MS = 70;
 /** Garde anti double lecture : même code ignoré pendant 1,2 s. */
 const DUPLICATE_MS = 1200;
+/**
+ * Confirmation multi-frames : deux lectures du MÊME code normalisé doivent
+ * arriver rapprochées (≤ 700 ms — la boucle décode toutes les 70 ms, une
+ * micro-coupure du décodeur ne casse donc pas la confirmation, mais un
+ * code relu bien plus tard recompte depuis zéro).
+ */
+const SCAN_CONFIRM_GAP_MS = 700;
+/** Grâce d'affichage de la pastille « Code détecté… » (anti-clignotement). */
+const SCAN_HINT_GRACE_MS = 450;
 /** Durée du flash vert du cadre après une lecture (ms). */
 const GREEN_FLASH_MS = 900;
 /** Bordure des coins du cadre (blanc au repos, vert au flash). */
@@ -335,7 +416,29 @@ export async function startBarcodeScanner(
 		corners.push({ el: c, sides: def.sides });
 		frame.append(c);
 	}
-	guide.append(frame);
+	// Pastille discrète « Code détecté… » : confirmation multi-frames en cours
+	// (première lecture valide reçue). Purement informative, n'interrompt pas
+	// le scan, disparaît dès validation ou lecture invalide.
+	const scanHint = document.createElement('div');
+	scanHint.textContent = 'Code détecté…';
+	Object.assign(scanHint.style, {
+		position: 'absolute',
+		left: '50%',
+		bottom: '9%',
+		transform: 'translateX(-50%)',
+		padding: '6px 14px',
+		borderRadius: '999px',
+		background: 'rgba(15,23,42,.72)',
+		color: '#fff',
+		fontSize: '13px',
+		fontWeight: '700',
+		letterSpacing: '.02em',
+		opacity: '0',
+		transition: 'opacity .15s ease',
+		pointerEvents: 'none',
+		whiteSpace: 'nowrap',
+	} as Partial<CSSStyleDeclaration>);
+	guide.append(frame, scanHint);
 	container.append(video, guide);
 
 	// -- Feedback visuel « code lu » : le cadre passe franchement au vert ------
@@ -359,6 +462,11 @@ export async function startBarcodeScanner(
 				for (const side of c.sides) c.el.style.setProperty(`border${side}`, WHITE_BORDER);
 			}
 		}, GREEN_FLASH_MS);
+	}
+
+	/** Pastille « Code détecté… » visible pendant l'attente de confirmation. */
+	function setScanHint(visible: boolean): void {
+		scanHint.style.opacity = visible ? '1' : '0';
 	}
 
 	// -- Moteur de décodage ---------------------------------------------------
@@ -439,6 +547,14 @@ export async function startBarcodeScanner(
 	/** Compteur de frames (ZXing : une passe TRY_HARDER toutes les 4 frames). */
 	let frameCount = 0;
 
+	// Porte de fiabilité : normalizeProductCode + checksum GS1 + 2 lectures
+	// identiques RAPPROCHÉES (≤ SCAN_CONFIRM_GAP_MS entre deux lectures)
+	// AVANT toute recherche — au-dessus des deux moteurs : BarcodeDetector
+	// natif ET repli ZXing passent par le même appel gate.submit.
+	const gate = createScanGate(2, SCAN_CONFIRM_GAP_MS);
+	/** La pastille « Code détecté… » reste visible pendant cette fenêtre. */
+	let hintUntil = 0;
+
 	// Boucle de scan (avec garde anti-chevauchement).
 	const tick = async () => {
 		if (stopped) return;
@@ -448,16 +564,32 @@ export async function startBarcodeScanner(
 				if (!vw && video.videoWidth) resizeCanvas();
 				const text = await decodeOnce();
 				if (!stopped && text) {
-					const now = Date.now();
-					if (text === lastCode && now - lastCodeAt < DUPLICATE_MS) {
-						// même code tout juste lu : on ignore
+					const res = gate.submit(text);
+					const nowMs = Date.now();
+					if (res.verdict === 'rejected') {
+						// Code invalide (longueur/checksum GTIN) : ignoré en silence,
+						// le scan continue — jamais de recherche, jamais d'erreur.
+						hintUntil = 0;
+					} else if (res.verdict === 'pending') {
+						// Première lecture valide : pastille, on attend la 2e.
+						hintUntil = nowMs + SCAN_HINT_GRACE_MS;
+					} else if (res.code === lastCode && nowMs - lastCodeAt < DUPLICATE_MS) {
+						// Même code tout juste validé : on ignore (anti-doublon,
+						// comportement historique conservé — code encore sous
+						// l'objectif = pas de nouvelle recherche).
 					} else {
-						lastCode = text;
-						lastCodeAt = now;
+						// 2 lectures identiques rapprochées : on déclenche la recherche.
+						lastCode = res.code;
+						lastCodeAt = nowMs;
+						hintUntil = 0;
 						vibrateOk();
 						flashGreen();
-						onDecoded(text);
+						onDecoded(res.code);
 					}
+					setScanHint(nowMs < hintUntil);
+				} else {
+					// Rien de lisible cette frame : la pastille retombe après grâce.
+					setScanHint(Date.now() < hintUntil);
 				}
 			} catch {
 				// Frame illisible → on continue.
