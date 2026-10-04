@@ -5,6 +5,7 @@
 	import AudioPlayer from '../../lib/components/AudioPlayer.svelte';
 	import BilanCard from '../../lib/components/BilanCard.svelte';
 	import CoachMedia from '../../lib/components/CoachMedia.svelte';
+	import ClientAvatar from '../../lib/components/ClientAvatar.svelte';
 	import DossierPanel from '../../lib/components/DossierPanel.svelte';
 	import FoodImg from '../../lib/components/FoodImg.svelte';
 	import Icon from '../../lib/components/Icon.svelte';
@@ -1903,9 +1904,7 @@
 						>
 							<td class="px-5 py-2.5">
 								<div class="flex items-center gap-3">
-									<div class="avatar-crm h-9 w-9 text-sm">
-										{initial(client.user.prenom)}
-									</div>
+									<ClientAvatar name={fullName(client.user)} url={client.profilePhotoUrl} class="h-9 w-9 text-sm" />
 									<div class="min-w-0">
 										<div class="flex items-center gap-2">
 											<span class="truncate font-bold text-ink">{fullName(client.user)}</span>
@@ -1968,10 +1967,13 @@
 		     statut Active + infos rapides organisées (membre depuis / dernière connexion),
 		     actions intégrées (Fiche / Mot de passe / Supprimer). -->
 		<div class="m-in-crm flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-line bg-card px-5 py-4">
-			<div class="flex min-w-0 items-center gap-3.5">
-				<div class="avatar-crm h-14 w-14 shrink-0 text-xl text-white" style="background: linear-gradient(135deg, #21d05e, var(--brand-dark)); box-shadow: 0 4px 14px rgba(29, 185, 84, 0.3)">
-					{initial(selected.user.prenom)}
-				</div>
+			<div class="flex min-w-0 items-center gap-3.5">								<ClientAvatar
+									name={fullName(selected.user)}
+									url={selected.profilePhotoUrl}
+									class="h-14 w-14 shrink-0 text-xl"
+									fallbackClass="text-white"
+									fallbackStyle="background: linear-gradient(135deg, #21d05e, var(--brand-dark)); box-shadow: 0 4px 14px rgba(29, 185, 84, 0.3)"
+								/>
 				<div class="min-w-0">
 					<div class="flex flex-wrap items-center gap-2">
 						<h2 class="truncate font-display text-[1.35rem] font-black leading-tight tracking-tight text-ink">{fullName(selected.user)}</h2>

@@ -51,6 +51,22 @@ async function requireCoach(ctx: Pick<QueryCtx, "db">, sessionToken: string | un
 	return user;
 }
 
+/**
+ * URLs de photos de profil des clientes (LECTURE SEULE) — le système existant
+ * `users.profilePhotoStorageId` (photo déposée par la cliente elle-même via
+ * le BFF), JAMAIS les photos de progression. Résolu en batch pour les avatars
+ * des vues coach : aucune donnée stockée, aucune mutation, aucun index.
+ */
+async function profilePhotoUrls(ctx: Pick<QueryCtx, "storage">, users: UserRow[]): Promise<Map<Id<"users">, string | null>> {
+	const entries = await Promise.all(
+		users.map(async (u): Promise<[Id<"users">, string | null]> => [
+			u._id,
+			u.profilePhotoStorageId ? ((await ctx.storage.getUrl(u.profilePhotoStorageId)) ?? null) : null,
+		])
+	);
+	return new Map(entries);
+}
+
 function publicUser(user: UserRow) {
 	return {
 		_id: user._id,
@@ -83,6 +99,8 @@ function publicUser(user: UserRow) {
 
 export type ClientWithStats = {
 	user: ReturnType<typeof publicUser>;
+	/** Photo de profil (système existant) résolue pour l'avatar — null si aucune. */
+	profilePhotoUrl: string | null;
 	count: number;
 	waiting: number;
 	latest: CheckinRow | null;
@@ -97,6 +115,7 @@ export const listClients = query({
 			ctx.db.query("users").filter((q) => q.eq(q.field("role"), "client")).collect(),
 			ctx.db.query("checkins").collect(),
 		]);
+		const photoUrls = await profilePhotoUrls(ctx, users);
 		const byUser = new Map<Id<"users">, CheckinRow[]>();
 		for (const c of checkins) {
 			const list = byUser.get(c.userId);
@@ -107,6 +126,7 @@ export const listClients = query({
 			const list = (byUser.get(user._id) ?? []).slice().sort((a, b) => b.weekStart.localeCompare(a.weekStart));
 			return {
 				user: publicUser(user),
+				profilePhotoUrl: photoUrls.get(user._id) ?? null,
 				count: list.length,
 				waiting: list.filter((c) => c.status === "nouveau").length,
 				latest: list[0] ?? null,
@@ -152,6 +172,8 @@ export const bilansBoard = query({
 			ctx.db.query("users").filter((q) => q.eq(q.field("role"), "client")).collect(),
 			ctx.db.query("checkins").collect(),
 		]);
+		// Avatars des vues coach : photo de profil existante (lecture seule).
+		const photoUrls = await profilePhotoUrls(ctx, users);
 
 		const byUser = new Map<Id<"users">, CheckinRow[]>();
 		for (const c of checkins) {
@@ -168,6 +190,8 @@ export const bilansBoard = query({
 			userId: Id<"users">;
 			prenom: string;
 			nom: string | null;
+			/** Photo de profil (système existant) pour l'avatar — null si aucune. */
+			profilePhotoUrl: string | null;
 			weekStart: string;
 			weekLabel: string;
 			checkin: CheckinRow | null;
@@ -184,7 +208,7 @@ export const bilansBoard = query({
 			// elle n'apparaît plus dans les colonnes à traiter / retours envoyés.
 			if ((u.coachingMode ?? "coaching") === "autonomy") continue;
 			for (const c of byUser.get(u._id) ?? []) {
-				const row: Row = { userId: u._id, prenom: u.prenom, nom: u.nom ?? null, weekStart: c.weekStart, weekLabel: c.weekLabel, checkin: c };
+				const row: Row = { userId: u._id, prenom: u.prenom, nom: u.nom ?? null, profilePhotoUrl: photoUrls.get(u._id) ?? null, weekStart: c.weekStart, weekLabel: c.weekLabel, checkin: c };
 				all.push(row);
 				if (c.status === "nouveau") toTreat.push(row);
 				else if (isUnread(c)) feedbackSent.push(row);
@@ -224,7 +248,7 @@ export const bilansBoard = query({
 					const startDate = u.startDate ?? localTodayISO(new Date(u._creationTime));
 					return startDate <= openFriday && !submitted.has(u._id);
 				})
-				.map((u) => ({ userId: u._id, prenom: u.prenom, nom: u.nom ?? null }));
+				.map((u) => ({ userId: u._id, prenom: u.prenom, nom: u.nom ?? null, profilePhotoUrl: photoUrls.get(u._id) ?? null }));
 			clients.sort((a, b) => a.prenom.localeCompare(b.prenom, "fr"));
 			return { weekStart, weekLabel: formatWeekLabel(weekStart), clients };
 		});
@@ -232,6 +256,7 @@ export const bilansBoard = query({
 			userId: c.userId,
 			prenom: c.prenom,
 			nom: c.nom,
+			profilePhotoUrl: c.profilePhotoUrl,
 			weekStart: refWeek,
 			weekLabel: refLabel,
 			checkin: null,

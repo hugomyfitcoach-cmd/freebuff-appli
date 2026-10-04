@@ -3,6 +3,11 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { fmtNotifDate, notifLabel, notifLink, type CoachNotifKind } from '$lib/notifications';
 
+	/**
+	 * Ligne du journal : `prenom` porte déjà « Prénom Nom » (la requête
+	 * notifications.list fusionne le nom — la page ne fait que l'afficher
+	 * EN PREMIER, puis le type d'événement + le détail).
+	 */
 	type Row = {
 		_id: string;
 		userId: string;
@@ -24,17 +29,17 @@
 	 * Non interactifs (pas de fiche cliente derrière, aucun marquage).
 	 */
 	const DEMO_ROWS: Row[] = [
-		{ _id: 'demo-1', userId: 'demo', prenom: 'Pauline', kind: 'bilan_envoye', description: 'Pauline a complété son bilan hebdomadaire.', read: false, createdAt: Date.now() - 12 * 60_000 },
-		{ _id: 'demo-2', userId: 'demo', prenom: 'Cristina', kind: 'nouveau_poids', description: 'Cristina a ajouté un nouveau poids : 62,3 kg (−0,8 kg).', read: false, createdAt: Date.now() - 3_600_000 },
-		{ _id: 'demo-3', userId: 'demo', prenom: 'Floriane', kind: 'nouvelles_mesures', description: 'Floriane a ajouté ses mensurations du mois.', read: false, createdAt: Date.now() - 2 * 3_600_000 },
-		{ _id: 'demo-4', userId: 'demo', prenom: 'Marine', kind: 'rdv_pris', description: 'Marine souhaite planifier un appel de suivi.', read: false, createdAt: Date.now() - 3 * 3_600_000 },
-		{ _id: 'demo-5', userId: 'demo', prenom: 'Estelle', kind: 'bilan_envoye', description: 'Estelle a complété son bilan hebdomadaire.', read: false, createdAt: Date.now() - 5 * 3_600_000 },
-		{ _id: 'demo-6', userId: 'demo', prenom: 'Léa', kind: 'nouveau_poids', description: 'Léa a ajouté un nouveau poids : 68,1 kg (+0,4 kg).', read: false, createdAt: Date.now() - 8 * 3_600_000 },
-		{ _id: 'demo-7', userId: 'demo', prenom: 'Julie', kind: 'nouvelles_mesures', description: 'Julie a ajouté ses mensurations.', read: true, createdAt: Date.now() - 26 * 3_600_000 },
-		{ _id: 'demo-8', userId: 'demo', prenom: 'Alice', kind: 'bilan_envoye', description: 'Alice a complété son bilan mensuel.', read: true, createdAt: Date.now() - 30 * 3_600_000 },
-		{ _id: 'demo-9', userId: 'demo', prenom: 'Sophie', kind: 'rdv_pris', description: 'Sophie a confirmé son rendez-vous du 25 sept. à 14h.', read: true, createdAt: Date.now() - 2 * 86_400_000 },
-		{ _id: 'demo-10', userId: 'demo', prenom: 'Manon', kind: 'nouveau_poids', description: 'Manon a ajouté un nouveau poids : 59,4 kg.', read: true, createdAt: Date.now() - 3 * 86_400_000 },
-		{ _id: 'demo-11', userId: 'demo', prenom: 'Clara', kind: 'nouvelles_photos', description: 'Clara a déposé de nouvelles photos de suivi.', read: true, createdAt: Date.now() - 4 * 86_400_000 },
+		{ _id: 'demo-1', userId: 'demo', prenom: 'Pauline Debre', kind: 'bilan_envoye', description: 'Pauline a complété son bilan hebdomadaire.', read: false, createdAt: Date.now() - 12 * 60_000 },
+		{ _id: 'demo-2', userId: 'demo', prenom: 'Cristina Sobas', kind: 'nouveau_poids', description: 'Cristina a ajouté un nouveau poids : 62,3 kg (−0,8 kg).', read: false, createdAt: Date.now() - 3_600_000 },
+		{ _id: 'demo-3', userId: 'demo', prenom: 'Floriane Baud', kind: 'nouvelles_mesures', description: 'Floriane a ajouté ses mensurations du mois.', read: false, createdAt: Date.now() - 2 * 3_600_000 },
+		{ _id: 'demo-4', userId: 'demo', prenom: 'Marine Labarre', kind: 'rdv_pris', description: 'Marine souhaite planifier un appel de suivi.', read: false, createdAt: Date.now() - 3 * 3_600_000 },
+		{ _id: 'demo-5', userId: 'demo', prenom: 'Estelle Delamare', kind: 'bilan_envoye', description: 'Estelle a complété son bilan hebdomadaire.', read: false, createdAt: Date.now() - 5 * 3_600_000 },
+		{ _id: 'demo-6', userId: 'demo', prenom: 'Léa Fontaine', kind: 'nouveau_poids', description: 'Léa a ajouté un nouveau poids : 68,1 kg (+0,4 kg).', read: false, createdAt: Date.now() - 8 * 3_600_000 },
+		{ _id: 'demo-7', userId: 'demo', prenom: 'Julie Marion', kind: 'nouvelles_mesures', description: 'Julie a ajouté ses mensurations.', read: true, createdAt: Date.now() - 26 * 3_600_000 },
+		{ _id: 'demo-8', userId: 'demo', prenom: 'Alice Berthier', kind: 'bilan_envoye', description: 'Alice a complété son bilan mensuel.', read: true, createdAt: Date.now() - 30 * 3_600_000 },
+		{ _id: 'demo-9', userId: 'demo', prenom: 'Sophie Bernard', kind: 'rdv_pris', description: 'Sophie a confirmé son rendez-vous du 25 sept. à 14h.', read: true, createdAt: Date.now() - 2 * 86_400_000 },
+		{ _id: 'demo-10', userId: 'demo', prenom: 'Manon Girard', kind: 'nouveau_poids', description: 'Manon a ajouté un nouveau poids : 59,4 kg.', read: true, createdAt: Date.now() - 3 * 86_400_000 },
+		{ _id: 'demo-11', userId: 'demo', prenom: 'Clara Vasseur', kind: 'nouvelles_photos', description: 'Clara a déposé de nouvelles photos de suivi.', read: true, createdAt: Date.now() - 4 * 86_400_000 },
 	];
 	const isDemo = $derived(rows.length === 0);
 	const displayRows = $derived(isDemo ? DEMO_ROWS : rows);
@@ -65,7 +70,7 @@
 	];
 	const filterCount = (f: FilterKey): number => displayRows.filter((r) => matchFilter(r.kind, f)).length;
 
-	/* ── Langage visuel par type (tuiles colorées, esprit mockup) ──
+	/* ── Langage visuel par type (pastilles colorées, esprit mockup) ──
 	   UI locale uniquement : liens/libellés restent dans lib/notifications.ts. */
 	const UI_STYLE: Record<CoachNotifKind, { icon: string; tile: string }> = {
 		bilan_envoye: { icon: 'clipboardCheck', tile: 'bg-brand-light text-brand-deep' },
@@ -222,42 +227,48 @@
 				{@const done = checked.has(row._id)}
 				<li class="crow-crm flex items-center gap-3 px-4 py-3 {done ? 'opacity-60' : ''}">
 					{#if isDemo}
-						<span class="flex min-w-0 flex-1 items-center gap-3">								<span class="relative shrink-0">
-									<span class="grid h-9 w-9 place-items-center rounded-full bg-brand text-[13px] font-black text-white">{initial(row.prenom)}</span>
-									<span class="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-brand ring-2 ring-white" aria-hidden="true"></span>
+						<span class="flex min-w-0 flex-1 items-center gap-3">
+							<span class="relative shrink-0">
+								<span class="grid h-10 w-10 place-items-center rounded-full bg-brand text-[13px] font-black text-white">{initial(row.prenom)}</span>
+								<span class="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-brand ring-2 ring-white" aria-hidden="true"></span>
+							</span>
+							<span class="min-w-0 flex-1">
+								<span class="block truncate font-display text-[14px] font-black tracking-tight text-ink">{row.prenom}</span>
+								<span class="mt-0.5 flex min-w-0 items-center gap-1.5">
+									<span class="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-bold {st.tile}">
+										<Icon name={st.icon} size={10} /> {notifLabel(row.kind)}
+									</span>
+									<span class="truncate text-xs text-mist">{row.description}</span>
 								</span>
-								<span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl {st.tile}" aria-hidden="true">
-									<Icon name={st.icon} size={15} />
-								</span>
-								<span class="min-w-0 flex-1">
-									<span class="block truncate text-[13.5px] font-bold text-ink">{notifLabel(row.kind)}</span>
-									<span class="block truncate text-xs text-mist">{row.description}</span>
-								</span>
-								<span class="flex shrink-0 items-center gap-2 text-right">
-									<span class="text-[11px] leading-tight text-mist">{fmtNotifDate(row.createdAt)}</span>
-									<span class="h-2 w-2 rounded-full bg-brand" aria-hidden="true"></span>
-								</span>
+							</span>
+							<span class="flex shrink-0 items-center gap-2 text-right">
+								<span class="text-[11px] leading-tight text-mist">{fmtNotifDate(row.createdAt)}</span>
+								<span class="h-2 w-2 rounded-full bg-brand" aria-hidden="true"></span>
+							</span>
 						</span>
 					{:else}
 						<a
 							href={notifLink(row.userId, row.kind)}
 							onclick={() => open(row)}
 							class="flex min-w-0 flex-1 items-center gap-3"
-						>								<span class="relative shrink-0">
-									<span class="grid h-9 w-9 place-items-center rounded-full bg-brand text-[13px] font-black text-white">{initial(row.prenom)}</span>
-									<span class="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-brand ring-2 ring-white" aria-hidden="true"></span>
+						>
+							<span class="relative shrink-0">
+								<span class="grid h-10 w-10 place-items-center rounded-full bg-brand text-[13px] font-black text-white">{initial(row.prenom)}</span>
+								<span class="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-brand ring-2 ring-white" aria-hidden="true"></span>
+							</span>
+							<span class="min-w-0 flex-1">
+								<span class="block truncate font-display text-[14px] font-black tracking-tight text-ink">{row.prenom}</span>
+								<span class="mt-0.5 flex min-w-0 items-center gap-1.5">
+									<span class="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-bold {st.tile}">
+										<Icon name={st.icon} size={10} /> {notifLabel(row.kind)}
+									</span>
+									<span class="truncate text-xs text-mist">{row.description}</span>
 								</span>
-								<span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl {st.tile}" aria-hidden="true">
-									<Icon name={st.icon} size={15} />
-								</span>
-								<span class="min-w-0 flex-1">
-									<span class="block truncate text-[13.5px] font-bold text-ink">{notifLabel(row.kind)}</span>
-									<span class="block truncate text-xs text-mist">{row.description}</span>
-								</span>
-								<span class="flex shrink-0 items-center gap-2 text-right">
-									<span class="text-[11px] leading-tight text-mist">{fmtNotifDate(row.createdAt)}</span>
-									<span class="h-2 w-2 rounded-full bg-brand" aria-hidden="true"></span>
-								</span>
+							</span>
+							<span class="flex shrink-0 items-center gap-2 text-right">
+								<span class="text-[11px] leading-tight text-mist">{fmtNotifDate(row.createdAt)}</span>
+								<span class="h-2 w-2 rounded-full bg-brand" aria-hidden="true"></span>
+							</span>
 						</a>
 						<button
 							type="button"
@@ -292,15 +303,15 @@
 				<li class="crow-crm flex items-center gap-3 px-4 py-3 opacity-80">
 					{#if isDemo}
 						<span class="flex min-w-0 flex-1 items-center gap-3">
-							<span class="relative shrink-0">
-								<span class="grid h-9 w-9 place-items-center rounded-full bg-line text-[13px] font-black text-mist">{initial(row.prenom)}</span>
-							</span>
-							<span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-line/50 text-mist" aria-hidden="true">
-								<Icon name={st.icon} size={15} />
-							</span>
+							<span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-line text-[13px] font-black text-mist">{initial(row.prenom)}</span>
 							<span class="min-w-0 flex-1">
-								<span class="block truncate text-[13.5px] font-bold text-ink/60">{notifLabel(row.kind)}</span>
-								<span class="block truncate text-xs text-mist/80">{row.description}</span>
+								<span class="block truncate font-display text-[14px] font-bold tracking-tight text-ink/60">{row.prenom}</span>
+								<span class="mt-0.5 flex min-w-0 items-center gap-1.5">
+									<span class="inline-flex shrink-0 items-center gap-1 rounded-full bg-line/50 px-2 py-0.5 text-[10.5px] font-bold text-mist">
+										<Icon name={st.icon} size={10} /> {notifLabel(row.kind)}
+									</span>
+									<span class="truncate text-xs text-mist/80">{row.description}</span>
+								</span>
 							</span>
 							<span class="flex shrink-0 items-center gap-2 text-right">
 								<span class="text-[11px] leading-tight text-mist">{fmtNotifDate(row.createdAt)}</span>
@@ -309,15 +320,15 @@
 						</span>
 					{:else}
 						<a href={notifLink(row.userId, row.kind)} class="flex min-w-0 flex-1 items-center gap-3">
-							<span class="relative shrink-0">
-								<span class="grid h-9 w-9 place-items-center rounded-full bg-line text-[13px] font-black text-mist">{initial(row.prenom)}</span>
-							</span>
-							<span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-line/50 text-mist" aria-hidden="true">
-								<Icon name={st.icon} size={15} />
-							</span>
+							<span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-line text-[13px] font-black text-mist">{initial(row.prenom)}</span>
 							<span class="min-w-0 flex-1">
-								<span class="block truncate text-[13.5px] font-bold text-ink/60">{notifLabel(row.kind)}</span>
-								<span class="block truncate text-xs text-mist/80">{row.description}</span>
+								<span class="block truncate font-display text-[14px] font-bold tracking-tight text-ink/60">{row.prenom}</span>
+								<span class="mt-0.5 flex min-w-0 items-center gap-1.5">
+									<span class="inline-flex shrink-0 items-center gap-1 rounded-full bg-line/50 px-2 py-0.5 text-[10.5px] font-bold text-mist">
+										<Icon name={st.icon} size={10} /> {notifLabel(row.kind)}
+									</span>
+									<span class="truncate text-xs text-mist/80">{row.description}</span>
+								</span>
 							</span>
 							<span class="flex shrink-0 items-center gap-2 text-right">
 								<span class="text-[11px] leading-tight text-mist">{fmtNotifDate(row.createdAt)}</span>
