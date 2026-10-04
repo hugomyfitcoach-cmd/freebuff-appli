@@ -20,7 +20,7 @@
  * barcodeScanner.ts est extrait vers un module temporaire exécuté par node
  * (strip-types) — on teste les vraies fonctions, pas une copie.
  */
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -65,6 +65,13 @@ writeFileSync(
 );
 
 const { normalizeProductCode, createScanGate } = await import(pathToFileURL(tmpPath).href);
+
+/* Nettoyage du module temporaire après la suite (même convention que off). */
+after(() => {
+	try {
+		unlinkSync(tmpPath);
+	} catch {}
+});
 
 /* ─── GTIN réels (checksums vérifiés manuellement, formule GS1 officielle) ─── */
 
