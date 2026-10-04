@@ -18,6 +18,13 @@ import { applyKcalGuard } from "../lib/nutritionGuard";
 type OffProduct = {
 	code?: string;
 	product_name?: string;
+	// Noms localisés : certains produits n'ont AUCUN product_name standard
+	// mais un nom dans des clés traduites (ex. Italpizza Margherita, EAN
+	// 8015673029861 : l'API v2 produit renvoie le JSON complet, avec clés
+	// product_name_de/_it…). Les autres clés localisées sont parcourues via
+	// un cast Record dans resolveProductName.
+	product_name_fr?: string;
+	product_name_en?: string;
 	brands?: string;
 	image_front_small_url?: string;
 	serving_quantity?: number;
@@ -39,11 +46,29 @@ type OffProduct = {
 // NB : la recherche plein texte n'existe pas en v2 — c'est l'endpoint v1
 // (cgi/search.pl) qui fait une vraie recherche par nom.
 const OFF_SEARCH_URL =
-	"https://world.openfoodfacts.org/cgi/search.pl?search_terms={q}&search_simple=1&action=process&json=1&page_size=25&fields=code,product_name,brands,image_front_small_url,nutriments,serving_quantity,quantity&lc=fr&cc=fr";
+	"https://world.openfoodfacts.org/cgi/search.pl?search_terms={q}&search_simple=1&action=process&json=1&page_size=25&fields=code,product_name,product_name_fr,product_name_en,brands,image_front_small_url,nutriments,serving_quantity,quantity&lc=fr&cc=fr";
 const OFF_UA = "GFluxCoaching/1.0 (Suivi coaching G-Flux; contact: hugomyfitcoach@gmail.com)";
 
 function normalizeQuery(q: string): string {
 	return q.toLowerCase().trim().replace(/\s+/g, " ");
+}
+
+/**
+ * Nom d'affichage d'un produit OFF — ordre de préférence strict :
+ * 1) product_name_fr ; 2) product_name (standard) ; 3) product_name_en ;
+ * 4) premier champ localisé `product_name_*` non vide (de, it…) ;
+ * 5) undefined → le produit est rejeté (on n'invente JAMAIS de nom).
+ */
+function resolveProductName(p: OffProduct): string | undefined {
+	if (typeof p.product_name_fr === "string" && p.product_name_fr.trim()) return p.product_name_fr.trim();
+	if (typeof p.product_name === "string" && p.product_name.trim()) return p.product_name.trim();
+	if (typeof p.product_name_en === "string" && p.product_name_en.trim()) return p.product_name_en.trim();
+	const localized = p as unknown as Record<string, unknown>;
+	for (const [key, value] of Object.entries(localized)) {
+		if (!key.startsWith("product_name_")) continue;
+		if (typeof value === "string" && value.trim()) return value.trim();
+	}
+	return undefined;
 }
 
 /** Garde uniquement les produits exploitables (nom + calories + code). */
@@ -64,14 +89,18 @@ function parseProducts(products: OffProduct[] | undefined) {
 		servingUnit?: string;
 	}[] = [];
 	for (const p of products ?? []) {
-		if (!p.code || !p.product_name) continue;
+		if (!p.code) continue;
+		// product_name vide mais nom localisé présent → accepté (voir
+		// resolveProductName) ; aucun nom exploitable → rejet.
+		const name = resolveProductName(p);
+		if (!name) continue;
 		const kcal = p.nutriments?.["energy-kcal_100g"];
 		if (typeof kcal !== "number" || !isFinite(kcal) || kcal <= 0) continue;
 		const round1 = (n: number | undefined) => (typeof n === "number" && isFinite(n) && n > 0 ? Math.round(n * 10) / 10 : undefined);
 		const qty = p.serving_quantity && isFinite(p.serving_quantity) ? p.serving_quantity : null;
 		out.push({
 			offId: p.code,
-			name: p.product_name.trim(),
+			name,
 			brand: p.brands?.trim() ? p.brands.trim() : undefined,
 			kcal100: Math.round(kcal),
 			carbs100: round1(p.nutriments?.["carbohydrates_100g"]) ?? 0,
