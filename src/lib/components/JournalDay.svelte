@@ -302,6 +302,17 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 	const goalMarkPct = $derived(barScale > 0 ? (day.goals.kcal / barScale) * 100 : 0);
 	/** Teinte contextuelle des calories (filet de sécurité compris). */
 	const kcalTone = $derived(overMaintenance ? '#ef4444' : overGoal ? '#f59e0b' : '#1db954');
+	/** Couche VISUELLE (refonte premium) : correspondance état → classes.
+	 *  AUCUNE logique : simple décoration dérivée des mêmes booléens existants
+	 *  (overGoal / overMaintenance / inSafetyNet) — bordure teintée, fond
+	 *  légèrement teinté, couleurs du badge et du statut. */
+	const cardTone = $derived(
+		overMaintenance
+			? { border: 'border-danger/40', bg: 'bg-danger-light/40', badge: 'bg-danger-light', icon: 'text-danger', soft: 'text-danger/80', bar: 'bg-danger' }
+			: overGoal
+				? { border: 'border-warn/50', bg: 'bg-warn-light/30', badge: 'bg-warn-light', icon: 'text-warn', soft: 'text-warn', bar: 'bg-warn' }
+				: { border: 'border-brand/30', bg: 'bg-brand-light/20', badge: 'bg-brand-light', icon: 'text-brand', soft: 'text-brand/80', bar: 'bg-brand' }
+	);
 
 	function mealEntries(meal: string) {
 		return day.entries.filter((e) => e.meal === meal);
@@ -342,59 +353,55 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 	const eagerEntryIds = $derived.by(() => new Set(day.entries.slice(0, 4).map((e) => e._id)));
 </script>
 
-<!-- Carte calories — uniquement le CONSOMMÉ (les kcal prévues restent secondaires) -->
-<section bind:this={calCardEl} class="mb-2 rounded-2xl border border-line bg-card {compact ? 'px-3 py-2' : 'p-4'}">
+<!-- Carte calories — uniquement le CONSOMMÉ (les kcal prévues restent secondaires).
+     Refonte PREMIUM — couche visuelle uniquement : teinte d'état + halo doux
+     (dérivé de kcalTone), badge bouclier/alerte, barre fine à marqueur net.
+     Aucun calcul, aucun seuil, aucun texte métier modifié. -->
+<section
+	bind:this={calCardEl}
+	class="mb-2 rounded-2xl border transition-[border-color,background-color,box-shadow] duration-300 {cardTone.border} {cardTone.bg} {compact ? 'px-3.5 py-2.5' : 'p-4'}"
+	style:box-shadow={`0 2px 6px rgba(16, 24, 40, 0.04), 0 18px 40px -18px ${kcalTone}59`}
+>
+	<div class="flex items-start justify-between gap-3">
+		<p class="flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-sm font-normal text-ink">
+			<span class="truncate">{overGoal ? (overMaintenance ? 'Maintenance dépassée de' : 'Objectif dépassé de') : 'Il te reste'}</span>
+			<span class="font-black leading-none text-ink tabular-nums {compact ? 'text-[26px]' : 'text-4xl'}">
+				{overGoal ? (overMaintenance ? fmt(totals.kcal - (maintenanceKcal ?? day.goals.kcal)) : fmt(totals.kcal - day.goals.kcal)) : fmt(remaining)}
+			</span>
+			<span class="{compact ? 'text-[12px]' : 'text-base'} font-semibold text-mist">kcal</span>
+		</p>
+		<span class="grid {compact ? 'h-8 w-8' : 'h-10 w-10'} shrink-0 place-items-center rounded-full {cardTone.badge}" aria-hidden="true">
+			<Icon name={overMaintenance ? 'bell' : 'shieldCheck'} size={compact ? 16 : 20} class={cardTone.icon} />
+		</span>
+	</div>
 	{#if compact}
-		<!-- Dense type FOOD : statut + valeur sur une seule ligne -->
-		<div class="flex items-center justify-between gap-2">
-			<p class="flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-[13px] font-semibold text-ink">
-				<span class="truncate">{overGoal ? (overMaintenance ? 'Maintenance dépassée de' : 'Objectif dépassé de') : 'Il te reste'}</span>
-				<span class="font-bold leading-none text-ink tabular-nums text-2xl">
-					{overGoal ? (overMaintenance ? fmt(totals.kcal - (maintenanceKcal ?? day.goals.kcal)) : fmt(totals.kcal - day.goals.kcal)) : fmt(remaining)}
-				</span>
-				<span class="font-semibold text-mist text-[12px]">kcal</span>
-			</p>
-			<Icon name="flame" size={18} class="shrink-0 text-brand" />
-		</div>
 		{#if inSafetyNet || overMaintenance}
-			<p class="mt-1 flex items-center gap-1 text-[11px] font-semibold {overMaintenance ? 'text-danger/80' : 'text-warn'}">
-				<Icon name="lifeBuoy" size={11} class="shrink-0" />
+			<p class="mt-1 flex items-center gap-1.5 text-[11px] font-semibold {cardTone.soft}">
+				<Icon name={overMaintenance ? 'triangleAlert' : 'activity'} size={12} class="shrink-0" />
 				{overMaintenance ? 'On ajuste ensemble — ça reste dans le cadre.' : 'Dans ton filet de sécurité'}
 			</p>
 		{/if}
 	{:else}
-		<div class="flex items-start justify-between gap-3">
-			<p class="text-sm text-ink">
-				{overGoal ? (overMaintenance ? 'Maintenance dépassée de' : 'Objectif dépassé de') : 'Il te reste'}
-				<span class="block font-bold leading-tight text-ink text-3xl">
-					{overGoal ? (overMaintenance ? fmt(totals.kcal - (maintenanceKcal ?? day.goals.kcal)) : fmt(totals.kcal - day.goals.kcal)) : fmt(remaining)}<span class="ml-1 font-semibold text-mist text-base">kcal</span>
-				</span>
-			</p>
-			<Icon name="flame" size={26} class="mt-0.5 text-brand" />
-		</div>
 		{#if inSafetyNet}
-			<p class="mt-0.5 flex items-center gap-1 text-xs font-semibold text-warn"><Icon name="lifeBuoy" size={13} class="shrink-0" /> Dans ton filet de sécurité</p>
+			<p class="mt-1 flex items-center gap-1.5 text-xs font-semibold {cardTone.soft}"><Icon name="activity" size={13} class="shrink-0" /> Dans ton filet de sécurité</p>
 		{/if}
 		{#if overMaintenance}
-			<p class="mt-0.5 text-xs font-semibold text-danger/80">Ta journée reste dans le cadre sur la durée — on ajuste ensemble si besoin.</p>
+			<p class="mt-1 flex items-center gap-1.5 text-xs font-semibold {cardTone.soft}"><Icon name="triangleAlert" size={13} class="shrink-0" /> Ta journée reste dans le cadre sur la durée — on ajuste ensemble si besoin.</p>
 		{/if}
 	{/if}
-	<div class="relative mt-2 w-full overflow-hidden rounded-full bg-line/70 {compact ? 'h-1' : 'mt-3 h-2'}">
+	<div class="relative w-full overflow-hidden rounded-full bg-ink/[0.06] {compact ? 'mt-2.5 h-1.5' : 'mt-3 h-2'}">
 		{#if maintenanceKcal}
 			<!-- Zone « filet de sécurité » entre l'objectif et la maintenance -->
 			<div class="absolute inset-y-0 rounded-full bg-warn-light" style="left: {goalMarkPct}%; right: 0"></div>
 		{/if}
-		<div
-			class="relative h-full rounded-full transition-all duration-500 {overMaintenance ? 'bg-danger' : overGoal ? 'bg-warn' : 'bg-brand'}"
-			style:width="{kcalPct}%"
-		></div>
+		<div class="relative h-full rounded-full transition-[width] duration-500 ease-out {cardTone.bar}" style:width="{kcalPct}%"></div>
 		{#if maintenanceKcal}
 			<!-- Marqueur vertical de l'objectif (la cible principale) -->
-			<div class="absolute inset-y-[-3px] w-[2px] rounded bg-ink/60" style="left: {goalMarkPct}%" title="Objectif : {fmt(day.goals.kcal)} kcal"></div>
+			<div class="absolute inset-y-[-3px] w-[2px] rounded-full bg-ink/50 shadow-[0_0_0_2px_rgba(255,255,255,0.7)]" style="left: {goalMarkPct}%" title="Objectif : {fmt(day.goals.kcal)} kcal"></div>
 		{/if}
 	</div>
-	<div class="flex items-baseline justify-between gap-2 {compact ? 'mt-1 text-[11px]' : 'mt-1.5 text-xs'}">
-		<span class="font-semibold tabular-nums {overMaintenance ? 'text-danger' : overGoal ? 'text-warn' : 'text-brand'}">
+	<div class="flex items-baseline justify-between gap-2 {compact ? 'mt-1.5 text-[11px]' : 'mt-1.5 text-xs'}">
+		<span class="font-bold tabular-nums {overMaintenance ? 'text-danger' : overGoal ? 'text-warn' : 'text-brand'}">
 			{fmt(Math.round(totals.kcal))} kcal consommées{#if plannedKcalTotal > 0}<span class="font-normal text-mist"> · {fmt(plannedKcalTotal)} prévues</span>{/if}
 		</span>
 		<span class="text-right">
