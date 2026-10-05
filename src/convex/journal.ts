@@ -7,6 +7,7 @@ import { applyKcalGuard, guardedKcal100, kcalNeedsRecalc } from "../lib/nutritio
 import { resolveCoachPlanForDate } from "./mealPlans";
 import { attachThumbs, attachThumbsForFoodIds } from "./foodImages";
 import { ciqualFoodSource } from "./ciqualSource";
+import { resolveCiqualLabel } from "./ciqual";
 import { foodFrequencyKey, rankFrequentFoods, type FreqEntry } from "../lib/foodFrequency";
 import { internal } from "./_generated/api";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
@@ -70,6 +71,22 @@ async function resolveCoachTarget(
    d'un client, « en doublon » avec lui. */
 
 /** Jour complet d'un client donné (réservé coach). */
+/* ── PROVENANCE CIQUAL (calculée à la lecture — zéro schema, zéro backfill) ──
+ * Les entrées journalisées depuis une référence Ciqual/ANSES ne stockent PAS
+ * d'identifiant (l'insert est un snapshot : name = libellé officiel exact,
+ * foodId undefined). La provenance est donc RETROUVÉE à la lecture : une
+ * entrée sans aucune identité (foodId/customFoodId/mealId) dont le nom
+ * correspond EXACTEMENT à un libellé Ciqual de la table embarquée est
+ * enrichie du champ calculé `ciqualLabel` — le badge « Référence Ciqual –
+ * ANSES » reste visible à la réouverture de la fiche (cliente ET coach),
+ * historique compris. Les libellés officiels sont uniques → détection
+ * fiable ; tout ajout avec identité (OFF/perso/repas) est exclu.
+ */
+function withCiqualProvenance<T extends Doc<"diaryEntries">>(e: T): T & { ciqualLabel?: string } {
+	if (e.foodId || e.customFoodId || e.mealId) return e;
+	return resolveCiqualLabel(e.name) ? { ...e, ciqualLabel: e.name } : e;
+}
+
 export const getDayForCoach = query({
 	args: {
 		sessionToken: v.optional(v.string()),
@@ -105,7 +122,7 @@ export const getDayForCoach = query({
 			date,
 			goals: { ...baseGoals, kcal: dayKcal },
 			goalsSet: !!goalsRow,
-			entries: await attachThumbsForFoodIds(ctx, entries),
+			entries: await attachThumbsForFoodIds(ctx, entries.map(withCiqualProvenance)),
 			totals,
 		};
 	},
@@ -846,11 +863,11 @@ export const getDay = query({
 			ctx,
 			entries.map((e) => {
 				const info = e.foodId ? servingByFood.get(e.foodId) : e.customFoodId ? servingByFood.get(e.customFoodId) : undefined;
-				return {
+				return withCiqualProvenance({
 					...e,
 					servingQty: info?.qty ?? undefined,
 					servingUnit: info?.unit ?? undefined,
-				};
+				});
 			})
 		).then(withCustomPhoto);
 		const plannedOut = await attachThumbsForFoodIds(

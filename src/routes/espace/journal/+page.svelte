@@ -3161,6 +3161,10 @@ import { optimizeImageFile } from '$lib/media';
 					thumbUrl: editEntry.thumbUrl,
 					photoUrl: editEntry.photoUrl,
 					custom: !editEntry.foodId && !editEntry.ciqualLabel && !!editEntry.customFoodId,
+					// PROVENANCE CIQUAL conservée : getDay renvoie ciqualLabel calculé
+					// (résolution exacte du libellé officiel) → badge « Référence
+					// Ciqual – ANSES » visible à chaque réouverture depuis le Journal.
+					ciqual: !!editEntry.ciqualLabel,
 					kcal100: editEntry.qtyGrams > 0 ? (editEntry.kcal / editEntry.qtyGrams) * 100 : 0,
 					carbs100: editEntry.qtyGrams > 0 ? (editEntry.carbs / editEntry.qtyGrams) * 100 : 0,
 					protein100: editEntry.qtyGrams > 0 ? (editEntry.protein / editEntry.qtyGrams) * 100 : 0,
@@ -4026,7 +4030,8 @@ import { optimizeImageFile } from '$lib/media';
 					{:else if searchTab === 'repas'}
 						<!-- ═══════ Mes repas ═══════ -->
 						<button type="button" class="mb-3 flex w-full items-center gap-2 rounded-xl bg-brand-light px-3 py-2.5 text-sm font-semibold text-brand transition hover:bg-brand/15" onclick={openMealEditor}>
-							<span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand text-white">＋</span>
+							<!-- Icône REPAS COMPLET (bol fumant) ≠ fiche produit de « Créer un aliment » -->
+							<span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand text-white"><Icon name="soup" size={13} /></span>
 							Ajouter un nouveau repas
 						</button>
 						{#if mealsError}
@@ -4237,10 +4242,11 @@ import { optimizeImageFile } from '$lib/media';
 							</button>
 							</div>
 						{:else}
-							<button type="button" class="mb-3 flex w-full items-center gap-2 rounded-xl bg-brand-light px-3 py-2.5 text-sm font-semibold text-brand transition hover:bg-brand/15" onclick={openCreateSheet}>
-								<span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand text-white">＋</span>
-								Créer un aliment
-							</button>
+						<button type="button" class="mb-3 flex w-full items-center gap-2 rounded-xl bg-brand-light px-3 py-2.5 text-sm font-semibold text-brand transition hover:bg-brand/15" onclick={openCreateSheet}>
+							<!-- Icône FICHE PRODUIT + crayon ≠ bol fumant de « Ajouter un nouveau repas » -->
+							<span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand text-white"><Icon name="clipboardPen" size={13} /></span>
+							Créer un aliment
+						</button>
 							{#if customFoodsError}
 								<p class="rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{customFoodsError}</p>
 							{:else if customFoods.length === 0}
@@ -5438,6 +5444,7 @@ import { optimizeImageFile } from '$lib/media';
 {#if editEntry && editFood}
 	<QuantitySheet
 		food={editFood}
+		source={editFood.ciqual ? 'ciqual' : undefined}
 		mealDefs={MEAL_DEFS}
 		sheetTop={mobile ? vvTop : 0}
 		sheetHeight={mobile ? vvH : undefined}

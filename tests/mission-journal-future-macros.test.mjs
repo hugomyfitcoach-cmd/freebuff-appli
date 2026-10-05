@@ -188,5 +188,7 @@ test('Sécurité : aucun rendu coach / Vision 360 affecté par la mission', () =
 	// La compaction est conditionnée au mode cliente (compact = client), pattern existant.
 	assert.match(journalDay, /const compact = \$derived\(mode === 'client'\);/);
 	// Les snapshots consommés (Vision 360) lisent day.entries — jamais plannedTotals.
-	assert.match(journalConvex, /export const getDayForCoach = query\(\{[\s\S]*?entries: await attachThumbsForFoodIds\(ctx, entries\),[\s\S]*?totals,/);
+	// (Mission provenance : les entrées coach sont enrichies du champ CALCULÉ
+	// ciqualLabel — même contrat de lecture, aucun plannedTotals ajouté.)
+	assert.match(journalConvex, /export const getDayForCoach = query\(\{[\s\S]*?entries: await attachThumbsForFoodIds\(ctx, entries\.map\(withCiqualProvenance\)\),[\s\S]*?totals,/);
 });

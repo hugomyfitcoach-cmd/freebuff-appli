@@ -538,7 +538,12 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 									aria-expanded={expandedGroups.has(g.key)}
 									onclick={() => toggleGroup(g.key)}
 								>
-									<span class="grid shrink-0 place-items-center rounded-xl bg-brand-light {compact ? 'h-[44px] w-[44px]' : 'h-9 w-9'}"><Icon name="camera" size={compact ? 15 : 16} class="text-brand" /></span>
+									<!-- Provenance IA : les groupes ne contiennent QUE des analyses
+						     Repas IA (mealGroup « analyse:… ») → encadré « IA » premium. -->
+								<span class="relative grid shrink-0 place-items-center rounded-xl bg-brand-light {compact ? 'h-[44px] w-[44px]' : 'h-9 w-9'}">
+									<span class="font-display {compact ? 'text-[11px]' : 'text-[10px]'} font-bold tracking-widest text-brand">IA</span>
+									<Icon name="sparkles" size={compact ? 8 : 7} class="absolute right-0.5 top-0.5 text-brand/70" />
+								</span>
 									<span class="min-w-0 flex-1">
 										<span class="block truncate font-semibold text-ink {compact ? 'text-[14px]' : 'text-sm'}">🍽️ {groupLabel(g)}</span>
 										<span class="block text-mist tabular-nums {compact ? 'text-[11px]' : 'text-[11px]'}">
@@ -749,7 +754,20 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 
 {#snippet entryBody(e: Entry)}
 	{#if e.thumbUrl || e.imageUrl}
-		<FoodImg src={e.photoUrl ?? e.thumbUrl} fallbackSrc={e.imageUrl} alt="" eager={eagerEntryIds.has(e._id)} class="rounded-xl {compact ? 'h-[44px] w-[44px]' : 'h-9 w-9'}" />
+		<!-- PROVENANCE Repas IA (mealGroup « analyse:… » persisté par le commit) :
+		     photo conservée + mini macaron « IA » vert dans le coin — cliente
+		     ET coach (composant partagé), discrètement identifiable. -->
+		<span class="relative shrink-0">
+			<FoodImg src={e.photoUrl ?? e.thumbUrl} fallbackSrc={e.imageUrl} alt="" eager={eagerEntryIds.has(e._id)} class="rounded-xl {compact ? 'h-[44px] w-[44px]' : 'h-9 w-9'}" />
+			{#if e.mealGroup}<span class="absolute -right-1 -top-1 rounded-full bg-brand px-1 py-px text-[8px] font-bold tracking-wide text-white ring-2 ring-white/90">IA</span>{/if}
+		</span>
+	{:else if e.mealGroup}
+		<!-- Repas IA sans photo : encadré vert pâle « IA » — même gabarit que la
+		     vignette (44 px), étincelle discrète, aucune ligne texte en plus. -->
+		<span class="relative grid shrink-0 place-items-center rounded-xl bg-brand-light {compact ? 'h-[44px] w-[44px]' : 'h-9 w-9'}">
+			<span class="font-display {compact ? 'text-[11px]' : 'text-[10px]'} font-bold tracking-widest text-brand">IA</span>
+			<Icon name="sparkles" size={7} class="absolute right-0.5 top-0.5 text-brand/70" />
+		</span>
 	{:else}
 		<!-- Placeholder G-FLUX compact : même gabarit que la vignette (44 px),
 		     icône réduite pour rester proportionnée. -->
