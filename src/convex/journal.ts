@@ -7,6 +7,7 @@ import { applyKcalGuard, guardedKcal100, kcalNeedsRecalc } from "../lib/nutritio
 import { resolveCoachPlanForDate } from "./mealPlans";
 import { attachThumbs, attachThumbsForFoodIds } from "./foodImages";
 import { ciqualFoodSource } from "./ciqualSource";
+import { foodFrequencyKey, rankFrequentFoods, type FreqEntry } from "../lib/foodFrequency";
 import { internal } from "./_generated/api";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Id, Doc } from "./_generated/dataModel";
@@ -285,6 +286,10 @@ export type FoodHit = {
 	photoUrl?: string;
 	servingQty?: number;
 	servingUnit?: string;
+	/** Fiche de RÉFÉRENCE Ciqual (ANSES) — _id = libellé officiel exact
+	 *  (aliments fréquents intelligents : l'habitude peut porter sur une
+	 *  référence CIQUAL aussi bien qu'un produit ou une fiche perso). */
+	ciqual?: boolean;
 };
 
 export function toHit(f: Doc<"foods">): FoodHit {
@@ -488,6 +493,118 @@ export const recentFoods = query({
 	]);
 	return hits;
 },
+});
+
+/* ── ALIMENTS FRÉQUENTS INTELLIGENTS (score personnel apprIS, additive) ──
+ * Même table diaryEntries, MÊME index existant by_user — zéro schema,
+ * zéro migration, zéro backfill. Le scoring (fréquence × récence × contexte
+ * repas) vit dans le module PUR lib/foodFrequency.ts, testé hors Convex.
+ * L'IDENTITÉ EXACTE est conservée : clé de dédup "f:foodId" (produit OFF
+ * importé — offId/barcode/marque/image intacts), "c:customFoodId" (fiche
+ * perso), "q:<libellé officiel exact>" (référence CIQUAL — les entrées
+ * journal ne snapshotent PAS d'id ciqual, le libellé EST l'identité, unique)
+ * — un produit emballé précis n'est JAMAIS remplacé par une fiche générique. */
+/** Fenêtre d'historique analysée (scan desc sur l'index by_user existant). */
+const FREQ_WINDOW = 300;
+/** Panier servi : 20 premiers + "Voir plus" jusqu'à 50. */
+const FREQ_DEFAULT_LIMIT = 20;
+const FREQ_MAX_LIMIT = 50;
+
+export const freqFoods = query({
+	args: {
+		sessionToken: v.optional(v.string()),
+		/** Contexte du repas en cours — bonus d'affinité (lib/foodFrequency). */
+		currentMeal: v.optional(v.union(
+			v.literal("petit-dej"),
+			v.literal("dejeuner"),
+			v.literal("diner"),
+			v.literal("collation")
+		)),
+		limit: v.optional(v.number()),
+	},
+	handler: async (ctx, { sessionToken, currentMeal, limit }) => {
+		const user = await requireClient(ctx, sessionToken);
+		// Fenêtre adaptative : assez d'entrées pour nourrir le panier demandé,
+		// plafonnée à FREQ_WINDOW (performance constante sur gros historiques).
+		const windowSize = Math.min(FREQ_WINDOW, Math.max(40, Math.floor(limit ?? FREQ_DEFAULT_LIMIT) * 6));
+		const recent = await ctx.db
+			.query("diaryEntries")
+			.withIndex("by_user", (q) => q.eq("userId", user._id))
+			.order("desc")
+			.take(windowSize);
+		if (recent.length === 0) return [];
+
+		// 1) Stats apprises par clé d'identité — module PUR (formule explicable).
+		// Une entrée est journalisée avec UNE source exclusive : foodId
+		// (produit OFF importé), customFoodId (fiche perso) ou CIQUAL
+		// (snapshot "name" = libellé officiel, sans id persisté).
+		const freqKeyOf = (e: Doc<"diaryEntries">): string | null =>
+			e.foodId
+				? foodFrequencyKey("food", e.foodId)
+				: e.customFoodId
+					? foodFrequencyKey("custom", e.customFoodId)
+					: !e.mealId && e.name
+						? foodFrequencyKey("ciqual", e.name)
+						: null; // repas planifiés (mealId) : hors périmètre fréquents
+		const namesByKey = new Map<string, string>();
+		const entries: FreqEntry[] = [];
+		for (const e of recent) {
+			const key = freqKeyOf(e);
+			if (!key) continue;
+			if (!namesByKey.has(key)) namesByKey.set(key, e.name);
+			entries.push({ key, meal: e.meal, createdAtMs: e.createdAt });
+		}
+		const ranked = rankFrequentFoods(entries, namesByKey, { nowMs: Date.now(), currentMeal });
+		if (ranked.length === 0) return [];
+
+		// 2) Panier borné : les N plus habituels (20 par défaut, 50 max).
+		const take = Math.min(FREQ_MAX_LIMIT, Math.max(1, Math.floor(limit ?? FREQ_DEFAULT_LIMIT)));
+		const top = ranked.slice(0, take);
+
+		// 3) Résolution des identités DANS LEUR source (ordre conservé) :
+		//    produit OFF importé (offId/barcode/marque/image intacts), fiche
+		//    perso, référence CIQUAL — jamais de remplacement par une fiche
+		//    générique, jamais d'entrée du panier écrasée par une autre.
+		const foodIds = top.filter((r) => r.key.startsWith("f:")).map((r) => r.key.slice(2) as Id<"foods">);
+		const customIds = top.filter((r) => r.key.startsWith("c:")).map((r) => r.key.slice(2) as Id<"customFoods">);
+		const [foodRows, customRows] = await Promise.all([
+			Promise.all(foodIds.map((id) => ctx.db.get(id))),
+			Promise.all(customIds.map((id) => ctx.db.get(id))),
+		]);
+		const foodById = new Map<string, Doc<"foods">>();
+		for (const f of foodRows) if (f) foodById.set(f._id, f);
+		const customById = new Map<string, Doc<"customFoods">>();
+		for (const f of customRows) if (f) customById.set(f._id, f);
+
+		const hits: FoodHit[] = [];
+		for (const { key } of top) {
+			if (key.startsWith("f:")) {
+				const f = foodById.get(key.slice(2));
+				if (f) hits.push(toHit(f));
+			} else if (key.startsWith("c:")) {
+				const f = customById.get(key.slice(2));
+				if (f) hits.push(await toCustomHit(ctx, f));
+			} else {
+				// CIQUAL : le libellé officiel EST l'identité — résolution dans la
+				// table embarquée (fonction SYNCHRONE, un libellé à la fois).
+				const label = key.slice(2);
+				const c = ciqualFoodSource(label);
+				if (c) {
+					hits.push({
+						_id: c.name,
+						custom: false,
+						ciqual: true,
+						name: c.name,
+						kcal100: c.kcal100,
+						carbs100: c.carbs100,
+						protein100: c.protein100,
+						fat100: c.fat100,
+					});
+				}
+			}
+		}
+		return attachThumbs(ctx, hits);
+	},
 });
 
 /* ─────────────────────────── Objectifs (coach) ─────────────────────────── */

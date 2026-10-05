@@ -862,6 +862,8 @@ import { optimizeImageFile } from '$lib/media';
 				hasMore = !!(j as { hasMore?: boolean }).hasMore;
 				nextOffset = 25;
 				showScrollHint = hasMore; // il existe des résultats plus bas
+				// Couche personnelle au-dessus du classement OFF (jamais dedans).
+				if (!favOnly) applyPersonalOverlay();
 			})
 			.then(() => null, (e) => e as Error);
 		const ciq = fetch(`/api/foods/ciqual?q=${encodeURIComponent(q)}`)
@@ -882,6 +884,39 @@ import { optimizeImageFile } from '$lib/media';
 			nextOffset = 0;
 		}
 		searching = false;
+	}
+
+	/**
+	 * RECHERCHE PERSONNALISÉE — couche au-dessus du moteur existant, jamais
+	 * dedans : si des produits DÉJÀ CONSOMMÉS par cette cliente correspondent
+	 * à la requête (correspondance pertinente : tokens significatifs communs
+	 * entre la requête et le nom), ils remontent en tête, les plus habituels
+	 * d'abord (ordre déjà calculé par le score serveur). Le reste des
+	 * résultats (produits OFF / CIQUAL) suit sans être réordonné. Jamais de
+	 * duplicate : un fréquents déjà présent dans results est retiré de la
+	 * liste générale (identité _id conservée — marque, barcode, image).
+	 */
+	function personalOverlay(list: Food[], q: string): Food[] {
+		if (freqFoods.length === 0) return list;
+		const toks = (s: string) =>
+			s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ')
+				.split(' ').filter((w) => w.length >= 4).map((w) => (w.length >= 5 && w.endsWith('s') ? w.slice(0, -1) : w));
+		const qt = new Set(toks(q));
+		if (qt.size === 0) return list;
+		const personal: Food[] = [];
+		const generic: Food[] = [];
+		for (const f of list) {
+			const ft = toks(f.name).filter((w) => qt.has(w)).length;
+			(ft > 0 ? personal : generic).push(f);
+		}
+		if (personal.length === 0) return list; // aucune correspondance pertinente → ordre du moteur intact
+		const personalIds = new Set(personal.map((f) => f._id));
+		const freqHits = freqFoods.filter((f) => personalIds.has(f._id));
+		return [...freqHits, ...personal.filter((f) => !freqHits.some((h) => h._id === f._id)), ...generic];
+	}
+	function applyPersonalOverlay() {
+		if (favOnly) return;
+		results = personalOverlay(results, searchQ);
 	}
 
 	/**
@@ -967,10 +1002,54 @@ import { optimizeImageFile } from '$lib/media';
 		};
 	});
 
-	/* ————— Aliments fréquents (suggestions avant recherche) ————— */
+	/* ————— ALIMENTS FRÉQUENTS INTELLIGENTS (habitudes apprises) —————
+	 * Deux notions DISTINCTES (jamais mélangées) :
+	 *  - freqFoods  : « Tes aliments fréquents » — score personnel
+	 *    (fréquence × récence × contexte repas), appris automatiquement
+	 *    de l'historique Journal, panier de 20 → « Voir plus » jusqu'à 50 ;
+	 *  - recentFoods: « Récemment utilisés » — historique brut récent
+	 *    (comportement historique inchangé). */
+	let freqFoods = $state<Food[]>([]);
+	let freqLoaded = $state(false);
+	/** Panier affiché : 20 au départ, +10 par « Voir plus » (max 50 côté serveur). */
+	const FREQ_PAGE = 20;
+	let freqLimit = $state(FREQ_PAGE);
+	let freqLoadingMore = $state(false);
 	let recentFoods = $state<Food[]>([]);
 	let recentLoaded = $state(false);
 
+	/** Recharge les fréquents au contexte de repas donné (bonus d'affinité
+	 *  calculé côté serveur — module pur lib/foodFrequency.ts). */
+	async function loadFreq(meal?: string) {
+		try {
+			const p = new URLSearchParams({ limit: String(freqLimit) });
+			if (meal) p.set('meal', meal);
+			const r = await fetch(`/api/foods/frequent?${p}`);
+			const j = await r.json();
+			if (!j.error) freqFoods = j;
+		} catch {
+			// silencieux : panier vide si indisponible (fallback récents)
+		} finally {
+			freqLoaded = true;
+		}
+	}
+	/** « Voir plus » : +10 jusqu'au plafond serveur (50) — jamais au-delà. */
+	async function loadMoreFreq() {
+		if (freqLoadingMore || freqLimit >= 50) return;
+		freqLoadingMore = true;
+		freqLimit = Math.min(50, freqLimit + 10);
+		try {
+			const p = new URLSearchParams({ limit: String(freqLimit) });
+			if (qtyMeal) p.set('meal', qtyMeal);
+			const r = await fetch(`/api/foods/frequent?${p}`);
+			const j = await r.json();
+			if (!j.error) freqFoods = j;
+		} catch {
+			// silencieux : le panier affiché reste en l'état
+		} finally {
+			freqLoadingMore = false;
+		}
+	}
 	async function loadRecent() {
 		try {
 			const r = await fetch('/api/foods/recent');
@@ -1001,7 +1080,9 @@ import { optimizeImageFile } from '$lib/media';
 		barcodeManual = '';
 		logMode = 'search';
 		logOpen = true;
+		freqLoaded = false;
 		recentLoaded = false;
+		loadFreq(qtyMeal);
 		loadRecent();
 		loadFavorites();
 		loadMeals();
@@ -2289,7 +2370,7 @@ import { optimizeImageFile } from '$lib/media';
 	function uiPortionList(): Food[] {
 		if (searchQ.trim().length >= 2) return results;
 		if (favOnly) return favorites;
-		return recentFoods;
+		return freqFoods.length > 0 ? freqFoods : recentFoods;
 	}
 	async function confirmAdd(qtyGrams: number, meal: string) {
 		if (!qtyFood) return;
@@ -2953,8 +3034,9 @@ import { optimizeImageFile } from '$lib/media';
 			const ciqFoods: Food[] = (Array.isArray(ciq) ? ciq : []).map(ciqualToFood);
 			const prods: Food[] = Array.isArray(prod?.items) ? prod.items : [];
 			if (guard !== mealAddSeq) return; // réponse périmée
-			// La CIQUAL d'abord (génériques), puis les produits (déjà en base).
-			mealAddResults = [...ciqFoods, ...prods].slice(0, 15);
+			// La CIQUAL d'abord (génériques), puis les produits (déjà en base)
+			// — couche personnelle : ses produits déjà consommés remontent.
+			mealAddResults = [...ciqFoods, ...personalOverlay(prods, mealAddQuery)].slice(0, 15);
 		} catch {
 			if (guard === mealAddSeq) mealAddResults = [];
 		} finally {
@@ -4213,18 +4295,35 @@ import { optimizeImageFile } from '$lib/media';
 							<button type="button" class="mt-2 w-full rounded-full bg-danger py-2 text-xs font-bold text-white transition hover:opacity-90" onclick={() => runSearch(searchQ.trim())}>Réessayer</button>
 						</div>
 					{:else if searchQ.trim().length < 2}
-						<!-- Suggestions avant toute saisie : aliments réellement utilisés (jamais inventés) -->
-						{#if recentFoods.length > 0}
+						<!-- Suggestions avant toute saisie : HABITUDES APPRISES (score
+						     personnel : fréquence × récence × contexte repas) puis
+						     RÉCEMMENT UTILISÉS — deux notions distinctes, jamais mélangées.
+						     Aliments réellement consommés par cette cliente (jamais inventés). -->
+						{#if freqFoods.length > 0}
 							<div class="flex items-baseline justify-between px-1 pb-1 pt-1.5">
 								<h3 class="text-[11px] font-bold uppercase tracking-widest text-mist">Tes aliments fréquents</h3>
-								<span class="text-[10px] text-mist">récemment utilisés</span>
+								<span class="text-[10px] text-mist">tes habitudes</span>
+							</div>
+							<ul class="flex flex-col divide-y divide-line/50">
+								{#each freqFoods as food (food._id)}
+									{@render foodRow(food)}
+								{/each}
+							</ul>
+							{#if freqLimit < 50 && freqFoods.length >= freqLimit}
+								<button type="button" class="mx-auto mt-2 block rounded-full border-2 border-line bg-white px-4 py-1.5 text-xs font-bold text-brand transition hover:border-brand disabled:opacity-60" disabled={freqLoadingMore} onclick={loadMoreFreq}>{freqLoadingMore ? 'Chargement…' : 'Voir plus'}</button>
+							{/if}
+						{/if}
+						{#if recentFoods.length > 0}
+							<div class="flex items-baseline justify-between px-1 pb-1 pt-1.5">
+								<h3 class="text-[11px] font-bold uppercase tracking-widest text-mist">Récemment utilisés</h3>
+								<span class="text-[10px] text-mist">derniers ajouts</span>
 							</div>
 							<ul class="flex flex-col divide-y divide-line/50">
 								{#each recentFoods as food (food._id)}
 									{@render foodRow(food)}
 								{/each}
 							</ul>
-						{:else if recentLoaded}
+						{:else if recentLoaded && freqFoods.length === 0}
 							<div class="py-10 text-center">
 								<div class="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-brand-light"><Icon name="search" size={22} class="text-brand" /></div>
 								<p class="text-sm font-semibold text-ink">Recherche un produit</p>
