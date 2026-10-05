@@ -245,7 +245,9 @@ test('Code-barres : champ manuel repositionné au-dessus du clavier (iOS + Andro
 	// aucun polling de focus, aucune logique « scroll récent ».
 	const manualInputs = journalPage.match(/<input[^>]*placeholder="Ou saisis le code/g) || [];
 	assert.equal(manualInputs.length, 2, '2 champs manuels (Ajouter un aliment + fenêtre produit)');
-	assert.equal((journalPage.match(/onfocusin=\{\(e\) => focusScroll\(e\.currentTarget, e\.target\)\}/g) || []).length, 3, '3 champs branchés : formulaire custom + 2 champs code-barres');
+	// + 1 depuis Repas IA multimodal : textarea « Analyse ton repas » — la dictée
+	// native du clavier passe par la MÊME infra visualViewport (aucun hack) :
+	assert.equal((journalPage.match(/onfocusin=\{\(e\) => focusScroll\(e\.currentTarget, e\.target\)\}/g) || []).length, 4, '4 champs branchés : formulaire custom + 2 champs code-barres + textarea repas multimodal');
 	// Le mécanisme validé est bien celui déclenché par le clavier :
 	assert.ok(journalPage.includes("vv.addEventListener('resize', setVh)"), 'resize visualViewport → repositionnement (clavier)');
 	assert.ok(journalPage.includes('focusedFieldEl?.isConnected') && journalPage.includes('scrollFocusedIntoView(focusedFieldEl)'), 'champ focalisé replacé ~200 ms après l\'ouverture du clavier');

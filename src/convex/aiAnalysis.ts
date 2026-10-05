@@ -5,7 +5,9 @@ import { action, query } from "./_generated/server";
 import type { MatchedComponent } from "./mealMatch";
 import type { ResolvedBarcodeProduct } from "./off";
 import { packagedSearchTerms, demandedFlavorTokens } from "./mealMatch";
-import { analyzeLabelImage, analyzeMealImage, analyzeRecipeImage } from "../lib/server/openai";
+import { analyzeLabelImage, analyzeMealImage, analyzeMealText, analyzeRecipeImage } from "../lib/server/openai";
+import type { MealComponentAi, MealPhotoType, MealTextComponentAi } from "../lib/server/openai";
+import { mergeTextOverPhoto, applyTextQtySource, type MealQtySource } from "../lib/mealFusion";
 
 /**
  * Analyse IA « Alimentation intelligente » — orchestration Convex DIRECTE.
@@ -206,69 +208,151 @@ export const analyzeLabel = action({
 	},
 });
 
-/* ─────────────── REPAS PHOTOGRAPHIÉ ─────────────── */
+/* ─────────────── REPAS PHOTOGRAPHIÉ / DÉCRIT (multimodal) ─────────────── */
 
-/** Analyse une photo de REPAS : l'IA identifie les composants + quantités,
- *  la base G-FLUX tranche la nutrition (jamais l'IA). */
+/**
+ * Analyse un REPAS : PHOTO seule (comportement historique, inchangé), TEXTE
+ * seul, ou PHOTO + PRÉCISIONS TEXTE.
+ *
+ * MULTIMODAL — les deux sources sont extraites SÉPARÉMENT (deux prompts
+ * spécialisés) puis fusionnées DÉTERMINISTEMENT (lib/mealFusion.ts) :
+ *   1. quantité explicitement écrite par l'utilisatrice (« 150 g de riz »)
+ *      — GAGNE toujours, jamais remplacée par l'estimation visuelle ;
+ *   2. information lisible depuis la photo ;
+ *   3. estimation IA de portion — uniquement si rien d'autre, toujours
+ *      signalée « estimée » (qtySource).
+ * La fusion n'est JAMAIS confiée au seul prompt : elle est testée (npm test).
+ *
+ * Le reste de la pipeline est STRICTEMENT le même pour les trois modes :
+ * composants → code-barres → OFF live (emballés) → matchComponentsInternal
+ * (customFoods → OFF importé → CIQUAL → estimation IA en dernier recours).
+ */
 export const analyzeMeal = action({
 	args: {
 		sessionToken: v.optional(v.string()),
-		imageDataUrl: v.string(),
+		/** Photo (JPEG/WebP) en dataURL — déjà redimensionnée côté PWA (≤ 1600 px).
+		 *  Optionnelle SI une description texte est fournie. */
+		imageDataUrl: v.optional(v.string()),
+		/** Précisions TEXTE libre (saisie ou dictée clavier) — optionnelles, SI
+		 *  une photo est fournie. Prioritaires sur la photo (quantités écrites). */
+		text: v.optional(v.string()),
 	},
-	handler: async (ctx, { sessionToken, imageDataUrl }) => {
+	handler: async (ctx, { sessionToken, imageDataUrl, text }) => {
 		const userId = await requireBetaInAction(ctx, sessionToken, "meal_photo_ai_beta");
-		if (typeof imageDataUrl !== "string" || !imageDataUrl.startsWith("data:image/")) {
-			throw new ConvexError("Photo invalide.");
+		const hasImage = typeof imageDataUrl === "string" && imageDataUrl.startsWith("data:image/");
+		const textClean = typeof text === "string" ? text.trim().slice(0, 800) : "";
+		const hasText = textClean.length >= 2;
+		if (!hasImage && !hasText) {
+			throw new ConvexError("Ajoute une photo ou décris ton repas.");
 		}
-		if (imageDataUrl.length > 5_000_000) {
+		if (hasImage && imageDataUrl!.length > 5_000_000) {
 			throw new ConvexError("Photo trop lourde — réessaie avec un cadrage plus serré.");
 		}
 
-		// 1) Reconnaissance des composants (OpenAI DIRECT — aliments + quantités).
-		const t0 = Date.now();
-		let ai: Awaited<ReturnType<typeof analyzeMealImage>>["result"] | null = null;
 		let aiError = "";
-		try {
-			const r = await analyzeMealImage(imageDataUrl);
-			ai = r.result;
-			await logAi(ctx, {
-				kind: "meal",
-				model: r.usage.model,
-				inputTokens: r.usage.inputTokens,
-				outputTokens: r.usage.outputTokens,
-				durationMs: r.usage.durationMs,
-				status: ai.items.length > 0 ? "ok" : "error",
-				estimatedCostUsd: r.usage.estimatedCostUsd,
-				failReason: ai.items.length > 0 ? undefined : "no-components",
-			});
-		} catch (e) {
-			aiError = e instanceof Error ? e.message : "unreachable";
-			await logAi(ctx, {
-				kind: "meal",
-				model: "unknown",
-				durationMs: Date.now() - t0,
-				status: "error",
-				failReason: aiError.slice(0, 200),
-			});
+		let textError = "";
+
+		// 1) PHOTO — chemin EXISTANT strictement identique (même prompt, mêmes
+		//    clamps, même garde anti-placeholder). Zéro changement de comportement
+		//    quand aucun texte n'est fourni.
+		let photoItems: MealComponentAi[] = [];
+		let hint: string | undefined;
+		let photoType: MealPhotoType | undefined;
+		if (hasImage) {
+			const t0 = Date.now();
+			try {
+				const r = await analyzeMealImage(imageDataUrl!);
+				photoItems = r.result.items;
+				hint = r.result.hint;
+				photoType = r.result.photoType;
+				await logAi(ctx, {
+					kind: "meal",
+					model: r.usage.model,
+					inputTokens: r.usage.inputTokens,
+					outputTokens: r.usage.outputTokens,
+					durationMs: r.usage.durationMs,
+					status: r.result.items.length > 0 ? "ok" : "error",
+					estimatedCostUsd: r.usage.estimatedCostUsd,
+					failReason: r.result.items.length > 0 ? undefined : "no-components",
+				});
+			} catch (e) {
+				aiError = e instanceof Error ? e.message : "unreachable";
+				await logAi(ctx, {
+					kind: "meal",
+					model: "unknown",
+					durationMs: Date.now() - t0,
+					status: "error",
+					failReason: aiError.slice(0, 200),
+				});
+			}
 		}
-		if (!ai || ai.items.length === 0) {
-			// Photo réellement inexploitable (ou IA indisponible) : l'UI affiche
-			// un message propre — JAMAIS un « no comment » brut du modèle.
+
+		// 2) TEXTE — nouveau prompt (extraction + qtyExplicit), mêmes garde-fous.
+		let textItems: MealTextComponentAi[] = [];
+		let textHint: string | undefined;
+		if (hasText) {
+			const t0 = Date.now();
+			try {
+				const r = await analyzeMealText(textClean);
+				textItems = r.result.items;
+				textHint = r.result.hint;
+				await logAi(ctx, {
+					kind: "meal",
+					model: r.usage.model,
+					inputTokens: r.usage.inputTokens,
+					outputTokens: r.usage.outputTokens,
+					durationMs: r.usage.durationMs,
+					status: r.result.items.length > 0 ? "ok" : "error",
+					estimatedCostUsd: r.usage.estimatedCostUsd,
+					failReason: r.result.items.length > 0 ? undefined : "no-components",
+				});
+			} catch (e) {
+				textError = e instanceof Error ? e.message : "unreachable";
+				await logAi(ctx, {
+					kind: "meal",
+					model: "unknown",
+					durationMs: Date.now() - t0,
+					status: "error",
+					failReason: textError.slice(0, 200),
+				});
+			}
+		}
+
+		// 3) FUSION déterministe (pure, testée) — jamais déléguée au prompt.
+		let items: (MealComponentAi & { qtyExplicit?: boolean; qtySource?: MealQtySource })[];
+		if (hasImage && hasText && photoItems.length > 0) {
+			// PHOTO + TEXTE : les quantités écrites remplacent celles de la photo,
+			// le reste de l'assiette vient de la photo, les apports du texte suivent.
+			items = mergeTextOverPhoto(textItems, photoItems);
+		} else if (hasText) {
+			// TEXTE SEUL (ou photo inexploitable) : le texte est la seule source —
+			// dégradation gracieuse si la photo a échoué alors qu'un texte existe.
+			items = applyTextQtySource(textItems);
+		} else {
+			// PHOTO SEULE : composants tels quels, qtySource NON posé —
+			// comportement historique strictement préservé.
+			items = photoItems;
+		}
+		hint = hint ?? textHint;
+
+		if (items.length === 0) {
+			// Photo et/ou texte réellement inexploitables (ou IA indisponible) :
+			// message propre côté UI — JAMAIS un « no comment » brut du modèle.
 			return {
 				ok: false as const,
-				reason: aiError || "no-components",
+				reason: aiError || textError || "no-components",
 				/** Type de photo déclaré par le modèle ("unclear" si échec IA). */
-				photoType: ai?.photoType ?? "unclear",
+				photoType: photoType ?? "unclear",
 			};
 		}
 
-		// 2) Composants à code-barres lisible : résolution EXACTE par le MÊME
+		// 4) Composants à code-barres lisible : résolution EXACTE par le MÊME
 		//    moteur que le scan du Journal (base locale → aliments personnels →
 		//    API OFF + cache). Priorité de la règle produit : un code lisible
 		//    tranche, avant tout rapprochement nominal.
 		const resolved = new Map<number, ResolvedBarcodeProduct>();
-		for (let i = 0; i < ai.items.length; i++) {
-			const code = ai.items[i].barcode;
+		for (let i = 0; i < items.length; i++) {
+			const code = items[i].barcode;
 			if (!code) continue;
 			try {
 				const p = (await ctx.runAction(
@@ -282,15 +366,15 @@ export const analyzeMeal = action({
 			}
 		}
 
-		// 3) Produits emballés SANS code-barres : recherche OFF LIVE précise
+		// 5) Produits emballés SANS code-barres : recherche OFF LIVE précise
 		//    (marque + variante + produit) — même pipeline que la recherche
 		//    cliente, mise en cache `foods`, règles variantes (jamais « nature »
 		//    pour « Stracciatella »). Une query n'ayant pas le droit au réseau,
 		//    la recherche vit DANS CETTE ACTION ; le produit retenu est transmis
 		//    au matcher en `preResolved` (même chemin que le code-barres).
-		for (let i = 0; i < ai.items.length; i++) {
-			if (resolved.has(i) || !ai.items[i].packaged) continue;
-			const it = ai.items[i];
+		for (let i = 0; i < items.length; i++) {
+			if (resolved.has(i) || !items[i].packaged) continue;
+			const it = items[i];
 			const name = String(it.name ?? "").slice(0, 80);
 			const terms = packagedSearchTerms(name, it.brand, it.variant);
 			const flavors = demandedFlavorTokens(name, it.variant);
@@ -324,14 +408,15 @@ export const analyzeMeal = action({
 			}
 		}
 
-		// 4) MATCH base G-FLUX (customFoods → OFF importé → CIQUAL → estimation IA)
+		// 6) MATCH base G-FLUX (customFoods → OFF importé → CIQUAL → estimation IA)
 		//    — même process que la requête : actions node, `db` indisponible, on
-		//    emprunte la requête interne via runQuery.
+		//    emprunte la requête interne via runQuery. qtySource suit le composant
+		//    (méta d'affichage) : les quantités « user » restent identifiables.
 		const matched = (await ctx.runQuery(
 			internal.mealMatch.matchComponentsInternal as never,
 			{
 				userId,
-				components: ai.items.map((it, i) => ({
+				components: items.map((it, i) => ({
 					name: String(it.name ?? "").slice(0, 80),
 					qtyGrams: it.qtyGrams,
 					kcal100: it.kcal100,
@@ -342,12 +427,13 @@ export const analyzeMeal = action({
 					packaged: it.packaged,
 					brand: it.brand,
 					variant: it.variant,
+					qtySource: it.qtySource,
 					preResolved: resolved.get(i),
 				})),
 			} as never
 		)) as MatchedComponent[];
 
-		return { ok: true as const, components: matched, hint: ai.hint, photoType: ai.photoType };
+		return { ok: true as const, components: matched, hint, photoType };
 	},
 });
 

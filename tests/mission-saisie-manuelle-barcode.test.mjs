@@ -112,8 +112,10 @@ test('M7. Arrêt du scanner (produit trouvé, changement de mode) sort du mode',
 
 test('M8. Infra visualViewport réutilisée, AUCUN hack hauteur clavier', () => {
 	assert.match(journal, /function scrollFocusedIntoView\(el: HTMLElement\)/, 'repositionnement existant conservé');
-	// Invariant mission-fiche-premium : 3 champs branchés (custom + 2 code-barres) :
-	assert.equal((journal.match(/onfocusin=\{\(e\) => focusScroll\(e\.currentTarget, e\.target\)\}/g) || []).length, 3, 'wiring focusScroll inchangé (custom + 2 champs)');
+	// Invariant mission-fiche-premium : 3 champs branchés (custom + 2 code-barres)
+	// + 1 depuis Repas IA multimodal (textarea « Analyse ton repas » — la dictée
+	// native du clavier doit rester au-dessus, même infra visualViewport) :
+	assert.equal((journal.match(/onfocusin=\{\(e\) => focusScroll\(e\.currentTarget, e\.target\)\}/g) || []).length, 4, 'wiring focusScroll : 3 champs historiques + textarea repas multimodal');
 	assert.doesNotMatch(journal, /keyboardHeight|kbHeight|KEYBOARD_|clavierHauteur/i, 'aucune hauteur de clavier codée en dur');
 	// Pas de repositionnement spécifique Safari : l'API est standard (visualViewport).
 	assert.doesNotMatch(journal, /webkitKeyboard|webkitConvex|visualViewport\.iOS/i);

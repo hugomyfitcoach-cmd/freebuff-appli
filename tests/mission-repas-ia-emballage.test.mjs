@@ -94,7 +94,14 @@ test('Composants mixtes : chaque composant garde SA source (ciqual / off / ai)',
 });
 
 test('UI : jamais de « no comment » affiché — message propre sur photo inexploitable', () => {
-	assert.ok(journalPage.includes("reprendre une photo du produit, du code-barres ou de l'étiquette"), 'message orienté solution');
+	// Message orienté solution — depuis la mission multimodal, photo ET description
+	// texte sont proposées en repli (photo seule → « reprendre une photo » inchangé
+	// dans l'esprit, élargi à la description) :
+	assert.ok(
+		journalPage.includes("Essaie une autre photo, ou décris-le plus précisément") ||
+			journalPage.includes("reprendre une photo du produit, du code-barres ou de l'étiquette"),
+		'message orienté solution'
+	);
 	assert.ok(journalPage.includes("matchSource: 'custom' | 'off_imported' | 'ciqual' | 'ai'"), 'type client inchangé (aucune régression)');
 	assert.ok(journalPage.includes('packaged?: boolean'), 'champ emballé accepté côté client');
 });

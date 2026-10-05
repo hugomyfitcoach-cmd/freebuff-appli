@@ -78,15 +78,13 @@ function assertImageDataUrl(dataUrl: string): void {
 	}
 }
 
-/** Appel générique Responses API en mode JSON strict. */
-async function callOpenAi(
-	prompt: string,
-	imageDataUrl: string,
+/** Appel générique Responses API en mode JSON strict — entrée message(s) libre. */
+async function callOpenAiCore(
+	input: { role: 'user'; content: ({ type: 'input_text'; text: string } | { type: 'input_image'; image_url: string; detail: 'high' })[] }[],
 	maxOutputTokens: number
 ): Promise<{ json: unknown; usage: AiUsage }> {
 	const key = aiEnv().OPENAI_API_KEY;
 	if (!key) throw new OpenAiUnavailableError("Analyse IA non configurée sur le serveur.");
-	assertImageDataUrl(imageDataUrl);
 
 	const m = model();
 	const started = Date.now();
@@ -102,15 +100,7 @@ async function callOpenAi(
 				model: m,
 				max_output_tokens: maxOutputTokens,
 				text: { format: { type: 'json_object' } },
-				input: [
-					{
-						role: 'user',
-						content: [
-							{ type: 'input_text', text: prompt },
-							{ type: 'input_image', image_url: imageDataUrl, detail: 'high' },
-						],
-					},
-				],
+				input,
 			}),
 			signal: AbortSignal.timeout(40_000),
 		});
@@ -153,6 +143,35 @@ async function callOpenAi(
 		throw new OpenAiUnavailableError('Réponse IA illisible.');
 	}
 	return { json, usage: { model: m, inputTokens, outputTokens, durationMs, estimatedCostUsd } };
+}
+
+/** Appel AVEC IMAGE (étiquette, repas, recette) — signature historique inchangée. */
+async function callOpenAi(
+	prompt: string,
+	imageDataUrl: string,
+	maxOutputTokens: number
+): Promise<{ json: unknown; usage: AiUsage }> {
+	assertImageDataUrl(imageDataUrl);
+	return callOpenAiCore(
+		[
+			{
+				role: 'user',
+				content: [
+					{ type: 'input_text', text: prompt },
+					{ type: 'input_image', image_url: imageDataUrl, detail: 'high' },
+				],
+			},
+		],
+		maxOutputTokens
+	);
+}
+
+/** Appel TEXTE SEUL (précisions repas) — même discipline JSON strict + clamps. */
+async function callOpenAiText(
+	prompt: string,
+	maxOutputTokens: number
+): Promise<{ json: unknown; usage: AiUsage }> {
+	return callOpenAiCore([{ role: 'user', content: [{ type: 'input_text', text: prompt }] }], maxOutputTokens);
 }
 
 /* ─────────────── ÉTIQUETTE NUTRITIONNELLE ─────────────── */
@@ -525,4 +544,105 @@ export function parseRecipeExtraction(json: unknown): RecipeResult {
 export async function analyzeRecipeImage(imageDataUrl: string): Promise<{ result: RecipeResult; usage: AiUsage }> {
 	const { json, usage } = await callOpenAi(RECIPE_PROMPT, imageDataUrl, 1500);
 	return { result: parseRecipeExtraction(json), usage };
+}
+
+/* ─────────────── PRÉCISIONS TEXTE (Repas IA multimodal) ─────────────── */
+
+const MEAL_TEXT_PROMPT = `Tu lis le message qu'une utilisatrice envoie pour tracker son repas (texte tapé ou dicté au clavier, parfois avec des fautes). Tu en extrais la LISTE DES ALIMENTS CONSOMMÉS avec leurs quantités — tu n'es PAS la source nutritionnelle : ne calcule PAS de calories totales ni de macros de l'assiette.
+
+RÈGLES CRITIQUES — QUANTITÉS (le plus important) :
+- qtyExplicit = true UNIQUEMENT si l'utilisatrice donne une quantité CLAIRE pour CET aliment : grammes/kilos (« 150 g de riz », « 1.2 kg de poulet »), millilitres/centilitres (« 200 ml de lait », « 25 cl »), pièces à conversion fiable (« 2 œufs » = 100 g, « 2 tranches de jambon » = 50 g), cuillères (« 1 cuillère à soupe d'huile » = 10 g, « une cuillère à soupe de liquide » = 15 g, « cuillère à café » = 5 g).
+- kg → ×1000 ; cl → ×10 ; l → ×1000 ; ml → ×1 (g).
+- qtyExplicit = false dans TOUS les autres cas : aucune quantité (« poulet, riz et légumes »), quantité vague (« une part », « un bol », « une poignée », « un verre », « une pizza »). Dans ce cas qtyGrams = une ESTIMATION de portion réaliste — elle sera affichée « Quantité estimée » et pourra être corrigée : ne la présente JAMAIS comme certaine.
+- Les quantités écrites par l'utilisatrice GAGNENT TOUJOURS : ne réécris JAMAIS « 150 g de riz » en un autre poids.
+- Une précision entre parenthèses ou en passant (« cuisson avec 10 g d'huile », « avec du beurre ») : l'aliment cité avec une quantité claire devient un composant à part entière (même invisible : matière grasse, sauce) ; cité sans quantité, il devient un composant avec qtyExplicit = false.
+
+RÈGLES — ALIMENTS :
+- 1 à 8 composants maximum. Nom en français, simple et générique (« poulet grillé », « riz complet », « courgettes », « huile d'olive »).
+- L'état de cuisson n'est conservé QUE s'il est écrit (« poulet grillé », « riz cuit ») — n'ajoute JAMAIS « cuit » toi-même : le texte décrit ce que l'utilisatrice a mangé.
+- Produit de marque clairement nommé (« un Skyr nature », « des Dragibus Haribo ») : name = le produit, brand = la marque écrite, variant = la variante écrite, packaged = true. Aliment générique : packaged = false, brand et variant = null.
+- Ne devine JAMAIS un code-barres (aucun champ barcode au schéma).
+- kcal100/carbs100/protein100/fat100 : FOURNIS une estimation prudente /100 g pour chaque composant (bornes réalistes) — elle n'est affichée « Estimation IA » que si la base G-FLUX ne trouve pas de fiche. null si vraiment impossible.
+- INTERDIT — RÉPONSES VIDES : n'écris JAMAIS « no comment », « unknown », « non identifié » ou tout autre placeholder dans name. Message inexploitable (hors aliment, vide) → items = [].
+- hint : si des éléments caloriques typiques sont probablement manquants (huile, sauce, beurre) et NON mentionnés, mets hint = « Huile, sauce ou matière grasse utilisée ? » — sinon null.
+
+Réponds STRICTEMENT en JSON avec ce schéma :
+{"items": [{"name": string, "qtyGrams": number, "qtyExplicit": boolean, "brand": string|null, "variant": string|null, "packaged": boolean, "kcal100": number|null, "carbs100": number|null, "protein100": number|null, "fat100": number|null, "note": string|null}], "hint": string|null}`;
+
+/** Composant extrait d'un TEXTE de précisions (avant fusion / matching). */
+export type MealTextComponentAi = {
+	name: string;
+	qtyGrams: number;
+	/** Quantité explicitement écrite par l'utilisatrice — prioritaire sur la photo. */
+	qtyExplicit: boolean;
+	brand?: string;
+	variant?: string;
+	packaged?: boolean;
+	kcal100?: number;
+	carbs100?: number;
+	protein100?: number;
+	fat100?: number;
+	note?: string;
+};
+
+export type MealTextResult = { items: MealTextComponentAi[]; hint?: string };
+
+/**
+ * Valide la réponse TEXTE : mêmes bornes et même garde anti-placeholder que
+ * parseMealComponents — un aliment sans quantité explicite sort avec
+ * qtyExplicit = false (estimation affichée comme telle, jamais certaine).
+ */
+export function parseMealTextComponents(json: unknown): MealTextResult {
+	const o = (json ?? {}) as Record<string, unknown>;
+	const str = (v: unknown, max = 80): string | undefined => {
+		const s = typeof v === 'string' ? v.trim().slice(0, max) : '';
+		return s.length >= 2 ? s : undefined;
+	};
+	const num = (v: unknown, max: number): number | undefined => {
+		const n = typeof v === 'number' ? v : Number(v);
+		if (!isFinite(n) || n < 0) return undefined;
+		return Math.min(max, Math.round(n * 10) / 10);
+	};
+	const items: MealTextComponentAi[] = [];
+	for (const it of Array.isArray(o.items) ? o.items.slice(0, 12) : []) {
+		const r = (it ?? {}) as Record<string, unknown>;
+		const name = typeof r.name === 'string' ? r.name.trim().slice(0, 80) : '';
+		// Garde anti-« no comment » (même règle que la photo).
+		const normalized = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+		if (name.length < 2 || PLACEHOLDER_RE.test(normalized) || !/[a-z0-9]/i.test(name)) continue;
+		const brand = str(r.brand);
+		items.push({
+			name,
+			qtyGrams: Math.max(1, Math.min(2000, Math.round(num(r.qtyGrams, 2000) ?? 100))),
+			// Quantité explicite = déclaration de l'utilisatrice — JAMAIS déduite
+			// par le modèle pour un texte vague (le défaut est false).
+			qtyExplicit: r.qtyExplicit === true,
+			brand,
+			variant: str(r.variant),
+			packaged: r.packaged === true || !!brand,
+			kcal100: num(r.kcal100, 900),
+			carbs100: num(r.carbs100, 100),
+			protein100: num(r.protein100, 100),
+			fat100: num(r.fat100, 100),
+			note: typeof r.note === 'string' && r.note.trim() ? r.note.trim().slice(0, 120) : undefined,
+		});
+		if (items.length >= 8) break;
+	}
+	return { items, hint: typeof o.hint === 'string' && o.hint.trim() ? o.hint.trim().slice(0, 160) : undefined };
+}
+
+/**
+ * Analyse un TEXTE de précisions (saisie ou dictée clavier) → composants +
+ * quantités. Texte SEUL : ces composants font foi. PHOTO + TEXTE : ils sont
+ * fusionnés côté action (lib/mealFusion.ts) avec priorité aux quantités
+ * explicites — la fusion n'est JAMAIS confiée au seul prompt.
+ */
+export async function analyzeMealText(description: string): Promise<{ result: MealTextResult; usage: AiUsage }> {
+	const clean = description.trim().slice(0, 800);
+	if (clean.length < 2) throw new OpenAiUnavailableError('Description trop courte.');
+	const { json, usage } = await callOpenAiText(
+		`${MEAL_TEXT_PROMPT}\n\nMessage de l'utilisatrice :\n"""${clean}"""`,
+		1100
+	);
+	return { result: parseMealTextComponents(json), usage };
 }

@@ -7,6 +7,7 @@ import { getSessionUser } from "./helpers";
 import type { QueryCtx } from "./_generated/server";
 import { preferCookedForMeal, cookedBonusFor } from "../lib/cookedState";
 import { nameMatchScore, flavorConflict } from "../lib/foodText";
+import type { MealQtySource } from "../lib/mealFusion";
 
 /** Tokens de rivalité suivis par flavorConflict (axes goût / MG / sucre). */
 export const FLAVOR_TOKENS: ReadonlySet<string> = new Set([
@@ -130,6 +131,11 @@ export type MatchedComponent = {
 	aiNote?: string;
 	/** Score du rapprochement nominal (0–1) — debug/UX légère. */
 	score?: number;
+	/** Provenance de la QUANTITÉ (méta d'affichage Repas IA multimodal) :
+	 *  'user' = écrite par l'utilisatrice (texte/correction) — prioritaire ;
+	 *  'photo' = reconnue sur la photo ; 'estimated' = estimée, à vérifier.
+	 *  ABSENT sur le chemin photo seul (comportement historique préservé). */
+	qtySource?: MealQtySource;
 };
 
 /** Quantité bornée (1–2000 g), valeur défensive pour des données IA. */
@@ -141,7 +147,7 @@ function clampQty(n: number | undefined): number {
 /** Composant « Estimation IA » (aucun match fiable). */
 function aiFallback(
 	label: string,
-	c: { qtyGrams: number; kcal100?: number; carbs100?: number; protein100?: number; fat100?: number; note?: string }
+	c: { qtyGrams: number; kcal100?: number; carbs100?: number; protein100?: number; fat100?: number; note?: string; qtySource?: MealQtySource }
 ): MatchedComponent {
 	return {
 		label,
@@ -153,6 +159,7 @@ function aiFallback(
 		aiProtein100: c.protein100,
 		aiFat100: c.fat100,
 		aiNote: c.note,
+		qtySource: c.qtySource,
 	};
 }
 
@@ -329,6 +336,9 @@ export async function matchComponentsCore(
 		 *  la règle repas « servi cuit » ne s'applique PAS. Additif : absent =
 		 *  comportement inchangé (Repas IA). */
 		ignoreCookedRule?: boolean;
+		/** Source de la quantité (multimodal : 'user' / 'photo' / 'estimated') —
+		 *  méta d'affichage recopiée telle quelle, aucun effet sur le matching. */
+		qtySource?: MealQtySource;
 	}[]
 ): Promise<MatchedComponent[]> {
 	const out: MatchedComponent[] = [];
@@ -358,6 +368,7 @@ export async function matchComponentsCore(
 				aiProtein100: c.protein100,
 				aiFat100: c.fat100,
 				aiNote: c.note,
+				qtySource: c.qtySource,
 				score: 1,
 			});
 			continue;
@@ -427,6 +438,7 @@ export async function matchComponentsCore(
 				aiProtein100: c.protein100,
 				aiFat100: c.fat100,
 				aiNote: c.note,
+				qtySource: c.qtySource,
 				score: Math.round(m.score * 100) / 100,
 			});
 		} else {
@@ -458,6 +470,8 @@ export const matchComponents = query({
 				packaged: v.optional(v.boolean()),
 				brand: v.optional(v.string()),
 				variant: v.optional(v.string()),
+				/** Provenance de la quantité (multimodal) — recopiée, jamais interprétée ici. */
+				qtySource: v.optional(v.union(v.literal("user"), v.literal("photo"), v.literal("estimated"))),
 			})
 		),
 	},
@@ -489,6 +503,8 @@ export const matchComponentsInternal = internalQuery({
 				variant: v.optional(v.string()),
 				/** Import de recette : poids crus — règle « servi cuit » neutralisée. */
 				ignoreCookedRule: v.optional(v.boolean()),
+				/** Provenance de la quantité (multimodal) — recopiée, jamais interprétée ici. */
+				qtySource: v.optional(v.union(v.literal("user"), v.literal("photo"), v.literal("estimated"))),
 				/** Produit DÉJÀ résolu par code-barres — assemblé CÔTÉ SERVEUR
 				 *  uniquement (aiAnalysis), jamais transmis par la cliente : la
 				 *  query publique matchComponents n'accepte PAS ce champ. */

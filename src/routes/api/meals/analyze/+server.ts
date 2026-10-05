@@ -6,9 +6,13 @@ import { SESSION_COOKIE, requireRole } from '$lib/server/session';
 import { errMsg } from '$lib/errors.js';
 
 /**
- * Photographier mon REPAS — porte d'entrée PWA (cookie session requis).
+ * Analyser mon REPAS — porte d'entrée PWA (cookie session requis).
  *
- *   POST { imageDataUrl }
+ *   POST { imageDataUrl?, text? }   — au moins l'un des deux :
+ *     · photo seule  : comportement historique strictement préservé ;
+ *     · texte seul   : description libre (saisie ou dictée clavier) ;
+ *     · photo+texte  : la photo complète l'assiette, les quantités écrites
+ *                      sont prioritaires (fusion déterministe côté action).
  *    → 1) contrôle bêta SERVEUR (betaAccess.flags : meal_photo_ai_beta) —
  *         refus immédiat des comptes non autorisés (aucun appel OpenAI) ;
  *    → 2) action Convex aiAnalysis.analyzeMeal — re-vérifie session + flags,
@@ -25,9 +29,11 @@ export const POST: RequestHandler = async (event) => {
 	await requireRole(event, 'client', { next: '/espace/journal' });
 	const token = event.cookies.get(SESSION_COOKIE);
 	try {
-		const body = (await event.request.json()) as { imageDataUrl?: unknown };
-		if (typeof body.imageDataUrl !== 'string') {
-			return json({ ok: false, reason: 'Photo manquante.' }, { status: 400 });
+		const body = (await event.request.json()) as { imageDataUrl?: unknown; text?: unknown };
+		const imageDataUrl = typeof body.imageDataUrl === 'string' ? body.imageDataUrl : undefined;
+		const text = typeof body.text === 'string' ? body.text.trim().slice(0, 800) : undefined;
+		if (!imageDataUrl && (!text || text.length < 2)) {
+			return json({ ok: false, reason: 'Ajoute une photo ou décris ton repas.' }, { status: 400 });
 		}
 		// Garde bêta côté BFF : refus tôt (rapide, sans coût IA ni payload).
 		// Repli défensif : si la fonction n'existe pas encore côté Convex, on
@@ -40,7 +46,8 @@ export const POST: RequestHandler = async (event) => {
 		}
 		const res = await convex.action(api.aiAnalysis.analyzeMeal, {
 			sessionToken: token,
-			imageDataUrl: body.imageDataUrl,
+			...(imageDataUrl ? { imageDataUrl } : {}),
+			...(text && text.length >= 2 ? { text } : {}),
 		});
 		return json(res);
 	} catch (e) {

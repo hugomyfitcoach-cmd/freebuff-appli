@@ -2675,10 +2675,14 @@ import { optimizeImageFile } from '$lib/media';
 		}
 	}
 
-	/* ————— Photographier mon REPAS (IA → base G-FLUX → fiche visuelle) ————— */
+	/* ————— Analyser mon REPAS (photo et/ou texte → base G-FLUX → fiche visuelle) ————— */
 	type AnalyzedComponent = {
 		label: string;
 		qtyGrams: number;
+		/** Provenance de la quantité (multimodal) : 'user' = écrite par la cliente
+		 *  (jamais remplacée), 'photo' = reconnue sur la photo, 'estimated' = à
+		 *  vérifier. Absent sur le chemin photo seul (affichage historique). */
+		qtySource?: 'user' | 'photo' | 'estimated';
 		/** "custom" · "off_imported" · "ciqual" · "ai" (estimation à valider). */
 		matchSource: 'custom' | 'off_imported' | 'ciqual' | 'ai';
 		foodId?: string;
@@ -2724,6 +2728,13 @@ import { optimizeImageFile } from '$lib/media';
 	 *  indicative — la donnée n'est PAS fiable sur toutes les plateformes,
 	 *  l'utilisateur garde la main sur date et type de repas. */
 	let mealPhotoTakenHint = $state('');
+	/** Précisions texte libres (saisie ou dictée native du clavier) — optionnelles,
+	 *  prioritaires sur la photo pour les quantités écrites. */
+	let mealTextNote = $state('');
+	/** Photo sélectionnée, en attente du CTA « Analyser mon repas ». */
+	let mealPendingFile = $state<File | null>(null);
+	/** Aperçu local (objectURL) de la photo en attente — révoqué au remplacement. */
+	let mealPhotoPreview = $state('');
 
 	/** Bêta IA — flags résolus CÔTÉ SERVEUR (allowlist email, pas le nom affiché).
 	 *  false → aucun bouton IA, aucun badge, aucun flux : l'existant intact. */
@@ -2737,10 +2748,20 @@ import { optimizeImageFile } from '$lib/media';
 		mealQtyEditIdx = null;
 		mealAddSearchOpen = false;
 		mealPhotoTakenHint = '';
+		mealTextNote = '';
+		mealPendingFile = null;
+		if (mealPhotoPreview) URL.revokeObjectURL(mealPhotoPreview);
+		mealPhotoPreview = '';
 		mealPhotoOpen = true;
 	}
 	function closeMealPhoto() {
 		mealPhotoOpen = false;
+	}
+	/** Retire la photo en attente (l'utilisatrice peut repartir en texte seul). */
+	function removeMealPhoto() {
+		if (mealPhotoPreview) URL.revokeObjectURL(mealPhotoPreview);
+		mealPhotoPreview = '';
+		mealPendingFile = null;
 	}
 
 	/** Suggestion de type de repas d'après l'heure de PRISE de la photo
@@ -2762,51 +2783,65 @@ import { optimizeImageFile } from '$lib/media';
 		if (isSameDay(d, hier)) return `hier à ${hh}:${mm}`;
 		return `le ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} à ${hh}:${mm}`;
 	}
-	/** Analyse de la photo : OpenAI reconnaît les aliments + quantités, la
-	 *  base G-FLUX (Convex → Ciqual) fournit la nutrition. Sans IA : rien ne
-	 *  se casse — l'ajout manuel au Journal reste disponible. */
-	async function analyzeMealPhoto(file: File, { fromGallery = false } = {}) {
+	/** Photo sélectionnée (caméra ou photothèque) : APERÇU immédiat, l'analyse
+	 *  est déclenchée par le CTA — indispensable pour combiner photo + texte.
+	 *  Suggestion de type de repas d'après la métadonnée lastModified (galerie),
+	 *  purement indicative et jamais bloquante (comme avant). */
+	function onMealPhotoPicked(file: File, { fromGallery = false } = {}) {
+		if (mealPhotoPreview) URL.revokeObjectURL(mealPhotoPreview);
+		mealPendingFile = file;
+		mealPhotoPreview = URL.createObjectURL(file);
+		mealPhotoError = '';
+		if (fromGallery) {
+			const ts = file.lastModified;
+			if (ts && ts > 0) {
+				const d = new Date(ts);
+				if (!isNaN(d.getTime())) {
+					mealPhotoTakenHint = `Photo prise ${humanizePhotoDate(ts)}`;
+					const dayKey = (x: Date) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+					const photoDay = dayKey(d);
+					if (photoDay === dayKey(new Date())) {
+						// Photo d'aujourd'hui : suggère le type de repas selon l'heure.
+						mealAnalyzedMeal = mealSuggestionFromHour(d.getHours());
+					} else if (photoDay < dayKey(new Date())) {
+						// Photo d'un jour PASSÉ (cas restaurant : midi → analyse le soir) :
+						// bascule le Journal sur CE jour + type de repas selon l'heure.
+						void setDate(photoDay);
+						mealAnalyzedMeal = mealSuggestionFromHour(d.getHours());
+					}
+				}
+			}
+		} else {
+			mealPhotoTakenHint = '';
+		}
+	}
+
+	/** Analyse multimodale : photo seule (pipeline historique), texte seul, ou
+	 *  photo + précisions — UNE seule route, UNE seule pipeline (IA → match
+	 *  base G-FLUX → fiche visuelle). Les quantités écrites sont prioritaires :
+	 *  la fusion est faite CÔTÉ SERVEUR (déterministe, testée). */
+	async function analyzeMeal() {
+		const text = mealTextNote.trim();
+		if (mealAnalyzing || (!mealPendingFile && text.length < 2)) return;
 		mealAnalyzing = true;
 		mealPhotoError = '';
 		try {
-			const imageDataUrl = await compressImage(file, 1280, 0.8);
-			if (fromGallery) {
-				// Suggestion purement UX (date de prise de vue) — jamais bloquante :
-				// si la métadonnée est absente/incohérente, on n'affiche rien.
-				const ts = file.lastModified;
-				if (ts && ts > 0) {
-					const d = new Date(ts);
-					if (!isNaN(d.getTime())) {
-						mealPhotoTakenHint = `Photo prise ${humanizePhotoDate(ts)}`;
-						const dayKey = (x: Date) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
-						const photoDay = dayKey(d);
-						if (photoDay === dayKey(new Date())) {
-							// Photo d'aujourd'hui : suggère le type de repas selon l'heure.
-							mealAnalyzedMeal = mealSuggestionFromHour(d.getHours());
-						} else if (photoDay < dayKey(new Date())) {
-							// Photo d'un jour PASSÉ (cas restaurant : midi → analyse le soir) :
-							// bascule le Journal sur CE jour + type de repas selon l'heure.
-							void setDate(photoDay);
-							mealAnalyzedMeal = mealSuggestionFromHour(d.getHours());
-						}
-					}
-				}
-			} else {
-				mealPhotoTakenHint = '';
-			}
+			const body: { imageDataUrl?: string; text?: string } = {};
+			if (mealPendingFile) body.imageDataUrl = await compressImage(mealPendingFile, 1280, 0.8);
+			if (text.length >= 2) body.text = text.slice(0, 800);
 			const r = await fetch('/api/meals/analyze', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ imageDataUrl }),
+				body: JSON.stringify(body),
 			});
 			const j = await r.json();
 			if (!r.ok || j.ok === false) {
 				// AUCUN texte brut du modèle n'est affiché (« no comment »…) : la
-				// photo est réellement inexploitable → message orienté solution.
+				// source est réellement inexploitable → message orienté solution.
 				throw new Error(
 					['ai-unavailable', 'unreachable', 'timeout'].includes(String(j.reason))
 						? "L'analyse IA est momentanément indisponible — ajoute tes aliments par la recherche en attendant."
-						: "Je n'arrive pas à identifier précisément ce produit. Essaie de reprendre une photo du produit, du code-barres ou de l'étiquette nutritionnelle."
+						: "Je n'arrive pas à identifier ce repas. Essaie une autre photo, ou décris-le plus précisément (ex. « 150 g de riz, poulet grillé »)."
 				);
 			}
 			mealAnalyzed = ((j.components ?? []) as AnalyzedComponent[]).map((c) => ({
@@ -2817,12 +2852,12 @@ import { optimizeImageFile } from '$lib/media';
 			}));
 			mealAnalyzedHint = j.hint ?? '';
 			if (mealAnalyzed.length === 0) {
-				mealPhotoError = "Aucun aliment identifié sur la photo — réessaie avec un cadrage d'ensemble, ou ajoute les aliments à la main.";
+				mealPhotoError = "Aucun aliment identifié — précise ta description ou change de photo, ou ajoute les aliments à la main.";
 			}
 		} catch (e) {
 			mealPhotoError = e instanceof Error && e.message.startsWith("L'analyse IA")
 				? e.message
-				: userErrMsg(e, 'Impossible d\'analyser cette photo pour le moment. Réessaie dans quelques instants.');
+				: userErrMsg(e, 'Impossible d\'analyser ce repas pour le moment. Réessaie dans quelques instants.');
 		} finally {
 			mealAnalyzing = false;
 		}
@@ -2869,7 +2904,9 @@ import { optimizeImageFile } from '$lib/media';
 		const v = Math.round(parseFloat(mealQtyDraft.replace(',', '.')));
 		if (isFinite(v) && v > 0 && v <= 2000) {
 			const next = mealAnalyzed.slice();
-			next[mealQtyEditIdx] = { ...next[mealQtyEditIdx], qtyGrams: v };
+			// Correction manuelle = quantité de l'utilisatrice : elle devient
+			// prioritaire et s'affiche « Ta quantité » (jamais re-estimée).
+			next[mealQtyEditIdx] = { ...next[mealQtyEditIdx], qtyGrams: v, qtySource: 'user' };
 			mealAnalyzed = next;
 		}
 		mealQtyEditIdx = null;
@@ -4465,18 +4502,24 @@ import { optimizeImageFile } from '$lib/media';
 	</div>
 {/if}
 {#if mealPhotoOpen}
-	<!-- ═══════════ Bottom sheet « Photographier mon repas » ═══════════
-	     1. Photo (capture directe) → analyse IA (composants + quantités) ;
+	<!-- ═══════════ Bottom sheet « Analyse ton repas » (multimodal) ═══════════
+	     1. Photo et/ou description texte (dictée native du clavier) →
+	        analyse IA — les quantités écrites priment sur la photo ;
 	     2. MATCH base G-FLUX (Convex → Ciqual) — nutrition JAMAIS inventée ;
 	     3. Fiche visuelle unique : composants modifiables (quantité, remplacement,
 	        suppression) + ajout d'un ingrédient oublié (huile, sauce…) ;
 	     4. « Ajouter au Journal » : N composants en une requête, aucun aliment
 	        créé (ni « Créés par moi », ni base globale). -->
 	<div role="presentation" class="fixed inset-0 z-[75] flex items-end justify-center bg-ink/40 backdrop-blur-sm sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget && !mealAnalyzing && !mealCommitting) closeMealPhoto(); }} onkeydown={(e) => { if (e.key === 'Escape' && !mealAnalyzing && !mealCommitting) closeMealPhoto(); }}>
-		<div class="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 pb-[max(env(safe-area-inset-bottom),20px)] shadow-2xl sm:rounded-3xl">
+		<!-- onfocusin/onfocusout : infra clavier existante (scrollFocusedIntoView)
+		     — le champ texte (et sa dictée native) reste au-dessus du clavier. -->
+		<div class="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 pb-[max(env(safe-area-inset-bottom),20px)] shadow-2xl sm:rounded-3xl" onfocusin={(e) => focusScroll(e.currentTarget, e.target)} onfocusout={blurScroll}>
 			<div class="mb-3 flex items-center justify-between">
-				<p class="font-display text-[17px] font-bold text-ink">Photographier mon repas</p>
-				<button type="button" class="grid h-8 w-8 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={closeMealPhoto}><Icon name="x" size={18} /></button>
+				<div class="min-w-0 pr-2">
+					<p class="font-display text-[17px] font-bold text-ink">Analyse ton repas</p>
+					<p class="mt-0.5 text-xs text-mist">Ajoute une photo, décris ton repas, ou combine les deux pour plus de précision.</p>
+				</div>
+				<button type="button" class="grid h-8 w-8 shrink-0 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={closeMealPhoto}><Icon name="x" size={18} /></button>
 			</div>
 
 			<!-- Choix du repas (même sélecteur que la feuille de quantité) -->
@@ -4490,21 +4533,40 @@ import { optimizeImageFile } from '$lib/media';
 			</div>
 
 			{#if !mealAnalyzed}
-				<!-- Capture : deux chemins (caméra / photothèque), un seul pipeline IA.
+				<!-- MULTIMODAL : photo (caméra / photothèque), texte libre (dictée native
+				     du clavier), ou les deux — un seul CTA, une seule pipeline IA.
 				     Cas d'usage : photo prise à midi, analyse le soir depuis la photothèque. -->
-				<div class="flex w-full flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-brand/40 bg-brand-light/30 px-4 py-8 text-center">
+				<div class="flex w-full flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-brand/40 bg-brand-light/30 px-4 py-6 text-center">
 					<Icon name={mealAnalyzing ? 'sparkles' : 'camera'} size={30} class="text-brand {mealAnalyzing ? 'animate-pulse' : ''}" />
-					<span class="text-sm font-bold text-ink">{mealAnalyzing ? 'Analyse de ton assiette…' : 'Analyse la photo de ton repas'}</span>
+					<span class="text-sm font-bold text-ink">{mealAnalyzing ? 'Analyse de ton repas…' : 'Prends une photo, décris ton repas, ou combine les deux'}</span>
 					<span class="max-w-xs text-xs text-mist">{mealAnalyzing ? 'On reconnaît les aliments et les quantités — encore quelques secondes.' : "Photo prise à midi au restaurant ? Retrouve-la ce soir dans la photothèque — l'analyse reste exactement la même."}</span>
-					<div class="mt-1 grid w-full grid-cols-2 gap-2">
-						<button type="button" class="flex items-center justify-center gap-1.5 rounded-full bg-brand px-3 py-2.5 text-[13px] font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={mealAnalyzing} onclick={() => mealPhotoFileInput?.click()}>📷 Prendre une photo</button>
+					{#if mealPhotoPreview}
+						<!-- Aperçu de la photo en attente : retirable / remplaçable. -->
+						<div class="relative">
+							<img src={mealPhotoPreview} alt="Aperçu du repas sélectionné" class="max-h-44 rounded-xl border border-line object-cover" />
+							<button type="button" class="absolute -right-2 -top-2 grid h-7 w-7 place-items-center rounded-full bg-ink text-white shadow-md" aria-label="Retirer la photo" onclick={removeMealPhoto}><Icon name="x" size={14} /></button>
+						</div>
+					{/if}
+					<div class="grid w-full grid-cols-2 gap-2">
+						<button type="button" class="flex items-center justify-center gap-1.5 rounded-full bg-brand px-3 py-2.5 text-[13px] font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={mealAnalyzing} onclick={() => mealPhotoFileInput?.click()}>{mealPhotoPreview ? '📷 Changer de photo' : '📷 Prendre une photo'}</button>
 						<button type="button" class="flex items-center justify-center gap-1.5 rounded-full border-2 border-brand/40 bg-white px-3 py-2.5 text-[13px] font-bold text-brand transition hover:bg-brand-light/50 disabled:opacity-60" disabled={mealAnalyzing} onclick={() => mealGalleryInput?.click()}>🖼 Photothèque</button>
 					</div>
+					<!-- Précisions texte — optionnelles. La dictée native du clavier
+					     (iPhone / Android) fonctionne telle quelle : aucun moteur custom. -->
+					<div class="w-full text-left">
+						<label for="meal-text-note" class="mb-1 block text-xs font-semibold text-mist">Ajoute des précisions — optionnel</label>
+						<textarea id="meal-text-note" rows="3" maxlength="800" enterkeyhint="enter" autocapitalize="sentences" placeholder="Ex : 150 g de riz, poulet cuit avec 10 g d'huile…" bind:value={mealTextNote} disabled={mealAnalyzing} class="w-full resize-none rounded-xl border-2 border-line bg-white px-3 py-2 text-[15px] leading-snug text-ink outline-none transition focus:border-brand placeholder:text-mist/70 disabled:opacity-60"></textarea>
+					</div>
+					<!-- CTA unique : photo seule, texte seul, ou photo + texte. Désactivé
+					     si aucune des deux sources (règle produit). -->
+					<button type="button" class="w-full rounded-full bg-brand py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={mealAnalyzing || (!mealPendingFile && mealTextNote.trim().length < 2)} onclick={analyzeMeal}>
+						{mealAnalyzing ? 'Analyse en cours…' : 'Analyser mon repas'}
+					</button>
 				</div>
 				{#if mealPhotoTakenHint}
 					<p class="mt-2 text-center text-[11px] text-mist">📷 {mealPhotoTakenHint} — le type de repas est proposé selon l'heure, tu peux le changer.</p>
 				{/if}
-				<p class="mt-3 text-center text-[11px] text-mist">L'IA reconnaît les aliments — la nutrition vient de la base G-FLUX (Ciqual, produits) : jamais inventée.</p>
+				<p class="mt-3 text-center text-[11px] text-mist">Tes quantités écrites sont prioritaires sur la photo — la nutrition vient de la base G-FLUX (Ciqual, produits) : jamais inventée.</p>
 			{:else}
 				<!-- Fiche visuelle du repas analysé (une carte, N composants) -->
 				<div class="mb-3 flex items-center justify-between rounded-2xl bg-ink px-4 py-3 text-white">
@@ -4530,6 +4592,15 @@ import { optimizeImageFile } from '$lib/media';
 										· Mes aliments
 									{/if}
 								</span>
+								{#if c.qtySource === 'user'}
+									<!-- Quantité écrite par la cliente (texte ou correction manuelle) :
+									     prioritaire — jamais remplacée par une estimation. -->
+									<span class="mt-0.5 block w-fit rounded bg-emerald-50 px-1 py-px text-[10px] font-semibold text-emerald-700">✓ Ta quantité</span>
+								{:else if c.qtySource === 'photo'}
+									<span class="mt-0.5 block w-fit rounded bg-brand-light px-1 py-px text-[10px] font-semibold text-brand-dark">✓ Quantité détectée</span>
+								{:else if c.qtySource === 'estimated'}
+									<span class="mt-0.5 block w-fit rounded bg-warn-light px-1 py-px text-[10px] font-semibold text-warn">⚠ Quantité estimée — vérifie si besoin</span>
+								{/if}
 							</span>
 							<!-- Quantité : tap → édition, recalcul instantané -->
 							<button type="button" class="shrink-0 rounded-lg border-2 border-line px-2 py-1 text-sm font-bold text-ink tabular-nums transition {mealQtyEditIdx === i ? 'border-brand text-brand' : 'hover:border-brand'}" onclick={() => openComponentQty(i)}>
@@ -4631,7 +4702,7 @@ import { optimizeImageFile } from '$lib/media';
 		class="hidden"
 		onchange={(e) => {
 			const f = (e.currentTarget as HTMLInputElement).files?.[0];
-			if (f) void analyzeMealPhoto(f);
+			if (f) onMealPhotoPicked(f);
 			(e.currentTarget as HTMLInputElement).value = '';
 		}}
 	/>
@@ -4644,7 +4715,7 @@ import { optimizeImageFile } from '$lib/media';
 		class="hidden"
 		onchange={(e) => {
 			const f = (e.currentTarget as HTMLInputElement).files?.[0];
-			if (f) void analyzeMealPhoto(f, { fromGallery: true });
+			if (f) onMealPhotoPicked(f, { fromGallery: true });
 			(e.currentTarget as HTMLInputElement).value = '';
 		}}
 	/>
