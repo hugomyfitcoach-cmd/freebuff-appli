@@ -75,7 +75,12 @@ test('M3. Caméra repliée en bandeau compact (transition max-height, 2 lecteurs
 
 test('M4. Champ de saisie remonté en tête de panneau (ordre flex, 2 écrans)', () => {
 	assert.equal(count(journal, "{bcManualMode ? 'order-1' : 'order-4'} mx-auto mt-3 w-full max-w-sm"), 2, 'barre de saisie → order-1 en mode manuel');
-	assert.equal(count(journal, "relative order-2 mx-auto aspect-[3/4]"), 2, 'caméra compacte sous le champ');
+	// Mission UX immersif : cadre PORTRAIT ÉTROIT (aspect 3/4.6 — caméra plus
+	// haute), reader ABSOLU à l'intérieur (croix + indication en overlay),
+	// mécanismes de repli/étendue inchangés :
+	assert.equal(count(journal, "relative order-2 mx-auto aspect-[3/4.6]"), 2, 'caméra compacte sous le champ (portrait immersif)');
+	assert.equal(count(journal, 'absolute inset-0">'), 2, 'reader absolu dans le cadre (overlay possible)');
+	assert.ok(count(journal, 'bg-ink/55') >= 2, 'overlays discrets (croix/indication/pill lampe+zoom) sur les 2 écrans');
 	// Flex column sur les 2 conteneurs scrollables (le order s'applique) :
 	assert.equal(count(journal, 'class="flex flex-1 flex-col overflow-y-auto overscroll-contain px-3 pb-28 pt-3"'), 2);
 });

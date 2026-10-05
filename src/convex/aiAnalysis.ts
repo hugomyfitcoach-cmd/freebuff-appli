@@ -452,58 +452,126 @@ export const analyzeMeal = action({
 export const analyzeRecipe = action({
 	args: {
 		sessionToken: v.optional(v.string()),
-		imageDataUrl: v.string(),
+		/** Photo (livre, fiche, capture) — optionnelle SI un texte est fourni. */
+		imageDataUrl: v.optional(v.string()),
+		/** RECETTE ÉCRITE (saisie ou dictée) — optionnelle SI une photo est fournie. */
+		text: v.optional(v.string()),
 	},
-	handler: async (ctx, { sessionToken, imageDataUrl }) => {
+	handler: async (ctx, { sessionToken, imageDataUrl, text }) => {
 		const userId = await requireBetaInAction(ctx, sessionToken, "meal_photo_ai_beta");
-		if (typeof imageDataUrl !== "string" || !imageDataUrl.startsWith("data:image/")) {
-			throw new ConvexError("Photo invalide.");
+		const hasImage = typeof imageDataUrl === "string" && imageDataUrl.startsWith("data:image/");
+		const textClean = typeof text === "string" ? text.trim().slice(0, 800) : "";
+		if (!hasImage && textClean.length < 2) {
+			throw new ConvexError("Prends une photo ou écris ta recette.");
 		}
-		if (imageDataUrl.length > 5_000_000) {
+		if (hasImage && imageDataUrl!.length > 5_000_000) {
 			throw new ConvexError("Photo trop lourde — réessaie avec un cadrage plus serré.");
 		}
 
 		// 1) Extraction de la liste d'ingrédients (OpenAI DIRECT — mêmes garde-fous).
+		//    PHOTO (prompt vision historique) et/ou TEXTE (prompt texte dédié, mêmes
+		//    quantités écrites uniquement) — puis fusion générique si les deux.
 		const t0 = Date.now();
 		let recipe: Awaited<ReturnType<typeof analyzeRecipeImage>>["result"] | null = null;
+		let textRecipe: Awaited<ReturnType<typeof analyzeMealText>>["result"] | null = null;
 		let aiError = "";
-		try {
-			const r = await analyzeRecipeImage(imageDataUrl);
-			recipe = r.result;
-			await logAi(ctx, {
-				kind: "meal",
-				model: r.usage.model,
-				inputTokens: r.usage.inputTokens,
-				outputTokens: r.usage.outputTokens,
-				durationMs: r.usage.durationMs,
-				status: recipe.items.length > 0 ? "ok" : "error",
-				estimatedCostUsd: r.usage.estimatedCostUsd,
-				failReason: recipe.items.length > 0 ? undefined : "no-components",
-			});
-		} catch (e) {
-			aiError = e instanceof Error ? e.message : "unreachable";
-			await logAi(ctx, {
-				kind: "meal",
-				model: "unknown",
-				durationMs: Date.now() - t0,
-				status: "error",
-				failReason: aiError.slice(0, 200),
-			});
+		let textError = "";
+		if (hasImage) {
+			try {
+				const r = await analyzeRecipeImage(imageDataUrl!);
+				recipe = r.result;
+				await logAi(ctx, {
+					kind: "meal",
+					model: r.usage.model,
+					inputTokens: r.usage.inputTokens,
+					outputTokens: r.usage.outputTokens,
+					durationMs: r.usage.durationMs,
+					status: recipe.items.length > 0 ? "ok" : "error",
+					estimatedCostUsd: r.usage.estimatedCostUsd,
+					failReason: recipe.items.length > 0 ? undefined : "no-components",
+				});
+			} catch (e) {
+				aiError = e instanceof Error ? e.message : "unreachable";
+				await logAi(ctx, {
+					kind: "meal",
+					model: "unknown",
+					durationMs: Date.now() - t0,
+					status: "error",
+					failReason: aiError.slice(0, 200),
+				});
+			}
 		}
-		if (!recipe || recipe.items.length === 0) {
-			// Photo inexploitable OU pas une liste d'ingrédients : message propre,
+		// TEXTE : même prompt/parseur que le Repas IA texte — quantités ÉCRITES
+		// uniquement (qtyExplicit), jamais de poids deviné (défaut portion).
+		if (textClean.length >= 2) {
+			try {
+				const tr = await analyzeMealText(textClean);
+				textRecipe = tr.result;
+				await logAi(ctx, {
+					kind: "meal",
+					model: tr.usage.model,
+					inputTokens: tr.usage.inputTokens,
+					outputTokens: tr.usage.outputTokens,
+					durationMs: tr.usage.durationMs,
+					status: tr.result.items.length > 0 ? "ok" : "error",
+					estimatedCostUsd: tr.usage.estimatedCostUsd,
+					failReason: tr.result.items.length > 0 ? undefined : "no-components",
+				});
+			} catch (e) {
+				textError = e instanceof Error ? e.message : "unreachable";
+			}
+		}
+		// FUSION photo × texte (module pur partagé avec analyzeMeal) — le texte
+		// gagne sur la photo à quantité explicite égale ; texte seul → items texte.
+		// PHOTO : mapping vers MealComponentAi — qtyGrams ?? 100 = même défaut
+		// affiché que le matcher ; l'incertitude reste portée par photoRaw
+		// (qtyGrams absent / qtyUncertain → uncertainQtyIdx ci-dessous).
+		const photoRaw = recipe?.items ?? [];
+		const photoItems: (MealComponentAi & { qtyRaw?: string })[] = photoRaw.map((p) => ({
+			name: p.name,
+			qtyGrams: p.qtyGrams ?? 100,
+			brand: p.brand,
+			variant: p.variant,
+			packaged: p.packaged,
+			kcal100: p.kcal100,
+			carbs100: p.carbs100,
+			protein100: p.protein100,
+			fat100: p.fat100,
+			note: p.note,
+			// Survit au spread de la fusion → sérialisé « tel qu'écrit » plus bas.
+			qtyRaw: p.qtyRaw,
+		}));
+		// TEXTE : MealTextComponentAi est shape-compatible MealTextItem —
+		// quantités écrites uniquement (qtyExplicit), jamais de poids deviné.
+		const textItems = textRecipe?.items ?? [];
+		let items: (MealComponentAi & { qtyRaw?: string; qtyExplicit?: boolean })[];
+		if (hasImage && textItems.length > 0 && photoItems.length > 0) {
+			// PHOTO + TEXTE : les quantités écrites remplacent celles de la photo,
+			// le reste de la liste vient de la photo, les apports du texte suivent.
+			items = mergeTextOverPhoto(textItems, photoItems);
+		} else if (textItems.length > 0) {
+			// TEXTE SEUL (ou photo inexploitable) : dégradation gracieuse, comme
+			// le Repas IA (qtySource 'user' / 'estimated' — pas de poids deviné).
+			items = applyTextQtySource(textItems);
+		} else {
+			// PHOTO SEULE (recette) : composants tels quels — comportement historique
+			// préservé (qtyGrams ?? 100 = défaut d'affichage, incertitude tracée à part).
+			items = photoItems;
+		}
+		if (items.length === 0) {
+			// Photo et/ou texte inexploitables (ou IA indisponible) : message propre,
 			// JAMAIS un « no comment » brut du modèle.
 			return {
 				ok: false as const,
-				reason: aiError || "no-components",
+				reason: aiError || textError || "no-components",
 			};
 		}
 
 		// 2) Produits de marque listés SANS code-barres : même recherche OFF live
 		//    que le Repas IA (aiAnalysis.analyzeMeal) — cache `foods`, règles variantes.
 		const resolved = new Map<number, ResolvedBarcodeProduct>();
-		for (let i = 0; i < recipe.items.length; i++) {
-			const it = recipe.items[i];
+		for (let i = 0; i < photoRaw.length; i++) {
+			const it = photoRaw[i];
 			if (!it.packaged) continue;
 			const name = String(it.name ?? "").slice(0, 80);
 			const terms = packagedSearchTerms(name, it.brand, it.variant);
@@ -533,13 +601,47 @@ export const analyzeRecipe = action({
 			}
 		}
 
+		// 2bis) Produits de marque issus du TEXTE (packaged avec marque) — même
+		//    recherche OFF live ; index alignés sur `items` (photo+texte fusionnés).
+		const textResolved = new Map<number, ResolvedBarcodeProduct>();
+		for (let i = 0; i < items.length; i++) {
+			const it = items[i];
+			if (!it.packaged || !it.brand) continue;
+			const terms = packagedSearchTerms(String(it.name ?? "").slice(0, 80), it.brand, it.variant);
+			const flavors = demandedFlavorTokens(String(it.name ?? ""), it.variant);
+			if (terms.length === 0) continue;
+			for (const term of terms) {
+				try {
+					const p = (await ctx.runAction(
+						internal.off.searchOffProductsInternal as never,
+						{ sessionToken, query: term, componentName: String(it.name ?? "").slice(0, 80), demandedFlavors: flavors } as never
+					)) as { foodId: Id<"foods">; name: string; brand?: string; kcal100: number; carbs100: number; protein100: number; fat100: number } | null;
+					if (p) {
+						textResolved.set(i, {
+							source: "food" as const,
+							foodId: p.foodId,
+							name: p.name,
+							brand: p.brand,
+							kcal100: p.kcal100,
+							carbs100: p.carbs100,
+							protein100: p.protein100,
+							fat100: p.fat100,
+						});
+						break;
+					}
+				} catch {
+					// OFF indisponible : terme suivant, puis socle local.
+				}
+			}
+		}
+
 		// 3) MATCH base G-FLUX — MÊME matcher que le Repas IA, poids crus
 		//    (ignoreCookedRule : « 50 g de quinoa » reste QUINOA CRU).
 		const matched = (await ctx.runQuery(
 			internal.mealMatch.matchComponentsInternal as never,
 			{
 				userId,
-				components: recipe.items.map((it, i) => ({
+				components: items.map((it, i) => ({
 					name: String(it.name ?? "").slice(0, 80),
 					// Quantité incertaine → 100 g de DÉFAUT AFFICHÉ, JAMAIS un poids deviné :
 					// l'utilisateur complète avant sauvegarde (quantité requise côté UI).
@@ -553,7 +655,8 @@ export const analyzeRecipe = action({
 					brand: it.brand,
 					variant: it.variant,
 					ignoreCookedRule: true,
-					preResolved: resolved.get(i),
+					// Produits résolus : photo (packaged) OU texte (marque écrite).
+					preResolved: resolved.get(i) ?? textResolved.get(i),
 				})),
 			} as never
 		)) as MatchedComponent[];
@@ -561,14 +664,17 @@ export const analyzeRecipe = action({
 		return {
 			ok: true as const,
 			components: matched,
-			/** Titre de la recette (si visible) — pré-remplissage modifiable. */
-			name: recipe.name,
+			/** Titre de la recette (si visible sur la photo) — pré-remplissage modifiable. */
+			name: recipe?.name,
 			/** Personnes/portions si clairement écrites — proposées, jamais imposées. */
-			servings: recipe.servings,
-			/** Index des ingrédients dont la quantité doit être complétée. */
-			uncertainQtyIdx: recipe.items
-				.map((it, i) => (it.qtyUncertain === true ? i : -1))
-				.filter((i) => i >= 0),
+			servings: recipe?.servings,
+			/** Index des ingrédients dont la quantité doit être complétée —
+			 *  quantités photo incertaines, SAUF si un texte explicite les a
+			 *  remplacées (l'ordre photo est préservé par la fusion :
+			 *  photoRaw[i] ↔ items[i] ; les apports du texte suivent). */
+			uncertainQtyIdx: photoRaw
+				.map((p, i) => (p.qtyGrams === undefined || p.qtyUncertain === true ? i : -1))
+				.filter((i) => i >= 0 && items[i]?.qtyExplicit !== true),
 			/** Quantités écrites sur la recette (affichage « tel qu'écrit »).
 			 *  ⚠️ Sérialisation Convex : un array ne peut contenir undefined
 			 *  (champ absent de l'ingrédient i) → null aux positions vides,
@@ -576,7 +682,7 @@ export const analyzeRecipe = action({
 			 *  (Bug vécu en Preview : map() à trous → « undefined is not a
 			 *  valid Convex value » au retour de l'action → échec affiché
 			 *  alors que l'extraction et le matching avaient RÉUSSI.) */
-			qtyRaw: recipe.items.some((it) => it.qtyRaw) ? recipe.items.map((it) => it.qtyRaw ?? null) : undefined,
+			qtyRaw: items.some((it) => it.qtyRaw) ? items.map((it) => it.qtyRaw ?? null) : undefined,
 		};
 	},
 });

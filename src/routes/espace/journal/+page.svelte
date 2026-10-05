@@ -1859,6 +1859,22 @@ import { optimizeImageFile } from '$lib/media';
 		void closeMealSearch(); // fenêtre produit refermée + scanner éventuellement arrêté
 		mealEditor = false;
 		mealEditingId = null;
+	}
+
+	/**
+	 * NAVIGATION ONGLETS — switch direct Repas ⇄ Créés par moi (et produits),
+	 * jamais bloqué dans une sous-vue : chaque bascule ferme proprement les
+	 * éditeurs en cours (la saisie est gardée en brouillon — cf. drafts) et
+	 * repositionne l'onglet. Les contenus sont conditionnés À searchTab
+	 * D'ABORD (`searchTab === 'repas' && mealEditor`) : un éditeur ouvert ne
+	 * peut plus « capturer » l'affichage d'un autre onglet.
+	 */
+	function switchTab(tab: 'produits' | 'repas' | 'crees') {
+		if (tab === searchTab) return;
+		if (mealEditor) closeMealEditor();
+		if (customEditor) closeCustomEditor();
+		searchTab = tab;
+		if (tab !== 'produits') favOnly = false;
 	}	let mealSearchError = $state('');
 	/** Fiches Ciqual (ANSES) du bloc « Aliments de référence » — séparées des produits OFF. */
 	let mealCiqualResults = $state<Food[]>([]);	async function runMealSearch(q: string) {
@@ -2122,8 +2138,20 @@ import { optimizeImageFile } from '$lib/media';
 	let recipeQtyDraft = $state('');
 	/** Remplacement en cours dans la validation : index cible (null = ajout). */
 	let recipeReplaceIdx = $state<number | null>(null);
+	/** BROUILLONS (protection anti-perte de saisie) — sessionStorage (léger,
+	 *  par onglet, nettoyé à la fermeture du navigateur) : le texte entamé
+	 *  dans « Analyse ton repas » / « Importer une recette » survit à une
+	 *  fermeture accidentelle et est REPRIS automatiquement à la réouverture
+	 *  (jamais envoyé au serveur, jamais une validation à chaque frappe). */
+	const DRAFT_MEAL_KEY = 'gflux:draft-repas-ia';
+	const DRAFT_RECIPE_KEY = 'gflux:draft-recette';
 	let recipePhotoInput: HTMLInputElement | undefined = $state();
 	let recipeGalleryInput: HTMLInputElement | undefined = $state();
+	/** TEXTE de la recette (mode texte seul / complément photo) — même analyse IA. */
+	let recipeTextNote = $state('');
+	/** Aperçu de la photo sélectionnée (draft). */
+	let recipePhotoPreview = $state('');
+	let recipePendingFile = $state<File | null>(null);
 
 	function openRecipeImport() {
 		recipeImportOpen = true;
@@ -2131,25 +2159,58 @@ import { optimizeImageFile } from '$lib/media';
 		recipeComps = null;
 		recipeTitle = '';
 		recipeServings = null;
+		if (recipePhotoPreview) URL.revokeObjectURL(recipePhotoPreview);
+		recipePhotoPreview = '';
+		recipePendingFile = null;
+		// REPRISE DU BROUILLON (si présent) : la reprise de saisie est
+		// immédiate — l'utilisateur retrouve exactement ce qu'il avait écrit.
+		try {
+			const saved = sessionStorage.getItem(DRAFT_RECIPE_KEY);
+			if (saved) recipeTextNote = saved;
+		} catch {
+			/* stockage indisponible : champ vide */
+		}
 	}
 	function closeRecipeImport() {
+		// BROUILLON : une saisie entamée (texte) sans résultat encore extrait
+		// est conservée — reprise automatique à la prochaine ouverture.
+		try {
+			if (!recipeComps && recipeTextNote.trim().length >= 2) sessionStorage.setItem(DRAFT_RECIPE_KEY, recipeTextNote.trim().slice(0, 800));
+			else sessionStorage.removeItem(DRAFT_RECIPE_KEY);
+		} catch {
+			/* stockage indisponible : perte silencieuse acceptée */
+		}
 		recipeImportOpen = false;
 		recipeQtyEditIdx = null;
 		recipeReplaceIdx = null;
+		if (recipePhotoPreview) URL.revokeObjectURL(recipePhotoPreview);
+		recipePhotoPreview = '';
+		recipePendingFile = null;
 		// Une sélection produit peut être restée en attente (feuille de portion) :
 		// jamais de fuite vers l'éditeur après fermeture de la validation.
 		mealPickedFood = null;
 	}
 
-	async function analyzeRecipeFile(file: File) {
+	/** Analyse RECIPE : photo seule, texte seul, ou photo + texte (même
+	 *  pipeline IA, mêmes garde-fous, même écran de validation). Le brouillon
+	 *  texte est nettoyé dès l'extraction réussie (l'utilisateur voit le résultat). */
+	async function analyzeRecipe() {
+		if (recipeAnalyzing) return;
+		if (!recipePendingFile && recipeTextNote.trim().length < 2) {
+			recipeError = "Prends une photo ou écris ta recette (au moins quelques mots).";
+			return;
+		}
 		recipeAnalyzing = true;
 		recipeError = '';
 		try {
-			const imageDataUrl = await compressImage(file, 1280, 0.8);
+			const imageDataUrl = recipePendingFile ? await compressImage(recipePendingFile, 1280, 0.8) : undefined;
 			const r = await fetch('/api/meals/analyze-recipe', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ imageDataUrl }),
+				body: JSON.stringify({
+					...(imageDataUrl ? { imageDataUrl } : {}),
+					...(recipeTextNote.trim().length >= 2 ? { text: recipeTextNote.trim().slice(0, 800) } : {}),
+				}),
 			});
 			const j = await r.json();
 			if (!r.ok || j.ok === false) {
@@ -2160,7 +2221,9 @@ import { optimizeImageFile } from '$lib/media';
 				const reason = String(j.reason ?? '');
 				throw new Error(									['ai-unavailable', 'unreachable', 'timeout'].includes(reason) || /convex|server error|indisponible|load failed|failed to fetch|networkerror/i.test(reason)
 						? "L'analyse IA est momentanément indisponible — réessaie dans quelques instants."
-						: "Je n'arrive pas à lire suffisamment cette recette. Essaie de reprendre une photo plus nette."
+						: recipePendingFile
+							? "Je n'arrive pas à lire suffisamment cette recette. Essaie de reprendre une photo plus nette."
+							: "Je n'arrive pas à lire cette recette — précise les ingrédients et les quantités écrites."
 				);
 			}
 			const comps: RecipeComp[] = ((j.components ?? []) as Array<Record<string, unknown>>).map((c, i) => ({
@@ -2185,7 +2248,18 @@ import { optimizeImageFile } from '$lib/media';
 				aiFat100: c.aiFat100 as number | undefined,
 			}));
 			if (comps.length === 0) {
-				throw new Error("Je n'arrive pas à lire suffisamment cette recette. Essaie de reprendre une photo plus nette.");
+				throw new Error(
+					recipePendingFile
+						? "Je n'arrive pas à lire suffisamment cette recette. Essaie de reprendre une photo plus nette."
+						: "Je n'arrive pas à lire cette recette — précise les ingrédients et les quantités écrites."
+				);
+			}
+			// Succès : le brouillon texte a servi — il disparaît (aucune reprise
+			// périmée à la prochaine ouverture).
+			try {
+				sessionStorage.removeItem(DRAFT_RECIPE_KEY);
+			} catch {
+				/* stockage indisponible */
 			}
 			recipeComps = comps;
 			recipeTitle = typeof j.name === 'string' ? j.name : '';
@@ -2193,10 +2267,25 @@ import { optimizeImageFile } from '$lib/media';
 		} catch (e) {
 			recipeError = e instanceof Error && (e.message.startsWith("L'analyse IA") || e.message.startsWith("Je n'arrive pas"))
 				? e.message
-				: userErrMsg(e, "Impossible d'analyser cette photo pour le moment. Réessaie dans quelques instants.");
+			: userErrMsg(e, "Impossible d'analyser cette recette pour le moment. Réessaie dans quelques instants.");
 		} finally {
 			recipeAnalyzing = false;
 		}
+	}
+
+	/** Sélection d'une photo recette (caméra ou galerie) — APERÇU immédiat,
+	 *  analyse déclenchée par le CTA unique (homogène avec « Analyse ton repas »). */
+	function onRecipePhotoPicked(file: File) {
+		if (recipePhotoPreview) URL.revokeObjectURL(recipePhotoPreview);
+		recipePendingFile = file;
+		recipePhotoPreview = URL.createObjectURL(file);
+		recipeError = '';
+	}
+	/** Retire la photo en attente (repart en texte seul). */
+	function removeRecipePhoto() {
+		if (recipePhotoPreview) URL.revokeObjectURL(recipePhotoPreview);
+		recipePhotoPreview = '';
+		recipePendingFile = null;
 	}
 
 	/** Totaux de la validation (recalcul instantané — mêmes règles que l'éditeur). */
@@ -2829,13 +2918,27 @@ import { optimizeImageFile } from '$lib/media';
 		mealQtyEditIdx = null;
 		mealAddSearchOpen = false;
 		mealPhotoTakenHint = '';
-		mealTextNote = '';
+		// REPRISE AUTOMATIQUE DU BROUILLON : une saisie entamée (texte) lors d'une
+		// fermeture accidentelle est restaurée — l'utilisateur retrouve son écran.
+		try {
+			mealTextNote = sessionStorage.getItem(DRAFT_MEAL_KEY) ?? '';
+		} catch {
+			mealTextNote = '';
+		}
 		mealPendingFile = null;
 		if (mealPhotoPreview) URL.revokeObjectURL(mealPhotoPreview);
 		mealPhotoPreview = '';
 		mealPhotoOpen = true;
 	}
 	function closeMealPhoto() {
+		// BROUILLON : une saisie entamée est conservée (reprise à la réouverture) —
+		// même règle que « Importer une recette ». Vidé à l'analyse réussie.
+		try {
+			if (mealTextNote.trim().length >= 2) sessionStorage.setItem(DRAFT_MEAL_KEY, mealTextNote.trim().slice(0, 800));
+			else sessionStorage.removeItem(DRAFT_MEAL_KEY);
+		} catch {
+			/* stockage indisponible : perte silencieuse acceptée */
+		}
 		mealPhotoOpen = false;
 	}
 	/** Retire la photo en attente (l'utilisatrice peut repartir en texte seul). */
@@ -2924,6 +3027,12 @@ import { optimizeImageFile } from '$lib/media';
 						? "L'analyse IA est momentanément indisponible — ajoute tes aliments par la recherche en attendant."
 						: "Je n'arrive pas à identifier ce repas. Essaie une autre photo, ou décris-le plus précisément (ex. « 150 g de riz, poulet grillé »)."
 				);
+			}
+			// Succès : le brouillon a servi — il disparaît (jamais de reprise périmée).
+			try {
+				sessionStorage.removeItem(DRAFT_MEAL_KEY);
+			} catch {
+				/* stockage indisponible */
 			}
 			mealAnalyzed = ((j.components ?? []) as AnalyzedComponent[]).map((c) => ({
 				...c,
@@ -3892,12 +4001,16 @@ import { optimizeImageFile } from '$lib/media';
 	     positionne au-dessus du clavier). Desktop : backdrop + panneau centré. -->
 	<div role="presentation" class="fixed inset-0 z-50 bg-soft sm:flex sm:items-center sm:justify-center sm:bg-ink/40 sm:p-6" onclick={(e) => { if (e.target === e.currentTarget) closeLog(); }} onkeydown={(e) => { if (e.key === 'Escape') closeLog(); }}>
 		<div class="absolute inset-x-0 top-0 flex h-full w-full flex-col overflow-hidden bg-soft sm:relative sm:h-[min(92dvh,720px)] sm:max-w-lg sm:rounded-3xl sm:bg-white sm:shadow-2xl" style:top={mobile ? `${vvTop}px` : undefined} style:height={mobile ? `${vvH}px` : undefined}>
-			<!-- En-tête fixe (respire sous l'encoche en PWA installée, cf. convention safe-area de l'app) -->
+			<!-- En-tête fixe (respire sous l'encoche en PWA installée, cf. convention safe-area de l'app).
+			     MODE CODE-BARRES : en-tête MINIMAL (pas de titre, pas d'explication) —
+			     la croix vit SUR la caméra (overlay) et l'écran est immersif. -->
+			{#if logMode !== 'barcode'}
 			<div class="flex shrink-0 items-center justify-between border-b border-line bg-white/95 px-3 pt-[max(env(safe-area-inset-top),10px)] pb-2.5 backdrop-blur">
 				<button type="button" class="grid h-9 w-9 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={() => closeLog()}><Icon name="x" size={20} /></button>
-				<h2 class="font-display text-[15px] font-semibold text-ink">{logMode === 'barcode' ? 'Code-barres' : 'Ajouter un aliment'}</h2>
+				<h2 class="font-display text-[15px] font-semibold text-ink">Ajouter un aliment</h2>
 				<span class="w-9"></span>
 			</div>
+			{/if}
 
 			{#if logMode === 'search'}
 				<!-- Recherche + onglets (fixes) -->
@@ -3932,15 +4045,20 @@ import { optimizeImageFile } from '$lib/media';
 							<Icon name="heart" size={16} class={favOnly ? 'text-white' : 'text-mist'} />
 						</button>
 						<button type="button" class="shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition {searchTab === 'produits' ? 'bg-brand text-white' : 'bg-line/50 text-mist'}" onclick={() => { searchTab = 'produits'; favOnly = false; }}>Tous les produits</button>
-						<button type="button" class="shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition {searchTab === 'repas' ? 'bg-brand text-white' : 'bg-line/50 text-mist'}" onclick={() => (searchTab = 'repas')}>Repas</button>
-						<button type="button" class="shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition {searchTab === 'crees' ? 'bg-brand text-white' : 'bg-line/50 text-mist'}" onclick={() => (searchTab = 'crees')}>Créés par moi</button>
+						<!-- Switch d'onglet DIRECT : ferme l'éditeur de repas / créateur
+						     d'aliment en cours — les sous-vues ne « captent » plus l'onglet
+						     (le contenu est conditionné à searchTab D'ABORD, jamais à
+						     mealEditor/customEditor seuls). La saisie en cours passe en
+						     brouillon (reprise au retour, cf. draft). -->
+						<button type="button" class="shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition {searchTab === 'repas' ? 'bg-brand text-white' : 'bg-line/50 text-mist'}" onclick={() => switchTab('repas')}>Repas</button>
+						<button type="button" class="shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition {searchTab === 'crees' ? 'bg-brand text-white' : 'bg-line/50 text-mist'}" onclick={() => switchTab('crees')}>Créés par moi</button>
 					</div>
 				</div>
 
 				<!-- Résultats : liste seule scrollable (pb généreux : le dernier
 				     produit doit passer entièrement au-dessus de la capsule flottante) -->
 				<div bind:this={logListEl} class="flex-1 overflow-y-auto overscroll-contain px-2.5 pb-24">
-					{#if mealEditor}
+					{#if searchTab === 'repas' && mealEditor}
 						<!-- ═══════ Éditeur de repas ═══════ -->
 						<div>
 							<button type="button" class="mb-3 flex items-center gap-1 text-sm font-semibold text-mist hover:text-ink" onclick={closeMealEditor}>← Retour aux repas</button>
@@ -4075,7 +4193,7 @@ import { optimizeImageFile } from '$lib/media';
 						{/if}
 					{:else if searchTab === 'crees'}
 						<!-- ═══════ Créés par moi : aliments personnels ═══════ -->
-						{#if customEditor}
+						{#if searchTab === 'crees' && customEditor}
 				<div bind:this={customFormEl} onfocusin={(e) => focusScroll(e.currentTarget, e.target)} onfocusout={blurScroll}>
 							<button type="button" class="mb-3 flex items-center gap-1 text-sm font-semibold text-mist hover:text-ink" onclick={closeCustomEditor}>← Retour à mes aliments</button>
 							<p class="mb-1 text-sm font-semibold text-ink">{cfEditingId ? 'Modifier l\'aliment' : 'Nouvel aliment'}</p>
@@ -4389,20 +4507,33 @@ import { optimizeImageFile } from '$lib/media';
 						</div>
 					{/if}
 				{:else}
-				<!-- ═══════ Scanner code-barres (cadre portrait stable) ═══════ -->						<div bind:this={bcListEl} class="flex flex-1 flex-col overflow-y-auto overscroll-contain px-3 pb-28 pt-3">						<p class="mb-2.5 text-center text-xs text-mist {bcManualMode ? 'order-3' : 'order-1'}">Scanne le code-barres du produit (ça marche même à distance) ou saisis-le à la main : on le retrouve dans la base G-Flux.</p>						<div
-							id="bc-reader"
-							class="relative order-2 mx-auto aspect-[3/4] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-[max-height,border-color,box-shadow] duration-300 ease-out {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}"
-							style:max-height={bcManualMode ? '7rem' : '120vh'}
-						></div>						{#if !bcManualMode && scannerCaps && (scannerCaps.torch || scannerCaps.zoom)}
-						<div class="{bcManualMode ? 'order-5' : 'order-3'} mx-auto mt-2 flex w-full max-w-sm items-center justify-center gap-3">
-							{#if scannerCaps.torch}
-								<button type="button" class="grid h-10 w-10 place-items-center rounded-full border-2 transition {torchOn ? 'border-warn bg-warn-light text-warn' : 'border-line bg-white text-mist'}" aria-label={torchOn ? 'Éteindre la lampe' : 'Allumer la lampe'} onclick={toggleScannerTorch}><Icon name="sun" size={18} /></button>
-							{/if}
-							{#if scannerCaps.zoom}
-								<input type="range" class="h-10 flex-1 accent-[var(--color-brand)]" min={scannerCaps.zoomMin} max={scannerCaps.zoomMax} step={scannerCaps.zoomStep} bind:value={zoomLevel} oninput={applyScannerZoom} aria-label="Zoom caméra" />
-							{/if}
-						</div>
-					{/if}
+				<!-- ═══════ Scanner code-barres — IMMERSIF (mission UX) ═══════
+				     La caméra occupe la hauteur (portrait étroit), croix + indication
+				     EN OVERLAY sur la vidéo, lampe/zoom en pill compacte en bas. Le
+				     champ manuel reste complet (order-1 en mode manuel). Les ordres
+				     flex, la transition max-height et l'id bc-reader sont conservés
+				     (mécanismes validés mission saisie manuelle). -->
+				<div bind:this={bcListEl} class="flex flex-1 flex-col overflow-y-auto overscroll-contain px-3 pb-28 pt-3">
+					<div class="relative order-2 mx-auto aspect-[3/4.6] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-[max-height,border-color,box-shadow] duration-300 ease-out {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}" style:max-height={bcManualMode ? '7rem' : '120vh'}>
+						<div id="bc-reader" class="absolute inset-0"></div>
+						<!-- Croix de fermeture DIRECTEMENT sur la zone caméra : -->
+						<button type="button" class="absolute right-2 top-2 z-10 grid h-9 w-9 place-items-center rounded-full bg-ink/55 text-white backdrop-blur transition hover:bg-ink/75" aria-label="Fermer" onclick={() => closeLog()}><Icon name="x" size={18} /></button>
+						<!-- Indication intégrée à la vidéo (léger, discret) : -->
+						{#if !bcManualMode && barcodeStatus === 'scanning' && !barcodeBusy}
+							<p class="pointer-events-none absolute inset-x-3 bottom-2.5 z-10 text-center text-[11px] font-semibold text-white/85 drop-shadow">Présente le code-barres à plat devant l'objectif — même à distance, l'encadré passe au vert dès la lecture.</p>
+						{/if}
+						<!-- Lampe + zoom : pill compacte en bas de la caméra (plus de gros blocs) -->
+						{#if !bcManualMode && scannerCaps && (scannerCaps.torch || scannerCaps.zoom)}
+							<div class="absolute bottom-9 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-ink/55 px-2 py-1 backdrop-blur">
+								{#if scannerCaps.torch}
+									<button type="button" class="grid h-7 w-7 place-items-center rounded-full transition {torchOn ? 'bg-warn-light text-warn' : 'text-white/85 hover:text-white'}" aria-label={torchOn ? 'Éteindre la lampe' : 'Allumer la lampe'} onclick={toggleScannerTorch}><Icon name="sun" size={15} /></button>
+								{/if}
+								{#if scannerCaps.zoom}
+									<input type="range" class="h-5 w-20 accent-[var(--color-brand)]" min={scannerCaps.zoomMin} max={scannerCaps.zoomMax} step={scannerCaps.zoomStep} bind:value={zoomLevel} oninput={applyScannerZoom} aria-label="Zoom caméra" />
+								{/if}
+							</div>
+						{/if}
+					</div>
 
 					<div class="{bcManualMode ? 'order-1' : 'order-4'} mx-auto mt-3 w-full max-w-sm">
 						<div class="flex items-center gap-2 rounded-xl border-2 {bcManualMode ? 'border-brand bg-white' : 'border-line bg-cream'} px-3 py-2.5 focus-within:border-brand">														<Icon name="barcode" size={18} class="shrink-0 text-mist" />
@@ -4446,8 +4577,10 @@ import { optimizeImageFile } from '$lib/media';
 								<button type="button" class="mt-2 w-full rounded-full bg-danger py-2 text-xs font-bold text-white transition hover:opacity-90" onclick={() => retryScanner()}>Réessayer</button>
 							{/if}
 						</div>
-					{:else if barcodeStatus === 'scanning'}
-						<p class="mt-3 text-center text-xs text-mist {bcManualMode ? 'order-4' : 'order-5'}">{bcManualMode ? 'Décodage en pause pendant la saisie — « Reprendre le scan » relance la caméra.' : 'Caméra active — présente le code-barres à plat devant l’objectif, même à distance : dès qu’il est lu, l’encadré passe au vert.'}</p>
+					{:else if bcManualMode && barcodeStatus === 'scanning'}
+						<!-- Mode manuel uniquement : l'indication scan vit EN OVERLAY sur la
+						     vidéo (plus de texte parasite sous la caméra). -->
+						<p class="mt-3 text-center text-xs text-mist">Décodage en pause pendant la saisie — « Reprendre le scan » relance la caméra.</p>
 					{/if}
 				</div>
 			{/if}
@@ -4515,15 +4648,29 @@ import { optimizeImageFile } from '$lib/media';
 			</div>
 
 			{#if !recipeComps}
-				<!-- Capture : livre de recettes, fiche imprimée ou capture d'écran -->
-				<div class="flex w-full flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-brand/40 bg-brand-light/30 px-4 py-8 text-center">
-					<Icon name={recipeAnalyzing ? 'sparkles' : 'camera'} size={30} class="text-brand {recipeAnalyzing ? 'animate-pulse' : ''}" />
-					<span class="text-sm font-bold text-ink">{recipeAnalyzing ? 'Lecture de la recette…' : 'Photographie la liste d’ingrédients'}</span>
-					<span class="max-w-xs text-xs text-mist">{recipeAnalyzing ? 'Extraction des ingrédients et des quantités — encore quelques secondes.' : 'Livre de recettes, fiche ou capture : cadre bien la liste avec les quantités.'}</span>
+				<!-- MULTIMODAL : photo (caméra/galerie) ET/OU texte écrit — même logique
+				     que « Analyse ton repas » : photo seule, texte seul, ou les deux. -->
+				<div class="flex w-full flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-brand/40 bg-brand-light/30 px-4 py-6 text-center">
+					<Icon name={recipeAnalyzing ? 'sparkles' : 'bookOpen'} size={28} class="text-brand {recipeAnalyzing ? 'animate-pulse' : ''}" />
+					<span class="text-sm font-bold text-ink">{recipeAnalyzing ? 'Lecture de la recette…' : 'Photo seule, texte seul, ou les deux'}</span>
+					<span class="max-w-xs text-xs text-mist">{recipeAnalyzing ? 'Extraction des ingrédients et des quantités — encore quelques secondes.' : "Photographie la liste d'ingrédients, ou écris-la — les quantités écrites sont respectées."}</span>
+					{#if recipePhotoPreview}
+						<!-- Aperçu de la photo en attente : retirable / remplaçable. -->
+						<div class="relative">
+							<img src={recipePhotoPreview} alt="Aperçu de la recette sélectionnée" class="max-h-40 rounded-xl border border-line object-cover" />
+							<button type="button" class="absolute -right-2 -top-2 grid h-7 w-7 place-items-center rounded-full bg-ink text-white shadow-md" aria-label="Retirer la photo" onclick={removeRecipePhoto}><Icon name="x" size={14} /></button>
+						</div>
+					{/if}
 					<div class="mt-1 grid w-full grid-cols-2 gap-2">
-						<button type="button" class="flex items-center justify-center gap-1.5 rounded-full bg-brand px-3 py-2.5 text-[13px] font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={recipeAnalyzing} onclick={() => recipePhotoInput?.click()}>📷 Prendre une photo</button>
-						<button type="button" class="flex items-center justify-center gap-1.5 rounded-full border-2 border-brand/40 bg-white px-3 py-2.5 text-[13px] font-bold text-brand transition hover:bg-brand-light/50 disabled:opacity-60" disabled={recipeAnalyzing} onclick={() => recipeGalleryInput?.click()}>🖼 Choisir dans la galerie</button>
+						<button type="button" class="flex items-center justify-center gap-1.5 rounded-full bg-brand px-3 py-2.5 text-[13px] font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={recipeAnalyzing} onclick={() => recipePhotoInput?.click()}>{recipePhotoPreview ? '📷 Changer de photo' : '📷 Prendre une photo'}</button>
+						<button type="button" class="flex items-center justify-center gap-1.5 rounded-full border-2 border-brand/40 bg-white px-3 py-2.5 text-[13px] font-bold text-brand transition hover:bg-brand-light/50 disabled:opacity-60" disabled={recipeAnalyzing} onclick={() => recipeGalleryInput?.click()}>🖼 Galerie</button>
 					</div>
+					<!-- RECETTE ÉCRITE — mode autonome assumé (homogène au Repas IA) : -->
+					<div class="w-full text-left">
+						<label for="recipe-text-note" class="mb-1 block text-xs font-semibold text-mist">Ou écris ta recette — sans photo si tu veux</label>
+						<textarea id="recipe-text-note" rows="4" maxlength="800" enterkeyhint="enter" autocapitalize="sentences" placeholder="Ex : 150 g de riz, 2 blancs de poulet, 1 oignon, 10 g d'huile d'olive…" bind:value={recipeTextNote} disabled={recipeAnalyzing} class="w-full resize-none rounded-xl border-2 border-line bg-white px-3 py-2 text-[15px] leading-snug text-ink outline-none transition focus:border-brand placeholder:text-mist/70 disabled:opacity-60"></textarea>
+					</div>
+					<button type="button" class="w-full rounded-full bg-brand py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={recipeAnalyzing || (!recipePendingFile && recipeTextNote.trim().length < 2)} onclick={analyzeRecipe}>{recipeAnalyzing ? 'Lecture de la recette…' : 'Analyser la recette'}</button>
 				</div>
 				<p class="mt-3 text-center text-[11px] text-mist">L'IA extrait la liste écrite — la nutrition vient de la base G-FLUX (Ciqual, produits) : jamais inventée.</p>
 			{:else}
@@ -4620,9 +4767,8 @@ import { optimizeImageFile } from '$lib/media';
 		     — le champ texte (et sa dictée native) reste au-dessus du clavier. -->
 		<div class="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 pb-[max(env(safe-area-inset-bottom),20px)] shadow-2xl sm:rounded-3xl" onfocusin={(e) => focusScroll(e.currentTarget, e.target)} onfocusout={blurScroll}>
 			<div class="mb-3 flex items-center justify-between">
-				<div class="min-w-0 pr-2">
-					<p class="font-display text-[17px] font-bold text-ink">Analyse ton repas</p>
-					<p class="mt-0.5 text-xs text-mist">Ajoute une photo, décris ton repas, ou combine les deux pour plus de précision.</p>
+				<div class="min-w-0 pr-2">									<p class="font-display text-[17px] font-bold text-ink">Analyse ton repas</p>
+									<p class="mt-0.5 text-xs text-mist">Photo, texte, ou les deux — à toi de choisir.</p>
 				</div>
 				<button type="button" class="grid h-8 w-8 shrink-0 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={closeMealPhoto}><Icon name="x" size={18} /></button>
 			</div>
@@ -4643,8 +4789,8 @@ import { optimizeImageFile } from '$lib/media';
 				     Cas d'usage : photo prise à midi, analyse le soir depuis la photothèque. -->
 				<div class="flex w-full flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-brand/40 bg-brand-light/30 px-4 py-6 text-center">
 					<Icon name={mealAnalyzing ? 'sparkles' : 'camera'} size={30} class="text-brand {mealAnalyzing ? 'animate-pulse' : ''}" />
-					<span class="text-sm font-bold text-ink">{mealAnalyzing ? 'Analyse de ton repas…' : 'Prends une photo, décris ton repas, ou combine les deux'}</span>
-					<span class="max-w-xs text-xs text-mist">{mealAnalyzing ? 'On reconnaît les aliments et les quantités — encore quelques secondes.' : "Photo prise à midi au restaurant ? Retrouve-la ce soir dans la photothèque — l'analyse reste exactement la même."}</span>
+					<span class="text-sm font-bold text-ink">{mealAnalyzing ? 'Analyse de ton repas…' : 'Photo seule, texte seul, ou les deux'}</span>
+					<span class="max-w-xs text-xs text-mist">{mealAnalyzing ? 'On reconnaît les aliments et les quantités — encore quelques secondes.' : "Une photo suffit. Un texte suffit aussi : écris ton repas (la dictée du clavier marche). Les deux ensemble = plus de précision."}</span>
 					{#if mealPhotoPreview}
 						<!-- Aperçu de la photo en attente : retirable / remplaçable. -->
 						<div class="relative">
@@ -4658,9 +4804,10 @@ import { optimizeImageFile } from '$lib/media';
 					</div>
 					<!-- Précisions texte — optionnelles. La dictée native du clavier
 					     (iPhone / Android) fonctionne telle quelle : aucun moteur custom. -->
-					<div class="w-full text-left">
-						<label for="meal-text-note" class="mb-1 block text-xs font-semibold text-mist">Ajoute des précisions — optionnel</label>
-						<textarea id="meal-text-note" rows="3" maxlength="800" enterkeyhint="enter" autocapitalize="sentences" placeholder="Ex : 150 g de riz, poulet cuit avec 10 g d'huile…" bind:value={mealTextNote} disabled={mealAnalyzing} class="w-full resize-none rounded-xl border-2 border-line bg-white px-3 py-2 text-[15px] leading-snug text-ink outline-none transition focus:border-brand placeholder:text-mist/70 disabled:opacity-60"></textarea>
+					<div class="w-full text-left">									<!-- Champ texte ASSUMÉ comme un mode autonome (pas un complément
+								     caché) : « Décris ton repas » — le CTA fonctionne avec le texte
+								     seul (≥ 2 caractères), sans aucune photo. -->
+									<label for="meal-text-note" class="mb-1 block text-xs font-semibold text-mist">Décris ton repas — sans photo si tu veux</label>										<textarea id="meal-text-note" rows="3" maxlength="800" enterkeyhint="enter" autocapitalize="sentences" placeholder="Ex : 150 g de riz, poulet cuit avec 10 g d'huile — ou colle ta recette…" bind:value={mealTextNote} disabled={mealAnalyzing} class="w-full resize-none rounded-xl border-2 border-line bg-white px-3 py-2 text-[15px] leading-snug text-ink outline-none transition focus:border-brand placeholder:text-mist/70 disabled:opacity-60"></textarea>
 					</div>
 					<!-- CTA unique : photo seule, texte seul, ou photo + texte. Désactivé
 					     si aucune des deux sources (règle produit). -->
@@ -4839,7 +4986,7 @@ import { optimizeImageFile } from '$lib/media';
 	class="hidden"
 	onchange={(e) => {
 		const f = (e.currentTarget as HTMLInputElement).files?.[0];
-		if (f) void analyzeRecipeFile(f);
+		if (f) onRecipePhotoPicked(f);
 		(e.currentTarget as HTMLInputElement).value = '';
 	}}
 />
@@ -4850,7 +4997,7 @@ import { optimizeImageFile } from '$lib/media';
 	class="hidden"
 	onchange={(e) => {
 		const f = (e.currentTarget as HTMLInputElement).files?.[0];
-		if (f) void analyzeRecipeFile(f);
+		if (f) onRecipePhotoPicked(f);
 		(e.currentTarget as HTMLInputElement).value = '';
 	}}
 />
@@ -5086,20 +5233,26 @@ import { optimizeImageFile } from '$lib/media';
 					</div>
 				{/if}
 			{:else}
-				<!-- ═══════ Scanner code-barres de la fenêtre produit (même rendu que « Ajouter un aliment ») ═══════ -->						<div bind:this={mealBcListEl} class="flex flex-1 flex-col overflow-y-auto overscroll-contain px-3 pb-28 pt-3">						<p class="mb-2.5 text-center text-xs text-mist {bcManualMode ? 'order-3' : 'order-1'}">Scanne le code-barres du produit : dès qu'il est lu, la feuille de portion s'ouvre directement.</p>						<div
-							id="meal-bc-reader"
-							class="relative order-2 mx-auto aspect-[3/4] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-[max-height,border-color,box-shadow] duration-300 ease-out {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}"
-							style:max-height={bcManualMode ? '7rem' : '120vh'}
-						></div>						{#if !bcManualMode && scannerCaps && (scannerCaps.torch || scannerCaps.zoom)}
-						<div class="{bcManualMode ? 'order-5' : 'order-3'} mx-auto mt-2 flex w-full max-w-sm items-center justify-center gap-3">
-							{#if scannerCaps.torch}
-								<button type="button" class="grid h-10 w-10 place-items-center rounded-full border-2 transition {torchOn ? 'border-warn bg-warn-light text-warn' : 'border-line bg-white text-mist'}" aria-label={torchOn ? 'Éteindre la lampe' : 'Allumer la lampe'} onclick={toggleScannerTorch}><Icon name="sun" size={18} /></button>
-							{/if}
-							{#if scannerCaps.zoom}
-								<input type="range" class="h-10 flex-1 accent-[var(--color-brand)]" min={scannerCaps.zoomMin} max={scannerCaps.zoomMax} step={scannerCaps.zoomStep} bind:value={zoomLevel} oninput={applyScannerZoom} aria-label="Zoom caméra" />
-							{/if}
-						</div>
-					{/if}
+				<!-- ═══════ Scanner code-barres de la fenêtre produit — même direction
+				     immersive que « Ajouter un aliment » : caméra haute, indication en
+				     overlay, lampe/zoom en pill compacte. Mécanismes validés conservés. -->
+				<div bind:this={mealBcListEl} class="flex flex-1 flex-col overflow-y-auto overscroll-contain px-3 pb-28 pt-3">
+					<div class="relative order-2 mx-auto aspect-[3/4.6] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-[max-height,border-color,box-shadow] duration-300 ease-out {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}" style:max-height={bcManualMode ? '7rem' : '120vh'}>
+						<div id="meal-bc-reader" class="absolute inset-0"></div>
+						{#if !bcManualMode && barcodeStatus === 'scanning' && !barcodeBusy}
+							<p class="pointer-events-none absolute inset-x-3 bottom-2.5 z-10 text-center text-[11px] font-semibold text-white/85 drop-shadow">Présente le code-barres à plat devant l'objectif — dès la lecture, la feuille de portion s'ouvre.</p>
+						{/if}
+						{#if !bcManualMode && scannerCaps && (scannerCaps.torch || scannerCaps.zoom)}
+							<div class="absolute bottom-9 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-ink/55 px-2 py-1 backdrop-blur">
+								{#if scannerCaps.torch}
+									<button type="button" class="grid h-7 w-7 place-items-center rounded-full transition {torchOn ? 'bg-warn-light text-warn' : 'text-white/85 hover:text-white'}" aria-label={torchOn ? 'Éteindre la lampe' : 'Allumer la lampe'} onclick={toggleScannerTorch}><Icon name="sun" size={15} /></button>
+								{/if}
+								{#if scannerCaps.zoom}
+									<input type="range" class="h-5 w-20 accent-[var(--color-brand)]" min={scannerCaps.zoomMin} max={scannerCaps.zoomMax} step={scannerCaps.zoomStep} bind:value={zoomLevel} oninput={applyScannerZoom} aria-label="Zoom caméra" />
+								{/if}
+							</div>
+						{/if}
+					</div>
 
 					<div class="{bcManualMode ? 'order-1' : 'order-4'} mx-auto mt-3 w-full max-w-sm">
 						<div class="flex items-center gap-2 rounded-xl border-2 {bcManualMode ? 'border-brand bg-white' : 'border-line bg-cream'} px-3 py-2.5 focus-within:border-brand">

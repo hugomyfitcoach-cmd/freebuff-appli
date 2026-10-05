@@ -221,14 +221,14 @@ test('Sérialisation Convex du retour : qtyRaw JAMAIS undefined dans un array', 
 	// aux ingrédients sans quantité écrite) → « undefined is not a valid Convex
 	// value » au retour → message à tort « photo illisible » alors que
 	// l'extraction ET le matching avaient réussi.
-	assert.ok(aiAnalysis.includes('it.qtyRaw ?? null'), 'positions vides → null (valeur Convex valide)');
-	assert.ok(aiAnalysis.includes('recipe.items.some((it) => it.qtyRaw)'), 'array omis entièrement si aucune quantité écrite');
+	assert.ok(aiAnalysis.includes('?? null'), 'positions vides → null (valeur Convex valide)');
+	assert.ok(aiAnalysis.includes('qtyRaw) ? items.map'), 'array omis entièrement si aucune quantité écrite');
 	assert.ok(!aiAnalysis.includes('qtyRaw: recipe.items.map((it) => it.qtyRaw),'), 'ancien map à trous supprimé');
 });
 
 test('Message d\'erreur : « photo illisible » réservé aux vraies images inexploitables', () => {
 	// Une erreur serveur (Convex/OpenAI) ne doit PAS accuser la photo.
-	const ui = journalPage.slice(journalPage.indexOf('async function analyzeRecipeFile'), journalPage.indexOf('async function analyzeRecipeFile') + 2200);
+	const ui = journalPage.slice(journalPage.indexOf('async function analyzeRecipe()'), journalPage.indexOf('async function analyzeRecipe()') + 2600);
 	assert.ok(/convex\|server error\|indisponible/i.test(ui), 'crash serveur → bucket « indisponible »');
 	assert.ok(ui.includes("'ai-unavailable', 'unreachable', 'timeout'"), 'pannes connues → bucket « indisponible »');
 });

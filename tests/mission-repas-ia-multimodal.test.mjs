@@ -231,10 +231,11 @@ test('UI : récap distingue quantité saisie / détectée / estimée', () => {
 	assert.ok(journalPage.includes("qtySource?: 'user' | 'photo' | 'estimated'"), 'type côté PWA');
 });
 
-test('UI : le sheet réinitialise texte et photo à chaque ouverture (aucun résidu)', () => {
-	const open = journalPage.slice(journalPage.indexOf('function openMealPhoto'), journalPage.indexOf('function openMealPhoto') + 500);
-	assert.ok(open.includes('mealTextNote = \'\''), 'texte réinitialisé');
+test('UI : le sheet réinitialise photo à chaque ouverture ; le TEXTE repart du BROUILLON', () => {
+	const open = journalPage.slice(journalPage.indexOf('function openMealPhoto'), journalPage.indexOf('function openMealPhoto') + 700);
 	assert.ok(open.includes('mealPendingFile = null'), 'photo réinitialisée');
+	assert.ok(open.includes('DRAFT_MEAL_KEY'), 'texte repris depuis le brouillon (protection anti-perte, mission UX)');
+	assert.ok(open.includes('sessionStorage'), 'reprise via sessionStorage (jamais de reprise périmée après succès)');
 });
 
 test('Pipeline : aucune route ni action parallèle — l\'existant réutilisé tel quel', () => {
