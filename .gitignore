@@ -31,3 +31,6 @@ vite.config.ts.timestamp-*
 # Outils internes de dev (contiennent des identifiants, logs, scripts locaux)
 .freebuff
 .media-cache/
+
+# Secret billing genere localement pour collage manuel Netlify (JAMAIS commité)
+.netlify-billing-secret.txt
