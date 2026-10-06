@@ -221,6 +221,35 @@ export const actions: Actions = {
 			return fail(400, { action: 'setOnboarding', error: errMsg(e), clientId: userId });
 		}
 	},
+	/**
+	 * FACTURATION — offrir / retirer l'accès G-FLUX (mission §12).
+	 * Ne touche JAMAIS à Stripe : c'est un override local (complimentary).
+	 * Un abonnement actif derrière continue de vivre après le retrait.
+	 */
+	setBillingAccess: async (event) => {
+		await requireRole(event, 'coach');
+		const form = await event.request.formData();
+		const userId = String(form.get('userId') ?? '');
+		const complimentary = String(form.get('complimentary') ?? '0') === '1';
+		const token = event.cookies.get(SESSION_COOKIE);
+		try {
+			const res = await convex.mutation(api.coach.setComplimentaryAccess, {
+				sessionToken: token,
+				userId: userId as never,
+				complimentary,
+			});
+			return {
+				action: 'setBillingAccess',
+				ok: complimentary
+					? 'Accès G-FLUX offert — la cliente retrouve l’app dès maintenant (aucun impact sur un éventuel abonnement Stripe).'
+					: 'Accès offert retiré — l’accès repose désormais uniquement sur l’abonnement Stripe éventuel.',
+				clientId: userId,
+				decision: res.decision,
+			};
+		} catch (e) {
+			return fail(400, { action: 'setBillingAccess', error: errMsg(e), clientId: userId });
+		}
+	},
 	rename: async (event) => {
 		await requireRole(event, 'coach');
 		const form = await event.request.formData();

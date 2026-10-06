@@ -11,6 +11,7 @@
 import type * as aiAnalysis from "../aiAnalysis.js";
 import type * as aiLog from "../aiLog.js";
 import type * as answers from "../answers.js";
+import type * as billing from "../billing.js";
 import type * as appVersion from "../appVersion.js";
 import type * as appointments from "../appointments.js";
 import type * as betaAccess from "../betaAccess.js";
@@ -68,6 +69,7 @@ declare const fullApi: ApiFromModules<{
   aiAnalysis: typeof aiAnalysis;
   aiLog: typeof aiLog;
   answers: typeof answers;
+  billing: typeof billing;
   appVersion: typeof appVersion;
   appointments: typeof appointments;
   betaAccess: typeof betaAccess;

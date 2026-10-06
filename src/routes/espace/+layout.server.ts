@@ -1,7 +1,23 @@
-import { requireRole, SESSION_COOKIE } from '$lib/server/session';
+import { requireClientAccess, requireRole, SESSION_COOKIE } from '$lib/server/session';
 import { convex } from '$lib/server/convex';
-import { api } from '../../convex/_generated/api.js';	export const load = async (event) => {
-	const user = await requireRole(event, 'client', { next: '/espace' });
+import { api } from '../../convex/_generated/api.js';	/**
+ * Routes de l'espace TOUJOURS accessibles, même cliente bloquée (mission §4) :
+ * la facturation (paywall + souscription + Portal) et les Paramètres (profil,
+ * logout). Tout le reste de /espace/* est verrouillé par le garde serveur.
+ */
+const BILLING_OPEN_PATHS = ['/espace/facturation', '/espace/parametres'];
+
+export const load = async (event) => {
+	// FACTURATION — garde serveur central (mission §4) : une cliente Autonomie
+	// bloquée (canAccessApp = block, décidé côté Convex) est redirigée vers
+	// /espace/facturation AVANT toute charge de page. Couvre /espace ET toutes
+	// ses sous-pages (journal, progression, entrainement…) — impossible de
+	// contourner le paywall en tapant une URL interne. Coaching, complimentary,
+	// abonnement actif et grâce non expirée passent sans rien voir changer.
+	// Exception CÔTÉ SERVEUR (même mécanisme, décision serveur) : facturation
+	// et Paramètres restent ouverts à une cliente bloquée.
+	const openPath = BILLING_OPEN_PATHS.includes(event.url.pathname);
+	const user = await (openPath ? requireRole(event, 'client', { next: '/espace' }) : requireClientAccess(event, { next: '/espace' }));
 	// Trace la « dernière connexion » (utilisée pour le tri du CRM coach).
 	// Non bloquant : le dashboard (ligne suivante) est lancé en parallèle.
 	const token = event.cookies.get(SESSION_COOKIE);

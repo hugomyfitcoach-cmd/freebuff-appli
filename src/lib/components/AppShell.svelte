@@ -619,6 +619,15 @@
 										<span class="flex-1 text-left">Retirer ma photo</span>
 									</button>
 								{/if}
+								<a
+									href="/espace/parametres"
+									onclick={() => (menuOpen = false)}
+									class="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-ink transition hover:bg-soft"
+								>
+									<Icon name="settings" size={16} class="shrink-0" />
+									<span class="flex-1 text-left">Paramètres</span>
+									<Icon name="chevronRight" size={16} class="text-mist" />
+								</a>
 							{/if}
 						{/if}
 							<form method="POST" action="/connexion?/logout" class="pt-1.5">
