@@ -15,6 +15,10 @@ import { errMsg } from '$lib/errors.js';
  * autre personne. Sans Customer Stripe existant : 400 propre (la cliente doit
  * d'abord souscrire via Checkout). V1 du portail : moyen de paiement, factures,
  * résiliation à la fin de la période (configuration Stripe côté dashboard).
+ *
+ * AUTONOMIE UNIQUEMENT (décision produit) : une cliente en coaching n'a AUCUN
+ * accès Portal via G-FLUX — vérifié ICI côté serveur, pas seulement masqué
+ * dans l'UI. Un appel API direct depuis un compte coaching → 403.
  */
 export const POST: RequestHandler = async (event) => {
 	await requireRole(event, 'client');
@@ -24,6 +28,10 @@ export const POST: RequestHandler = async (event) => {
 		const user = await convex.query(api.users.resolveSession, { sessionToken: token });
 		if (!user || user.role !== 'client') {
 			return json({ error: 'Session invalide. Reconnecte-toi.' }, { status: 401 });
+		}
+		// Portail réservé au mode Autonomie (décision produit, contrôle serveur).
+		if (user.coachingMode !== 'autonomy') {
+			return json({ error: 'La facturation est réservée au mode Autonomie.' }, { status: 403 });
 		}
 		const customerId = await convex.query(api.billing.myStripeCustomerId, { sessionToken: token });
 		if (!customerId) {

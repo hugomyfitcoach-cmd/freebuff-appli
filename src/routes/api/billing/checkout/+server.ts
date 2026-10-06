@@ -22,6 +22,10 @@ import { errMsg } from '$lib/errors.js';
  * - success_url → /espace/facturation?checkout=success (le retour ne donne
  *   JAMAIS l'accès à lui seul : le webhook reste la source de vérité).
  *
+ * AUTONOMIE UNIQUEMENT (décision produit) : une cliente en coaching ne doit
+ * jamais créer accidentellement un abonnement Autonomie — un appel API direct
+ * (sans passer par l'UI) est rejeté 403 côté serveur.
+ *
  * Sans Stripe TEST configuré : 503 propre (fail-closed, jamais de LIVE).
  */
 export const POST: RequestHandler = async (event) => {
@@ -47,6 +51,10 @@ export const POST: RequestHandler = async (event) => {
 		const user = await convex.query(api.users.resolveSession, { sessionToken: token });
 		if (!user || user.role !== 'client') {
 			return json({ error: 'Session invalide. Reconnecte-toi.' }, { status: 401 });
+		}
+		// Souscription réservée au mode Autonomie (décision produit, contrôle serveur).
+		if (user.coachingMode !== 'autonomy') {
+			return json({ error: 'La facturation est réservée au mode Autonomie.' }, { status: 403 });
 		}
 		// Customer existant de CETTE cliente uniquement (jamais un id reçu du
 		// navigateur) — l'accès portal/checkout d'un autre user est impossible.

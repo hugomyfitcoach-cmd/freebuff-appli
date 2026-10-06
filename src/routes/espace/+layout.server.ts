@@ -1,11 +1,13 @@
 import { requireClientAccess, requireRole, SESSION_COOKIE } from '$lib/server/session';
 import { convex } from '$lib/server/convex';
 import { api } from '../../convex/_generated/api.js';	/**
- * Routes de l'espace TOUJOURS accessibles, même cliente bloquée (mission §4) :
- * la facturation (paywall + souscription + Portal) et les Paramètres (profil,
- * logout). Tout le reste de /espace/* est verrouillé par le garde serveur.
- */
-const BILLING_OPEN_PATHS = ['/espace/facturation', '/espace/parametres'];
+	 * Routes de l'espace accessibles pendant le HARD LOCK (décision produit :
+	 * facturation = re-souscription ; déconnexion via ?/logout). Tout le reste
+	 * de /espace/* est verrouillé par le garde serveur : Accueil, Journal,
+	 * Progression, Entraînement, Bilans, Photos, RDV, Profil, Compte,
+	 * Notifications — données conservées mais inaccessibles.
+	 */
+	const BILLING_OPEN_PATHS = ['/espace/facturation'];
 
 export const load = async (event) => {
 	// FACTURATION — garde serveur central (mission §4) : une cliente Autonomie
@@ -14,8 +16,8 @@ export const load = async (event) => {
 	// ses sous-pages (journal, progression, entrainement…) — impossible de
 	// contourner le paywall en tapant une URL interne. Coaching, complimentary,
 	// abonnement actif et grâce non expirée passent sans rien voir changer.
-	// Exception CÔTÉ SERVEUR (même mécanisme, décision serveur) : facturation
-	// et Paramètres restent ouverts à une cliente bloquée.
+	// Exception CÔTÉ SERVEUR (même mécanisme, décision serveur) : la facturation
+	// seule reste ouverte à une cliente bloquée (hard lock complet ailleurs).
 	const openPath = BILLING_OPEN_PATHS.includes(event.url.pathname);
 	const user = await (openPath ? requireRole(event, 'client', { next: '/espace' }) : requireClientAccess(event, { next: '/espace' }));
 	// Trace la « dernière connexion » (utilisée pour le tri du CRM coach).

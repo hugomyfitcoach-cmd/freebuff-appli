@@ -230,4 +230,15 @@
 	{:else if data.checkout === 'cancel'}
 		<p class="mt-5 rounded-xl border border-line bg-cream px-4 py-3 text-center text-[12.5px] text-mist">Paiement interrompu — aucune somme n'a été débitée. Tu peux reprendre quand tu veux.</p>
 	{/if}
+
+	<!-- ═══ SORTIE DE SESSION — page facturation = seule page ouverte pendant le
+			hard lock : la déconnexion doit y rester possible ═══ -->
+	<form method="POST" action="?/logout" class="mt-6 border-t border-line pt-5">
+		<button
+			type="submit"
+			class="w-full rounded-xl border-2 border-line bg-white px-4 py-2.5 text-sm font-bold text-ink transition hover:border-danger hover:text-danger"
+		>
+			Se déconnecter
+		</button>
+	</form>
 </div>

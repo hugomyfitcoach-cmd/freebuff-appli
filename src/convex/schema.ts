@@ -217,7 +217,7 @@ export default defineSchema({
 		stripeCurrentPeriodEnd: v.optional(v.number()),
 		/** Stripe mettra fin à l'abonnement à la fin de la période (résiliation V1). */
 		stripeCancelAtPeriodEnd: v.optional(v.boolean()),
-		/** Fin de la grâce de 5 jours après un échec de paiement (ms UTC) — jamais repoussée par un webhook dupliqué. */
+		/** Fin de la grâce de 24 h après un échec de paiement (ms UTC) — jamais repoussée par un webhook dupliqué. */
 		stripeGraceUntil: v.optional(v.number()),
 		/** Suivi de cycle (carte Accueil cliente + Vision 360 coach) — mêmes questions et formule que l'outil historique. */
 		cycle: v.optional(

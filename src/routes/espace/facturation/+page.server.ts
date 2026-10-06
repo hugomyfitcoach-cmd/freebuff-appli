@@ -1,7 +1,8 @@
-import type { PageServerLoad } from './$types';
+import { redirect } from '@sveltejs/kit';
+import type { Actions, PageServerLoad } from './$types';
 import { convex } from '$lib/server/convex';
 import { api } from '../../../convex/_generated/api.js';
-import { SESSION_COOKIE, requireRole } from '$lib/server/session';
+import { SESSION_COOKIE, requireRole, clearSessionCookie } from '$lib/server/session';
 import { billingConfigured, planForPriceId } from '$lib/server/stripe';
 import { AUTONOMY_MONTHLY_PRICE_EUR, AUTONOMY_YEARLY_PRICE_EUR } from '../../../convex/billing.js';
 
@@ -20,6 +21,12 @@ export const load: PageServerLoad = async (event) => {
 	const token = event.cookies.get(SESSION_COOKIE);
 	const billing = await convex.query(api.billing.accessState, { sessionToken: token }).catch(() => null);
 	const subscription = billing?.subscription ?? null;
+	// FACTURATION réservée au mode Autonomie (décision produit) : une cliente en
+	// coaching n'a aucune page Facturation — redirection côté serveur, pas un
+	// simple masquage d'onglet.
+	if ((billing?.coachingMode ?? user.coachingMode) === 'coaching') {
+		throw redirect(303, '/espace');
+	}
 	return {
 		profile: { prenom: user.prenom, email: user.email },
 		billing: {
@@ -40,4 +47,24 @@ export const load: PageServerLoad = async (event) => {
 		checkout: event.url.searchParams.get('checkout'),
 		billingReady: billingConfigured(),
 	};
+};
+
+/**
+ * Déconnexion — page facturation = SEULE page ouverte pendant le hard lock :
+ * la sortie de session doit y rester possible (décision produit). Même handler
+ * que le menu profil.
+ */
+export const actions: Actions = {
+	logout: async ({ cookies, url }) => {
+		const token = cookies.get(SESSION_COOKIE);
+		if (token) {
+			try {
+				await convex.mutation(api.users.signOut, { sessionToken: token });
+			} catch {
+				// session déjà expirée : on nettoie le cookie quand même
+			}
+		}
+		clearSessionCookie({ cookies, url });
+		throw redirect(303, '/connexion');
+	},
 };

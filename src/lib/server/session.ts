@@ -9,7 +9,7 @@ const SESSION_MAX_AGE = 60 * 60 * 24 * 30; // 30 jours
 /* ═══════ FACTURATION AUTONOMIE — décision d'accès centralisée (V1) ═══════
  * L'accès est DÉRIVÉ côté Convex (src/convex/billing.ts → canAccessApp) :
  * coaching = inclus ; autonomy = complimentary / abonnement Stripe valide /
- * grâce de 5 jours après échec. Aucun état dupliqué, décision recalculée
+ * grâce de 24 heures après échec. Aucun état dupliqué, décision recalculée
  * à chaque requête (la grâce est comparée à l'heure ACTUELLE côté serveur). */
 
 /** Décision d'accès calculée côté serveur — même vocabulaire que billing.ts. */

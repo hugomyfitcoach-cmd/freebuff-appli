@@ -56,9 +56,17 @@ test('1 · coaching → accès inclus, indépendamment de Stripe', () => {
 	);
 });
 
-test('2 · autonomie sans abonnement ni offre → bloquée', () => {
+test('2 · autonomie sans abonnement ni offre → bloquée (HARD LOCK immédiat)', () => {
 	assert.equal(billing.canAccessApp(state(), NOW), 'block');
 	assert.equal(billing.canAccessApp(state({ stripeSubscriptionStatus: 'incomplete' }), NOW), 'block');
+	// Décision produit : une cliente qui vient d'être passée de coaching à
+	// autonomie SANS abonnement est hard-lockée à l'instant même — aucune
+	// grâce ne s'applique (la grâce ne concerne qu'un abonnement actif dont
+	// le RENOUVELLEMENT échoue, cf. webhook).
+	assert.equal(
+		billing.canAccessApp(state({ billingAccessOverride: undefined, stripeSubscriptionStatus: undefined }), NOW),
+		'block'
+	);
 });
 
 test('3 · accès offert par le coach (complimentary) → accès', () => {
@@ -73,17 +81,25 @@ test('5 · abonnement trialing → accès', () => {
 	assert.equal(billing.canAccessApp(state({ stripeSubscriptionStatus: 'trialing' }), NOW), 'allow');
 });
 
-test('6 · past_due DANS la grâce de 5 jours → accès avec alerte paiement', () => {
+test('6 · past_due à +23h59 → accès avec alerte paiement (grâce 24 h)', () => {
 	const failedAt = NOW - DAY;
-	const grace = failedAt + billing.GRACE_PERIOD_MS; // +5 jours
-	assert.equal(grace, failedAt + 5 * DAY, 'la grâce couvre exactement 5 jours');
+	const grace = failedAt + billing.GRACE_PERIOD_MS; // +24 h
+	assert.equal(grace, failedAt + 24 * 3600 * 1000, 'la grâce couvre exactement 24 heures');
+	// 1 minute avant l'expiration : encore couvert
 	assert.equal(
-		billing.canAccessApp(state({ stripeSubscriptionStatus: 'past_due', stripeGraceUntil: grace }), NOW),
+		billing.canAccessApp(
+			state({ stripeSubscriptionStatus: 'past_due', stripeGraceUntil: failedAt + 24 * 3600 * 1000 }),
+			failedAt + 23 * 3600 * 1000 + 59 * 60 * 1000
+		),
+		'allow_with_payment_warning'
+	);
+	assert.equal(
+		billing.canAccessApp(state({ stripeSubscriptionStatus: 'past_due', stripeGraceUntil: grace }), NOW - 60 * 1000),
 		'allow_with_payment_warning'
 	);
 });
 
-test('7 · past_due grâce EXPIRÉE → bloquée (et past_due sans grâce aussi)', () => {
+test('7 · past_due à +24h01 (grâce EXPIRÉE) → bloquée (et past_due sans grâce aussi)', () => {
 	const expired = NOW - 1000;
 	assert.equal(
 		billing.canAccessApp(state({ stripeSubscriptionStatus: 'past_due', stripeGraceUntil: expired }), NOW),
@@ -93,6 +109,15 @@ test('7 · past_due grâce EXPIRÉE → bloquée (et past_due sans grâce aussi)
 	// borne exacte : now == graceUntil → grâce terminée (strict)
 	assert.equal(
 		billing.canAccessApp(state({ stripeSubscriptionStatus: 'past_due', stripeGraceUntil: NOW }), NOW),
+		'block'
+	);
+	// 1 minute APRÈS les 24 h : hard lock
+	const failedAt = NOW - 25 * 3600 * 1000;
+	assert.equal(
+		billing.canAccessApp(
+			state({ stripeSubscriptionStatus: 'past_due', stripeGraceUntil: failedAt + 24 * 3600 * 1000 }),
+			failedAt + 24 * 3600 * 1000 + 60 * 1000
+		),
 		'block'
 	);
 });
@@ -123,7 +148,7 @@ test('9 · résiliation programmée : période payée non écoulée → accès c
 test('10 · grâce plafonnée : un payment_failed en double ne la repousse pas', () => {
 	const t1 = NOW; // premier échec
 	const grace1 = billing.nextGraceUntil(undefined, t1);
-	assert.equal(grace1, t1 + 5 * DAY);
+	assert.equal(grace1, t1 + 24 * 3600 * 1000, 'grâce = échec + 24 h exactes');
 
 	// VRAI doublon : le même événement re-livré (même instant d'échec, le webhook
 	// utilise stripeEvent.created) donne le MÊME graceUntil → la mutation le
@@ -132,8 +157,8 @@ test('10 · grâce plafonnée : un payment_failed en double ne la repousse pas',
 
 	// une NOUVELLE tentative Stripe échouée (nouvel événement, failedAt postérieur)
 	// relance un dunning normal : la grâce repart de CE nouvel échec…
-	const t2 = t1 + DAY;
-	assert.equal(billing.nextGraceUntil(grace1, t2), t2 + 5 * DAY);
+	const t2 = t1 + 3600 * 1000; // +1 h (dans la fenêtre 24 h)
+	assert.equal(billing.nextGraceUntil(grace1, t2), t2 + 24 * 3600 * 1000);
 
 	// …mais JAMAIS en arrière : un événement ancien reçu en retard ne réduit
 	// pas la grâce déjà posée.
@@ -214,10 +239,26 @@ test('12 · cliente bloquée + URL directe → redirect /espace/facturation (ser
 	const sessionSrc = src('./src/lib/server/session.ts');
 	assert.match(sessionSrc, /requireClientAccess/);
 	assert.match(sessionSrc, /redirect\(303,\s*'\/espace\/facturation/);
-	// routes toujours ouvertes (paramètres = sortie de secours profil/logout)
-	assert.match(layout, /BILLING_OPEN_PATHS/);
-	assert.match(layout, /'\/espace\/facturation'/);
-	assert.match(layout, /'\/espace\/parametres'/);
+});
+
+test('12b · HARD LOCK : /espace/parametres INACCESSIBLE quand bloquée', () => {
+	const layout = src('./src/routes/espace/+layout.server.ts');
+	// décision produit : seule la facturation reste ouverte pendant le lock
+	assert.match(layout, /BILLING_OPEN_PATHS = \['\/espace\/facturation'\]/);
+	assert.doesNotMatch(layout, /\/espace\/parametres/);
+	// tout le reste de /espace/* passe par requireClientAccess → redirect
+	assert.match(layout, /requireClientAccess\(event/);
+});
+
+test('12c · HARD LOCK : déconnexion possible depuis la page facturation', () => {
+	// la facturation est la seule page ouverte pendant le lock → la sortie de
+	// session doit y rester possible (action serveur dédiée)
+	const facturation = src('./src/routes/espace/facturation/+page.server.ts');
+	assert.match(facturation, /export const actions/);
+	assert.match(facturation, /logout/);
+	assert.match(facturation, /clearSessionCookie/);
+	const svelte = src('./src/routes/espace/facturation/+page.svelte');
+	assert.match(svelte, /\?\/logout/);
 });
 
 test('13 · /espace/facturation reste accessible à une cliente bloquée', () => {
@@ -229,23 +270,38 @@ test('13 · /espace/facturation reste accessible à une cliente bloquée', () =>
 	assert.match(facturation, /requireRole\(event,\s*'client'/);
 });
 
+test('coaching → page Facturation redirigée côté serveur (aucune page billing)', () => {
+	const facturation = src('./src/routes/espace/facturation/+page.server.ts');
+	// contrôle serveur (pas un simple masquage d'onglet) : coaching → redirect /espace
+	assert.match(facturation, /coachingMode\) === 'coaching'/);
+	assert.match(facturation, /redirect\(303, '\/espace'\)/);
+});
+
 /* ═══════════════ CHECKOUT / PORTAL (analyse statique) ═══════════════ */
 
-test('14 · Customer Portal : le customer vient TOUJOURS de la base, jamais de la requête', () => {
+test('14 · Customer Portal : AUTONOMIE uniquement, customer depuis la base', () => {
 	const portal = src('./src/routes/api/billing/portal/+server.ts');
 	assert.match(portal, /api\.billing\.myStripeCustomerId/);
 	assert.match(portal, /400/, 'customer absent → erreur explicite');
+	// décision produit : une cliente coaching n'a AUCUN accès Portal via G-FLUX
+	// (vérifié côté serveur, pas seulement masqué dans l'UI)
+	assert.match(portal, /coachingMode !== 'autonomy'/);
+	assert.match(portal, /status: 403/);
 	// aucune voie d'injection d'un customer id par le client
 	assert.doesNotMatch(portal, /form\.get\(|json\(\)\.then|searchParams\.get\('(stripe)?[Cc]ustomer/);
 });
 
-test('15 · Checkout : le priceId vient des variables serveur, pas du body', () => {
+test('15 · Checkout : priceId serveur + AUTONOMIE uniquement (appel direct rejeté)', () => {
 	const checkout = src('./src/routes/api/billing/checkout/+server.ts');
 	// mapping plan → priceId via env (priceIdForPlan), jamais une valeur du client
 	assert.match(checkout, /priceIdForPlan/);
 	assert.doesNotMatch(checkout, /body\.priceId|form\.get\('priceId'\)|form\.get\("priceId"\)/);
 	assert.match(checkout, /subscription\s*:/, 'mode abonnement');
 	assert.match(checkout, /503/, 'non configuré → échec explicite (fail-closed)');
+	// décision produit : une cliente coaching ne doit pas créer accidentellement
+	// un abonnement Autonomie via appel API direct → 403 serveur
+	assert.match(checkout, /coachingMode !== 'autonomy'/);
+	assert.match(checkout, /status: 403/);
 	const stripe = src('./src/lib/server/stripe.ts');
 	assert.match(stripe, /sk_test_|rk_test_/, 'clés TEST uniquement');
 	assert.match(stripe, /sk_live/, 'les clés LIVE sont explicitement refusées');
@@ -277,7 +333,7 @@ test('syncFromStripe : mutation Convex protégée par secret partagé', () => {
 test('prix mission : 15,90 € / mois et 129 € / an', () => {
 	assert.equal(billing.AUTONOMY_MONTHLY_PRICE_EUR, 15.9);
 	assert.equal(billing.AUTONOMY_YEARLY_PRICE_EUR, 129);
-	assert.equal(billing.GRACE_PERIOD_MS, 5 * DAY);
+	assert.equal(billing.GRACE_PERIOD_MS, 24 * 3600 * 1000, 'grâce = 24 HEURES exactes');
 });
 
 test('fail-closed : sans config Stripe, le BFF répond 503 et la page reste honnête', () => {

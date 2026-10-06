@@ -29,7 +29,7 @@ function asUserId(id: string | null | undefined): Id<'users'> | null {
  * en retard ne peut donc JAMAIS réactiver un abonnement. Les doublons sont
  * des no-op (patchMeaningfullyDiffers). La grâce d'échec de paiement est
  * plafonnée (nextGraceUntil) : un invoice.payment_failed reçu deux fois ne
- * repousse JAMAIS la fin de grâce de 5 jours.
+ * repousse JAMAIS la fin de grâce de 24 heures.
  *
  * Associativité fiable : metadata.gfluxUserId + client_reference_id (Checkout)
  * puis subscription id / stripeCustomerId (recherche en base) — jamais
@@ -83,7 +83,7 @@ export const POST: RequestHandler = async (event) => {
 				if (!userId) return json({ received: true, skipped: 'user_not_found' });
 				const subId = subIdFromInvoice(invoice);
 				if (subId) {
-					// Grâce déterministe basée sur l'échec + 5 jours. Le plafonnement
+					// Grâce déterministe basée sur l'échec + 24 h. Le plafonnement
 					// final (jamais repoussée par un doublon) est refait DANS la
 					// mutation, avec l'état actuel de la base.
 					await syncSubscriptionToUser(userId, subId, {
@@ -190,7 +190,7 @@ async function resolveUserFromSubscription(sub: Stripe.Subscription, s: string):
 
 type SyncOpts = {
 	customerId?: string | Stripe.Customer | Stripe.DeletedCustomer | null;
-	/** Échec de paiement : grâce déterministe = cet instant + 5 jours (plafonnée en base). */
+	/** Échec de paiement : grâce déterministe = cet instant + 24 h jours (plafonnée en base). */
 	graceFromMs?: number;
 	/** Efface la grâce (paiement OK, abonnement supprimé). */
 	clearGrace?: boolean;
@@ -250,9 +250,13 @@ async function syncSubscriptionToUser(userId: Id<'users'>, subscriptionId: strin
 	const item = sub.items?.data?.[0];
 	const periodEndSec = (item as { current_period_end?: number | null } | undefined)?.current_period_end ?? null;
 	const priceId = item?.price?.id ?? null;
-	// Grâce : échec → failedAt + 5 JOURS (GRACE_PERIOD_MS). La mutation
-	// PLAFONNE ensuite au max de l'existant en base : un doublon ne la
-	// repousse jamais. Paiement OK / suppression → null (effacée) ;
+	// Grâce : échec de RENOUVELLEMENT → failedAt + 24 HEURES (GRACE_PERIOD_MS).
+	// Ne s'applique qu'à un abonnement existant : une souscription initiale
+	// échouée reste incomplete (jamais past_due) et une cliente sans abonnement
+	// (ex. passage coaching → autonomie) ne reçoit AUCUN événement → hard lock
+	// immédiat, sans grâce. La mutation PLAFONNE ensuite au max de l'existant
+	// en base : un doublon ne repousse JAMAIS les 24 h. Paiement OK /
+	// suppression → null (effacée) ;
 	// sinon undefined (champ inchangé).
 	const graceUntilMs =
 		opts.clearGrace === true

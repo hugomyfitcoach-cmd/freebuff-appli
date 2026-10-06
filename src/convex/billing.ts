@@ -12,7 +12,9 @@ import { getSessionUser, hashToken } from "./helpers";
  *   1. le mode d'accompagnement (coaching = inclus, Stripe ignoré) ;
  *   2. l'accès offert par le coach (billingAccessOverride) ;
  *   3. l'abonnement Stripe (statuts RÉELS de l'API Stripe) ;
- *   4. la grâce de 5 jours après un échec de paiement.
+ *   4. la grâce de 24 heures après un échec de paiement (uniquement un
+ *      abonnement qui était actif et dont le RENOUVELLEMENT échoue — jamais
+ *      une cliente passée de coaching à autonomie sans abonnement).
  *
  * Toute la logique de décision est PURE et testée unitairement
  * (tests/mission-billing-autonomie.test.mjs) : mêmes entrées → même décision,
@@ -23,8 +25,12 @@ import { getSessionUser, hashToken } from "./helpers";
 export const AUTONOMY_MONTHLY_PRICE_EUR = 15.9;
 /** Prix annuel Autonomie (affichage paywall/paramètres). */
 export const AUTONOMY_YEARLY_PRICE_EUR = 129;
-/** Durée de grâce après un échec de paiement — DÉCISION MISSION : 5 jours. */
-export const GRACE_PERIOD_MS = 5 * 24 * 3600 * 1000;
+/**
+ * Durée de grâce après un échec de paiement — DÉCISION PRODUIT : 24 HEURES
+ * exactes (renouvellement d'un abonnement actif qui échoue). Un webhook
+ * duplicate ne repousse JAMAIS cette échéance (plafonnement en base).
+ */
+export const GRACE_PERIOD_MS = 24 * 3600 * 1000;
 
 /** Statuts d'abonnement RÉELS de l'API Stripe (jamais d'enum local incomplet). */
 export const stripeSubscriptionStatusKind = v.union(
@@ -120,7 +126,7 @@ export function canAccessApp(state: BillingState, now: number): AccessDecision {
 		}
 	}
 
-	// 4. Échec de paiement + grâce de 5 jours non expirée → accès avec alerte.
+	// 4. Échec de paiement (renouvellement) + grâce de 24 h non expirée → alerte.
 	if (state.stripeSubscriptionStatus === "past_due") {
 		if (typeof state.stripeGraceUntil === "number" && now < state.stripeGraceUntil) {
 			return "allow_with_payment_warning";
