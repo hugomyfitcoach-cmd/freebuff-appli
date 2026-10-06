@@ -4,7 +4,7 @@ import Stripe from 'stripe';
 import { convex } from '$lib/server/convex';
 import { api } from '../../../../convex/_generated/api.js';
 import type { Id } from '../../../../convex/_generated/dataModel.js';
-import { convexBillingSecret, getStripe, webhookSecret } from '$lib/server/stripe';
+import { assertEventMode, convexBillingSecret, getStripe, webhookSecret } from '$lib/server/stripe';
 import { GRACE_PERIOD_MS } from '../../../../convex/billing.js';
 
 /**
@@ -54,6 +54,13 @@ export const POST: RequestHandler = async (event) => {
 		stripeEvent = await getStripe().webhooks.constructEventAsync(payload, signature, secret);
 	} catch {
 		return json({ error: 'Signature invalide.' }, { status: 400 });
+	}
+	// Mode STRICT (production-safe) : un événement du MAUVAIS mode (ex. endpoint
+	// TEST collé sur une prod LIVE, ou l'inverse) est rejeté AVANT traitement.
+	try {
+		assertEventMode(stripeEvent);
+	} catch {
+		return json({ error: 'Événement Stripe en mode incohérent.' }, { status: 400 });
 	}
 
 	try {

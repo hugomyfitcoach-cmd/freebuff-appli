@@ -3,7 +3,7 @@ import type { RequestHandler } from './$types';
 import { convex } from '$lib/server/convex';
 import { api } from '../../../../convex/_generated/api.js';
 import { SESSION_COOKIE, requireRole } from '$lib/server/session';
-import { BillingUnavailableError, getStripe, priceIdForPlan } from '$lib/server/stripe';
+import { assertPriceMode, BillingUnavailableError, getStripe, priceIdForPlan } from '$lib/server/stripe';
 import { errMsg } from '$lib/errors.js';
 
 /**
@@ -61,6 +61,10 @@ export const POST: RequestHandler = async (event) => {
 		// navigateur) — l'accès portal/checkout d'un autre user est impossible.
 		const customerId = await convex.query(api.billing.myStripeCustomerId, { sessionToken: token });
 		const stripe = getStripe();
+		// Mode STRICT : on vérifie que ce Price appartient BIEN au mode attendu
+		// (TEST en preview, LIVE en production) AVANT toute création de Session —
+		// un priceId mal configuré est refusé fail-closed (503).
+		await assertPriceMode(priceId);
 		const session = await stripe.checkout.sessions.create({
 			mode: 'subscription',
 			...(customerId ? { customer: customerId } : {}),

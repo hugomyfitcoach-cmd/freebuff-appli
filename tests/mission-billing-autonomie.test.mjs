@@ -310,9 +310,18 @@ test('15 · Checkout : priceId serveur + AUTONOMIE uniquement (appel direct reje
 	// un abonnement Autonomie via appel API direct → 403 serveur
 	assert.match(checkout, /coachingMode !== 'autonomy'/);
 	assert.match(checkout, /status: 403/);
+	// Mode STRICT (préparation production) : la logique clés vit dans
+	// stripeMode.ts (module pur, testé — tests/stripe-mode.test.mjs) et
+	// stripe.ts s'y branche via le contexte serveur réel — jamais
+	// « test ou live accepté indifféremment ».
+	const mode = src('./src/lib/server/stripeMode.ts');
+	assert.match(mode, /sk_test_|rk_test_/, 'clés TEST acceptées hors production');
+	assert.match(mode, /sk_live_|rk_live_/, 'clés LIVE refusées hors production / exigées en production');
 	const stripe = src('./src/lib/server/stripe.ts');
-	assert.match(stripe, /sk_test_|rk_test_/, 'clés TEST uniquement');
-	assert.match(stripe, /sk_live/, 'les clés LIVE sont explicitement refusées');
+	assert.match(stripe, /expectedStripeMode/);
+	assert.match(stripe, /process\.env\.CONTEXT/);
+	// le mode du Price est revérifié côté serveur AVANT chaque paiement
+	assert.match(checkout, /assertPriceMode\(priceId\)/);
 });
 
 /* ═══════════════ WEBHOOK STRIPE (analyse statique) ═══════════════ */

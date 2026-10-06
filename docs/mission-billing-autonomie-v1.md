@@ -399,3 +399,26 @@ Scénarios de bout en bout :
   requis », « débloque »).
 - `npm test` ✔ 485/485 · `npm run check` ✔ 0 erreur (41 warnings préexistants)
   · `npm run build` ✔.
+
+## 16. Préparation production Stripe LIVE — garde-fou mode strict (révision 6)
+
+### 16.1 Mode TEST/LIVE dépendant du contexte serveur (jamais du navigateur)
+
+- Nouveau module PUR testable : [src/lib/server/stripeMode.ts](../src/lib/server/stripeMode.ts)
+  (`expectedStripeMode`, `assertSecretKeyForMode`, `assertLivemodeForMode`) :
+  · Deploy Preview / tout environnement non production → TEST uniquement :
+  `sk_live_`/`rk_live_` refusés, toute ressource LIVE refusée ;
+  · Production (CONTEXT=production, ou override STRIPE_EXPECTED_MODE=live) →
+  LIVE uniquement : `sk_test_`/`rk_test_` refusés, toute ressource TEST refusée.
+  Aucun comportement « test ou live accepté indifféremment » ; fail closed.
+- [stripe.ts](../src/lib/server/stripe.ts) branche ce module : une clé du mauvais
+  mode → `BillingUnavailableError` (503) ; `billingConfigured()` reste honnête.
+- [Checkout](../src/routes/api/billing/checkout/+server.ts) : `assertPriceMode(priceId)`
+  — le `livemode` du Price est relu chez Stripe AVANT création de Session ; Price
+  du mauvais mode ou illisible → 503 (fail closed).
+- [Webhook](../src/routes/api/billing/webhook/+server.ts) : `assertEventMode(stripeEvent)`
+  — événement du mauvais mode (mauvais endpoint collé) → 400, aucun traitement.
+- Tests : [tests/stripe-mode.test.mjs](../tests/stripe-mode.test.mjs) — les 4 cas
+  requis (Preview+sk_test OK / Preview+sk_live refus / Production+sk_live OK /
+  Production+sk_test refus), variantes rk_, préfixe inconnu, clé absente, trim,
+  livemode, câblage BFF, absence totale de logs de clés.
