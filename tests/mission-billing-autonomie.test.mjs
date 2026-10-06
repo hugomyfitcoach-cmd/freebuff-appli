@@ -317,7 +317,7 @@ test('16 · webhook : signature Stripe OBLIGATOIRE, invalide → 400', () => {
 	assert.match(webhook, /400/, 'signature absente/invalide → 400');
 	// la synchro relit l'état réel chez Stripe avant d'écrire (source de vérité)
 	assert.match(webhook, /subscriptions\.retrieve|stripe\.subscriptions\.retrieve/);
-	// grâce de 5 jours posée à l'échec, effacée au paiement
+	// grâce de 24 h posée à l'échec, effacée au paiement
 	assert.match(webhook, /GRACE_PERIOD_MS/);
 });
 
