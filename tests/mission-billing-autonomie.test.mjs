@@ -241,13 +241,21 @@ test('12 · cliente bloquée + URL directe → redirect /espace/facturation (ser
 	assert.match(sessionSrc, /redirect\(303,\s*'\/espace\/facturation/);
 });
 
-test('12b · HARD LOCK : /espace/parametres INACCESSIBLE quand bloquée', () => {
+test('12b · PARAMÈTRES ouverte à toutes + Facturation AUTONOMIE uniquement (UX V1)', () => {
 	const layout = src('./src/routes/espace/+layout.server.ts');
-	// décision produit : seule la facturation reste ouverte pendant le lock
-	assert.match(layout, /BILLING_OPEN_PATHS = \['\/espace\/facturation'\]/);
-	assert.doesNotMatch(layout, /\/espace\/parametres/);
-	// tout le reste de /espace/* passe par requireClientAccess → redirect
+	// La page Paramètres reste soumise au garde standard (requireClientAccess) :
+	// accessible à toute cliente non bloquée — le hard lock la verrouille toujours.
 	assert.match(layout, /requireClientAccess\(event/);
+	assert.doesNotMatch(layout, /'\/espace\/parametres'/);
+	// Page de retour Stripe : ouverte pendant le lock (matching EXACT, jamais un préfixe)
+	assert.match(layout, /BILLING_OPEN_PATHS = \['\/espace\/facturation', '\/facturation\/retour'\]/);
+
+	// UX V1 : la carte Facturation n'existe QU'en mode Autonomie — en Coaching,
+	// aucun état billing, aucun lien Portal, aucun CTA abonnement dans Paramètres.
+	const parametres = src('./src/routes/espace/parametres/+page.svelte');
+	assert.match(parametres, /\{#if b\.coachingMode === 'autonomy'\}/);
+	// l'ancienne branche « accès inclus en Coaching » de la carte Facturation a disparu
+	assert.doesNotMatch(parametres, /inclus dans ton accompagnement/);
 });
 
 test('12c · HARD LOCK : déconnexion possible depuis la page facturation', () => {
@@ -345,4 +353,81 @@ test('fail-closed : sans config Stripe, le BFF répond 503 et la page reste honn
 	// et getStripe() indisponible → BillingUnavailableError → 503.
 	assert.match(checkout, /status: 503/);
 	assert.match(checkout, /BillingUnavailableError/);
+});
+
+/* ═══════════════ UX PWA / STRIPE (UX V1 — analyse statique) ═══════════════ */
+
+test('UX · Checkout/Portal redirigent vers la page de retour G-FLUX', () => {
+	const checkout = src('./src/routes/api/billing/checkout/+server.ts');
+	assert.match(checkout, /success_url: `\$\{origin\}\/facturation\/retour\?checkout=success`/);
+	// annulation : retour neutre sur le paywall, sans message de succès
+	assert.match(checkout, /cancel_url: `\$\{origin\}\/espace\/facturation\?checkout=cancel`/);
+	const portal = src('./src/routes/api/billing/portal/+server.ts');
+	assert.match(portal, /return_url: `\$\{origin\}\/facturation\/retour`/);
+});
+
+test('UX · page de retour : état réel seulement, jamais « validé » sur la foi de l\'URL', () => {
+	const server = src('./src/routes/facturation/retour/+page.server.ts');
+	// la page lit l'état DÉRIVÉ de la base (webhook = source de vérité)
+	assert.match(server, /api\.billing\.accessState/);
+	assert.match(server, /requireRole\(event,\s*'client'/);
+	// coaching → pas de page facturation (même décision que /espace/facturation)
+	assert.match(server, /redirect\(303, '\/espace'\)/);
+	const svelte = src('./src/routes/facturation/retour/+page.svelte');
+	// textes produit demandés
+	assert.match(svelte, /Tout est à jour/);
+	assert.match(svelte, /Ton abonnement G-FLUX a bien été mis à jour\./);
+	assert.match(svelte, /Tu peux maintenant revenir dans l'application\./);
+	assert.match(svelte, /Retourner à G-FLUX/);
+	assert.match(svelte, /Si l'application ne s'ouvre pas automatiquement, ferme cette page et reviens à G-FLUX\./);
+	// l'état « confirmé » vient de la base (complimentary OU abonnement actif /
+	// période payée), jamais d'un simple paramètre d'URL
+	assert.match(svelte, /b\.decision !== 'block'/);
+	assert.match(svelte, /b\.billingAccessOverride === 'complimentary'/);
+	// cas non confirmé : message HONNÊTE (pas de « paiement validé » hors état réel)
+	assert.match(svelte, /en cours de confirmation/);
+});
+
+test('UX · ouverture Stripe : navigateur externe en PWA, même contexte en web classique', () => {
+	const refresh = src('./src/lib/billingRefresh.ts');
+	// le helper central décide : standalone → window.open (externe), sinon même contexte
+	assert.match(refresh, /if \(isStandalone\(\)\)/);
+	assert.match(refresh, /window\.open\(url, '_blank'\)/);
+	assert.match(refresh, /window\.location\.href = url/);
+	// les deux pages billing passent par le helper (plus aucun href direct sur l'URL Stripe)
+	const facturation = src('./src/routes/espace/facturation/+page.svelte');
+	assert.match(facturation, /openStripeUrl\(json\.url\)/);
+	assert.doesNotMatch(facturation, /window\.location\.href = json\.url/);
+	const parametres = src('./src/routes/espace/parametres/+page.svelte');
+	assert.match(parametres, /openStripeUrl\(json\.url\)/);
+});
+
+test('UX · revalidation entitlement au retour de focus (sans polling)', () => {
+	const refresh = src('./src/lib/billingRefresh.ts');
+	// visibilitychange + pageshow(persisted) + focus, anti-rafale, AUCUN timer
+	assert.match(refresh, /visibilitychange/);
+	assert.match(refresh, /pageshow/);
+	assert.match(refresh, /e\.persisted/);
+	assert.match(refresh, /invalidateAll/);
+	// aucun mécanisme de polling : aucune API de répétition programmée
+	assert.doesNotMatch(refresh, /setInterval|setTimeout\(/);
+	// branchée sur les trois surfaces concernées
+	const facturation = src('./src/routes/espace/facturation/+page.svelte');
+	assert.match(facturation, /startBillingFocusRevalidate\(\)/);
+	const parametres = src('./src/routes/espace/parametres/+page.svelte');
+	assert.match(parametres, /startBillingFocusRevalidate\(\)/);
+	const retour = src('./src/routes/facturation/retour/+page.svelte');
+	assert.match(retour, /startBillingFocusRevalidate\(\)/);
+});
+
+test('UX · la page de retour reste joignable à une cliente bloquée (hors /espace)', () => {
+	// route racine = pas soumise au layout /espace ; le lock l'ajoute
+	// explicitement à ses chemins ouverts (matching exact) — le verrou ne
+	// s'élargit PAS à /espace/facturation/* pour autant.
+	const layout = src('./src/routes/espace/+layout.server.ts');
+	assert.match(layout, /'\/facturation\/retour'/);
+	// une page de confirmation n'est pas une surface de sortie de session :
+	// la déconnexion reste sur facturation/parametres (décision V1 inchangée)
+	const retour = src('./src/routes/facturation/retour/+page.server.ts');
+	assert.doesNotMatch(retour, /export const actions/);
 });

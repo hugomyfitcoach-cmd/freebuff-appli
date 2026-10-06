@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import Icon from '$lib/components/Icon.svelte';
+	import { openStripeUrl, startBillingFocusRevalidate } from '$lib/billingRefresh';
 
 	let { data } = $props();
 
@@ -27,6 +28,15 @@
 		paused: 'En pause',
 	};
 
+	/**
+	 * Retour de focus après un passage chez Stripe (Checkout ou Portal) :
+	 * revalidation AUTOMATIQUE de l'entitlement côté serveur — si le webhook a
+	 * confirmé le paiement pendant l'absence, la page se déverrouille d'elle-
+	 * même (aucun refresh manuel, aucun redémarrage). Aucun polling : on
+	 * n'écoute que le vrai retour de l'utilisatrice.
+	 */
+	$effect(() => startBillingFocusRevalidate());
+
 	async function startCheckout(p: 'monthly' | 'yearly') {
 		plan = p;
 		loading = true;
@@ -39,7 +49,9 @@
 			});
 			const json = await res.json();
 			if (res.ok && json.url) {
-				window.location.href = json.url;
+				// PWA installée → Stripe s'ouvre dans le navigateur externe (G-FLUX
+				// reste ouverte derrière) ; web classique → même contexte.
+				openStripeUrl(json.url);
 				return;
 			}
 			errorMsg = json.error ?? 'Une erreur est survenue. Réessaie.';
@@ -56,7 +68,8 @@
 			const res = await fetch('/api/billing/portal', { method: 'POST' });
 			const json = await res.json();
 			if (res.ok && json.url) {
-				window.location.href = json.url;
+				// PWA installée → navigateur externe ; web classique → même contexte.
+				openStripeUrl(json.url);
 				return;
 			}
 			errorMsg = json.error ?? 'Une erreur est survenue. Réessaie.';

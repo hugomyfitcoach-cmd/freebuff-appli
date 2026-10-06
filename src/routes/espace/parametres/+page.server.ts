@@ -7,11 +7,14 @@ import { planForPriceId } from '$lib/server/stripe';
 import { errMsg } from '$lib/errors.js';
 
 /**
- * PARAMÈTRES cliente (mission §5) — page ouverte même cliente bloquée
- * (Profil / Compte / Déconnexion restent accessibles ; la section Facturation
- * affiche l'état réel et renvoie vers /espace/facturation si besoin).
- * Section Facturation : état DÉRIVÉ (canAccessApp côté Convex) :
- *  - Coaching       → « Accès à G-FLUX inclus dans ton accompagnement »
+ * PARAMÈTRES cliente — page ouverte à TOUTES les clientes, même bloquée :
+ * Profil / Compte (email + mot de passe) / Notifications / Déconnexion
+ * restent accessibles à toutes. La carte Facturation n'est rendue QUE si
+ * coachingMode === "autonomy" (décision produit UX V1) : en Coaching, aucune
+ * carte Facturation, aucun lien Portal, aucun CTA abonnement — la vraie
+ * barrière reste le 403 serveur des routes /api/billing/*.
+ *
+ * Carte Facturation (Autonomie) : état DÉRIVÉ (canAccessApp côté Convex) :
  *  - Complimentary  → « Accès à G-FLUX offert »
  *  - Actif mensuel  → « G-FLUX Autonomie · 15,90 € / mois · Actif » (+ échéance)
  *  - Actif annuel   → « G-FLUX Autonomie · 129 € / an · Actif » (+ échéance)

@@ -44,6 +44,11 @@ export const load: PageServerLoad = async (event) => {
 				: null,
 		},
 		prices: { monthly: AUTONOMY_MONTHLY_PRICE_EUR, yearly: AUTONOMY_YEARLY_PRICE_EUR },
+		// Parcours web classique (Stripe dans le même contexte) : le retour de
+		// Checkout revient ICI. Le paramètre n'est qu'une commodité de navigation
+		// — JAMAIS traité comme une preuve de paiement (webhook = source de vérité).
+		// En PWA (ouverture navigateur externe) et via le Portal, le retour passe
+		// par la page dédiée /facturation/retour.
 		checkout: event.url.searchParams.get('checkout'),
 		billingReady: billingConfigured(),
 	};

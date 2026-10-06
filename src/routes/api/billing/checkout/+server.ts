@@ -19,8 +19,9 @@ import { errMsg } from '$lib/errors.js';
  * - metadata.gfluxUserId / gfluxEmail en plus ;
  * - customer : le stripeCustomerId existant est réutilisé, sinon Checkout
  *   crée le Customer et checkout.session.completed le persiste (webhook).
- * - success_url → /espace/facturation?checkout=success (le retour ne donne
- *   JAMAIS l'accès à lui seul : le webhook reste la source de vérité).
+ * - success_url → /facturation/retour?checkout=success : page de retour
+ *   G-FLUX (état réel affiché ; le retour ne donne JAMAIS l'accès à lui seul,
+ *   le webhook reste la source de vérité).
  *
  * AUTONOMIE UNIQUEMENT (décision produit) : une cliente en coaching ne doit
  * jamais créer accidentellement un abonnement Autonomie — un appel API direct
@@ -68,7 +69,10 @@ export const POST: RequestHandler = async (event) => {
 			metadata: { gfluxUserId: user._id, gfluxEmail: user.email },
 			subscription_data: { metadata: { gfluxUserId: user._id, gfluxEmail: user.email } },
 			allow_promotion_codes: false,
-			success_url: `${origin}/espace/facturation?checkout=success`,
+			// Retour Stripe (UX V1) : la page de retour G-FLUX affiche l'état
+			// RÉEL (base/webhook) — l'URL ne prouve jamais un paiement. Le
+			// paramètre ?checkout n'est qu'une commodité de navigation.
+			success_url: `${origin}/facturation/retour?checkout=success`,
 			cancel_url: `${origin}/espace/facturation?checkout=cancel`,
 		});
 		if (!session.url) {

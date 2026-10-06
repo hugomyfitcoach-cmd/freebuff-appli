@@ -1,13 +1,19 @@
 import { requireClientAccess, requireRole, SESSION_COOKIE } from '$lib/server/session';
 import { convex } from '$lib/server/convex';
 import { api } from '../../convex/_generated/api.js';	/**
-	 * Routes de l'espace accessibles pendant le HARD LOCK (décision produit :
-	 * facturation = re-souscription ; déconnexion via ?/logout). Tout le reste
-	 * de /espace/* est verrouillé par le garde serveur : Accueil, Journal,
-	 * Progression, Entraînement, Bilans, Photos, RDV, Profil, Compte,
+	 * Routes accessibles pendant le HARD LOCK (décision produit : facturation =
+	 * re-souscription ; page de retour Stripe ; déconnexion via ?/logout). Tout
+	 * le reste de /espace/* est verrouillé par le garde serveur : Accueil,
+	 * Journal, Progression, Entraînement, Bilans, Photos, RDV, Profil, Compte,
 	 * Notifications — données conservées mais inaccessibles.
+	 *
+	 * NB : /facturation/retour est une route RACINE (hors /espace) ajoutée ici
+	 * uniquement parce que CE layout sert de garde central au lock : la page
+	 * de retour Stripe doit rester joignable à une cliente bloquée quand elle
+	 * revient de Checkout/Portal. Matching EXACT (=== includes), jamais un
+	 * préfixe : le lock ne s'ouvre pas au-delà de ces deux pages.
 	 */
-	const BILLING_OPEN_PATHS = ['/espace/facturation'];
+	const BILLING_OPEN_PATHS = ['/espace/facturation', '/facturation/retour'];
 
 export const load = async (event) => {
 	// FACTURATION — garde serveur central (mission §4) : une cliente Autonomie

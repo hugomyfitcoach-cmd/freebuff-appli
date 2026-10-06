@@ -40,7 +40,9 @@ export const POST: RequestHandler = async (event) => {
 		const stripe = getStripe();
 		const portal = await stripe.billingPortal.sessions.create({
 			customer: customerId,
-			return_url: `${origin}/espace/facturation`,
+			// Retour Stripe (UX V1) : page de retour G-FLUX (état réel, jamais
+			// déduit du seul fait d'être revenu du Portal).
+			return_url: `${origin}/facturation/retour`,
 		});
 		return json({ url: portal.url });
 	} catch (e) {

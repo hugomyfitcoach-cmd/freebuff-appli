@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import Icon from '$lib/components/Icon.svelte';
+	import { openStripeUrl, startBillingFocusRevalidate } from '$lib/billingRefresh';
 
 	let { data } = $props();
 
@@ -15,6 +16,13 @@
 
 	/* ————— Portail Stripe (mise à jour moyen de paiement / gestion) ————— */
 	let portalLoading = $state(false);
+
+	/**
+	 * Retour de focus après un passage chez Stripe (mise à jour de moyen de
+	 * paiement, etc.) : revalidation AUTOMATIQUE de l'état facturation côté
+	 * serveur — la carte se met à jour sans refresh manuel. Aucun polling.
+	 */
+	$effect(() => startBillingFocusRevalidate());
 
 	/* ————— Facturation (état dérivé serveur, même source que /espace/facturation) ————— */
 	const b = $derived(data.billing);
@@ -41,7 +49,9 @@
 			const res = await fetch('/api/billing/portal', { method: 'POST' });
 			const json = await res.json();
 			if (res.ok && json.url) {
-				window.location.href = json.url;
+				// PWA installée → Stripe s'ouvre dans le navigateur externe (G-FLUX
+				// reste ouverte derrière) ; web classique → même contexte.
+				openStripeUrl(json.url);
 				return;
 			}
 			alert(json.error ?? 'Une erreur est survenue. Réessaie.');
@@ -186,7 +196,11 @@
 		</p>
 	</section>
 
-	<!-- ═══ FACTURATION : même état dérivé que /espace/facturation ═══ -->
+	<!-- ═══ FACTURATION — AUTONOMIE UNIQUEMENT (décision produit) ═══
+		     La carte n'existe PAS en Coaching : aucun état, aucun lien Portal,
+		     aucun CTA abonnement. Les protections serveur (403 Checkout/Portal)
+		     restent la vraie barrière — ceci n'est que l'absence d'UI. -->
+	{#if b.coachingMode === 'autonomy'}
 	<section class="mt-4 rounded-2xl border border-line bg-card p-5 shadow-sm">
 		<p class="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-mist">
 			<Icon name="creditCard" size={13} /> Facturation
@@ -212,12 +226,6 @@
 					{portalLoading ? 'Ouverture…' : 'Mettre à jour mon moyen de paiement'}
 				</button>
 			</div>
-		{:else if b.coachingMode === 'coaching'}
-			<p class="mt-3 flex items-center gap-2 text-sm font-semibold text-brand-dark">
-				<Icon name="circleCheck" size={15} />
-				Accès à G-FLUX inclus dans ton accompagnement
-			</p>
-			<p class="mt-1 text-[12.5px] leading-relaxed text-mist">Rien à régler, rien à gérer — ton suivi couvre l'app.</p>
 		{:else if b.billingAccessOverride === 'complimentary'}
 			<p class="mt-3 flex items-center gap-2 text-sm font-semibold text-brand-dark">
 				<Icon name="gift" size={15} />
@@ -262,6 +270,7 @@
 			</a>
 		{/if}
 	</section>
+	{/if}
 
 	<!-- ═══ DÉCONNEXION ═══ -->
 	<section class="mt-4 rounded-2xl border border-line bg-card p-5 shadow-sm">

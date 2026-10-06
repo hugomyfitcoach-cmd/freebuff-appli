@@ -157,9 +157,10 @@ l'union des 8 statuts Stripe (validation côté Convex).
   success/cancel honnêtes ; **déconnexion** disponible (seule page ouverte pendant le
   hard lock).
 - Côté coaching : aucun onglet Facturation, aucun bouton Portal (rien à facturer).
-- `/espace/parametres` (profil, compte, notifications, facturation, déconnexion) :
-  ouverte uniquement aux clientes non bloquées — pendant le hard lock elle est verrouillée
-  comme tout le reste de /espace.
+- `/espace/parametres` (profil, compte, notifications, déconnexion) : ouverte uniquement
+  aux clientes non bloquées — pendant le hard lock elle est verrouillée comme tout le
+  reste de /espace. Sa carte Facturation n'est rendue qu'en mode Autonomie (révision 3,
+  § 14.1).
 
 ## 9. Variables d'environnement requises (TEST uniquement)
 
@@ -242,9 +243,9 @@ Scénarios de bout en bout :
 - Pas de `gh` CLI disponible → PR créée via push + lien de comparaison GitHub.
 - Tests : [tests/mission-billing-autonomie.test.mjs](../tests/mission-billing-autonomie.test.mjs)
   — matrice canAccessApp, bornes grâce 24 h (+23h59 / +24h01), plafonnement doublon,
-  hard lock (coaching → autonomie sans abonnement, `/espace/parametres` inaccessible,
-  facturation ouverte + déconnexion), Portal/Checkout 403 coaching, 403/400 serveur,
-  fail-closed. `npm test` : 478/478.
+  hard lock (coaching → autonomie sans abonnement, facturation ouverte + déconnexion),
+  Portal/Checkout 403 coaching, 403/400 serveur, fail-closed. Révision 3 : 5 tests UX
+  supplémentaires (voir § 14.5), soit 483/483.
 - Vérifications : `npm test` ✔ 478/478 · `npm run check` ✔ 0 erreur (warnings préexistants)
   · `npm run build` ✔.
 
@@ -256,3 +257,75 @@ Scénarios de bout en bout :
 - ✅ Aucun merge sur main (branche dédiée `feat/billing-autonomie-v1`, PR ouverte).
 - ✅ Aucune donnée cliente prod utilisée ni modifiée (aucune donnée supprimée nulle part :
   schema 100 % additif, bloquer n'efface rien — les données restent conservées, inaccessibles).
+
+## 14. UX PWA / Stripe (révision 3 — même logique billing, aucune règle d'accès modifiée)
+
+### 14.1 Paramètres pour toutes — Facturation AUTONOMIE uniquement
+
+- La page [/espace/parametres](../src/routes/espace/parametres/+page.svelte) reste
+  ouverte à toutes les clientes (Profil, Compte email + mot de passe, Notifications,
+  Déconnexion) — décision produit révisée : elle n'est PAS une exception au hard lock,
+  le garde standard `requireClientAccess` s'applique toujours (une cliente bloquée ne
+  la voit pas, la facturation reste la seule porte).
+- La carte Facturation n'est rendue QUE si `coachingMode === "autonomy"` : en
+  Coaching, aucun état billing, aucun lien Customer Portal, aucun CTA abonnement
+  (l'ancienne branche « accès inclus dans ton accompagnement » de la carte est
+  supprimée). Les protections serveur 403 Checkout/Portal restent la vraie barrière.
+
+### 14.2 Ouverture de Stripe depuis la PWA
+
+- Audit du comportement : checkout/portal faisaient `window.location.href = url` —
+  en PWA installée, Stripe restait DANS la webview (iOS : WKWebView captive,
+  risque de fermeture par 3DS/Apple Pay ; Android : navigation interne).
+- Nouveau helper central [src/lib/billingRefresh.ts](../src/lib/billingRefresh.ts)
+  → `openStripeUrl()` : si `isStandalone()` (display-mode standalone ou
+  `navigator.standalone` iOS), `window.open(url, '_blank')` → Stripe s'ouvre dans
+  le navigateur externe, G-FLUX reste ouverte derrière ; en web classique,
+  navigation dans le même contexte (comportement historique inchangé).
+- Branché sur les 3 surfaces : Checkout et Portal de /espace/facturation, Portal de
+  Paramètres (carte Autonomie).
+- Test réel iOS/Android PWA : non exécutable depuis cet environnement (pas de
+  device) — détection standalone vérifiée en desktop (onglet navigateur = non
+  standalone) et la branche externe s'appuie sur le mécanisme standard
+  `window.open` depuis un contexte standalone.
+
+### 14.3 Page de retour Stripe — /facturation/retour
+
+- Nouvelle page racine HORS /espace (le guard du layout /espace ne la couvre pas) :
+  [src/routes/facturation/retour](../src/routes/facturation/retour/+page.server.ts).
+  Ouverte par `success_url` du Checkout et `return_url` du Portal — dans le
+  navigateur externe comme dans le contexte PWA (les deux parcours supportés).
+- Reste joignable à une cliente bloquée : le hard lock ajoute `/facturation/retour`
+  à ses chemins ouverts (matching EXACT dans `BILLING_OPEN_PATHS`, jamais un
+  préfixe — le verrou ne s'élargit pas à /espace/facturation/*).
+- Contenu : « Tout est à jour ✓ » / « Ton abonnement G-FLUX a bien été mis à jour. » /
+  « Tu peux maintenant revenir dans l'application. », CTA « Retourner à G-FLUX »
+  (→ /espace/facturation), mention discrète « Si l'application ne s'ouvre pas
+  automatiquement, ferme cette page et reviens à G-FLUX. »
+- Source de vérité inchangée : l'état affiché vient de `accessState` (base, webhook) —
+  confirmé → « Tout est à jour ✓ » ; sinon « Mise à jour en cours de confirmation »
+  (jamais « paiement validé » sur la seule foi du paramètre URL `?checkout=success`,
+  qui n'est qu'une commodité de navigation). Cliente Coaching → redirect /espace.
+- `cancel_url` inchangé (retour neutre sur /espace/facturation?checkout=cancel).
+
+### 14.4 Revalidation automatique de l'entitlement au retour de focus
+
+- `startBillingFocusRevalidate()` (même helper) : `visibilitychange`→visible,
+  `pageshow` avec `event.persisted` (retour depuis Stripe via cache historique,
+  cas iOS), et `focus` en filet — déclenche `invalidateAll()` qui re-exécute les
+  load functions SvelteKit (re-lecture de l'état dérivé serveur). Aucun polling,
+  aucun timer : seuls les vrais retours de l'utilisatrice sont écoutés, avec un
+  anti-rafale de 1 500 ms.
+- Branché sur les trois surfaces concernées : /espace/facturation, /espace/parametres
+  (carte Facturation) et /facturation/retour. Si le webhook a confirmé pendant le
+  passage chez Stripe : déverrouillage immédiat à la reprise (le load re-exécute
+  aussi le garde serveur), sans refresh manuel ni redémarrage de la PWA.
+
+### 14.5 Vérifications (révision 3)
+
+- Tests : [tests/mission-billing-autonomie.test.mjs](../tests/mission-billing-autonomie.test.mjs)
+  — 483/483 (5 nouveaux : URLs de retour, page de retour honnête, ouverture externe
+  PWA, revalidation focus sans polling, page retour joignable quand bloquée ; le test
+  12b est réécrit selon la nouvelle décision Paramètres).
+- `npm test` ✔ 483/483 · `npm run check` ✔ 0 erreur (41 warnings préexistants)
+  · `npm run build` ✔.
