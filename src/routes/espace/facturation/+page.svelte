@@ -308,7 +308,7 @@
 			<div class="paywall-overlay">
 				<div role="dialog" aria-modal="true" aria-label="Retrouve ton accès à G-FLUX — choix de l'offre" class="paywall-modal">
 					<p class="text-[10px] font-bold uppercase tracking-widest text-mist">TON ACCÈS G-FLUX</p>
-					<h2 class="mt-1 font-display text-[1.5rem] font-black leading-tight tracking-tight text-ink">Retrouve ton accès à G-FLUX</h2>
+					<h2 class="paywall-title mt-1 font-display font-black leading-tight tracking-tight text-ink">Retrouve ton accès à G-FLUX</h2>
 					<p class="mt-2 text-[13px] leading-relaxed text-mist-strong">
 						Ton historique, ton Journal, ta progression et tous tes outils sont toujours là. Reprends exactement là où tu t'es arrêté(e).
 					</p>
@@ -542,11 +542,24 @@
 		max-width: 28rem;
 		max-height: 87vh;
 		overflow-y: auto;
+		overflow-x: hidden;
 		border-radius: 1.5rem;
-		border: 1px solid var(--color-line);
-		background-color: var(--color-card);
+		border: 1px solid rgba(17, 17, 16, 0.08);
+		/* Blanc légèrement translucide (≈94 %) + blur doux : l’app se devine
+		   derrière, la lisibilité et le contraste restent excellents. */
+		background-color: rgba(255, 255, 255, 0.94);
+		-webkit-backdrop-filter: blur(14px) saturate(1.05);
+		backdrop-filter: blur(14px) saturate(1.05);
 		padding: 1.5rem;
-		box-shadow: 0 24px 48px -12px rgba(17, 17, 16, 0.25);
+		box-shadow:
+			0 24px 48px -12px rgba(17, 17, 16, 0.25),
+			inset 0 1px 0 rgba(255, 255, 255, 0.6);
+	}
+	/* Titre sur UNE SEULE LIGNE (mobile compris) : taille responsive en clamp
+	   (16 px sur petits écrans → 24 px ≥ 480 px) + nowrap — premium, jamais tassé. */
+	.paywall-title {
+		font-size: clamp(0.9375rem, 5vw, 1.5rem);
+		white-space: nowrap;
 	}
 	/* Offres : sélection lisible (bordure verte, fond teinté, check discret). */
 	.paywall-offer {
