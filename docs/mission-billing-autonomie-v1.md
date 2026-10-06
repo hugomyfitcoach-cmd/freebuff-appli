@@ -329,3 +329,53 @@ Scénarios de bout en bout :
   12b est réécrit selon la nouvelle décision Paramètres).
 - `npm test` ✔ 483/483 · `npm run check` ✔ 0 erreur (41 warnings préexistants)
   · `npm run build` ✔.
+
+## 15. Amélioration UX billing (révision 4 — présentation seule, zéro règle d'accès)
+
+### 15.1 Bandeau de retour Checkout state-aware (/espace/facturation)
+
+- L'ancien bandeau « Merci ! Ton paiement est en cours de confirmation… » (affiché
+  sur la seule foi de `?checkout=success`) est remplacé par un bandeau STRICTEMENT
+  state-aware : l'URL ne prouve jamais le succès, la source de vérité reste le
+  webhook Stripe → base → `accessState`.
+- Entitlement dérivé `entitlementActive` (même définition que `confirmed` de la page
+  /facturation/retour) : décision non bloquée ET (accès offert OU abonnement actif /
+  période payée en cours).
+- Tant que la confirmation serveur n'est pas obtenue : « Vérification de ton
+  abonnement… » / « Cette page se met à jour automatiquement. » (la revalidation au
+  retour de focus — 14.4 — bascule l'affichage dès confirmation).
+- Dès que l'entitlement est actif : « C'est bon, ton abonnement est actif ✓ » /
+  « Tu peux maintenant profiter de G-FLUX. » + CTA « Retour à G-FLUX » → /espace.
+- La page /facturation/retour est DÉJÀ state-aware (14.3) : textes product demandés
+  inchangés (pas de churn, assertions existantes préservées).
+
+### 15.2 Paywall premium — présentation visuelle seule
+
+- Quand `decision === 'block'`, la page /espace/facturation présente :
+  - un FOND statique imitation shell G-FLUX (`.paywall-backdrop`) : cartes et
+    skeletons (`.pb-card`, `.pb-sk`) purement décoratifs, aria-hidden, assombris,
+    flout élégant (backdrop-filter) et fondu vers le bas — AUCUNE donnée protégée
+    chargée, AUCUNE requête réseau, AUCUN texte métier ;
+  - un OVERLAY (`.paywall-overlay`, z-65) en bottom-sheet mobile (safe-area iPhone
+    incluse, `env(safe-area-inset-bottom)`) / carte centrée ≥ md, contenant : titre
+    « Continue avec G-FLUX », rappel données/historique/progression conservés, choix
+    d'offre en radiogroup accessible (mensuel 15,90 € / annuel 129 € avec badge
+    « Économise 32 % », 1 − 129/190,8 ≈ 32 %), CTA Checkout, et le bouton
+    « Se déconnecter » (la page étant couverte par l'overlay, la sortie de session
+    reste possible pendant le lock — décision 12c).
+- Hard lock STRICTEMENT inchangé : `requireClientAccess` dans le layout /espace
+  (13), `BILLING_OPEN_PATHS` inchangé, `?/logout` inchangé sur le serveur ; aucune
+  route, donnée ou mutation protégée ne devient accessible — le changement est
+  purement CSS/markup dans la page facturation.
+- Mobile-first iPhone + Android : bottom-sheet plein écran en colonne, safe-area,
+  `prefers-reduced-motion` respecté (skeletons sans animation).
+
+### 15.3 Vérifications (révision 4)
+
+- Tests : 2 nouveaux (« bandeau retour Checkout state-aware », « paywall premium »)
+  — 485/485. Assertions couvrant : textes du bandeau, entente depuis la base
+  (décision/override, pas l'URL), absence de l'ancien message naïf, fond sans
+  fetch, offres + badge, rappel données conservées, double `?/logout`, gardes
+  serveur inchangés.
+- `npm test` ✔ 485/485 · `npm run check` ✔ 0 erreur (41 warnings préexistants)
+  · `npm run build` ✔.

@@ -29,6 +29,19 @@
 	};
 
 	/**
+	 * Entitlement RÉEL (webhook Stripe → base → accessState) : même définition
+	 * que la page /facturation/retour. Sert UNIQUEMENT à personnaliser le
+	 * bandeau de retour de Checkout — l'URL ?checkout=success ne prouve rien,
+	 * la source de vérité reste le webhook/entitlement serveur, et le verrou
+	 * d'accès est décidé côté serveur (requireClientAccess), jamais ici.
+	 */
+	const entitlementActive = $derived(
+		b.decision !== 'block' &&
+			(b.billingAccessOverride === 'complimentary' ||
+				(b.subscription !== null && (b.subscription.status !== 'canceled' || (b.subscription.currentPeriodEnd ?? 0) > Date.now())))
+	);
+
+	/**
 	 * Retour de focus après un passage chez Stripe (Checkout ou Portal) :
 	 * revalidation AUTOMATIQUE de l'entitlement côté serveur — si le webhook a
 	 * confirmé le paiement pendant l'absence, la page se déverrouille d'elle-
@@ -181,65 +194,169 @@
 				<p class="mt-2 text-center text-[11px] text-mist">Moyen de paiement, factures et résiliation — espace sécurisé Stripe.</p>
 			</section>
 
-			<!-- Bloquée : PAYWALL -->
+			<!-- Bloquée : PAYWALL PREMIUM — présentation visuelle seule. Le fond imite
+		     le shell G-FLUX avec des PLACEHOLDERS (aucune donnée protégée chargée,
+		     aucune requête réseau) ; le verrou d'accès reste 100 % serveur
+		     (requireClientAccess) : ce bloc n'ouvre AUCUN contenu réellement. -->
 		{:else}
-			<section class="rounded-2xl border border-line bg-card p-5 shadow-sm">
-				<h2 class="font-display text-[1.35rem] font-black leading-tight tracking-tight text-ink">Continue avec G-FLUX</h2>
-				<p class="mt-2 text-[13.5px] leading-relaxed text-mist-strong">
-					Ton compte, ton historique, ton Journal, ta progression et tous les outils G-FLUX sont conservés. Choisis ton offre pour reprendre exactement là où tu t'es arrêtée.
-				</p>
-			</section>
-
-			{#if !data.billingReady}
-				<p class="mt-4 rounded-xl border border-line bg-cream px-4 py-3 text-center text-[12.5px] text-mist">
-					La souscription en ligne arrive très bientôt — ton accès est en attente d'activation.
-				</p>
-			{:else}
-				<!-- OFFRES : 2 cartes sobres, économie annuelle soulignée sans pression -->
-				<div class="mt-4 grid gap-3">
-					<button
-						type="button"
-						onclick={() => (plan = 'yearly')}
-						class="relative rounded-2xl border-2 px-4 py-4 text-left transition {plan === 'yearly' ? 'border-brand bg-brand-soft shadow-sm' : 'border-line bg-card hover:border-mist'}"
-					>
-						<span class="absolute -top-2.5 right-4 rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">2 mois offerts</span>
-						<p class="text-[11px] font-bold uppercase tracking-widest text-mist">Annuel</p>
-						<p class="mt-1 font-display text-xl font-black text-ink">129 € <span class="text-sm font-bold text-mist">/ an</span></p>
-						<p class="mt-0.5 text-[11.5px] font-semibold text-brand-dark">Soit 10,75 € / mois</p>
-					</button>
-					<button
-						type="button"
-						onclick={() => (plan = 'monthly')}
-						class="rounded-2xl border-2 px-4 py-4 text-left transition {plan === 'monthly' ? 'border-brand bg-brand-soft shadow-sm' : 'border-line bg-card hover:border-mist'}"
-					>
-						<p class="text-[11px] font-bold uppercase tracking-widest text-mist">Mensuel</p>
-						<p class="mt-1 font-display text-xl font-black text-ink">15,90 € <span class="text-sm font-bold text-mist">/ mois</span></p>
-						<p class="mt-0.5 text-[11.5px] font-semibold text-mist">Sans engagement, résiliable à tout moment</p>
-					</button>
+			<div class="paywall-backdrop" aria-hidden="true">
+				<div class="pb-card">
+					<div class="flex items-center gap-3">
+						<div class="pb-sk h-10 w-10 shrink-0 rounded-full"></div>
+						<div class="flex-1 space-y-2">
+							<div class="pb-sk h-3 w-28"></div>
+							<div class="pb-sk h-2.5 w-20"></div>
+						</div>
+						<div class="pb-sk h-8 w-8 shrink-0 rounded-full"></div>
+					</div>
 				</div>
+				<div class="pb-card">
+					<div class="pb-sk h-3 w-24"></div>
+					<div class="pb-sk mt-2 h-7 w-44"></div>
+					<div class="mt-4 grid grid-cols-3 gap-2">
+						<div class="pb-sk h-14"></div>
+						<div class="pb-sk h-14"></div>
+						<div class="pb-sk h-14"></div>
+					</div>
+					<div class="mt-4 space-y-2">
+						<div class="pb-sk h-3 w-full"></div>
+						<div class="pb-sk h-3 w-11/12"></div>
+						<div class="pb-sk h-3 w-3/4"></div>
+					</div>
+				</div>
+				<div class="pb-card">
+					<div class="pb-sk h-3 w-20"></div>
+					<div class="mt-3 flex items-center gap-3">
+						<div class="pb-sk h-11 w-11 shrink-0 rounded-full"></div>
+						<div class="flex-1 space-y-2">
+							<div class="pb-sk h-3 w-2/3"></div>
+							<div class="pb-sk h-2.5 w-1/2"></div>
+						</div>
+					</div>
+					<div class="mt-3 flex items-center gap-3">
+						<div class="pb-sk h-11 w-11 shrink-0 rounded-full"></div>
+						<div class="flex-1 space-y-2">
+							<div class="pb-sk h-3 w-3/5"></div>
+							<div class="pb-sk h-2.5 w-2/5"></div>
+						</div>
+					</div>
+				</div>
+				<div class="pb-cta mt-4"></div>
+			</div>
 
-				{#if errorMsg}
-					<p class="mt-3 rounded-xl border border-danger/30 bg-danger-light px-3.5 py-2.5 text-[12.5px] font-semibold text-danger" role="alert">{errorMsg}</p>
-				{/if}
+			<div class="paywall-overlay">
+				<div role="dialog" aria-modal="true" aria-label="Continue avec G-FLUX — choix de l'offre" class="w-full max-w-md rounded-3xl border border-line bg-card p-6 shadow-2xl shadow-ink/20">
+					<p class="text-[10px] font-bold uppercase tracking-widest text-mist">Ton accès G-FLUX</p>
+					<h2 class="mt-1 font-display text-[1.45rem] font-black leading-tight tracking-tight text-ink">Continue avec G-FLUX</h2>
+					<p class="mt-2 text-[13px] leading-relaxed text-mist-strong">
+						Ton compte, ton historique, ton Journal, ta progression et tous les outils G-FLUX sont conservés. Choisis ton offre pour reprendre exactement là où tu t'es arrêtée.
+					</p>
 
-				<button
-					type="button"
-					onclick={() => startCheckout(plan)}
-					disabled={loading}
-					class="mt-4 w-full rounded-xl bg-brand px-4 py-3 text-[15px] font-bold text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-60"
-				>
-					{loading ? 'Redirection…' : 'Continuer avec G-FLUX'}
-				</button>
-				<p class="mt-2.5 text-center text-[11px] leading-snug text-mist">Paiement sécurisé via Stripe. Résiliation en un geste, données toujours conservées.</p>
-			{/if}
+					{#if data.checkout === 'success' && !entitlementActive}
+						<!-- Paiement rentré mais pas encore confirmé serveur : état visible
+						     même derrière l'overlay — jamais « actif » sur la foi de l'URL. -->
+						<p class="mt-3 rounded-xl border border-line bg-cream px-3.5 py-2.5 text-center text-[12px] font-semibold text-mist-strong">
+							Vérification de ton abonnement…
+							<span class="mt-0.5 block font-normal text-mist">Cette page se met à jour automatiquement.</span>
+						</p>
+					{/if}
+
+					{#if !data.billingReady}
+						<p class="mt-4 rounded-xl border border-line bg-cream px-4 py-3 text-center text-[12.5px] text-mist">
+							La souscription en ligne arrive très bientôt — ton accès est en attente d'activation.
+						</p>
+					{:else}
+						<div class="mt-4 grid gap-3" role="radiogroup" aria-label="Choisis ton offre">
+							<button
+								type="button"
+								role="radio"
+								aria-checked={plan === 'yearly'}
+								onclick={() => (plan = 'yearly')}
+								class="relative rounded-2xl border-2 px-4 py-4 text-left transition {plan === 'yearly' ? 'border-brand bg-brand-soft shadow-sm' : 'border-line bg-card hover:border-mist'}"
+							>
+								<span class="absolute -top-2.5 right-4 rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Économise 32 %</span>
+								<div class="flex items-start justify-between gap-3">
+									<div>
+										<p class="text-[11px] font-bold uppercase tracking-widest text-mist">Annuel</p>
+										<p class="mt-1 font-display text-xl font-black text-ink">129 € <span class="text-sm font-bold text-mist">/ an</span></p>
+									</div>
+									<span class="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 {plan === 'yearly' ? 'border-brand bg-brand text-white' : 'border-mist bg-white'}">
+										{#if plan === 'yearly'}<Icon name="circleCheck" size={12} />{/if}
+									</span>
+								</div>
+								<p class="mt-0.5 text-[11.5px] font-semibold text-brand-dark">Soit 10,75 € / mois</p>
+							</button>
+							<button
+								type="button"
+								role="radio"
+								aria-checked={plan === 'monthly'}
+								onclick={() => (plan = 'monthly')}
+								class="rounded-2xl border-2 px-4 py-4 text-left transition {plan === 'monthly' ? 'border-brand bg-brand-soft shadow-sm' : 'border-line bg-card hover:border-mist'}"
+							>
+								<div class="flex items-start justify-between gap-3">
+									<div>
+										<p class="text-[11px] font-bold uppercase tracking-widest text-mist">Mensuel</p>
+										<p class="mt-1 font-display text-xl font-black text-ink">15,90 € <span class="text-sm font-bold text-mist">/ mois</span></p>
+									</div>
+									<span class="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 {plan === 'monthly' ? 'border-brand bg-brand text-white' : 'border-mist bg-white'}">
+										{#if plan === 'monthly'}<Icon name="circleCheck" size={12} />{/if}
+									</span>
+								</div>
+								<p class="mt-0.5 text-[11.5px] font-semibold text-mist">Sans engagement, résiliable à tout moment</p>
+							</button>
+						</div>
+
+						{#if errorMsg}
+							<p class="mt-3 rounded-xl border border-danger/30 bg-danger-light px-3.5 py-2.5 text-[12.5px] font-semibold text-danger" role="alert">{errorMsg}</p>
+						{/if}
+
+						<button
+							type="button"
+							onclick={() => startCheckout(plan)}
+							disabled={loading}
+							class="mt-4 w-full rounded-xl bg-brand px-4 py-3 text-[15px] font-bold text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-60"
+						>
+							{loading ? 'Redirection…' : 'Continuer avec G-FLUX'}
+						</button>
+						<p class="mt-2.5 text-center text-[11px] leading-snug text-mist">Paiement sécurisé via Stripe. Résiliation en un geste, données toujours conservées.</p>
+					{/if}
+
+					<!-- Sortie de session toujours possible pendant le lock (12c) :
+					     la page est derrière l'overlay → bouton équivalent ici. -->
+					<form method="POST" action="?/logout" class="mt-4 border-t border-line pt-4">
+						<button type="submit" class="w-full rounded-xl px-4 py-2 text-[12px] font-bold text-mist transition hover:text-danger">Se déconnecter</button>
+					</form>
+				</div>
+			</div>
 		{/if}
 	{/if}
 
-	<!-- ═══ Retour de Checkout (le webhook reste la source de vérité) ═══ -->
+	<!-- ═══ Retour de Checkout (le webhook reste la source de vérité) ═══
+	     Bandeau STRICTEMENT state-aware : tant que l'entitlement serveur
+	     n'est pas confirmé → « Vérification… » ; dès qu'il est actif →
+	     confirmation + CTA de retour. L'URL ne prouve jamais le succès. -->
 	{#if data.checkout === 'success'}
-		<p class="mt-5 rounded-xl border border-brand/30 bg-brand-light/60 px-4 py-3 text-center text-[12.5px] font-semibold text-brand-dark">
-			Merci ! Ton paiement est en cours de confirmation — cette page se met à jour automatiquement dès que c'est validé.
-		</p>
+		{#if entitlementActive}
+			<div class="mt-5 rounded-xl border border-brand/30 bg-brand-light/60 px-4 py-3.5 text-center">
+				<p class="flex items-center justify-center gap-2 text-[13px] font-black text-brand-dark">
+					<Icon name="circleCheck" size={16} class="shrink-0" />
+					C'est bon, ton abonnement est actif ✓
+				</p>
+				<p class="mt-1 text-[12.5px] text-brand-dark">Tu peux maintenant profiter de G-FLUX.</p>
+				<a
+					href="/espace"
+					data-sveltekit-noscroll
+					class="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-brand-dark"
+				>
+					Retour à G-FLUX <Icon name="arrowRight" size={14} />
+				</a>
+			</div>
+		{:else}
+			<p class="mt-5 rounded-xl border border-line bg-cream px-4 py-3 text-center text-[12.5px] font-semibold text-mist-strong">
+				Vérification de ton abonnement…
+				<span class="mt-0.5 block font-normal text-mist">Cette page se met à jour automatiquement.</span>
+			</p>
+		{/if}
 	{:else if data.checkout === 'cancel'}
 		<p class="mt-5 rounded-xl border border-line bg-cream px-4 py-3 text-center text-[12.5px] text-mist">Paiement interrompu — aucune somme n'a été débitée. Tu peux reprendre quand tu veux.</p>
 	{/if}
@@ -255,3 +372,84 @@
 		</button>
 	</form>
 </div>
+
+<style>
+	/*
+	 * PAYWALL PREMIUM (révision 4) — purement décoratif et sans état : le fond
+	 * imite le shell G-FLUX avec des PLACEHOLDERS uniquement (aucune donnée
+	 * protégée chargée, aucune requête réseau) ; l'overlay concentre le choix
+	 * d'offre en bottom-sheet (mobile) / carte centrée (desktop). Le verrou
+	 * d'accès reste côté serveur (requireClientAccess), strictement inchangé.
+	 */
+	.paywall-backdrop {
+		position: relative;
+		margin: 1.25rem 0 0.5rem;
+		border-radius: 1.5rem;
+		border: 1px solid var(--color-line);
+		background-color: var(--color-card);
+		padding: 1rem;
+		opacity: 0.85;
+		-webkit-backdrop-filter: blur(6px);
+		backdrop-filter: blur(6px);
+	}
+	.paywall-backdrop::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		border-radius: inherit;
+		background: linear-gradient(180deg, rgba(255, 255, 255, 0) 12%, var(--color-card) 92%);
+		pointer-events: none;
+	}
+	.pb-card {
+		border-radius: 1rem;
+		border: 1px solid var(--color-line-soft);
+		background-color: var(--color-soft);
+		padding: 1rem;
+		opacity: 0.8;
+	}
+	.pb-sk {
+		border-radius: 0.5rem;
+		background-color: var(--color-line-soft);
+		animation: paywall-pulse 1.8s ease-in-out infinite;
+	}
+	.pb-cta {
+		height: 3rem;
+		border-radius: 0.75rem;
+		background-color: var(--color-brand);
+		opacity: 0.7;
+	}
+	@keyframes paywall-pulse {
+		0%,
+		100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.55;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.pb-sk {
+			animation: none;
+		}
+	}
+	/* Bottom-sheet mobile (safe-area iPhone incluse), carte centrée ≥ md. */
+	.paywall-overlay {
+		position: fixed;
+		inset: 0;
+		z-index: 65;
+		display: flex;
+		align-items: flex-end;
+		justify-content: center;
+		padding: 0.75rem;
+		padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+		background-color: rgba(17, 17, 16, 0.5);
+		-webkit-backdrop-filter: blur(6px);
+		backdrop-filter: blur(6px);
+	}
+	@media (min-width: 768px) {
+		.paywall-overlay {
+			align-items: center;
+			padding: 1.5rem;
+		}
+	}
+</style>

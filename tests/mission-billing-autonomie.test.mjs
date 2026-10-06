@@ -420,6 +420,46 @@ test('UX · revalidation entitlement au retour de focus (sans polling)', () => {
 	assert.match(retour, /startBillingFocusRevalidate\(\)/);
 });
 
+test('UX · bandeau retour Checkout state-aware (jamais de succès déduit de l\'URL)', () => {
+	const facturation = src('./src/routes/espace/facturation/+page.svelte');
+	// tant que l'entitlement n'est pas confirmé serveur → message d'attente honnête
+	assert.match(facturation, /Vérification de ton abonnement…/);
+	assert.match(facturation, /Cette page se met à jour automatiquement\./);
+	// dès que l'entitlement est actif (webhook → base) → confirmation + CTA
+	assert.match(facturation, /C'est bon, ton abonnement est actif/);
+	assert.match(facturation, /Tu peux maintenant profiter de G-FLUX\./);
+	assert.match(facturation, /Retour à G-FLUX/);
+	// l'état vient de la base (même définition que la page de retour), pas de l'URL
+	assert.match(facturation, /b\.decision !== 'block'/);
+	assert.match(facturation, /b\.billingAccessOverride === 'complimentary'/);
+	// l'ancien message naïf a disparu
+	assert.doesNotMatch(facturation, /Merci ! Ton paiement est en cours de confirmation/);
+});
+
+test('UX · paywall premium : fond statique sans données, overlay offres 15,90 / 129 €', () => {
+	const facturation = src('./src/routes/espace/facturation/+page.svelte');
+	// fond = shell G-FLUX IMITÉ avec placeholders (aucun fetch, aucune donnée protégée)
+	assert.match(facturation, /paywall-backdrop/);
+	assert.match(facturation, /pb-sk/);
+	assert.doesNotMatch(facturation, /aria-hidden="true"[\s\S]{0,4000}fetch\(/);
+	// overlay / bottom-sheet avec les deux offres et le badge d'économie
+	assert.match(facturation, /paywall-overlay/);
+	assert.match(facturation, /Économise 32 %/);
+	assert.match(facturation, /129 € <span class="text-sm font-bold text-mist">\/ an<\/span>/);
+	assert.match(facturation, /15,90 € <span class="text-sm font-bold text-mist">\/ mois<\/span>/);
+	// données/historique/progression conservés — rappel produit
+	assert.match(facturation, /ton historique, ton Journal, ta progression/);
+	// déconnexion toujours joignable pendant le lock (l'overlay couvre la page)
+	assert.match(facturation, /action="\?\/logout"/);
+	// verrou serveur STRICTEMENT inchangé (garde central + garde page)
+	const layout = src('./src/routes/espace/+layout.server.ts');
+	assert.match(layout, /requireClientAccess/);
+	assert.match(layout, /BILLING_OPEN_PATHS = \['\/espace\/facturation', '\/facturation\/retour'\]/);
+	const page = src('./src/routes/espace/facturation/+page.server.ts');
+	assert.match(page, /requireRole\(event,\s*'client'/);
+	assert.match(page, /api\.billing\.accessState/);
+});
+
 test('UX · la page de retour reste joignable à une cliente bloquée (hors /espace)', () => {
 	// route racine = pas soumise au layout /espace ; le lock l'ajoute
 	// explicitement à ses chemins ouverts (matching exact) — le verrou ne
