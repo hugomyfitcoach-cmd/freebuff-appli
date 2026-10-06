@@ -349,26 +349,42 @@ Scénarios de bout en bout :
 - La page /facturation/retour est DÉJÀ state-aware (14.3) : textes product demandés
   inchangés (pas de churn, assertions existantes préservées).
 
-### 15.2 Paywall premium — présentation visuelle seule
+### 15.2 Paywall premium — présentation visuelle seule (révision 5 : modale centrée)
 
 - Quand `decision === 'block'`, la page /espace/facturation présente :
-  - un FOND statique imitation shell G-FLUX (`.paywall-backdrop`) : cartes et
-    skeletons (`.pb-card`, `.pb-sk`) purement décoratifs, aria-hidden, assombris,
-    flout élégant (backdrop-filter) et fondu vers le bas — AUCUNE donnée protégée
-    chargée, AUCUNE requête réseau, AUCUN texte métier ;
-  - un OVERLAY (`.paywall-overlay`, z-65) en bottom-sheet mobile (safe-area iPhone
-    incluse, `env(safe-area-inset-bottom)`) / carte centrée ≥ md, contenant : titre
-    « Continue avec G-FLUX », rappel données/historique/progression conservés, choix
-    d'offre en radiogroup accessible (mensuel 15,90 € / annuel 129 € avec badge
-    « Économise 32 % », 1 − 129/190,8 ≈ 32 %), CTA Checkout, et le bouton
-    « Se déconnecter » (la page étant couverte par l'overlay, la sortie de session
-    reste possible pendant le lock — décision 12c).
+  - un FOND plein écran qui ÉVOQUE l'application G-FLUX (`.paywall-backdrop` →
+    `.pb-shell`) : en-tête app, carte dashboard avec anneau calories/macros
+    factice (`.pb-ring`), Journal (lignes factices génériques), Progression
+    (barres hebdo factices `.pb-bar`), navigation basse Accueil/Journal/Progression
+    (`.pb-nav`) — le tout en skeletons (`.pb-sk`, aria-hidden), flouté + voile
+    discret : AUCUNE donnée protégée requêtée ou rendue, AUCUNE requête réseau,
+    AUCUN texte métier ;
+  - une MODALE CENTRÉE (`.paywall-overlay` z-65 + `.paywall-modal`) : largeur
+    91 % (max 28rem), centrée verticalement dans la zone utile (safe areas iOS :
+    `env(safe-area-inset-*)`), max-height 87vh avec scroll interne, la page
+    derrière ne défile pas (scroll-lock présentationnel dans un $effect, AUCUNE
+    incidence sur le verrou) ;
+  - copy premium orientée continuité : eyebrow « TON ACCÈS G-FLUX », titre
+    « Retrouve ton accès à G-FLUX », sous-texte « Ton historique, ton Journal, ta
+    progression et tous tes outils sont toujours là. Reprends exactement là où tu
+    t'es arrêté(e). » — ton rassurant, jamais culpabilisant (aucun wording type
+    « accès bloqué / paiement requis / débloque ») ;
+  - choix d'offre en radiogroup accessible : mensuel 15,90 € « Sans engagement » /
+    annuel 129 € avec badge « Économise 32 % » (aligné au-dessus de la carte),
+    sélection lisible (bordure verte, fond teinté, check discret), transitions
+    200 ms ;
+  - CTA principal « Réactiver mon accès » (vert, pleine largeur, press subtil) +
+    ligne de réassurance « Paiement sécurisé par Stripe · Tes données restent
+    conservées. » ; déconnexion « Se déconnecter » très secondaire (lien discret
+    sous séparateur — la sortie de session reste possible pendant le lock,
+    décision 12c ; le `?/logout` serveur est inchangé).
 - Hard lock STRICTEMENT inchangé : `requireClientAccess` dans le layout /espace
   (13), `BILLING_OPEN_PATHS` inchangé, `?/logout` inchangé sur le serveur ; aucune
   route, donnée ou mutation protégée ne devient accessible — le changement est
   purement CSS/markup dans la page facturation.
-- Mobile-first iPhone + Android : bottom-sheet plein écran en colonne, safe-area,
-  `prefers-reduced-motion` respecté (skeletons sans animation).
+- Mobile-first iPhone (Dynamic Island, petits iPhone) + Android Chrome/PWA :
+  safe-area top/bottom, modale centrée jamais collée en haut/bas, CTA toujours
+  accessible, `prefers-reduced-motion` respecté (skeletons sans animation).
 
 ### 15.3 Vérifications (révision 4)
 
@@ -376,6 +392,10 @@ Scénarios de bout en bout :
   — 485/485. Assertions couvrant : textes du bandeau, entente depuis la base
   (décision/override, pas l'URL), absence de l'ancien message naïf, fond sans
   fetch, offres + badge, rappel données conservées, double `?/logout`, gardes
-  serveur inchangés.
+  serveur inchangés. Révision 5 : assertions mises à jour — copy « Retrouve ton
+  accès à G-FLUX » / « Réactiver mon accès », modale centrée (91 % / 87vh /
+  scroll interne / safe-area), fond évoquant l'app (pb-shell/pb-header/pb-nav/
+  pb-ring/pb-bar), wording proscrit absent (« accès bloqué », « paiement
+  requis », « débloque »).
 - `npm test` ✔ 485/485 · `npm run check` ✔ 0 erreur (41 warnings préexistants)
   · `npm run build` ✔.

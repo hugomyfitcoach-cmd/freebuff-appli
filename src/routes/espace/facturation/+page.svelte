@@ -50,6 +50,23 @@
 	 */
 	$effect(() => startBillingFocusRevalidate());
 
+	/**
+	 * Paywall premium : la page sous la modale ne doit pas défiler derrière
+	 * elle (présentation seule — AUCUNE incidence sur le verrou d'accès, qui
+	 * reste 100 % serveur). S'applique quand la cliente est bloquée ; ajuste
+	 * `padding-right` pour compenser la disparition de la barre de scroll.
+	 */
+	$effect(() => {
+		if (b.decision !== 'block') return;
+		document.body.style.overflow = 'hidden';
+		const sbw = window.innerWidth - document.documentElement.clientWidth;
+		document.body.style.paddingRight = sbw > 0 ? `${sbw}px` : '';
+		return () => {
+			document.body.style.overflow = '';
+			document.body.style.paddingRight = '';
+		};
+	});
+
 	async function startCheckout(p: 'monthly' | 'yearly') {
 		plan = p;
 		loading = true;
@@ -200,56 +217,100 @@
 		     (requireClientAccess) : ce bloc n'ouvre AUCUN contenu réellement. -->
 		{:else}
 			<div class="paywall-backdrop" aria-hidden="true">
-				<div class="pb-card">
-					<div class="flex items-center gap-3">
-						<div class="pb-sk h-10 w-10 shrink-0 rounded-full"></div>
-						<div class="flex-1 space-y-2">
-							<div class="pb-sk h-3 w-28"></div>
-							<div class="pb-sk h-2.5 w-20"></div>
+				<div class="pb-shell">
+					<!-- En-tête app (avatar + titre + action) -->
+					<div class="pb-header">
+						<div class="pb-sk h-8 w-8 rounded-full"></div>
+						<div class="pb-sk h-2.5 w-20"></div>
+						<div class="pb-sk h-8 w-8 rounded-full"></div>
+					</div>
+					<div class="pb-body">
+						<!-- Dashboard : salutation + carte calories/macros (factice) -->
+						<div class="pb-card">
+							<div class="pb-sk h-3 w-36"></div>
+							<div class="pb-sk mt-2 h-6 w-44"></div>
+							<div class="mt-4 flex items-center gap-3">
+								<div class="pb-ring"></div>
+								<div class="flex-1 space-y-2">
+									<div class="pb-sk h-2.5 w-full"></div>
+									<div class="pb-sk h-2.5 w-4/5"></div>
+									<div class="pb-sk h-2.5 w-3/5"></div>
+								</div>
+							</div>
+							<div class="mt-4 grid grid-cols-3 gap-2">
+								<div class="pb-chip"><div class="pb-sk h-2 w-8"></div><div class="pb-sk mt-1.5 h-3.5 w-10"></div></div>
+								<div class="pb-chip"><div class="pb-sk h-2 w-8"></div><div class="pb-sk mt-1.5 h-3.5 w-10"></div></div>
+								<div class="pb-chip"><div class="pb-sk h-2 w-8"></div><div class="pb-sk mt-1.5 h-3.5 w-10"></div></div>
+							</div>
 						</div>
-						<div class="pb-sk h-8 w-8 shrink-0 rounded-full"></div>
+						<!-- Journal (lignes factices génériques) -->
+						<div class="pb-card">
+							<div class="flex items-center justify-between">
+								<div class="pb-sk h-3 w-16"></div>
+								<div class="pb-sk h-2.5 w-12"></div>
+							</div>
+							<div class="mt-3 space-y-2.5">
+								<div class="flex items-center gap-3">
+									<div class="pb-sk h-9 w-9 rounded-full"></div>
+									<div class="flex-1 space-y-1.5">
+										<div class="pb-sk h-2.5 w-3/4"></div>
+										<div class="pb-sk h-2 w-1/2"></div>
+									</div>
+								</div>
+								<div class="flex items-center gap-3">
+									<div class="pb-sk h-9 w-9 rounded-full"></div>
+									<div class="flex-1 space-y-1.5">
+										<div class="pb-sk h-2.5 w-2/3"></div>
+										<div class="pb-sk h-2 w-2/5"></div>
+									</div>
+								</div>
+								<div class="flex items-center gap-3">
+									<div class="pb-sk h-9 w-9 rounded-full"></div>
+									<div class="flex-1 space-y-1.5">
+										<div class="pb-sk h-2.5 w-1/2"></div>
+										<div class="pb-sk h-2 w-1/3"></div>
+									</div>
+								</div>
+							</div>
+						</div>
+						<!-- Progression (barres hebdo factices) -->
+						<div class="pb-card">
+							<div class="pb-sk h-3 w-24"></div>
+							<div class="mt-4 flex items-end gap-2" style="height: 4.5rem">
+								<div class="pb-bar" style="height: 45%"></div>
+								<div class="pb-bar" style="height: 70%"></div>
+								<div class="pb-bar" style="height: 55%"></div>
+								<div class="pb-bar" style="height: 85%"></div>
+								<div class="pb-bar" style="height: 40%"></div>
+								<div class="pb-bar" style="height: 65%"></div>
+								<div class="pb-bar" style="height: 75%"></div>
+							</div>
+						</div>
+					</div>
+					<!-- Navigation basse : Accueil / Journal / Progression (placeholders) -->
+					<div class="pb-nav">
+						<div class="flex flex-col items-center gap-1.5">
+							<div class="pb-sk h-5 w-5 rounded-md"></div>
+							<div class="pb-sk h-2 w-12"></div>
+						</div>
+						<div class="flex flex-col items-center gap-1.5">
+							<div class="pb-sk h-5 w-5 rounded-md"></div>
+							<div class="pb-sk h-2 w-12"></div>
+						</div>
+						<div class="flex flex-col items-center gap-1.5">
+							<div class="pb-sk h-5 w-5 rounded-md"></div>
+							<div class="pb-sk h-2 w-12"></div>
+						</div>
 					</div>
 				</div>
-				<div class="pb-card">
-					<div class="pb-sk h-3 w-24"></div>
-					<div class="pb-sk mt-2 h-7 w-44"></div>
-					<div class="mt-4 grid grid-cols-3 gap-2">
-						<div class="pb-sk h-14"></div>
-						<div class="pb-sk h-14"></div>
-						<div class="pb-sk h-14"></div>
-					</div>
-					<div class="mt-4 space-y-2">
-						<div class="pb-sk h-3 w-full"></div>
-						<div class="pb-sk h-3 w-11/12"></div>
-						<div class="pb-sk h-3 w-3/4"></div>
-					</div>
-				</div>
-				<div class="pb-card">
-					<div class="pb-sk h-3 w-20"></div>
-					<div class="mt-3 flex items-center gap-3">
-						<div class="pb-sk h-11 w-11 shrink-0 rounded-full"></div>
-						<div class="flex-1 space-y-2">
-							<div class="pb-sk h-3 w-2/3"></div>
-							<div class="pb-sk h-2.5 w-1/2"></div>
-						</div>
-					</div>
-					<div class="mt-3 flex items-center gap-3">
-						<div class="pb-sk h-11 w-11 shrink-0 rounded-full"></div>
-						<div class="flex-1 space-y-2">
-							<div class="pb-sk h-3 w-3/5"></div>
-							<div class="pb-sk h-2.5 w-2/5"></div>
-						</div>
-					</div>
-				</div>
-				<div class="pb-cta mt-4"></div>
 			</div>
 
 			<div class="paywall-overlay">
-				<div role="dialog" aria-modal="true" aria-label="Continue avec G-FLUX — choix de l'offre" class="w-full max-w-md rounded-3xl border border-line bg-card p-6 shadow-2xl shadow-ink/20">
-					<p class="text-[10px] font-bold uppercase tracking-widest text-mist">Ton accès G-FLUX</p>
-					<h2 class="mt-1 font-display text-[1.45rem] font-black leading-tight tracking-tight text-ink">Continue avec G-FLUX</h2>
+				<div role="dialog" aria-modal="true" aria-label="Retrouve ton accès à G-FLUX — choix de l'offre" class="paywall-modal">
+					<p class="text-[10px] font-bold uppercase tracking-widest text-mist">TON ACCÈS G-FLUX</p>
+					<h2 class="mt-1 font-display text-[1.5rem] font-black leading-tight tracking-tight text-ink">Retrouve ton accès à G-FLUX</h2>
 					<p class="mt-2 text-[13px] leading-relaxed text-mist-strong">
-						Ton compte, ton historique, ton Journal, ta progression et tous les outils G-FLUX sont conservés. Choisis ton offre pour reprendre exactement là où tu t'es arrêtée.
+						Ton historique, ton Journal, ta progression et tous tes outils sont toujours là. Reprends exactement là où tu t'es arrêté(e).
 					</p>
 
 					{#if data.checkout === 'success' && !entitlementActive}
@@ -266,21 +327,21 @@
 							La souscription en ligne arrive très bientôt — ton accès est en attente d'activation.
 						</p>
 					{:else}
-						<div class="mt-4 grid gap-3" role="radiogroup" aria-label="Choisis ton offre">
+						<div class="mt-5 grid gap-3" role="radiogroup" aria-label="Choisis ton offre">
 							<button
 								type="button"
 								role="radio"
 								aria-checked={plan === 'yearly'}
 								onclick={() => (plan = 'yearly')}
-								class="relative rounded-2xl border-2 px-4 py-4 text-left transition {plan === 'yearly' ? 'border-brand bg-brand-soft shadow-sm' : 'border-line bg-card hover:border-mist'}"
+								class="paywall-offer {plan === 'yearly' ? 'paywall-offer-selected' : ''}"
 							>
-								<span class="absolute -top-2.5 right-4 rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Économise 32 %</span>
+								<span class="paywall-badge">Économise 32 %</span>
 								<div class="flex items-start justify-between gap-3">
 									<div>
 										<p class="text-[11px] font-bold uppercase tracking-widest text-mist">Annuel</p>
 										<p class="mt-1 font-display text-xl font-black text-ink">129 € <span class="text-sm font-bold text-mist">/ an</span></p>
 									</div>
-									<span class="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 {plan === 'yearly' ? 'border-brand bg-brand text-white' : 'border-mist bg-white'}">
+									<span class="paywall-check" class:paywall-check-on={plan === 'yearly'} aria-hidden="true">
 										{#if plan === 'yearly'}<Icon name="circleCheck" size={12} />{/if}
 									</span>
 								</div>
@@ -291,18 +352,18 @@
 								role="radio"
 								aria-checked={plan === 'monthly'}
 								onclick={() => (plan = 'monthly')}
-								class="rounded-2xl border-2 px-4 py-4 text-left transition {plan === 'monthly' ? 'border-brand bg-brand-soft shadow-sm' : 'border-line bg-card hover:border-mist'}"
+								class="paywall-offer {plan === 'monthly' ? 'paywall-offer-selected' : ''}"
 							>
 								<div class="flex items-start justify-between gap-3">
 									<div>
 										<p class="text-[11px] font-bold uppercase tracking-widest text-mist">Mensuel</p>
 										<p class="mt-1 font-display text-xl font-black text-ink">15,90 € <span class="text-sm font-bold text-mist">/ mois</span></p>
 									</div>
-									<span class="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 {plan === 'monthly' ? 'border-brand bg-brand text-white' : 'border-mist bg-white'}">
+									<span class="paywall-check" class:paywall-check-on={plan === 'monthly'} aria-hidden="true">
 										{#if plan === 'monthly'}<Icon name="circleCheck" size={12} />{/if}
 									</span>
 								</div>
-								<p class="mt-0.5 text-[11.5px] font-semibold text-mist">Sans engagement, résiliable à tout moment</p>
+								<p class="mt-0.5 text-[11.5px] font-semibold text-mist">Sans engagement</p>
 							</button>
 						</div>
 
@@ -314,17 +375,17 @@
 							type="button"
 							onclick={() => startCheckout(plan)}
 							disabled={loading}
-							class="mt-4 w-full rounded-xl bg-brand px-4 py-3 text-[15px] font-bold text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-60"
+							class="mt-5 w-full rounded-2xl bg-brand px-4 py-3.5 text-[15px] font-bold text-white shadow-sm transition duration-200 hover:bg-brand-dark active:scale-[0.99] disabled:opacity-60"
 						>
-							{loading ? 'Redirection…' : 'Continuer avec G-FLUX'}
+							{loading ? 'Redirection…' : 'Réactiver mon accès'}
 						</button>
-						<p class="mt-2.5 text-center text-[11px] leading-snug text-mist">Paiement sécurisé via Stripe. Résiliation en un geste, données toujours conservées.</p>
+						<p class="mt-2.5 text-center text-[11px] leading-snug text-mist">Paiement sécurisé par Stripe · Tes données restent conservées.</p>
 					{/if}
 
 					<!-- Sortie de session toujours possible pendant le lock (12c) :
-					     la page est derrière l'overlay → bouton équivalent ici. -->
-					<form method="POST" action="?/logout" class="mt-4 border-t border-line pt-4">
-						<button type="submit" class="w-full rounded-xl px-4 py-2 text-[12px] font-bold text-mist transition hover:text-danger">Se déconnecter</button>
+					     volontairement très secondaire, elle ne concurrence pas le CTA. -->
+					<form method="POST" action="?/logout" class="mt-4 border-t border-line pt-3">
+						<button type="submit" class="mx-auto block px-4 py-1.5 text-[12px] text-mist transition duration-200 hover:text-danger">Se déconnecter</button>
 					</form>
 				</div>
 			</div>
@@ -375,48 +436,92 @@
 
 <style>
 	/*
-	 * PAYWALL PREMIUM (révision 4) — purement décoratif et sans état : le fond
-	 * imite le shell G-FLUX avec des PLACEHOLDERS uniquement (aucune donnée
-	 * protégée chargée, aucune requête réseau) ; l'overlay concentre le choix
-	 * d'offre en bottom-sheet (mobile) / carte centrée (desktop). Le verrou
-	 * d'accès reste côté serveur (requireClientAccess), strictement inchangé.
+	 * PAYWALL PREMIUM (révision 5) — purement décoratif et sans état. Le fond
+	 * ÉVOQUE l'application G-FLUX (shell, dashboard, calories/macros, Journal,
+	 * Progression, navigation basse) avec des skeletons et un contenu Factice
+	 * générique : AUCUNE donnée protégée requêtée ou rendue, aucune requête
+	 * réseau. La modale est centrée, largeur ~91 % (max 28rem), hauteur limitée
+	 * à ~87vh avec scroll interne. Le verrou d'accès reste côté serveur
+	 * (requireClientAccess), strictement inchangé.
 	 */
 	.paywall-backdrop {
-		position: relative;
-		margin: 1.25rem 0 0.5rem;
-		border-radius: 1.5rem;
-		border: 1px solid var(--color-line);
-		background-color: var(--color-card);
-		padding: 1rem;
-		opacity: 0.85;
-		-webkit-backdrop-filter: blur(6px);
-		backdrop-filter: blur(6px);
+		position: fixed;
+		inset: 0;
+		overflow: hidden;
+		background-color: var(--color-soft);
 	}
+	/* Voile discret : l'app est « toujours là derrière, mais inaccessible ». */
 	.paywall-backdrop::after {
 		content: '';
 		position: absolute;
 		inset: 0;
-		border-radius: inherit;
-		background: linear-gradient(180deg, rgba(255, 255, 255, 0) 12%, var(--color-card) 92%);
+		background: rgba(17, 17, 16, 0.18);
 		pointer-events: none;
+	}
+	.pb-shell {
+		height: 100%;
+		width: 100%;
+		max-width: 28rem;
+		margin: 0 auto;
+		display: flex;
+		flex-direction: column;
+		opacity: 0.75;
+		filter: blur(4px) saturate(0.92);
+		-webkit-backdrop-filter: blur(2px);
+		backdrop-filter: blur(2px);
+	}
+	.pb-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: max(1rem, env(safe-area-inset-top)) 1.25rem 0.75rem;
+	}
+	.pb-body {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		padding: 0 1rem;
+	}
+	.pb-nav {
+		display: flex;
+		justify-content: space-around;
+		padding: 0.85rem 1rem max(0.9rem, env(safe-area-inset-bottom));
+		border-top: 1px solid var(--color-line-soft);
+		background-color: var(--color-card);
 	}
 	.pb-card {
 		border-radius: 1rem;
 		border: 1px solid var(--color-line-soft);
-		background-color: var(--color-soft);
+		background-color: var(--color-card);
 		padding: 1rem;
-		opacity: 0.8;
+		box-shadow: 0 1px 2px rgba(17, 17, 16, 0.04);
+	}
+	.pb-chip {
+		border-radius: 0.65rem;
+		background-color: var(--color-soft);
+		padding: 0.6rem;
+	}
+	.pb-ring {
+		height: 4.5rem;
+		width: 4.5rem;
+		flex-shrink: 0;
+		border-radius: 9999px;
+		border: 6px solid var(--color-brand);
+		opacity: 0.65;
+		background:
+			conic-gradient(var(--color-brand) 0 62%, var(--color-brand-light) 62% 100%);
+	}
+	.pb-bar {
+		flex: 1;
+		border-radius: 0.375rem 0.375rem 0 0;
+		background-color: var(--color-brand);
+		opacity: 0.55;
 	}
 	.pb-sk {
 		border-radius: 0.5rem;
 		background-color: var(--color-line-soft);
 		animation: paywall-pulse 1.8s ease-in-out infinite;
-	}
-	.pb-cta {
-		height: 3rem;
-		border-radius: 0.75rem;
-		background-color: var(--color-brand);
-		opacity: 0.7;
 	}
 	@keyframes paywall-pulse {
 		0%,
@@ -432,24 +537,81 @@
 			animation: none;
 		}
 	}
-	/* Bottom-sheet mobile (safe-area iPhone incluse), carte centrée ≥ md. */
+	/* Modale CENTRÉE : ~91 % du viewport (max 28rem), centrée dans la zone
+	   utile (safe areas iOS incluses), max-height ~87vh, scroll interne. */
 	.paywall-overlay {
 		position: fixed;
 		inset: 0;
 		z-index: 65;
 		display: flex;
-		align-items: flex-end;
+		align-items: center;
 		justify-content: center;
-		padding: 0.75rem;
-		padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
-		background-color: rgba(17, 17, 16, 0.5);
-		-webkit-backdrop-filter: blur(6px);
-		backdrop-filter: blur(6px);
+		padding-top: max(1rem, calc(env(safe-area-inset-top) + 0.75rem));
+		padding-bottom: max(1rem, calc(env(safe-area-inset-bottom) + 0.75rem));
+		padding-left: 0.75rem;
+		padding-right: 0.75rem;
+		background-color: rgba(17, 17, 16, 0.45);
+		-webkit-backdrop-filter: blur(3px);
+		backdrop-filter: blur(3px);
 	}
-	@media (min-width: 768px) {
-		.paywall-overlay {
-			align-items: center;
-			padding: 1.5rem;
-		}
+	.paywall-modal {
+		width: 91%;
+		max-width: 28rem;
+		max-height: 87vh;
+		overflow-y: auto;
+		border-radius: 1.5rem;
+		border: 1px solid var(--color-line);
+		background-color: var(--color-card);
+		padding: 1.5rem;
+		box-shadow: 0 24px 48px -12px rgba(17, 17, 16, 0.25);
+	}
+	/* Offres : sélection lisible (bordure verte, fond teinté, check discret). */
+	.paywall-offer {
+		position: relative;
+		border-radius: 1rem;
+		border: 1.5px solid var(--color-line);
+		background-color: var(--color-card);
+		padding: 1rem;
+		text-align: left;
+		transition: border-color 200ms ease, background-color 200ms ease, box-shadow 200ms ease;
+	}
+	.paywall-offer:hover {
+		border-color: var(--color-mist);
+	}
+	.paywall-offer-selected {
+		border-color: var(--color-brand);
+		background-color: var(--color-brand-soft);
+		box-shadow: 0 1px 3px rgba(29, 185, 84, 0.12);
+	}
+	.paywall-badge {
+		position: absolute;
+		top: -0.65rem;
+		right: 1rem;
+		border-radius: 9999px;
+		background-color: var(--color-brand);
+		padding: 0.15rem 0.55rem;
+		font-size: 10px;
+		line-height: 1.4;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: #ffffff;
+	}
+	.paywall-check {
+		margin-top: 0.125rem;
+		display: grid;
+		height: 1.25rem;
+		width: 1.25rem;
+		flex-shrink: 0;
+		place-items: center;
+		border-radius: 9999px;
+		border: 1.5px solid var(--color-mist);
+		background-color: #ffffff;
+		color: #ffffff;
+		transition: border-color 200ms ease, background-color 200ms ease;
+	}
+	.paywall-check-on {
+		border-color: var(--color-brand);
+		background-color: var(--color-brand);
 	}
 </style>

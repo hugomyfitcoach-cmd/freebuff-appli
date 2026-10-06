@@ -436,20 +436,41 @@ test('UX · bandeau retour Checkout state-aware (jamais de succès déduit de l\
 	assert.doesNotMatch(facturation, /Merci ! Ton paiement est en cours de confirmation/);
 });
 
-test('UX · paywall premium : fond statique sans données, overlay offres 15,90 / 129 €', () => {
+test('UX · paywall premium : fond statique sans données, modale centrée offres 15,90 / 129 €', () => {
 	const facturation = src('./src/routes/espace/facturation/+page.svelte');
-	// fond = shell G-FLUX IMITÉ avec placeholders (aucun fetch, aucune donnée protégée)
+	// fond = shell G-FLUX ÉVOQUÉ (dashboard, calories/macros, Journal, Progression,
+	// navigation basse) avec placeholders FICTIFS (aucun fetch, aucune donnée protégée)
 	assert.match(facturation, /paywall-backdrop/);
+	assert.match(facturation, /pb-shell/);
+	assert.match(facturation, /pb-header/);
+	assert.match(facturation, /pb-nav/);
+	assert.match(facturation, /pb-ring/);
+	assert.match(facturation, /pb-bar/);
 	assert.match(facturation, /pb-sk/);
-	assert.doesNotMatch(facturation, /aria-hidden="true"[\s\S]{0,4000}fetch\(/);
-	// overlay / bottom-sheet avec les deux offres et le badge d'économie
+	assert.doesNotMatch(facturation, /aria-hidden="true"[\s\S]{0,6000}fetch\(/);
+	// modale CENTRÉE : largeur ~91 %, max-height ~87vh, scroll interne, safe areas
+	assert.match(facturation, /paywall-modal/);
+	assert.match(facturation, /width: 91%/);
+	assert.match(facturation, /max-height: 87vh/);
+	assert.match(facturation, /overflow-y: auto/);
+	assert.match(facturation, /safe-area-inset/);
+	// copy premium : continuité, jamais culpabilisante — eyebrow + titre + sous-texte
+	assert.match(facturation, /TON ACCÈS G-FLUX/);
+	assert.match(facturation, /Retrouve ton accès à G-FLUX/);
+	assert.match(facturation, /Ton historique, ton Journal, ta progression et tous tes outils sont toujours là\./);
+	assert.match(facturation, /Reprends exactement là où tu t'es arrêté\(e\)\./);
+	// CTA principal + ligne de réassurance (l'ancien CTA a disparu)
+	assert.match(facturation, /Réactiver mon accès/);
+	assert.doesNotMatch(facturation, /Continuer avec G-FLUX/);
+	assert.match(facturation, /Paiement sécurisé par Stripe · Tes données restent conservées\./);
+	// wording proscrit : aucun message « bloqué / paiement requis / débloque »
+	assert.doesNotMatch(facturation, /accès bloqué|paiement requis|débloque/i);
+	// offres : badge 32 %, mensuel « Sans engagement », déconnexion secondaire
 	assert.match(facturation, /paywall-overlay/);
 	assert.match(facturation, /Économise 32 %/);
 	assert.match(facturation, /129 € <span class="text-sm font-bold text-mist">\/ an<\/span>/);
 	assert.match(facturation, /15,90 € <span class="text-sm font-bold text-mist">\/ mois<\/span>/);
-	// données/historique/progression conservés — rappel produit
-	assert.match(facturation, /ton historique, ton Journal, ta progression/);
-	// déconnexion toujours joignable pendant le lock (l'overlay couvre la page)
+	assert.match(facturation, /Sans engagement/);
 	assert.match(facturation, /action="\?\/logout"/);
 	// verrou serveur STRICTEMENT inchangé (garde central + garde page)
 	const layout = src('./src/routes/espace/+layout.server.ts');
