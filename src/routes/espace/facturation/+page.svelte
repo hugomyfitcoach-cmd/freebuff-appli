@@ -467,8 +467,6 @@
 		flex-direction: column;
 		opacity: 0.75;
 		filter: blur(4px) saturate(0.92);
-		-webkit-backdrop-filter: blur(2px);
-		backdrop-filter: blur(2px);
 	}
 	.pb-header {
 		display: flex;
@@ -521,21 +519,6 @@
 	.pb-sk {
 		border-radius: 0.5rem;
 		background-color: var(--color-line-soft);
-		animation: paywall-pulse 1.8s ease-in-out infinite;
-	}
-	@keyframes paywall-pulse {
-		0%,
-		100% {
-			opacity: 1;
-		}
-		50% {
-			opacity: 0.55;
-		}
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.pb-sk {
-			animation: none;
-		}
 	}
 	/* Modale CENTRÉE : ~91 % du viewport (max 28rem), centrée dans la zone
 	   utile (safe areas iOS incluses), max-height ~87vh, scroll interne. */
