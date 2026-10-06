@@ -2062,7 +2062,7 @@
 					</form>
 				</details>
 				<details class="group relative">
-					<summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-xl border border-line bg-white px-3.5 py-2 text-[13px] font-bold text-ink shadow-sm transition hover:border-brand hover:text-brand"><Icon name="gift" size={13} class="shrink-0 text-brand" /> Accès G-FLUX</summary>
+					<summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-xl border border-line bg-white px-3.5 py-2 text-[13px] font-bold text-ink shadow-sm transition hover:border-brand hover:text-brand"><Icon name="shieldCheck" size={13} class="shrink-0 text-brand" /> Accès G-FLUX</summary>
 					<form method="POST" action="?/setBillingAccess&client={selected.user._id}&section={section}" class="absolute right-0 top-10 z-20 w-80 rounded-xl border border-line bg-white p-3 shadow-xl">
 						<input type="hidden" name="userId" value={selected.user._id} />
 						<p class="text-[10px] font-bold uppercase tracking-widest text-mist">Accès à l'app G-FLUX</p>
