@@ -18,6 +18,7 @@ import {
 import { DEFAULT_GOALS } from "./journal";
 import { bodyFatSeries, logHeightRow } from "./metrics";
 import { resolveInactivity } from "./notifications";
+import { accessStateForUser } from "./billing";
 import { deleteAllForUser, setCheckinMediaVisibility } from "./media";
 import { deleteIntakeForUser } from "./onboarding";
 import { deleteAllResourcesForUser } from "./resources";
@@ -94,6 +95,14 @@ function publicUser(user: UserRow) {
 		cycle: user.cycle ?? null,
 		/** Mode d'accompagnement (fallback "coaching" = comportement historique). */
 		coachingMode: user.coachingMode ?? "coaching",
+		/** FACTURATION — accès offert + état abonnement Stripe (bloc « Accès G-FLUX »). */
+		billingAccessOverride: user.billingAccessOverride ?? null,
+		stripeSubscriptionStatus: user.stripeSubscriptionStatus ?? null,
+		stripeCancelAtPeriodEnd: user.stripeCancelAtPeriodEnd === true,
+		stripeCurrentPeriodEnd: user.stripeCurrentPeriodEnd ?? null,
+		stripeGraceUntil: user.stripeGraceUntil ?? null,
+		stripePriceId: user.stripePriceId ?? null,
+		hasStripeCustomer: typeof user.stripeCustomerId === "string",
 	};
 }
 
@@ -356,6 +365,50 @@ export const createClient = mutation({
 			startDate: dateClean || localTodayISO(),
 		});
 		return { ok: true, userId: id };
+	},
+});
+
+/**
+ * FACTURATION — état d'accès dérivé d'une cliente pour le bloc « Accès G-FLUX »
+ * de la fiche CRM (mode, accès, abonnement Stripe, grâce). Même moteur que le
+ * guard (billing.accessStateForUser) : le coach voit EXACTEMENT la décision
+ * serveur réelle, jamais une copie divergente.
+ */
+export const clientBillingState = query({
+	args: { sessionToken: v.optional(v.string()), userId: v.id("users") },
+	handler: async (ctx, { sessionToken, userId }) => {
+		await requireCoach(ctx, sessionToken);
+		const target = await ctx.db.get(userId);
+		if (!target || target.role !== "client") throw new ConvexError("Client introuvable.");
+		return accessStateForUser(target, Date.now());
+	},
+});
+
+/**
+ * FACTURATION — « Offrir l'accès G-FLUX » (§12 mission) : pose/retire
+ * billingAccessOverride = "complimentary". Ne touche JAMAIS à Stripe : si un
+ * abonnement actif existe derrière, il continue de faire vivre l'accès après
+ * le retrait de l'override (recalcul dérivé).
+ */
+export const setComplimentaryAccess = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		userId: v.id("users"),
+		/** true = offrir l'accès ; false = retirer l'accès offert (jamais Stripe). */
+		complimentary: v.boolean(),
+	},
+	handler: async (ctx, { sessionToken, userId, complimentary }) => {
+		await requireCoach(ctx, sessionToken);
+		const target = await ctx.db.get(userId);
+		if (!target || target.role !== "client") throw new ConvexError("Client introuvable.");
+		await ctx.db.patch(userId, {
+			billingAccessOverride: complimentary ? "complimentary" : undefined,
+		});
+		const after = await ctx.db.get(userId);
+		return {
+			ok: true,
+			decision: after ? accessStateForUser(after, Date.now()).decision : null,
+		};
 	},
 });
 

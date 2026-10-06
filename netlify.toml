@@ -21,10 +21,10 @@
 # PRODUCTION : inchangée ci-dessus (npm run build, sans convex deploy — le
 # déploiement Convex prod reste manuel via scripts/deploy.mjs).
 [context.deploy-preview]
-  command = "npx convex deploy --preview-create alimentation-ia-preview --preview-run previewSeed:seedPreviewData --cmd-url-env-var-name PUBLIC_CONVEX_URL --cmd 'npm run build'"
+  command = "npx convex deploy --preview-create alimentation-ia-preview --preview-run previewSeed:seedPreviewData --cmd-url-env-var-name PUBLIC_CONVEX_URL --cmd 'npm run build' && node scripts/set-preview-billing-env.mjs"
 
 [context.branch-deploy]
-  command = "npx convex deploy --preview-create alimentation-ia-preview --preview-run previewSeed:seedPreviewData --cmd-url-env-var-name PUBLIC_CONVEX_URL --cmd 'npm run build'"
+  command = "npx convex deploy --preview-create alimentation-ia-preview --preview-run previewSeed:seedPreviewData --cmd-url-env-var-name PUBLIC_CONVEX_URL --cmd 'npm run build' && node scripts/set-preview-billing-env.mjs"
 
 # Diagnostic/réparation preview (URL backend réelle + seed self-healing) —
 # activé UNIQUEMENT en contexte preview (jamais en production).

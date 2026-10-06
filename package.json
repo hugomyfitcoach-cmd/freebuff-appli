@@ -16,7 +16,7 @@
 		"e2e:performance": "node scripts/e2e-performance.mjs",
 		"preview": "vite preview",
 		"test": "node --test --experimental-strip-types --import ./tests/ts-resolve.mjs tests/*.test.mjs",
-	"prepare": "svelte-kit sync || echo ''",
+		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
 	},
@@ -38,6 +38,7 @@
 		"@lucide/svelte": "^1.42.0",
 		"convex": "^1.45.0",
 		"html5-qrcode": "^2.3.8",
+		"stripe": "^23.0.0",
 		"web-push": "^3.6.7"
 	},
 	"allowScripts": {

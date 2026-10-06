@@ -2062,7 +2062,41 @@
 					</form>
 				</details>
 				<details class="group relative">
-					<summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-xl border border-line bg-white px-3.5 py-2 text-[13px] font-bold text-ink shadow-sm transition hover:border-warn hover:text-warn"><Icon name="lock" size={13} class="shrink-0" /> Mot de passe</summary>
+					<summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-xl border border-line bg-white px-3.5 py-2 text-[13px] font-bold text-ink shadow-sm transition hover:border-brand hover:text-brand"><Icon name="shieldCheck" size={13} class="shrink-0 text-brand" /> Accès G-FLUX</summary>
+					<form method="POST" action="?/setBillingAccess&client={selected.user._id}&section={section}" class="absolute right-0 top-10 z-20 w-80 rounded-xl border border-line bg-white p-3 shadow-xl">
+						<input type="hidden" name="userId" value={selected.user._id} />
+						<p class="text-[10px] font-bold uppercase tracking-widest text-mist">Accès à l'app G-FLUX</p>
+						<div class="mt-2 rounded-lg border-2 border-line bg-cream/50 px-3 py-2.5">
+							<p class="text-[11px] font-bold text-ink">Mode&nbsp;: {coachingModeOf(selected.user) === 'autonomy' ? 'Autonomie' : 'Coaching'}</p>
+							<p class="mt-1 text-[11px] font-bold text-ink">
+								Accès&nbsp;:
+								{#if coachingModeOf(selected.user) === 'coaching'}
+									<span class="text-brand-dark">Inclus</span>
+								{:else if selected.user.billingAccessOverride === 'complimentary'}
+									<span class="text-brand-dark">Offert</span>
+								{:else if selected.user.stripeSubscriptionStatus === 'active' || selected.user.stripeSubscriptionStatus === 'trialing'}
+									<span class="text-brand-dark">Abonnement actif</span>
+								{:else if selected.user.stripeSubscriptionStatus === 'past_due'}
+									<span class="text-warn">Paiement à régulariser</span>
+								{:else}
+									<span class="text-danger">Suspendu</span>
+								{/if}
+							</p>
+							<p class="mt-1 text-[11px] leading-snug text-mist">Coaching : accès toujours inclus. Autonomie : accès offert ici ou via l'abonnement Stripe.</p>
+						</div>
+							{#if coachingModeOf(selected.user) === 'coaching'}
+								<p class="mt-2 text-[11px] leading-snug text-mist">Ton accès est couvert par l'accompagnement — rien à offrir.</p>
+							{:else if selected.user.billingAccessOverride === 'complimentary'}
+								<input type="hidden" name="complimentary" value="0" />
+								<button type="submit" class="w-full rounded-lg border-2 border-line px-3 py-1.5 text-sm font-semibold text-ink transition hover:border-danger hover:text-danger">Retirer l'accès offert</button>
+							{:else}
+								<input type="hidden" name="complimentary" value="1" />
+								<button type="submit" class="w-full rounded-lg bg-brand px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-brand-dark">Offrir l'accès G-FLUX</button>
+							{/if}
+						</form>
+					</details>
+					<details class="group relative">
+						<summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-xl border border-line bg-white px-3.5 py-2 text-[13px] font-bold text-ink shadow-sm transition hover:border-warn hover:text-warn"><Icon name="lock" size={13} class="shrink-0" /> Mot de passe</summary>
 					<form method="POST" action="?/resetPassword&client={selected.user._id}&section={section}" class="absolute right-0 top-10 z-20 w-72 rounded-xl border border-line bg-white p-3 shadow-xl">
 						<input type="hidden" name="userId" value={selected.user._id} />
 						<input name="newPassword" type="text" required minlength="8" placeholder="Nouveau mot de passe (8+ car.)" class="mb-2 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-warn" />

@@ -40,6 +40,25 @@ export const userRole = v.union(v.literal("coach"), v.literal("client"));
  */
 export const coachingModeKind = v.union(v.literal("coaching"), v.literal("autonomy"));
 /**
+ * FACTURATION AUTONOMIE (V1) — statuts d'abonnement Stripe RÉELS (API Stripe).
+ * Privilégié à un enum local incomplet : tout statut que Stripe peut renvoyer
+ * est accepté tel quel. Les champs restent OPTIONAL + ADDITIFS : les clientes
+ * d'avant la facturation ne portent aucun de ces champs → comportement inchangé.
+ */
+export const stripeSubscriptionStatusKind = v.union(
+	v.literal("active"),
+	v.literal("trialing"),
+	v.literal("past_due"),
+	v.literal("canceled"),
+	v.literal("unpaid"),
+	v.literal("incomplete"),
+	v.literal("incomplete_expired"),
+	v.literal("paused")
+);
+/** Accès offert par le coach (bloc « Accès G-FLUX » de la fiche cliente). */
+export const billingAccessOverrideKind = v.literal("complimentary");
+
+/**
  * Source d'une dépense sportive : saisie manuelle de la cliente ou création
  * automatique depuis une séance G-FLUX explicitement terminée.
  */
@@ -177,6 +196,29 @@ export default defineSchema({
 		 * Additif pur : jamais de migration, le repli lecture = coaching.
 		 */
 		coachingMode: v.optional(coachingModeKind),
+		/* ════ FACTURATION AUTONOMIE (V1 Stripe) — accès DÉRIVÉ, jamais stocké ════
+		 * `canAccessApp` (src/convex/billing.ts) calcule l'accès à partir de ces
+		 * champs + coachingMode. AUCUN champ "appAccess" dupliqué : la décision
+		 * reste recalculable à tout instant (grâce comparée à l'heure actuelle).
+		 * Tous ces champs sont OPTIONAL + ADDITIFS + rétrocompatibles : aucun
+		 * backfill, aucune migration, aucun effet sur les comptes existants.
+		 *  │  ─  */
+		/** Accès offert par le coach — indépendant de Stripe (retirable sans y toucher). */
+		billingAccessOverride: v.optional(billingAccessOverrideKind),
+		/** Customer Stripe de la cliente (Checkout + Portal réutilisés). */
+		stripeCustomerId: v.optional(v.string()),
+		/** Abonnement Autonomie courant (un seul à la fois en V1). */
+		stripeSubscriptionId: v.optional(v.string()),
+		/** Statut RÉEL renvoyé par Stripe (voir stripeSubscriptionStatusKind). */
+		stripeSubscriptionStatus: v.optional(stripeSubscriptionStatusKind),
+		/** Price souscrit (price_* Stripe TEST en preview) — info/debug. */
+		stripePriceId: v.optional(v.string()),
+		/** Fin de la période payée (ms UTC) — l'accès continue jusqu'à cette date même si la résiliation est programmée. */
+		stripeCurrentPeriodEnd: v.optional(v.number()),
+		/** Stripe mettra fin à l'abonnement à la fin de la période (résiliation V1). */
+		stripeCancelAtPeriodEnd: v.optional(v.boolean()),
+		/** Fin de la grâce de 24 h après un échec de paiement (ms UTC) — jamais repoussée par un webhook dupliqué. */
+		stripeGraceUntil: v.optional(v.number()),
 		/** Suivi de cycle (carte Accueil cliente + Vision 360 coach) — mêmes questions et formule que l'outil historique. */
 		cycle: v.optional(
 			v.object({
@@ -190,7 +232,7 @@ export default defineSchema({
 				updatedAt: v.number(),
 			})
 		),
-	}).index("by_email", ["email"]),
+	}).index("by_email", ["email"]).index("by_stripeCustomer", ["stripeCustomerId"]),
 
 	sessions: defineTable({
 		userId: v.id("users"),

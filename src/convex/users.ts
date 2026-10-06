@@ -11,6 +11,7 @@ import { v, ConvexError } from "convex/values";	import {
 		verifyPassword,
 	} from "./helpers";
 import { resolveInactivity } from "./notifications";
+import { accessStateForUser as billingAccessStateForUser } from "./billing";
 
 /**
  * Comptes (email + mot de passe) et sessions.
@@ -51,8 +52,14 @@ export const resolveSession = query({
 			prenom: user.prenom,
 			// Statut onboarding installation PWA (survit au logout — lié au compte).
 			pwaInstallStatus: user.pwaInstallStatus ?? "not_seen",
-			/** MODE AUTONOMIE — sert au gating visuel « Rendez-vous » côté serveur SvelteKit. */
-			coachingMode: user.coachingMode ?? "coaching",
+			/** MODE AUTONOMIE — sert au gating visuel « Rendez-vous » côté serveur SvelteKit. */			coachingMode: user.coachingMode ?? "coaching",
+			/**
+			 * FACTURATION — état d'accès DÉRIVÉ (coaching / complimentary / Stripe /
+			 * grâce), calculé par src/convex/billing.ts : source de vérité unique
+			 * du guard serveur BFF. Aucun état dupliqué, recalculé à chaque requête.
+			 */
+			billingAccessOverride: user.billingAccessOverride ?? null,
+			billing: billingAccessStateForUser(user, Date.now()),
 		};
 	},
 });

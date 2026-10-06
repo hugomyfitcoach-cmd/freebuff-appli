@@ -1,7 +1,31 @@
-import { requireRole, SESSION_COOKIE } from '$lib/server/session';
+import { requireClientAccess, requireRole, SESSION_COOKIE } from '$lib/server/session';
 import { convex } from '$lib/server/convex';
-import { api } from '../../convex/_generated/api.js';	export const load = async (event) => {
-	const user = await requireRole(event, 'client', { next: '/espace' });
+import { api } from '../../convex/_generated/api.js';	/**
+	 * Routes accessibles pendant le HARD LOCK (décision produit : facturation =
+	 * re-souscription ; page de retour Stripe ; déconnexion via ?/logout). Tout
+	 * le reste de /espace/* est verrouillé par le garde serveur : Accueil,
+	 * Journal, Progression, Entraînement, Bilans, Photos, RDV, Profil, Compte,
+	 * Notifications — données conservées mais inaccessibles.
+	 *
+	 * NB : /facturation/retour est une route RACINE (hors /espace) ajoutée ici
+	 * uniquement parce que CE layout sert de garde central au lock : la page
+	 * de retour Stripe doit rester joignable à une cliente bloquée quand elle
+	 * revient de Checkout/Portal. Matching EXACT (=== includes), jamais un
+	 * préfixe : le lock ne s'ouvre pas au-delà de ces deux pages.
+	 */
+	const BILLING_OPEN_PATHS = ['/espace/facturation', '/facturation/retour'];
+
+export const load = async (event) => {
+	// FACTURATION — garde serveur central (mission §4) : une cliente Autonomie
+	// bloquée (canAccessApp = block, décidé côté Convex) est redirigée vers
+	// /espace/facturation AVANT toute charge de page. Couvre /espace ET toutes
+	// ses sous-pages (journal, progression, entrainement…) — impossible de
+	// contourner le paywall en tapant une URL interne. Coaching, complimentary,
+	// abonnement actif et grâce non expirée passent sans rien voir changer.
+	// Exception CÔTÉ SERVEUR (même mécanisme, décision serveur) : la facturation
+	// seule reste ouverte à une cliente bloquée (hard lock complet ailleurs).
+	const openPath = BILLING_OPEN_PATHS.includes(event.url.pathname);
+	const user = await (openPath ? requireRole(event, 'client', { next: '/espace' }) : requireClientAccess(event, { next: '/espace' }));
 	// Trace la « dernière connexion » (utilisée pour le tri du CRM coach).
 	// Non bloquant : le dashboard (ligne suivante) est lancé en parallèle.
 	const token = event.cookies.get(SESSION_COOKIE);
