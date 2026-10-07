@@ -1,7 +1,12 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import Icon from '$lib/components/Icon.svelte';
-	import { openStripeUrl, startBillingFocusRevalidate } from '$lib/billingRefresh';
+	import {
+		beginStripeExternalWindow,
+		openStripeUrl,
+		startBillingFocusRevalidate,
+		type StripeExternalWindow,
+	} from '$lib/billingRefresh';
 
 	let { data } = $props();
 
@@ -12,6 +17,13 @@
 
 	/** Portail Stripe (portal) — état de la requête. */
 	let portalLoading = $state(false);
+
+	/**
+	 * Fenêtre externe pré-ouverte (PWA standalone) pour la redirection Stripe
+	 * en cours — ouverte de façon SYNCHRONIQUE dans le user gesture puis
+	 * redirigée vers l'URL reçue ; refermée sur échec ou au retour dans l'app.
+	 */
+	let externalWindow: StripeExternalWindow | null = null;
 
 	const b = $derived(data.billing);
 	const fmt = (n: number) => n.toLocaleString('fr-FR', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 });
@@ -43,12 +55,21 @@
 
 	/**
 	 * Retour de focus après un passage chez Stripe (Checkout ou Portal) :
-	 * revalidation AUTOMATIQUE de l'entitlement côté serveur — si le webhook a
-	 * confirmé le paiement pendant l'absence, la page se déverrouille d'elle-
-	 * même (aucun refresh manuel, aucun redémarrage). Aucun polling : on
-	 * n'écoute que le vrai retour de l'utilisatrice.
+	 * 1) RESET immédiat de l'état UI de redirection — le loading ne survit
+	 *    JAMAIS au retour (bug « Redirection… » bloqué) et une fenêtre externe
+	 *    restée en attente est refermée ;
+	 * 2) revalidation AUTOMATIQUE de l'entitlement côté serveur — si le webhook
+	 *    a confirmé le paiement pendant l'absence, la page se déverrouille
+	 *    d'elle-même (aucun refresh manuel, aucun redémarrage).
+	 * Aucun polling : on n'écoute que le vrai retour de l'utilisatrice.
 	 */
-	$effect(() => startBillingFocusRevalidate());
+	function resetCheckoutUi() {
+		externalWindow?.abort();
+		externalWindow = null;
+		loading = false;
+		portalLoading = false;
+	}
+	$effect(() => startBillingFocusRevalidate(resetCheckoutUi));
 
 	/**
 	 * Paywall premium : la page sous la modale ne doit pas défiler derrière
@@ -67,11 +88,26 @@
 		};
 	});
 
+	/**
+	 * Erreur quand Stripe n'a pas pu être ouvert/redirigé (fenêtre bloquée,
+	 * navigations refusées…) — courte, actionnable, sans bloquer l'utilisatrice.
+	 */
+	const OPEN_ERROR = 'Impossible d’ouvrir le paiement. Réessaie dans quelques secondes.';
+
 	async function startCheckout(p: 'monthly' | 'yearly') {
+		if (loading) return; // double-clic : une seule création de session à la fois
 		plan = p;
 		loading = true;
 		errorMsg = '';
+		// 1) OUVERTURE SYNCHRONIQUE dans la pile d'appels du user gesture (PWA
+		//    standalone) : la fenêtre externe vide est créée AVANT tout await —
+		//    appelée après la réponse réseau, elle perd l'activation Safari/iOS
+		//    et est bloquée comme popup (bug production). null en navigateur
+		//    classique → l'URL Stripe sera suivie dans le même contexte.
+		const external = beginStripeExternalWindow();
+		externalWindow = external;
 		try {
+			// 2) création de la Checkout Session — le priceId reste 100 % serveur
 			const res = await fetch('/api/billing/checkout', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
@@ -79,34 +115,58 @@
 			});
 			const json = await res.json();
 			if (res.ok && json.url) {
-				// PWA installée → Stripe s'ouvre dans le navigateur externe (G-FLUX
-				// reste ouverte derrière) ; web classique → même contexte.
-				openStripeUrl(json.url);
+				// 3) redirection de la fenêtre pré-ouverte (PWA) ou navigation du
+				//    même contexte (navigateur classique — comportement historique)
+				if (external) {
+					if (!external.complete(json.url)) errorMsg = OPEN_ERROR;
+				} else {
+					openStripeUrl(json.url);
+				}
 				return;
 			}
+			external?.abort(); // pas d'URL → fermer la fenêtre vide éventuelle
 			errorMsg = json.error ?? 'Une erreur est survenue. Réessaie.';
 		} catch {
+			external?.abort();
 			errorMsg = 'Connexion impossible. Vérifie ton réseau et réessaie.';
+		} finally {
+			// 4) le loading ne sert qu'à éviter le double-clic pendant la création :
+			//    il ne survit JAMAIS à l'ouverture (ni à un échec) — le bouton et
+			//    les cartes redeviennent immédiatement interactifs. Une nouvelle
+			//    session partira avec le plan alors sélectionné.
+			loading = false;
+			if (externalWindow === external) externalWindow = null;
 		}
-		loading = false;
 	}
 
 	async function openPortal() {
+		if (portalLoading) return;
 		portalLoading = true;
 		errorMsg = '';
+		// Même robustesse que le checkout : fenêtre pré-ouverte dans le gesture
+		// (PWA), puis redirection — jamais de « Ouverture… » survivant au retour.
+		const external = beginStripeExternalWindow();
+		externalWindow = external;
 		try {
 			const res = await fetch('/api/billing/portal', { method: 'POST' });
 			const json = await res.json();
 			if (res.ok && json.url) {
-				// PWA installée → navigateur externe ; web classique → même contexte.
-				openStripeUrl(json.url);
+				if (external) {
+					if (!external.complete(json.url)) errorMsg = OPEN_ERROR;
+				} else {
+					openStripeUrl(json.url);
+				}
 				return;
 			}
+			external?.abort();
 			errorMsg = json.error ?? 'Une erreur est survenue. Réessaie.';
 		} catch {
+			external?.abort();
 			errorMsg = 'Connexion impossible. Vérifie ton réseau et réessaie.';
+		} finally {
+			portalLoading = false;
+			if (externalWindow === external) externalWindow = null;
 		}
-		portalLoading = false;
 	}
 </script>
 
@@ -375,9 +435,16 @@
 							type="button"
 							onclick={() => startCheckout(plan)}
 							disabled={loading}
+							aria-busy={loading}
 							class="mt-5 w-full rounded-2xl bg-brand px-4 py-3.5 text-[15px] font-bold text-white shadow-sm transition duration-200 hover:bg-brand-dark active:scale-[0.99] disabled:opacity-60"
 						>
-							{loading ? 'Redirection…' : 'Réactiver mon accès'}
+							<!-- Label STABLE « Réactiver mon accès » + spinner bref : le
+							     loading ne dure que la création de session, jamais
+							     jusqu'au paiement — il ne survit jamais au retour. -->
+							<span class="flex items-center justify-center gap-2">
+								{#if loading}<Icon name="refreshCw" size={16} class="animate-spin" />{/if}
+								Réactiver mon accès
+							</span>
 						</button>
 						<p class="mt-2.5 text-center text-[11px] leading-snug text-mist">Paiement sécurisé par Stripe · Tes données restent conservées.</p>
 					{/if}

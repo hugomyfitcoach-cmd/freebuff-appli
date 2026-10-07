@@ -28,6 +28,7 @@
 import { invalidateAll } from '$app/navigation';
 import { navigating } from '$app/state';
 import { isStandalone } from './pwa';
+import { createStripeWindowController, type StripeWindowLike } from './stripeWindowController';
 
 /** Revalide une seule fois les données de la page (et du layout). */
 export async function revalidateBilling(): Promise<void> {
@@ -78,11 +79,17 @@ export function onBillingFocusReturn(handler: () => void): () => void {
  * chaque reprise — sauf pendant une navigation SvelteKit en cours (les load
  * functions tournent déjà). Aucun appel au montage : la donnée vient d'être
  * servie côté serveur, la revalider aussitôt n'apporterait rien.
+ *
+ * `onReturn` (optionnel) est exécuté AVANT la revalidation : la page
+ * facturation s'en sert pour remettre à zéro l'état UI du checkout au retour
+ * dans G-FLUX. Ordre imposé au retour : 1) reset état redirection →
+ * 2) revalidation entitlement → 3) déblocage si le webhook a confirmé.
  */
-export function startBillingFocusRevalidate(): () => void {
+export function startBillingFocusRevalidate(onReturn?: () => void): () => void {
 	return onBillingFocusReturn(() => {
 		// navigation en cours → les load functions s'exécutent déjà, on s'abstient
 		if (navigating?.to) return;
+		onReturn?.();
 		void revalidateBilling();
 	});
 }
@@ -107,4 +114,53 @@ export function openStripeUrl(url: string): void {
 		return;
 	}
 	window.location.href = url;
+}
+
+/* ── Ouverture robuste iOS/PWA : open blank MAINTENANT, redirect ensuite ── */
+
+/** Handle d'une fenêtre externe pré-ouverte depuis le user gesture. */
+export type StripeExternalWindow = {
+	/** Redirige la fenêtre pré-ouverte vers l'URL Stripe (false = échec). */
+	complete(url: string): boolean;
+	/** Ferme la fenêtre vide éventuelle et neutralise le handle (idempotent). */
+	abort(): void;
+};
+
+/**
+ * BUG PRODUCTION iPHONE (corrigé) : l'ancien flow appelait `openStripeUrl`
+ * APRÈS le `await fetch` de création de session — l'activation transitoire du
+ * user gesture avait expiré, Safari/iOS bloquait `window.open` comme popup et
+ * Stripe ne s'ouvrait jamais (bouton resté sur « Redirection… »).
+ *
+ * Correctif (pattern « open blank now, redirect later ») : en PWA standalone,
+ * la fenêtre externe VIDE est ouverte ICI, de façon SYNCHRONIQUE — appelant
+ * direct du user gesture, activation Safari intacte — puis redirigée vers
+ * l'URL Checkout quand la session est créée (`complete`), ou refermée en cas
+ * d'échec (`abort`) : jamais d'ouverture bloquée, jamais d'onglet blanc
+ * définitif (filet de sécurité 20 s côté contrôleur).
+ *
+ * En navigateur classique (desktop, web mobile) : retourne null — l'URL
+ * Stripe est suivie dans le MÊME contexte après la réponse (navigation
+ * top-level, jamais bloquée par le popup blocker), comportement historique
+ * inchangé et comportement PWA déjà validé préservé.
+ */
+export function beginStripeExternalWindow(): StripeExternalWindow | null {
+	if (typeof window === 'undefined') return null;
+	if (!isStandalone()) return null;
+	let win: Window | null = null;
+	try {
+		win = window.open('', '_blank');
+	} catch {
+		win = null; // ouverture refusée → la page affichera une erreur propre
+	}
+	const controller = createStripeWindowController(win as StripeWindowLike | null, (fn, ms) => {
+		// Filet ONE-SHOT (jamais du polling) : referme la fenêtre si l'URL
+		// Stripe ne finit pas par arriver.
+		const t = setTimeout(fn, ms);
+		return () => clearTimeout(t);
+	});
+	return {
+		complete: (url) => controller.complete(url),
+		abort: () => controller.abort(),
+	};
 }

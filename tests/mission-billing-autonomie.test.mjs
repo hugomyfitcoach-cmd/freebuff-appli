@@ -418,11 +418,13 @@ test('UX · revalidation entitlement au retour de focus (sans polling)', () => {
 	assert.match(refresh, /pageshow/);
 	assert.match(refresh, /e\.persisted/);
 	assert.match(refresh, /invalidateAll/);
-	// aucun mécanisme de polling : aucune API de répétition programmée
-	assert.doesNotMatch(refresh, /setInterval|setTimeout\(/);
+	// aucun mécanisme de POLLING : aucune répétition programmée (le seul timer
+	// du module est le filet ONE-SHOT qui referme une fenêtre externe Stripe
+	// restée vide — pattern « open blank now, redirect later » — pas du polling)
+	assert.doesNotMatch(refresh, /setInterval\(/);
 	// branchée sur les trois surfaces concernées
 	const facturation = src('./src/routes/espace/facturation/+page.svelte');
-	assert.match(facturation, /startBillingFocusRevalidate\(\)/);
+	assert.match(facturation, /startBillingFocusRevalidate\(/);
 	const parametres = src('./src/routes/espace/parametres/+page.svelte');
 	assert.match(parametres, /startBillingFocusRevalidate\(\)/);
 	const retour = src('./src/routes/facturation/retour/+page.svelte');
