@@ -397,12 +397,16 @@ test('UX · page de retour : état réel seulement, jamais « validé » sur la 
 	assert.match(svelte, /en cours de confirmation/);
 });
 
-test('UX · ouverture Stripe : navigateur externe en PWA, même contexte en web classique', () => {
+test('UX · ouverture Stripe : tentative externe en PWA + fallback même contexte (web classique direct)', () => {
 	const refresh = src('./src/lib/billingRefresh.ts');
-	// le helper central décide : standalone → window.open (externe), sinon même contexte
-	assert.match(refresh, /if \(isStandalone\(\)\)/);
+	// V3 (bug iPhone réel PR #15) : web → même contexte d'abord (historique) ;
+	// PWA → window.open DIRECT avec l'URL Stripe, fallback location.assign si
+	// refusée ou fenêtre fantôme — JAMAIS de about:blank ni de WindowProxy navigué.
+	assert.match(refresh, /if \(!isStandalone\(\)\)/);
 	assert.match(refresh, /window\.open\(url, '_blank'\)/);
-	assert.match(refresh, /window\.location\.href = url/);
+	assert.match(refresh, /window\.location\.assign\(url\)/);
+	assert.doesNotMatch(refresh, /window\.open\('', '_blank'\)/);
+	assert.doesNotMatch(refresh, /win\.location\.href\s*=/);
 	// les deux pages billing passent par le helper (plus aucun href direct sur l'URL Stripe)
 	const facturation = src('./src/routes/espace/facturation/+page.svelte');
 	assert.match(facturation, /openStripeUrl\(json\.url\)/);
@@ -418,11 +422,13 @@ test('UX · revalidation entitlement au retour de focus (sans polling)', () => {
 	assert.match(refresh, /pageshow/);
 	assert.match(refresh, /e\.persisted/);
 	assert.match(refresh, /invalidateAll/);
-	// aucun mécanisme de polling : aucune API de répétition programmée
-	assert.doesNotMatch(refresh, /setInterval|setTimeout\(/);
+	// aucun mécanisme de POLLING : aucune répétition programmée (les seuls
+	// timers du module sont des ONE-SHOT du flow d'ouverture Stripe : filet
+	// anti fenêtre fantôme — pas du polling d'entitlement)
+	assert.doesNotMatch(refresh, /setInterval\(/);
 	// branchée sur les trois surfaces concernées
 	const facturation = src('./src/routes/espace/facturation/+page.svelte');
-	assert.match(facturation, /startBillingFocusRevalidate\(\)/);
+	assert.match(facturation, /startBillingFocusRevalidate\(/);
 	const parametres = src('./src/routes/espace/parametres/+page.svelte');
 	assert.match(parametres, /startBillingFocusRevalidate\(\)/);
 	const retour = src('./src/routes/facturation/retour/+page.svelte');
