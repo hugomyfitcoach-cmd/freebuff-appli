@@ -169,8 +169,12 @@
 	/* ── Suggestions ───────────────────────────────────────────────────── */
 	function pickSuggestion(s: string) {
 		if (s === activeTopic.whatsappSuggestion) {
-			if (coachUrl) window.open(coachUrl, '_blank', 'noopener,noreferrer');
-			return;
+			// WhatsApp configuré → ouverture directe. Sinon JAMAIS un tap mort :
+			// la demande part en conversation (l'assistant répond honnêtement).
+			if (coachUrl) {
+				window.open(coachUrl, '_blank', 'noopener,noreferrer');
+				return;
+			}
 		}
 		void sendMessage({ text: s });
 	}

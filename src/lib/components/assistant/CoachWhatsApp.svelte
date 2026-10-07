@@ -44,7 +44,19 @@
 			<WhatsAppIcon size={17} class="text-brand" />
 			<span class="whitespace-nowrap">{label}</span>
 		</a>
-		<span class="relative -ml-2 shrink-0">
+	{:else}
+		<!-- État HONNÊTE : COACH_WHATSAPP absente → AFFICHÉ mais jamais cliquable
+		     (pas de lien mort, pas de numéro inventé). -->
+		<span
+			class="inline-flex min-h-11 cursor-default items-center gap-2 rounded-full border border-line bg-white px-3.5 py-2 text-[13px] font-bold text-mist"
+			aria-disabled="true"
+			title="WhatsApp du coach non configuré"
+		>
+			<WhatsAppIcon size={17} class="text-mist" />
+			<span class="whitespace-nowrap">{label}</span>
+		</span>
+	{/if}
+	<span class="relative -ml-2 shrink-0">
 			{#if avatar}
 				<img src={avatar} alt="Photo du coach" class="h-10 w-10 rounded-full border-2 border-white object-cover shadow-sm" />
 			{:else}
@@ -60,8 +72,7 @@
 			>
 				<WhatsAppIcon size={11} />
 			</span>
-		</span>
-	{/if}
+	</span>
 {:else if ready}
 	<a
 		href={url}
