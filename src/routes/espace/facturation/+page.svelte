@@ -1,12 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import Icon from '$lib/components/Icon.svelte';
-	import {
-		beginStripeExternalWindow,
-		openStripeUrl,
-		startBillingFocusRevalidate,
-		type StripeExternalWindow,
-	} from '$lib/billingRefresh';
+	import { openStripeUrl, startBillingFocusRevalidate } from '$lib/billingRefresh';
 
 	let { data } = $props();
 
@@ -17,13 +12,6 @@
 
 	/** Portail Stripe (portal) — état de la requête. */
 	let portalLoading = $state(false);
-
-	/**
-	 * Fenêtre externe pré-ouverte (PWA standalone) pour la redirection Stripe
-	 * en cours — ouverte de façon SYNCHRONIQUE dans le user gesture puis
-	 * redirigée vers l'URL reçue ; refermée sur échec ou au retour dans l'app.
-	 */
-	let externalWindow: StripeExternalWindow | null = null;
 
 	const b = $derived(data.billing);
 	const fmt = (n: number) => n.toLocaleString('fr-FR', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 });
@@ -56,16 +44,13 @@
 	/**
 	 * Retour de focus après un passage chez Stripe (Checkout ou Portal) :
 	 * 1) RESET immédiat de l'état UI de redirection — le loading ne survit
-	 *    JAMAIS au retour (bug « Redirection… » bloqué) et une fenêtre externe
-	 *    restée en attente est refermée ;
+	 *    JAMAIS au retour (bouton et cartes immédiatement réutilisables) ;
 	 * 2) revalidation AUTOMATIQUE de l'entitlement côté serveur — si le webhook
 	 *    a confirmé le paiement pendant l'absence, la page se déverrouille
 	 *    d'elle-même (aucun refresh manuel, aucun redémarrage).
 	 * Aucun polling : on n'écoute que le vrai retour de l'utilisatrice.
 	 */
 	function resetCheckoutUi() {
-		externalWindow?.abort();
-		externalWindow = null;
 		loading = false;
 		portalLoading = false;
 	}
@@ -88,26 +73,13 @@
 		};
 	});
 
-	/**
-	 * Erreur quand Stripe n'a pas pu être ouvert/redirigé (fenêtre bloquée,
-	 * navigations refusées…) — courte, actionnable, sans bloquer l'utilisatrice.
-	 */
-	const OPEN_ERROR = 'Impossible d’ouvrir le paiement. Réessaie dans quelques secondes.';
-
 	async function startCheckout(p: 'monthly' | 'yearly') {
 		if (loading) return; // double-clic : une seule création de session à la fois
 		plan = p;
 		loading = true;
 		errorMsg = '';
-		// 1) OUVERTURE SYNCHRONIQUE dans la pile d'appels du user gesture (PWA
-		//    standalone) : la fenêtre externe vide est créée AVANT tout await —
-		//    appelée après la réponse réseau, elle perd l'activation Safari/iOS
-		//    et est bloquée comme popup (bug production). null en navigateur
-		//    classique → l'URL Stripe sera suivie dans le même contexte.
-		const external = beginStripeExternalWindow();
-		externalWindow = external;
 		try {
-			// 2) création de la Checkout Session — le priceId reste 100 % serveur
+			// création de la Checkout Session — le priceId reste 100 % serveur
 			const res = await fetch('/api/billing/checkout', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
@@ -115,27 +87,23 @@
 			});
 			const json = await res.json();
 			if (res.ok && json.url) {
-				// 3) redirection de la fenêtre pré-ouverte (PWA) ou navigation du
-				//    même contexte (navigateur classique — comportement historique)
-				if (external) {
-					if (!external.complete(json.url)) errorMsg = OPEN_ERROR;
-				} else {
-					openStripeUrl(json.url);
-				}
+				// Ouverture FIABLE (iOS/PWA inclus) : tentative d'ouverture directe
+				// de l'URL Stripe, puis fallback navigation même contexte si refusée
+				// ou fenêtre fantôme. Aucune dépendance au user gesture, aucune
+				// fenêtre vide, aucune navigation de WindowProxy (stratégie
+				// « open blank → redirect » abandonnée : non fiable en PWA iOS réel).
+				openStripeUrl(json.url);
 				return;
 			}
-			external?.abort(); // pas d'URL → fermer la fenêtre vide éventuelle
 			errorMsg = json.error ?? 'Une erreur est survenue. Réessaie.';
 		} catch {
-			external?.abort();
 			errorMsg = 'Connexion impossible. Vérifie ton réseau et réessaie.';
 		} finally {
-			// 4) le loading ne sert qu'à éviter le double-clic pendant la création :
-			//    il ne survit JAMAIS à l'ouverture (ni à un échec) — le bouton et
-			//    les cartes redeviennent immédiatement interactifs. Une nouvelle
-			//    session partira avec le plan alors sélectionné.
+			// le loading ne sert qu'à éviter le double-clic pendant la création :
+			// il ne survit JAMAIS à l'ouverture (ni à un échec) — le bouton et
+			// les cartes redeviennent immédiatement interactifs. Une nouvelle
+			// session partira avec le plan alors sélectionné.
 			loading = false;
-			if (externalWindow === external) externalWindow = null;
 		}
 	}
 
@@ -143,29 +111,20 @@
 		if (portalLoading) return;
 		portalLoading = true;
 		errorMsg = '';
-		// Même robustesse que le checkout : fenêtre pré-ouverte dans le gesture
-		// (PWA), puis redirection — jamais de « Ouverture… » survivant au retour.
-		const external = beginStripeExternalWindow();
-		externalWindow = external;
 		try {
 			const res = await fetch('/api/billing/portal', { method: 'POST' });
 			const json = await res.json();
 			if (res.ok && json.url) {
-				if (external) {
-					if (!external.complete(json.url)) errorMsg = OPEN_ERROR;
-				} else {
-					openStripeUrl(json.url);
-				}
+				// Même ouverture fiable que le checkout (iOS/PWA) — jamais de
+				// « Ouverture… » survivant au retour (finally ci-dessous).
+				openStripeUrl(json.url);
 				return;
 			}
-			external?.abort();
 			errorMsg = json.error ?? 'Une erreur est survenue. Réessaie.';
 		} catch {
-			external?.abort();
 			errorMsg = 'Connexion impossible. Vérifie ton réseau et réessaie.';
 		} finally {
 			portalLoading = false;
-			if (externalWindow === external) externalWindow = null;
 		}
 	}
 </script>

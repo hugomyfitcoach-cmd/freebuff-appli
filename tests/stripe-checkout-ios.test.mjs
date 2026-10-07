@@ -1,32 +1,21 @@
 /**
- * Tests CORRECTIF PRODUCTION — CHECKOUT STRIPE SUR iPHONE (bugs UX réels).
+ * Tests CORRECTIF PRODUCTION — CHECKOUT STRIPE SUR iPHONE (V3, PR #15).
  *
- * Deux bugs corrigés :
- *  - Bug 1 : `window.open` appelé APRÈS le `await fetch` perdait l'activation
- *    transitoire du user gesture Safari/iOS → ouverture bloquée comme popup,
- *    Stripe ne s'ouvrait jamais (bouton figé). Correctif : pattern
- *    « open blank now, redirect later » — la fenêtre externe vide est ouverte
- *    de façon SYNCHRONIQUE dans la pile du clic, puis redirigée vers l'URL
- *    Checkout (contrôleur pur : src/lib/stripeWindowController.ts).
- *  - Bug 2 : le `return` après ouverture sautait le reset du loading →
- *    « Redirection… » figé après un retour sans paiement, cartes Mortes.
- *    Correctif : loading remis à zéro dans un `finally` (ne survit jamais ni
- *    à l'ouverture ni à un échec) + reset explicite au retour de focus via
- *    startBillingFocusRevalidate (reset AVANT revalidation entitlement).
+ * Historique des stratégies :
+ *  - V1 : window.open(url) APRÈS le await fetch → gesture perdu → popup bloqué.
+ *  - V2 (abandonnée) : open blank synchrone puis navigation du WindowProxy —
+ *    INVALIDÉE sur iPhone réel (fenêtre fantôme / about:blank non présenté en
+ *    PWA standalone : Stripe ne s'ouvrait pas).
+ *  - V3 (courante) : ouverture DIRECTE de l'URL Stripe (`window.open(url,
+ *    '_blank')`) en PWA, fallback navigation même contexte (`location.assign`)
+ *    si refusée, filet anti « fenêtre fantôme » one-shot 2,5 s (PWA uniquement,
+ *    décision pure : src/lib/stripeOpenFallback.ts). Web classique : navigation
+ *    même contexte directe (comportement historique).
  *
- * Scénarios de la mission (8) :
- *  1 · clic → création session → ouverture URL ............ T1 + S1
- *  2 · échec création → loading reset ..................... T2 + S2
- *  3 · retour fenêtre/PWA sans paiement → loading reset ... T3 + S3
- *  4 · retour sans paiement → Mensuel→Annuel possible ..... S4
- *  5 · nouveau clic → plan annuel envoyé .................. S5
- *  6 · double-clic rapide → pas de double création ........ S6
- *  7 · entitlement confirmé → déblocage actuel intact ..... S7
- *  8 · coaching toujours interdit ......................... S8
- *
- * Garde-fous vérifiés inchangés : priceId 100 % serveur, 403 coaching,
- * 503 fail-closed, webhook source de vérité, verrou serveur intact
- * (matrice complète : tests/mission-billing-autonomie.test.mjs).
+ * Scénarios de la mission (8) : ouverture fiable (1, T1–T4 + S1), échec →
+ * loading reset (2, S2), retour sans paiement → reset (3, S3), Mensuel→Annuel
+ * possible (4, S4), plan courant renvoyé (5, S5), pas de double création
+ * (6, S6), déblocage intact (7, S7), coaching interdit (8, S8).
  *
  * Exécution : npm test
  */
@@ -44,7 +33,7 @@ function src(relPath) {
 	return readFileSync(new URL('..' + relPath.slice(1), import.meta.url), 'utf8');
 }
 
-const ctrl = await loadTs('./src/lib/stripeWindowController.ts');
+const fb = await loadTs('./src/lib/stripeOpenFallback.ts');
 const billing = await loadTs('./src/convex/billing.ts');
 
 const refresh = src('./src/lib/billingRefresh.ts');
@@ -62,126 +51,83 @@ function functionBody(source, signature) {
 	return source.slice(start, end);
 }
 
-/* ────────────── helpers fenêtre factice + scheduler déterministe ────────────── */
+/* ═════════ DÉCISION PURE DU FILET ANTI FENÊTRE FANTÔME ═════════ */
 
-/** Window minimal (structure compatible avec StripeWindowLike). */
-function fakeWin({ blocked = false, closedAtOpen = false } = {}) {
-	if (blocked) return null;
-	const win = {
-		closed: closedAtOpen,
-		location: { href: '' },
-		_closeCalls: 0,
-		close() {
-			win._closeCalls += 1;
-			win.closed = true;
-		},
-	};
-	return win;
-}
-
-/** Scheduler manuel : les jobs ne partent QUE quand le test les déclenche. */
-function manualScheduler() {
-	const jobs = [];
-	return {
-		jobs,
-		schedule: (fn, ms) => {
-			jobs.push({ fn, ms });
-			return () => {};
-		},
-		runAll() {
-			while (jobs.length) jobs.shift().fn();
-		},
-	};
-}
-
-/* ═════════ CONTRÔLEUR PUR (logique réelle de la fenêtre externe) ═════════ */
-
-test('T1 · scénario 1 : complete() redirige la fenêtre pré-ouverte vers l’URL Stripe', () => {
-	const win = fakeWin();
-	const { schedule, runAll } = manualScheduler();
-	const c = ctrl.createStripeWindowController(win, schedule);
-	assert.equal(c.complete('https://checkout.stripe.com/c/pay/cs_test_123'), true);
-	assert.equal(win.location.href, 'https://checkout.stripe.com/c/pay/cs_test_123');
-	assert.equal(win._closeCalls, 0, 'la fenêtre n’est PAS refermée après la redirection');
-	runAll();
-	assert.equal(win._closeCalls, 0, 'le filet de sécurité est neutralisé après succès');
+test('T1 · filet : fenêtre fantôme détectée (app jamais masquée, toujours visible) → fallback', () => {
+	assert.equal(
+		fb.shouldFallbackToSameContext({ proxyOpened: true, proxyClosed: false, appWasHiddenSinceOpen: false, appCurrentlyVisible: true }),
+		true
+	);
 });
 
-test('T2 · scénario 2 : échec → abort referme la fenêtre vide et complete() devient sans effet', () => {
-	const win = fakeWin();
-	const { schedule } = manualScheduler();
-	const c = ctrl.createStripeWindowController(win, schedule);
-	c.abort();
-	assert.equal(win._closeCalls, 1, 'abort referme la fenêtre vide (jamais de blanc définitif)');
-	assert.equal(c.complete('https://checkout.stripe.com/c/pay/cs_test_123'), false, 'complete après abort = échec → l’UI affichera l’erreur');
+test('T2 · filet : ouverture RÉELLE (app masquée depuis le open) → ne rien faire', () => {
+	assert.equal(
+		fb.shouldFallbackToSameContext({ proxyOpened: true, proxyClosed: false, appWasHiddenSinceOpen: true, appCurrentlyVisible: false }),
+		false
+	);
+	assert.equal(
+		fb.shouldFallbackToSameContext({ proxyOpened: true, proxyClosed: false, appWasHiddenSinceOpen: true, appCurrentlyVisible: true }),
+		false,
+		'retour dans l’app après une ouverture réussie → jamais de re-navigation parasite'
+	);
 });
 
-test('T3 · scénario 3 : filet one-shot — sans URL reçue sous le délai, la fenêtre vide se referme', () => {
-	const win = fakeWin();
-	const sched = manualScheduler();
-	const c = ctrl.createStripeWindowController(win, sched.schedule);
-	assert.equal(sched.jobs.length, 1, 'un unique filet ONE-SHOT (jamais du polling)');
-	assert.equal(sched.jobs[0].ms, ctrl.STRIPE_WINDOW_SAFETY_TIMEOUT_MS);
-	sched.runAll(); // le délai expire sans URL
-	assert.equal(win._closeCalls, 1);
-	assert.equal(c.complete('https://checkout.stripe.com/c/pay/trop_tard'), false);
+test('T3 · filet : proxy null ou déjà refermé → pas de fallback ici (géré par l’appelant / rien à faire)', () => {
+	assert.equal(
+		fb.shouldFallbackToSameContext({ proxyOpened: false, proxyClosed: false, appWasHiddenSinceOpen: false, appCurrentlyVisible: true }),
+		false
+	);
+	assert.equal(
+		fb.shouldFallbackToSameContext({ proxyOpened: true, proxyClosed: true, appWasHiddenSinceOpen: false, appCurrentlyVisible: true }),
+		false
+	);
 });
 
-test('T4 · idempotence et cas dégradés : popup bloqué, fenêtre déjà fermée, doubles appels', () => {
-	// popup bloqué : window.open a renvoyé null → échec propre, aucun throw
-	const c0 = ctrl.createStripeWindowController(null, () => () => {});
-	assert.equal(c0.complete('https://checkout.stripe.com/x'), false);
-	assert.doesNotThrow(() => c0.abort());
-	// aucun filet schedulé sans fenêtre
-	const schedNull = manualScheduler();
-	ctrl.createStripeWindowController(null, schedNull.schedule);
-	assert.equal(schedNull.jobs.length, 0);
-
-	// fenêtre déjà fermée par l'utilisatrice
-	const winClosed = fakeWin({ closedAtOpen: true });
-	const c1 = ctrl.createStripeWindowController(winClosed, () => () => {});
-	assert.equal(c1.complete('https://checkout.stripe.com/x'), false);
-
-	// double complete : un seul chargement ; abort après succès : fenêtre Stripe intacte
-	const win = fakeWin();
-	const c2 = ctrl.createStripeWindowController(win, () => () => {});
-	assert.equal(c2.complete('https://checkout.stripe.com/a'), true);
-	assert.equal(c2.complete('https://checkout.stripe.com/b'), false, 'le 2e complete est un no-op');
-	assert.equal(win.location.href, 'https://checkout.stripe.com/a');
-	c2.abort();
-	assert.equal(win._closeCalls, 0, 'abort après succès ne ferme PAS la fenêtre Stripe');
+test('T4 · filet : délai de grâce court (one-shot), jamais un polling', () => {
+	assert.ok(fb.STRIPE_GHOST_WINDOW_GRACE_MS >= 1000, 'assez long pour un handoff iOS lent');
+	assert.ok(fb.STRIPE_GHOST_WINDOW_GRACE_MS <= 5000, 'assez court pour ne pas laisser l’utilisatrice bloquée');
 });
 
-/* ═════════ PAGE FACTURATION — analyse statique des scénarios ═════════ */
+/* ═════════ HELPER CENTRAL — STRATÉGIE V3 (analyse statique) ═════════ */
 
-test('S1 · scénario 1 : ouverture SYNCHRONIQUE dans le user gesture (avant tout await)', () => {
-	const body = functionBody(facturation, 'async function startCheckout');
-	const openIdx = body.indexOf('beginStripeExternalWindow()');
-	const awaitIdx = body.indexOf('await fetch');
-	assert.ok(openIdx !== -1, 'la fenêtre externe est pré-ouverte dans startCheckout');
-	assert.ok(awaitIdx !== -1);
-	assert.ok(openIdx < awaitIdx, 'window.open doit être appelé AVANT le await fetch (activation Safari/iOS)');	assert.match(body, /external\.complete\(json\.url\)/, 'la fenêtre pré-ouverte est redirigée vers l’URL reçue');
-	// la fenêtre vide est bien créée côté billingRefresh, en standalone uniquement
-	assert.match(refresh, /export function beginStripeExternalWindow/);
-	assert.match(refresh, /window\.open\('', '_blank'\)/);
+test('S1 · ouverture DIRECTE de l’URL Stripe (jamais de about:blank, jamais de WindowProxy navigué)', () => {
+	assert.match(refresh, /window\.open\(url, '_blank'\)/, 'window.open avec l’URL réelle (seul appel qui déclenche le handoff iOS)');
+	assert.doesNotMatch(refresh, /window\.open\('', '_blank'\)/, 'stratégie open-blank abandonnée');
+	assert.doesNotMatch(refresh, /beginStripeExternalWindow/);
+	assert.doesNotMatch(refresh, /win\.location\.href\s*=/, 'jamais de navigation de WindowProxy');
+	// fallback même contexte : sur null ET au filet (≥ 2 occurrences)
+	const assigns = refresh.match(/window\.location\.assign\(url\)/g) ?? [];
+	assert.ok(assigns.length >= 2, 'fallback assign présent pour l’ouverture refusée et la fenêtre fantôme');
+	// le filet ne s’arme qu’en PWA (après le return non-standalone)
+	const webIdx = refresh.indexOf('if (!isStandalone())');
+	const ghostIdx = refresh.indexOf('shouldFallbackToSameContext(');
+	assert.ok(webIdx !== -1 && ghostIdx !== -1 && webIdx < ghostIdx, 'filet fantôme PWA-only (desktop jamais affecté)');
+	assert.match(refresh, /appWasHiddenSinceOpen/);
+	assert.match(refresh, /removeEventListener\('visibilitychange', onHidden\)/, 'nettoyage one-shot du listener');
 });
 
-test('S2 · scénario 2 : échec de création → loading reset (finally) + fenêtre refermée + erreur propre', () => {
-	const body = functionBody(facturation, 'async function startCheckout');
-	assert.match(body, /finally\s*\{[\s\S]*?loading = false/, 'loading remis à zéro dans un finally');
-	assert.match(body, /external\?\.abort\(\)/, 'fenêtre vide refermée sur échec');
-	assert.match(facturation, /Impossible d’ouvrir le paiement\. Réessaie dans quelques secondes\./, 'message court demandé par la mission');
+test('S2 · page : les deux flux passent par le helper central, loading reset dans un finally', () => {
+	const startBody = functionBody(facturation, 'async function startCheckout');
+	assert.match(startBody, /openStripeUrl\(json\.url\)/);
+	const portalBody = functionBody(facturation, 'async function openPortal');
+	assert.match(portalBody, /openStripeUrl\(json\.url\)/);
+	assert.match(startBody, /finally\s*\{[\s\S]*?loading = false/, 'loading remis à zéro dans un finally');
+	assert.match(portalBody, /finally\s*\{[\s\S]*?portalLoading = false/);
+	// erreurs affichées sur échec serveur / réseau (reset loading garanti par le finally)
+	assert.match(startBody, /json\.error \?\? /);
+	assert.match(startBody, /Connexion impossible/);
+	// plus aucun vestige de la stratégie abandonnée
+	assert.doesNotMatch(facturation, /beginStripeExternalWindow|externalWindow|StripeExternalWindow/);
 });
 
 test('S3 · scénario 3 : retour fenêtre/PWA → reset UI branché sur le focus, AVANT la revalidation', () => {
 	assert.match(facturation, /startBillingFocusRevalidate\(resetCheckoutUi\)/);
 	const reset = functionBody(facturation, 'function resetCheckoutUi');
-	assert.match(reset, /externalWindow\?\.abort\(\)/, 'fenêtre externe restée en attente refermée');
 	assert.match(reset, /loading = false/);
 	assert.match(reset, /portalLoading = false/);
 	// ordre imposé : 1) reset état redirection → 2) revalidation entitlement
 	const start = refresh.indexOf('export function startBillingFocusRevalidate');
-	const end = refresh.indexOf('/* ── Ouverture robuste', start);
+	const end = refresh.indexOf('/* ═════════ OUVERTURE', start);
 	const composed = refresh.slice(start, end);
 	const onReturnIdx = composed.indexOf('onReturn?.()');
 	const revalidateIdx = composed.indexOf('void revalidateBilling()');
@@ -190,7 +136,6 @@ test('S3 · scénario 3 : retour fenêtre/PWA → reset UI branché sur le focus
 });
 
 test('S4 · scénario 4 : retour sans paiement → cartes Mensuel/Annuel de nouveau interactives', () => {
-	// un seul disabled={loading} dans la page : le CTA — jamais les cartes
 	const hits = facturation.match(/disabled=\{loading\}/g) ?? [];
 	assert.equal(hits.length, 1, 'seul le CTA est désactivé pendant la création de session');
 	assert.match(facturation, /onclick=\{\(\) => \(plan = 'yearly'\)\}/);
@@ -217,7 +162,6 @@ test('S7 · scénario 7 : entitlement confirmé → déblocage actuel intact (UR
 	assert.match(facturation, /b\.decision !== 'block'/);
 	assert.match(facturation, /b\.billingAccessOverride === 'complimentary'/);
 	assert.match(facturation, /C'est bon, ton abonnement est actif/);
-	// canAccessApp inchangé (matrice complète : suite mission-billing-autonomie)
 	assert.equal(billing.canAccessApp({ coachingMode: 'autonomy', stripeSubscriptionStatus: 'active' }, NOW), 'allow');
 });
 
@@ -228,16 +172,12 @@ test('S8 · scénario 8 : coaching toujours interdit (403 serveur, priceId serve
 	assert.match(checkout, /priceIdForPlan\(plan\)/, 'priceId 100 % serveur (jamais du client)');
 });
 
-test('S9 · label stable + spinner bref ; plus aucun « Redirection… » visible ; PWA préservée', () => {
+test('S9 · label stable + spinner bref ; plus aucun « Redirection… » visible', () => {
 	const template = facturation.slice(facturation.indexOf('</script>'));
-	assert.doesNotMatch(template, /Redirection…/, 'le label bloquant a disparu du rendu');
+	assert.doesNotMatch(template, /Redirection…/);
 	const ctaIdx = facturation.indexOf('aria-busy={loading}');
 	assert.ok(ctaIdx !== -1);
 	const cta = facturation.slice(ctaIdx, ctaIdx + 700);
 	assert.match(cta, /animate-spin/, 'spinner bref pendant la création de session');
 	assert.match(cta, /Réactiver mon accès/);
-	// le helper historique reste : standalone → navigateur externe ; web → même contexte
-	assert.match(refresh, /if \(isStandalone\(\)\)/);
-	assert.match(refresh, /window\.open\(url, '_blank'\)/);
-	assert.match(refresh, /window\.location\.href = url/);
 });

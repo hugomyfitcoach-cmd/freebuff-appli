@@ -28,7 +28,7 @@
 import { invalidateAll } from '$app/navigation';
 import { navigating } from '$app/state';
 import { isStandalone } from './pwa';
-import { createStripeWindowController, type StripeWindowLike } from './stripeWindowController';
+import { shouldFallbackToSameContext, STRIPE_GHOST_WINDOW_GRACE_MS } from './stripeOpenFallback';
 
 /** Revalide une seule fois les données de la page (et du layout). */
 export async function revalidateBilling(): Promise<void> {
@@ -94,73 +94,87 @@ export function startBillingFocusRevalidate(onReturn?: () => void): () => void {
 	});
 }
 
-/* ═════════ OUVERTURE DE STRIPE DEPUIS LA PWA ═════════ */
+/* ═════════ OUVERTURE DE STRIPE — FIABLE iOS / PWA ═════════ */
 
 /**
- * Stripe doit s'ouvrir dans le NAVIGATEUR EXTERNE quand G-FLUX tourne comme
- * app installée (PWA) :
- * - iOS : `window.open(url, '_blank')` depuis la webview WKWebView sort
- *   automatiquement dans Safari — l'app reste ouverte derrière, et le retour
- *   se fait par le swipe d'app (sans fermer G-FLUX) ;
- * - Android : l'onglet Custom Tab / navigateur s'ouvre au-dessus de l'app,
- *   même bénéfice.
- * En navigateur classique (desktop, mobile web) : même contexte, navigation
- * identique au comportement historique — rien ne change.
+ * Ouvre l'URL Stripe de façon FIABLE sur toutes les surfaces (iOS inclus).
+ *
+ * Historique production (PR #15) :
+ * - V1 : `window.open(url)` appelé APRÈS le await fetch → activation
+ *   transitoire expirée sur iOS → popup bloquée, rien ne s'ouvrait ;
+ * - V2 (abandonnée) : « open blank now, redirect later » — ouverture d'un
+ *   about:blank synchrone puis navigation du WindowProxy. INVALIDÉE sur
+ *   iPhone réel : en PWA standalone, un about:blank ne présente pas de
+ *   fenêtre (proxy fantôme ou null) et naviguer le proxy ne rend rien à
+ *   l'écran ;
+ * - V3 (courante) : tentative d'ouverture DIRECTE de l'URL Stripe via
+ *   `window.open(url, '_blank')` — le seul appel qui déclenche le handoff
+ *   Safari / la vue interne en app installée — puis FIABILISATION :
+ *
+ *   1. proxy null (popup refusée — très fréquent après un await sur iOS)
+ *      → navigation IMMÉDIATE du même contexte (`location.assign`) : une
+ *      navigation top-level n'est jamais bloquée ; Stripe s'ouvre dans la
+ *      PWA même (webview) ou l'onglet courant, et le retour success/cancel
+ *      recharge l'app — jamais d'utilisatrice bloquée ;
+ *   2. proxy non-null mais « fenêtre fantôme » (rien ne s'est affiché : l'app
+ *      n'a JAMAIS été masquée pendant le délai de grâce) → one-shot 2,5 s
+ *      (PWA uniquement) → close() du proxy + assign du même contexte
+ *      (décision pure : stripeOpenFallback.shouldFallbackToSameContext).
+ *
+ * Web classique (desktop, web mobile) : navigation du même contexte
+ * directement — comportement historique, fiable, jamais popup-blocked.
+ *
+ * Le loading du bouton n'est JAMAIS lié à cette fonction : la page le reset
+ * dans un finally, et le reset au retour (startBillingFocusRevalidate)
+ * garantit un bouton réutilisable même si un fallback part en différé.
  */
 export function openStripeUrl(url: string): void {
 	if (typeof window === 'undefined') return;
-	if (isStandalone()) {
-		window.open(url, '_blank');
+
+	// 1) Web classique : même contexte (navigation top-level, jamais bloquée).
+	if (!isStandalone()) {
+		window.location.assign(url);
 		return;
 	}
-	window.location.href = url;
-}
 
-/* ── Ouverture robuste iOS/PWA : open blank MAINTENANT, redirect ensuite ── */
-
-/** Handle d'une fenêtre externe pré-ouverte depuis le user gesture. */
-export type StripeExternalWindow = {
-	/** Redirige la fenêtre pré-ouverte vers l'URL Stripe (false = échec). */
-	complete(url: string): boolean;
-	/** Ferme la fenêtre vide éventuelle et neutralise le handle (idempotent). */
-	abort(): void;
-};
-
-/**
- * BUG PRODUCTION iPHONE (corrigé) : l'ancien flow appelait `openStripeUrl`
- * APRÈS le `await fetch` de création de session — l'activation transitoire du
- * user gesture avait expiré, Safari/iOS bloquait `window.open` comme popup et
- * Stripe ne s'ouvrait jamais (bouton resté sur « Redirection… »).
- *
- * Correctif (pattern « open blank now, redirect later ») : en PWA standalone,
- * la fenêtre externe VIDE est ouverte ICI, de façon SYNCHRONIQUE — appelant
- * direct du user gesture, activation Safari intacte — puis redirigée vers
- * l'URL Checkout quand la session est créée (`complete`), ou refermée en cas
- * d'échec (`abort`) : jamais d'ouverture bloquée, jamais d'onglet blanc
- * définitif (filet de sécurité 20 s côté contrôleur).
- *
- * En navigateur classique (desktop, web mobile) : retourne null — l'URL
- * Stripe est suivie dans le MÊME contexte après la réponse (navigation
- * top-level, jamais bloquée par le popup blocker), comportement historique
- * inchangé et comportement PWA déjà validé préservé.
- */
-export function beginStripeExternalWindow(): StripeExternalWindow | null {
-	if (typeof window === 'undefined') return null;
-	if (!isStandalone()) return null;
-	let win: Window | null = null;
+	// 2) PWA standalone : tentative d'ouverture externe DIRECTE avec l'URL
+	//    Stripe (jamais de about:blank — non présenté en standalone iOS).
+	let opened: Window | null = null;
 	try {
-		win = window.open('', '_blank');
+		opened = window.open(url, '_blank');
 	} catch {
-		win = null; // ouverture refusée → la page affichera une erreur propre
+		opened = null;
 	}
-	const controller = createStripeWindowController(win as StripeWindowLike | null, (fn, ms) => {
-		// Filet ONE-SHOT (jamais du polling) : referme la fenêtre si l'URL
-		// Stripe ne finit pas par arriver.
-		const t = setTimeout(fn, ms);
-		return () => clearTimeout(t);
-	});
-	return {
-		complete: (url) => controller.complete(url),
-		abort: () => controller.abort(),
+	if (!opened) {
+		// Ouverture refusée → même contexte, fiable partout.
+		window.location.assign(url);
+		return;
+	}
+
+	// 3) Filet anti fenêtre fantôme (PWA uniquement — sur desktop une ouverture
+	//    réussie laisse la page visible, le filet ne doit jamais s'y déclencher).
+	const win = opened;
+	let appWasHiddenSinceOpen = false;
+	const onHidden = () => {
+		if (document.visibilityState === 'hidden') appWasHiddenSinceOpen = true;
 	};
+	document.addEventListener('visibilitychange', onHidden);
+	// One-SHOT (jamais du polling) : décision à l'échéance, puis nettoyage.
+	setTimeout(() => {
+		document.removeEventListener('visibilitychange', onHidden);
+		const ghost = shouldFallbackToSameContext({
+			proxyOpened: true,
+			proxyClosed: win.closed,
+			appWasHiddenSinceOpen,
+			appCurrentlyVisible: document.visibilityState === 'visible',
+		});
+		if (!ghost) return;
+		try {
+			win.close();
+		} catch {
+			/* proxy déjà indisponible : aucun impact */
+		}
+		// Rien ne s'est ouvert visuellement → même contexte, fiable partout.
+		window.location.assign(url);
+	}, STRIPE_GHOST_WINDOW_GRACE_MS);
 }
