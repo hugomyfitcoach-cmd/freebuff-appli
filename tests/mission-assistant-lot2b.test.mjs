@@ -133,12 +133,31 @@ test('prompt : demande d\'ajout = outil immédiat, jamais de valeurs de mémoire
 
 /* ═══ 4. Mise à jour déterministe de l'action en attente (Bug 2) ═══ */
 
+test('refineMatch : une clarification raffine la ligne de même base (fonctionnel)', () => {
+	const rm = tools.refineMatch;
+	assert.equal(rm('Pain de mie blanc, préemballé', 'Pain de mie complet.'), true, 'blanc → complet : même base');
+	assert.equal(rm('Pomme', 'Pomme Golden'), true);
+	assert.equal(rm('Pain de mie blanc, préemballé', 'Beurre doux'), false, 'autre aliment : pas de raffinement');
+	assert.equal(rm('Pain de mie blanc, préemballé', 'Pain complet'), false, 'base trop différente');
+	assert.equal(rm('Riz basmati, cuit, sans sel ajouté', 'Riz basmati complet'), true, 'même base riz basmati');
+});
+
+test('assistant.ts : bypass déterministe de clarification AVANT l\'appel IA', () => {
+	assert.ok(/5b\) LOT 2B — CLARIFICATION DÉTERMINISTE/.test(assistantSrc), 'bypass présent');
+	assert.ok(/tokCount <= 8/.test(assistantSrc), 'message court seulement');
+	assert.ok(/!trimmed\.includes\("\?"\)/.test(assistantSrc), 'pas une question');
+	assert.ok(/!ADD_INTENT_RE\.test\(trimmed\)/.test(assistantSrc), 'pas une nouvelle demande d\'ajout');
+	assert.ok(/refineMatch\(l\.label, trimmed\)/.test(assistantSrc), 'appliqué seulement si une ligne est raffinée');
+	assert.ok(/Le reste ne change pas/.test(assistantSrc), 'réponse déterministe au client');
+	assert.ok(assistantSrc.indexOf('CLARIFICATION DÉTERMINISTE') < assistantSrc.indexOf('Boucle d\'outils — REGISTRE'), 'avant l\'appel IA');
+});
+
 test('updatePendingJournalEntry : fusion serveur sans perte d\'information', () => {
 	assert.ok(toolsSrc.includes('export const updatePendingJournalEntry = mutation('), 'mutation créée');
 	assert.ok(/status !== "pending"/.test(toolsSrc), 'seule une action PENDING est modifiable');
 	assert.ok(/expiresAt <= Date\.now\(\)/.test(toolsSrc), 'action expirée refusée');
 	assert.ok(/doc\.threadId !== tId/.test(toolsSrc), 'action d\'un autre fil refusée (isolation)');
-	assert.ok(/nameCovers\(declared, undefined, c\.name\) \|\|[\s\S]{0,60}nameCovers\(c\.name, undefined, declared\)/.test(toolsSrc), 'la clarification raffine la ligne qu\'elle recouvre');
+	assert.ok(/refineMatch\(c\.name, declared\)/.test(toolsSrc), 'la clarification raffine la ligne qu\'elle recouvre');
 	assert.ok(/\(it\.qtyGrams !== undefined \? \{ qtyGrams: it\.qtyGrams \} : \{\}\)/.test(toolsSrc), 'quantité absente = quantité existante conservée');
 });
 

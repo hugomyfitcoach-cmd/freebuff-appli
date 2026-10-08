@@ -40,6 +40,7 @@ import {
 } from "../lib/assistant/policy";
 import { runAssistantTurn } from "../lib/server/assistantAi";
 import { dispatchTool, registryToolDefs, type ToolRunState } from "./assistantRegistry";
+import { refineMatch } from "./assistantTools";
 import { contextFor, buildContextBlock } from "./assistantRead";
 import { OpenAiUnavailableError } from "../lib/server/openai";
 
@@ -740,6 +741,70 @@ export const send = action({
 				if (block) system = `${system}\n\n${block}`;
 			} catch {
 				/* contexte indisponible : on continue sans */
+			}
+
+			// 5b) LOT 2B — CLARIFICATION DÉTERMINISTE (Bug 2) : message court,
+			// sans verbe d'ajout ni question, alors qu'une action journal_add est
+			// EN ATTENTE et raffine une de ses lignes (« pain de mie complet »).
+			// Le SERVEUR applique la mise à jour lui-même : lignes/quantités déjà
+			// données conservées, recalcul par le pipeline verrouillé — la mémoire
+			// de la tâche ne repose PAS sur le modèle. Retour anticipé : aucun
+			// appel IA, zéro hallucination possible sur ce chemin.
+			const trimmed = text.trim();
+			const tokCount = trimmed.split(/\s+/).filter(Boolean).length;
+			if (
+				trimmed.length >= 4 &&
+				tokCount <= 8 &&
+				!trimmed.includes("?") &&
+				!ADD_INTENT_RE.test(trimmed) &&
+				!/\b(delete|supprime|retire|enlève|annule)\b/i.test(trimmed)
+			) {
+				try {
+					const open = (await ctx.runQuery(api.assistantTools.latestPendingJournalAdd, {
+						sessionToken: args.sessionToken,
+						threadId,
+					})) as { actionId: string; preview: { title: string; lines: { label: string }[] } } | null;
+					if (open && open.preview.lines.some((l) => refineMatch(l.label, trimmed))) {
+						const upd = (await ctx.runMutation(api.assistantTools.updatePendingJournalEntry, {
+							sessionToken: args.sessionToken,
+							threadId,
+							topic,
+							items: [{ name: trimmed.replace(/[.,;!?]+$/, "").slice(0, 80) }],
+						})) as { actionId: string; preview: { title: string; lines: { label: string; detail?: string }[] }; changed: { from: string; to: string; qtyGrams: number }[] };
+						if (upd.changed.length > 0) {
+							const swap = upd.changed
+								.map((c) => `« ${c.from} » → « ${c.to} » (${c.qtyGrams} g conservés)`)
+								.join(", ");
+							const replyC = `C'est mis à jour : ${swap}. Le reste ne change pas — clique sur « Enregistrer » pour valider.`;
+							await ctx.runMutation(api.assistant.commit, {
+								sessionToken: args.sessionToken,
+								threadId,
+								topic,
+								userMessage: text,
+								assistantMessage: replyC,
+								kind: "text",
+								...(upd.actionId ? { actionId: upd.actionId as Id<"assistantActions"> } : {}),
+								model: assistantModel(),
+								durationMs: 0,
+							});
+							return {
+								ok: true as const,
+								threadId,
+								topic,
+								reply: replyC,
+								kind: "text" as const,
+								pendingAction: {
+									actionId: upd.actionId,
+									actionType: "journal_add" as const,
+									preview: upd.preview,
+								},
+								usage: { ...reservation.usage, durationMs: 0 },
+							};
+						}
+					}
+				} catch {
+					/* clarification ratée → chemins normaux (IA) */
+				}
 			}
 
 			// 6) Boucle d'outils — REGISTRE (Lot 2) : le serveur exécute, le

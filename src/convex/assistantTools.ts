@@ -38,7 +38,7 @@ import { accessStateForUser } from "./billing";
 import { ciqualFoodSource } from "./ciqualSource";
 import { searchCiqualLocal } from "./ciqual";
 import { guardedKcal100 } from "../lib/nutritionGuard";
-import { rankFoods, norm, FOOD_SEARCH_CANDIDATES } from "./foodRanking";
+import { rankFoods, norm, tokenize, FOOD_SEARCH_CANDIDATES } from "./foodRanking";
 import { reperesForFood } from "../lib/data/gfluxReperes";
 import { recipes, newRecipes } from "../lib/data/recettes";
 import { kcalGoalForDate, withCurrentGoal } from "../lib/goalHistory";
@@ -838,6 +838,26 @@ export const prepareJournalEntry = mutation({
 });
 
 /**
+ * LOT 2B — Raffinement d'une ligne par une clarification. Recouvrement
+ * strict (nameCovers) D'ABORD ; sinon match « même aliment de base » :
+ * l'intersection de tokens contient le PREMIER token de la ligne et couvre
+ * au moins la moitié de ses tokens (« Pain de mie blanc, préemballé » est
+ * raffiné par « Pain de mie complet » ; « Beurre doux » ne raffine PAS
+ * « Pain de mie blanc »). Côté serveur uniquement — jamais le modèle.
+ */
+export function refineMatch(lineName: string, clarified: string): boolean {
+	if (nameCovers(lineName, undefined, clarified) || nameCovers(clarified, undefined, lineName)) return true;
+	const lineToks = tokenize(lineName);
+	const clToks = new Set(tokenize(clarified));
+	if (lineToks.length === 0 || clToks.size === 0) return false;
+	if (!clToks.has(lineToks[0])) return false;
+	const shared = lineToks.filter((t) => clToks.has(t)).length;
+	// La moitié des tokens de la ligne, OU l'aliment de base à 2 mots
+	// (« Riz basmati complet » raffine « Riz basmati, cuit, sans sel ajouté »).
+	return shared * 2 >= lineToks.length || shared >= 2;
+}
+
+/**
  * LOT 2B — MISE À JOUR DÉTERMINISTE d'une action journal_add EN ATTENTE :
  * une clarification (« pain de mie complet ») complète la preview EXISTANTE
  * au lieu d'en créer une seconde (bug : deux boutons, action obsolète). La
@@ -900,6 +920,7 @@ export const updatePendingJournalEntry = mutation({
 		const current = payload.components ?? [];
 
 		// Fusion : chaque item de clarification remplace la ligne qu'il recouvre.
+		const changed: { from: string; to: string; qtyGrams: number }[] = [];
 		const taken = new Set<number>();
 		for (const it of items) {
 			const declared = (it.name || "").trim().slice(0, 80);
@@ -907,20 +928,20 @@ export const updatePendingJournalEntry = mutation({
 			for (let i = 0; i < current.length; i++) {
 				if (taken.has(i)) continue;
 				const c = current[i];
-				// Même référence explicite OU recouvrement de nom — l'item
-				// clarifié (« pain de mie complet ») raffine la ligne existante.
-				if (
-					(it.foodId && c.foodId && it.foodId === c.foodId) ||
-					(it.ciqualLabel && c.ciqualLabel && it.ciqualLabel === c.ciqualLabel) ||
-					nameCovers(declared, undefined, c.name) ||
-					nameCovers(c.name, undefined, declared)
-				) {
+			// Même référence explicite OU recouvrement de nom — l'item
+			// clarifié (« pain de mie complet ») raffine la ligne existante.
+			if (
+				(it.foodId && c.foodId && it.foodId === c.foodId) ||
+				(it.ciqualLabel && c.ciqualLabel && it.ciqualLabel === c.ciqualLabel) ||
+				refineMatch(c.name, declared)
+			) {
 					matchIdx = i;
 					break;
 				}
 			}
 			if (matchIdx >= 0) {
 				taken.add(matchIdx);
+				changed.push({ from: current[matchIdx].name, to: declared, qtyGrams: current[matchIdx].qtyGrams });
 				current[matchIdx] = {
 					...current[matchIdx],
 					...(it.foodId ? { foodId: it.foodId } : {}),
@@ -941,7 +962,7 @@ export const updatePendingJournalEntry = mutation({
 			createdAt: Date.now(),
 			expiresAt: Date.now() + assistantLimits().actionTtlMs,
 		});
-		return { ok: true as const, actionId: doc._id, preview };
+		return { ok: true as const, actionId: doc._id, preview, changed };
 	},
 });
 
