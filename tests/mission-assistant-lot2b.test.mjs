@@ -184,3 +184,21 @@ test('Relance INFORMÉE : l\'état de la tâche en attente est injecté à la cl
 	assert.ok(/N'appelle PAS prepareJournalEntry/.test(assistantSrc), 'pas de refonte de la tâche');
 	assert.ok(/N'appelle PAS prepareJournalEntry et ne redemande AUCUNE information déjà présente/.test(assistantSrc), 'pas de redemande');
 });
+
+/* ═══ 5. Bug 3 — une action en attente ne réapparaît jamais ═══ */
+
+test('insertPending : toute nouvelle préparation remplace les actions pending du fil', () => {
+	assert.ok(/UN fil = UNE action en attente/.test(toolsSrc), 'verrou documenté');
+	assert.ok(
+		/withIndex\("by_thread", \(q\) => q\.eq\("threadId", threadId\)\)[\s\S]{0,120}\.order\("desc"\)[\s\S]{0,60}\.take\(20\)[\s\S]{0,200}status: "cancelled"/.test(toolsSrc),
+		'les actions pending précédentes du fil sont annulées à l\'insertion',
+	);
+	assert.ok(/Remplacée par une action plus récente\./.test(toolsSrc), 'motif d\'audit posé');
+});
+
+test('historyFor : la carte restaurée au chargement est bien filtrée (pending + même fil + non expirée)', () => {
+	assert.ok(
+		/withIndex\("by_user_status", \(q\) => q\.eq\("userId", user\._id\)\.eq\("status", "pending"\)\)[\s\S]{0,120}pending\.threadId === thread\._id && pending\.expiresAt > Date\.now\(\)/.test(assistantSrc),
+		'aucune action annulée/expirée/d\'un autre fil ne peut réapparaître au rechargement',
+	);
+});

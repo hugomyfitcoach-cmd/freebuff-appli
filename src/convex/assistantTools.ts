@@ -778,6 +778,25 @@ async function insertPending(
 	newValue?: unknown
 ): Promise<{ actionId: Id<"assistantActions">; preview: PendingPreview }> {
 	const now = Date.now();
+	// LOT 2B (Bug 3) — UN fil = UNE action en attente. Sans ça, une seconde
+	// préparation laissait l'ancienne `pending` en base : après confirmation
+	// de la nouvelle, `historyFor` remontait l'ANCIENNE au rechargement et la
+	// carte réapparaissait avec une preview obsolète. Les précédentes sont
+	// marquées « cancelled » (audit intact, jamais réapparaissantes).
+	const stale = await ctx.db
+		.query("assistantActions")
+		.withIndex("by_thread", (q) => q.eq("threadId", threadId))
+		.order("desc")
+		.take(20);
+	for (const s of stale) {
+		if (s.status === "pending" && s.expiresAt > now) {
+			await ctx.db.patch(s._id, {
+				status: "cancelled",
+				resolvedAt: now,
+				result: "Remplacée par une action plus récente.",
+			});
+		}
+	}
 	const actionId = await ctx.db.insert("assistantActions", {
 		userId,
 		threadId,
