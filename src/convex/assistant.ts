@@ -46,6 +46,14 @@ import { OpenAiUnavailableError } from "../lib/server/openai";
 /** Délai maximum d'un envoi « en cours » avant déblocage automatique (ms). */
 const INFLIGHT_TIMEOUT_MS = 60_000;
 
+/**
+ * Filet « annonce sans outil » : le modèle répond qu'il a (ou va) créer une
+ * prévisualisation alors qu'aucun outil prepare* n'a été appelé (holder vide).
+ * Déclenche UNE relance bornée exigeant l'appel d'outil (assistant.ts §6b).
+ */
+const ANNOUNCE_WITHOUT_TOOL_RE =
+	/(pr[ée]visualisation|je (vais|viens de) (l')?(ajouter|enregistrer|pr[ée]parer)|proc[ée]der à l'ajout)/i;
+
 /* ────────────────────────── Garde serveur commune ────────────────────────── */
 
 async function requireAssistantClient(ctx: Parameters<typeof getSessionUser>[0], sessionToken?: string) {
@@ -752,7 +760,7 @@ export const send = action({
 			} = { durationMs: 0 };
 			try {
 				const turn = await runAssistantTurn({
-					system: assistantSystemPrompt(topic, today),
+					system,
 					history: context,
 					userText: text || "(photo jointe)",
 					...(imageHint ? { imageHint } : {}),
@@ -768,6 +776,34 @@ export const send = action({
 					durationMs: turn.usage.durationMs,
 					...(turn.usage.estimatedCostUsd !== undefined ? { estimatedCostUsd: turn.usage.estimatedCostUsd } : {}),
 				};
+				// 6b) Filet « annonce sans outil » : si le modèle PRÉTEND avoir
+				// préparé une prévisualisation alors qu'aucune action n'existe,
+				// relance d'UN tour borné (maxRounds 1) exigeant l'appel d'outil.
+				// Déterministe : déclenché uniquement sur ce chemin d'échec.
+				if (!holder.pending && ANNOUNCE_WITHOUT_TOOL_RE.test(reply)) {
+					const retry = await runAssistantTurn({
+						system: `${system}\n\n[SYSTÈME] Le tour précédent annonçait une prévisualisation sans appeler l'outil. Appelle MAINTENANT l'outil prepare* adapté avec EXACTEMENT les éléments demandés (noms, quantités, unités) — sans reformuler la demande.`,
+						history: [
+							...context,
+							{ role: "user" as const, content: text || "(photo jointe)" },
+							{ role: "assistant" as const, content: reply },
+						],
+						userText: "(relance système : appelle l'outil de préparation maintenant)",
+						tools: registryToolDefs(),
+						callTool,
+						maxRounds: 1,
+					});
+					reply = retry.text;
+					toolCalls = [...toolCalls, ...retry.toolCalls];
+					usage = {
+						inputTokens: (usage.inputTokens ?? 0) + (retry.usage.inputTokens ?? 0),
+						outputTokens: (usage.outputTokens ?? 0) + (retry.usage.outputTokens ?? 0),
+						durationMs: usage.durationMs + retry.usage.durationMs,
+						...(usage.estimatedCostUsd !== undefined || retry.usage.estimatedCostUsd !== undefined
+							? { estimatedCostUsd: (usage.estimatedCostUsd ?? 0) + (retry.usage.estimatedCostUsd ?? 0) }
+							: {}),
+					};
+				}
 			} catch (e) {
 				if (!(e instanceof OpenAiUnavailableError)) throw e;
 				// Panne IA : quota remboursé, message humain + « Réessayer » (§33).

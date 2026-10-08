@@ -117,3 +117,26 @@ test('searchFood reste la porte d’entrée décrite au modèle (pas d’accès 
 	assert.ok(registry.includes('name: "searchFood"'), 'outil searchFood toujours exposé (registre)');
 	assert.ok(!registry.includes('ctx.db'), 'le modèle n’a jamais accès direct à la base : le registre passe par ctx.runQuery');
 });
+
+/* ════════ 4. Injection du contexte serveur et filet « annonce sans outil » ════════ */
+
+test('runAssistantTurn reçoit le system AVEC le bloc contexte Lot 2 (régression du 08/10)', () => {
+	// Régression : le `system` enrichi (buildContextBlock) était construit puis
+	// remplacé par un rappel d’assistantSystemPrompt — contexte jamais injecté.
+	assert.ok(assistant.includes('const block = buildContextBlock(ctxData);'), 'bloc contexte construit');
+	assert.ok(/\bsystem,/.test(assistant), 'runAssistantTurn reçoit bien la variable system enrichie');
+	assert.ok(
+		!/runAssistantTurn\(\{[\s\S]{0,200}system: assistantSystemPrompt/.test(assistant),
+		'plus de system recalculé sans contexte à l’appel IA',
+	);
+});
+
+test('Filet « annonce sans outil » : relance bornée si preview annoncée sans action', () => {
+	assert.ok(assistant.includes('ANNOUNCE_WITHOUT_TOOL_RE'), 'garde défini');
+	assert.ok(
+		/!holder\.pending && ANNOUNCE_WITHOUT_TOOL_RE\.test\(reply\)/.test(assistant),
+		'déclenché seulement si AUCUNE action préparée',
+	);
+	assert.ok(/maxRounds: 1,/.test(assistant), 'relance limitée à UN tour d’outil');
+	assert.ok(/Appelle MAINTENANT l'outil prepare\*/.test(assistant), 'relance exige l’appel d’outil');
+});
