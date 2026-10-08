@@ -751,7 +751,6 @@ export const send = action({
 			// de la tâche ne repose PAS sur le modèle. Retour anticipé : aucun
 			// appel IA, zéro hallucination possible sur ce chemin.
 			const trimmed = text.trim();
-			let clarifDebug: string | null = null;
 			const tokCount = trimmed.split(/\s+/).filter(Boolean).length;
 			if (
 				trimmed.length >= 4 &&
@@ -765,10 +764,6 @@ export const send = action({
 						sessionToken: args.sessionToken,
 						threadId,
 					})) as { actionId: string; preview: { title: string; lines: { label: string }[] } } | null;
-					if (!open) clarifDebug = 'no-pending-action';
-					if (open && !open.preview.lines.some((l) => refineMatch(l.label, trimmed))) {
-						clarifDebug = `no-refine-match; lines=${open.preview.lines.map((l) => l.label).join(' | ')}`;
-					}
 					if (open && open.preview.lines.some((l) => refineMatch(l.label, trimmed))) {
 						const upd = (await ctx.runMutation(api.assistantTools.updatePendingJournalEntry, {
 							sessionToken: args.sessionToken,
@@ -806,9 +801,9 @@ export const send = action({
 								usage: { ...reservation.usage, durationMs: 0 },
 							};
 						}
-					}					} catch (e) {
-						// Diagnostic preview : pourquoi le bypass n'a pas pris la main.
-						clarifDebug = e instanceof Error ? e.message : String(e);
+					}					} catch {
+						// Clarification ratée → chemins normaux (IA). Aucune écriture
+						// partielle possible : la mutation patche ATOMIQUEMENT.
 					}
 				}
 
@@ -971,10 +966,7 @@ export const send = action({
 				reply,
 				kind: "text" as const,
 				pendingAction: pending,
-				usage: reservation.usage,
-				// Diagnostic preview (Lot 2B) : erreur du bypass clarification.
-				...(clarifDebug ? { clarifDebug } : {}),
-			};
+				usage: reservation.usage,				};
 		} catch (e) {
 			// Échec inattendu : remboursement de la réservation + relâche verrou.
 			await ctx.runMutation(api.assistant.release, { sessionToken: args.sessionToken, withImage });
