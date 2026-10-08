@@ -246,6 +246,49 @@ test('V3.6. faux positifs : alternance rapide de codes VALIDES différents jamai
 	assert.equal(gate.submit(EAN13_OK).verdict, 'pending');
 });
 
+/* —── Mission V3.2 : MODE B (1 lecture, expérimental, Preview uniquement) ──— */
+
+test('V3.2-B1. mode B : UNE seule lecture valide suffit (required=1, checksum conservé)', () => {
+	const gate = createScanGate(1, 1200);
+	assert.equal(gate.submit(EAN13_OK).verdict, 'confirmed', '1 lecture valide = confirmation immédiate');
+});
+
+test('V3.2-B2. mode B : checksum et formats restent STRICTS (code invalide rejeté)', () => {
+	const gate = createScanGate(1, 1200);
+	assert.deepEqual(gate.submit(EAN13_INVALID), { verdict: 'rejected', code: '' });
+	assert.deepEqual(gate.submit('246802468'), { verdict: 'rejected', code: '' });
+	assert.equal(gate.submit(EAN8_OK).verdict, 'confirmed');
+});
+
+test('V3.2-B3. mode B : deux codes successifs distincts = deux détections (fenêtre consommée)', () => {
+	const gate = createScanGate(1, 1200);
+	assert.equal(gate.submit(EAN13_OK).verdict, 'confirmed');
+	assert.equal(gate.submit(EAN8_OK).verdict, 'confirmed');
+	assert.equal(gate.submit(EAN13_OK).verdict, 'confirmed');
+});
+
+test('V3.2-B4. le mode A reste le défaut : createScanGate(2, …) exigé par la boucle hors mode B', () => {
+	// La boucle choisit required=1 SEULEMENT en mode B (garde PROD + opt-in) :
+	assert.match(scanner, /createScanGate\(1, SCAN_CONFIRM_GAP_MS\) : createScanGate\(2, SCAN_CONFIRM_GAP_MS\)/);
+	assert.match(scanner, /resolveScanMode\(\)/);
+});
+
+test('V3.2-B5. le mode B est impossible en production (double garde)', () => {
+	// Garde 1 : import.meta.env.PROD refuse le mode B.
+	assert.match(scanner, /!import\.meta\.env\.PROD/);
+	// Garde 2 : la résolution du mode ne peut jamais retourner 'B' sans les
+	// deux conditions (param URL ou env, ET hors prod).
+	const resolve = extractBlock(scanner, 'function resolveScanMode');
+	assert.match(resolve, /env === 'B' && !import\.meta\.env\.PROD \? 'B' : 'A'/);
+});
+
+test('V3.2-D1. mode debug : opt-in URL, jamais en production, aucune image', () => {
+	assert.match(scanner, /scannerDebug.*=== '1'/);
+	assert.match(scanner, /!import\.meta\.env\.PROD &&\s*\n.*scannerDebug/);
+	// Aucune télémétrie réseau dans le module (fetch déjà interdit par C3) :
+	assert.doesNotMatch(scanner, /telemetry|analytics|sentry/i);
+});
+
 test('V3.7. lecture invalide au milieu : rejet silencieux + fenêtre vidée (2 lectures réelles exigées après)', () => {
 	const gate = createScanGate(2, 1200);
 	assert.equal(gate.submit(EAN13_OK).verdict, 'pending');
@@ -264,7 +307,9 @@ test('C1. handleScan utilise normalizeProductCode (fin de validation côté page
 test('C2. BarcodeDetector et ZXing passent par la même validation (boucle unique gate.submit)', () => {
 	// La porte est branchée dans la boucle de scan, au-dessus des deux moteurs :
 	// decodeOnce() (qui choisit BarcodeDetector OU ZXing) → gate.submit → onDecoded.
-	assert.match(scanner, /const gate = createScanGate\(2, SCAN_CONFIRM_GAP_MS\)/);
+	// Mission V3.2 : la porte est sélectionnée par mode (A = required 2, B = 1),
+	// le défaut reste 2 lectures (mode A). L'invariant de la boucle unique tient.
+	assert.match(scanner, /const gate = scanMode === 'B' \? createScanGate\(1, SCAN_CONFIRM_GAP_MS\) : createScanGate\(2, SCAN_CONFIRM_GAP_MS\)/);
 	const iSubmit = scanner.indexOf('gate.submit(text)');
 	const iCall = scanner.indexOf('onDecoded(res.code)');
 	assert.ok(iSubmit >= 0, 'gate.submit(text) doit exister dans la boucle de scan');

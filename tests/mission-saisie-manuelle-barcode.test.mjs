@@ -157,7 +157,8 @@ test('M11. Zéro Convex / OFF modifié ; lookup + validation scan intacts', () =
 	assert.ok(journal.includes('/api/foods/barcode?code='));
 	// Validation scan guard (fb0c51e) intacte :
 	assert.match(journal, /normalizeProductCode\(decoded\)/);
-	assert.match(scanner, /const gate = createScanGate\(2, SCAN_CONFIRM_GAP_MS\)/);
+	// Mission V3.2 : sélection de la porte par mode (A = 2 lectures, défaut) :
+	assert.match(scanner, /const gate = scanMode === 'B' \? createScanGate\(1, SCAN_CONFIRM_GAP_MS\) : createScanGate\(2, SCAN_CONFIRM_GAP_MS\)/);
 	assert.equal(count(scanner, 'onDecoded(res.code)'), 1, 'toujours un seul point de sortie validé');
 	// off.ts (fallback OFF dc3468d) : marqueurs intacts :
 	assert.match(off, /function resolveProductName/);

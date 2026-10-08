@@ -25,6 +25,53 @@
 
 import type { MediaTrackConstraintSet } from './barcodeTypes';
 
+/* ── Mission V3.2 — expérimentation mesurée (Preview uniquement) ────────── */
+
+/**
+ * MODE B « reconnaissance immédiate » (expérimental, opt-in uniquement).
+ * Activable par :
+ *  - variable d'environnement de build : PUBLIC_SCANNER_MODE=B (Preview) ;
+ *  - ou URL : ?scannerMode=B (diagnostic ponctuel sur la Preview).
+ * DÉFAUT : MODE A (fenêtre glissante 2/4, 1200 ms) — le mode B n'est JAMAIS
+ * actif en production (garde import.meta.env.PROD, plus la porte URL).
+ * Hypothèse testée : la confirmation à 2 lectures ajoute un délai notable
+ * quand les lectures sont intermittentes (distance, flou, mains).
+ */
+export type ScanMode = 'A' | 'B';
+
+function resolveScanMode(): ScanMode {
+	if (typeof window !== 'undefined') {
+		const q = new URLSearchParams(window.location.search).get('scannerMode');
+		if (q === 'B' && !import.meta.env.PROD) return 'B';
+		if (q === 'A' && !import.meta.env.PROD) return 'A';
+	}
+	const env = (import.meta.env.PUBLIC_SCANNER_MODE ?? '').toUpperCase();
+	return env === 'B' && !import.meta.env.PROD ? 'B' : 'A';
+}
+
+/**
+ * Télémétrie locale du scan (mission V3.2, mode debug UNIQUEMENT).
+ * Aucun envoi réseau, aucune image conservée — affichage dans la pastille
+ * debug du scanner, exposée via handle.debugInfo() quand le mode est actif.
+ */
+export type ScanDebugInfo = {
+	mode: ScanMode;
+	/** BarcodeDetector natif ('native') ou ZXing vendored ('zxing'). */
+	engine: 'native' | 'zxing';
+	/** Résolution demandée (contrainte ideal) et réelle du track. */
+	requestedResolution: { width: number; height: number };
+	trackResolution: { width: number; height: number };
+	videoResolution: { width: number; height: number };
+	/** Cadence réelle de décodage (frames analysées / seconde). */
+	detectFps: number;
+	/** Temps (ms) entre le démarrage du scan et la 1re lecture valide. */
+	msToFirstValid: number | null;
+	/** Temps (ms) entre la 1re lecture valide et la confirmation/ouverture. */
+	msValidToConfirm: number | null;
+	zoom: number | null;
+	lastError: string | null;
+};
+
 export type BarcodeScannerHandle = {
 	/** Arrête la caméra + le décodage et retire les éléments injectés. */
 	stop: () => Promise<void>;
@@ -33,6 +80,10 @@ export type BarcodeScannerHandle = {
 	/** Résolution réelle du track utilisé (0 si inconnue) — mesure avant/après
 	 *  sur le terrain sans supposer que `ideal` a été honoré (mission V3). */
 	resolution: () => TrackResolution;
+	/** Télémétrie locale (mission V3.2) : mode, moteur, résolutions, FPS,
+	 *  délais — uniquement des mesures techniques, aucune image, aucun envoi
+	 *  réseau. Affichée par la pastille debug (?scannerDebug=1, hors prod). */
+	debugInfo: () => ScanDebugInfo;
 };
 
 /** Capacités utiles du track caméra (lampe/zoom), si supportées. */
@@ -275,6 +326,13 @@ export async function startBarcodeScanner(
 	let nativeDetector: NativeDetector | null = null;
 	/** Résolution RÉELLE du track (mission V3) — exposée pour mesure terrain. */
 	let trackResolution = { width: 0, height: 0 };
+	/* — Mission V3.2 : mode A/B + instrumentation — */
+	const scanMode = resolveScanMode();
+	const scanStartAt = Date.now();
+	let firstValidAt: number | null = null;
+	let confirmedAt: number | null = null;
+	let decodeCount = 0;
+	let lastDecodeError: string | null = null;
 
 	// -- Caméra : recule (résolution native) pour maximiser la portée. ------
 	// UN SEUL getUserMedia par scan : si la permission est déjà accordée, le
@@ -318,6 +376,18 @@ export async function startBarcodeScanner(
 			stop: async () => {},
 			setPaused: () => {},
 			resolution: () => ({ width: 0, height: 0 }),
+			debugInfo: () => ({
+				mode: 'A' as const,
+				engine: 'native' as const,
+				requestedResolution: { width: 0, height: 0 },
+				trackResolution: { width: 0, height: 0 },
+				videoResolution: { width: 0, height: 0 },
+				detectFps: 0,
+				msToFirstValid: null,
+				msValidToConfirm: null,
+				zoom: null,
+				lastError: null,
+			}),
 			toggleTorch: async () => false,
 			hasTorch: () => false,
 			zoom: async () => false,
@@ -494,6 +564,31 @@ export async function startBarcodeScanner(
 		whiteSpace: 'nowrap',
 	} as Partial<CSSStyleDeclaration>);
 	guide.append(frame, scanHint);
+	/* Pastille DEBUG (mission V3.2) : visible uniquement en mode debug opt-in
+	   (URL ?scannerDebug=1, jamais en production). Texte mis à jour 1×/s.
+	   Aucune image, aucune donnée perso — uniquement des mesures techniques. */
+	let debugEl: HTMLDivElement | null = null;
+	const debugEnabled =
+		!import.meta.env.PROD &&
+		new URLSearchParams(window.location.search).get('scannerDebug') === '1';
+	if (debugEnabled) {
+		debugEl = document.createElement('div');
+		Object.assign(debugEl.style, {
+			position: 'absolute',
+			top: '2%',
+			left: '2%',
+			maxWidth: '96%',
+			padding: '5px 8px',
+			borderRadius: '8px',
+			background: 'rgba(0,0,0,.78)',
+			color: '#9f9',
+			font: '10px/1.5 monospace',
+			whiteSpace: 'pre-line',
+			pointerEvents: 'none',
+			zIndex: '5',
+		} as Partial<CSSStyleDeclaration>);
+		guide.append(debugEl);
+	}
 	container.append(video, guide);
 
 	// -- Feedback visuel « code lu » : le cadre passe franchement au vert ------
@@ -561,7 +656,8 @@ export async function startBarcodeScanner(
 			try {
 				const codes = await nativeDetector.detect(video);
 				return codes.length > 0 ? codes[0].rawValue : null;
-			} catch {
+			} catch (e) {
+				lastDecodeError = e instanceof Error ? e.message : 'detect() a échoué';
 				return null;
 			}
 		}
@@ -629,7 +725,7 @@ export async function startBarcodeScanner(
 	// identiques RAPPROCHÉES (≤ SCAN_CONFIRM_GAP_MS entre deux lectures)
 	// AVANT toute recherche — au-dessus des deux moteurs : BarcodeDetector
 	// natif ET repli ZXing passent par le même appel gate.submit.
-	const gate = createScanGate(2, SCAN_CONFIRM_GAP_MS);
+	const gate = scanMode === 'B' ? createScanGate(1, SCAN_CONFIRM_GAP_MS) : createScanGate(2, SCAN_CONFIRM_GAP_MS);
 	/** La pastille « Code détecté… » reste visible pendant cette fenêtre. */
 	let hintUntil = 0;
 
@@ -659,6 +755,7 @@ export async function startBarcodeScanner(
 				if (!vw && video.videoWidth) resizeCanvas();
 				const text = await decodeOnce();
 				if (!stopped && text) {
+					if (firstValidAt === null) firstValidAt = Date.now();
 					const res = gate.submit(text);
 					const nowMs = Date.now();
 					if (res.verdict === 'rejected') {
@@ -673,7 +770,9 @@ export async function startBarcodeScanner(
 						// comportement historique conservé — code encore sous
 						// l'objectif = pas de nouvelle recherche).
 					} else {
-						// 2 lectures identiques rapprochées : on déclenche la recherche.
+						// Lectures valides confirmées (2 en mode A, 1 en mode B) : on
+						// déclenche la recherche.
+						if (confirmedAt === null) confirmedAt = Date.now();
 						lastCode = res.code;
 						lastCodeAt = nowMs;
 						hintUntil = 0;
@@ -686,6 +785,7 @@ export async function startBarcodeScanner(
 					// Rien de lisible cette frame : la pastille retombe après grâce.
 					setScanHint(Date.now() < hintUntil);
 				}
+				decodeCount++;
 			} catch {
 				// Frame illisible → on continue.
 			} finally {
@@ -699,10 +799,26 @@ export async function startBarcodeScanner(
 		// Autoplay refusé : on attend un geste — l'ouverture du scan EST un geste.
 	});
 	video.addEventListener('loadedmetadata', resizeCanvas, { once: true });
+	/* Rafraîchissement de la pastille debug 1×/s (aucune télémétrie réseau). */
+	let debugTimer: ReturnType<typeof setInterval> | null = null;
+	if (debugEnabled) {
+		debugTimer = setInterval(() => {
+			if (!debugEl || stopped) return;
+			const d = buildDebugInfo();
+			debugEl.textContent =
+				`mode ${d.mode} · ${d.engine}\n` +
+				`track ${d.trackResolution.width}×${d.trackResolution.height} · video ${d.videoResolution.width}×${d.videoResolution.height}\n` +
+				`fps décodage ≈ ${d.detectFps.toFixed(1)} · zoom ${d.zoom ?? 'n/a'}\n` +
+				`1re lecture ${d.msToFirstValid ?? '—'} ms · confirm ${d.msValidToConfirm ?? '—'} ms` +
+				(d.lastError ? `\nerr: ${d.lastError}` : '');
+		}, 1000);
+	}
 	tick();
 
 	// -- Lampe + zoom (best effort, selon capacités du track) ----------------
 	const track = stream.getVideoTracks()[0];
+	/** Dernier zoom appliqué (debug + cohérence slider). */
+	let lastZoomValue: number | null = null;
 	const caps = (track?.getCapabilities?.() ?? {}) as MediaTrackConstraintSet & { torch?: boolean; zoom?: { min: number; max: number; step?: number } };
 	const hasTorch = caps.torch === true;
 	const zoomCap = typeof caps.zoom === 'object' && caps.zoom ? caps.zoom : null;
@@ -748,6 +864,7 @@ export async function startBarcodeScanner(
 				const z = Math.min(zoomCap.max, Math.max(zoomCap.min, factor));
 				await track.applyConstraints({ advanced: [{ zoom: z } as unknown as MediaTrackConstraintSet] });
 				currentZoom = z;
+				lastZoomValue = z;
 				return true;
 			} catch {
 				return false;
@@ -755,16 +872,35 @@ export async function startBarcodeScanner(
 		},
 	};
 
+	/** Construit l'instantané de télémétrie locale (mission V3.2). */
+	function buildDebugInfo(): ScanDebugInfo {
+		const elapsed = Math.max(1, (Date.now() - scanStartAt) / 1000);
+		return {
+			mode: scanMode,
+			engine: nativeDetector ? 'native' : 'zxing',
+			requestedResolution: { width: RESOLUTION_LADDER[0].width, height: RESOLUTION_LADDER[0].height },
+			trackResolution: { ...trackResolution },
+			videoResolution: { width: video.videoWidth, height: video.videoHeight },
+			detectFps: decodeCount / elapsed,
+			msToFirstValid: firstValidAt === null ? null : firstValidAt - scanStartAt,
+			msValidToConfirm: firstValidAt !== null && confirmedAt !== null ? confirmedAt - firstValidAt : null,
+			zoom: lastZoomValue,
+			lastError: lastDecodeError,
+		};
+	}
+
 	return {
 		stop: async () => {
 			stopped = true;
 			if (timer) clearTimeout(timer);
 			if (greenTimer) clearTimeout(greenTimer);
+			if (debugTimer) clearInterval(debugTimer);
 			document.removeEventListener('visibilitychange', onVisibility);
 			if (stream) for (const t of stream.getTracks()) t.stop();
 			container.replaceChildren();
 		},
 		resolution: () => ({ ...trackResolution }),
+		debugInfo: buildDebugInfo,
 		/** Caméra maintenue allumée, boucle maintenue vivante : seule la
 		 *  détection est court-circuitée. À la pause, l'état de confirmation
 		 *  (porte anti faux codes) est remis à zéro — aucune re-validation
