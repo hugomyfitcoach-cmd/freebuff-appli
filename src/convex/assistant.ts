@@ -751,6 +751,7 @@ export const send = action({
 			// de la tâche ne repose PAS sur le modèle. Retour anticipé : aucun
 			// appel IA, zéro hallucination possible sur ce chemin.
 			const trimmed = text.trim();
+			let clarifDebug: string | null = null;
 			const tokCount = trimmed.split(/\s+/).filter(Boolean).length;
 			if (
 				trimmed.length >= 4 &&
@@ -801,11 +802,11 @@ export const send = action({
 								usage: { ...reservation.usage, durationMs: 0 },
 							};
 						}
+					}					} catch (e) {
+						// Diagnostic preview : pourquoi le bypass n'a pas pris la main.
+						clarifDebug = e instanceof Error ? e.message : String(e);
 					}
-				} catch {
-					/* clarification ratée → chemins normaux (IA) */
 				}
-			}
 
 			// 6) Boucle d'outils — REGISTRE (Lot 2) : le serveur exécute, le
 			// modèle reformule. Les actions 'prepare' alimentent holder.pending.
@@ -967,6 +968,8 @@ export const send = action({
 				kind: "text" as const,
 				pendingAction: pending,
 				usage: reservation.usage,
+				// Diagnostic preview (Lot 2B) : erreur du bypass clarification.
+				...(clarifDebug ? { clarifDebug } : {}),
 			};
 		} catch (e) {
 			// Échec inattendu : remboursement de la réservation + relâche verrou.
