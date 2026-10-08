@@ -132,7 +132,8 @@ test('Prompt système : identité, interdits objectifs, grossesse, estimation (�
 	const p = policyMod.assistantSystemPrompt('nutrition', '2026-10-07');
 	assert.ok(/n['’]es PAS Hugo/i.test(p), 'jamais Hugo');
 	assert.ok(p.includes('Hugo garde la main'), 'positionnement exact');
-	assert.ok(p.includes('Ça mérite une décision de coaching'), 'CTA décision coach');
+	// V2 Lot 1 : le CTA n'est plus un refus générique mais une analyse + synthèse Hugo.
+	assert.ok(/ça mérite l['’]œil de Hugo/i.test(p), 'CTA décision coach (analyse + synthèse Hugo)');
 	assert.ok(p.includes('calories objectif'), 'objectifs en lecture seule');
 	assert.ok(p.includes('Compenser') || p.includes('compenser'), 'interdiction de compenser');
 	assert.ok(p.includes('grossesse'), 'règle grossesse');

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
 	import CoachWhatsApp from '$lib/components/assistant/CoachWhatsApp.svelte';
+import RichText from '$lib/components/assistant/RichText.svelte';
 	import ActionPreviewCard from '$lib/components/assistant/ActionPreviewCard.svelte';
 	import AssistantComposer from '$lib/components/assistant/AssistantComposer.svelte';
 	import { TOPICS, topicDef, type TopicId } from '$lib/assistant/topics';
@@ -269,7 +270,7 @@
 						class="rounded-3xl rounded-tl-lg border border-line bg-white px-3.5 py-2.5 text-[14.5px] leading-relaxed text-ink shadow-sm
 						{msg.kind === 'error' ? 'border-danger/40 bg-danger-light' : msg.kind === 'safety' ? 'border-warn/40 bg-warn-light' : ''}"
 					>
-						<span class="whitespace-pre-line">{msg.content}</span>
+						<RichText text={msg.content} />
 						{#if msg.kind === 'error'}
 							<button
 								type="button"
