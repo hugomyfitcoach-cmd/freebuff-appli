@@ -131,8 +131,29 @@ test('prompt : demande d\'ajout = outil immédiat, jamais de valeurs de mémoire
 	assert.ok(policySrc.includes('un SEUL appel prepareJournalEntry avec les'), 'multi-aliments = une action');
 });
 
-test('prompt : mémoire de la demande en cours (ne jamais redemander)', () => {
-	assert.ok(policySrc.includes('MÉMOIRE DE LA DEMANDE EN COURS'));
-	assert.ok(policySrc.includes('une quantité, une unité,\n  une variante ou un aliment déjà donnés sont ACQUIS'), 'infos déjà données = acquises');
-	assert.ok(policySrc.includes('Ne pose JAMAIS deux fois la même question'));
+/* ═══ 4. Mise à jour déterministe de l'action en attente (Bug 2) ═══ */
+
+test('updatePendingJournalEntry : fusion serveur sans perte d\'information', () => {
+	assert.ok(toolsSrc.includes('export const updatePendingJournalEntry = mutation('), 'mutation créée');
+	assert.ok(/status !== "pending"/.test(toolsSrc), 'seule une action PENDING est modifiable');
+	assert.ok(/expiresAt <= Date\.now\(\)/.test(toolsSrc), 'action expirée refusée');
+	assert.ok(/doc\.threadId !== tId/.test(toolsSrc), 'action d\'un autre fil refusée (isolation)');
+	assert.ok(/nameCovers\(declared, undefined, c\.name\) \|\|[\s\S]{0,60}nameCovers\(c\.name, undefined, declared\)/.test(toolsSrc), 'la clarification raffine la ligne qu\'elle recouvre');
+	assert.ok(/\(it\.qtyGrams !== undefined \? \{ qtyGrams: it\.qtyGrams \} : \{\}\)/.test(toolsSrc), 'quantité absente = quantité existante conservée');
+});
+
+test('updatePendingJournalEntry : recalcul par le MÊME pipeline verrouillé (jamais de valeurs du modèle)', () => {
+	assert.ok(/buildJournalEntryPreview\(ctx, user\._id, payload\.date, payload\.meal, current/.test(toolsSrc), 'recalcul serveur complet');
+	assert.ok(/ctx\.db\.patch\(doc\._id, \{[\s\S]{0,200}preview,/.test(toolsSrc), 'seule la preview/payload sont remplacées');
+});
+
+test('Registre : updateJournalEntry exposé avec conservation explicite', () => {
+	const registry = read('src/convex/assistantRegistry.ts');
+	assert.ok(registry.includes('name: "updateJournalEntry"'), 'outil exposé');
+	assert.ok(registry.includes('les autres lignes et quantités déjà confirmées sont CONSERVÉES'), 'conservation documentée au modèle');
+	assert.ok(registry.includes('updatePendingJournalEntry'), 'câblé sur la mutation serveur');
+});
+
+test('assistant.ts : updateJournalEntry devient la pendingAction du tour (ancienne preview remplacée)', () => {
+	assert.ok(/la mise à jour REMPLACE la pendingAction du tour/.test(assistantSrc), 'une seule preview affichée');
 });

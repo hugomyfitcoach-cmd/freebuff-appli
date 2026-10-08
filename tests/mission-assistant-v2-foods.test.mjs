@@ -102,7 +102,12 @@ test('Écritures : preview → insertPending → resolveAction inchangés', () =
 
 test('Écriture = exactement la prévisualisation (même payload sérialisé)', () => {
 	// Le payload écrit est celui POSÉ à la préparation (client n’envoie que l’id).
-	assert.ok(/insertPending\([\s\S]{0,900}\{ date, meal, components \}/.test(tools), 'payload preview == payload écrit');
+	// Lot 2B : le pipeline est partagé (buildJournalEntryPreview) — prepareJournalEntry
+	// insère le retour { preview, payload }, updatePendingJournalEntry patche le même
+	// objet recalculé côté serveur. Un seul pipeline = preview toujours == payload.
+	assert.ok(/return \{ preview, payload: \{ date, meal, components \} \}/.test(tools), 'pipeline unique : la preview insérée == le payload écrit');
+	assert.ok(/insertPending\([\s\S]{0,400}"journal_add",[\s\S]{0,200}preview,[\s\S]{0,100}payload\)/.test(tools), 'prepareJournalEntry insère preview+payload du pipeline');
+	assert.ok(/buildJournalEntryPreview\(ctx, user\._id, payload\.date, payload\.meal, current/.test(tools), 'updatePending recalcule par le MÊME pipeline serveur');
 });
 
 test('Chaque fiche résolue pousse AUSSI son composant (régression confirm “Aucun composant”)', () => {

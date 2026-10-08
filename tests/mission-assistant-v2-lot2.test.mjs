@@ -47,7 +47,10 @@ test('Registre : les 12 outils V1 + 4 nouveaux outils de lecture', () => {
 
 test('Registre : prepare = seul type qui prépare une écriture ; read = lecture pure', () => {
 	for (const t of reg.ASSISTANT_REGISTRY) {
-		if (t.kind === 'prepare') assert.match(t.name, /^prepare/, `${t.name} : un outil prepare commence par prepare`);
+		// Lot 2B : updateJournalEntry est un « prepare » qui MODIFIE une action
+		// en attente (jamais d'écriture directe) — nom contrôlé explicitement.
+		if (t.kind === 'prepare')
+			assert.match(t.name, /^(prepare|update)/, `${t.name} : un outil prepare prépare ou met à jour une action en attente`);
 		if (t.kind === 'read') assert.ok(!/^(prepare|set)/.test(t.name), `${t.name} : un outil read ne prépare rien`);
 	}
 	assert.ok(registrySrc.includes('resolveAction'), 'le registre rappelle que resolveAction reste le seul chemin d’écriture');

@@ -802,13 +802,138 @@ export const prepareJournalEntry = mutation({
 				aiFat100: v.optional(v.number()),
 			})
 		),
-	},
-	handler: async (ctx, { sessionToken, threadId, topic, date, meal, items }) => {
+	},		handler: async (ctx, { sessionToken, threadId, topic, date, meal, items }) => {
 		const user = await requireAssistantClient(ctx, sessionToken);
-		assertDate(date);
-		if (!["petit-dej", "dejeuner", "diner", "collation"].includes(meal)) throw new ConvexError("Repas invalide.");
-		if (!Array.isArray(items) || items.length === 0) throw new ConvexError("Aucun aliment à préparer.");
+		const tId = await assertThread(ctx, user._id, threadId);
+		const { preview, payload } = await buildJournalEntryPreview(ctx, user._id, date, meal, items);
+		return insertPending(ctx, user._id, tId, "journal_add", topic, preview, payload);
+	},
+});
+
+/**
+ * LOT 2B — MISE À JOUR DÉTERMINISTE d'une action journal_add EN ATTENTE :
+ * une clarification (« pain de mie complet ») complète la preview EXISTANTE
+ * au lieu d'en créer une seconde (bug : deux boutons, action obsolète). La
+ * fusion serveur garantit qu'aucune information déjà donnée (quantités,
+ * autres aliments) n'est perdue — la mémoire ne repose pas sur le modèle.
+ *
+ * Stratégie : les items du modèle remplacent l'aliment qu'ils recouvrent
+ * (nameCovers) et CONSERVENT les autres lignes. Quantité non redonnée ?
+ * Celle de la ligne remplacée est réutilisée. Expiration/double contrôle :
+ * l'action doit être PENDING, à la cliente, du même fil.
+ */
+export const updatePendingJournalEntry = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		threadId: v.string(),
+		topic: v.string(),
+		/** Absent → le serveur retrouve la DERNIÈRE action journal_add pending du fil. */
+		actionId: v.optional(v.string()),
+		items: v.array(
+			v.object({
+				foodId: v.optional(v.string()),
+				customFoodId: v.optional(v.string()),
+				ciqualLabel: v.optional(v.string()),
+				name: v.string(),
+				/** Absent → quantité de la ligne remplacée conservée. */
+				qtyGrams: v.optional(v.number()),
+				estimated: v.optional(v.boolean()),
+			})
+		),
+	},
+	handler: async (ctx, { sessionToken, threadId, topic, actionId, items }) => {
+		const user = await requireAssistantClient(ctx, sessionToken);
+		if (!Array.isArray(items) || items.length === 0) throw new ConvexError("Aucune clarification à appliquer.");
 		if (items.length > 12) throw new ConvexError("Maximum 12 aliments par repas.");
+		const tId = await assertThread(ctx, user._id, threadId);
+		let doc: Doc<"assistantActions"> | null = null;
+		if (actionId) {
+			doc = await ctx.db.get(actionId as Id<"assistantActions">);
+		} else {
+			// Dernière action journal_add EN ATTENTE de ce fil (la plus récente).
+			const rows = await ctx.db
+				.query("assistantActions")
+				.withIndex("by_thread", (q) => q.eq("threadId", tId))
+				.order("desc")
+				.take(20);
+			doc = rows.find((r) => r.userId === user._id && r.status === "pending" && r.actionType === "journal_add" && r.expiresAt > Date.now()) ?? null;
+		}
+		if (!doc || doc.userId !== user._id || doc.status !== "pending" || doc.actionType !== "journal_add")
+			throw new ConvexError("Aucune action en attente à mettre à jour.");
+		if (doc.threadId !== tId)
+			throw new ConvexError("Action d'une autre conversation.");
+		if (doc.expiresAt <= Date.now()) throw new ConvexError("Action expirée — relance la préparation.");
+
+		// Lignes actuelles (payload serveur = source de vérité).
+		const payload = JSON.parse(doc.payload) as {
+			date: string;
+			meal: string;
+			components: { foodId?: string; customFoodId?: string; ciqualLabel?: string; name: string; qtyGrams: number }[];
+		};
+		const current = payload.components ?? [];
+
+		// Fusion : chaque item de clarification remplace la ligne qu'il recouvre.
+		const taken = new Set<number>();
+		for (const it of items) {
+			const declared = (it.name || "").trim().slice(0, 80);
+			let matchIdx = -1;
+			for (let i = 0; i < current.length; i++) {
+				if (taken.has(i)) continue;
+				const c = current[i];
+				// Même référence explicite OU recouvrement de nom — l'item
+				// clarifié (« pain de mie complet ») raffine la ligne existante.
+				if (
+					(it.foodId && c.foodId && it.foodId === c.foodId) ||
+					(it.ciqualLabel && c.ciqualLabel && it.ciqualLabel === c.ciqualLabel) ||
+					nameCovers(declared, undefined, c.name) ||
+					nameCovers(c.name, undefined, declared)
+				) {
+					matchIdx = i;
+					break;
+				}
+			}
+			if (matchIdx >= 0) {
+				taken.add(matchIdx);
+				current[matchIdx] = {
+					...current[matchIdx],
+					...(it.foodId ? { foodId: it.foodId } : {}),
+					...(it.customFoodId ? { customFoodId: it.customFoodId } : {}),
+					...(it.ciqualLabel ? { ciqualLabel: it.ciqualLabel } : {}),
+					name: declared,
+					...(it.qtyGrams !== undefined ? { qtyGrams: it.qtyGrams } : {}),
+				};
+			}
+		}
+		// Recalcul SERVEUR complet (mêmes verrous que la préparation initiale) :
+		// identité, recherche, valeurs — aucune valeur récité par le modèle.
+		const { preview, payload: newPayload } = await buildJournalEntryPreview(ctx, user._id, payload.date, payload.meal, current as never);
+		await ctx.db.patch(doc._id, {
+			topic,
+			preview,
+			payload: JSON.stringify(newPayload),
+			createdAt: Date.now(),
+			expiresAt: Date.now() + assistantLimits().actionTtlMs,
+		});
+		return { ok: true as const, actionId: doc._id, preview };
+	},
+});
+
+/**
+ * Pipeline PARTAGÉ préparation/mise à jour : vérifications anti-substitution,
+ * recherche serveur, valeurs Ciqual/OFF, preview et payload. Retourne sans
+ * écrire — `prepareJournalEntry` insère, `updatePendingJournalEntry` patche.
+ */
+async function buildJournalEntryPreview(
+	ctx: MutationCtx,
+	userId: Id<"users">,
+	date: string,
+	meal: string,
+	items: { foodId?: string; customFoodId?: string; ciqualLabel?: string; name: string; qtyGrams?: number; estimated?: boolean }[]
+): Promise<{ preview: PendingPreview; payload: { date: string; meal: string; components: { foodId?: Id<"foods">; customFoodId?: Id<"customFoods">; ciqualLabel?: string; name: string; qtyGrams: number }[] } }> {
+	assertDate(date);
+	if (!["petit-dej", "dejeuner", "diner", "collation"].includes(meal)) throw new ConvexError("Repas invalide.");
+	if (!Array.isArray(items) || items.length === 0) throw new ConvexError("Aucun aliment à préparer.");
+	if (items.length > 12) throw new ConvexError("Maximum 12 aliments par repas.");
 
 		/* ── VERROU ANTI-SUBSTITUTION (chantier A, V1/V2) ─────────────────
 		 * Le backend contrôle la FIDÉLITÉ de la préparation à la demande :
@@ -854,11 +979,11 @@ export const prepareJournalEntry = mutation({
 		};
 
 		for (const it of deduped) {
-			const qty = Number.isFinite(it.qtyGrams) ? Math.min(5000, Math.max(1, Math.round(it.qtyGrams))) : 0;
+			const qty = it.qtyGrams !== undefined && Number.isFinite(it.qtyGrams) ? Math.min(5000, Math.max(1, Math.round(it.qtyGrams))) : 0;
 			if (!qty) throw new ConvexError("Quantité invalide.");
 			const declared = (it.name || "").trim().slice(0, 80);
 			if (declared.length < 2) throw new ConvexError("Nom d'aliment trop court.");
-			const ref = await resolveRef(ctx, user._id, {
+			const ref = await resolveRef(ctx, userId, {
 				foodId: it.foodId,
 				customFoodId: it.customFoodId,
 				ciqualLabel: it.ciqualLabel,
@@ -876,7 +1001,7 @@ export const prepareJournalEntry = mutation({
 			if (!resolved) {
 				// V1 — sans identifiant : recherche SERVEUR par le nom déclaré.
 				// Jamais une création « estimation IA » directe ici.
-				resolved = await searchFoodInternal(ctx, user._id, declared);
+				resolved = await searchFoodInternal(ctx, userId, declared);
 				if (!resolved) {
 					throw new ConvexError(
 						`Aliment introuvable en base : « ${declared} ». Demande la clarifcation ou fais-le créer manuellement.`
@@ -941,17 +1066,8 @@ export const prepareJournalEntry = mutation({
 				? "Certaines valeurs sont des estimations (≈) : tu peux les modifier avant d’enregistrer."
 				: undefined,
 		};
-		return insertPending(
-			ctx,
-			user._id,
-			await assertThread(ctx, user._id, threadId),
-			"journal_add",
-			topic,
-			preview,
-			{ date, meal, components }
-		);
-	},
-});
+		return { preview, payload: { date, meal, components } };
+	}
 
 /** `prepareJournalEntry` inverse — retirer des aliments du journal. */
 export const prepareJournalRemoval = mutation({

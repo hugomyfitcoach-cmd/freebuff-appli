@@ -271,6 +271,45 @@ export const ASSISTANT_REGISTRY: AssistantToolEntry[] = [
 		},
 	},
 	{
+		name: "updateJournalEntry",
+		kind: "prepare",
+		description:
+			"MET À JOUR la prévisualisation d'ajout EN ATTENTE après une précision de l'utilisatrice (« pain de mie complet », « en fait 3 tranches »). Utilise-le au lieu de prepareJournalEntry quand une action vient d'être préparée : seuls les aliments concernés sont passés — les autres lignes et quantités déjà confirmées sont CONSERVÉES par le serveur. Sans qtyGrams, la quantité existante de la ligne remplacée est réutilisée.",
+		parameters: {
+			type: "object",
+			properties: {
+				items: {
+					type: "array",
+					items: {
+						type: "object",
+						properties: {
+							...REF,
+							name: { type: "string" },
+							qtyGrams: { type: "number", description: "Optionnel : absent = conserver la quantité déjà préparée." },
+							estimated: { type: "boolean" },
+						},
+						required: ["name"],
+					},
+				},
+			},
+			required: ["items"],
+		},
+		run: async (ctx, state, args) => {
+			const res = (await ctx.runMutation(api.assistantTools.updatePendingJournalEntry, {
+				sessionToken: state.sessionToken,
+				threadId: state.threadId,
+				topic: state.topic,
+				items: (args.items ?? []) as never,
+			})) as { ok: boolean; actionId: string; preview: unknown };
+			return {
+				ok: true,
+				actionId: res.actionId,
+				preview: res.preview,
+				note: "Prévisualisation MISE À JOUR : présente-la telle quelle et invite au clic « Enregistrer » (l'ancienne version est remplacée).",
+			};
+		},
+	},
+	{
 		name: "prepareJournalRemoval",
 		kind: "prepare",
 		description: "PRÉPARE le retrait d'aliments du journal (entryIds de getJournalEntries) — preview puis clic.",

@@ -754,6 +754,8 @@ export const send = action({
 				// pendingAction du tour (comportement V1 inchangé).
 				const withAction = out as { actionId?: unknown; preview?: unknown } | null;
 				if (withAction && typeof withAction.actionId === "string" && withAction.actionId.length >= 10) {
+					// LOT 2B — la mise à jour REMPLACE la pendingAction du tour (une
+					// seule preview affichée : l'ancienne version devient obsolète).
 					holder.pending = {
 						actionId: withAction.actionId,
 						actionType: /JournalRemoval/.test(name)
