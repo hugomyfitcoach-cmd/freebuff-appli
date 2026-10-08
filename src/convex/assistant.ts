@@ -755,7 +755,11 @@ export const send = action({
 			if (
 				trimmed.length >= 4 &&
 				tokCount <= 8 &&
-				!trimmed.includes("?") &&
+				// Une QUESTION courte est acceptée : si elle raffine une ligne
+				// existante ("Avec du curcuma ?" raffine le riz — « Curcuma » est
+				// un nouveau NOM, donc PAS de raffinement et chemins normaux), le
+				// serveur répond sans dérive de contexte. Si elle ne raffine RIEN,
+				// elle part dans la boucle IA classique (vraie question).
 				!ADD_INTENT_RE.test(trimmed) &&
 				!/\b(delete|supprime|retire|enlève|annule)\b/i.test(trimmed)
 			) {

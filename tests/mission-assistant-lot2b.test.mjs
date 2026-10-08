@@ -144,7 +144,7 @@ test('refineMatch : une clarification raffine la ligne de même base (fonctionne
 test('assistant.ts : bypass déterministe de clarification AVANT l\'appel IA', () => {
 	assert.ok(/5b\) LOT 2B — CLARIFICATION DÉTERMINISTE/.test(assistantSrc), 'bypass présent');
 	assert.ok(/tokCount <= 8/.test(assistantSrc), 'message court seulement');
-	assert.ok(/!trimmed\.includes\("\?"\)/.test(assistantSrc), 'pas une question');
+	assert.ok(!/tokCount <= 8 &&[^)]*!trimmed\.includes/.test(assistantSrc.replace(/\n/g, ' ')), 'une question courte peut raffiner (test serveur du raffinement)');
 	assert.ok(/!ADD_INTENT_RE\.test\(trimmed\)/.test(assistantSrc), 'pas une nouvelle demande d\'ajout');
 	assert.ok(/refineMatch\(l\.label, trimmed\)/.test(assistantSrc), 'appliqué seulement si une ligne est raffinée');
 	assert.ok(/Le reste ne change pas/.test(assistantSrc), 'réponse déterministe au client');
