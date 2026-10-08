@@ -113,15 +113,14 @@ test('searchFoodInternal : l\'aliment PERSONNEL ne peut plus être retenu sans c
 
 test('assistant.ts : intention d\'ajout détectée côté serveur + relance bornée', () => {
 	assert.ok(assistantSrc.includes('ADD_INTENT_RE'), 'regex d\'intention définie');
+	assert.ok(/const addIntent = ADD_INTENT_RE\.test\(text\)/.test(assistantSrc), 'intention calculée une fois');
+	assert.ok(/retryKind = "prepare"/.test(assistantSrc), 'annonce sans outil OU ajout resté sans action → relance préparation');
+	assert.ok(/retryKind = "read"/.test(assistantSrc), 'kcal récitées sans outil sur question de lecture → relance lecture');
 	assert.ok(
-		/ANNOUNCE_WITHOUT_TOOL_RE\.test\(reply\) \|\|[\s\S]{0,200}ADD_INTENT_RE\.test\(text\) && !reply\.includes\("\?"\)/.test(assistantSrc),
-		'relance déclenchée par annonce sans outil OU réponse de mémoire sans question',
+		/recites && noQuestion && !addIntent && !readToolUsed/.test(assistantSrc),
+		'la relance lecture exige : pas d\'intention d\'ajout, aucun outil de lecture déjà utilisé',
 	);
-	assert.ok(assistantSrc.includes('VALUES_WITHOUT_TOOL_RE'), 'détection de kcal récitées sans outil');
-	assert.ok(
-		/VALUES_WITHOUT_TOOL_RE\.test\(reply\) && !reply\.includes\("\?"\)/.test(assistantSrc),
-		'les clarifications ("pain de mie complet") récitent-elles des kcal → relance outil',
-	);
+	assert.ok(/N\'utilise JAMAIS prepareJournalEntry pour une simple question/.test(assistantSrc) || assistantSrc.includes("N'utilise JAMAIS prepareJournalEntry pour une simple question"), 'la relance lecture interdit explicitement prepare');
 	assert.ok(/maxRounds: 1,/.test(assistantSrc), 'relance toujours limitée à UN tour');
 });
 

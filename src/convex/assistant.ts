@@ -862,26 +862,29 @@ export const send = action({
 					durationMs: turn.usage.durationMs,
 					...(turn.usage.estimatedCostUsd !== undefined ? { estimatedCostUsd: turn.usage.estimatedCostUsd } : {}),
 				};
-				// 6b) Filet « annonce sans outil » : si le modèle PRÉTEND avoir
-				// préparé une prévisualisation alors qu'aucune action n'existe,
-				// relance d'UN tour borné (maxRounds 1) exigeant l'appel d'outil.
-				// Déterministe : déclenché uniquement sur ce chemin d'échec.
-				if (
-					!holder.pending &&
-					(ANNOUNCE_WITHOUT_TOOL_RE.test(reply) ||
-						// Intention d'ajout + aucune question posée = réponse de
-						// mémoire sans outil (ex. valeurs récitées du petit-déjeuner).
-						(ADD_INTENT_RE.test(text) && !reply.includes("?")) ||
-						// Valeurs nutritionnelles récitées sans outil ni question :
-						// couvre les CLARIFICATIONS ("pain de mie complet") qui
-						// doivent mettre à jour l'action préparée, pas décrire de tête.
-						(VALUES_WITHOUT_TOOL_RE.test(reply) && !reply.includes("?")))
-				) {
+				// 6b) Filets « réponse sans outil » — déclencheurs déterministes,
+				// relance d'UN tour borné (maxRounds 1) exigeant l'appel adapté :
+				//  - annonce sans outil OU intention d'ajout restée sans action
+				//    → relance PRÉPARATION (update si action en attente) ;
+				//  - kcal récitées sans outil sur une QUESTION DE LECTURE
+				//    → relance LECTURE (getToday/getPeriodRecap) — JAMAIS prepare
+				//    (bug constaté : une question « combien de kcal » fabriquait
+				//    une action d'ajout fantôme avec un aliment de l'historique).
+				const addIntent = ADD_INTENT_RE.test(text);
+				const noQuestion = !reply.includes("?");
+				const announce = ANNOUNCE_WITHOUT_TOOL_RE.test(reply);
+				const recites = VALUES_WITHOUT_TOOL_RE.test(reply);
+				const readToolUsed = /getToday|getPeriodRecap|getJournalEntries/.test(toolCalls.join(","));
+				let retryKind: "prepare" | "read" | null = null;
+				if (!holder.pending && (announce || (addIntent && noQuestion))) retryKind = "prepare";
+				else if (!holder.pending && recites && noQuestion && !addIntent && !readToolUsed) retryKind = "read";
+				if (retryKind) {
 					// LOT 2B — relance INFORMÉE : si une action journal_add est en
 					// attente sur ce fil, le serveur fournit ses lignes au modèle et
 					// exige updateJournalEntry (compléter la tâche, ne pas la refaire).
 					let pendingState = "";
-					try {
+					if (retryKind === "prepare") {
+						try {
 						const open = (await ctx.runQuery(api.assistantTools.latestPendingJournalAdd, {
 							sessionToken: args.sessionToken,
 							threadId,
@@ -889,18 +892,22 @@ export const send = action({
 						if (open) {
 							const lines = open.preview.lines.map((l) => `- ${l.label}${l.detail ? ` (${l.detail})` : ""}`).join("\n");
 							pendingState = `\n\n[SYSTÈME] Une prévisualisation est DÉJÀ en attente (${open.preview.title}) :\n${lines}\n→ La dernière demande est une CLARIFICATION de cette tâche : appelle MAINTENANT updateJournalEntry avec SEULEMENT les aliments concernés (name ; qtyGrams seulement si la quantité change — sans qtyGrams la quantité déjà préparée est conservée). Les autres lignes restent intactes. N'appelle PAS prepareJournalEntry et ne redemande AUCUNE information déjà présente ci-dessus.`;
+						}						} catch {
+							/* état indisponible : relance standard */
 						}
-					} catch {
-						/* état indisponible : relance standard */
 					}
+					const retryInstruction =
+						retryKind === "read"
+							? "\n\n[SYSTÈME] Ta réponse précédente donnait des valeurs chiffrées SANS avoir consulté les données. Appelle MAINTENANT getToday (ou getPeriodRecap si la question porte sur une période) et réponds UNIQUEMENT à partir des chiffres renvoyés par l'outil. N'utilise JAMAIS prepareJournalEntry pour une simple question."
+							: "\n\n[SYSTÈME] Le tour précédent n'a appelé AUCUN outil de préparation alors que la demande l'exigeait." + (pendingState || "\n\n[SYSTÈME] Appelle MAINTENANT l'outil prepare* adapté avec EXACTEMENT les éléments demandés (noms, quantités, unités) — sans reformuler la demande.");
 					const retry = await runAssistantTurn({
-						system: `${system}\n\n[SYSTÈME] Le tour précédent n'a appelé AUCUN outil de préparation alors que la demande l'exigeait.${pendingState || "\n\n[SYSTÈME] Appelle MAINTENANT l'outil prepare* adapté avec EXACTEMENT les éléments demandés (noms, quantités, unités) — sans reformuler la demande."}`,
+						system: `${system}${retryInstruction}`,
 						history: [
 							...context,
 							{ role: "user" as const, content: text || "(photo jointe)" },
 							{ role: "assistant" as const, content: reply },
 						],
-						userText: "(relance système : appelle l'outil de préparation maintenant)",
+						userText: retryKind === "read" ? "(relance système : consulte les données réelles maintenant)" : "(relance système : appelle l'outil de préparation maintenant)",
 						tools: registryToolDefs(),
 						callTool,
 						maxRounds: 1,
