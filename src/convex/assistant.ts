@@ -765,6 +765,10 @@ export const send = action({
 						sessionToken: args.sessionToken,
 						threadId,
 					})) as { actionId: string; preview: { title: string; lines: { label: string }[] } } | null;
+					if (!open) clarifDebug = 'no-pending-action';
+					if (open && !open.preview.lines.some((l) => refineMatch(l.label, trimmed))) {
+						clarifDebug = `no-refine-match; lines=${open.preview.lines.map((l) => l.label).join(' | ')}`;
+					}
 					if (open && open.preview.lines.some((l) => refineMatch(l.label, trimmed))) {
 						const upd = (await ctx.runMutation(api.assistantTools.updatePendingJournalEntry, {
 							sessionToken: args.sessionToken,
