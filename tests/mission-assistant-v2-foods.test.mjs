@@ -96,7 +96,7 @@ test('Écriture = exactement la prévisualisation (même payload sérialisé)', 
 });
 
 test('searchFood reste la porte d’entrée décrite au modèle (pas d’accès générique Convex)', () => {
-	const ai = read('src/lib/server/assistantAi.ts');
-	assert.ok(ai.includes("'searchFood'"), 'outil searchFood toujours exposé');
-	assert.ok(!ai.includes('ctx.db'), 'le modèle n’a jamais accès direct à la base');
+	const registry = read('src/convex/assistantRegistry.ts');
+	assert.ok(registry.includes('name: "searchFood"'), 'outil searchFood toujours exposé (registre)');
+	assert.ok(!registry.includes('ctx.db'), 'le modèle n’a jamais accès direct à la base : le registre passe par ctx.runQuery');
 });

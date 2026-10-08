@@ -48,8 +48,9 @@ import { kcalGoalForDate, withCurrentGoal } from "../lib/goalHistory";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Cliente authentifiée, flag Assistant ON et accès app NON bloqué. */
-async function requireAssistantClient(ctx: QueryCtx | MutationCtx, sessionToken?: string) {
+/** Cliente authentifiée, flag Assistant ON et accès app NON bloqué.
+ *  Exporté : garde commune partagée par les outils de lecture étendus (Lot 2). */
+export async function requireAssistantClient(ctx: QueryCtx | MutationCtx, sessionToken?: string) {
 	const user = await getSessionUser(ctx, sessionToken);
 	if (!user) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
 	if (user.role !== "client") throw new ConvexError("L'Assistant est réservé aux comptes clients.");

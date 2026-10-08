@@ -38,16 +38,13 @@ import {
 	safetyScreen,
 	type AssistantTopic,
 } from "../lib/assistant/policy";
-import { ASSISTANT_TOOLS, runAssistantTurn } from "../lib/server/assistantAi";
+import { runAssistantTurn } from "../lib/server/assistantAi";
+import { dispatchTool, registryToolDefs, type ToolRunState } from "./assistantRegistry";
+import { contextFor, buildContextBlock } from "./assistantRead";
 import { OpenAiUnavailableError } from "../lib/server/openai";
 
 /** Délai maximum d'un envoi « en cours » avant déblocage automatique (ms). */
 const INFLIGHT_TIMEOUT_MS = 60_000;
-
-/** Consigne renvoyée au modèle dès qu'une prévisualisation existe (§15/§16). */
-const PREPARE_NOTE =
-	"Prévisualisation créée côté serveur : présente-la (lignes, totaux, mention « Estimation » le cas échéant) " +
-	"et invite à valider avec le bouton Enregistrer. N'écris JAMAIS rien sans cette validation.";
 
 /* ────────────────────────── Garde serveur commune ────────────────────────── */
 
@@ -704,107 +701,45 @@ export const send = action({
 				.slice(-Math.max(2, assistantLimits().historyWindow - 2))
 				.map((m) => ({ role: m.role, content: m.content }));
 
-			// 5) Boucle d'outils — le SERVEUR exécute, le modèle reformule.
+			// 5) Bloc CONTEXTE serveur (Lot 2) — compact, données à jour, injecté
+			// au system prompt. Échec → contexte vide, la boucle reste fonctionnelle.
+			let system = assistantSystemPrompt(topic, today);
+			try {
+				const ctxData = (await ctx.runQuery(api.assistantRead.contextFor, {
+					sessionToken: args.sessionToken,
+					...(today ? { date: today } : {}),
+				})) as Parameters<typeof buildContextBlock>[0];
+				const block = buildContextBlock(ctxData);
+				if (block) system = `${system}\n\n${block}`;
+			} catch {
+				/* contexte indisponible : on continue sans */
+			}
+
+			// 6) Boucle d'outils — REGISTRE (Lot 2) : le serveur exécute, le
+			// modèle reformule. Les actions 'prepare' alimentent holder.pending.
 			const holder: { pending: PendingAction | null } = { pending: null };
+			const state: ToolRunState = { sessionToken: args.sessionToken, threadId, topic, today };
 			const callTool = async (name: string, a: Record<string, unknown>): Promise<unknown> => {
-				const sid = args.sessionToken;
-				switch (name) {
-					case "setTopic":
-						topic = coerceTopic(a.topic, topic);
-						return { ok: true, topic };
-					case "getToday":
-						return await ctx.runQuery(api.assistantTools.getToday, {
-							sessionToken: sid,
-							...(typeof a.date === "string" ? { date: a.date } : {}),
-						});
-					case "searchFood":
-						return await ctx.runQuery(api.assistantTools.searchFood, { sessionToken: sid, query: String(a.query ?? "") });
-					case "getFoodReference":
-						return await ctx.runQuery(api.assistantTools.getFoodReference, {
-							sessionToken: sid,
-							...(typeof a.foodId === "string" ? { foodId: a.foodId } : {}),
-							...(typeof a.customFoodId === "string" ? { customFoodId: a.customFoodId } : {}),
-							...(typeof a.ciqualLabel === "string" ? { ciqualLabel: a.ciqualLabel } : {}),
-						});
-					case "estimateFoodPortion":
-						return await ctx.runQuery(api.assistantTools.estimateFoodPortion, {
-							sessionToken: sid,
-							name: String(a.name ?? ""),
-							...(typeof a.foodId === "string" ? { foodId: a.foodId } : {}),
-							...(typeof a.customFoodId === "string" ? { customFoodId: a.customFoodId } : {}),
-							...(typeof a.ciqualLabel === "string" ? { ciqualLabel: a.ciqualLabel } : {}),
-						});
-					case "searchRecipes":
-						return await ctx.runQuery(api.assistantTools.searchRecipes, {
-							sessionToken: sid,
-							query: typeof a.query === "string" ? a.query : "",
-							...(typeof a.maxKcal === "number" ? { maxKcal: a.maxKcal } : {}),
-						});
-					case "getPeriodRecap":
-						return await ctx.runQuery(api.assistantTools.getPeriodRecap, {
-							sessionToken: sid,
-							period: a.period === "week" ? ("week" as const) : ("day" as const),
-							...(typeof a.date === "string" ? { date: a.date } : {}),
-						});
-					case "getJournalEntries":
-						return await ctx.runQuery(api.assistantTools.getJournalEntries, {
-							sessionToken: sid,
-							...(typeof a.date === "string" ? { date: a.date } : {}),
-						});
-					case "prepareJournalEntry": {
-						const res = await ctx.runMutation(api.assistantTools.prepareJournalEntry, {
-							sessionToken: sid,
-							threadId,
-							topic,
-							date: typeof a.date === "string" ? a.date : today,
-							meal: String(a.meal ?? "diner"),
-							items: (a.items ?? []) as never,
-						});
-						holder.pending = { actionId: res.actionId as string, actionType: "journal_add", preview: res.preview };
-						return { ok: true, actionId: res.actionId, preview: res.preview, note: PREPARE_NOTE };
-					}
-					case "prepareJournalRemoval": {
-						const res = await ctx.runMutation(api.assistantTools.prepareJournalRemoval, {
-							sessionToken: sid,
-							threadId,
-							topic,
-							entryIds: (a.entryIds ?? []) as string[],
-						});
-						holder.pending = { actionId: res.actionId as string, actionType: "journal_remove", preview: res.preview };
-						return { ok: true, actionId: res.actionId, preview: res.preview, note: PREPARE_NOTE };
-					}
-					case "prepareMeasurement": {
-						const res = await ctx.runMutation(api.assistantTools.prepareMeasurement, {
-							sessionToken: sid,
-							threadId,
-							topic,
-							kind: (typeof a.kind === "string" && ["weight", "steps", "measurement"].includes(a.kind)
-								? a.kind
-								: "weight") as "weight" | "steps" | "measurement",
-							date: typeof a.date === "string" ? a.date : today,
-							...(typeof a.weightKg === "number" ? { weightKg: a.weightKg } : {}),
-							...(typeof a.count === "number" ? { count: a.count } : {}),
-							...(typeof a.neckCm === "number" ? { neckCm: a.neckCm } : {}),
-							...(typeof a.waistCm === "number" ? { waistCm: a.waistCm } : {}),
-							...(typeof a.hipCm === "number" ? { hipCm: a.hipCm } : {}),
-						});
-						holder.pending = { actionId: res.actionId as string, actionType: "measurement", preview: res.preview };
-						return { ok: true, actionId: res.actionId, preview: res.preview, note: PREPARE_NOTE };
-					}
-					case "prepareCoachQuestion": {
-						const res = await ctx.runMutation(api.assistantTools.prepareCoachQuestion, {
-							sessionToken: sid,
-							threadId,
-							topic,
-							text: String(a.text ?? ""),
-							destination: a.destination === "bilan" ? ("bilan" as const) : ("note" as const),
-						});
-						holder.pending = { actionId: res.actionId as string, actionType: "coach_question", preview: res.preview };
-						return { ok: true, actionId: res.actionId, preview: res.preview, note: PREPARE_NOTE };
-					}
-					default:
-						return { ok: false, reason: `Outil inconnu : ${name}` };
+				const out = await dispatchTool(ctx, name, a, state);
+				// Le sujet suit les outils meta (setTopic) via l'état partagé.
+				topic = coerceTopic(state.topic, topic);
+				// Toute action 'prepare' qui revient avec un actionId devient la
+				// pendingAction du tour (comportement V1 inchangé).
+				const withAction = out as { actionId?: unknown; preview?: unknown } | null;
+				if (withAction && typeof withAction.actionId === "string" && withAction.actionId.length >= 10) {
+					holder.pending = {
+						actionId: withAction.actionId,
+						actionType: /JournalRemoval/.test(name)
+							? "journal_remove"
+							: /Measurement/.test(name)
+								? "measurement"
+								: /CoachQuestion/.test(name)
+									? "coach_question"
+									: "journal_add",
+						preview: withAction.preview,
+					};
 				}
+				return out;
 			};
 
 			let reply: string;
@@ -821,7 +756,7 @@ export const send = action({
 					history: context,
 					userText: text || "(photo jointe)",
 					...(imageHint ? { imageHint } : {}),
-					tools: ASSISTANT_TOOLS,
+					tools: registryToolDefs(),
 					callTool,
 					maxRounds: assistantLimits().maxToolRounds,
 				});

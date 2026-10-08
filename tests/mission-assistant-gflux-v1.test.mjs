@@ -25,6 +25,7 @@ const assistant = read('src/convex/assistant.ts');
 const tools = read('src/convex/assistantTools.ts');
 const schema = read('src/convex/schema.ts');
 const assistantAi = read('src/lib/server/assistantAi.ts');
+const registry = read('src/convex/assistantRegistry.ts');
 const sendBff = read('src/routes/api/assistant/send/+server.ts');
 const actionBff = read('src/routes/api/assistant/action/+server.ts');
 const pageServer = read('src/routes/espace/assistant/+page.server.ts');
@@ -151,6 +152,8 @@ test('Modèle IA : variable serveur ASSISTANT_MODEL, jamais hardcodé dans l’a
 /* ══════════════ 2. BOUCLE D'OUTILS IA — test fonctionnel ══════════════ */
 
 const aiMod = await import(new URL('../src/lib/server/assistantAi.ts', import.meta.url).href);
+const reg = await import(new URL('../src/convex/assistantRegistry.ts', import.meta.url).href);
+const registryToolDefs = reg.registryToolDefs;
 
 const jsonResponse = (payload, status = 200) =>
 	new Response(JSON.stringify(payload), { status, headers: { 'content-type': 'application/json' } });
@@ -188,7 +191,7 @@ test('Boucle d’outils : le serveur exécute, le modèle reçoit le résultat, 
 			system: 'SYSTÈME',
 			history: [{ role: 'user', content: 'hier' }],
 			userText: 'combien de calories il me reste ?',
-			tools: aiMod.ASSISTANT_TOOLS,
+			tools: registryToolDefs(),
 			callTool: async (name, args) => {
 				executed = { name, args };
 				return { ok: true, remaining: 1358 };
@@ -234,7 +237,7 @@ test('Boucle bornée : jamais de tour infini, réponse forcée à la limite', as
 			system: 'S',
 			history: [],
 			userText: 'x',
-			tools: aiMod.ASSISTANT_TOOLS,
+			tools: registryToolDefs(),
 			callTool: async () => ({ ok: true }),
 			maxRounds: 3,
 		});
@@ -269,7 +272,7 @@ test('Outil en échec ne casse jamais la conversation', async () => {
 			system: 'S',
 			history: [],
 			userText: 'zzz',
-			tools: aiMod.ASSISTANT_TOOLS,
+			tools: registryToolDefs(),
 			callTool: async () => {
 				throw new Error('base indisponible');
 			},
@@ -295,7 +298,7 @@ test('Panne IA → erreur métier lisible, jamais de stack ni de clé exposée',
 					system: 'S',
 					history: [],
 					userText: 'x',
-					tools: aiMod.ASSISTANT_TOOLS,
+					tools: registryToolDefs(),
 					callTool: async () => ({}),
 					maxRounds: 2,
 				}),
@@ -370,10 +373,10 @@ test('Outils écriture : TOUS en préparation, preview renvoyée (§15/§16)', (
 	for (const fn of ['prepareJournalEntry', 'prepareJournalRemoval', 'prepareMeasurement', 'prepareCoachQuestion']) {
 		assert.ok(new RegExp(`export const ${fn} = mutation`).test(tools), `outil présent : ${fn}`);
 		assert.ok(
-			new RegExp(`(\\b|\\W)${fn}(\\b|\\W)`).test(assistantAi),
-			`outil exposé au modèle : ${fn}`
+			new RegExp(`(\\b|\\W)${fn}(\\b|\\W)`).test(registry),
+			`outil exposé au modèle (registre) : ${fn}`
 		);
-		assert.ok(new RegExp(`case "${fn}"`).test(assistant), `exécuté côté serveur : ${fn}`);
+		assert.ok(new RegExp(`api\\.assistantTools\\.${fn}`).test(registry), `exécuté côté serveur (registre) : ${fn}`);
 	}
 	assert.ok(/status: "pending"/.test(tools), 'action créée EN ATTENTE uniquement');
 	assert.ok(/insertPending/.test(tools), 'aucune écriture directe dans la couche outils');
@@ -485,7 +488,7 @@ test('Thread persistant + changement de topic (§11/§12/§27)', () => {
 	for (const f of ['userId', 'threadId', 'topic', 'role', 'content', 'createdAt']) {
 		assert.ok(new RegExp(`${f}: v\\.`).test(schema.slice(schema.indexOf('assistantMessages: defineTable'))), `champ message : ${f}`);
 	}
-	assert.ok(/case "setTopic"/.test(assistant), 'bascule de sujet par le modèle');
+	assert.ok(/name: "setTopic"/.test(registry), 'bascule de sujet par le modèle (registre)');
 	assert.ok(/coerceTopic/.test(policy), 'repli sûr sur un sujet inconnu');
 	assert.ok(/export const threads = query/.test(assistant), 'historique des fils');
 	assert.ok(/export const historyFor = query/.test(assistant), 'fil actif restauré au chargement');
