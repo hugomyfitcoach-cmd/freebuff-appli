@@ -386,7 +386,7 @@ test('Outils écriture : TOUS en préparation, preview renvoyée (§15/§16)', (
 
 test('Prévisualisation : totaux, source et mention estimation exposés', () => {
 	assert.ok(/totals: \{/.test(tools), 'totaux calculés serveur');
-	assert.ok(/ref\.origin === "product"/.test(tools), 'origine de la valeur exposée');
+	assert.ok(/origin === "product"/.test(tools), 'origine de la valeur exposée');
 	assert.ok(/Certaines valeurs sont des estimations/.test(tools), 'avertissement estimation affiché');
 	assert.ok(/preview: v\.object/.test(schema), 'preview typée dans le schéma');
 	assert.ok(/lines: v\.array\(assistantPreviewLine\)/.test(schema), 'lignes typées');

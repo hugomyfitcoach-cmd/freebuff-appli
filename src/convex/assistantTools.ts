@@ -38,7 +38,7 @@ import { accessStateForUser } from "./billing";
 import { ciqualFoodSource } from "./ciqualSource";
 import { searchCiqualLocal } from "./ciqual";
 import { guardedKcal100 } from "../lib/nutritionGuard";
-import { rankFoods } from "./foodRanking";
+import { rankFoods, norm } from "./foodRanking";
 import { reperesForFood } from "../lib/data/gfluxReperes";
 import { recipes, newRecipes } from "../lib/data/recettes";
 import { kcalGoalForDate, withCurrentGoal } from "../lib/goalHistory";
@@ -72,6 +72,119 @@ function assertDate(date: string, opts?: { noFuture?: boolean }): void {
 
 function round1(n: number): number {
 	return Math.round(n * 10) / 10;
+}
+
+/* ───────── FIDÉLITÉ DES ALIMENTS (chantier A) ─────────
+ *
+ * Deux helpers déterministes utilisés par `prepareJournalEntry` :
+ *  - `nameCovers` : la fiche candidate « représente-t-elle » l'aliment
+ *    demandé ? Recouvrement de mots normalisés (nom de fiche ⊇ demande ou
+ *    inversement), marque tolérée mais jamais suffisante. Empêche la
+ *    substitution silencieuse (« jus d'orange » ↔ « pur jus de pomme »).
+ *  - `searchFoodInternal` : recherche par nom faite PAR LE SERVEUR quand le
+ *    modèle n'a pas fourni d'identifiant — réutilise exactement les mêmes
+ *    sources que `searchFood` (OFF + aliments cliente + Ciqual).
+ */
+
+/** Tokens significatifs d'un nom (hors mots outils et états de préparation). */
+function significantTokens(name: string): string[] {
+	const STOP = new Set([
+		"au", "a", "la", "aux", "de", "du", "des", "en", "et", "avec", "sans",
+		"pur", "nature", "type", "style", "cuit", "cuite", "cru", "crue", "fume",
+		"grille", "fraiche", "frais", "surgele", "sec", "seche", "bio",
+	]);
+	return norm(name)
+		.split(" ")
+		.filter((t) => t.length >= 2 && !STOP.has(t))
+		.map((t) => (t.length >= 5 && t.endsWith("s") ? t.slice(0, -1) : t));
+}
+
+/**
+ * La fiche représente-t-elle l'aliment demandé ? True si le recouvrement de
+ * tokens significatifs est total dans un sens ou l'autre (la demande peut
+ * être plus courte que la fiche : « avoine » ⊑ « Flocons d'avoine »).
+ */
+export function nameCovers(refName: string, refBrand: string | undefined, declared: string): boolean {
+	const refToks = new Set(significantTokens(refName));
+	// La marque de la fiche ne doit PAS être comptée comme couvrante seule :
+	// « Tropicana » ne justifie pas « jus d'orange ». Mais si la demande cite
+	// la marque, ça ne doit pas non plus la faire passer pour un autre aliment.
+	const askToks = significantTokens(declared);
+	if (refToks.size === 0 || askToks.length === 0) return false;
+	const covers = (a: Set<string>, b: string[]) => b.every((t) => a.has(t));
+	if (covers(refToks, askToks)) return true;
+	const askSet = new Set(askToks);
+	if (covers(askSet, [...refToks])) return true;
+	// Tolérance singulier/pluriel via norm+singularise déjà appliquée.
+	return false;
+}
+
+/** Recherche aliment par nom CÔTÉ SERVEUR (mêmes sources que searchFood). */
+async function searchFoodInternal(
+	ctx: QueryCtx,
+	userId: Id<"users">,
+	declared: string
+): Promise<FoodRef | null> {
+	const term = declared.trim().toLowerCase().slice(0, 60);
+	if (term.length < 2) return null;
+	const [foods, customs] = await Promise.all([
+		ctx.db.query("foods").withSearchIndex("by_name", (sb) => sb.search("name", term)).take(40),
+		ctx.db
+			.query("customFoods")
+			.withSearchIndex("by_name", (sb) => sb.search("name", term))
+			.filter((q) => q.eq(q.field("userId"), userId))
+			.take(6),
+	]);
+	// Aliment personnel d'abord (c'est SA fiche), puis meilleur produit OFF.
+	if (customs.length > 0) {
+		const c = customs[0];
+		return {
+			customFoodId: c._id,
+			name: c.name,
+			brand: c.brand,
+			kcal100: c.kcal100,
+			carbs100: c.carbs100,
+			protein100: c.protein100,
+			fat100: c.fat100,
+			...(c.servingQty ? { servingQty: c.servingQty } : {}),
+			origin: "personal",
+		};
+	}
+	const ranked = rankFoods(
+		foods.map((f) => ({ _id: f._id as string, name: f.name, brand: f.brand, kcal100: f.kcal100, carbs100: f.carbs100, protein100: f.protein100, fat100: f.fat100 })),
+		term
+	);
+	for (const f of ranked) {
+		// La fiche retenue doit représenter la demande (anti-substitution).
+		if (nameCovers(f.name, f.brand, declared)) {
+			return {
+				foodId: f._id as Id<"foods">,
+				name: f.name,
+				brand: f.brand,
+				kcal100: guardedKcal100(f as never),
+				carbs100: f.carbs100,
+				protein100: f.protein100,
+				fat100: f.fat100,
+				origin: "product",
+			};
+		}
+	}
+	for (const hit of searchCiqualLocal(term)) {
+		if (nameCovers(hit.label, undefined, declared)) {
+			const src = ciqualFoodSource(hit.label);
+			if (!src) continue;
+			return {
+				ciqualLabel: hit.label,
+				name: src.name,
+				kcal100: src.kcal100,
+				carbs100: src.carbs100,
+				protein100: src.protein100,
+				fat100: src.fat100,
+				origin: "reference",
+			};
+		}
+	}
+	return null;
 }
 
 /* ───────────────────── 1. Objectifs + restes du jour ───────────────────── */
@@ -651,6 +764,29 @@ export const prepareJournalEntry = mutation({
 		if (!Array.isArray(items) || items.length === 0) throw new ConvexError("Aucun aliment à préparer.");
 		if (items.length > 12) throw new ConvexError("Maximum 12 aliments par repas.");
 
+		/* ── VERROU ANTI-SUBSTITUTION (chantier A, V1/V2) ─────────────────
+		 * Le backend contrôle la FIDÉLITÉ de la préparation à la demande :
+		 *  - fusion des doublons internes (même référence) ;
+		 *  - l'identifiant fourni doit CORRESPONDRE au nom déclaré — sinon
+		 *    REJET (jamais de remplacement silencieux par une autre fiche) ;
+		 *  - sans identifiant, le SERVEUR fait lui-même la recherche par nom
+		 *    (jamais une création « estimation IA » directe) ; une référence
+		 *    n'est retenue que si elle représente l'aliment demandé.
+		 */
+		// V2 — fusion des doublons internes (même référence ou même nom).
+		const merged = new Map<string, (typeof items)[number]>();
+		for (const it of items) {
+			const key = it.foodId ?? it.customFoodId ?? it.ciqualLabel ?? norm(it.name ?? "");
+			if (!key) throw new ConvexError("Aliment sans nom ni référence.");
+			const prev = merged.get(key);
+			if (prev) prev.qtyGrams = (prev.qtyGrams ?? 0) + (it.qtyGrams ?? 0);
+			else merged.set(key, { ...it });
+		}
+		const deduped = [...merged.values()];
+		if (deduped.length !== items.length) {
+			console?.log?.(`[assistant] journal_add : ${items.length} items → ${deduped.length} après fusion`);
+		}
+
 		const lines: PreviewLine[] = [];
 		const components: {
 			foodId?: Id<"foods">;
@@ -671,56 +807,53 @@ export const prepareJournalEntry = mutation({
 			collation: "Collation",
 		};
 
-		for (const it of items) {
+		for (const it of deduped) {
 			const qty = Number.isFinite(it.qtyGrams) ? Math.min(5000, Math.max(1, Math.round(it.qtyGrams))) : 0;
 			if (!qty) throw new ConvexError("Quantité invalide.");
+			const declared = (it.name || "").trim().slice(0, 80);
+			if (declared.length < 2) throw new ConvexError("Nom d'aliment trop court.");
 			const ref = await resolveRef(ctx, user._id, {
 				foodId: it.foodId,
 				customFoodId: it.customFoodId,
 				ciqualLabel: it.ciqualLabel,
 			});
-			let name = (it.name || "").trim().slice(0, 80);
-			let kcal100 = 0;
-			let carbs100 = 0;
-			let protein100 = 0;
-			let fat100 = 0;
-			let source = "ai";
-			let isEstimate = true;
-			if (ref) {
-				name = ref.name;
-				kcal100 = ref.kcal100;
-				carbs100 = ref.carbs100;
-				protein100 = ref.protein100;
-				fat100 = ref.fat100;
-				source = ref.origin === "product" ? "product" : ref.origin === "personal" ? "personal" : "reference";
-				// Quantité écrite par la cliente → pas une estimation.
-				isEstimate = it.estimated === true;
-				components.push({
-					...(ref.foodId ? { foodId: ref.foodId as Id<"foods"> } : {}),
-					...(ref.customFoodId ? { customFoodId: ref.customFoodId as Id<"customFoods"> } : {}),
-					...(ref.ciqualLabel ? { ciqualLabel: ref.ciqualLabel } : {}),
-					name,
-					qtyGrams: qty,
-				});
-			} else {
-				// Aucune identité G-FLUX : estimation IA /100 g encadrée, jamais
-				// convertie en aliment — affichée « Estimation IA » (§18).
-				if (!it.aiKcal100) throw new ConvexError(`Aliment introuvable : ${name || "?"}. Recherche-le d'abord.`);
-				components.push({
-					name,
-					qtyGrams: qty,
-					aiKcal100: it.aiKcal100,
-					aiCarbs100: it.aiCarbs100,
-					aiProtein100: it.aiProtein100,
-					aiFat100: it.aiFat100,
-				});
-				kcal100 = it.aiKcal100 ?? 0;
-				carbs100 = it.aiCarbs100 ?? 0;
-				protein100 = it.aiProtein100 ?? 0;
-				fat100 = it.aiFat100 ?? 0;
-				source = "ai";
-				isEstimate = true;
+			// V1 — identité vérifiée : l'identifiant fourni doit représenter
+			// l'aliment demandé (recouvrement de mots normalisés). Sinon REJET :
+			// pas de substitution silencieuse, le modèle doit relancer une
+			// recherche ou demander la clarification à l'utilisatrice.
+			if (ref && !nameCovers(ref.name, ref.brand, declared)) {
+				throw new ConvexError(
+					`Référence incohérente : « ${declared} » ne correspond pas à la fiche « ${ref.name} ». Relance une recherche (searchFood) ou demande la clarification.`
+				);
 			}
+			let resolved: FoodRef | null = ref;
+			if (!resolved) {
+				// V1 — sans identifiant : recherche SERVEUR par le nom déclaré.
+				// Jamais une création « estimation IA » directe ici.
+				resolved = await searchFoodInternal(ctx, user._id, declared);
+				if (!resolved) {
+					throw new ConvexError(
+						`Aliment introuvable en base : « ${declared} ». Demande la clarifcation ou fais-le créer manuellement.`
+					);
+				}
+				if (!nameCovers(resolved.name, resolved.brand, declared)) {
+					throw new ConvexError(
+						`Aucune fiche fiable pour « ${declared} » (meilleur candidat : « ${resolved.name} »). Demande la clarifcation plutôt que de substituer.`
+					);
+				}
+			}
+			// Un aliment sans identité G-FLUX n'atteint JAMAIS ce point :
+			// searchFoodInternal a déjà rejeté (throw) si aucune fiche fiable.
+			// (Les composants poussés portent TOUJOURS une référence résolue.)
+			const name = resolved!.name;
+			const kcal100 = resolved!.kcal100;
+			const carbs100 = resolved!.carbs100;
+			const protein100 = resolved!.protein100;
+			const fat100 = resolved!.fat100;
+			const source =
+				resolved!.origin === "product" ? "product" : resolved!.origin === "personal" ? "personal" : "reference";
+			// Quantité écrite par la cliente → pas une estimation.
+			const isEstimate = it.estimated === true;
 			const k = qty / 100;
 			const kcal = Math.round(kcal100 * k);
 			const carbs = round1(carbs100 * k);
