@@ -187,6 +187,73 @@ test('B7. reset() remet la confirmation à zéro', () => {
 	assert.equal(gate.submit(EAN13_OK).verdict, 'pending');
 });
 
+/* —── Mission scanner V3 : fenêtre glissante (2 lectures parmi 4 en 1200 ms) ──— */
+
+test('V3.1. fenêtre glissante : 2 lectures identiques parmi les 4 dernières confirment même avec lectures ratées', () => {
+	const gate = createScanGate(2, 1200);
+	assert.equal(gate.submit(EAN13_OK).verdict, 'pending');
+	// Lecture « ratée » (frame illisible → decodeOnce renvoie null : rien
+	// n'est soumis) simulée par un autre code valide différent — non, on
+	// garde le scénario RÉEL : une frame sans détection n'appelle PAS submit.
+	// Donc : 2e lecture identique rapprochée = confirmation, inchangé.
+	assert.equal(gate.submit(EAN13_OK).verdict, 'confirmed');
+});
+
+test('V3.2. deux décodages RÉELS exigés : une seule lecture ne suffit jamais', () => {
+	const gate = createScanGate(2, 1200);
+	assert.equal(gate.submit(EAN13_OK).verdict, 'pending');
+	assert.equal(gate.submit(EAN8_OK).verdict, 'pending'); // alternance : fenêtre vidée
+	assert.equal(gate.submit(EAN8_OK).verdict, 'confirmed'); // 2 lectures réelles du 2e code
+});
+
+test('V3.3. fenêtre de 1200 ms : la 2e lecture à +900 ms confirme (ancien gap 700 ms échouait)', () => {
+	const gate = createScanGate(2, 1200);
+	assert.equal(gate.submit(EAN13_OK).verdict, 'pending');
+	const t0 = Date.now();
+	while (Date.now() - t0 < 900) {
+		// attente active 900 ms : < 1200 ms → la fenêtre glissante accepte
+	}
+	assert.equal(gate.submit(EAN13_OK).verdict, 'confirmed');
+});
+
+test('V3.4. au-delà de la fenêtre (1350 ms) : recompte depuis zéro', () => {
+	const gate = createScanGate(2, 1200);
+	assert.equal(gate.submit(EAN13_OK).verdict, 'pending');
+	const t0 = Date.now();
+	while (Date.now() - t0 < 1350) {
+		// attente active > fenêtre
+	}
+	assert.equal(gate.submit(EAN13_OK).verdict, 'pending', 'hors fenêtre : recompte');
+	assert.equal(gate.submit(EAN13_OK).verdict, 'confirmed');
+});
+
+test('V3.5. après confirmation, la fenêtre repart de zéro (deux produits successifs)', () => {
+	const gate = createScanGate(2, 1200);
+	assert.equal(gate.submit(EAN13_OK).verdict, 'pending');
+	assert.equal(gate.submit(EAN13_OK).verdict, 'confirmed');
+	// Produit suivant : la confirmation précédente est consommée.
+	assert.equal(gate.submit(EAN8_OK).verdict, 'pending');
+	assert.equal(gate.submit(EAN8_OK).verdict, 'confirmed');
+});
+
+test('V3.6. faux positifs : alternance rapide de codes VALIDES différents jamais confirmée', () => {
+	const gate = createScanGate(2, 1200);
+	assert.equal(gate.submit(EAN13_OK).verdict, 'pending');
+	assert.equal(gate.submit(EAN8_OK).verdict, 'pending'); // vide la fenêtre
+	assert.equal(gate.submit(EAN13_OK).verdict, 'pending'); // 1re lecture seule
+	assert.equal(gate.submit(EAN8_OK).verdict, 'pending'); // vide encore
+	// Aucun des deux codes n'a jamais atteint 2 lectures consécutives.
+	assert.equal(gate.submit(EAN13_OK).verdict, 'pending');
+});
+
+test('V3.7. lecture invalide au milieu : rejet silencieux + fenêtre vidée (2 lectures réelles exigées après)', () => {
+	const gate = createScanGate(2, 1200);
+	assert.equal(gate.submit(EAN13_OK).verdict, 'pending');
+	assert.deepEqual(gate.submit(EAN13_INVALID), { verdict: 'rejected', code: '' });
+	assert.equal(gate.submit(EAN13_OK).verdict, 'pending');
+	assert.equal(gate.submit(EAN13_OK).verdict, 'confirmed');
+});
+
 /* ─── C. Câblage page + invariant moteurs + périmètre ─── */
 
 test('C1. handleScan utilise normalizeProductCode (fin de validation côté page)', () => {

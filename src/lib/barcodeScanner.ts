@@ -30,6 +30,9 @@ export type BarcodeScannerHandle = {
 	stop: () => Promise<void>;
 	/** Suspend/reprend le DÉCODAGE sans couper la caméra (mode saisie manuelle). */
 	setPaused: (paused: boolean) => void;
+	/** Résolution réelle du track utilisé (0 si inconnue) — mesure avant/après
+	 *  sur le terrain sans supposer que `ideal` a été honoré (mission V3). */
+	resolution: () => TrackResolution;
 };
 
 /** Capacités utiles du track caméra (lampe/zoom), si supportées. */
@@ -39,6 +42,8 @@ export type TorchHandle = {
 	zoom: (factor: number) => Promise<boolean>;
 	hasZoom: () => boolean;
 	zoomRange: { min: number; max: number; step: number } | null;
+	/** Zoom réellement appliqué au démarrage (peut différer du min — mission V3). */
+	currentZoom: () => number;
 };
 
 /**
@@ -48,6 +53,9 @@ export type TorchHandle = {
  * « caméra indisponible ». Les autres erreurs restent des Error classiques.
  */
 export class CameraPermissionError extends Error {}
+
+/** Résolution réelle du track caméra (mesure terrain, mission scanner V3). */
+export type TrackResolution = { width: number; height: number };
 
 /** Vibration légère à la détection (best effort, jamais bloquant). */
 function vibrateOk(): void {
@@ -118,42 +126,51 @@ export type ScanGate = {
 
 /**
  * PORTE de fiabilité au-dessus du moteur de décodage (BarcodeDetector COMME
- * ZXing) : une lecture brute n'est transmise à l'appelant que si
+ * ZXing) — mission scanner V3 : FENÊTRE GLISSANTE.
+ *
+ * Une lecture brute n'est transmise à l'appelant que si :
  *   1. normalizeProductCode l'accepte (longueur GTIN 8/12/13/14 + checksum),
- *   2. la MÊME valeur normalisée est relue RAPPROCHEE (≤ maxGapMs) — 2
- *      lectures identiques consécutives, une frame seule ne suffit plus.
- * Toute lecture invalide est rejetée SILENCIEUSEMENT : pas de recherche,
- * pas de message, le scan continue. Deux lectures DIFFÉRENTES réinitialisent
- * le compteur (protection contre l'alternance EAN ↔ code logistique voisin).
+ *   2. la MÊME valeur normalisée est relue dans la fenêtre — `required`
+ *      lectures identiques parmi les 4 dernières, toutes de moins de
+ *      `maxGapMs` (fenêtre glissante : tolère les frames où le décodeur
+ *      n'accroche pas, fréquentes sur Android à haute résolution).
+ *
+ * Garde-fous conservés (validation mission) :
+ *  - checksum EAN/UPC strict (normalizeProductCode) — inchangé ;
+ *  - deux décodages RÉELS et indépendants (une frame seule ne suffit pas) ;
+ *  - toute lecture invalide est rejetée SILENCIEUSEMENT et VIDE la fenêtre ;
+ *  - une lecture VALIDE DIFFÉRENTE vide la fenêtre (protection alternance
+ *    EAN ↔ code logistique voisin, conservée) ;
+ *  - la fenêtre est réinitialisée après chaque confirmation (deux codes
+ *    successifs distincts exigent chacun leurs propres 2 lectures) — le
+ *    verrou anti-doublon de la boucle (DUPLICATE_MS) reste en amont.
  */
-export function createScanGate(required = 2, maxGapMs = 700): ScanGate {
-	let last: string | null = null;
-	let count = 0;
-	let lastAt = 0;
+export function createScanGate(required = 2, maxGapMs = 1200): ScanGate {
+	/** Dernières lectures valides (4 max), les plus anciennes d'abord. */
+	let recent: { code: string; at: number }[] = [];
 	return {
 		submit(raw: string): ScanGateResult {
 			const code = normalizeProductCode(raw);
+			const now = Date.now();
 			if (!code) {
-				last = null;
-				count = 0;
-				lastAt = 0;
+				recent = [];
 				return { verdict: 'rejected', code: '' };
 			}
-			const now = Date.now();
-			if (code === last && now - lastAt <= maxGapMs) count++;
-			else {
-				last = code;
-				count = 1;
+			// Éviction des lectures sorties de la fenêtre temporelle.
+			recent = recent.filter((r) => now - r.at <= maxGapMs);
+			// Alternance : un code valide différent du dernier vide la fenêtre.
+			if (recent.length > 0 && recent[recent.length - 1].code !== code) recent = [];
+			recent.push({ code, at: now });
+			while (recent.length > 4) recent.shift();
+			const same = recent.filter((r) => r.code === code).length;
+			if (same >= required) {
+				recent = []; // confirmation consommée : fenêtre repart de zéro
+				return { verdict: 'confirmed', code };
 			}
-			lastAt = now;
-			return count >= required
-				? { verdict: 'confirmed', code }
-				: { verdict: 'pending', code };
+			return { verdict: 'pending', code };
 		},
 		reset() {
-			last = null;
-			count = 0;
-			lastAt = 0;
+			recent = [];
 		},
 	};
 }
@@ -199,12 +216,14 @@ const FRAME_INTERVAL_MS = 70;
 /** Garde anti double lecture : même code ignoré pendant 1,2 s. */
 const DUPLICATE_MS = 1200;
 /**
- * Confirmation multi-frames : deux lectures du MÊME code normalisé doivent
- * arriver rapprochées (≤ 700 ms — la boucle décode toutes les 70 ms, une
- * micro-coupure du décodeur ne casse donc pas la confirmation, mais un
- * code relu bien plus tard recompte depuis zéro).
+ * Confirmation multi-frames (fenêtre glissante, mission scanner V3) : deux
+ * lectures du MÊME code normalisé dans une fenêtre de 1200 ms — l'ancien gap
+ * strict de 700 ms entre deux lectures CONSÉCUTIVES échouait dès que le
+ * décodeur n'accrochait pas pendant quelques frames (typique Android à haute
+ * résolution), laissant la pastille « Code détecté… » clignoter sans jamais
+ * confirmer. Un code relu bien plus tard recompte depuis zéro.
  */
-const SCAN_CONFIRM_GAP_MS = 700;
+const SCAN_CONFIRM_GAP_MS = 1200;
 /** Grâce d'affichage de la pastille « Code détecté… » (anti-clignotement). */
 const SCAN_HINT_GRACE_MS = 450;
 /** Durée du flash vert du cadre après une lecture (ms). */
@@ -254,6 +273,8 @@ export async function startBarcodeScanner(
 	let paused = false;
 	let zxingMod: ZXing | null = null;
 	let nativeDetector: NativeDetector | null = null;
+	/** Résolution RÉELLE du track (mission V3) — exposée pour mesure terrain. */
+	let trackResolution = { width: 0, height: 0 };
 
 	// -- Caméra : recule (résolution native) pour maximiser la portée. ------
 	// UN SEUL getUserMedia par scan : si la permission est déjà accordée, le
@@ -296,12 +317,40 @@ export async function startBarcodeScanner(
 		return {
 			stop: async () => {},
 			setPaused: () => {},
+			resolution: () => ({ width: 0, height: 0 }),
 			toggleTorch: async () => false,
 			hasTorch: () => false,
 			zoom: async () => false,
 			hasZoom: () => false,
 			zoomRange: null,
+			currentZoom: () => 0,
 		};
+	}
+
+	// -- Résolution réelle du track (mission scanner V3) ---------------------
+	// `ideal` n'est pas garanti : certains tracks Android démarrent à 640 px
+	// malgré ideal:1920 (négociation navigateur/capteur). Un code-barres tenu
+	// à 25–30 cm y tombe sous la résolution utile — c'est LA cause principale
+	// des scans Android difficiles alors que l'image « a l'air nette ». On
+	// mesure la résolution réelle et on re-négocie UNE fois si elle est trop
+	// basse ; le résultat reste exposé via handle.resolution() pour mesurer
+	// avant/après sur le terrain (jamais de supposition à l'aveugle).
+	const mainTrack = stream.getVideoTracks()[0];
+	if (mainTrack) {
+		const s = (mainTrack.getSettings?.() ?? {}) as { width?: number; height?: number };
+		trackResolution = { width: s.width ?? 0, height: s.height ?? 0 };
+		if (trackResolution.width && trackResolution.width < 1280) {
+			try {
+				await mainTrack.applyConstraints({
+					width: { ideal: 1920 },
+					height: { ideal: 1080 },
+				} as MediaTrackConstraints);
+				const s2 = (mainTrack.getSettings?.() ?? {}) as { width?: number; height?: number };
+				if (s2.width) trackResolution = { width: s2.width, height: s2.height ?? 0 };
+			} catch {
+				// Re-négociation refusée : on garde le track tel quel (best effort).
+			}
+		}
 	}
 
 	// -- Focus continu (iPhone / Safari en priorité) --------------------------
@@ -430,7 +479,7 @@ export async function startBarcodeScanner(
 	Object.assign(scanHint.style, {
 		position: 'absolute',
 		left: '50%',
-		bottom: '9%',
+		bottom: '14%',
 		transform: 'translateX(-50%)',
 		padding: '6px 14px',
 		borderRadius: '999px',
@@ -486,6 +535,10 @@ export async function startBarcodeScanner(
 	const canvas = document.createElement('canvas');
 	const ctx = canvas.getContext('2d', { willReadFrequently: true });
 	if (!ctx) throw new Error('Canvas 2D indisponible.');
+	/** Canvas de recadrage (passe « zoomée » ZXing, mission V3) — séparé du
+	 *  canvas pleine frame pour ne pas détruire le bitmap en cours. */
+	const cropCanvas = document.createElement('canvas');
+	const cropCtx = cropCanvas.getContext('2d', { willReadFrequently: true });
 
 	// Canvas en résolution native (largeur plafonnée pour la perf).
 	let vw = 0;
@@ -531,10 +584,29 @@ export async function startBarcodeScanner(
 			const bitmap = new zxingMod.BinaryBitmap(new zxingMod.HybridBinarizer(source));
 			const result = quick.decode(bitmap);
 			if (result?.text) return result.text;
+			frameCount++;
+			// Passe 1.5 (une frame sur 2) : recadrage central upscalé ×2 — un code
+		// tenu à distance n'occupe que quelques dizaines de pixels dans l'image
+		// native et la binarisation locale de ZXing le perd. Agrandir la zone du
+		// cadre guide rend les barres relisables sans toucher à la cadence de la
+		// passe rapide. Repli uniquement (BarcodeDetector n'en a pas besoin).
+			if (cropCtx && frameCount % 2 === 0) {
+				const cw = Math.round(vw * 0.8);
+				const ch = Math.round(vh * 0.44);
+				const cx = Math.round((vw - cw) / 2);
+				const cy = Math.max(0, Math.round((vh * (FRAME_TOP_PCT + FRAME_HEIGHT_PCT / 2)) / 100 - ch / 2));
+				cropCanvas.width = cw * 2;
+				cropCanvas.height = ch * 2;
+				cropCtx.imageSmoothingEnabled = false;
+				cropCtx.drawImage(canvas, cx, cy, cw, ch, 0, 0, cw * 2, ch * 2);
+				const cropReader = new zxingMod.MultiFormatReader(false, hints);
+				const cropBitmap = new zxingMod.BinaryBitmap(new zxingMod.HybridBinarizer(new zxingMod.HTMLCanvasElementLuminanceSource(cropCanvas)));
+				const cropResult = cropReader.decode(cropBitmap);
+				if (cropResult?.text) return cropResult.text;
+			}
 			// Passe 2 : une frame sur 4 seulement, TRY_HARDER=true — plus coûteux
 			// (rotations/contrastes difficiles) mais décroche les codes tenus à
 			// distance ou légèrement flous que la passe rapide rate.
-			frameCount++;
 			if (frameCount % 4 !== 0) return null;
 			hints.set(zxingMod.DecodeHintType.TRY_HARDER, true);
 			const harder = new zxingMod.MultiFormatReader(false, hints);
@@ -561,10 +633,27 @@ export async function startBarcodeScanner(
 	/** La pastille « Code détecté… » reste visible pendant cette fenêtre. */
 	let hintUntil = 0;
 
+	// Mise en arrière-plan (mission scanner V3) : suspendre le décodage quand
+	// la page est cachée (économie CPU/batterie, aucune lecture fantôme) et
+	// réinitialiser la porte + l'anti-doublon au retour : deux frames encadrant
+	// une mise en arrière-plan ne doivent JAMAIS se confirmer mutuellement.
+	let hiddenPaused = false;
+	const onVisibility = () => {
+		if (document.hidden) {
+			hiddenPaused = true;
+		} else {
+			hiddenPaused = false;
+			gate.reset();
+			lastCode = '';
+			lastCodeAt = 0;
+		}
+	};
+	document.addEventListener('visibilitychange', onVisibility);
+
 	// Boucle de scan (avec garde anti-chevauchement).
 	const tick = async () => {
 		if (stopped) return;
-		if (!decoding && !paused) {
+		if (!decoding && !paused && !hiddenPaused) {
 			decoding = true;
 			try {
 				if (!vw && video.videoWidth) resizeCanvas();
@@ -618,6 +707,25 @@ export async function startBarcodeScanner(
 	const hasTorch = caps.torch === true;
 	const zoomCap = typeof caps.zoom === 'object' && caps.zoom ? caps.zoom : null;
 	let torchOn = false;
+	/** Zoom courant (suivi côté JS — le track n'expose pas de lecture directe). */
+	let currentZoom = zoomCap ? zoomCap.min : 0;
+	/**
+	 * Zoom initial MODÉRÉ (mission scanner V3) : si l'objectif offre du zoom,
+	 * on pré-positionne ×2 (sans jamais dépasser la plage) — un code tenu à
+	 * 25–30 cm gagne mécaniquement en pixels sans que la cliente ne touche au
+	 * slider. Volontairement modéré : ni zoom excessif, ni changements
+	 * incessants ; l'utilisateur garde la main via le slider (getSettings().zoom
+	 * n'étant pas lisible, la valeur de départ est répercutée côté page via
+	 * currentZoom()). Best effort : refus silencieux si non supporté.
+	 */
+	if (zoomCap && zoomCap.max >= 2 && zoomCap.min <= 2) {
+		try {
+			await track.applyConstraints({ advanced: [{ zoom: 2 } as unknown as MediaTrackConstraintSet] });
+			currentZoom = 2;
+		} catch {
+			// Zoom refusé au démarrage : on reste au min, sans erreur.
+		}
+	}
 	const torch: TorchHandle = {
 		hasTorch: () => hasTorch,
 		async toggleTorch() {
@@ -633,11 +741,13 @@ export async function startBarcodeScanner(
 		},
 		hasZoom: () => !!zoomCap,
 		zoomRange: zoomCap ? { min: zoomCap.min, max: zoomCap.max, step: zoomCap.step ?? 0.1 } : null,
+		currentZoom: () => currentZoom,
 		async zoom(factor: number) {
 			if (!zoomCap || !track) return false;
 			try {
 				const z = Math.min(zoomCap.max, Math.max(zoomCap.min, factor));
 				await track.applyConstraints({ advanced: [{ zoom: z } as unknown as MediaTrackConstraintSet] });
+				currentZoom = z;
 				return true;
 			} catch {
 				return false;
@@ -650,9 +760,11 @@ export async function startBarcodeScanner(
 			stopped = true;
 			if (timer) clearTimeout(timer);
 			if (greenTimer) clearTimeout(greenTimer);
+			document.removeEventListener('visibilitychange', onVisibility);
 			if (stream) for (const t of stream.getTracks()) t.stop();
 			container.replaceChildren();
 		},
+		resolution: () => ({ ...trackResolution }),
 		/** Caméra maintenue allumée, boucle maintenue vivante : seule la
 		 *  détection est court-circuitée. À la pause, l'état de confirmation
 		 *  (porte anti faux codes) est remis à zéro — aucune re-validation
