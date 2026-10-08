@@ -64,6 +64,34 @@ function resolveScanMode(): ScanMode {
  * Aucun envoi réseau, aucune image conservée — affichage dans la pastille
  * debug du scanner, exposée via handle.debugInfo() quand le mode est actif.
  */
+/**
+ * Sonde de ressources (mission V3.2 — ralentissement après plusieurs scans).
+ * Compteur global des sessions de scanner vivantes (boucle non stoppée) et
+ * des flux caméra ouverts. Destiné au mode debug et au protocole « 10 scans
+ * successifs » : une fuite se manifeste par un compteur qui progresse au fil
+ * des ouvertures/fermetures. Aucune donnée perso, aucun envoi réseau.
+ */
+export type ScannerResourceProbe = {
+	/** Sessions démarrées (depuis le chargement du module). */
+	sessionsStarted: number;
+	/** Sessions dont la boucle de décodage tourne encore. */
+	sessionsAlive: number;
+	/** Flux caméra getUserMedia actuellement ouverts. */
+	cameraStreamsOpen: number;
+	/** Boucles de décodage simultanées au pic (doit rester ≤ 1). */
+	maxConcurrentLoops: number;
+};
+
+let sessionsStarted = 0;
+let sessionsAlive = 0;
+let cameraStreamsOpen = 0;
+let maxConcurrentLoops = 0;
+
+/** Instantané du compteur de ressources — accessible pour diagnostic. */
+export function scannerResourceProbe(): ScannerResourceProbe {
+	return { sessionsStarted, sessionsAlive, cameraStreamsOpen, maxConcurrentLoops };
+}
+
 export type ScanDebugInfo = {
 	mode: ScanMode;
 	/** BarcodeDetector natif ('native') ou ZXing vendored ('zxing'). */
@@ -80,6 +108,8 @@ export type ScanDebugInfo = {
 	msValidToConfirm: number | null;
 	zoom: number | null;
 	lastError: string | null;
+	/** Ressources vivantes au moment de l'appel (sonde anti-fuite V3.2). */
+	resources: ScannerResourceProbe;
 };
 
 export type BarcodeScannerHandle = {
@@ -324,6 +354,9 @@ export async function startBarcodeScanner(
 	onDecoded: (text: string) => void
 ): Promise<BarcodeScannerHandle & TorchHandle> {
 	container.replaceChildren();
+	sessionsStarted++;
+	sessionsAlive++;
+	maxConcurrentLoops = Math.max(maxConcurrentLoops, sessionsAlive);
 
 	let stopped = false;
 	let stream: MediaStream | null = null;
@@ -363,12 +396,14 @@ export async function startBarcodeScanner(
 					height: { ideal: res.height },
 				},
 			});
+			cameraStreamsOpen++; // flux obtenu : suivi de ressources (sonde V3.2)
 			break;
 		} catch (e) {
 			lastError = e;
 		}
 	}
 	if (!stream) {
+		sessionsAlive--; // échec d'ouverture : la session n'entre jamais en boucle
 		const e = lastError;
 		const name = e instanceof DOMException ? e.name : '';
 		if (name === 'NotAllowedError' || name === 'SecurityError' || name === 'NotFoundError') {
@@ -382,6 +417,7 @@ export async function startBarcodeScanner(
 	}
 	if (stopped) {
 		for (const t of stream.getTracks()) t.stop();
+		sessionsAlive--;
 		return {
 			stop: async () => {},
 			setPaused: () => {},
@@ -397,6 +433,7 @@ export async function startBarcodeScanner(
 				msValidToConfirm: null,
 				zoom: null,
 				lastError: null,
+				resources: scannerResourceProbe(),
 			}),
 			toggleTorch: async () => false,
 			hasTorch: () => false,
@@ -818,7 +855,8 @@ export async function startBarcodeScanner(
 				`mode ${d.mode} · ${d.engine}\n` +
 				`track ${d.trackResolution.width}×${d.trackResolution.height} · video ${d.videoResolution.width}×${d.videoResolution.height}\n` +
 				`fps décodage ≈ ${d.detectFps.toFixed(1)} · zoom ${d.zoom ?? 'n/a'}\n` +
-				`1re lecture ${d.msToFirstValid ?? '—'} ms · confirm ${d.msValidToConfirm ?? '—'} ms` +
+				`1re lecture ${d.msToFirstValid ?? '—'} ms · confirm ${d.msValidToConfirm ?? '—'} ms\n` +
+				`sessions ${d.resources.sessionsAlive}/${d.resources.sessionsStarted} · streams ${d.resources.cameraStreamsOpen} · maxLoops ${d.resources.maxConcurrentLoops}` +
 				(d.lastError ? `\nerr: ${d.lastError}` : '');
 		}, 1000);
 	}
@@ -895,17 +933,24 @@ export async function startBarcodeScanner(
 			msValidToConfirm: firstValidAt !== null && confirmedAt !== null ? confirmedAt - firstValidAt : null,
 			zoom: lastZoomValue,
 			lastError: lastDecodeError,
+			resources: scannerResourceProbe(),
 		};
 	}
 
 	return {
 		stop: async () => {
+			if (stopped) return; // idempotent : pas de double décrément
 			stopped = true;
+			sessionsAlive = Math.max(0, sessionsAlive - 1);
 			if (timer) clearTimeout(timer);
 			if (greenTimer) clearTimeout(greenTimer);
 			if (debugTimer) clearInterval(debugTimer);
 			document.removeEventListener('visibilitychange', onVisibility);
-			if (stream) for (const t of stream.getTracks()) t.stop();
+			if (stream) {
+				for (const t of stream.getTracks()) t.stop();
+				cameraStreamsOpen = Math.max(0, cameraStreamsOpen - 1);
+			}
+			if (video.srcObject) video.srcObject = null; // libère la référence média
 			container.replaceChildren();
 		},
 		resolution: () => ({ ...trackResolution }),

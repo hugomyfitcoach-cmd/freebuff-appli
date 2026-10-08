@@ -57,6 +57,11 @@ writeFileSync(
 	tmpPath,
 	[
 		'// Extrait automatiquement de src/lib/barcodeScanner.ts — NE PAS ÉDITER',
+		// Compteurs de ressources (sonde anti-fuite V3.2) — déclarés AVANT les
+		// fonctions qui les utilisent, sous forme d'objet mutable : l'extraction
+		// par bloc ne prend pas les `let` top-level du module.
+		'const probeState = { sessionsStarted: 0, sessionsAlive: 0, cameraStreamsOpen: 0, maxConcurrentLoops: 0 };',
+		'function scannerResourceProbe() { return { ...probeState }; }',
 		extractBlock(scanner, 'export function normalizeProductCode'),
 		extractBlock(scanner, 'function eanChecksumValid'),
 		extractBlock(scanner, 'export function createScanGate'),
@@ -331,6 +336,46 @@ test('C2. BarcodeDetector et ZXing passent par la même validation (boucle uniqu
 	assert.equal(scanner.indexOf('onDecoded('), iCall, 'aucun autre appel direct de onDecoded (lecture brute interdite)');
 	// onDecoded n'est plus appelé directement sur une lecture brute :
 	assert.doesNotMatch(scanner, /onDecoded\(text\)/);
+});
+
+/* —── Mission V3.2 : ralentissement après plusieurs scans ──— */
+
+test('V3.2-R1. stop() est idempotent : boucle/flux/timers nettoyés une seule fois', () => {
+	// Double stop() ne doit ni planter ni décrémenter deux fois la sonde :
+	assert.ok(scanner.includes('if (stopped) return; // idempotent'));
+	assert.match(scanner, /sessionsAlive = Math\.max\(0, sessionsAlive - 1\)/);
+});
+
+test('V3.2-R2. la sonde de ressources existe et est exposée (mémoire, pas réseau)', () => {
+	assert.match(scanner, /export function scannerResourceProbe/);
+	assert.match(scanner, /resources: scannerResourceProbe\(\)/);
+	// Aucun envoi réseau : la sonde est purement locale (invariant C3).
+	assert.doesNotMatch(scanner, /telemetry|analytics|sentry/i);
+});
+
+test('V3.2-R3. échec d ouverture caméra : la session n entre jamais en boucle (compteur corrigé)', () => {
+	assert.ok(scanner.includes('if (!stream) {'));
+	assert.ok(scanner.includes('sessionsAlive--')); // décrément avant tout throw
+});
+
+test('V3.2-R4. la référence média du <video> est libérée au stop (srcObject = null)', () => {
+	assert.ok(scanner.includes('if (video.srcObject) video.srcObject = null;'));
+});
+
+test('V3.2-R5. quitter le Journal arrête le scanner (aucune session en arrière-plan)', () => {
+	const journal = read('src/routes/espace/journal/+page.svelte');
+	// beforeNavigate appelle stopScanner() : la caméra et la boucle ne
+	// survivent pas à la navigation (cumul de sessions = ralentissements).
+	const iNav = journal.indexOf('beforeNavigate(');
+	const iStop = journal.indexOf('void stopScanner();', iNav);
+	assert.ok(iNav >= 0 && iStop > iNav && iStop - iNav < 500, 'stopScanner() doit être appelé dans beforeNavigate');
+});
+
+test('V3.2-R6. comptage caméra cohérent : un seul getUserMedia par session, décrémenté au stop', () => {
+	// Un seul increment par getUserMedia réussi...
+	assert.equal((scanner.match(/cameraStreamsOpen\+\+/g) ?? []).length, 1);
+	// ...et un seul décrément au stop (idempotence via stopped).
+	assert.equal((scanner.match(/cameraStreamsOpen = Math\.max\(0, cameraStreamsOpen - 1\)/g) ?? []).length, 1);
 });
 
 test('C3. la porte n appelle ni fetch, ni OFF (module pur côté client, zéro réseau)', () => {

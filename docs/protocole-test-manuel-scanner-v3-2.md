@@ -51,7 +51,29 @@ fournit pas de mesures internes ; chronométrage manuel uniquement).
   c'est la signature exacte de l'hypothèse n° 1 (double lecture) — le mode B
   devrait l'annuler.
 
-## 5. Confidentialité
+## 5. Test « 10 scans successifs » (ralentissement après plusieurs produits)
+
+Sur la Preview (SHA ≥ 52c92bd), mode debug actif. Pour CHAQUE scan i de 1 à 10 :
+produit différent, fermer la fiche, re-scanner. Noter depuis la pastille :
+
+| # | ouverture caméra (s) | 1re lecture (ms) | confirm (ms) | fiche affichée (s) | sessions x/y | streams | maxLoops |
+|---|---|---|---|---|---|---|---|
+| 1…10 | | | | | | | |
+
+**Lecture :**
+- `sessions x/y` doit rester **x = 1** après chaque fermeture de fiche (1 seule
+  session vivante). Si x progresse (2, 3…) → fuite confirmée, noter le SHA.
+- `streams` doit retomber à 0/1 entre deux scans (caméra libérée).
+- `maxLoops` doit rester **≤ 1** en permanence (jamais de boucles concurrentes).
+- Si les temps « 1re lecture » se dégradent alors que sessions/streams restent
+  stables → le ralentissement n'est PAS une fuite : suspecter l'appareil
+  (thermique, cache navigateur) — comparer avec FOOD dans les mêmes conditions.
+
+**Montage/démontage répété** : alterner Journal ⇄ autre écran 10× avec le
+scanner ouvert avant chaque navigation. La pastille (réouverte ensuite) doit
+montrer sessions alive = 1 et streams = 1 après réouverture — jamais plus.
+
+## 6. Confidentialité
 
 La pastille n'affiche que des mesures techniques. Aucune image n'est
 capturée, stockée ou transmise ; aucun identifiant personnel dans les logs.

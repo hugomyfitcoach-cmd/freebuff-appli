@@ -3626,7 +3626,16 @@ import { optimizeImageFile } from '$lib/media';
 	/* Sauvegarde de la position de scroll AVANT la navigation : à ce moment le
 	   scroll est encore celui de l'utilisateur (le réajustement de transition
 	   arrive plus tard et fausserait la valeur au démontage). */
-	beforeNavigate(() => saveScroll(ROUTE));
+	beforeNavigate(() => {
+		saveScroll(ROUTE);
+		/* Mission V3.2 — fuite de session scanner : quitter le Journal avec le
+		   scanner ouvert laissait la CAMÉRA + la boucle de décodage actives en
+		   arrière-plan (aucun onDestroy sur le handle). Après 2–3 produits et un
+		   aller-retour de navigation, plusieurs sessions pouvaient se cumuler
+		   → ralentissement croissant des scans suivants. On coupe tout ici,
+		   avant le démontage du composant. */
+		void stopScanner();
+	});
 
 	/* ————— Navigation rapide : identifiant de route + re-fetch silencieux ————— */
 	const ROUTE = '/espace/journal';
