@@ -79,8 +79,15 @@ const ELAB_SUBSTR = ["sous vide"];
  *   − formes simples (cru / eau / vapeur / bouilli) favorisées (−1) ;
  *   − recettes préparées pénalisées (+1,5) ; « aliment moyen » +1 ;
  *   − noms courts favorisés (+0,05/token, jamais de quoi changer de tier).
+ *
+ * Mots vides : la comparaison est FAITE DEUX FOIS — sur la requête brute et
+ * sur la requête sans mots vides (« de », « au »…) — et le MEILLEUR des deux
+ * scores gagne. Sans ça, « pain DE mie complet » faisait un préfixe parfait
+ * du « Sandwich pain DE mie complet » (le libellé contient « de ») et
+ * écrasait le vrai « Pain de mie complet ».
  */
-function scoreRef(qt: string[], refToks: string[], label: string): number {
+const STOPWORDS = new Set(["de", "du", "au", "a", "la", "aux", "en", "et", "avec", "sans", "d", "l"]);
+function scoreRefRaw(qt: string[], refToks: string[], label: string): number {
 	const normed = refToks.join(" ");
 	const isRecipe = RECIPE_MARKERS.some((m) => normed.includes(m)) ? 1.5 : 0;
 	const isRef = isReferenceLabel(label) ? 0 : 1;
@@ -94,6 +101,12 @@ function scoreRef(qt: string[], refToks: string[], label: string): number {
 		return 4 + prep + isRecipe + isRef + lengthTerm; // la requête couvre tous les mots du libellé
 	if (refToks.some((t) => qt.includes(t))) return 6 + prep + isRecipe + isRef + lengthTerm; // un mot en commun
 	return Number.POSITIVE_INFINITY;
+}
+function scoreRef(qt: string[], refToks: string[], label: string): number {
+	const raw = scoreRefRaw(qt, refToks, label);
+	const slim = qt.filter((t) => !STOPWORDS.has(t));
+	if (slim.length === 0 || slim.length === qt.length) return raw;
+	return Math.min(raw, scoreRefRaw(slim, refToks, label));
 }
 
 /* ── Diversification des 3 références (modes de préparation) ──
@@ -243,7 +256,16 @@ export function searchCiqualLocal(query: string): CiqualHit[] {
 	}
 
 	/* Requête GÉNÉRIQUE : diversifier les modes du même aliment de base —
-	 * une carte par couple (base, mode), jamais 3 cartes crues. */
+	 * une carte par couple (base, mode), jamais 3 cartes crues.
+	 *
+	 * GARDE « ALIMENT DEMANDÉ » : le leader (meilleur score) est TOUJOURS
+	 * retenu, même sans état qualifié (« Beurre à 80% MG minimum, doux » n'a
+	 * pas de mode en queue et était sinon ÉCARTÉ de ses propres résultats au
+	 * profit de « Haricot beurre »). Et les phases B/C n'acceptent que les
+	 * références dont la TÊTE COMMENCE par le 1er mot de la requête (l'aliment
+	 * principal) : « beurre » ne diversifie plus vers « Haricot beurre » ni
+	 * « Pâte brisée, pur beurre », « pain de mie complet » ne glisse plus des
+	 * « Sandwich … » dans les phases de remplissage. */
 	const picked: { score: number; ref: CiqualHit }[] = [];
 	const usedGroups = new Set<string>();
 	const usedModes = new Set<string>();
@@ -269,6 +291,9 @@ export function searchCiqualLocal(query: string): CiqualHit[] {
 	 * accepte toute tête commençant par « oeuf » (« Oeuf cru » sans virgule
 	 * donne une tête « oeuf cru ») — exclusif à la famille œuf. */
 	const isEggQuery = leaderBase.startsWith("oeuf");
+	/* Le leader est TOUJOURS dans le résultat : c'est la meilleure référence
+	 * pour la requête, même si son libellé ne porte aucun état (mode ""). */
+	if (!isEggQuery && candidates.length > 0) pick(candidates[0]);
 	if (isEggQuery) {
 		for (let r = 0; r < 3 && picked.length < CIQUAL_MAX_RESULTS; r++) {
 			const hit = candidates.find(
@@ -291,9 +316,11 @@ export function searchCiqualLocal(query: string): CiqualHit[] {
 	/* B — complète avec un MODE pas encore montré, même d'une autre variété :
 	 * « saumon » (fumé en tête, sans état qualifié en queue) reçoit quand même
 	 * ses variantes crue puis bouillie réellement présentes dans Ciqual. */
+	const isRequestedFood = (label: string): boolean => headTokens(label)[0] === qt[0];
 	for (const c of candidates) {
 		if (picked.length >= CIQUAL_MAX_RESULTS) break;
 		if (modeOf(c.ref.label) === "") continue;
+		if (!isRequestedFood(c.ref.label)) continue;
 		if (usedModes.has(modeOf(c.ref.label))) continue;
 		pick(c);
 	}
@@ -302,12 +329,18 @@ export function searchCiqualLocal(query: string): CiqualHit[] {
 	 * (le cas « riz » : blanc cru + blanc cuit → complet cuit, PAS complet
 	 * cru ni riz soufflé). Deux passages pour ne jamais perdre de slot. */
 	const hasCookedLeft = () =>
-		candidates.some((c) => !usedLabels.has(c.ref.label) && COOKED_MODES.has(modeOf(c.ref.label)));
+		candidates.some(
+			(c) =>
+				!usedLabels.has(c.ref.label) &&
+				COOKED_MODES.has(modeOf(c.ref.label)) &&
+				isRequestedFood(c.ref.label),
+		);
 	for (const skipCrue of [true, false]) {
 		for (const c of candidates) {
 			if (picked.length >= CIQUAL_MAX_RESULTS) break;
 			if (usedLabels.has(c.ref.label)) continue;
 			if (skipCrue && modeOf(c.ref.label) === "cru" && hasCookedLeft()) continue;
+			if (!isRequestedFood(c.ref.label)) continue;
 			pick(c);
 		}
 		if (picked.length >= CIQUAL_MAX_RESULTS) break;

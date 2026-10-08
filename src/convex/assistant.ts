@@ -54,6 +54,16 @@ const INFLIGHT_TIMEOUT_MS = 60_000;
 const ANNOUNCE_WITHOUT_TOOL_RE =
 	/(pr[ée]visualisation|je (vais|viens de) (l')?(ajouter|enregistrer|pr[ée]parer)|proc[ée]der à l'ajout)/i;
 
+/**
+ * Intention d'AJOUT détectée côté serveur (déterministe) : si la cliente
+ * demande clairement un ajout/enregistrement et qu'aucune action n'a été
+ * préparée et que la réponse ne pose aucune question de clarification, le
+ * modèle a quasi certainement répondu de mémoire sans appeler l'outil.
+ * → relance bornée exigeant l'appel (Lot 2B, priorité 4).
+ */
+const ADD_INTENT_RE =
+	/\b(ajoute|ajouter|enregistre|enregistrer|note\b|mets\b|rajoute|prépare[- ]moi|petit[- ]déjeuner|déjeuner|d[îi]ner|collation)\b/i;
+
 /* ────────────────────────── Garde serveur commune ────────────────────────── */
 
 async function requireAssistantClient(ctx: Parameters<typeof getSessionUser>[0], sessionToken?: string) {
@@ -780,7 +790,13 @@ export const send = action({
 				// préparé une prévisualisation alors qu'aucune action n'existe,
 				// relance d'UN tour borné (maxRounds 1) exigeant l'appel d'outil.
 				// Déterministe : déclenché uniquement sur ce chemin d'échec.
-				if (!holder.pending && ANNOUNCE_WITHOUT_TOOL_RE.test(reply)) {
+				if (
+					!holder.pending &&
+					(ANNOUNCE_WITHOUT_TOOL_RE.test(reply) ||
+						// Intention d'ajout + aucune question posée = réponse de
+						// mémoire sans outil (ex. valeurs récitées du petit-déjeuner).
+						(ADD_INTENT_RE.test(text) && !reply.includes("?")))
+				) {
 					const retry = await runAssistantTurn({
 						system: `${system}\n\n[SYSTÈME] Le tour précédent annonçait une prévisualisation sans appeler l'outil. Appelle MAINTENANT l'outil prepare* adapté avec EXACTEMENT les éléments demandés (noms, quantités, unités) — sans reformuler la demande.`,
 						history: [

@@ -134,7 +134,7 @@ test('runAssistantTurn reçoit le system AVEC le bloc contexte Lot 2 (régressio
 test('Filet « annonce sans outil » : relance bornée si preview annoncée sans action', () => {
 	assert.ok(assistant.includes('ANNOUNCE_WITHOUT_TOOL_RE'), 'garde défini');
 	assert.ok(
-		/!holder\.pending && ANNOUNCE_WITHOUT_TOOL_RE\.test\(reply\)/.test(assistant),
+		/!holder\.pending &&\s*\(ANNOUNCE_WITHOUT_TOOL_RE\.test\(reply\) \|\|/.test(assistant),
 		'déclenché seulement si AUCUNE action préparée',
 	);
 	assert.ok(/maxRounds: 1,/.test(assistant), 'relance limitée à UN tour d’outil');

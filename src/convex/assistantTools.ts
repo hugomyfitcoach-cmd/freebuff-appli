@@ -38,7 +38,7 @@ import { accessStateForUser } from "./billing";
 import { ciqualFoodSource } from "./ciqualSource";
 import { searchCiqualLocal } from "./ciqual";
 import { guardedKcal100 } from "../lib/nutritionGuard";
-import { rankFoods, norm } from "./foodRanking";
+import { rankFoods, norm, FOOD_SEARCH_CANDIDATES } from "./foodRanking";
 import { reperesForFood } from "../lib/data/gfluxReperes";
 import { recipes, newRecipes } from "../lib/data/recettes";
 import { kcalGoalForDate, withCurrentGoal } from "../lib/goalHistory";
@@ -127,7 +127,7 @@ export function nameCovers(refName: string, refBrand: string | undefined, declar
  * requête (« lait demi-écrémé », « coca cola ») garde la priorité : c'est le
  * produit exact, marque incluse.
  */
-function genericCiqualFirst(term: string): FoodRef | null {
+export function genericCiqualFirst(term: string): FoodRef | null {
 	const hits = searchCiqualLocal(term);
 	const termNorm = norm(term);
 	for (const hit of hits) {
@@ -157,15 +157,19 @@ async function searchFoodInternal(
 	const term = declared.trim().toLowerCase().slice(0, 60);
 	if (term.length < 2) return null;
 	const [foods, customs] = await Promise.all([
-		ctx.db.query("foods").withSearchIndex("by_name", (sb) => sb.search("name", term)).take(40),
+		// MÊME fenêtre de candidats que la recherche du journal (foodRanking) :
+		// un aliment trouvé par la cliente dans le journal DOIT être trouvable par
+		// l'assistant — un seul moteur de classement, pas deux.
+		ctx.db.query("foods").withSearchIndex("by_name", (sb) => sb.search("name", term)).take(FOOD_SEARCH_CANDIDATES),
 		ctx.db
 			.query("customFoods")
 			.withSearchIndex("by_name", (sb) => sb.search("name", term))
 			.filter((q) => q.eq(q.field("userId"), userId))
 			.take(6),
 	]);
-	// Aliment personnel d'abord (c'est SA fiche), puis meilleur produit OFF.
-	if (customs.length > 0) {
+	// Aliment personnel d'abord (c'est SA fiche) — MAIS seulement s'il
+	// représente vraiment la demande (sinon substitution silencieuse).
+	if (customs.length > 0 && nameCovers(customs[0].name, customs[0].brand, declared)) {
 		const c = customs[0];
 		return {
 			customFoodId: c._id,
@@ -375,12 +379,12 @@ export const searchFood = query({
 		const term = (raw ?? "").trim().toLowerCase().slice(0, 60);
 		if (term.length < 2) return { items: [] as FoodRef[] };
 		const [foods, customs] = await Promise.all([
-			ctx.db.query("foods").withSearchIndex("by_name", (sb) => sb.search("name", term)).take(120),
-			ctx.db
-				.query("customFoods")
-				.withSearchIndex("by_name", (sb) => sb.search("name", term))
-				.filter((q) => q.eq(q.field("userId"), user._id))
-				.take(8),
+		ctx.db.query("foods").withSearchIndex("by_name", (sb) => sb.search("name", term)).take(FOOD_SEARCH_CANDIDATES),
+		ctx.db
+			.query("customFoods")
+			.withSearchIndex("by_name", (sb) => sb.search("name", term))
+			.filter((q) => q.eq(q.field("userId"), user._id))
+			.take(8),
 		]);
 		const ranked = rankFoods(
 			foods.map((f) => ({
