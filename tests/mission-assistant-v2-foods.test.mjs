@@ -105,6 +105,13 @@ test('Écriture = exactement la prévisualisation (même payload sérialisé)', 
 	assert.ok(/insertPending\([\s\S]{0,900}\{ date, meal, components \}/.test(tools), 'payload preview == payload écrit');
 });
 
+test('Chaque fiche résolue pousse AUSSI son composant (régression confirm “Aucun composant”)', () => {
+	// Régression du 08/10 : le push du composant avait disparu du chemin
+	// résolu → preview correcte mais confirm « Aucun composant à ajouter ».
+	assert.ok(/components\.push\(\{[\s\S]{0,400}resolved!\.foodId/.test(tools), 'le composant résolu est bien poussé dans le payload écrit');
+	assert.ok((tools.match(/components\.push/g) ?? []).length >= 1, 'au moins un push de composant');
+});
+
 test('searchFood reste la porte d’entrée décrite au modèle (pas d’accès générique Convex)', () => {
 	const registry = read('src/convex/assistantRegistry.ts');
 	assert.ok(registry.includes('name: "searchFood"'), 'outil searchFood toujours exposé (registre)');

@@ -887,6 +887,13 @@ export const prepareJournalEntry = mutation({
 			// Un aliment sans identité G-FLUX n'atteint JAMAIS ce point :
 			// searchFoodInternal a déjà rejeté (throw) si aucune fiche fiable.
 			// (Les composants poussés portent TOUJOURS une référence résolue.)
+			components.push({
+				...(resolved!.foodId ? { foodId: resolved!.foodId as Id<"foods"> } : {}),
+				...(resolved!.customFoodId ? { customFoodId: resolved!.customFoodId as Id<"customFoods"> } : {}),
+				...(resolved!.ciqualLabel ? { ciqualLabel: resolved!.ciqualLabel } : {}),
+				name: resolved!.name,
+				qtyGrams: qty,
+			});
 			const name = resolved!.name;
 			const kcal100 = resolved!.kcal100;
 			const carbs100 = resolved!.carbs100;
