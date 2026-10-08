@@ -120,6 +120,34 @@ export function nameCovers(refName: string, refBrand: string | undefined, declar
 	return false;
 }
 
+/**
+ * Référence générique Ciqual à placer EN PREMIER quand aucun produit OFF ne
+ * matche directement la requête (« pommes » → « Pomme » Ciqual, pas
+ * « Pur jus de pomme Tropicana »). Un produit OFF dont le nom COMMENCE par la
+ * requête (« lait demi-écrémé », « coca cola ») garde la priorité : c'est le
+ * produit exact, marque incluse.
+ */
+function genericCiqualFirst(term: string): FoodRef | null {
+	const hits = searchCiqualLocal(term);
+	const termNorm = norm(term);
+	for (const hit of hits) {
+		if (!nameCovers(hit.label, undefined, term)) continue;
+		const src = ciqualFoodSource(hit.label);
+		if (!src) continue;
+		return {
+			ciqualLabel: hit.label,
+			name: src.name,
+			kcal100: src.kcal100,
+			carbs100: src.carbs100,
+			protein100: src.protein100,
+			fat100: src.fat100,
+			origin: "reference",
+		};
+	}
+	void termNorm;
+	return null;
+}
+
 /** Recherche aliment par nom CÔTÉ SERVEUR (mêmes sources que searchFood). */
 async function searchFoodInternal(
 	ctx: QueryCtx,
@@ -155,6 +183,12 @@ async function searchFoodInternal(
 		foods.map((f) => ({ _id: f._id as string, name: f.name, brand: f.brand, kcal100: f.kcal100, carbs100: f.carbs100, protein100: f.protein100, fat100: f.fat100 })),
 		term
 	);
+	// Générique Ciqual d'abord si le meilleur produit OFF n'est pas direct.
+	const offTopDirect = ranked[0] ? norm(ranked[0].name).startsWith(norm(term)) : false;
+	if (!offTopDirect) {
+		const generic = genericCiqualFirst(term);
+		if (generic && nameCovers(generic.name, undefined, declared)) return generic;
+	}
 	for (const f of ranked) {
 		// La fiche retenue doit représenter la demande (anti-substitution).
 		if (nameCovers(f.name, f.brand, declared)) {
@@ -373,6 +407,13 @@ export const searchFood = query({
 				...(c.servingQty ? { servingQty: c.servingQty } : {}),
 				origin: "personal",
 			});
+		}
+		// Générique Ciqual EN PREMIER si le meilleur produit OFF ne commence pas
+		// directement par la requête (anti « jus de pomme pour des pommes »).
+		const offTopDirect = ranked[0] ? norm(ranked[0].name).startsWith(norm(term)) : false;
+		if (!offTopDirect) {
+			const generic = genericCiqualFirst(term);
+			if (generic) out.push(generic);
 		}
 		for (const f of ranked) {
 			if (out.length >= limit) break;

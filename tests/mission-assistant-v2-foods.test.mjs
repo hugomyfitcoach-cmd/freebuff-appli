@@ -52,6 +52,16 @@ test('nameCovers : noms vides ou dégénérés → false (rejet par défaut)', (
 	assert.equal(covers('Pomme', undefined, ''), false);
 });
 
+test('Recherche : générique Ciqual prioritaire quand aucun produit OFF ne matche directement', () => {
+	// « pommes » : « Pur jus de pomme » ne COMMENCE pas par la requête → la
+	// référence Ciqual brute (« Pomme… ») doit sortir avant le produit transformé.
+	assert.ok(tools.includes('function genericCiqualFirst'), 'helper générique Ciqual présent');
+	assert.ok(tools.includes('const offTopDirect = ranked[0] ? norm(ranked[0].name).startsWith(norm(term)) : false;'), 'produit OFF direct gardé en priorité (marque comprise)');
+	// Les DEUX chemins de recherche utilisent le même garde (outil public + interne).
+	const occurrences = (tools.match(/const offTopDirect = ranked\[0\]/g) ?? []).length;
+	assert.ok(occurrences >= 2, `garde appliquée aux deux recherches (${occurrences}×)`);
+});
+
 /* ════════ 2. Verrous serveur présents dans prepareJournalEntry ════════ */
 
 test('prepareJournalEntry : identité vérifiée — rejet si la fiche ne correspond pas au nom', () => {
