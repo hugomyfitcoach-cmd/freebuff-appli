@@ -28,25 +28,35 @@ import type { MediaTrackConstraintSet } from './barcodeTypes';
 /* ── Mission V3.2 — expérimentation mesurée (Preview uniquement) ────────── */
 
 /**
- * MODE B « reconnaissance immédiate » (expérimental, opt-in uniquement).
+ * Garde d'expérimentation : flag de BUILD injecté par vite.config.ts
+ * (`__SCANNER_EXPERIMENT__`), calculé depuis le CONTEXTE NETLIFY et non
+ * depuis import.meta.env.PROD — une Deploy Preview est un build de
+ * production Vite (PROD=true) : seule la variable CONTEXT=deploy-preview
+ * (ou branch-deploy) distingue réellement les environnements. En local
+ * (dev), le flag est actif pour faciliter le diagnostic.
+ */
+declare const __SCANNER_EXPERIMENT__: boolean;
+
+/** MODE B « reconnaissance immédiate » (expérimental, opt-in uniquement).
  * Activable par :
  *  - variable d'environnement de build : PUBLIC_SCANNER_MODE=B (Preview) ;
  *  - ou URL : ?scannerMode=B (diagnostic ponctuel sur la Preview).
  * DÉFAUT : MODE A (fenêtre glissante 2/4, 1200 ms) — le mode B n'est JAMAIS
- * actif en production (garde import.meta.env.PROD, plus la porte URL).
+ * actif en production (garde de build __SCANNER_EXPERIMENT__, voir ci-dessus).
  * Hypothèse testée : la confirmation à 2 lectures ajoute un délai notable
  * quand les lectures sont intermittentes (distance, flou, mains).
  */
 export type ScanMode = 'A' | 'B';
 
 function resolveScanMode(): ScanMode {
+	if (!__SCANNER_EXPERIMENT__) return 'A';
 	if (typeof window !== 'undefined') {
 		const q = new URLSearchParams(window.location.search).get('scannerMode');
-		if (q === 'B' && !import.meta.env.PROD) return 'B';
-		if (q === 'A' && !import.meta.env.PROD) return 'A';
+		if (q === 'B') return 'B';
+		if (q === 'A') return 'A';
 	}
 	const env = (import.meta.env.PUBLIC_SCANNER_MODE ?? '').toUpperCase();
-	return env === 'B' && !import.meta.env.PROD ? 'B' : 'A';
+	return env === 'B' ? 'B' : 'A';
 }
 
 /**
@@ -569,8 +579,7 @@ export async function startBarcodeScanner(
 	   Aucune image, aucune donnée perso — uniquement des mesures techniques. */
 	let debugEl: HTMLDivElement | null = null;
 	const debugEnabled =
-		!import.meta.env.PROD &&
-		new URLSearchParams(window.location.search).get('scannerDebug') === '1';
+		__SCANNER_EXPERIMENT__ && new URLSearchParams(window.location.search).get('scannerDebug') === '1';
 	if (debugEnabled) {
 		debugEl = document.createElement('div');
 		Object.assign(debugEl.style, {

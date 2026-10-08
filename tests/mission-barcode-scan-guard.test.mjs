@@ -273,18 +273,32 @@ test('V3.2-B4. le mode A reste le défaut : createScanGate(2, …) exigé par la
 	assert.match(scanner, /resolveScanMode\(\)/);
 });
 
-test('V3.2-B5. le mode B est impossible en production (double garde)', () => {
-	// Garde 1 : import.meta.env.PROD refuse le mode B.
-	assert.match(scanner, /!import\.meta\.env\.PROD/);
-	// Garde 2 : la résolution du mode ne peut jamais retourner 'B' sans les
-	// deux conditions (param URL ou env, ET hors prod).
+test('V3.2-B5. le mode B est impossible en production (garde de build CONTEXT)', () => {
+	// ⚠️ import.meta.env.PROD vaut TRUE sur une Deploy Preview Netlify (build
+	// de production Vite) : la garde est le flag de build __SCANNER_EXPERIMENT__,
+	// calculé dans vite.config.ts depuis le CONTEXTE NETLIFY (deploy-preview /
+	// branch-deploy uniquement), PAS depuis PROD.
+	assert.match(scanner, /!__SCANNER_EXPERIMENT__\) return 'A'/);
 	const resolve = extractBlock(scanner, 'function resolveScanMode');
-	assert.match(resolve, /env === 'B' && !import\.meta\.env\.PROD \? 'B' : 'A'/);
+	assert.match(resolve, /env === 'B' \? 'B' : 'A'/);
+});
+
+test('V3.2-B6. la garde de build est le CONTEXTE NETLIFY, pas import.meta.env.PROD', () => {
+	// Le flag __SCANNER_EXPERIMENT__ doit être défini dans vite.config.ts à
+	// partir de CONTEXT (deploy-preview | branch-deploy | dev), jamais de PROD :
+	// une Deploy Preview est un build Vite de production (PROD=true).
+	const viteCfg = read('vite.config.ts');
+	assert.match(viteCfg, /__SCANNER_EXPERIMENT__/);
+	assert.match(viteCfg, /CONTEXT === 'deploy-preview'/);
+	assert.match(viteCfg, /CONTEXT === 'branch-deploy'/);
+	assert.match(viteCfg, /NODE_ENV !== 'production'/);
+	// Aucune garde résiduelle sur PROD dans le module :
+	assert.doesNotMatch(scanner, /!import\.meta\.env\.PROD \? 'B'/);
 });
 
 test('V3.2-D1. mode debug : opt-in URL, jamais en production, aucune image', () => {
 	assert.match(scanner, /scannerDebug.*=== '1'/);
-	assert.match(scanner, /!import\.meta\.env\.PROD &&\s*\n.*scannerDebug/);
+	assert.match(scanner, /__SCANNER_EXPERIMENT__ && new URLSearchParams/);
 	// Aucune télémétrie réseau dans le module (fetch déjà interdit par C3) :
 	assert.doesNotMatch(scanner, /telemetry|analytics|sentry/i);
 });

@@ -4,6 +4,17 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+	// Mission V3.2 — expérimentation scanner (modes A/B + debug) réservée aux
+	// builds NETLIFY PREVIEW. ⚠️ import.meta.env.PROD vaut TRUE sur une Deploy
+	// Preview (build de production Vite) : il ne peut PAS servir de garde.
+	// Le vrai discriminant est le CONTEXTE NETLIFY au build :
+	//  - CONTEXT=deploy-preview | branch-deploy → __SCANNER_EXPERIMENT__=true ;
+	//  - production / local (dev) → false (sauf dev: utile au diagnostic).
+	define: {
+		__SCANNER_EXPERIMENT__: JSON.stringify(
+			process.env.CONTEXT === 'deploy-preview' || process.env.CONTEXT === 'branch-deploy' || process.env.NODE_ENV !== 'production'
+		),
+	},
 	plugins: [
 		tailwindcss(),
 		sveltekit({
