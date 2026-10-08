@@ -738,7 +738,10 @@ export const latestPendingJournalAdd = query({
 		const a = rows.find(
 			(r) => r.userId === user._id && r.status === "pending" && r.actionType === "journal_add" && r.expiresAt > Date.now()
 		);
-		if (!a) return null;
+		if (!a) {
+			// Diagnostic preview : ce que l'index by_thread renvoie vraiment.
+			return null;
+		}
 		return { actionId: a._id, preview: a.preview };
 	},
 });
@@ -941,13 +944,21 @@ export const updatePendingJournalEntry = mutation({
 			}
 			if (matchIdx >= 0) {
 				taken.add(matchIdx);
-				changed.push({ from: current[matchIdx].name, to: declared, qtyGrams: current[matchIdx].qtyGrams });
+				const old = current[matchIdx];
+				changed.push({ from: old.name, to: declared, qtyGrams: old.qtyGrams });
+				// Si la clarification change le nom SANS référence explicite, on
+				// DÉTACHE l'ancienne fiche : la recherche serveur résoudra le
+				// nouveau nom (« pain de mie complet » ne doit pas hériter du
+				// foodId « Pain de mie blanc » — rejet « référence incohérente »).
+				const hasExplicitRef = !!(it.foodId || it.customFoodId || it.ciqualLabel);
+				const keepsOldRef = hasExplicitRef || nameCovers(old.name, undefined, declared);
 				current[matchIdx] = {
-					...current[matchIdx],
+					...(keepsOldRef ? { foodId: old.foodId, customFoodId: old.customFoodId, ciqualLabel: old.ciqualLabel } : {}),
 					...(it.foodId ? { foodId: it.foodId } : {}),
 					...(it.customFoodId ? { customFoodId: it.customFoodId } : {}),
 					...(it.ciqualLabel ? { ciqualLabel: it.ciqualLabel } : {}),
 					name: declared,
+					qtyGrams: old.qtyGrams,
 					...(it.qtyGrams !== undefined ? { qtyGrams: it.qtyGrams } : {}),
 				};
 			}
