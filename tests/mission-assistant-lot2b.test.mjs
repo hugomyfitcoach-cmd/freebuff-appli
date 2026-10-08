@@ -157,3 +157,11 @@ test('Registre : updateJournalEntry exposé avec conservation explicite', () => 
 test('assistant.ts : updateJournalEntry devient la pendingAction du tour (ancienne preview remplacée)', () => {
 	assert.ok(/la mise à jour REMPLACE la pendingAction du tour/.test(assistantSrc), 'une seule preview affichée');
 });
+
+test('Relance INFORMÉE : l\'état de la tâche en attente est injecté à la clarification', () => {
+	assert.ok(assistantSrc.includes('latestPendingJournalAdd'), 'lecture de l\'action pending du fil');
+	assert.ok(/updateJournalEntry avec SEULEMENT les aliments concernés/.test(assistantSrc), 'instruction de complétion');
+	assert.ok(/sans qtyGrams la quantité déjà préparée est conservée/.test(assistantSrc), 'quantité conservée explicitement');
+	assert.ok(/N'appelle PAS prepareJournalEntry/.test(assistantSrc), 'pas de refonte de la tâche');
+	assert.ok(/N'appelle PAS prepareJournalEntry et ne redemande AUCUNE information déjà présente/.test(assistantSrc), 'pas de redemande');
+});

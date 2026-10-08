@@ -716,6 +716,33 @@ export const getJournalEntries = query({
 	},
 });
 
+/**
+ * LOT 2B — ÉTAT DE LA TÂCHE EN COURS : la dernière action journal_add EN
+ * ATTENTE du fil (preview incluse). Sert à la relance informée : quand la
+ * cliente clarifie un aliment, le serveur donne au modèle les lignes déjà
+ * préparées — il complète la tâche au lieu de repartir de zéro (et ne
+ * redemande jamais une information déjà présente dans la preview).
+ */
+export const latestPendingJournalAdd = query({
+	args: { sessionToken: v.optional(v.string()), threadId: v.string() },
+	handler: async (ctx, { sessionToken, threadId }) => {
+		const user = await requireAssistantClient(ctx, sessionToken);
+		if (!/^[a-zA-Z0-9_-]{10,}$/.test(threadId)) return null;
+		const tid = await ctx.db.get(threadId as Id<"assistantThreads">);
+		if (!tid || tid.userId !== user._id) return null;
+		const rows = await ctx.db
+			.query("assistantActions")
+			.withIndex("by_thread", (q) => q.eq("threadId", tid._id))
+			.order("desc")
+			.take(20);
+		const a = rows.find(
+			(r) => r.userId === user._id && r.status === "pending" && r.actionType === "journal_add" && r.expiresAt > Date.now()
+		);
+		if (!a) return null;
+		return { actionId: a._id, preview: a.preview };
+	},
+});
+
 /* ──────────────── 5. Préparations d'écriture (preview seulement) ───────── */
 
 type PreviewLine = {

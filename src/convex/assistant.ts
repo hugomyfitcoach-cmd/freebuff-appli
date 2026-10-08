@@ -812,8 +812,24 @@ export const send = action({
 						// doivent mettre à jour l'action préparée, pas décrire de tête.
 						(VALUES_WITHOUT_TOOL_RE.test(reply) && !reply.includes("?")))
 				) {
+					// LOT 2B — relance INFORMÉE : si une action journal_add est en
+					// attente sur ce fil, le serveur fournit ses lignes au modèle et
+					// exige updateJournalEntry (compléter la tâche, ne pas la refaire).
+					let pendingState = "";
+					try {
+						const open = (await ctx.runQuery(api.assistantTools.latestPendingJournalAdd, {
+							sessionToken: args.sessionToken,
+							threadId,
+						})) as { actionId: string; preview: { title: string; lines: { label: string; detail?: string }[] } } | null;
+						if (open) {
+							const lines = open.preview.lines.map((l) => `- ${l.label}${l.detail ? ` (${l.detail})` : ""}`).join("\n");
+							pendingState = `\n\n[SYSTÈME] Une prévisualisation est DÉJÀ en attente (${open.preview.title}) :\n${lines}\n→ La dernière demande est une CLARIFICATION de cette tâche : appelle MAINTENANT updateJournalEntry avec SEULEMENT les aliments concernés (name ; qtyGrams seulement si la quantité change — sans qtyGrams la quantité déjà préparée est conservée). Les autres lignes restent intactes. N'appelle PAS prepareJournalEntry et ne redemande AUCUNE information déjà présente ci-dessus.`;
+						}
+					} catch {
+						/* état indisponible : relance standard */
+					}
 					const retry = await runAssistantTurn({
-						system: `${system}\n\n[SYSTÈME] Le tour précédent annonçait une prévisualisation sans appeler l'outil. Appelle MAINTENANT l'outil prepare* adapté avec EXACTEMENT les éléments demandés (noms, quantités, unités) — sans reformuler la demande.`,
+						system: `${system}\n\n[SYSTÈME] Le tour précédent n'a appelé AUCUN outil de préparation alors que la demande l'exigeait.${pendingState || "\n\n[SYSTÈME] Appelle MAINTENANT l'outil prepare* adapté avec EXACTEMENT les éléments demandés (noms, quantités, unités) — sans reformuler la demande."}`,
 						history: [
 							...context,
 							{ role: "user" as const, content: text || "(photo jointe)" },
