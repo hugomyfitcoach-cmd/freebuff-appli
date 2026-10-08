@@ -117,6 +117,11 @@ test('assistant.ts : intention d\'ajout détectée côté serveur + relance born
 		/ANNOUNCE_WITHOUT_TOOL_RE\.test\(reply\) \|\|[\s\S]{0,200}ADD_INTENT_RE\.test\(text\) && !reply\.includes\("\?"\)/.test(assistantSrc),
 		'relance déclenchée par annonce sans outil OU réponse de mémoire sans question',
 	);
+	assert.ok(assistantSrc.includes('VALUES_WITHOUT_TOOL_RE'), 'détection de kcal récitées sans outil');
+	assert.ok(
+		/VALUES_WITHOUT_TOOL_RE\.test\(reply\) && !reply\.includes\("\?"\)/.test(assistantSrc),
+		'les clarifications ("pain de mie complet") récitent-elles des kcal → relance outil',
+	);
 	assert.ok(/maxRounds: 1,/.test(assistantSrc), 'relance toujours limitée à UN tour');
 });
 

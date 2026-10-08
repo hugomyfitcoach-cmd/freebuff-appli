@@ -64,6 +64,15 @@ const ANNOUNCE_WITHOUT_TOOL_RE =
 const ADD_INTENT_RE =
 	/\b(ajoute|ajouter|enregistre|enregistrer|note\b|mets\b|rajoute|prépare[- ]moi|petit[- ]déjeuner|déjeuner|d[îi]ner|collation)\b/i;
 
+/**
+ * Récitation de VALEURS nutritionnelles sans outil : des kcal annoncées dans
+ * la réponse alors qu'aucune prévisualisation n'existe = chiffres sortis de
+ * la mémoire du modèle. Les valeurs doivent venir des outils serveur (Lot 2B,
+ * priorité 1 et 5) — sauf si la réponse pose une question (clarification
+ * légitime qui attend le tour suivant).
+ */
+const VALUES_WITHOUT_TOOL_RE = /\d+(?:[.,]\d+)?\s*kcal/i;
+
 /* ────────────────────────── Garde serveur commune ────────────────────────── */
 
 async function requireAssistantClient(ctx: Parameters<typeof getSessionUser>[0], sessionToken?: string) {
@@ -795,7 +804,11 @@ export const send = action({
 					(ANNOUNCE_WITHOUT_TOOL_RE.test(reply) ||
 						// Intention d'ajout + aucune question posée = réponse de
 						// mémoire sans outil (ex. valeurs récitées du petit-déjeuner).
-						(ADD_INTENT_RE.test(text) && !reply.includes("?")))
+						(ADD_INTENT_RE.test(text) && !reply.includes("?")) ||
+						// Valeurs nutritionnelles récitées sans outil ni question :
+						// couvre les CLARIFICATIONS ("pain de mie complet") qui
+						// doivent mettre à jour l'action préparée, pas décrire de tête.
+						(VALUES_WITHOUT_TOOL_RE.test(reply) && !reply.includes("?")))
 				) {
 					const retry = await runAssistantTurn({
 						system: `${system}\n\n[SYSTÈME] Le tour précédent annonçait une prévisualisation sans appeler l'outil. Appelle MAINTENANT l'outil prepare* adapté avec EXACTEMENT les éléments demandés (noms, quantités, unités) — sans reformuler la demande.`,
