@@ -44,12 +44,21 @@ export const GET = async () => {
 		.action(api.aiAnalysis.keyStatus, {})
 		.then((r) => ({ openaiKeyPresent: r.openaiKeyPresent, openaiModel: r.openaiModel, error: null }))
 		.catch((e) => ({ openaiKeyPresent: null, openaiModel: null, error: errMsg(e) }));
+	// Lot 2B — les nouvelles fonctions assistant sont-elles bien SUR LE
+	// BACKEND ciblé ? Un query sans session doit répondre « Session invalide »
+	// (fonction présente) et non une erreur « Unknown function » (backend
+	// pas à jour) — diagnostic du bypass clarification.
+	const lot2b = await convex
+		.query(api.assistantTools.latestPendingJournalAdd, { threadId: 'diag-probe-0001' })
+		.then(() => ({ latestPendingJournalAdd: true, error: null }))
+		.catch((e) => ({ latestPendingJournalAdd: !/unknown|does not exist/i.test(errMsg(e)), error: errMsg(e) }));
 	return json({
 		enabled: true,
 		convexUrl: url,
 		isProdLike: url.includes(PROD_MARK),
 		netlifyContext: ctx || null,
 		ai,
+		lot2b,
 	});
 };
 
