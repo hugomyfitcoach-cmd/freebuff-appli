@@ -1240,6 +1240,16 @@ export const prepareMeasurement = mutation({
 				.withIndex("by_user_date", (q) => q.eq("userId", user._id).eq("date", date))
 				.first();
 			previous = existing ? { count: existing.count, manualCount: existing.manualCount ?? null } : null;
+			// LOT 2B (Bug 6) — détection de DOUBLON : si les pas de ce jour sont
+			// déjà EXACTEMENT cette valeur, aucune écriture n'est nécessaire.
+			// On informe au lieu de proposer une « correction » identique.
+			if (existing && existing.count === count) {
+				return {
+					duplicate: true as const,
+					count,
+					date,
+				};
+			}
 			payload = { date, count };
 			title = "Enregistrer mes pas";
 			lines.push({ label: `${count.toLocaleString("fr-FR")} pas`, detail: date, ...(existing ? { source: "correction" } : {}) });
@@ -1256,6 +1266,14 @@ export const prepareMeasurement = mutation({
 				.query("bodyMetrics")
 				.withIndex("by_user_date", (q) => q.eq("userId", user._id).eq("date", date))
 				.first();
+			// LOT 2B (Bug 6) — même détection pour le POIDS (valeur unique exacte).
+			if (kind === "weight" && w !== undefined && existing?.weightKg === w) {
+				return {
+					duplicate: true as const,
+					count: w,
+					date,
+				};
+			}
 			previous = existing
 				? {
 						weightKg: existing.weightKg ?? null,

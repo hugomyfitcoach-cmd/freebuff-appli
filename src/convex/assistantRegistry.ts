@@ -359,7 +359,16 @@ export const ASSISTANT_REGISTRY: AssistantToolEntry[] = [
 				...(typeof args.neckCm === "number" ? { neckCm: args.neckCm } : {}),
 				...(typeof args.waistCm === "number" ? { waistCm: args.waistCm } : {}),
 				...(typeof args.hipCm === "number" ? { hipCm: args.hipCm } : {}),
-			})) as { actionId: string; preview: unknown };
+			})) as { actionId: string; preview: unknown; duplicate?: boolean; count?: number; date?: string };
+			// LOT 2B (Bug 6) — doublon : la valeur est DÉJÀ enregistrée.
+			// Aucune action en attente : on informe, on n'écrit pas.
+			if (res.duplicate) {
+				return {
+					ok: true,
+					duplicate: true,
+					note: `Déjà enregistré : ${String(res.count)} pour le ${res.date}. Aucune modification nécessaire — dis-le simplement à l'utilisatrice, NE prépare PAS d'écriture et NE propose PAS d'enregistrer à nouveau.`,
+				};
+			}
 			return { ok: true, actionId: res.actionId, preview: res.preview };
 		},
 	},

@@ -53,7 +53,7 @@ const INFLIGHT_TIMEOUT_MS = 60_000;
  * Déclenche UNE relance bornée exigeant l'appel d'outil (assistant.ts §6b).
  */
 const ANNOUNCE_WITHOUT_TOOL_RE =
-	/(pr[ée]visualisation|je (vais|viens de) (l')?(ajouter|enregistrer|pr[ée]parer)|proc[ée]der à l'ajout)/i;
+	/(pr[ée]visualisation|je (vais|viens de) (l')?(ajouter|enregistrer|pr[ée]parer)|proc[ée]der à l'ajout|je vais maintenant|un instant, s'il te plaît|un instant, je|je pr[ée]pare (ça|cela|l'ajout|le tout)|c'est (enregistré|ajouté))/i;
 
 /**
  * Intention d'AJOUT détectée côté serveur (déterministe) : si la cliente

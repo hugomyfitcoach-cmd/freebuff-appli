@@ -186,6 +186,39 @@ test('Relance INFORMÉE : l\'état de la tâche en attente est injecté à la cl
 
 /* ═══ 5. Bug 3 — une action en attente ne réapparaît jamais ═══ */
 
+/* ═══ 6. Bug 6 — doublon : pas/poids déjà enregistrés ═══ */
+
+test('prepareMeasurement : refus d\'écriture inutile si la valeur est déjà enregistrée', () => {
+	const toolsSrc = read('src/convex/assistantTools.ts');
+	assert.ok(/existing && existing\.count === count/.test(toolsSrc), 'pas identiques détectés');
+	assert.ok(/kind === "weight" && w !== undefined && existing\?\.weightKg === w/.test(toolsSrc), 'poids identique détecté');
+	assert.ok((toolsSrc.match(/duplicate: true as const/g) ?? []).length >= 2, 'retour duplicate (pas + poids)');
+});
+
+test('Registre : le doublon est INFORMÉ au modèle, jamais préparé en écriture', () => {
+	const registry = read('src/convex/assistantRegistry.ts');
+	assert.ok(/res\.duplicate/.test(registry), 'le run de prepareMeasurement gère le doublon');
+	assert.ok(/Aucune modification nécessaire/.test(registry), 'message sans écriture');
+	assert.ok(/NE prépare PAS d'écriture/.test(registry), 'instruction explicite au modèle');
+});
+
+/* ═══ 7. Bug 4 — annonce sans exécution (« un instant » sans outil) ═══ */
+
+test('ANNOUNCE_WITHOUT_TOOL_RE couvre « je vais maintenant », « un instant », « c\'est enregistré »', () => {
+	assert.ok(/je vais maintenant/.test(assistantSrc), 'annonce différée détectée');
+	assert.ok(/un instant, s'il te plaît/.test(assistantSrc), 'fausse attente détectée');
+	assert.ok(/c'est \(enregistré\|ajouté\)/.test(assistantSrc.replace("|", "\|")) || /c'est \(enregistré/.test(assistantSrc), 'fausse confirmation détectée');
+});
+
+/* ═══ 8. Bug 8 — suggestion ≠ action (multi-jours) ═══ */
+
+test('prompt : planning indicatif jamais prétendu enregistré', () => {
+	assert.ok(policySrc.includes('DIFFÉRENCES ENTRE SUGGESTION ET ACTION'), 'section créée');
+	assert.ok(policySrc.includes('N\'EXISTE PAS encore'), 'capacité multi-jours honnête');
+	assert.ok(policySrc.includes('planning\n  INDICATIF en texte'), 'planning indicatif en texte');
+	assert.ok(policySrc.includes('Changer de sujet ne déclenche JAMAIS l\'écriture d\'une action ancienne'), 'changement de sujet ≠ écriture ancienne');
+});
+
 test('insertPending : toute nouvelle préparation remplace les actions pending du fil', () => {
 	assert.ok(/UN fil = UNE action en attente/.test(toolsSrc), 'verrou documenté');
 	assert.ok(
