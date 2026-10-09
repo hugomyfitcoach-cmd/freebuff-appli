@@ -280,12 +280,13 @@ export const ASSISTANT_REGISTRY: AssistantToolEntry[] = [
 				const toks = name.split(/[\s'-]+/).filter((w) => w.length >= 3 && !STOP_WORDS_FR.has(w.toLowerCase()));
 				const normToks = toks.map((w) => w.toLowerCase().replace(/[^a-zàâçéèêëîïôûùüÿñæœ']/g, ""));
 				const askNorm = ask.toLowerCase();
-				// Chaque mot significatif de l'aliment doit être présent dans
-				// la demande (singuliers pluriels gérés par troncature) — les
-				// détails de préparation (« grillé », « sans peau ») sont
-				// explicitement tolérés.
+				// Au moins UN mot significatif de l'item recouvre la demande :
+				// une invention totale (aliment jamais mentionné) n'en partage
+				// aucun ; l'item Ciqual légitime porte souvent des descripteurs
+				// régionaux/préparation absents de la demande (« chair sans
+				// peau », « grillé/poêlé ») qui ne doivent PAS le bloquer.
 				if (normToks.length === 0) return true;
-				return normToks.every((t) =>
+				return normToks.some((t) =>
 					askNorm
 						.split(/[^a-zàâçéèêëîïôûùüÿñæœ']+/)
 						.some((w) => w.length >= 3 && (w.startsWith(t.slice(0, Math.max(3, t.length - 1))) || t.startsWith(w.slice(0, Math.max(3, w.length - 1)))))
