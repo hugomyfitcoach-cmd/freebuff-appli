@@ -152,8 +152,11 @@ export function genericCiqualFirst(term: string): FoodRef | null {
 			if (shorter && shorter !== short) hits = searchCiqualLocal(shorter);
 		}
 	}
-	const termNorm = norm(term);
 	for (const hit of hits) {
+		// La fiche couvre toujours la DEMANDE COMPLETE (retry inclus) : le
+		// retry tronqué sert aux qualificatifs d'origine / ancres composées,
+		// JAMAIS à contourner un mot ALIMENT de la demande (« beignet d elfe »
+		// ne peut pas devenir « Beignet de crevette »).
 		if (!nameCovers(hit.label, undefined, term)) continue;
 		const src = ciqualFoodSource(hit.label);
 		if (!src) continue;
@@ -167,7 +170,6 @@ export function genericCiqualFirst(term: string): FoodRef | null {
 			origin: "reference",
 		};
 	}
-	void termNorm;
 	return null;
 }
 

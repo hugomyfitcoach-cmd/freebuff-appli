@@ -93,7 +93,7 @@ check('A5 clarification conserve les quantités (œufs et beurre intacts)', last
 const a5Action = actionId;
 await act('cancel', a5Action);
 
-await send('Ajoute 200 g de fruit de la passion de Tahiti à ma collation.');
+await send('Ajoute 200 g de beignet d elfe à ma collation.');
 check(
 	'A6 aliment introuvable : pas d action, estimation clairement identifiée ou question',
 	!lastPending && (/\?/.test(lastReply) || /estimation|trouve|recherche|créer/i.test(lastReply)),
