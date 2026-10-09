@@ -267,6 +267,31 @@ export const ASSISTANT_REGISTRY: AssistantToolEntry[] = [
 			required: ["meal", "items"],
 		},
 		run: async (ctx, state, args) => {
+			// LOT 2B (B1/B2/B5 batterie) — DÉTOUR UPDATE : si une action
+			// journal_add est DÉJÀ en attente sur ce fil et que la demande du
+			// tour est courte (clarification : « en fait 4 œufs », « avec du
+			// curcuma ? », « aussi 10 g de beurre »), le modèle appelle parfois
+			// prepareJournalEntry avec LE SEUL aliment cité — la preview
+			// résultante écraserait la tâche (3 aliments → 1). Le serveur refuse
+			// et renvoie l'instruction update : les lignes existantes sont
+			// conservées par la mutation atomique.
+			const askLen = (state.userText ?? "").trim().split(/\s+/).filter(Boolean).length;
+			if (askLen <= 12) {
+				try {
+					const open = (await ctx.runQuery(api.assistantTools.latestPendingJournalAdd, {
+						sessionToken: state.sessionToken,
+						threadId: state.threadId,
+					})) as { actionId: string } | null;
+					if (open) {
+						return {
+							ok: false as const,
+							reason: "Une prévisualisation est DÉJÀ en attente sur ce fil : appelle updateJournalEntry (seuls les aliments concernés) au lieu de préparer une nouvelle action — les lignes déjà préparées seraient perdues.",
+						};
+					}
+				} catch {
+					/* état indisponible → chemin normal */
+				}
+			}
 			// §5 — FIDÉLITÉ (filet serveur, jamais le prompt) : les items qui
 			// ne recouvrent AUCUNE demande du message courant sont SUPPRIMÉS
 			// (invention / aliment hérité d'un tour antérieur). « 4 œufs »
