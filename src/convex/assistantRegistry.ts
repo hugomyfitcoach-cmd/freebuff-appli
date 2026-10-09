@@ -323,6 +323,15 @@ export const ASSISTANT_REGISTRY: AssistantToolEntry[] = [
 					reason: "Aucun aliment demandé identifiable dans le message — redemande la clarification à l'utilisatrice (ne prépare RIEN).",
 				};
 			}
+			// AUSSI : les valeurs nutritionnelles récitées par le modèle
+			// (kcal100/carbs100/prot/fat « estimés ») sont TOUJOURS retirées —
+			// le serveur calcule depuis les références réelles (§7), le modèle
+			// ne fournit JAMAIS de valeur nutritionnelle.
+			for (const it of items) {
+				for (const k of ["aiKcal100", "aiCarbs100", "aiProtein100", "aiFat100", "kcal100", "carbs100", "protein100", "fat100", "kcal", "carbs", "protein", "fat"] as const) {
+					delete it[k];
+				}
+			}
 			if (items.length < rawItems.length) {
 				if (rawItems.length > items.length) {
 					console?.log?.(`[assistant] fidélité : ${rawItems.length}→${items.length} items (hors demande)`);
