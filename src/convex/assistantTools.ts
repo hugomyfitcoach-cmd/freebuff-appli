@@ -106,11 +106,20 @@ function significantTokens(name: string): string[] {
  * être plus courte que la fiche : « avoine » ⊑ « Flocons d'avoine »).
  */
 export function nameCovers(refName: string, refBrand: string | undefined, declared: string): boolean {
+	// Qualificatifs d'ORIGINE (« Tahiti », « de la Martinique »…) : variétés
+	// géographiques du MÊME fruit, jamais un autre aliment → ignorés dans la
+	// DEMANDE (il reste « fruit de la passion » ⊑ fiche Ciqual exacte).
+	const ORIGINS = new Set(["tahiti", "martinique", "guadeloupe", "reunion", "corse"]);
+	const filtered = declared
+		.split(/[^a-zàâçéèêëîïôûùüÿñæœ']+/i)
+		.filter((t) => !ORIGINS.has(t.toLowerCase()))
+		.join(" ");
+	const effDecl = filtered.trim().length >= 2 ? filtered : declared;
 	const refToks = new Set(significantTokens(refName));
 	// La marque de la fiche ne doit PAS être comptée comme couvrante seule :
 	// « Tropicana » ne justifie pas « jus d'orange ». Mais si la demande cite
 	// la marque, ça ne doit pas non plus la faire passer pour un autre aliment.
-	const askToks = significantTokens(declared);
+	const askToks = significantTokens(effDecl);
 	if (refToks.size === 0 || askToks.length === 0) return false;
 	const covers = (a: Set<string>, b: string[]) => b.every((t) => a.has(t));
 	if (covers(refToks, askToks)) return true;
