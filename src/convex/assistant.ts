@@ -315,7 +315,7 @@ export const commit = mutation({
 		kind: v.optional(v.string()),
 		actionId: v.optional(v.id("assistantActions")),
 		toolCalls: v.optional(v.array(v.string())),
-		model: v.optional(v.string()),
+		toolErrors: v.optional(v.array(v.string())),
 		inputTokens: v.optional(v.number()),
 		outputTokens: v.optional(v.number()),
 		durationMs: v.optional(v.number()),
@@ -346,6 +346,7 @@ export const commit = mutation({
 			kind: args.kind ?? "text",
 			...(args.actionId ? { actionId: args.actionId } : {}),
 			...(args.toolCalls && args.toolCalls.length ? { toolCalls: args.toolCalls.slice(0, 12) } : {}),
+			...(args.toolErrors && args.toolErrors.length ? { toolErrors: args.toolErrors.slice(0, 12) } : {}),
 			createdAt: now + 1,
 		});
 		await ctx.db.patch(thread._id, {
@@ -815,8 +816,17 @@ export const send = action({
 			// modèle reformule. Les actions 'prepare' alimentent holder.pending.
 			const holder: { pending: PendingAction | null } = { pending: null };
 			const state: ToolRunState = { sessionToken: args.sessionToken, threadId, topic, today };
-			const callTool = async (name: string, a: Record<string, unknown>): Promise<unknown> => {
-				const out = await dispatchTool(ctx, name, a, state);
+				const toolErrors: string[] = [];
+				const callTool = async (name: string, a: Record<string, unknown>): Promise<unknown> => {
+					const out = await dispatchTool(ctx, name, a, state);
+					// §9 (diagnostic batterie) — les échecs d'outil avalés par le
+					// registre sont TRACÉS : le modèle se remitte souvent en texte
+					// de description (« J'ai trouvé… ») sans action ; sans trace,
+					// l'échec est invisible. Tracé limité (12, preview only).
+					if (out && typeof out === "object" && (out as { ok?: unknown }).ok === false) {
+						const reason = String((out as { reason?: unknown }).reason ?? "?").slice(0, 120);
+						toolErrors.push(`${name}: ${reason}`);
+					}
 				// Le sujet suit les outils meta (setTopic) via l'état partagé.
 				topic = coerceTopic(state.topic, topic);
 				// Toute action 'prepare' qui revient avec un actionId devient la
@@ -963,6 +973,7 @@ export const send = action({
 				kind: "text",
 				...(pending ? { actionId: pending.actionId as Id<"assistantActions"> } : {}),
 				toolCalls,
+				...(toolErrors.length ? { toolErrors: toolErrors.slice(0, 12) } : {}),
 				model: assistantModel(),
 				...(usage.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
 				...(usage.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),

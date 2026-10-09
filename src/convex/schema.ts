@@ -1517,6 +1517,8 @@ export default defineSchema({
 		actionId: v.optional(v.id("assistantActions")),
 		/** Métadonnées techniques minimales (modèle, outils appelés). */
 		toolCalls: v.optional(v.array(v.string())),
+		/** LOT 2B §9 — erreurs d'outil tracées (preview/diagnostic). */
+		toolErrors: v.optional(v.array(v.string())),
 		createdAt: v.number(),
 	}).index("by_thread_created", ["threadId", "createdAt"]).index("by_user", ["userId"]),
 

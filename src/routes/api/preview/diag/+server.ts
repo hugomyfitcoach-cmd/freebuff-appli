@@ -52,6 +52,12 @@ export const GET = async () => {
 		.query(api.assistantTools.latestPendingJournalAdd, { threadId: 'diag-probe-0001' })
 		.then(() => ({ latestPendingJournalAdd: true, error: null }))
 		.catch((e) => ({ latestPendingJournalAdd: !/unknown|does not exist/i.test(errMsg(e)), error: errMsg(e) }));
+	// §9 batterie — dernières erreurs d'outil tracées (échecs d'outils avalés
+	// par le registre pendant les tours IA). Vide si aucune erreur récente.
+	const toolErrors = await convex
+		.query(api.previewDiag.recentToolErrors, {})
+		.then((r: unknown) => (r as { errors?: unknown }).errors ?? [])
+		.catch(() => [] as unknown[]);
 	return json({
 		enabled: true,
 		convexUrl: url,
@@ -59,6 +65,7 @@ export const GET = async () => {
 		netlifyContext: ctx || null,
 		ai,
 		lot2b,
+		toolErrors,
 	});
 };
 
