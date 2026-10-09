@@ -316,6 +316,7 @@ export const commit = mutation({
 		actionId: v.optional(v.id("assistantActions")),
 		toolCalls: v.optional(v.array(v.string())),
 		toolErrors: v.optional(v.array(v.string())),
+		model: v.optional(v.string()),
 		inputTokens: v.optional(v.number()),
 		outputTokens: v.optional(v.number()),
 		durationMs: v.optional(v.number()),
