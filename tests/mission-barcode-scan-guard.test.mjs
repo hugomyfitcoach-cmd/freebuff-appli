@@ -399,3 +399,40 @@ test('C5. saisie manuelle inchangée (ne passe PAS par la porte caméra)', () =>
 	// handleScan n'est PAS le chemin de la saisie manuelle :
 	assert.doesNotMatch(journal, /function submitManual[\s\S]{0,200}normalizeProductCode/);
 });
+
+/* ─── Mission V3.4 : TRY_HARDER adaptatif (ZXing uniquement, Preview opt-in) ── */
+
+test('V3.4-S1. la stratégie TH est résolue au démarrage : native → pas de passe TH', () => {
+	// BarcodeDetector présent → thStrategy = 'native' : shouldTryHarder() n'est
+	// JAMAIS appelé (décodeur natif, pas de ZXing). Invariant moteur unique.
+	assert.match(scanner, /if \(native\) return 'native';/);
+});
+
+test('V3.4-S2. les trois stratégies ZXing existent avec les seuils calibrés', () => {
+	assert.match(scanner, /'fixed-1of4' \| 'adaptive-boost' \| 'adaptive-cooldown' \| 'native'/);
+	assert.match(scanner, /TH_BOOST_AFTER_FRAMES = 8/);
+	assert.match(scanner, /TH_COOLDOWN_AFTER_FRAMES = 12/);
+	assert.match(scanner, /TH_PERIOD = 4/);
+});
+
+test('V3.4-S3. l activation boost/cooldown est opt-in Preview uniquement (?scannerTH=)', () => {
+	assert.match(scanner, /__SCANNER_EXPERIMENT__ && typeof window !== 'undefined'/);
+	assert.match(scanner, /get\('scannerTH'\)/);
+	assert.match(scanner, /return 'fixed-1of4';/); // défaut invariant
+});
+
+test('V3.4-S4. instrumentation complète exposée dans debugInfo (moteur + passes + coût)', () => {
+	// La pastille expose la stratégie active, le nombre de frames légères et
+	// profondes, et le coût cumulé TH — requis pour le protocole terrain.
+	for (const field of ['zxingLightFrames', 'zxingHardFrames', 'zxingHardMs', 'thStrategy']) {
+		assert.ok(scanner.includes(`${field}:`), `debugInfo doit exposer ${field}`);
+	}
+	// La passe TH mesure son coût réel (performance.now) : pas d'estimation.
+	assert.match(scanner, /const tHard0 = performance\.now\(\)/);
+	assert.match(scanner, /hardMsTotal \+= performance\.now\(\) - tHard0/);
+});
+
+test('V3.4-S5. la boucle réinitialise l absence de lecture (sans fuite mémoire)', () => {
+	assert.match(scanner, /if \(text\) consecutiveNoRead = 0;/);
+	assert.match(scanner, /else consecutiveNoRead\+\+;/);
+});

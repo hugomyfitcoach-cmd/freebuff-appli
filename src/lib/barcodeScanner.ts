@@ -110,6 +110,15 @@ export type ScanDebugInfo = {
 	lastError: string | null;
 	/** Ressources vivantes au moment de l'appel (sonde anti-fuite V3.2). */
 	resources: ScannerResourceProbe;
+	/* — Mission V3.4 : instrumentation de la passe profonde ZXing — */
+	/** Nombre de frames FXing réellement passées (passe légère). */
+	zxingLightFrames: number;
+	/** Nombre de frames ZXing passées avec TRY_HARDER (passe profonde). */
+	zxingHardFrames: number;
+	/** Durée CUMULÉE (ms) des passes profondes TRY_HARDER. */
+	zxingHardMs: number;
+	/** Stratégie actuellement active pour la passe profonde. */
+	thStrategy: 'fixed-1of4' | 'adaptive-boost' | 'adaptive-cooldown' | 'native';
 };
 
 export type BarcodeScannerHandle = {
@@ -317,6 +326,25 @@ const DUPLICATE_MS = 1200;
 const SCAN_CONFIRM_GAP_MS = 1200;
 /** Grâce d'affichage de la pastille « Code détecté… » (anti-clignotement). */
 const SCAN_HINT_GRACE_MS = 450;
+/**
+ * Mission V3.4 — fréquence TRY_HARDER ADAPTATIVE (ZXing uniquement).
+ *
+ * Stratégie « fixed-1of4 » (référence historique) : TH toutes les 4 frames.
+ * Stratégie « adaptive-boost » : après N frames SANS lecture valide, la passe
+ *   profonde TH est essayée à CHAQUE frame — un code tenu incliné/flou est
+ *   souvent débloqué par les rotations/contrastes de TH. Bordé : quand la
+ *   passe légère vient de réussir, on repasse en fixed-1of4.
+ * Stratégie « adaptive-cooldown » : en boost prolongé (>8 frames sans gain),
+ *   on alterne 1 frame TH / 3 frames légères — on ne dégrade pas la cadence.
+ *
+ * Rampes calibrées sur le terrain (voir protocole V3.4), jamais au-delà :
+ *   - boost à partir de 8 frames sans lecture (≈ 560 ms de silence décodeur)
+ *   - cooldown dès 12 frames en boost sans gain (≈ 2 passes TH par 4 frames)
+ */
+const TH_BOOST_AFTER_FRAMES = 8;
+const TH_COOLDOWN_AFTER_FRAMES = 12;
+/** Multiplier la demi-période légère pour que TH reste 1 frame sur 2 max. */
+const FRAME_INTERVAL_RADIO_MS = 70;
 /** Durée du flash vert du cadre après une lecture (ms). */
 const GREEN_FLASH_MS = 900;
 /** Bordure des coins du cadre (blanc au repos, vert au flash). */
@@ -434,6 +462,10 @@ export async function startBarcodeScanner(
 				zoom: null,
 				lastError: null,
 				resources: scannerResourceProbe(),
+				zxingLightFrames: 0,
+				zxingHardFrames: 0,
+				zxingHardMs: 0,
+				thStrategy: 'fixed-1of4' as const,
 			}),
 			toggleTorch: async () => false,
 			hasTorch: () => false,
@@ -695,6 +727,53 @@ export async function startBarcodeScanner(
 		canvas.height = vh;
 	};
 
+	// — Mission V3.4 : état de la stratégie TRY_HARDER adaptative (ZXing) —
+	/** Stratégie RUNTIME selected (résolue au démarrage). */
+	const thStrategy: 'fixed-1of4' | 'adaptive-boost' | 'adaptive-cooldown' | 'native' =
+		resolveScanModeThStrategy();
+	/** Nombre de frames consécutives SANS lecture (tous moteurs). */
+	let consecutiveNoRead = 0;
+	/** Nombre de frames ZXing passées EN MODE TH (compteur de budget). */
+	let hardFrames = 0;
+	/** Durée CUMULÉE (ms) des passes TH. */
+	let hardMsTotal = 0;
+	/** Période des frames SANS passe profonde (boost exclus) àState froid. */
+	const TH_PERIOD = 4;
+	/**
+	 * Décide si la frame actuelle déclenche la passe TRY_HARDER.
+	 * Implémentation : un simple index modulaire, ASSEZ léger en JS pur pour
+	 * rester sous le ms/frame (≈70 ms natif, 30 ms ZXing mesuré sur iPhone).
+	 */
+	function shouldTryHarder(): boolean {
+		if (thStrategy === 'fixed-1of4') return frameCount % TH_PERIOD === 0;
+		if (thStrategy === 'adaptive-boost') {
+			if (consecutiveNoRead >= TH_BOOST_AFTER_FRAMES) return true;
+			return frameCount % TH_PERIOD === 0;
+		}
+		if (thStrategy === 'adaptive-cooldown') {
+			if (consecutiveNoRead >= TH_COOLDOWN_AFTER_FRAMES) {
+				// Alternance stricte : une TH sur 2, la passe légère continuant
+				// tranquillement — on garde le CPU disponible pour la caméra.
+				return frameCount % 2 === 0;
+			}
+			return frameCount % TH_PERIOD === 0;
+		}
+		return false; // native : pas de passe TH (détecteur natif déjà utilisé)
+	}
+
+	/** Décide de la stratégie active au DÉMARRAGE du scan (mission V3.4). */
+	function resolveScanModeThStrategy(): 'fixed-1of4' | 'adaptive-boost' | 'adaptive-cooldown' | 'native' {
+		const native = typeof window !== 'undefined' && (window as unknown as { BarcodeDetector?: unknown }).BarcodeDetector != null;
+		if (native) return 'native';
+		// Parade expérimentale Preview : ?scannerTH=boost | ?scannerTH=cooldown
+		if (__SCANNER_EXPERIMENT__ && typeof window !== 'undefined') {
+			const q = new URLSearchParams(window.location.search).get('scannerTH');
+			if (q === 'boost') return 'adaptive-boost';
+			if (q === 'cooldown') return 'adaptive-cooldown';
+		}
+		return 'fixed-1of4';
+	}
+
 	// Décode une frame. Retourne le texte lu, ou null.
 	const decodeOnce = async (): Promise<string | null> => {
 		if (video.readyState < 2 || video.paused || video.videoWidth === 0) return null;
@@ -746,14 +825,24 @@ export async function startBarcodeScanner(
 				const cropResult = cropReader.decode(cropBitmap);
 				if (cropResult?.text) return cropResult.text;
 			}
-			// Passe 2 : une frame sur 4 seulement, TRY_HARDER=true — plus coûteux
-			// (rotations/contrastes difficiles) mais décroche les codes tenus à
-			// distance ou légèrement flous que la passe rapide rate.
-			if (frameCount % 4 !== 0) return null;
+			// Passe 2 : TRY_HARDER — plus coûteux (rotations/contrastes difficiles)
+			// mais décroche les codes tenus à distance, inclinés ou légèrement flous
+			// que la passe rapide rate. FRÉQUENCE ADAPTATIVE V3.4 :
+			//   fixed-1of4        → TH toutes les 4 frames (référence historique)
+			//   adaptive-boost    → TH à CHAQUE frame (le code résiste depuis un moment)
+			//   adaptive-cooldown → TH une frame sur 2 (le boost ne décroche pas,
+			//                       on limite la charge CPU sans abandonner)
+			// Native (BarcodeDetector) : TH est sans objet — ce chemin n'est jamais
+			// exécuté si un détecteur natif est présent (voir if ci-dessus).
+			const doHardPass = shouldTryHarder();
+			if (!doHardPass) return null;
 			hints.set(zxingMod.DecodeHintType.TRY_HARDER, true);
+			const tHard0 = performance.now();
 			const harder = new zxingMod.MultiFormatReader(false, hints);
 			const bitmap2 = new zxingMod.BinaryBitmap(new zxingMod.HybridBinarizer(source));
 			const result2 = harder.decode(bitmap2);
+			hardMsTotal += performance.now() - tHard0;
+			hardFrames++;
 			return result2 ? result2.text : null;
 		} catch {
 			return null;
@@ -832,6 +921,10 @@ export async function startBarcodeScanner(
 					setScanHint(Date.now() < hintUntil);
 				}
 				decodeCount++;
+				/* V3.4 : suivi de l'absence de lecture (pour l'adaptatif TH) —
+				   remis à 0 dès qu'une lecture (non nulle) revient. */
+				if (text) consecutiveNoRead = 0;
+				else consecutiveNoRead++;
 			} catch {
 				// Frame illisible → on continue.
 			} finally {
@@ -852,9 +945,9 @@ export async function startBarcodeScanner(
 			if (!debugEl || stopped) return;
 			const d = buildDebugInfo();
 			debugEl.textContent =
-				`mode ${d.mode} · ${d.engine}\n` +
+				`mode ${d.mode} · ${d.engine} · th=${d.thStrategy}\n` +
 				`track ${d.trackResolution.width}×${d.trackResolution.height} · video ${d.videoResolution.width}×${d.videoResolution.height}\n` +
-				`fps décodage ≈ ${d.detectFps.toFixed(1)} · zoom ${d.zoom ?? 'n/a'}\n` +
+				`fps ≈ ${d.detectFps.toFixed(1)} · zoom ${d.zoom ?? 'n/a'} · ${d.zxingLightFrames}L/${d.zxingHardFrames}H (${d.zxingHardMs.toFixed(0)} ms TH cum)\n` +
 				`1re lecture ${d.msToFirstValid ?? '—'} ms · confirm ${d.msValidToConfirm ?? '—'} ms\n` +
 				`sessions ${d.resources.sessionsAlive}/${d.resources.sessionsStarted} · streams ${d.resources.cameraStreamsOpen} · maxLoops ${d.resources.maxConcurrentLoops}` +
 				(d.lastError ? `\nerr: ${d.lastError}` : '');
@@ -934,6 +1027,11 @@ export async function startBarcodeScanner(
 			zoom: lastZoomValue,
 			lastError: lastDecodeError,
 			resources: scannerResourceProbe(),
+			/* V3.4 — instrumentation passe profonde ZXing */
+			zxingLightFrames: Math.max(0, decodeCount - hardFrames),
+			zxingHardFrames: hardFrames,
+			zxingHardMs: hardMsTotal,
+			thStrategy,
 		};
 	}
 
