@@ -430,6 +430,15 @@ async function seedCoreData(
 	} else {
 		await db.patch(betaId, { passwordHash: betaHash });
 	}
+	// QUOTAS Assistant du compte bêta — re-seed = journée de test A NEUF.
+	// La batterie E2E (§9) tourne sur CE compte : sans reset, 50 échanges
+	// suffisent à épuiser le quota (échecs en cascade sur les builds réutilisés).
+	// Le quota n'est pas une donnée cliente (preview only, données fictives).
+	const betaUsageRows = await db
+		.query("assistantUsage")
+		.withIndex("by_user_day", (q) => q.eq("userId", betaId))
+		.collect();
+	for (const row of betaUsageRows) await db.delete(row._id);
 
 	// 3) Journal de test (Ciqual embarqué — snapshots serveur, idempotent)
 	const today = localTodayISO();
