@@ -816,7 +816,7 @@ export const send = action({
 			// 6) Boucle d'outils — REGISTRE (Lot 2) : le serveur exécute, le
 			// modèle reformule. Les actions 'prepare' alimentent holder.pending.
 			const holder: { pending: PendingAction | null } = { pending: null };
-			const state: ToolRunState = { sessionToken: args.sessionToken, threadId, topic, today };
+			const state: ToolRunState = { sessionToken: args.sessionToken, threadId, topic, today, userText: text };
 				const toolErrors: string[] = [];
 				const callTool = async (name: string, a: Record<string, unknown>): Promise<unknown> => {
 					const out = await dispatchTool(ctx, name, a, state);

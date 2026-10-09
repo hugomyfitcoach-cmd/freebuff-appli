@@ -25,6 +25,13 @@
 
 import { api } from "./_generated/api";
 import type { ActionCtx } from "./_generated/server";
+import { ciqualNames } from "./ciqualNames";
+
+/* §5 fidélité — mots outils sans valeur d'identité alimentaire (jamais pris
+ * comme preuve d'un aliment demandé). */
+const STOP_WORDS_FR = new Set(["sans", "avec", "pour", "dans", "plus", "tout", "toute", "toutes", "nature"]);
+/** Inventaire Ciqual exact — référence farbiquée du modèle = pas une fiche. */
+const ciqualNamesSet = new Set<string>(ciqualNames);
 
 /** Contexte d'exécution partagé d'un tour (muté par les outils meta). */
 export type ToolRunState = {
@@ -34,6 +41,12 @@ export type ToolRunState = {
 	topic: string;
 	/** Date locale du tour. */
 	today: string;
+	/**
+	 * §5 (fidélité préparations) — message UTILISATRICE du tour, pour le
+	 * contrôle serveur : la preview ne peut contenir QUE ce qui a été demandé
+	 * ici (jamais un aliment qui traîne d'un tour antérieur).
+	 */
+	userText: string;
 };
 
 export type AssistantToolKind = "read" | "prepare" | "meta";
@@ -254,13 +267,61 @@ export const ASSISTANT_REGISTRY: AssistantToolEntry[] = [
 			required: ["meal", "items"],
 		},
 		run: async (ctx, state, args) => {
+			// §5 — FIDÉLITÉ (filet serveur, jamais le prompt) : les items qui
+			// ne recouvrent AUCUNE demande du message courant sont SUPPRIMÉS
+			// (invention / aliment hérité d'un tour antérieur). « 4 œufs »
+			// recouvre jour Bitte 3 œufs ; « fruit de la passion » ne
+			// recouvre rien → retiré avant toute écriture.
+			const ask = state.userText ?? "";
+			const rawItems = Array.isArray(args.items) ? args.items : [];
+			const items: Record<string, unknown>[] = rawItems.filter((it: unknown) => {
+				const rec = it as { name?: unknown };
+				const name = typeof rec.name === "string" ? rec.name : "";
+				const toks = name.split(/[\s'-]+/).filter((w) => w.length >= 3 && !STOP_WORDS_FR.has(w.toLowerCase()));
+				const normToks = toks.map((w) => w.toLowerCase().replace(/[^a-zàâçéèêëîïôûùüÿñæœ']/g, ""));
+				const askNorm = ask.toLowerCase();
+				// Chaque mot significatif de l'aliment doit être présent dans
+				// la demande (singuliers pluriels gérés par troncature) — les
+				// détails de préparation (« grillé », « sans peau ») sont
+				// explicitement tolérés.
+				if (normToks.length === 0) return true;
+				return normToks.every((t) =>
+					askNorm
+						.split(/[^a-zàâçéèêëîïôûùüÿñæœ']+/)
+						.some((w) => w.length >= 3 && (w.startsWith(t.slice(0, Math.max(3, t.length - 1))) || t.startsWith(w.slice(0, Math.max(3, w.length - 1)))))
+				);
+			});
+			if (items.length === 0) {
+				return {
+					ok: false as const,
+					reason: "Aucun aliment demandé identifiable dans le message — redemande la clarification à l'utilisatrice (ne prépare RIEN).",
+				};
+			}
+			if (items.length < rawItems.length) {
+				if (rawItems.length > items.length) {
+					console?.log?.(`[assistant] fidélité : ${rawItems.length}→${items.length} items (hors demande)`);
+				}
+			}
+			// §9 (batterie) — RÉPARATION de references incohérentes : un
+			// ciqualLabel fabriqué par le modèle excède l'inventaire réel →
+			// on RETIRE la référence ficitive et laisse le pipeline résoudre
+			// par nom (jamais la substitution silencieuse).
+			for (const it of items) {
+				const label = it.ciqualLabel;
+				if (typeof label === "string" && !ciqualNamesSet.has(label)) {
+					delete it.ciqualLabel;
+				}
+				for (const k of ["foodId", "customFoodId"] as const) {
+					if (typeof it[k] === "string" && !/^[a-zA-Z0-9_-]{10,}$/.test(it[k] as string)) delete it[k];
+				}
+			}
 			const res = (await ctx.runMutation(api.assistantTools.prepareJournalEntry, {
 				sessionToken: state.sessionToken,
 				threadId: state.threadId,
 				topic: state.topic,
 				date: typeof args.date === "string" ? args.date : state.today,
 				meal: String(args.meal ?? "diner"),
-				items: (args.items ?? []) as never,
+				items: items as never,
 			})) as { actionId: string; preview: unknown };
 			return {
 				ok: true,

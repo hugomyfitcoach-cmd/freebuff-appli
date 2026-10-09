@@ -1098,7 +1098,7 @@ async function buildJournalEntryPreview(
 				resolved = await searchFoodInternal(ctx, userId, declared);
 				if (!resolved) {
 					throw new ConvexError(
-						`Aliment introuvable en base : « ${declared} ». Demande la clarifcation ou fais-le créer manuellement.`
+						`Aliment introuvable en base : « ${declared} ». N'invente PAS de fiche et ne propose PAS d'enregistrement : signale à l'utilisatrice que cet aliment est introuvable et propose de le créer manuellement dans son journal.`
 					);
 				}
 				if (!nameCovers(resolved.name, resolved.brand, declared)) {
