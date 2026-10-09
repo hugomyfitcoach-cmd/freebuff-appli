@@ -436,3 +436,28 @@ test('V3.4-S5. la boucle réinitialise l absence de lecture (sans fuite mémoire
 	assert.match(scanner, /if \(text\) consecutiveNoRead = 0;/);
 	assert.match(scanner, /else consecutiveNoRead\+\+;/);
 });
+
+/* ─── Mission V3.4-b : correctif des passes mortes (NotFoundException) ─── */
+
+test('V3.4-B1. chaque passe ZXing a son propre try/catch (les passes crop et TH s exécutent réellement)', () => {
+	// BUG historique démontré (tools/repro-dead-passes.mts) : le MultiFormatReader
+	// LÈVE NotFoundException au lieu de renvoyer null ; l'unique try/catch de
+	// decodeOnce court-circuitait crop + TRY_HARDER sur toute frame en échec —
+	// preuve terrain 428L/0H · 0 ms TH cum. Trois try/catch distincts requis.
+	const decode = extractBlock(scanner, 'const decodeOnce =');
+	assert.match(decode, /catch \{\s*\/\/ NotFoundException : rien lu cette frame/);
+	assert.match(decode, /catch \{\s*\/\/ NotFoundException sur le crop/);
+	assert.match(decode, /hardMsTotal \+= performance\.now\(\) - tHard0;/g);
+	// Le compteur TH est incrémenté dans les DEUX chemins (succès ET NotFound) :
+	assert.equal((decode.match(/hardFrames\+\+/g) ?? []).length, 2);
+});
+
+test('V3.4-B2. msSinceFirstFrame : métrique indépendante du temps de manipulation', () => {
+	// 162 968 ms mesuré = temps depuis startBarcodeScanner (2 min 43 s de
+	// manipulation), PAS le délai de reconnaissance. La nouvelle base part de
+	// la 1re frame caméra décodable.
+	assert.match(scanner, /firstFrameAt === null \? null : Math\.max\(0, firstValidAt - firstFrameAt\)/);
+	assert.match(scanner, /if \(firstFrameAt === null\) firstFrameAt = Date\.now\(\);/);
+	// La pastille affiche les DEUX bases (délai réel + temps de session) :
+	assert.match(scanner, /msSinceFirstFrame \?\? '—'\} ms \(session \$\{d\.msToFirstValid/);
+});

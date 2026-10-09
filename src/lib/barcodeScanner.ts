@@ -102,8 +102,16 @@ export type ScanDebugInfo = {
 	videoResolution: { width: number; height: number };
 	/** Cadence réelle de décodage (frames analysées / seconde). */
 	detectFps: number;
-	/** Temps (ms) entre le démarrage du scan et la 1re lecture valide. */
+	/** Temps (ms) entre le démarrage du scan et la 1re lecture valide.
+	 *  ⚠️ BASE = startBarcodeScanner (et non l'apparition du code dans le
+	 *  champ) : sur une session longue, la valeur accumule tout le temps de
+	 *  recherche manuelle de l'utilisateur. V3.4-b : on expose AUSSI
+		*  msSinceFirstFrame, mesurée depuis la 1re frame caméra réellement
+	 *  décodable — c'est LA métrique à comparer entre deux captures. */
 	msToFirstValid: number | null;
+	/** Temps (ms) entre la 1re frame caméra décodable et la 1re lecture
+	 *  valide — indépendant du temps de manipulation de l'utilisateur. */
+	msSinceFirstFrame: number | null;
 	/** Temps (ms) entre la 1re lecture valide et la confirmation/ouverture. */
 	msValidToConfirm: number | null;
 	zoom: number | null;
@@ -401,6 +409,9 @@ export async function startBarcodeScanner(
 	const scanMode = resolveScanMode();
 	const scanStartAt = Date.now();
 	let firstValidAt: number | null = null;
+	/** 1re frame caméra décodable (readyState ≥ 2) — base V3.4-b pour
+	 *  msSinceFirstFrame (indépendante du temps de manipulation). */
+	let firstFrameAt: number | null = null;
 	let confirmedAt: number | null = null;
 	let decodeCount = 0;
 	let lastDecodeError: string | null = null;
@@ -458,6 +469,7 @@ export async function startBarcodeScanner(
 				videoResolution: { width: 0, height: 0 },
 				detectFps: 0,
 				msToFirstValid: null,
+				msSinceFirstFrame: null,
 				msValidToConfirm: null,
 				zoom: null,
 				lastError: null,
@@ -777,6 +789,11 @@ export async function startBarcodeScanner(
 	// Décode une frame. Retourne le texte lu, ou null.
 	const decodeOnce = async (): Promise<string | null> => {
 		if (video.readyState < 2 || video.paused || video.videoWidth === 0) return null;
+		/* V3.4-b : base de mesure « depuis la 1re frame caméra décodable » —
+		   indépendante du temps de manipulation de l'utilisatrice (la valeur
+		   historique msToFirstValid part de startBarcodeScanner et accumule
+		   tout le temps de recherche : 162 968 ms mesuré = 2 min 43 s). */
+		if (firstFrameAt === null) firstFrameAt = Date.now();
 		if (nativeDetector) {
 			try {
 				const codes = await nativeDetector.detect(video);
@@ -787,57 +804,74 @@ export async function startBarcodeScanner(
 			}
 		}
 		if (!zxingMod || !vw || !vh) return null;
+	try {
+		ctx.drawImage(video, 0, 0, vw, vh);
+		const source = new zxingMod.HTMLCanvasElementLuminanceSource(canvas);
+		const hints = new Map<number, unknown>();
+		hints.set(zxingMod.DecodeHintType.POSSIBLE_FORMATS, [
+			zxingMod.BarcodeFormat.EAN_13,
+			zxingMod.BarcodeFormat.EAN_8,
+			zxingMod.BarcodeFormat.UPC_A,
+			zxingMod.BarcodeFormat.UPC_E,
+			zxingMod.BarcodeFormat.CODE_128,
+			zxingMod.BarcodeFormat.ITF,
+			zxingMod.BarcodeFormat.CODE_39,
+		]);
+		/* CORRECTIF V3.4-b (bug critique démontré par tools/repro-dead-passes.mts) :
+		   le MultiFormatReader LÈVE NotFoundException quand il ne trouve RIEN —
+		   il ne renvoie jamais null. L'ancien try/catch UNIQUE enveloppait les
+		   TROIS passes : sur toute frame en échec (la majorité), le contrôle
+		   sortait immédiatement par le catch et les passes crop + TRY_HARDER
+		   n'exécutaient JAMAIS (preuve terrain : 428L/0H · 0 ms TH cum).
+		   Désormais : chaque passe a son propre try/catch → les passes suivantes
+		   tournent réellement, comme prévu par la conception V3. */
+		// Passe 1 rapide (TRY_HARDER=false) — cadence élevée.
 		try {
-			ctx.drawImage(video, 0, 0, vw, vh);
-			const source = new zxingMod.HTMLCanvasElementLuminanceSource(canvas);
-			const hints = new Map<number, unknown>();
-			hints.set(zxingMod.DecodeHintType.POSSIBLE_FORMATS, [
-				zxingMod.BarcodeFormat.EAN_13,
-				zxingMod.BarcodeFormat.EAN_8,
-				zxingMod.BarcodeFormat.UPC_A,
-				zxingMod.BarcodeFormat.UPC_E,
-				zxingMod.BarcodeFormat.CODE_128,
-				zxingMod.BarcodeFormat.ITF,
-				zxingMod.BarcodeFormat.CODE_39,
-			]);
-			// Passe 1 rapide (TRY_HARDER=false) — cadence élevée.
 			const quick = new zxingMod.MultiFormatReader(false, hints);
 			const bitmap = new zxingMod.BinaryBitmap(new zxingMod.HybridBinarizer(source));
 			const result = quick.decode(bitmap);
 			if (result?.text) return result.text;
-			frameCount++;
-			// Passe 1.5 (une frame sur 2) : recadrage central upscalé ×2 — un code
-		// tenu à distance n'occupe que quelques dizaines de pixels dans l'image
-		// native et la binarisation locale de ZXing le perd. Agrandir la zone du
-		// cadre guide rend les barres relisables sans toucher à la cadence de la
-		// passe rapide. Repli uniquement (BarcodeDetector n'en a pas besoin).
-			if (cropCtx && frameCount % 2 === 0) {
-				const cw = Math.round(vw * 0.8);
-				const ch = Math.round(vh * 0.44);
-				const cx = Math.round((vw - cw) / 2);
-				const cy = Math.max(0, Math.round((vh * (FRAME_TOP_PCT + FRAME_HEIGHT_PCT / 2)) / 100 - ch / 2));
-				cropCanvas.width = cw * 2;
-				cropCanvas.height = ch * 2;
-				cropCtx.imageSmoothingEnabled = false;
-				cropCtx.drawImage(canvas, cx, cy, cw, ch, 0, 0, cw * 2, ch * 2);
+		} catch {
+			// NotFoundException : rien lu cette frame — on enchaîne le crop.
+		}
+		frameCount++;
+		// Passe 1.5 (une frame sur 2) : recadrage central upscalé ×2 — un code
+	// tenu à distance n'occupe que quelques dizaines de pixels dans l'image
+	// native et la binarisation locale de ZXing le perd. Agrandir la zone du
+	// cadre guide rend les barres relisables sans toucher à la cadence de la
+	// passe rapide. Repli uniquement (BarcodeDetector n'en a pas besoin).
+		if (cropCtx && frameCount % 2 === 0) {
+			const cw = Math.round(vw * 0.8);
+			const ch = Math.round(vh * 0.44);
+			const cx = Math.round((vw - cw) / 2);
+			const cy = Math.max(0, Math.round((vh * (FRAME_TOP_PCT + FRAME_HEIGHT_PCT / 2)) / 100 - ch / 2));
+			cropCanvas.width = cw * 2;
+			cropCanvas.height = ch * 2;
+			cropCtx.imageSmoothingEnabled = false;
+			cropCtx.drawImage(canvas, cx, cy, cw, ch, 0, 0, cw * 2, ch * 2);
+			try {
 				const cropReader = new zxingMod.MultiFormatReader(false, hints);
 				const cropBitmap = new zxingMod.BinaryBitmap(new zxingMod.HybridBinarizer(new zxingMod.HTMLCanvasElementLuminanceSource(cropCanvas)));
 				const cropResult = cropReader.decode(cropBitmap);
 				if (cropResult?.text) return cropResult.text;
+			} catch {
+				// NotFoundException sur le crop — on enchaîne la passe TH.
 			}
-			// Passe 2 : TRY_HARDER — plus coûteux (rotations/contrastes difficiles)
-			// mais décroche les codes tenus à distance, inclinés ou légèrement flous
-			// que la passe rapide rate. FRÉQUENCE ADAPTATIVE V3.4 :
-			//   fixed-1of4        → TH toutes les 4 frames (référence historique)
-			//   adaptive-boost    → TH à CHAQUE frame (le code résiste depuis un moment)
-			//   adaptive-cooldown → TH une frame sur 2 (le boost ne décroche pas,
-			//                       on limite la charge CPU sans abandonner)
-			// Native (BarcodeDetector) : TH est sans objet — ce chemin n'est jamais
-			// exécuté si un détecteur natif est présent (voir if ci-dessus).
-			const doHardPass = shouldTryHarder();
-			if (!doHardPass) return null;
-			hints.set(zxingMod.DecodeHintType.TRY_HARDER, true);
-			const tHard0 = performance.now();
+		}
+		// Passe 2 : TRY_HARDER — plus coûteux (rotations/contrastes difficiles)
+		// mais décroche les codes tenus à distance, inclinés ou légèrement flous
+		// que la passe rapide rate. FRÉQUENCE ADAPTATIVE V3.4 :
+		//   fixed-1of4        → TH toutes les 4 frames (référence historique)
+		//   adaptive-boost    → TH à CHAQUE frame (le code résiste depuis un moment)
+		//   adaptive-cooldown → TH une frame sur 2 (le boost ne décroche pas,
+		//                       on limite la charge CPU sans abandonner)
+		// Native (BarcodeDetector) : TH est sans objet — ce chemin n'est jamais
+		// exécuté si un détecteur natif est présent (voir if ci-dessus).
+		const doHardPass = shouldTryHarder();
+		if (!doHardPass) return null;
+		hints.set(zxingMod.DecodeHintType.TRY_HARDER, true);
+		const tHard0 = performance.now();
+		try {
 			const harder = new zxingMod.MultiFormatReader(false, hints);
 			const bitmap2 = new zxingMod.BinaryBitmap(new zxingMod.HybridBinarizer(source));
 			const result2 = harder.decode(bitmap2);
@@ -845,8 +879,14 @@ export async function startBarcodeScanner(
 			hardFrames++;
 			return result2 ? result2.text : null;
 		} catch {
+			hardMsTotal += performance.now() - tHard0;
+			hardFrames++;
 			return null;
 		}
+	} catch {
+		// Erreur hors décodage (drawImage, canvas…) : frame suivante.
+		return null;
+	}
 	};
 
 	// Garde anti double lecture : un même code qui reste sous l'objectif
@@ -948,7 +988,7 @@ export async function startBarcodeScanner(
 				`mode ${d.mode} · ${d.engine} · th=${d.thStrategy}\n` +
 				`track ${d.trackResolution.width}×${d.trackResolution.height} · video ${d.videoResolution.width}×${d.videoResolution.height}\n` +
 				`fps ≈ ${d.detectFps.toFixed(1)} · zoom ${d.zoom ?? 'n/a'} · ${d.zxingLightFrames}L/${d.zxingHardFrames}H (${d.zxingHardMs.toFixed(0)} ms TH cum)\n` +
-				`1re lecture ${d.msToFirstValid ?? '—'} ms · confirm ${d.msValidToConfirm ?? '—'} ms\n` +
+				`1re lecture ${d.msSinceFirstFrame ?? '—'} ms (session ${d.msToFirstValid ?? '—'}) · confirm ${d.msValidToConfirm ?? '—'} ms\n` +
 				`sessions ${d.resources.sessionsAlive}/${d.resources.sessionsStarted} · streams ${d.resources.cameraStreamsOpen} · maxLoops ${d.resources.maxConcurrentLoops}` +
 				(d.lastError ? `\nerr: ${d.lastError}` : '');
 		}, 1000);
@@ -1023,6 +1063,8 @@ export async function startBarcodeScanner(
 			videoResolution: { width: video.videoWidth, height: video.videoHeight },
 			detectFps: decodeCount / elapsed,
 			msToFirstValid: firstValidAt === null ? null : firstValidAt - scanStartAt,
+			msSinceFirstFrame:
+				firstValidAt === null || firstFrameAt === null ? null : Math.max(0, firstValidAt - firstFrameAt),
 			msValidToConfirm: firstValidAt !== null && confirmedAt !== null ? confirmedAt - firstValidAt : null,
 			zoom: lastZoomValue,
 			lastError: lastDecodeError,
