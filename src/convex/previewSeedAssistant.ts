@@ -67,6 +67,8 @@ export type SeedAssistantResult = {
 	entries: number;
 	stepsDays: number;
 	weighs: number;
+	/** Preview : quotas Assistant du compte démo remis à zéro (re-seed). */
+	usageReset?: boolean;
 	error?: string;
 };
 
@@ -190,6 +192,14 @@ export async function seedAssistantDemoData(
 		}
 	}
 
+	/* 5b) QUOTAS Assistant — re-seed = journée de test A NEUF.
+	      Sans ça, la batterie E2E épuise les 50 échanges du jour et tous les
+	      scénarios suivants échouent en cascade sur les builds réutilisés.
+	      Le compte de QUOTA n'est pas une donnée cliente : le remettre à zéro
+	      sur preview est sans conséquence (gated assertNotProd). */
+	const usageRows = await db.query("assistantUsage").withIndex("by_user_day", (q) => q.eq("userId", userId)).collect();
+	for (const row of usageRows) await db.delete(row._id);
+
 	/* 6) JOURNAL — 7 derniers jours, rotation du menu Ciqual. */
 	let entries = 0;
 	for (let d = 6; d >= 0; d--) {
@@ -228,5 +238,6 @@ export async function seedAssistantDemoData(
 		entries,
 		stepsDays,
 		weighs,
+		usageReset: true,
 	};
 }
