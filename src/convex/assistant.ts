@@ -925,7 +925,11 @@ export const send = action({
 						userText: retryKind === "read" ? "(relance système : consulte les données réelles maintenant)" : "(relance système : appelle l'outil de préparation maintenant)",
 						tools: registryToolDefs(),
 						callTool,
-						maxRounds: 1,
+						// LOT 2B (C1 batterie) — 2 rounds : un premier appel d'outil
+						// peut échouer (ID fabriqué du modèle → « réf. inconnue ») :
+						// le round suivant, informé de l'erreur d'outil, appelle
+						// correctement searchFood/prepare AU LIEU de réciter.
+						maxRounds: retryKind === "prepare" ? 2 : 1,
 					});
 					reply = retry.text;
 					toolCalls = [...toolCalls, ...retry.toolCalls];

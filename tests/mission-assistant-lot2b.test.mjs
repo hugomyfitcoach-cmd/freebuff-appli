@@ -129,7 +129,11 @@ test('assistant.ts : intention d\'ajout détectée côté serveur + relance born
 		'la relance lecture exige : pas d\'intention d\'ajout, aucun outil de lecture déjà utilisé',
 	);
 	assert.ok(/N\'utilise JAMAIS prepareJournalEntry pour une simple question/.test(assistantSrc) || assistantSrc.includes("N'utilise JAMAIS prepareJournalEntry pour une simple question"), 'la relance lecture interdit explicitement prepare');
-	assert.ok(/maxRounds: 1,/.test(assistantSrc), 'relance toujours limitée à UN tour');
+	// Lot 2B (C1 batterie) : la relance prepare passe à 2 rounds — un premier
+	// appel d'outil peut échouer (ID fabriqué → « réf. inconnue ») ; le round
+	// suivant, informé de l'erreur, appelle correctement l'outil. La relance
+	// LECTURE reste à 1 round.
+	assert.ok(/maxRounds: retryKind === "prepare" \? 2 : 1/.test(assistantSrc), 'relance prepare 2 rounds, lecture 1 round (bornée)');
 });
 
 test('prompt : demande d\'ajout = outil immédiat, jamais de valeurs de mémoire', () => {

@@ -147,6 +147,8 @@ test('Filet « annonce sans outil » : relance bornée si preview annoncée sans
 		/!holder\.pending && \(announce \|\| \(addIntent && noQuestion\)\)/.test(assistant),
 		'déclenché seulement si AUCUNE action préparée',
 	);
-	assert.ok(/maxRounds: 1,/.test(assistant), 'relance limitée à UN tour d’outil');
+	// Lot 2B (C1) : relance prepare = 2 rounds bornés (1er appel d'outil peut
+	// échouer sur un ID fabriqué ; le round suivant appelle correctement).
+	assert.ok(/maxRounds: retryKind === "prepare" \? 2 : 1/.test(assistant), 'relance bornée (2 rounds prepare, 1 lecture)');
 	assert.ok(/Appelle MAINTENANT l'outil prepare\*/.test(assistant), 'relance exige l’appel d’outil');
 });

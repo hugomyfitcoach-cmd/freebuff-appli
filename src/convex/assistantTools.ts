@@ -522,7 +522,15 @@ async function resolveRef(
 ): Promise<FoodRef | null> {
 	if (ref.foodId) {
 		if (!/^[a-zA-Z0-9_-]{10,}$/.test(ref.foodId)) return null;
-		const f = await ctx.db.get(ref.foodId as Id<"foods">);
+		let f: Doc<"foods"> | null = null;
+		try {
+			f = await ctx.db.get(ref.foodId as Id<"foods">);
+		} catch {
+			// ID bien formé regex MAIS intervalle/décodage Convex invalide
+			// (ID fabriqué par le modèle, ex « Invalid ID length 31 ») →
+			// pas de crash : « réf. inconnue », le pipeline re-résout par nom.
+			return null;
+		}
 		if (!f) return null;
 		return {
 			foodId: f._id,
@@ -538,7 +546,12 @@ async function resolveRef(
 	}
 	if (ref.customFoodId) {
 		if (!/^[a-zA-Z0-9_-]{10,}$/.test(ref.customFoodId)) return null;
-		const f = await ctx.db.get(ref.customFoodId as Id<"customFoods">);
+		let f: Doc<"customFoods"> | null = null;
+		try {
+			f = await ctx.db.get(ref.customFoodId as Id<"customFoods">);
+		} catch {
+			return null; // ID fabriqué → réf. inconnue, jamais un crash
+		}
 		if (!f || f.userId !== userId) return null;
 		return {
 			customFoodId: f._id,
