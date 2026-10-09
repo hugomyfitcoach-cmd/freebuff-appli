@@ -126,11 +126,29 @@ export function nameCovers(refName: string, refBrand: string | undefined, declar
 	// la couverture du NOYAU ALIMENT (1er mot ALIMENT + 2e mot non-outil),
 	// Appliqué dans grammaire : « Œuf entier au plat » ⊑ « Oeuf au plat » —
 	// le NOYAU (oeuf, plat) est présent des deux côtés (anti « poulet / riz »).
+	// QUALIFICATIFS DE VARIÉTÉ/valeur suceptible de DIFFÉRENCIER deux fiches :
+	// « blanc » vs « complet » (pain), « demi-écrémé » vs « écrémé » (lait) —
+	// ces mots sont SIGNIFICATIFS, pas des descripteurs neutres : ils Bloom
+	// différencier la fiche. La tolérance noyau ne s'applique QUE aux
+	// descripteurs NEUTRES (« entier », « cuit », « rôti ») — jamais à un mot
+	// qui change le dos d'un nutriment identifié. Listes explicites :
+	const DISTINCTIVE = new Set(["blanc", "blanche", "complet", "complete", "ecreme", "ecremee", "demi", "douce", "fermente"]);
 	const coreMatch = (a: Set<string>, b: string[]) => {
+		// Distinctif présent dans la demande mais PAS dans la fiche → un mot
+		// différenciant ilustre une VARIÉTÉ != pas couverture (blanc ≠ complet).
+		const distinctive = b.filter((x) => DISTINCTIVE.has(x) && !a.has(x));
+		if (distinctive.length > 0) return false;
 		const tokA = [...a];
 		const n = b.filter((x) => a.has(x)).length;
 		return b.length > 0 && n >= Math.min(2, b.length) && n === b.filter((t) => tokA.includes(t)).length;
 	};
+	// VARIÉTÉS différenciées : un mot DISTINCTIF présent côté FICHE mais PAS
+	// dans la demande (ou inversement) interdit la couverture par rapport~
+	// « Lait demi-écrémé » ≠ « Lait écrémé » ; « Pain de mie blanc » ≠ « complet ».
+	const refDistinct = [...refToks].filter((t) => DISTINCTIVE.has(t));
+	const askDistinct = [...askToks].filter((t) => DISTINCTIVE.has(t));
+	if (refDistinct.length !== askDistinct.length) return false;
+	if (refDistinct.some((t) => !askToks.includes(t))) return false;
 	const covers = (a: Set<string>, b: string[]) => b.every((t) => a.has(t));
 	if (covers(refToks, askToks)) return true;
 	const askSet = new Set(askToks);
