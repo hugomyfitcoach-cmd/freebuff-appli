@@ -37,7 +37,8 @@ let actionId = null;
 let lastReply = '';
 let lastPending = null;
 
-async function send(message) {
+async function send(message, opts = {}) {
+	if (opts.newThread) threadId = null; // §9 : données initiales par scénario
 	const r = await fetch(`${BASE}/api/assistant/send`, {
 		method: 'POST',
 		headers: { 'content-type': 'application/json', cookie: cookies },
@@ -84,7 +85,7 @@ await send('Ajoute 3 œufs au plat à mon petit-déjeuner.');
 check('A3 œuf au plat → « Oeuf au plat » Ciqual', lastPending && lines().some((l) => /Oeuf au plat/i.test(l)), JSON.stringify(lines()));
 await act('cancel');
 
-await send('Ajoute mon petit-déjeuner : 3 œufs au plat, 2 tranches de pain de mie et 10 g de beurre.');
+await send('Ajoute mon petit-déjeuner : 3 œufs au plat, 2 tranches de pain de mie et 10 g de beurre.', { newThread: true });
 const a4First = lines().join(' | ');
 check('A4 multi-aliments : les 3 aliments demandés, rien d autre', lastPending && /Oeuf au plat/i.test(a4First) && /Pain de mie/i.test(a4First) && /Beurre/i.test(a4First) && lines().length === 3, JSON.stringify(lines()));
 await send('Pain de mie complet.');
@@ -101,12 +102,12 @@ check(
 
 /* ═══════════ B. CONVERSATIONS (5) ═══════════ */
 
-await send('Ajoute mon petit-déjeuner : 3 œufs au plat, 2 tranches de pain de mie et 10 g de beurre.');
+await send('Ajoute mon petit-déjeuner : 3 œufs au plat, 2 tranches de pain de mie et 10 g de beurre.', { newThread: true });
 await send('En fait 4 œufs.');
 check('B1 correction de quantité intégrée (4 œufs, reste intact)', lastPending && lines().some((l) => /Oeuf au plat/i.test(l)) && lines().length === 3 && /Beurre/i.test(lines().join('|')), JSON.stringify(lines()));
 await act('cancel');
 
-await send('Ajoute 150 g de riz basmati à mon dîner.');
+await send('Ajoute 150 g de riz basmati à mon dîner.', { newThread: true });
 const b2Action = actionId;
 await send('Avec du curcuma ?');
 // « Avec du curcuma ? » est une question, mais légitimement interprétée
@@ -118,19 +119,19 @@ const b2Ok = !lastPending || lastPending?.actionId === b2Action;
 check('B2 question de suivi : jamais d écriture sans confirmation', b2Ok, JSON.stringify(lines()));
 await act('cancel', b2Action);
 
-await send('Ajoute 30 g de flocons d\'avoine à mon petit-déjeuner.');
+await send('Ajoute 30 g de flocons d\'avoine à mon petit-déjeuner.', { newThread: true });
 const b3Action = actionId;
 await act('cancel', b3Action);
 await send('Quel est mon objectif de calories aujourd\'hui ?');
 check('B3 changement de sujet : aucune action réactivée après cancel', !lastPending, JSON.stringify(lines()));
 
-await send('Ajoute 100 g de fromage blanc à ma collation.');
+await send('Ajoute 100 g de fromage blanc à ma collation.', { newThread: true });
 const b4Action = actionId;
 await act('confirm', b4Action);
 await send('Et mes protéines, on est où ?');
 check('B4 après confirm, question suivante sans nouvelle action fantôme', !lastPending, JSON.stringify(lines()));
 
-await send('Ajoute 2 tranches de pain de mie complet à mon petit-déjeuner.');
+await send('Ajoute 2 tranches de pain de mie complet à mon petit-déjeuner.', { newThread: true });
 await send('Pain de mie complet.');
 await send('Avec 10 g de beurre aussi.');
 const b5Lines = lines().join(' | ');
@@ -139,7 +140,7 @@ await act('cancel');
 
 /* ═══════════ C. ACTIONS (6) ═══════════ */
 
-await send('Ajoute mon déjeuner : 150 g de poulet grillé et 200 g de riz blanc.');
+await send('Ajoute mon déjeuner : 150 g de poulet grillé et 200 g de riz blanc.', { newThread: true });
 const c1Action = actionId;
 check('C1 repas complet préparé (2 lignes fiables)', lastPending && lines().length === 2 && /Poulet/i.test(lines().join('|')) && /Riz/i.test(lines().join('|')), JSON.stringify(lines()));
 const c1 = await act('confirm', c1Action);
@@ -147,12 +148,12 @@ check('C2 confirmation → écriture réelle', c1.ok && /ajouté/i.test(c1.messa
 const c2again = await act('confirm', c1Action);
 check('C3 anti-double-submit : re-confirm refusé', !c2again.ok, JSON.stringify(c2again));
 
-await send('Ajoute 1 pomme à mon petit-déjeuner.');
+await send('Ajoute 1 pomme à mon petit-déjeuner.', { newThread: true });
 const c4Action = actionId;
 const c4 = await act('cancel', c4Action);
 check('C4 annulation propre (rien écrit)', c4.ok && /annul/i.test(c4.message), JSON.stringify(c4));
 
-await send('Ajoute 2 kiwis à ma collation.');
+await send('Ajoute 2 kiwis à ma collation.', { newThread: true });
 const c5Action = actionId;
 await act('confirm', c5Action);
 const c5 = await act('undo', c5Action);
@@ -161,7 +162,7 @@ check('C5 undo valide après confirm', c5.ok, JSON.stringify(c5));
 // C6 — doublon déterministe : enregistrer 10 000 pas, PUIS re-demander
 // 10 000 pas : la seconde demande doit être refusée comme inutile (aucune
 // nouvelle action), pas proposée comme « correction » identique.
-await send('Note 10 000 pas pour aujourd\'hui.');
+await send('Note 10 000 pas pour aujourd\'hui.', { newThread: true });
 const c6a = lastPending;
 await act('confirm', c6a?.actionId);
 await send('Note 10 000 pas pour aujourd\'hui.');
@@ -178,7 +179,7 @@ const c7 = await fetch(`${BASE}/api/assistant/action`, {
 });
 check('C7 action falsifiée rejetée', c7.status === 400, `status=${c7.status}`);
 
-await send('Ajoute 30 g de flocons d\'avoine et 200 ml de lait demi-écrémé à mon petit-déjeuner.');
+await send('Ajoute 30 g de flocons d\'avoine et 200 ml de lait demi-écrémé à mon petit-déjeuner.', { newThread: true });
 await send('Lait écrémé plutôt.');
 const c8Lines = lines().join(' | ');
 check('C8 après clarifications : les 2 aliments fidèles, lait corrigé', lastPending && /Avoine|avoine/.test(c8Lines) && /écrémé/i.test(c8Lines) && !/demi/i.test(c8Lines), JSON.stringify(lines()));

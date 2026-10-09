@@ -1077,24 +1077,28 @@ async function buildJournalEntryPreview(
 			if (!qty) throw new ConvexError("Quantité invalide.");
 			const declared = (it.name || "").trim().slice(0, 80);
 			if (declared.length < 2) throw new ConvexError("Nom d'aliment trop court.");
-			const ref = await resolveRef(ctx, userId, {
+			let ref = await resolveRef(ctx, userId, {
 				foodId: it.foodId,
 				customFoodId: it.customFoodId,
 				ciqualLabel: it.ciqualLabel,
 			});
 			// V1 — identité vérifiée : l'identifiant fourni doit représenter
-			// l'aliment demandé (recouvrement de mots normalisés). Sinon REJET :
-			// pas de substitution silencieuse, le modèle doit relancer une
-			// recherche ou demander la clarification à l'utilisatrice.
+			// l'aliment demandé. Incohérent (référence du mauvais item, modèle
+			// qui confond deux items du même appel) → la référence est JETÉE et
+			// le nom déclaré est re-résolu par searchFoodInternal : le rapport
+			// reste « la demande » — jamais de substitution silencieuse entre
+			// fiches ; la résolution par nom reste guidée par la fidélité (fiche
+			// Covering uniquement), donc aucune substitution cachée ne passe.
+			let refMisnamed = false;
 			if (ref && !nameCovers(ref.name, ref.brand, declared)) {
-				throw new ConvexError(
-					`Référence incohérente : « ${declared} » ne correspond pas à la fiche « ${ref.name} ». Relance une recherche (searchFood) ou demande la clarification.`
-				);
+				ref = null;
+				refMisnamed = true;
 			}
 			let resolved: FoodRef | null = ref;
-			if (!resolved) {
-				// V1 — sans identifiant : recherche SERVEUR par le nom déclaré.
-				// Jamais une création « estimation IA » directe ici.
+			if (!resolved || refMisnamed) {
+				// V1 — sans identifiant OU référence incohérente jetée : recherche
+				// SERVEUR par le nom déclaré. Jamais une création « estimation
+				// IA » directe ici.
 				resolved = await searchFoodInternal(ctx, userId, declared);
 				if (!resolved) {
 					throw new ConvexError(

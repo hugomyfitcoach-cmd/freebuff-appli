@@ -64,10 +64,15 @@ test('Recherche : générique Ciqual prioritaire quand aucun produit OFF ne matc
 
 /* ════════ 2. Verrous serveur présents dans prepareJournalEntry ════════ */
 
-test('prepareJournalEntry : identité vérifiée — rejet si la fiche ne correspond pas au nom', () => {
-	assert.ok(/Référence incohérente/.test(tools), 'message de rejet incohérence référence↔nom');
+test('prepareJournalEntry : identité vérifiée — fiche incohérente jetée, re-résolution par nom', () => {
+	// Lot 2B : la référence incohérente n'est plus un throw sec (le modèle
+	// reformulait un texte sans action) — elle est JETÉE et searchFoodInternal
+	// re-résout le nom déclaré. La couverture reste obligatoire : la fiche
+	// retenue DOIT toujours couvrir le nom (refMismamed → throw fiable).
+	assert.ok(tools.includes('refMisnamed'), 'flag de référence jetée');
 	assert.ok(tools.includes('nameCovers(ref.name, ref.brand, declared)'), 'contrôle ref↔demande');
 	assert.ok(tools.includes('nameCovers(resolved.name, resolved.brand, declared)'), 'contrôle aussi après recherche serveur');
+	assert.ok(/Aucune fiche fiable/.test(tools), 'recherche re-cadrée : jamais de fiche hors demande');
 });
 
 test('prepareJournalEntry : création « estimation IA » directe SUPPRIMÉE', () => {
