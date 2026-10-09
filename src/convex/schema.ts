@@ -2,6 +2,33 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { answersValidator } from "./answers";
 
+/** Type d'écriture préparable par l'Assistant — liste FERMÉE (§14/§15).
+ *  Toute écriture objetif/coaching est IMPOSSIBLE : elle n'existe pas ici,
+ *  et le serveur refuse par ailleurs (défense en profondeur). */
+export const assistantActionType = v.union(
+	v.literal("journal_add"),
+	v.literal("journal_remove"),
+	v.literal("steps"),
+	v.literal("weight"),
+	v.literal("measurement"),
+	v.literal("coach_question")
+);
+
+/** Ligne de prévisualisation — construite par le SERVEUR (outil prepare*),
+ *  jamais rédigée par le modèle. `estimated` → affiché « ≈ / Estimation ». */
+export const assistantPreviewLine = v.object({
+	label: v.string(),
+	detail: v.optional(v.string()),
+	kcal: v.optional(v.number()),
+	carbs: v.optional(v.number()),
+	protein: v.optional(v.number()),
+	fat: v.optional(v.number()),
+	/** Quantité/valeur non certaine (§18) — jamais présentée pour certaine. */
+	estimated: v.optional(v.boolean()),
+	/** Provenance : user | product | portion | reference | ai. */
+	source: v.optional(v.string()),
+});
+
 /**
  * Schéma de la base Convex du suivi coaching G-Flux.
  *
@@ -1440,8 +1467,10 @@ export default defineSchema({
 	 * suivre la consommation. Table bornée par nature (un appel = une ligne).
 	 */
 	aiUsageLog: defineTable({
-		/** "label" (étiquette nutritionnelle) | "meal" (photo de repas). */
-		kind: v.union(v.literal("label"), v.literal("meal")),
+		/** "label" (étiquette nutritionnelle) | "meal" (photo de repas) |
+		 *  "assistant" (tour de conversation G-FLUX) — ajout ADDITIF : les lignes
+		 *  existantes restent valides, aucune donnée historique modifiée. */
+		kind: v.union(v.literal("label"), v.literal("meal"), v.literal("assistant")),
 		/** Modèle exact appelé (ex. "gpt-4o-mini"). */
 		model: v.string(),
 		inputTokens: v.optional(v.number()),
@@ -1456,6 +1485,108 @@ export default defineSchema({
 		failReason: v.optional(v.string()),
 		createdAt: v.number(),
 	}).index("by_kind", ["kind"]),
+
+	/* ══════════════ ASSISTANT G-FLUX V1 — tables ADDITIVES ══════════════
+	 * Preview isolée : AUCUNE table existante n'est modifiée, AUCUNE donnée
+	 * réelle n'est touchée. Mode V1 = `coaching_readonly` (§35) : seules les
+	 * saisies de la cliente passent par `assistantActions` (preview → clic
+	 * → écriture). Les objectifs/coaching restent STRICTEMENT en lecture.
+	 */
+
+	/** Fil de discussion Assistant (une cliente peut en avoir plusieurs). */
+	assistantThreads: defineTable({
+		userId: v.id("users"),
+		/** Sujet courant — mis à jour par le modèle via l'outil `setTopic`. */
+		topic: v.string(),
+		/** Titre court (premier message tronqué) — affiché dans l'historique. */
+		title: v.optional(v.string()),
+		lastMessageAt: v.number(),
+		createdAt: v.number(),
+	}).index("by_user_updated", ["userId", "lastMessageAt"]),
+
+	/** Messages Assistant — JAMAIS de chaîne de pensée stockée (§28). */
+	assistantMessages: defineTable({
+		userId: v.id("users"),
+		threadId: v.id("assistantThreads"),
+		topic: v.string(),
+		role: v.union(v.literal("user"), v.literal("assistant")),
+		content: v.string(),
+		/** "text" (modèle) | "safety" (filtre détresse) | "error" | "greeting". */
+		kind: v.optional(v.string()),
+		/** Action préparée attachée à ce message (prévisualisation à confirmer). */
+		actionId: v.optional(v.id("assistantActions")),
+		/** Métadonnées techniques minimales (modèle, outils appelés). */
+		toolCalls: v.optional(v.array(v.string())),
+		/** LOT 2B §9 — erreurs d'outil tracées (preview/diagnostic). */
+		toolErrors: v.optional(v.array(v.string())),
+		createdAt: v.number(),
+	}).index("by_thread_created", ["threadId", "createdAt"]).index("by_user", ["userId"]),
+
+	/**
+	 * ÉCRITURE PRÉPARÉE — aucune écriture silencieuse (§15/§16).
+	 * `payload` et `previousValue`/`newValue` sont du JSON SERVEUR sérialisé :
+	 * le client n'envoie QUE `actionId`, il ne peut donc rien falsifier.
+	 */
+	assistantActions: defineTable({
+		userId: v.id("users"),
+		threadId: v.id("assistantThreads"),
+		actionType: assistantActionType,
+		status: v.union(
+			v.literal("pending"),
+			v.literal("confirmed"),
+			v.literal("cancelled"),
+			v.literal("undone"),
+			v.literal("expired")
+		),
+		topic: v.string(),
+		/** Prévisualisation affichée (titres, lignes, totaux, mention Estimation). */
+		preview: v.object({
+			title: v.string(),
+			lines: v.array(assistantPreviewLine),
+			totals: v.optional(
+				v.object({ kcal: v.number(), carbs: v.number(), protein: v.number(), fat: v.number() })
+			),
+			notice: v.optional(v.string()),
+		}),
+		/** JSON serveur — exécution déterministe à la confirmation. */
+		payload: v.string(),
+		/** Avant/après pour Undo + audit (§17) — JSON serveur, jamais de CoT. */
+		previousValue: v.optional(v.string()),
+		newValue: v.optional(v.string()),
+		createdAt: v.number(),
+		expiresAt: v.number(),
+		resolvedAt: v.optional(v.number()),
+		/** Résultat lisible après exécution (« Ajouté au journal », ids créés…). */
+		result: v.optional(v.string()),
+	}).index("by_user_status", ["userId", "status"]).index("by_thread", ["threadId"]),
+
+	/** Questions de la cliente pour Hugo (§25/§26) — structure simple et additive. */
+	coachQuestions: defineTable({
+		userId: v.id("users"),
+		text: v.string(),
+		/** "bilan" = ajoutée au prochain bilan · "note" = simple note. */
+		destination: v.union(v.literal("bilan"), v.literal("note")),
+		status: v.union(v.literal("open"), v.literal("added"), v.literal("answered")),
+		/** Semaine de bilan visée (lundi ISO) quand destination = "bilan". */
+		weekStart: v.optional(v.string()),
+		threadId: v.optional(v.id("assistantThreads")),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	}).index("by_user", ["userId"]).index("by_user_status", ["userId", "status"]),
+
+	/** QUOTAS Assistant — 1 ligne par utilisateur et par jour UTC (§31/§32). */
+	assistantUsage: defineTable({
+		userId: v.id("users"),
+		/** Jour au format "yyyy-mm-dd" (UTC) — clé de quota. */
+		day: v.string(),
+		textCount: v.number(),
+		visionCount: v.number(),
+		/** Dernier envoi accepté — anti-rafale (`minIntervalMs`). */
+		lastSendAt: v.number(),
+		/** Envoi en cours — anti double-submit (1 requête active par fil). */
+		inFlightAt: v.optional(v.number()),
+		updatedAt: v.number(),
+	}).index("by_user_day", ["userId", "day"]),
 
 	/** Clé→valeur d'infrastructure (jamais de données métier). Version
 	 *  sémantique du backend : `appVersion = { key: 'api', version: '3' }`.

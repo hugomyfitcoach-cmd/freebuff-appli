@@ -7,6 +7,9 @@ import { normalizeEmail, hashPassword, localTodayISO } from "./helpers";
 // Seed DEMO Vision 360 (import STATIQUE : le bundler Convex ne garantit pas
 // la résolution des imports dynamiques relatifs dans le bundle fonctions).
 import { seedVision360DemoData } from "./previewSeedVision360";
+// Seed ASSISTANT (import STATIQUE — même règle que Vision 360) : cliente
+// fictive « Sophie Martin » pour tester les conversations de l'Assistant.
+import { seedAssistantDemoData, ASSISTANT_DEMO_EMAIL, ASSISTANT_DEMO_PASSWORD } from "./previewSeedAssistant";
 import {
 	GFLUX_OFFICIAL_EXERCISES,
 	GFLUX_OFFICIAL_SOURCE,
@@ -40,6 +43,8 @@ import { PREVIEW_OFF_PRODUCTS } from "./previewOffProducts";
  *  - coach de test  : preview-test-coach@example.com / PreviewCoach2026!
  *  - cliente bêta   : contact@myfit-coach.fr (allowlist IA) / PreviewBeta2026!
  *  - journal Ciqual : 2 entrées du jour (poitrine de poulet rôtie, riz basmati).
+ *  - cliente ASSISTANT : sophie.martin@example.com / PreviewSophie2026!
+ *    (3 semaines de poids/pas/journal/mensurations — conversations testables).
  *  - produits OFF de référence (foods) : un échantillon de PRODUITS EMBALLÉS
  *    réels Open Food Facts (voir previewOffProducts.ts) — sans lui, le Repas
  *    IA et la recherche produits ne peuvent JAMAIS trouver de produit de
@@ -389,6 +394,7 @@ async function seedCoreData(
 	vision360Demo: { ok: boolean; demoEmail: string; days: number } | { ok: false; error: string };
 	offProducts: { imported: number; created: number };
 	demoCustomFood: { created: boolean };
+	assistantDemo: { ok: boolean; demoEmail: string; demoPassword: string; entries: number; error?: string };
 }> {
 	// 1) Coach de test (fictif) — hash réappliqué à chaque seed (self-healing :
 	// le mot de passe documenté fonctionne toujours, même après N builds).
@@ -424,6 +430,15 @@ async function seedCoreData(
 	} else {
 		await db.patch(betaId, { passwordHash: betaHash });
 	}
+	// QUOTAS Assistant du compte bêta — re-seed = journée de test A NEUF.
+	// La batterie E2E (§9) tourne sur CE compte : sans reset, 50 échanges
+	// suffisent à épuiser le quota (échecs en cascade sur les builds réutilisés).
+	// Le quota n'est pas une donnée cliente (preview only, données fictives).
+	const betaUsageRows = await db
+		.query("assistantUsage")
+		.withIndex("by_user_day", (q) => q.eq("userId", betaId))
+		.collect();
+	for (const row of betaUsageRows) await db.delete(row._id);
 
 	// 3) Journal de test (Ciqual embarqué — snapshots serveur, idempotent)
 	const today = localTodayISO();
@@ -496,6 +511,28 @@ async function seedCoreData(
 		vision360Demo = { ok: false, error: e instanceof Error ? e.message : String(e) };
 	}
 
+	// 6 bis) Cliente ASSISTANT « Sophie Martin » (100 % fictive) — profil
+	//    réaliste pour tester les conversations, les récap et les prévisualisations
+	//    de saisie. Idempotent, verrou anti-prod, NON BLOQUANT comme Vision 360.
+	let assistantDemo: { ok: boolean; demoEmail: string; demoPassword: string; entries: number; error?: string } = {
+		ok: false,
+		demoEmail: ASSISTANT_DEMO_EMAIL,
+		demoPassword: ASSISTANT_DEMO_PASSWORD,
+		entries: 0,
+	};
+	try {
+		const r = await seedAssistantDemoData(db, coachId);
+		assistantDemo = { ok: r.ok, demoEmail: r.demoEmail, demoPassword: r.demoPassword, entries: r.entries };
+	} catch (e) {
+		assistantDemo = {
+			ok: false,
+			demoEmail: ASSISTANT_DEMO_EMAIL,
+			demoPassword: ASSISTANT_DEMO_PASSWORD,
+			entries: 0,
+			error: e instanceof Error ? e.message : String(e),
+		};
+	}
+
 	return {
 		coachEmail,
 		betaEmail,
@@ -509,6 +546,7 @@ async function seedCoreData(
 		vision360Demo,
 		offProducts,
 		demoCustomFood,
+		assistantDemo,
 	};
 }
 

@@ -22,6 +22,7 @@
 		badges = {},
 		profilePhotoUrl = null,
 		allowRendezVous = true,
+		assistantEnabled = false,
 	}: {
 		children: Snippet;
 		role: Role;
@@ -31,6 +32,13 @@
 		profilePhotoUrl?: string | null;
 		/** MODE AUTONOMIE : masque l'entrée « Rendez-vous » de la navigation cliente. */
 		allowRendezVous?: boolean;
+		/**
+		 * ASSISTANT G-FLUX (§2/§36) : affiche l'entrée « Assistant » (4e onglet).
+		 * La valeur vient du FLAG SERVEUR (layout /espace) — un simple flag
+		 * frontend ne suffit jamais pour la sécurité, mais ici il ne pilote
+		 * que l'AFFICHAGE : la page et les endpoints revérifient côté serveur.
+		 */
+		assistantEnabled?: boolean;
 		badges?: {
 			bilans?: number;
 			retours?: number;
@@ -288,6 +296,8 @@
 			? [
 					{ href: '/espace', label: 'Accueil', icon: 'home', badge: homeBadge },
 					{ href: '/espace/journal', label: 'Journal', icon: 'notebook' },
+					// ASSISTANT : 4e entrée (§2) — jamais à la place de Progression.
+					...(assistantEnabled ? [{ href: '/espace/assistant', label: 'Assistant', icon: 'messageCircle' }] : []),
 					{ href: '/espace/progression', label: 'Progression', icon: 'trendingUp', badge: menuBadges.progression ?? 0 },
 					{ href: '/espace/messages', label: 'Messages', icon: 'messageCircle', badge: menuBadges.message ?? 0 },
 					{ href: '/espace/historique', label: 'Bilans & retours', icon: 'clipboardCheck', badge: menuBadges.retours ?? 0 },
@@ -322,6 +332,9 @@
 			? ([
 					{ href: '/espace', label: 'Accueil', icon: 'home', badge: homeBadge },
 					{ href: '/espace/journal', label: 'Journal', icon: 'notebook' },
+					...(assistantEnabled
+						? [{ href: '/espace/assistant', label: 'Assistant', icon: 'messageCircle' }]
+						: []),
 					{ href: '/espace/progression', label: 'Progression', icon: 'trendingUp', badge: menuBadges.progression ?? 0 },
 				] as Link[])
 			: []
@@ -347,7 +360,7 @@
 	   - données : le cache SvelteKit n'a QU'UNE SEULE entrée — on précharge la
 	     destination la plus probable (l'onglet suivant dans la barre). Le tap
 	     lui-même déclenche aussi un préchargement ciblé (preload-data="tap"). */
-	const MAIN_TABS = ['/espace', '/espace/journal', '/espace/progression'] as const;
+	const MAIN_TABS = ['/espace', '/espace/journal', '/espace/assistant', '/espace/progression'] as const;
 	function warmTabs() {
 		const current = page.url.pathname;
 		const others = MAIN_TABS.filter((r) => r !== current);

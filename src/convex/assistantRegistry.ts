@@ -1,0 +1,519 @@
+/**
+ * REGISTRE D'OUTILS — Assistant G-FLUX V2 (Lot 2).
+ *
+ * SOURCE UNIQUE des outils exposés au modèle : chaque outil déclare son nom,
+ * sa description, son schéma d'entrée (JSON Schema OpenAI), son type et son
+ * exécuteur. Ajouter un outil = ajouter UNE entrée ici (+ son implémentation
+ * dans son module) — plus aucun switch transversal à modifier dans `send()`.
+ *
+ * Types (mission §8) :
+ *  - 'read'    : lecture de données autorisées (isolation userId de session) ;
+ *  - 'prepare' : PRÉPARATION d'écriture → pendingAction → clic « Enregistrer »
+ *                (le SEUL chemin d'écriture reste `resolveAction`, inchangé) ;
+ *  - 'meta'    : fonction interne autorisée (setTopic).
+ *
+ * GARDES (non négociables) :
+ *  - l'exécuteur reçoit `state.sessionToken` de la session authentifiée ;
+ *    l'identité et les droits sont résolus côté implémentation
+ *    (`requireAssistantClient`) — JAMAIS depuis un id passé par le modèle ;
+ *  - args VALIDÉS par les schémas Convex de l'implémentation (v.*) — le
+ *    registre borne en plus les entrées brutes (types/longueurs) ;
+ *  - un outil en échec renvoie { ok:false, reason } — jamais une invention ;
+ *  - aucun accès Convex générique au LLM : seule la liste fermée ici est
+ *    appelable.
+ */
+
+import { api } from "./_generated/api";
+import type { ActionCtx } from "./_generated/server";
+import { ciqualNames } from "./ciqualNames";
+
+/* §5 fidélité — mots outils sans valeur d'identité alimentaire (jamais pris
+ * comme preuve d'un aliment demandé). */
+const STOP_WORDS_FR = new Set(["sans", "avec", "pour", "dans", "plus", "tout", "toute", "toutes", "nature"]);
+/** Inventaire Ciqual exact — référence farbiquée du modèle = pas une fiche. */
+const ciqualNamesSet = new Set<string>(ciqualNames);
+
+/** Contexte d'exécution partagé d'un tour (muté par les outils meta). */
+export type ToolRunState = {
+	sessionToken: string | undefined;
+	threadId: string;
+	/** Sujet courant (muté par setTopic). */
+	topic: string;
+	/** Date locale du tour. */
+	today: string;
+	/**
+	 * §5 (fidélité préparations) — message UTILISATRICE du tour, pour le
+	 * contrôle serveur : la preview ne peut contenir QUE ce qui a été demandé
+	 * ici (jamais un aliment qui traîne d'un tour antérieur).
+	 */
+	userText: string;
+};
+
+export type AssistantToolKind = "read" | "prepare" | "meta";
+
+export type AssistantToolEntry = {
+	name: string;
+	kind: AssistantToolKind;
+	description: string;
+	parameters: Record<string, unknown>;
+	/** Exécuteur : reçoit l'ActionCtx, l'état du tour et les args validés côté implémentation. */
+	run: (ctx: ActionCtx, state: ToolRunState, args: Record<string, unknown>) => Promise<unknown>;
+};
+
+/** Schémas JSON partagés (identiques V1 — stabilité du prompt). */
+const DATE = { type: "string", description: "Date au format yyyy-mm-dd (aujourd'hui si omise)." };
+const REF = {
+	foodId: { type: "string", description: "foodId renvoyé par searchFood (base OFF G-FLUX)." },
+	customFoodId: { type: "string", description: "customFoodId renvoyé par searchFood (aliment de la cliente)." },
+	ciqualLabel: { type: "string", description: "ciqualLabel renvoyé par searchFood (référence Ciqual/ANSES)." },
+};
+
+/** Garde-fou générique : bornes des entrées texte/nombre avant implémentation. */
+function sanitize(args: Record<string, unknown>): Record<string, unknown> {
+	const out: Record<string, unknown> = {};
+	for (const [k, v] of Object.entries(args)) {
+		if (typeof v === "string") out[k] = v.slice(0, 4000);
+		else if (typeof v === "number" && Number.isFinite(v)) out[k] = v;
+		else if (typeof v === "boolean") out[k] = v;
+		else if (Array.isArray(v)) out[k] = v.slice(0, 12);
+		else if (v && typeof v === "object") out[k] = v; // validé par le schéma Convex ensuite
+	}
+	return out;
+}
+
+/* ═════════════════════════ Le registre ═════════════════════════ */
+
+export const ASSISTANT_REGISTRY: AssistantToolEntry[] = [
+	{
+		name: "setTopic",
+		kind: "meta",
+		description:
+			"Change le sujet de la conversation quand l'utilisatrice parle d'autre chose que la catégorie active (nutrition | weight_steps | recipes | checkin | coach_question).",
+		parameters: {
+			type: "object",
+			properties: { topic: { type: "string", enum: ["nutrition", "weight_steps", "recipes", "checkin", "coach_question"] } },
+			required: ["topic"],
+		},
+		run: async (_ctx, state, args) => {
+			const t = String(args.topic ?? "");
+			if (["nutrition", "weight_steps", "recipes", "checkin", "coach_question"].includes(t)) state.topic = t;
+			return { ok: true, topic: state.topic };
+		},
+	},
+	{
+		name: "getToday",
+		kind: "read",
+		description:
+			"Objectifs, calories déjà mangées, calories/restes restants, macros restantes, pas et poids du jour. CHIFFRES DÉTERMINISTES : appelle-les pour toute question chiffrée.",
+		parameters: { type: "object", properties: { date: DATE }, required: [] },
+		run: async (ctx, state, args) =>
+			await ctx.runQuery(api.assistantTools.getToday, {
+				sessionToken: state.sessionToken,
+				...(typeof args.date === "string" ? { date: args.date } : {}),
+			}),
+	},
+	{
+		name: "getPeriodRecap",
+		kind: "read",
+		description:
+			"Récap FACTUEL d'une journée ou de la semaine en cours (moyennes sur les jours enregistrés uniquement, couverture indiquée).",
+		parameters: {
+			type: "object",
+			properties: { period: { type: "string", enum: ["day", "week"] }, date: DATE },
+			required: ["period"],
+		},
+		run: async (ctx, state, args) =>
+			await ctx.runQuery(api.assistantTools.getPeriodRecap, {
+				sessionToken: state.sessionToken,
+				period: args.period === "week" ? ("week" as const) : ("day" as const),
+				...(typeof args.date === "string" ? { date: args.date } : {}),
+			}),
+	},
+	{
+		name: "getProfile",
+		kind: "read",
+		description:
+			"Profil de la cliente (prénom, taille, âge, mode coaching/autonomie). Aucune préférence alimentaire structurée n'existe encore — le champ est null, ne l'invente pas.",
+		parameters: { type: "object", properties: {}, required: [] },
+		run: async (ctx, state) =>
+			await ctx.runQuery(api.assistantRead.getProfile, { sessionToken: state.sessionToken }),
+	},
+	{
+		name: "getMeasurements",
+		kind: "read",
+		description:
+			"Historique récent poids + mensurations (cou, taille, hanches) et tendance poids déterministe. Pour toute analyse corporelle.",
+		parameters: { type: "object", properties: { limit: { type: "number" } }, required: [] },
+		run: async (ctx, state, args) =>
+			await ctx.runQuery(api.assistantRead.getMeasurements, {
+				sessionToken: state.sessionToken,
+				...(typeof args.limit === "number" ? { limit: args.limit } : {}),
+			}),
+	},
+	{
+		name: "getLastCheckin",
+		kind: "read",
+		description:
+			"Dernier bilan hebdomadaire : réponses de la cliente et RETOUR DU COACH (consigne officielle de Hugo — à distinguer de tes analyses).",
+		parameters: { type: "object", properties: {}, required: [] },
+		run: async (ctx, state) =>
+			await ctx.runQuery(api.assistantRead.getLastCheckin, { sessionToken: state.sessionToken }),
+	},
+	{
+		name: "getMealPlan",
+		kind: "read",
+		description:
+			"Plan alimentaire actif défini par le coach (nom, période, aperçu des repas). LECTURE SEULE : ne modifie jamais un plan.",
+		parameters: { type: "object", properties: {}, required: [] },
+		run: async (ctx, state) =>
+			await ctx.runQuery(api.assistantRead.getMealPlan, { sessionToken: state.sessionToken }),
+	},
+	{
+		name: "searchFood",
+		kind: "read",
+		description:
+			"Cherche un aliment dans la base G-FLUX (produits, aliments de la cliente, références Ciqual). Renvoie les identifiants à réutiliser.",
+		parameters: {
+			type: "object",
+			properties: { query: { type: "string", description: "Nom de l'aliment." }, limit: { type: "number" } },
+			required: ["query"],
+		},
+		run: async (ctx, state, args) =>
+			await ctx.runQuery(api.assistantTools.searchFood, {
+				sessionToken: state.sessionToken,
+				query: String(args.query ?? ""),
+				...(typeof args.limit === "number" ? { limit: args.limit } : {}),
+			}),
+	},
+	{
+		name: "getFoodReference",
+		kind: "read",
+		description: "Fiche nutritionnelle complète d'un aliment (valeurs /100 g, portion mémorisée, repères G-FLUX).",
+		parameters: { type: "object", properties: REF, required: [] },
+		run: async (ctx, state, args) =>
+			await ctx.runQuery(api.assistantTools.getFoodReference, {
+				sessionToken: state.sessionToken,
+				...(typeof args.foodId === "string" ? { foodId: args.foodId } : {}),
+				...(typeof args.customFoodId === "string" ? { customFoodId: args.customFoodId } : {}),
+				...(typeof args.ciqualLabel === "string" ? { ciqualLabel: args.ciqualLabel } : {}),
+			}),
+	},
+	{
+		name: "estimateFoodPortion",
+		kind: "read",
+		description:
+			"Proposition de portion pour un aliment (mémorisée > produit > repère G-FLUX). Renvoie mustEstimate=true quand il faut afficher « ≈ Estimation ».",
+		parameters: { type: "object", properties: { name: { type: "string" }, ...REF }, required: ["name"] },
+		run: async (ctx, state, args) =>
+			await ctx.runQuery(api.assistantTools.estimateFoodPortion, {
+				sessionToken: state.sessionToken,
+				name: String(args.name ?? ""),
+				...(typeof args.foodId === "string" ? { foodId: args.foodId } : {}),
+				...(typeof args.customFoodId === "string" ? { customFoodId: args.customFoodId } : {}),
+				...(typeof args.ciqualLabel === "string" ? { ciqualLabel: args.ciqualLabel } : {}),
+			}),
+	},
+	{
+		name: "searchRecipes",
+		kind: "read",
+		description: "Cherche une recette du guide G-FLUX (filtre kcal max possible).",
+		parameters: {
+			type: "object",
+			properties: { query: { type: "string" }, maxKcal: { type: "number" }, limit: { type: "number" } },
+			required: [],
+		},
+		run: async (ctx, state, args) =>
+			await ctx.runQuery(api.assistantTools.searchRecipes, {
+				sessionToken: state.sessionToken,
+				query: typeof args.query === "string" ? args.query : "",
+				...(typeof args.maxKcal === "number" ? { maxKcal: args.maxKcal } : {}),
+			}),
+	},
+	{
+		name: "getJournalEntries",
+		kind: "read",
+		description: "Liste les aliments déjà présents dans le journal d'une date (pour corriger ou retirer).",
+		parameters: { type: "object", properties: { date: DATE }, required: [] },
+		run: async (ctx, state, args) =>
+			await ctx.runQuery(api.assistantTools.getJournalEntries, {
+				sessionToken: state.sessionToken,
+				...(typeof args.date === "string" ? { date: args.date } : {}),
+			}),
+	},
+	{
+		name: "prepareJournalEntry",
+		kind: "prepare",
+		description:
+			"PRÉPARE l'ajout d'aliments au journal : renvoie une PREVIEW à montrer à l'utilisateur. Écriture UNIQUEMENT après son clic « Enregistrer ». RÈGLE DE FIDÉLITÉ : les items sont EXACTEMENT ceux demandés par l'utilisatrice — n'ajoute jamais un aliment non demandé, ne substitue jamais une autre référence ; quantités conservées telles qu'écrites.",
+		parameters: {
+			type: "object",
+			properties: {
+				date: DATE,
+				meal: { type: "string", enum: ["petit-dej", "dejeuner", "diner", "collation"] },
+				items: {
+					type: "array",
+					items: {
+						type: "object",
+						properties: {
+							...REF,
+							name: { type: "string" },
+							qtyGrams: { type: "number" },
+							estimated: { type: "boolean", description: "true si la quantité n'était pas donnée clairement." },
+						},
+						required: ["name", "qtyGrams"],
+					},
+				},
+			},
+			required: ["meal", "items"],
+		},
+		run: async (ctx, state, args) => {
+			// LOT 2B (B1/B2/B5 batterie) — DÉTOUR UPDATE : si une action
+			// journal_add est DÉJÀ en attente sur ce fil et que la demande du
+			// tour est courte (clarification : « en fait 4 œufs », « avec du
+			// curcuma ? », « aussi 10 g de beurre »), le modèle appelle parfois
+			// prepareJournalEntry avec LE SEUL aliment cité — la preview
+			// résultante écraserait la tâche (3 aliments → 1). Le serveur refuse
+			// et renvoie l'instruction update : les lignes existantes sont
+			// conservées par la mutation atomique.
+			const askLen = (state.userText ?? "").trim().split(/\s+/).filter(Boolean).length;
+			if (askLen <= 12) {
+				try {
+					const open = (await ctx.runQuery(api.assistantTools.latestPendingJournalAdd, {
+						sessionToken: state.sessionToken,
+						threadId: state.threadId,
+					})) as { actionId: string } | null;
+					if (open) {
+						return {
+							ok: false as const,
+							reason: "Une prévisualisation est DÉJÀ en attente sur ce fil : appelle updateJournalEntry (seuls les aliments concernés) au lieu de préparer une nouvelle action — les lignes déjà préparées seraient perdues.",
+						};
+					}
+				} catch {
+					/* état indisponible → chemin normal */
+				}
+			}
+			// §5 — FIDÉLITÉ (filet serveur, jamais le prompt) : les items qui
+			// ne recouvrent AUCUNE demande du message courant sont SUPPRIMÉS
+			// (invention / aliment hérité d'un tour antérieur). « 4 œufs »
+			// recouvre jour Bitte 3 œufs ; « fruit de la passion » ne
+			// recouvre rien → retiré avant toute écriture.
+			const ask = state.userText ?? "";
+			const rawItems = Array.isArray(args.items) ? args.items : [];
+			const items: Record<string, unknown>[] = rawItems.filter((it: unknown) => {
+				const rec = it as { name?: unknown };
+				const name = typeof rec.name === "string" ? rec.name : "";
+				const toks = name.split(/[\s'-]+/).filter((w) => w.length >= 3 && !STOP_WORDS_FR.has(w.toLowerCase()));
+				const normToks = toks.map((w) => w.toLowerCase().replace(/[^a-zàâçéèêëîïôûùüÿñæœ']/g, ""));
+				const askNorm = ask.toLowerCase();
+				// Au moins UN mot significatif de l'item recouvre la demande :
+				// une invention totale (aliment jamais mentionné) n'en partage
+				// aucun ; l'item Ciqual légitime porte souvent des descripteurs
+				// régionaux/préparation absents de la demande (« chair sans
+				// peau », « grillé/poêlé ») qui ne doivent PAS le bloquer.
+				if (normToks.length === 0) return true;
+				return normToks.some((t) =>
+					askNorm
+						.split(/[^a-zàâçéèêëîïôûùüÿñæœ']+/)
+						.some((w) => w.length >= 3 && (w.startsWith(t.slice(0, Math.max(3, t.length - 1))) || t.startsWith(w.slice(0, Math.max(3, w.length - 1)))))
+				);
+			});
+			if (items.length === 0) {
+				return {
+					ok: false as const,
+					reason: "Aucun aliment demandé identifiable dans le message — redemande la clarification à l'utilisatrice (ne prépare RIEN).",
+				};
+			}
+			// AUSSI : les valeurs nutritionnelles récitées par le modèle
+			// (kcal100/carbs100/prot/fat « estimés ») sont TOUJOURS retirées —
+			// le serveur calcule depuis les références réelles (§7), le modèle
+			// ne fournit JAMAIS de valeur nutritionnelle.
+			for (const it of items) {
+				for (const k of ["aiKcal100", "aiCarbs100", "aiProtein100", "aiFat100", "kcal100", "carbs100", "protein100", "fat100", "kcal", "carbs", "protein", "fat"] as const) {
+					delete it[k];
+				}
+			}
+			if (items.length < rawItems.length) {
+				if (rawItems.length > items.length) {
+					console?.log?.(`[assistant] fidélité : ${rawItems.length}→${items.length} items (hors demande)`);
+				}
+			}
+			// §9 (batterie) — RÉPARATION de references incohérentes : un
+			// ciqualLabel fabriqué par le modèle excède l'inventaire réel →
+			// on RETIRE la référence ficitive et laisse le pipeline résoudre
+			// par nom (jamais la substitution silencieuse).
+			for (const it of items) {
+				const label = it.ciqualLabel;
+				if (typeof label === "string" && !ciqualNamesSet.has(label)) {
+					delete it.ciqualLabel;
+				}
+				for (const k of ["foodId", "customFoodId"] as const) {
+					if (typeof it[k] === "string" && !/^[a-zA-Z0-9_-]{10,}$/.test(it[k] as string)) delete it[k];
+				}
+			}
+			const res = (await ctx.runMutation(api.assistantTools.prepareJournalEntry, {
+				sessionToken: state.sessionToken,
+				threadId: state.threadId,
+				topic: state.topic,
+				date: typeof args.date === "string" ? args.date : state.today,
+				meal: String(args.meal ?? "diner"),
+				items: items as never,
+			})) as { actionId: string; preview: unknown };
+			return {
+				ok: true,
+				actionId: res.actionId,
+				preview: res.preview,
+				note: "Prévisualisation créée : présente-la telle quelle (lignes vérifiées par le serveur) et invite au clic « Enregistrer ».",
+			};
+		},
+	},
+	{
+		name: "updateJournalEntry",
+		kind: "prepare",
+		description:
+			"MET À JOUR la prévisualisation d'ajout EN ATTENTE après une précision de l'utilisatrice (« pain de mie complet », « en fait 3 tranches »). Utilise-le au lieu de prepareJournalEntry quand une action vient d'être préparée : seuls les aliments concernés sont passés — les autres lignes et quantités déjà confirmées sont CONSERVÉES par le serveur. Sans qtyGrams, la quantité existante de la ligne remplacée est réutilisée.",
+		parameters: {
+			type: "object",
+			properties: {
+				items: {
+					type: "array",
+					items: {
+						type: "object",
+						properties: {
+							...REF,
+							name: { type: "string" },
+							qtyGrams: { type: "number", description: "Optionnel : absent = conserver la quantité déjà préparée." },
+							estimated: { type: "boolean" },
+						},
+						required: ["name"],
+					},
+				},
+			},
+			required: ["items"],
+		},
+		run: async (ctx, state, args) => {
+			const res = (await ctx.runMutation(api.assistantTools.updatePendingJournalEntry, {
+				sessionToken: state.sessionToken,
+				threadId: state.threadId,
+				topic: state.topic,
+				items: (args.items ?? []) as never,
+			})) as { ok: boolean; actionId: string; preview: unknown };
+			return {
+				ok: true,
+				actionId: res.actionId,
+				preview: res.preview,
+				note: "Prévisualisation MISE À JOUR : présente-la telle quelle et invite au clic « Enregistrer » (l'ancienne version est remplacée).",
+			};
+		},
+	},
+	{
+		name: "prepareJournalRemoval",
+		kind: "prepare",
+		description: "PRÉPARE le retrait d'aliments du journal (entryIds de getJournalEntries) — preview puis clic.",
+		parameters: {
+			type: "object",
+			properties: { entryIds: { type: "array", items: { type: "string" } } },
+			required: ["entryIds"],
+		},
+		run: async (ctx, state, args) => {
+			const res = (await ctx.runMutation(api.assistantTools.prepareJournalRemoval, {
+				sessionToken: state.sessionToken,
+				threadId: state.threadId,
+				topic: state.topic,
+				entryIds: (args.entryIds ?? []) as string[],
+			})) as { actionId: string; preview: unknown };
+			return { ok: true, actionId: res.actionId, preview: res.preview };
+		},
+	},
+	{
+		name: "prepareMeasurement",
+		kind: "prepare",
+		description: "PRÉPARE une saisie de poids, de pas ou de mensurations — preview puis clic « Enregistrer ».",
+		parameters: {
+			type: "object",
+			properties: {
+				kind: { type: "string", enum: ["weight", "steps", "measurement"] },
+				date: DATE,
+				weightKg: { type: "number" },
+				count: { type: "number", description: "Nombre de pas (entier)." },
+				neckCm: { type: "number" },
+				waistCm: { type: "number" },
+				hipCm: { type: "number" },
+			},
+			required: ["kind"],
+		},
+		run: async (ctx, state, args) => {
+			const res = (await ctx.runMutation(api.assistantTools.prepareMeasurement, {
+				sessionToken: state.sessionToken,
+				threadId: state.threadId,
+				topic: state.topic,
+				kind: (typeof args.kind === "string" && ["weight", "steps", "measurement"].includes(args.kind)
+					? args.kind
+					: "weight") as "weight" | "steps" | "measurement",
+				date: typeof args.date === "string" ? args.date : state.today,
+				...(typeof args.weightKg === "number" ? { weightKg: args.weightKg } : {}),
+				...(typeof args.count === "number" ? { count: args.count } : {}),
+				...(typeof args.neckCm === "number" ? { neckCm: args.neckCm } : {}),
+				...(typeof args.waistCm === "number" ? { waistCm: args.waistCm } : {}),
+				...(typeof args.hipCm === "number" ? { hipCm: args.hipCm } : {}),
+			})) as { actionId: string; preview: unknown; duplicate?: boolean; count?: number; date?: string };
+			// LOT 2B (Bug 6) — doublon : la valeur est DÉJÀ enregistrée.
+			// Aucune action en attente : on informe, on n'écrit pas.
+			if (res.duplicate) {
+				return {
+					ok: true,
+					duplicate: true,
+					note: `Déjà enregistré : ${String(res.count)} pour le ${res.date}. Aucune modification nécessaire — dis-le simplement à l'utilisatrice, NE prépare PAS d'écriture et NE propose PAS d'enregistrer à nouveau.`,
+				};
+			}
+			return { ok: true, actionId: res.actionId, preview: res.preview };
+		},
+	},
+	{
+		name: "prepareCoachQuestion",
+		kind: "prepare",
+		description:
+			"PRÉPARE une question/note pour Hugo (destination bilan ou note simple) — preview puis clic. À utiliser quand une décision de coaching est nécessaire.",
+		parameters: {
+			type: "object",
+			properties: {
+				text: { type: "string" },
+				destination: { type: "string", enum: ["bilan", "note"] },
+			},
+			required: ["text", "destination"],
+		},
+		run: async (ctx, state, args) => {
+			const res = (await ctx.runMutation(api.assistantTools.prepareCoachQuestion, {
+				sessionToken: state.sessionToken,
+				threadId: state.threadId,
+				topic: state.topic,
+				text: String(args.text ?? ""),
+				destination: args.destination === "bilan" ? ("bilan" as const) : ("note" as const),
+			})) as { actionId: string; preview: unknown };
+			return { ok: true, actionId: res.actionId, preview: res.preview };
+		},
+	},
+];
+
+/** Définitions OpenAI (tools) dérivées du registre — pour `runAssistantTurn`. */
+export function registryToolDefs(): { type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } }[] {
+	return ASSISTANT_REGISTRY.map((t) => ({
+		type: "function" as const,
+		function: { name: t.name, description: t.description, parameters: t.parameters },
+	}));
+}
+
+/** Dispatch : l'outil inconnu ne lève jamais — il renvoie un refus propre. */
+export async function dispatchTool(
+	ctx: ActionCtx,
+	name: string,
+	rawArgs: Record<string, unknown>,
+	state: ToolRunState
+): Promise<unknown> {
+	const entry = ASSISTANT_REGISTRY.find((t) => t.name === name);
+	if (!entry) return { ok: false, reason: `Outil inconnu : ${name}` };
+	try {
+		return await entry.run(ctx, state, sanitize(rawArgs));
+	} catch (e) {
+		return { ok: false, reason: e instanceof Error ? e.message.slice(0, 200) : "error" };
+	}
+}
