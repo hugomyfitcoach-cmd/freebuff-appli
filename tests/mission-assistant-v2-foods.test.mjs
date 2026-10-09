@@ -150,5 +150,5 @@ test('Filet « annonce sans outil » : relance bornée si preview annoncée sans
 	// Lot 2B (C1) : relance prepare = 2 rounds bornés (1er appel d'outil peut
 	// échouer sur un ID fabriqué ; le round suivant appelle correctement).
 	assert.ok(/maxRounds: retryKind === "prepare" \? 2 : 1/.test(assistant), 'relance bornée (2 rounds prepare, 1 lecture)');
-	assert.ok(/Appelle MAINTENANT l'outil prepare\*/.test(assistant), 'relance exige l’appel d’outil');
+	assert.ok(/Appelle MAINTENANT l'outil prepareJournalEntry/.test(assistant), 'relance exige l’appel explicite d’outil');
 });

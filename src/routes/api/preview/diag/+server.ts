@@ -54,10 +54,12 @@ export const GET = async () => {
 		.catch((e) => ({ latestPendingJournalAdd: !/unknown|does not exist/i.test(errMsg(e)), error: errMsg(e) }));
 	// §9 batterie — dernières erreurs d'outil tracées (échecs d'outils avalés
 	// par le registre pendant les tours IA). Vide si aucune erreur récente.
-	const toolErrors = await convex
+	const toolTrace = await convex
 		.query(api.previewDiag.recentToolErrors, {})
-		.then((r: unknown) => (r as { errors?: unknown }).errors ?? [])
-		.catch(() => [] as unknown[]);
+		.then((r: unknown) => r as { errors?: unknown; recentCalls?: unknown })
+		.catch(() => ({ errors: [], recentCalls: [] }));
+	const toolErrors = toolTrace.errors ?? [];
+	const recentCalls = toolTrace.recentCalls ?? [];
 	return json({
 		enabled: true,
 		convexUrl: url,
@@ -66,6 +68,7 @@ export const GET = async () => {
 		ai,
 		lot2b,
 		toolErrors,
+		recentCalls,
 	});
 };
 

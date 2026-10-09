@@ -21,6 +21,15 @@ export const recentToolErrors = query({
 			if (errors.length >= 30) break;
 			if (rows.length > 600 && errors.length === 0 && r.createdAt < Date.now() - 3600_000) break;
 		}
-		return { errors };
+		const recentCalls: { messageAt: number; tools: string[]; pendingAction: boolean }[] = [];
+		for (const r of rows) {
+			if (r.role !== "assistant" || recentCalls.length >= 20) continue;
+			recentCalls.push({
+				messageAt: r.createdAt,
+				tools: (r.toolCalls ?? []).slice(0, 8),
+				pendingAction: !!r.actionId,
+			});
+		}
+		return { errors, recentCalls };
 	},
 });
