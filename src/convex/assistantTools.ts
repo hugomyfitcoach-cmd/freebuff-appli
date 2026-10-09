@@ -137,7 +137,21 @@ export function nameCovers(refName: string, refBrand: string | undefined, declar
  * produit exact, marque incluse.
  */
 export function genericCiqualFirst(term: string): FoodRef | null {
-	const hits = searchCiqualLocal(term);
+	// « fruit de la passion de Tahiti » : searchCiqualLocal exige un mot-ALIMENT
+	// en ancre (« fruit » ⊑ « Jus de fruit de la passion ») ; « de Tahiti »
+	// n est pas un jeu de mots alimentaires et les VERBES d'origine sont
+	// ignorés. Un premier essai sans résultat → réessai sur la DEMANDE
+	// tronquée aux 3 premiers mots significatifs (noms d'aliment au début).
+	let hits = searchCiqualLocal(term);
+	if (hits.length === 0) {
+		const short = tokenize(term).slice(0, 3).join(" ");
+		if (short && short !== term.toLowerCase()) hits = searchCiqualLocal(short);
+		// Dernier essai : 2 mots (double mot composé « fruit passion »).
+		if (hits.length === 0) {
+			const shorter = tokenize(term).slice(0, 2).join(" ");
+			if (shorter && shorter !== short) hits = searchCiqualLocal(shorter);
+		}
+	}
 	const termNorm = norm(term);
 	for (const hit of hits) {
 		if (!nameCovers(hit.label, undefined, term)) continue;
