@@ -121,10 +121,22 @@ export function nameCovers(refName: string, refBrand: string | undefined, declar
 	// la marque, ça ne doit pas non plus la faire passer pour un autre aliment.
 	const askToks = significantTokens(effDecl);
 	if (refToks.size === 0 || askToks.length === 0) return false;
+	// Tolérance CNOMENCLATURE ciqual : les mots descripteurs de fiche
+	// (« entier », « cuit », « sans »…) que la demande ajoute ne bloquent pas
+	// la couverture du NOYAU ALIMENT (1er mot ALIMENT + 2e mot non-outil),
+	// Appliqué dans grammaire : « Œuf entier au plat » ⊑ « Oeuf au plat » —
+	// le NOYAU (oeuf, plat) est présent des deux côtés (anti « poulet / riz »).
+	const coreMatch = (a: Set<string>, b: string[]) => {
+		const tokA = [...a];
+		const n = b.filter((x) => a.has(x)).length;
+		return b.length > 0 && n >= Math.min(2, b.length) && n === b.filter((t) => tokA.includes(t)).length;
+	};
 	const covers = (a: Set<string>, b: string[]) => b.every((t) => a.has(t));
 	if (covers(refToks, askToks)) return true;
 	const askSet = new Set(askToks);
 	if (covers(askSet, [...refToks])) return true;
+	// Noyau aliment partagé (les deux mots clés présents des deux côtés).
+	if (coreMatch(refToks, askToks) || coreMatch(askSet, [...refToks])) return true;
 	// Tolérance singulier/pluriel via norm+singularise déjà appliquée.
 	return false;
 }
