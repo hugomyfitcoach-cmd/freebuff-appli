@@ -127,6 +127,13 @@ export type ScanDebugInfo = {
 	zxingHardMs: number;
 	/** Stratégie actuellement active pour la passe profonde. */
 	thStrategy: 'fixed-1of4' | 'adaptive-boost' | 'adaptive-cooldown' | 'native';
+	/* — Mission V3.5 : expérimentation recadrage serré (Preview opt-in) — */
+	/** Expérimentation recadrage serré active (?scannerCrop=tight, Preview). */
+	cropExperiment: boolean;
+	/** Nombre de frames passées avec la passe « bande serrée » V3.5. */
+	tightFrames: number;
+	/** Durée CUMULÉE (ms) de la passe « bande serrée » V3.5. */
+	tightMs: number;
 };
 
 export type BarcodeScannerHandle = {
@@ -141,6 +148,13 @@ export type BarcodeScannerHandle = {
 	 *  délais — uniquement des mesures techniques, aucune image, aucun envoi
 	 *  réseau. Affichée par la pastille debug (?scannerDebug=1, hors prod). */
 	debugInfo: () => ScanDebugInfo;
+	/** Mission V3.5 — capture de frame brute DIAGNOSTIC : présente UNIQUEMENT
+	 *  si ?scannerDebug=1&scannerFrameDump=1 ET le garde Preview. Retourne un
+	 *  PNG dataURL de la dernière frame décodée. DÉSACTIVÉ PAR DÉFAUT : jamais
+	 *  d'appel automatique, jamais d'envoi réseau, jamais de stockage — le
+	 *  seul usage est un téléchargement manuel déclenché par l'utilisatrice
+	 *  (tap sur la pastille) pour l'analyse locale d'une frame réelle. */
+	captureLastFrame?: () => string | null;
 };
 
 /** Capacités utiles du track caméra (lampe/zoom), si supportées. */
@@ -476,9 +490,11 @@ export async function startBarcodeScanner(
 				resources: scannerResourceProbe(),
 				zxingLightFrames: 0,
 				zxingHardFrames: 0,
-				zxingHardMs: 0,
-				thStrategy: 'fixed-1of4' as const,
-			}),
+				zxingHardMs: 0,					thStrategy: 'fixed-1of4' as const,
+					cropExperiment: false,
+					tightFrames: 0,
+					tightMs: 0,
+				}),
 			toggleTorch: async () => false,
 			hasTorch: () => false,
 			zoom: async () => false,
@@ -661,6 +677,8 @@ export async function startBarcodeScanner(
 	let debugEl: HTMLDivElement | null = null;
 	const debugEnabled =
 		__SCANNER_EXPERIMENT__ && new URLSearchParams(window.location.search).get('scannerDebug') === '1';
+	const frameDumpEnabled =
+		__SCANNER_EXPERIMENT__ && debugEnabled && new URLSearchParams(window.location.search).get('scannerFrameDump') === '1';
 	if (debugEnabled) {
 		debugEl = document.createElement('div');
 		Object.assign(debugEl.style, {
@@ -678,8 +696,26 @@ export async function startBarcodeScanner(
 			zIndex: '5',
 		} as Partial<CSSStyleDeclaration>);
 		guide.append(debugEl);
+		if (frameDumpEnabled) {
+			debugEl.title = 'Tap : télécharger la dernière frame (diagnostic local)';
+			debugEl.addEventListener('click', () => {
+				if (!lastFrameDataUrl) return;
+				const a = document.createElement('a');
+				a.href = lastFrameDataUrl;
+				a.download = `gflux-frame-${Date.now()}.png`;
+				a.click();
+			});
+		}
 	}
 	container.append(video, guide);
+
+	/* Mission V3.5 — capture de frame brute, TEMPORAIRE et opt-in explicite :
+	 * ?scannerDebug=1&scannerFrameDump=1 ET garde de build Preview. Quand
+	 * actif, un TAP sur la pastille télécharge la dernière frame décodée
+	 * (PNG local, via <a download>) : aucun envoi réseau, aucun stockage
+	 * automatique, aucune image conservée au-delà de la frame courante.
+	 * Désactivé par défaut en production et en usage normal. */
+	let lastFrameDataUrl: string | null = null;
 
 	// -- Feedback visuel « code lu » : le cadre passe franchement au vert ------
 	// (lueur + coins verts) pendant GREEN_FLASH_MS. Déclenché au même moment
@@ -741,8 +777,24 @@ export async function startBarcodeScanner(
 
 	// — Mission V3.4 : état de la stratégie TRY_HARDER adaptative (ZXing) —
 	/** Stratégie RUNTIME selected (résolue au démarrage). */
+	/** V3.5 — bande serrée : état actif + compteurs de coût. */
+	let tightFrames = 0;
+	let tightMs = 0;
+	const cropExperiment =
+		__SCANNER_EXPERIMENT__ &&
+		typeof window !== 'undefined' &&
+		new URLSearchParams(window.location.search).get('scannerCrop') === 'tight';
 	const thStrategy: 'fixed-1of4' | 'adaptive-boost' | 'adaptive-cooldown' | 'native' =
 		resolveScanModeThStrategy();
+	/* — Mission V3.5 : passe « bande serrée » (expérimentation, Preview opt-in) —
+	 * Démonstration tools/probe-strategies-v2.mts sur IMG_2243 (13 h 21) : le
+	 * crop serré du bandeau du code (×1, SANS upscale, ~8 px/module) + TH est
+	 * la SEULE stratégie qui décode 3038352875035 à distance — les passes
+	 * plein cadre et le crop app ×2 échouent. Ici : recadrage horizontal fixe
+	 * (60 % de largeur × 18 % de hauteur centrés sur le cadre guide), ×1,
+	 * TH forcé — exécuté sur les frames où la passe TH ne tourne pas.
+	 * RÉVERSIBLE : activé UNIQUEMENT par ?scannerCrop=tight ET le garde de
+	 * build __SCANNER_EXPERIMENT__ (Preview). Défaut inchangé sinon. */
 	/** Nombre de frames consécutives SANS lecture (tous moteurs). */
 	let consecutiveNoRead = 0;
 	/** Nombre de frames ZXing passées EN MODE TH (compteur de budget). */
@@ -775,6 +827,7 @@ export async function startBarcodeScanner(
 
 	/** Décide de la stratégie active au DÉMARRAGE du scan (mission V3.4). */
 	function resolveScanModeThStrategy(): 'fixed-1of4' | 'adaptive-boost' | 'adaptive-cooldown' | 'native' {
+	/* eslint-disable-next-line */
 		const native = typeof window !== 'undefined' && (window as unknown as { BarcodeDetector?: unknown }).BarcodeDetector != null;
 		if (native) return 'native';
 		// Parade expérimentale Preview : ?scannerTH=boost | ?scannerTH=cooldown
@@ -806,6 +859,16 @@ export async function startBarcodeScanner(
 		if (!zxingMod || !vw || !vh) return null;
 	try {
 		ctx.drawImage(video, 0, 0, vw, vh);
+		/* V3.5 — frame dump DIAGNOSTIC (opt-in explicite, Preview) : on garde la
+		 * dernière frame pour un téléchargement MANUEL (tap pastille). Aucun
+		 * envoi réseau, aucun stockage ; écrasée à chaque frame. */
+		if (frameDumpEnabled) {
+			try {
+				lastFrameDataUrl = canvas.toDataURL('image/png');
+			} catch {
+				lastFrameDataUrl = null;
+			}
+		}
 		const source = new zxingMod.HTMLCanvasElementLuminanceSource(canvas);
 		const hints = new Map<number, unknown>();
 		hints.set(zxingMod.DecodeHintType.POSSIBLE_FORMATS, [
@@ -867,6 +930,31 @@ export async function startBarcodeScanner(
 		//                       on limite la charge CPU sans abandonner)
 		// Native (BarcodeDetector) : TH est sans objet — ce chemin n'est jamais
 		// exécuté si un détecteur natif est présent (voir if ci-dessus).
+		/* V3.5 — passe « bande serrée » : sur les frames SANS passe TH, on tente
+		   le recadrage horizontal serré ×1 + TH (démonstration IMG_2243). */
+		if (cropExperiment && !shouldTryHarder()) {
+			const tTight0 = performance.now();
+			try {
+				const tw = Math.round(vw * 0.6);
+				const th = Math.round(vh * 0.18);
+				const tx = Math.round((vw - tw) / 2);
+				const ty = Math.max(0, Math.round((vh * (FRAME_TOP_PCT + FRAME_HEIGHT_PCT / 2)) / 100 - th / 2));
+				cropCanvas.width = tw;
+				cropCanvas.height = th;
+				cropCtx?.drawImage(canvas, tx, ty, tw, th, 0, 0, tw, th);
+				hints.set(zxingMod.DecodeHintType.TRY_HARDER, true);
+				const tightReader = new zxingMod.MultiFormatReader(false, hints);
+				const tightBitmap = new zxingMod.BinaryBitmap(new zxingMod.HybridBinarizer(new zxingMod.HTMLCanvasElementLuminanceSource(cropCanvas)));
+				const tightResult = tightReader.decode(tightBitmap);
+				tightMs += performance.now() - tTight0;
+				tightFrames++;
+				if (tightResult?.text) return tightResult.text;
+			} catch {
+				tightMs += performance.now() - tTight0;
+				tightFrames++;
+				// NotFoundException sur la bande serrée — la passe TH classique reste.
+			}
+		}
 		const doHardPass = shouldTryHarder();
 		if (!doHardPass) return null;
 		hints.set(zxingMod.DecodeHintType.TRY_HARDER, true);
@@ -987,7 +1075,7 @@ export async function startBarcodeScanner(
 			debugEl.textContent =
 				`mode ${d.mode} · ${d.engine} · th=${d.thStrategy}\n` +
 				`track ${d.trackResolution.width}×${d.trackResolution.height} · video ${d.videoResolution.width}×${d.videoResolution.height}\n` +
-				`fps ≈ ${d.detectFps.toFixed(1)} · zoom ${d.zoom ?? 'n/a'} · ${d.zxingLightFrames}L/${d.zxingHardFrames}H (${d.zxingHardMs.toFixed(0)} ms TH cum)\n` +
+				`fps ≈ ${d.detectFps.toFixed(1)} · zoom ${d.zoom ?? 'n/a'} · ${d.zxingLightFrames}L/${d.zxingHardFrames}H (${d.zxingHardMs.toFixed(0)} ms TH cum)${d.cropExperiment ? ` · tight ${d.tightFrames}p (${d.tightMs.toFixed(0)} ms)` : ''}\n` +
 				`1re lecture ${d.msSinceFirstFrame ?? '—'} ms (session ${d.msToFirstValid ?? '—'}) · confirm ${d.msValidToConfirm ?? '—'} ms\n` +
 				`sessions ${d.resources.sessionsAlive}/${d.resources.sessionsStarted} · streams ${d.resources.cameraStreamsOpen} · maxLoops ${d.resources.maxConcurrentLoops}` +
 				(d.lastError ? `\nerr: ${d.lastError}` : '');
@@ -1074,6 +1162,9 @@ export async function startBarcodeScanner(
 			zxingHardFrames: hardFrames,
 			zxingHardMs: hardMsTotal,
 			thStrategy,
+			cropExperiment,
+			tightFrames,
+			tightMs,
 		};
 	}
 
@@ -1095,6 +1186,7 @@ export async function startBarcodeScanner(
 		},
 		resolution: () => ({ ...trackResolution }),
 		debugInfo: buildDebugInfo,
+		captureLastFrame: frameDumpEnabled ? () => lastFrameDataUrl : undefined,
 		/** Caméra maintenue allumée, boucle maintenue vivante : seule la
 		 *  détection est court-circuitée. À la pause, l'état de confirmation
 		 *  (porte anti faux codes) est remis à zéro — aucune re-validation

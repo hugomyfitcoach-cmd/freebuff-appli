@@ -452,6 +452,41 @@ test('V3.4-B1. chaque passe ZXing a son propre try/catch (les passes crop et TH 
 	assert.equal((decode.match(/hardFrames\+\+/g) ?? []).length, 2);
 });
 
+test('V3.5-S2. la passe bande serrée n affecte ni la passe 1 ni la passe TH (référence conservée)', () => {
+	// La passe V3.5 ne tourne QUE sur les frames SANS passe TH (et jamais en
+	// natif : elle est dans la branche ZXing), et a ses propres try/catch :
+	// le défaut hors opt-in est bit-identique à V3.4-b.
+	const decode = extractBlock(scanner, 'const decodeOnce =');
+	assert.match(decode, /if \(cropExperiment && !shouldTryHarder\(\)\)/);
+	assert.match(decode, /const tightReader = new zxingMod\.MultiFormatReader\(false, hints\)/);
+	// Compteurs propres (pas de mélange avec hardFrames) :
+	assert.match(decode, /tightFrames\+\+/);
+	assert.match(decode, /tightMs \+= performance\.now\(\) - tTight0/);
+});
+
+test('V3.5-S3. instrumentation bande serrée exposée (pastille + debugInfo)', () => {
+	for (const field of ['cropExperiment', 'tightFrames', 'tightMs']) {
+		assert.ok(scanner.includes(`${field},`), `debugInfo doit exposer ${field}`);
+	}
+	// La pastille affiche le coût quand l'expérimentation est active.
+	assert.match(scanner, /tight \$\{d\.tightFrames\}p \(\$\{d\.tightMs/);
+});
+
+test('V3.5-S4. frame dump : opt-in TRIPLE, aucun envoi réseau, téléchargement manuel seul', () => {
+	// ?scannerDebug=1&scannerFrameDump=1 ET garde Preview ; capture dans une
+	// variable locale (aucun fetch/XHR/sendBeacon) ; sortie par <a download>.
+	assert.match(scanner, /__SCANNER_EXPERIMENT__ && debugEnabled && new URLSearchParams\(window\.location\.search\)\.get\('scannerFrameDump'\) === '1'/);
+	const decode = extractBlock(scanner, 'const decodeOnce =');
+	assert.match(decode, /if \(frameDumpEnabled\) \{[\s\S]{0,220}toDataURL\('image\/png'\)/);
+	assert.match(scanner, /a\.download = `gflux-frame-/);
+	// Aucune transmission : pas d'appel réseau dans le fichier scanner.
+	assert.doesNotMatch(scanner, /fetch\(|XMLHttpRequest|sendBeacon|navigator\.sendBeacon/);
+});
+
+test('V3.5-S5. captureLastFrame est absente du handle sans frameDump (interface optionnelle)', () => {
+	assert.match(scanner, /captureLastFrame: frameDumpEnabled \? \(\) => lastFrameDataUrl : undefined/);
+});
+
 test('V3.4-B2. msSinceFirstFrame : métrique indépendante du temps de manipulation', () => {
 	// 162 968 ms mesuré = temps depuis startBarcodeScanner (2 min 43 s de
 	// manipulation), PAS le délai de reconnaissance. La nouvelle base part de
@@ -460,4 +495,14 @@ test('V3.4-B2. msSinceFirstFrame : métrique indépendante du temps de manipulat
 	assert.match(scanner, /if \(firstFrameAt === null\) firstFrameAt = Date\.now\(\);/);
 	// La pastille affiche les DEUX bases (délai réel + temps de session) :
 	assert.match(scanner, /msSinceFirstFrame \?\? '—'\} ms \(session \$\{d\.msToFirstValid/);
+});
+
+/* ─── Mission V3.5 : passe « bande serrée » (expérimentation, Preview opt-in) ── */
+
+test('V3.5-S1. la passe bande serrée est opt-in (?scannerCrop=tight) ET gardée par le build Preview', () => {
+	// Démonstration tools/probe-strategies-v2.mts sur IMG_2243 : seul le crop
+	// serré ×1 + TH décode le code à distance. L'activation est double-gardée :
+	// le flag __SCANNER_EXPERIMENT__ (Preview) ET le paramètre d'URL explicite.
+	assert.match(scanner, /__SCANNER_EXPERIMENT__ &&\s*typeof window/);
+	assert.match(scanner, /get\('scannerCrop'\) === 'tight'/);
 });
