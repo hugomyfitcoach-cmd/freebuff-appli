@@ -97,6 +97,16 @@ function scoreRefRaw(qt: string[], refToks: string[], label: string): number {
 	const lengthTerm = refToks.length * 0.05;
 	if (refToks.join(" ") === qt.join(" ")) return 0 + prep + isRecipe + isRef + lengthTerm; // exact
 	if (qt.every((t, i) => refToks[i] === t)) return 2 + prep + isRecipe + isRef + lengthTerm; // préfixe de mots
+	// Tier 3 (mission §5) — la fiche couvre TOUTE la demande avec l'aliment
+	// demandé EN TÊTE (« poulet grillé » ⊑ « Poulet, filet sans peau
+	// grillé/poêlé ») : sans ce tier, « poulet grillé » ne partage qu'un mot
+	// (« poulet ») avec « Coeur, poulet, cru » et le filet sortait après les
+	// abats. Ni bonus ni pénalité d'état ici (sinon « pomme de terre cuite »
+	// voyait « bouillie/cuite à l'eau » hériter du −1 cru et battre
+	// « Pomme de terre, cuite »). Garde tête=req : « beurre » ne revient pas
+	// à « Haricot beurre ». Vaincu par toute fiche exacte/préfixe.
+	if (refToks[0] === qt[0] && qt.every((t) => refToks.includes(t)))
+		return 3.5 + isRecipe + isRef + lengthTerm; // la fiche couvre toute la requête (sans bonus/appénal d'état)
 	if (refToks.every((t) => qt.includes(t)) && refToks.length > 0)
 		return 4 + prep + isRecipe + isRef + lengthTerm; // la requête couvre tous les mots du libellé
 	if (refToks.some((t) => qt.includes(t))) return 6 + prep + isRecipe + isRef + lengthTerm; // un mot en commun

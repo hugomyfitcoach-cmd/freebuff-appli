@@ -51,6 +51,14 @@ test('Cas de validation : le 1er résultat Ciqual EST l\'aliment demandé', () =
 	}
 });
 
+test('Requête mode (« poulet grillé », « riz blanc », « pomme de terre cuite ») : le leader Ciqual reprend TOUTE la requête', () => {
+	assert.equal(searchCiqualLocal('poulet grillé')[0].label, 'Poulet, filet sans peau grillé/poêlé', 'filet grillé devant Coeur/Foie/Gésier (abats)');
+	assert.ok(searchCiqualLocal('riz blanc')[0].label.startsWith('Riz blanc'), 'riz blanc, jamais une autre céréale');
+	assert.ok(searchCiqualLocal('pomme de terre cuite')[0].label.startsWith('Pomme de terre, cuite'), 'cuite simple devant bouillie');
+	// Garde-fous : la couverture totale exige l'aliment demandé EN TÊTE de la fiche.
+	assert.ok(!searchCiqualLocal('beurre')[0].label.startsWith('Haricot'), '« beurre » ne revient jamais à Haricot beurre');
+});
+
 test('« beurre » : les 3 résultats sont des BEURRES réels (jamais Haricot beurre ni Pâte brisée)', () => {
 	const hits = searchCiqualLocal('beurre');
 	assert.equal(hits.length, 3);

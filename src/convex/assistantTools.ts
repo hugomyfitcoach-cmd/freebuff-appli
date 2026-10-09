@@ -980,6 +980,22 @@ export const updatePendingJournalEntry = mutation({
 					qtyGrams: old.qtyGrams,
 					...(it.qtyGrams !== undefined ? { qtyGrams: it.qtyGrams } : {}),
 				};
+			} else {
+				// LOT 2B (mission §5, corrigé en batterie E2E B5) — l'item qui ne
+				// recouvre AUCUNE ligne est un AJOUT nouveau (« avec 10 g de
+				// beurre aussi » pendant une préparation pain de mie) : il est
+				// AJOUTÉ à la preview, jamais abandonné silencieusement (sinon
+				// l'aliment annoncé disparaissait — fausse annonce). La quantité
+				// servira à la recherche serveur si elle est fournie ; la
+				// validation « Quantité invalide » du pipeline commun s'applique.
+				current.push({
+					...(it.foodId ? { foodId: it.foodId } : {}),
+					...(it.customFoodId ? { customFoodId: it.customFoodId } : {}),
+					...(it.ciqualLabel ? { ciqualLabel: it.ciqualLabel } : {}),
+					name: declared,
+					...(it.qtyGrams !== undefined ? { qtyGrams: it.qtyGrams } : {}),
+				} as never);
+				changed.push({ from: "", to: declared, qtyGrams: it.qtyGrams ?? 0 });
 			}
 		}
 		// Recalcul SERVEUR complet (mêmes verrous que la préparation initiale) :
