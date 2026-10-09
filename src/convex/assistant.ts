@@ -914,7 +914,7 @@ export const send = action({
 					const retryInstruction =
 						retryKind === "read"
 							? "\n\n[SYSTÈME] Ta réponse précédente donnait des valeurs chiffrées SANS avoir consulté les données. Appelle MAINTENANT getToday (ou getPeriodRecap si la question porte sur une période) et réponds UNIQUEMENT à partir des chiffres renvoyés par l'outil. N'utilise JAMAIS prepareJournalEntry pour une simple question."
-							: "\n\n[SYSTÈME] Le tour précédent n'a appelé AUCUN outil de préparation alors que la demande l'exigeait." + (pendingState || "\n\n[SYSTÈME] Appelle MAINTENANT l'outil prepare* adapté avec EXACTEMENT les éléments demandés (noms, quantités, unités) — sans reformuler la demande.");
+							: "\n\n[SYSTÈME] Le tour précédent n'a appelé AUCUN outil de préparation alors que la demande l'exigeait." + (pendingState || "\n\n[SYSTÈME] Appelle MAINTENANT l'outil prepareJournalEntry avec EXACTEMENT les éléments demandés (noms, quantités) — sans reformuler la demande. RÈGLE ABSOLUE : ne passe JAMAIS de foodId/customFoodId/ciqualLabel inventé — passe UNIQUEMENT le nom demandé, sans identifiant : le serveur cherchera la fiche réel lui-même. Puis RÉPONDS en citant la prévisualisation renvoyée par l'outil (jamais de valeurs de mémoire).");
 					const retry = await runAssistantTurn({
 						system: `${system}${retryInstruction}`,
 						history: [
