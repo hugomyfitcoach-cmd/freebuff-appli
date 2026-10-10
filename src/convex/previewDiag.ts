@@ -22,6 +22,7 @@ export const recentToolErrors = query({
 			if (rows.length > 600 && errors.length === 0 && r.createdAt < Date.now() - 3600_000) break;
 		}
 		const recentCalls: { messageAt: number; tools: string[]; pendingAction: boolean }[] = [];
+		const recentFoodTrace: { messageAt: number; textFoods: string[]; stages: string[] }[] = [];
 		for (const r of rows) {
 			if (r.role !== "assistant" || recentCalls.length >= 20) continue;
 			recentCalls.push({
@@ -29,7 +30,15 @@ export const recentToolErrors = query({
 				tools: (r.toolCalls ?? []).slice(0, 8),
 				pendingAction: !!r.actionId,
 			});
+			const foodTrace = (r as { foodTrace?: { textFoods?: string[]; stages?: string[] } }).foodTrace;
+			if (foodTrace && recentFoodTrace.length < 20) {
+				recentFoodTrace.push({
+					messageAt: r.createdAt,
+					textFoods: (foodTrace.textFoods ?? []).slice(0, 8),
+					stages: (foodTrace.stages ?? []).slice(0, 24),
+				});
+			}
 		}
-		return { errors, recentCalls };
+		return { errors, recentCalls, recentFoodTrace };
 	},
 });

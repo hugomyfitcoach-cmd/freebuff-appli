@@ -43,6 +43,7 @@ import { dispatchTool, registryToolDefs, type ToolRunState } from "./assistantRe
 import { refineMatch } from "./assistantTools";
 import { contextFor, buildContextBlock } from "./assistantRead";
 import { OpenAiUnavailableError } from "../lib/server/openai";
+import { foodTraceEnabled, summarizeRequestedFoods, summarizeFoodItems } from "./previewFoodTrace";
 
 /** Délai maximum d'un envoi « en cours » avant déblocage automatique (ms). */
 const INFLIGHT_TIMEOUT_MS = 60_000;
@@ -316,6 +317,7 @@ export const commit = mutation({
 		actionId: v.optional(v.id("assistantActions")),
 		toolCalls: v.optional(v.array(v.string())),
 		toolErrors: v.optional(v.array(v.string())),
+		foodTrace: v.optional(v.object({ textFoods: v.array(v.string()), stages: v.array(v.string()) })),
 		model: v.optional(v.string()),
 		inputTokens: v.optional(v.number()),
 		outputTokens: v.optional(v.number()),
@@ -330,6 +332,9 @@ export const commit = mutation({
 
 		const now = Date.now();
 		const t = coerceTopic(args.topic, coerceTopic(thread.topic));
+		const foodTrace = args.foodTrace && foodTraceEnabled()
+			? { textFoods: args.foodTrace.textFoods.slice(0, 8), stages: args.foodTrace.stages.slice(0, 24) }
+			: undefined;
 		await ctx.db.insert("assistantMessages", {
 			userId: user._id,
 			threadId: thread._id,
@@ -348,6 +353,7 @@ export const commit = mutation({
 			...(args.actionId ? { actionId: args.actionId } : {}),
 			...(args.toolCalls && args.toolCalls.length ? { toolCalls: args.toolCalls.slice(0, 12) } : {}),
 			...(args.toolErrors && args.toolErrors.length ? { toolErrors: args.toolErrors.slice(0, 12) } : {}),
+			...(foodTrace ? { foodTrace } : {}),
 			createdAt: now + 1,
 		});
 		await ctx.db.patch(thread._id, {
@@ -816,18 +822,48 @@ export const send = action({
 			// 6) Boucle d'outils — REGISTRE (Lot 2) : le serveur exécute, le
 			// modèle reformule. Les actions 'prepare' alimentent holder.pending.
 			const holder: { pending: PendingAction | null } = { pending: null };
-			const state: ToolRunState = { sessionToken: args.sessionToken, threadId, topic, today, userText: text };
-				const toolErrors: string[] = [];
-				const callTool = async (name: string, a: Record<string, unknown>): Promise<unknown> => {
-					const out = await dispatchTool(ctx, name, a, state);
-					// §9 (diagnostic batterie) — les échecs d'outil avalés par le
-					// registre sont TRACÉS : le modèle se remitte souvent en texte
-					// de description (« J'ai trouvé… ») sans action ; sans trace,
-					// l'échec est invisible. Tracé limité (12, preview only).
-					if (out && typeof out === "object" && (out as { ok?: unknown }).ok === false) {
-						const reason = String((out as { reason?: unknown }).reason ?? "?").slice(0, 120);
-						toolErrors.push(`${name}: ${reason}`);
-					}
+			const foodTrace = foodTraceEnabled()
+				? { textFoods: summarizeRequestedFoods(text), stages: [] as string[] }
+				: null;
+			const state: ToolRunState = {
+				sessionToken: args.sessionToken,
+				threadId,
+				topic,
+				today,
+				userText: text,
+				...(foodTrace
+					? { traceFood: (stage, values) => foodTrace.stages.push(`${stage}:${JSON.stringify(summarizeFoodItems(values))}`) }
+					: {}),
+			};
+			const toolErrors: string[] = [];
+			const callTool = async (name: string, a: Record<string, unknown>): Promise<unknown> => {
+				if (foodTrace && (name === "searchFood" || name === "prepareJournalEntry")) {
+					const inputs = name === "searchFood"
+						? [a.query]
+						: (Array.isArray(a.items) ? a.items : []).map((item) => ({
+							name: (item as { name?: unknown })?.name,
+							qtyGrams: (item as { qtyGrams?: unknown })?.qtyGrams,
+						}));
+					state.traceFood?.(`${name}:model-arguments`, inputs);
+				}
+				const out = await dispatchTool(ctx, name, a, state);
+				if (foodTrace && (name === "searchFood" || name === "prepareJournalEntry")) {
+					const items = name === "searchFood"
+						? ((out as { items?: unknown[] } | null)?.items ?? [])
+						: ((out as { preview?: { lines?: { label?: unknown }[] } } | null)?.preview?.lines?.map((line) => line.label) ?? []);
+					state.traceFood?.(`${name}:result`, items);
+				}
+				if (foodTrace && name === "prepareJournalEntry" && out && typeof out === "object" && (out as { ok?: unknown }).ok === false) {
+					foodTrace.stages.push("prepare:mutation-rejected");
+				}
+				// §9 (diagnostic batterie) — les échecs d'outil avalés par le
+				// registre sont TRACÉS : le modèle se remitte souvent en texte
+				// de description (« J'ai trouvé… ») sans action ; sans trace,
+				// l'échec est invisible. Tracé limité (12, preview only).
+				if (out && typeof out === "object" && (out as { ok?: unknown }).ok === false) {
+					const reason = String((out as { reason?: unknown }).reason ?? "?").slice(0, 120);
+					toolErrors.push(`${name}: ${reason}`);
+				}
 				// Le sujet suit les outils meta (setTopic) via l'état partagé.
 				topic = coerceTopic(state.topic, topic);
 				// Toute action 'prepare' qui revient avec un actionId devient la
@@ -979,6 +1015,7 @@ export const send = action({
 				...(pending ? { actionId: pending.actionId as Id<"assistantActions"> } : {}),
 				toolCalls,
 				...(toolErrors.length ? { toolErrors: toolErrors.slice(0, 12) } : {}),
+				...(foodTrace ? { foodTrace } : {}),
 				model: assistantModel(),
 				...(usage.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
 				...(usage.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),

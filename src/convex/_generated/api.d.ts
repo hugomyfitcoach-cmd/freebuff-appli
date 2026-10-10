@@ -48,6 +48,7 @@ import type * as off from "../off.js";
 import type * as onboarding from "../onboarding.js";
 import type * as photos from "../photos.js";
 import type * as previewDiag from "../previewDiag.js";
+import type * as previewFoodTrace from "../previewFoodTrace.js";
 import type * as previewOffProducts from "../previewOffProducts.js";
 import type * as previewSeed from "../previewSeed.js";
 import type * as previewSeedAssistant from "../previewSeedAssistant.js";
@@ -112,6 +113,7 @@ declare const fullApi: ApiFromModules<{
   onboarding: typeof onboarding;
   photos: typeof photos;
   previewDiag: typeof previewDiag;
+  previewFoodTrace: typeof previewFoodTrace;
   previewOffProducts: typeof previewOffProducts;
   previewSeed: typeof previewSeed;
   previewSeedAssistant: typeof previewSeedAssistant;

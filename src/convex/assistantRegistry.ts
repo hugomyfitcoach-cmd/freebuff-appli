@@ -47,6 +47,8 @@ export type ToolRunState = {
 	 * ici (jamais un aliment qui traîne d'un tour antérieur).
 	 */
 	userText: string;
+	/** Optional Preview-only minimized food trace, enabled by an environment flag. */
+	traceFood?: (stage: string, values: unknown[]) => void;
 };
 
 export type AssistantToolKind = "read" | "prepare" | "meta";
@@ -178,12 +180,17 @@ export const ASSISTANT_REGISTRY: AssistantToolEntry[] = [
 			properties: { query: { type: "string", description: "Nom de l'aliment." }, limit: { type: "number" } },
 			required: ["query"],
 		},
-		run: async (ctx, state, args) =>
-			await ctx.runQuery(api.assistantTools.searchFood, {
+		run: async (ctx, state, args) => {
+			const query = String(args.query ?? "");
+			state.traceFood?.("searchFood:arg", [query]);
+			const result = await ctx.runQuery(api.assistantTools.searchFood, {
 				sessionToken: state.sessionToken,
-				query: String(args.query ?? ""),
+				query,
 				...(typeof args.limit === "number" ? { limit: args.limit } : {}),
-			}),
+			});
+			state.traceFood?.("searchFood:result", (result as { items?: unknown[] }).items ?? []);
+			return result;
+		},
 	},
 	{
 		name: "getFoodReference",
@@ -299,6 +306,7 @@ export const ASSISTANT_REGISTRY: AssistantToolEntry[] = [
 			// recouvre rien → retiré avant toute écriture.
 			const ask = state.userText ?? "";
 			const rawItems = Array.isArray(args.items) ? args.items : [];
+			state.traceFood?.("prepare:model", rawItems);
 			const items: Record<string, unknown>[] = rawItems.filter((it: unknown) => {
 				const rec = it as { name?: unknown };
 				const name = typeof rec.name === "string" ? rec.name : "";
@@ -317,6 +325,7 @@ export const ASSISTANT_REGISTRY: AssistantToolEntry[] = [
 						.some((w) => w.length >= 3 && (w.startsWith(t.slice(0, Math.max(3, t.length - 1))) || t.startsWith(w.slice(0, Math.max(3, w.length - 1)))))
 				);
 			});
+			state.traceFood?.("prepare:filtered", items);
 			if (items.length === 0) {
 				return {
 					ok: false as const,
@@ -357,7 +366,9 @@ export const ASSISTANT_REGISTRY: AssistantToolEntry[] = [
 				date: typeof args.date === "string" ? args.date : state.today,
 				meal: String(args.meal ?? "diner"),
 				items: items as never,
-			})) as { actionId: string; preview: unknown };
+			})) as { actionId: string; preview: { lines?: { label?: string }[] } };
+			state.traceFood?.("prepare:server-input", items.map((item) => ({ name: item.name, qtyGrams: item.qtyGrams })));
+			state.traceFood?.("prepare:preview", res.preview?.lines?.map((line) => line.label) ?? []);
 			return {
 				ok: true,
 				actionId: res.actionId,

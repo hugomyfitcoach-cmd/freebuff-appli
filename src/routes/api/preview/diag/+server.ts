@@ -60,15 +60,22 @@ export const GET = async () => {
 		.catch(() => ({ errors: [], recentCalls: [] }));
 	const toolErrors = toolTrace.errors ?? [];
 	const recentCalls = toolTrace.recentCalls ?? [];
+	const foodTrace = await convex
+		.query(api.previewFoodTrace.recentFoodTraces, {})
+		.then((r: unknown) => r as { enabled?: boolean; traces?: unknown })
+		.catch(() => ({ enabled: false, traces: [] }));
 	return json({
 		enabled: true,
 		convexUrl: url,
 		isProdLike: url.includes(PROD_MARK),
 		netlifyContext: ctx || null,
+		deploySha: env.COMMIT_REF ?? null,
+		deployId: env.DEPLOY_ID ?? null,
 		ai,
 		lot2b,
 		toolErrors,
 		recentCalls,
+		foodTrace,
 	});
 };
 

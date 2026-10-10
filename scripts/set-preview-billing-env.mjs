@@ -40,6 +40,7 @@ const OPTIONAL = [
 	'ASSISTANT_ALLOWLIST',
 	'ASSISTANT_TEXT_PER_DAY',
 	'ASSISTANT_VISION_PER_DAY',
+	'PREVIEW_FOOD_TRACE',
 ];
 
 const key = (process.env.CONVEX_DEPLOY_KEY ?? '').trim();

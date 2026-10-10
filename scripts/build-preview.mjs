@@ -23,22 +23,22 @@ const PROD_URL_PART = `${PROD_DEPLOYMENT}.convex.cloud`;
 
 /** Netlify expose CONTEXT (production | deploy-preview | branch-deploy | dev). */
 const context = process.env.CONTEXT ?? 'dev';
-const isPreview = context === 'deploy-preview' || context === 'branch-deploy';
+const isPreview = context === 'deploy-preview';
 
 function readEnvFileVars() {
-	// Fallback local (dev hors Netlify) : même contrat que scripts/deploy.mjs.
+	// Only local development may load .env.local; remote build contexts must trust process.env.
 	const vars = {};
 	const file = resolve('.env.local');
-	if (existsSync(file)) {
-		for (const line of readFileSync(file, 'utf8').split('\n')) {
-			const m = line.match(/^\s*(?:export\s+)?([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
-			if (m) vars[m[1]] = m[2].replace(/^["']|["']$/g, '');
-		}
+	if (context !== 'dev' || !existsSync(file)) return vars;
+	for (const line of readFileSync(file, 'utf8').split('\n')) {
+		const m = line.match(/^\s*(?:export\s+)?([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
+		if (m) vars[m[1]] = m[2].replace(/^["']|["']$/g, '');
 	}
 	return vars;
 }
 
 const fileVars = readEnvFileVars();
+
 const deployKey = process.env.CONVEX_DEPLOY_KEY ?? fileVars.CONVEX_DEPLOY_KEY ?? '';
 /** En preview, `convex deploy` injecte l'URL du backend preview AVANT le build. */
 const publicConvexUrl = process.env.PUBLIC_CONVEX_URL ?? fileVars.PUBLIC_CONVEX_URL ?? '';
@@ -54,6 +54,10 @@ if (isPreview) {
 	if (deployKey.includes(PROD_DEPLOYMENT)) {
 		console.error(`⛔ Build PREVIEW refusé : la clé semble liée à la production (${PROD_DEPLOYMENT}).`);
 		process.exit(1);
+	}
+	if (process.argv.includes('--preflight')) {
+		console.log('✅ Preview preflight validé avant tout déploiement Convex (clé masquée).');
+		process.exit(0);
 	}
 	if (publicConvexUrl.includes(PROD_URL_PART) || publicConvexUrl.includes(PROD_DEPLOYMENT)) {
 		console.error(

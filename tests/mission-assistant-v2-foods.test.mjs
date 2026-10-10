@@ -128,6 +128,32 @@ test('searchFood reste la porte d’entrée décrite au modèle (pas d’accès 
 	assert.ok(!registry.includes('ctx.db'), 'le modèle n’a jamais accès direct à la base : le registre passe par ctx.runQuery');
 });
 
+test('Trace C1: minimisée, bornée, désactivée par défaut et bloquée en production', async () => {
+	const source = read('src/convex/previewFoodTrace.ts');
+	assert.match(source, /PREVIEW_FOOD_TRACE === "1"/);
+	assert.match(source, /CONVEX_CLOUD_URL[\s\S]*PROD_URL_MARK/);
+	assert.match(source, /TRACE_RETENTION_MS/);
+	assert.match(source, /slice\(0, 8\)/);
+	assert.doesNotMatch(source, /sessionToken|password|OPENAI_API_KEY/);
+	const ts = await import(new URL('../src/convex/previewFoodTrace.ts', import.meta.url).href);
+	const oldFlag = process.env.PREVIEW_FOOD_TRACE;
+	const oldUrl = process.env.CONVEX_CLOUD_URL;
+	try {
+		process.env.PREVIEW_FOOD_TRACE = '1';
+		process.env.CONVEX_CLOUD_URL = 'https://preview.eu-west-1.convex.cloud';
+		assert.equal(ts.foodTraceEnabled(), true);
+		assert.deepEqual(ts.summarizeRequestedFoods('Ajoute 150 g de poulet grillé et 200 g de riz blanc.'), ['poulet', 'riz']);
+		assert.deepEqual(ts.summarizeFoodItems([{ name: 'Poulet grillé', qtyGrams: 150 }, { name: 'Riz blanc', qtyGrams: 200 }, { name: 'Brocoli', qtyGrams: 90 }]), ['poulet:150g', 'riz:200g', 'other:90g']);
+		process.env.CONVEX_CLOUD_URL = 'https://calm-jaguar-475.eu-west-1.convex.cloud';
+		assert.equal(ts.foodTraceEnabled(), false);
+	} finally {
+		if (oldFlag === undefined) delete process.env.PREVIEW_FOOD_TRACE;
+		else process.env.PREVIEW_FOOD_TRACE = oldFlag;
+		if (oldUrl === undefined) delete process.env.CONVEX_CLOUD_URL;
+		else process.env.CONVEX_CLOUD_URL = oldUrl;
+	}
+});
+
 /* ════════ 4. Injection du contexte serveur et filet « annonce sans outil » ════════ */
 
 test('runAssistantTurn reçoit le system AVEC le bloc contexte Lot 2 (régression du 08/10)', () => {
