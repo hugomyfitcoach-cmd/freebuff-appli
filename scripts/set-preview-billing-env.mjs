@@ -22,7 +22,12 @@
 import { spawnSync } from 'node:child_process';
 
 const SECRET_NAME = 'CONVEX_BILLING_WEBHOOK_SECRET';
-const PREVIEW_NAME = 'alimentation-ia-preview';
+/**
+ * Nom du Convex Preview DÉDIÉ au chantier codes-barres (branche
+ * fix/barcode-lookup) — isolé de « alimentation-ia-preview » (assistant IA),
+ * en cohérence avec netlify.toml [context.deploy-preview].
+ */
+const PREVIEW_NAME = 'barcode-lookup-preview';
 
 const key = (process.env.CONVEX_DEPLOY_KEY ?? '').trim();
 const secret = (process.env[SECRET_NAME] ?? '').trim();

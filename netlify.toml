@@ -6,7 +6,7 @@
 
 # ── Deploy Previews — workflow officiel Convex × Netlify ─────────────────
 # La PREVIEW deploy key (Netlify, scope Deploy Previews uniquement) fait :
-#   1. SUPPRIMER ET RECRÉER le Convex Preview « alimentation-ia-preview » ;
+#   1. SUPPRIMER ET RECRÉER le Convex Preview « barcode-lookup-preview » ;
 #   2. y pousser le schéma + fonctions (seed automatique via --preview-run) ;
 #   3. injecter l'URL du backend preview dans le build via PUBLIC_CONVEX_URL
 #      (--cmd-url-env-var-name) — aucune config manuelle d'URL.
@@ -18,13 +18,16 @@
 # de test réinitialisées — voulu pour la phase de test).
 # Garde-fous runtime : scripts/build-preview.mjs refuse toute preview dont
 # l'URL/clé ressemblerait à la production (calm-jaguar-475).
+# Chantier codes-barres : Preview Convex DÉDIÉE à cette branche, isolée de
+# « alimentation-ia-preview » (chantier assistant IA). Les deux chantiers
+# peuvent ainsi être développés/testés/publiés indépendamment.
 # PRODUCTION : inchangée ci-dessus (npm run build, sans convex deploy — le
 # déploiement Convex prod reste manuel via scripts/deploy.mjs).
 [context.deploy-preview]
-  command = "npx convex deploy --preview-create alimentation-ia-preview --preview-run previewSeed:seedPreviewData --cmd-url-env-var-name PUBLIC_CONVEX_URL --cmd 'npm run build' && node scripts/set-preview-billing-env.mjs"
+  command = "npx convex deploy --preview-create barcode-lookup-preview --preview-run previewSeed:seedPreviewData --cmd-url-env-var-name PUBLIC_CONVEX_URL --cmd 'npm run build' && node scripts/set-preview-billing-env.mjs"
 
 [context.branch-deploy]
-  command = "npx convex deploy --preview-create alimentation-ia-preview --preview-run previewSeed:seedPreviewData --cmd-url-env-var-name PUBLIC_CONVEX_URL --cmd 'npm run build' && node scripts/set-preview-billing-env.mjs"
+  command = "npx convex deploy --preview-create barcode-lookup-preview --preview-run previewSeed:seedPreviewData --cmd-url-env-var-name PUBLIC_CONVEX_URL --cmd 'npm run build' && node scripts/set-preview-billing-env.mjs"
 
 # Diagnostic/réparation preview (URL backend réelle + seed self-healing) —
 # activé UNIQUEMENT en contexte preview (jamais en production).
