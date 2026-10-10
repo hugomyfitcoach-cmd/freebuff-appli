@@ -5,6 +5,7 @@ import { convex } from '$lib/server/convex';
 import { api } from '../../../../convex/_generated/api.js';
 import { errMsg } from '$lib/errors.js';
 import { env } from '$env/dynamic/private';
+import { BUILD_VERSION } from '$lib/buildVersion';
 
 /**
  * DIAGNOSTIC & RÉPARATION PREVIEW (commenté pour la bêta Alimentation IA).
@@ -69,8 +70,9 @@ export const GET = async () => {
 		convexUrl: url,
 		isProdLike: url.includes(PROD_MARK),
 		netlifyContext: ctx || null,
-		deploySha: env.COMMIT_REF ?? null,
-		deployId: env.DEPLOY_ID ?? null,
+		deploySha: env.COMMIT_REF ?? __NETLIFY_COMMIT_REF__ ?? null,
+		deployId: env.DEPLOY_ID ?? env.BUILD_ID ?? __NETLIFY_DEPLOY_ID__ ?? null,
+		buildVersion: BUILD_VERSION,
 		ai,
 		lot2b,
 		toolErrors,

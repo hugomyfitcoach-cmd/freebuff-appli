@@ -4,6 +4,10 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+	define: {
+		__NETLIFY_COMMIT_REF__: JSON.stringify(process.env.COMMIT_REF ?? ''),
+		__NETLIFY_DEPLOY_ID__: JSON.stringify(process.env.DEPLOY_ID ?? ''),
+	},
 	plugins: [
 		tailwindcss(),
 		sveltekit({
