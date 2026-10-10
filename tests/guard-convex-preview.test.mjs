@@ -95,6 +95,18 @@ test('build-preview refuses bad deploy keys before producing a frontend build an
 	assert.equal(previewPreflight.generatedEnv, null, 'preflight ne crée ni fichier build ni artefact');
 });
 
+test('Netlify build identity is compiled into the Preview diagnostic without exposing deploy keys', () => {
+	const config = readFileSync(new URL('../vite.config.ts', import.meta.url), 'utf8');
+	const diagnostics = readFileSync(new URL('../src/routes/api/preview/diag/+server.ts', import.meta.url), 'utf8');
+	const declarations = readFileSync(new URL('../src/app.d.ts', import.meta.url), 'utf8');
+	assert.ok(config.includes('__NETLIFY_COMMIT_REF__: JSON.stringify(process.env.COMMIT_REF'), 'le SHA Git est compilé depuis l’environnement du build');
+	assert.ok(config.includes('__NETLIFY_DEPLOY_ID__: JSON.stringify(process.env.DEPLOY_ID'), 'le deploy ID est compilé depuis l’environnement du build');
+	assert.match(diagnostics, /deploySha: env\.COMMIT_REF \?\? __NETLIFY_COMMIT_REF__/);
+	assert.match(diagnostics, /buildVersion: BUILD_VERSION/);
+	assert.match(declarations, /const __NETLIFY_COMMIT_REF__: string/);
+	assert.doesNotMatch(diagnostics, /CONVEX_DEPLOY_KEY/);
+});
+
 test('Netlify runs the preflight immediately before Convex deploy, only in Deploy Previews', () => {
 	const config = readFileSync(new URL('../netlify.toml', import.meta.url), 'utf8');
 	const deployPreview = config.match(/\[context\.deploy-preview\][\s\S]*?command = "([^"]+)"/)?.[1] ?? '';
