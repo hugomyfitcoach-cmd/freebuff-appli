@@ -120,7 +120,7 @@ Autrement dit, à la taille testée (chiffres ~14 px de haut, fontes riches — 
 Architecture cible — 4 étapes strictement distinctes :
 
 ```
- 	Boucle décodage 70 ms
+Boucle décodage 70 ms
    ├─ Étape A : barres (BarcodeDetector natif / ZXing)       = ÉXISTANT
    │     └─ valide immédiat → confirmation → résultat
    ├─ Étape B : si t > FALLBACK_OCR_MS (config, ex. 2 s),
