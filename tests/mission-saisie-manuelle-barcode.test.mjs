@@ -53,11 +53,13 @@ test('M1. État du mode + activation au FOCUS des deux champs (tap sans taper)',
 /* ─── 2. Clavier ouvert plusieurs secondes : décodage SUSPENDU, boucle vivante ─── */
 
 test('M2. Décodage suspendu pendant la saisie, caméra allumée, boucle vivante', () => {
-	assert.match(scanner, /if \(!decoding && !paused\) \{/, 'le tick court-circuite la détection');
+	// Mission scanner V3 : le tick court-circuite aussi pendant la mise en
+	// arrière-plan (hiddenPaused) — la condition s'étend, l'invariant tient.
+	assert.match(scanner, /if \(!decoding && !paused && !hiddenPaused\) \{/, 'le tick court-circuite la détection');
 	assert.match(scanner, /setPaused: \(paused: boolean\) => void;/, 'setPaused dans le handle public');
 	assert.match(scanner, /setPaused: \(value: boolean\) => \{[\s\S]{0,300}gate\.reset\(\)/, 'pause → porte remise à zéro');
 	// La boucle continue de se programmer PENDANT la pause (pas de timer tué) :
-	const iIf = scanner.indexOf('if (!decoding && !paused)');
+	const iIf = scanner.indexOf('if (!decoding && !paused && !hiddenPaused)');
 	const iTick = scanner.indexOf('timer = setTimeout(tick, FRAME_INTERVAL_MS);');
 	assert.ok(iTick > iIf, 'le setTimeout reste hors du garde → boucle vivante en pause');
 });
@@ -155,7 +157,8 @@ test('M11. Zéro Convex / OFF modifié ; lookup + validation scan intacts', () =
 	assert.ok(journal.includes('/api/foods/barcode?code='));
 	// Validation scan guard (fb0c51e) intacte :
 	assert.match(journal, /normalizeProductCode\(decoded\)/);
-	assert.match(scanner, /const gate = createScanGate\(2, SCAN_CONFIRM_GAP_MS\)/);
+	// Mission V3.2 : sélection de la porte par mode (A = 2 lectures, défaut) :
+	assert.match(scanner, /const gate = scanMode === 'B' \? createScanGate\(1, SCAN_CONFIRM_GAP_MS\) : createScanGate\(2, SCAN_CONFIRM_GAP_MS\)/);
 	assert.equal(count(scanner, 'onDecoded(res.code)'), 1, 'toujours un seul point de sortie validé');
 	// off.ts (fallback OFF dc3468d) : marqueurs intacts :
 	assert.match(off, /function resolveProductName/);

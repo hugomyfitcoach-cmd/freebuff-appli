@@ -27,6 +27,8 @@
  */
 import { spawnSync } from 'node:child_process';
 
+// This PR integrates the published scanner with the assistant; use the same
+// isolated Convex Preview as netlify.toml rather than the scanner-only backend.
 const PREVIEW_NAME = 'alimentation-ia-preview';
 
 /** Obligatoires (comportement historique) — leur absence est signalée. */

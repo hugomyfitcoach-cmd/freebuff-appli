@@ -18,6 +18,10 @@
 # de test réinitialisées — voulu pour la phase de test).
 # Garde-fous runtime : scripts/build-preview.mjs refuse toute preview dont
 # l'URL/clé ressemblerait à la production (calm-jaguar-475).
+# Le scanner publié est activé ici par son flag Vite Preview. Comme le scanner
+# et l'assistant sont réunis dans cette branche, leur backend reste le Convex
+# Preview isolé « alimentation-ia-preview » ; ne pas le remplacer par celui du
+# chantier scanner autonome « barcode-lookup-preview ».
 # PRODUCTION : inchangée ci-dessus (npm run build, sans convex deploy — le
 # déploiement Convex prod reste manuel via scripts/deploy.mjs).
 [context.deploy-preview]

@@ -4,9 +4,14 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+	// Netlify deployment identity supports Preview diagnostics. The scanner
+	// experiment is gated by the Netlify context, not Vite's PROD flag.
 	define: {
 		__NETLIFY_COMMIT_REF__: JSON.stringify(process.env.COMMIT_REF ?? ''),
 		__NETLIFY_DEPLOY_ID__: JSON.stringify(process.env.DEPLOY_ID ?? ''),
+		__SCANNER_EXPERIMENT__: JSON.stringify(
+			process.env.CONTEXT === 'deploy-preview' || process.env.CONTEXT === 'branch-deploy' || process.env.NODE_ENV !== 'production'
+		),
 	},
 	plugins: [
 		tailwindcss(),

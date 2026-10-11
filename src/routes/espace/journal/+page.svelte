@@ -2630,7 +2630,10 @@ import { optimizeImageFile } from '$lib/media';
 			zoomStep: scanner.zoomRange?.step ?? 0.1,
 		};
 		torchOn = false;
-		zoomLevel = scanner.zoomRange?.min ?? 1;
+		/* Mission scanner V3 : le module pré-positionne un zoom modéré (×2) quand
+		   la caméra le permet — le slider démarre sur la valeur RÉELLE appliquée
+		   (et non plus au min), sinon il afficherait un état mensonger. */
+		zoomLevel = scanner.currentZoom?.() || scanner.zoomRange?.min || 1;
 		} catch (e) {
 			if (e instanceof CameraPermissionError) {
 				/* Refus/blocage caméra : message clair + « Réessayer » + comment
@@ -3623,7 +3626,16 @@ import { optimizeImageFile } from '$lib/media';
 	/* Sauvegarde de la position de scroll AVANT la navigation : à ce moment le
 	   scroll est encore celui de l'utilisateur (le réajustement de transition
 	   arrive plus tard et fausserait la valeur au démontage). */
-	beforeNavigate(() => saveScroll(ROUTE));
+	beforeNavigate(() => {
+		saveScroll(ROUTE);
+		/* Mission V3.2 — fuite de session scanner : quitter le Journal avec le
+		   scanner ouvert laissait la CAMÉRA + la boucle de décodage actives en
+		   arrière-plan (aucun onDestroy sur le handle). Après 2–3 produits et un
+		   aller-retour de navigation, plusieurs sessions pouvaient se cumuler
+		   → ralentissement croissant des scans suivants. On coupe tout ici,
+		   avant le démontage du composant. */
+		void stopScanner();
+	});
 
 	/* ————— Navigation rapide : identifiant de route + re-fetch silencieux ————— */
 	const ROUTE = '/espace/journal';
@@ -4518,9 +4530,11 @@ import { optimizeImageFile } from '$lib/media';
 						<div id="bc-reader" class="absolute inset-0"></div>
 						<!-- Croix de fermeture DIRECTEMENT sur la zone caméra : -->
 						<button type="button" class="absolute right-2 top-2 z-10 grid h-9 w-9 place-items-center rounded-full bg-ink/55 text-white backdrop-blur transition hover:bg-ink/75" aria-label="Fermer" onclick={() => closeLog()}><Icon name="x" size={18} /></button>
-						<!-- Indication intégrée à la vidéo (léger, discret) : -->
+						<!-- Consigne : simplifiée (mission scanner V3) et remontée au-dessus
+						     de la pill lampe/zoom — plus de superposition texte/contrôles,
+						     lisibilité garantie sur petits écrans et safe areas. -->
 						{#if !bcManualMode && barcodeStatus === 'scanning' && !barcodeBusy}
-							<p class="pointer-events-none absolute inset-x-3 bottom-2.5 z-10 text-center text-[11px] font-semibold text-white/85 drop-shadow">Présente le code-barres à plat devant l'objectif — même à distance, l'encadré passe au vert dès la lecture.</p>
+							<p class="pointer-events-none absolute inset-x-3 bottom-[4.75rem] z-10 text-center text-[11px] font-semibold text-white/85 drop-shadow">Place le code-barres dans le cadre. La lecture est automatique.</p>
 						{/if}
 						<!-- Lampe + zoom : pill compacte en bas de la caméra (plus de gros blocs) -->
 						{#if !bcManualMode && scannerCaps && (scannerCaps.torch || scannerCaps.zoom)}
