@@ -32,6 +32,7 @@
 	let text = $state('');
 	let image = $state<string | null>(null);
 	let imageBusy = $state(false);
+	let imageError = $state<string | null>(null);
 	let fileInput: HTMLInputElement | null = $state(null);
 	let textarea: HTMLTextAreaElement | null = $state(null);
 	let listening = $state(false);
@@ -77,35 +78,44 @@
 		if (!file) return;
 		if (!file.type.startsWith('image/')) return;
 		imageBusy = true;
+		imageError = null;
 		try {
-			image = await resizeToDataUrl(file, 1280, 0.85);
+			image = await resizeToDataUrl(file, 1280, 0.82);
 		} catch {
 			image = null;
+			imageError = 'Cette photo ne peut pas être compressée sous la limite d’envoi. Choisis une autre photo.';
 		} finally {
 			imageBusy = false;
 		}
 	}
+
+	const MAX_IMAGE_DATA_URL_CHARS = 750_000; // marge sous la limite Convex < 1 MiB par chaîne
 
 	function resizeToDataUrl(file: File, max: number, quality: number): Promise<string> {
 		return new Promise((resolve, reject) => {
 			const reader = new FileReader();
 			reader.onerror = () => reject(new Error('read'));
 			reader.onload = () => {
-				const src = String(reader.result);
 				const img = new Image();
 				img.onerror = () => reject(new Error('decode'));
 				img.onload = () => {
-					const scale = Math.min(1, max / Math.max(img.width, img.height));
-					if (scale === 1 && src.length < 3_500_000) return resolve(src);
-					const c = document.createElement('canvas');
-					c.width = Math.max(1, Math.round(img.width * scale));
-					c.height = Math.max(1, Math.round(img.height * scale));
-					const ctx = c.getContext('2d');
-					if (!ctx) return resolve(src);
-					ctx.drawImage(img, 0, 0, c.width, c.height);
-					resolve(c.toDataURL('image/jpeg', quality));
+					let scale = Math.min(1, max / Math.max(img.width, img.height));
+					let jpegQuality = quality;
+					const canvas = document.createElement('canvas');
+					const ctx = canvas.getContext('2d');
+					if (!ctx) return reject(new Error('canvas'));
+					for (let attempt = 0; attempt < 8; attempt++) {
+						canvas.width = Math.max(1, Math.round(img.width * scale));
+						canvas.height = Math.max(1, Math.round(img.height * scale));
+						ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+						const dataUrl = canvas.toDataURL('image/jpeg', jpegQuality);
+						if (dataUrl.length <= MAX_IMAGE_DATA_URL_CHARS) return resolve(dataUrl);
+						if (jpegQuality > 0.5) jpegQuality -= 0.1;
+						else { scale *= 0.8; jpegQuality = 0.72; }
+					}
+					reject(new Error('too-large'));
 				};
-				img.src = src;
+				img.src = String(reader.result);
 			};
 			reader.readAsDataURL(file);
 		});
@@ -145,6 +155,9 @@
 </script>
 
 <div class="rounded-[26px] border border-line bg-white p-2 shadow-sm focus-within:border-brand/50">
+	{#if imageError}
+		<p class="px-2 pb-2 text-[12px] font-semibold text-danger" role="alert">{imageError}</p>
+	{/if}
 	{#if image}
 		<div class="flex items-center gap-2 px-1 pb-2 pt-1">
 			<img src={image} alt="Photo jointe" class="h-12 w-12 rounded-xl border border-line object-cover" />
@@ -153,7 +166,7 @@
 				type="button"
 				class="grid h-8 w-8 shrink-0 place-items-center rounded-full text-mist transition hover:bg-soft hover:text-ink"
 				aria-label="Retirer la photo"
-				onclick={() => (image = null)}
+				onclick={() => { image = null; imageError = null; }}
 			>
 				<Icon name="x" size={15} />
 			</button>

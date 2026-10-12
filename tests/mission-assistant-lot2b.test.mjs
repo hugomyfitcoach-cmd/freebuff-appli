@@ -228,8 +228,9 @@ test('ANNOUNCE_WITHOUT_TOOL_RE couvre « je vais maintenant », « un instant »
 
 test('prompt : planning indicatif jamais prétendu enregistré', () => {
 	assert.ok(policySrc.includes('DIFFÉRENCES ENTRE SUGGESTION ET ACTION'), 'section créée');
-	assert.ok(policySrc.includes('N\'EXISTE PAS encore'), 'capacité multi-jours honnête');
-	assert.ok(policySrc.includes('planning\n  INDICATIF en texte'), 'planning indicatif en texte');
+	assert.ok(policySrc.includes('Le journal alimentaire n\'a pas d\'enregistrement multi-jours'), 'la limite multi-jours repas reste explicite');
+	assert.ok(policySrc.includes('répartir un total sur'), 'répartition de pas multi-jours explicite');
+	assert.ok(policySrc.includes('planning\n  de repas reste indicatif'), 'planning repas toujours indicatif');
 	assert.ok(policySrc.includes('Changer de sujet ne déclenche JAMAIS l\'écriture d\'une action ancienne'), 'changement de sujet ≠ écriture ancienne');
 });
 

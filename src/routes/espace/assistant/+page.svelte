@@ -22,6 +22,7 @@ import RichText from '$lib/components/assistant/RichText.svelte';
 		content: string;
 		kind?: string;
 		createdAt: number;
+		imageDataUrl?: string;
 		_id?: string;
 	};
 	type Pending = { actionId: string; actionType: string; preview: any; createdAt: number };
@@ -75,7 +76,8 @@ import RichText from '$lib/components/assistant/RichText.svelte';
 		void pendingAction;
 		if (typeof window === 'undefined') return;
 		requestAnimationFrame(() => {
-			listEl?.scrollTo({ top: listEl.scrollHeight, behavior: 'smooth' });
+			const list = listEl;
+			if (list) list.scrollTo({ top: list.scrollHeight, behavior: 'smooth' });
 		});
 	});
 
@@ -90,7 +92,7 @@ import RichText from '$lib/components/assistant/RichText.svelte';
 		// déjà affichés pour ne pas les dupliquer.
 		const start = fromIndex ?? messages.length;
 		if (fromIndex !== undefined) messages = messages.slice(0, fromIndex);
-		messages = [...messages, { role: 'user', content: text || '📷 Photo', createdAt: Date.now() }];
+		messages = [...messages, { role: 'user', content: text || 'Photo jointe (image transmise pour analyse)', ...(raw.imageDataUrl ? { imageDataUrl: raw.imageDataUrl } : {}), createdAt: Date.now() }];
 		try {
 			const res = await fetch('/api/assistant/send', {
 				method: 'POST',
@@ -260,7 +262,7 @@ import RichText from '$lib/components/assistant/RichText.svelte';
 </section>
 
 <!-- ── Conversation (§10) ── -->
-<div bind:this={listEl} class="mt-4 max-h-[52vh] min-h-[26vh] space-y-3 overflow-y-auto px-0.5 pb-1 md:max-h-[56vh]">
+<div bind:this={listEl} class="mt-4 max-h-[52vh] min-h-[26vh] space-y-3 overflow-y-auto overscroll-contain scroll-smooth px-0.5 pb-[calc(13rem+env(safe-area-inset-bottom))] [scroll-padding-bottom:calc(13rem+env(safe-area-inset-bottom))] md:max-h-[56vh] md:pb-1 md:[scroll-padding-bottom:1rem]">
 	<p class="flex items-center gap-3 text-[11px] font-semibold text-mist" aria-hidden="true">
 		<span class="h-px flex-1 bg-line"></span>
 		Aujourd’hui
@@ -296,8 +298,9 @@ import RichText from '$lib/components/assistant/RichText.svelte';
 		{:else}
 			<div class="flex justify-end">
 				<div class="min-w-0 max-w-[85%]">
-					<div class="rounded-3xl rounded-br-lg bg-brand-light px-3.5 py-2.5 text-[14.5px] leading-relaxed text-ink">
-						{msg.content}
+					<div class="space-y-2 rounded-3xl rounded-br-lg bg-brand-light px-3.5 py-2.5 text-[14.5px] leading-relaxed text-ink">
+						{#if msg.imageDataUrl}<img src={msg.imageDataUrl} alt="Photo réellement jointe et transmise à l’assistant" class="max-h-56 max-w-full rounded-2xl object-contain" />{/if}
+						{#if msg.content}<p>{msg.content}</p>{/if}
 					</div>
 					<p class="mt-1 pr-1 text-right text-[10.5px] text-mist">{timeLabel(msg.createdAt)}</p>
 				</div>
@@ -361,7 +364,7 @@ import RichText from '$lib/components/assistant/RichText.svelte';
 {/if}
 
 <!-- ── Composer fixe en bas (§10) ── -->
-<div class="sticky bottom-[calc(6.5rem_+_env(safe-area-inset-bottom))] z-30 mt-3 md:bottom-4">
+<div class="sticky bottom-[calc(6.5rem+env(safe-area-inset-bottom))] z-30 mt-3 pb-2 md:bottom-4 md:pb-0">
 	<AssistantComposer
 		sending={sending}
 		disabled={sending}

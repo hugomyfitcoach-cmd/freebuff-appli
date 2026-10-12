@@ -25,12 +25,14 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { getSessionUser, localTodayISO, mondayISOof, addDaysISO, dateISOInTimeZone } from "./helpers";
 import { trustedClientToday } from "./journal";
 import { assistantLimits, assistantEnabledFor } from "../lib/assistant/policy";
+import { distributeSteps } from "../lib/assistant/stepDistribution";
 
 /** Liste FERMÉE des écritures préparables (miroir de schema.ts). */
 type AssistantActionType =
 	| "journal_add"
 	| "journal_remove"
 	| "steps"
+	| "steps_bulk"
 	| "weight"
 	| "measurement"
 	| "coach_question"
@@ -1405,6 +1407,46 @@ export const prepareMeasurement = mutation({
 	},
 });
 
+/** Prepare an exact, date-by-date step distribution; no writes before confirm. */
+export const prepareStepsRange = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		threadId: v.string(),
+		topic: v.string(),
+		total: v.number(),
+		days: v.number(),
+		endDate: v.string(),
+	},
+	handler: async (ctx, { sessionToken, threadId, topic, total, days, endDate }) => {
+		const user = await requireAssistantClient(ctx, sessionToken);
+		assertDate(endDate, { noFuture: true });
+		if (!Number.isInteger(days) || days < 2 || days > 14) throw new ConvexError("La répartition doit couvrir de 2 à 14 jours.");
+		if (!Number.isSafeInteger(total) || total <= 0 || total > days * 150_000) throw new ConvexError("Le total de pas est invalide pour cette période.");
+		const values = distributeSteps(total, days);
+		const entries = [] as { date: string; count: number }[];
+		const previous = [] as { date: string; count: number | null; manualCount: number | null }[];
+		const lines: PreviewLine[] = [];
+		for (let index = 0; index < days; index++) {
+			const date = addDaysISO(endDate, index - days + 1);
+			const count = values[index];
+			const existing = await ctx.db.query("dailySteps")
+				.withIndex("by_user_date", (q) => q.eq("userId", user._id).eq("date", date)).first();
+			entries.push({ date, count });
+			previous.push({ date, count: existing?.count ?? null, manualCount: existing?.manualCount ?? null });
+			lines.push({
+				label: `${count.toLocaleString("fr-FR")} pas`,
+				detail: existing ? `${date} · remplacera ${existing.count.toLocaleString("fr-FR")} pas déjà saisis` : date,
+				...(existing ? { source: "correction" } : {}),
+			});
+		}
+		return insertPending(ctx, user._id, await assertThread(ctx, user._id, threadId), "steps_bulk", topic, {
+			title: `Répartir ${total.toLocaleString("fr-FR")} pas sur ${days} jours`,
+			lines,
+			notice: `Du ${entries[0].date} au ${endDate}. La somme des ${days} lignes fait exactement ${total.toLocaleString("fr-FR")} pas. Aucune saisie ne sera modifiée avant confirmation.`,
+		}, { total, entries }, { entries: previous });
+	},
+});
+
 /**
  * `saveQuestionForCoach` — note/question pour Hugo (§25/§26). Écriture simple
  * et additive, mais elle passe PAR LA MÊME preview → confirmation (§15).
@@ -1442,7 +1484,7 @@ export const prepareCoachQuestion = mutation({
 		if (checkin?.status === "retour_envoye") throw new ConvexError("Le bilan visé est déjà traité par Hugo. Il faut lui transmettre une nouvelle question séparément.");
 		const preview = {
 			title: destination === "bilan" ? "Ajouter à mon prochain bilan" : "Noter une question pour Hugo",
-			lines: [{ label: clean, detail: destination === "bilan" ? "Visible par Hugo au prochain bilan" : "Note simple" }],
+			lines: [{ label: clean, detail: destination === "bilan" ? "Destination : prochain bilan · enregistrée ici, pas encore transmise à Hugo" : "Destination : note pour Hugo · enregistrée ici, pas encore transmise" }],
 		};
 		return insertPending(
 			ctx,

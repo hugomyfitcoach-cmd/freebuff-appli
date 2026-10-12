@@ -151,6 +151,21 @@ test('Modèle IA : variable serveur ASSISTANT_MODEL, jamais hardcodé dans l’a
 
 /* ══════════════ 2. BOUCLE D'OUTILS IA — test fonctionnel ══════════════ */
 
+
+const stepsMod = await import(new URL('../src/lib/assistant/stepDistribution.ts', import.meta.url).href);
+
+test('Répartition de pas multi-jours déterministe et exacte', () => {
+	const parsed = stepsMod.parseStepDistributionRequest('J’ai fait 80 000 pas sur les 7 derniers jours, répartis-les sur 7 jours et enregistre-les.');
+	assert.deepEqual(parsed, { total: 80000, days: 7 });
+	const distribution = stepsMod.distributeSteps(parsed.total, parsed.days);
+	assert.equal(distribution.length, 7);
+	assert.deepEqual(distribution, [11429, 11429, 11429, 11429, 11428, 11428, 11428]);
+	assert.equal(distribution.reduce((sum, value) => sum + value, 0), 80000);
+	assert.equal(stepsMod.parseStepDistributionRequest('J’ai fait 80 000 pas sur les 7 derniers jours.'), null, 'sans demande d’écriture: aucune préparation');
+	assert.equal(stepsMod.parseStepDistributionRequest('J’ai fait 80 000 pas sur les 7 derniers jours, répartis sur 6 jours et enregistre-les.'), null, 'périodes ambiguës: aucune préparation');
+	assert.throws(() => stepsMod.distributeSteps(150001, 1), RangeError);
+});
+
 const aiMod = await import(new URL('../src/lib/server/assistantAi.ts', import.meta.url).href);
 const reg = await import(new URL('../src/convex/assistantRegistry.ts', import.meta.url).href);
 const registryToolDefs = reg.registryToolDefs;
@@ -457,6 +472,43 @@ test('Aucune clé IA côté navigateur (§29)', () => {
 	assert.ok(/ASSISTANT_MODEL/.test(assistantAi), 'modèle configurable côté serveur');
 });
 
+
+test('Payload vision réel, texte+image et modèle compatible jusqu’à Chat Completions', async () => {
+	const prevKey = process.env.OPENAI_API_KEY;
+	const prevModel = process.env.ASSISTANT_MODEL;
+	const prevFetch = globalThis.fetch;
+	process.env.OPENAI_API_KEY = 'sk-test';
+	process.env.ASSISTANT_MODEL = 'gpt-4o-mini';
+	const bodies = [];
+	globalThis.fetch = async (_url, init) => {
+		bodies.push(JSON.parse(init.body));
+		return jsonResponse({ choices: [{ message: { content: 'La photo montre une pomme.' } }], usage: { prompt_tokens: 3, completion_tokens: 4 } });
+	};
+	try {
+		const imageDataUrl = 'data:image/jpeg;base64,AA==';
+		await aiMod.runAssistantTurn({ system: 's', history: [], userText: 'Quel fruit vois-tu ?', imageDataUrl, tools: [], callTool: async () => null, maxRounds: 1 });
+		const user = bodies[0].messages.find((message) => message.role === 'user');
+		assert.deepEqual(user.content, [
+			{ type: 'text', text: 'Quel fruit vois-tu ?' },
+			{ type: 'image_url', image_url: { url: imageDataUrl, detail: 'high' } },
+		]);
+		assert.equal(bodies[0].model, 'gpt-4o-mini');
+		bodies.length = 0;
+		await assert.rejects(() => aiMod.runAssistantTurn({ system: 's', history: [], userText: 'Décris', imageDataUrl: 'data:image/jpeg;base64,' + 'A'.repeat(750_000), tools: [], callTool: async () => null, maxRounds: 1 }), /trop lourde/);
+		assert.equal(bodies.length, 0, 'payload trop grand refusé avant tout appel modèle');
+		for (const visionModel of ['gpt-4o', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'o4-mini']) {
+			process.env.ASSISTANT_MODEL = visionModel;
+			bodies.length = 0;
+			await aiMod.runAssistantTurn({ system: 's', history: [], userText: 'Décris', imageDataUrl, tools: [], callTool: async () => null, maxRounds: 1 });
+			assert.equal(bodies[0].model, visionModel);
+		}
+	} finally {
+		globalThis.fetch = prevFetch;
+		if (prevKey === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = prevKey;
+		if (prevModel === undefined) delete process.env.ASSISTANT_MODEL; else process.env.ASSISTANT_MODEL = prevModel;
+	}
+});
+
 test('Fenêtre de contexte limitée, aucun historique complet renvoyé (§28)', () => {
 	assert.ok(/historyWindow/.test(policy), 'fenêtre configurable');
 	assert.ok(/\.take\(limits\.historyWindow\)/.test(assistant), 'historique tronqué côté serveur');
@@ -474,6 +526,42 @@ test('Erreur réseau : message humain + Réessayer, message jamais perdu', () =>
 	assert.ok(/userErrMsg/.test(page), 'message utilisateur propre (jamais de stack)');
 	assert.ok(/G-FLUX analyse/.test(page), 'indicateur de chargement sans robot');
 	assert.ok(!/robot|mascotte|avatar ia/i.test(page), 'aucun robot animé');
+});
+
+
+test('Texte et image gardés distincts dans le transport et visibles comme pièce jointe', () => {
+	assert.ok(/imageDataUrl\?: string/.test(page), 'thumbnail image sur le message local');
+	assert.ok(/imageDataUrl: raw\.imageDataUrl/.test(page), 'image réelle envoyée au endpoint');
+	assert.ok(/type: 'image_url'/.test(assistantAi), 'image_url vision transmis à Chat Completions');
+	assert.ok(/text: promptText/.test(assistantAi), 'texte utilisateur dans le même message multimodal');
+	assert.ok(/Photo réellement jointe et transmise à l’assistant/.test(page), 'la vignette prouve le message image réellement attaché');
+	assert.ok(/imageDataUrl: v\.optional\(v\.string\(\)\)/.test(assistant), 'argument image accepté par action Convex');
+	assert.ok(/imageDataUrl\?: unknown/.test(sendBff) && /\.\.\.\(imageDataUrl \? \{ imageDataUrl \} : \{\}\)/.test(sendBff), 'BFF conserve la pièce jointe jusqu’à Convex');
+	assert.ok(/MAX_IMAGE_DATA_URL_CHARS = 750_000/.test(composer), 'compression bornée sous 1 MiB de chaîne Convex');
+	assert.ok(/imageDataUrl\.length > 750_000/.test(sendBff), 'BFF refuse les payloads dépassant la limite transportée');
+});
+
+test('Confirmation repas exacte: lignes preview = composants, résultat = lignes persistées', () => {
+	assert.ok(/doc\.preview\.lines\.length !== payload\.components\.length/.test(assistant), 'parité stricte preview/components');
+	assert.ok(/createdCount !== components\.length/.test(read('src/convex/meals.ts')), 'mutation retourne/refuse le compte exact de composants');
+	assert.ok(/existingCount !== components\.length/.test(read('src/convex/meals.ts')), 'retry ne renvoie pas un faux compte à zéro');
+	assert.ok(/created: createdCount/.test(read('src/convex/meals.ts')), 'résultat exact renvoyé pour les repas normaux et planifiés');
+	assert.ok(/return \{ ok: true as const, created: existingCount.*planned: priorPlannedRows.length > 0/.test(read('src/convex/meals.ts')), 'retry rapporte les lignes, et distingue les repas planifiés');
+});
+
+test('Carte coach distingue destination et enregistrement de la transmission', () => {
+	assert.ok(/pas encore transmise à Hugo/.test(tools), 'destination bilan non présentée comme transmission');
+	assert.ok(/pas encore transmise/.test(tools), 'note coach non présentée comme envoyée');
+	assert.ok(/transmittedAt/.test(schema) && /status: v\.union\(v\.literal\("open"\)/.test(schema), 'statut persistant distinct');
+});
+
+test('Assistant mobile garde les messages et cartes au-dessus du composer et du menu iOS', () => {
+	assert.ok(/pb-\[calc\(13rem\+env\(safe-area-inset-bottom\)\)\]/.test(page), 'zone de défilement sous composer + nav + safe-area');
+	assert.ok(/overscroll-contain/.test(page), 'scroll interne stable sur iOS');
+	assert.ok(/sticky bottom-\[calc\(6\.5rem\+env\(safe-area-inset-bottom\)\)\]/.test(page), 'composer au-dessus du bottom nav');
+	assert.ok(/min-h-11/.test(previewCard), 'boutons confirmation tactiles');
+	assert.ok(/scroll-smooth/.test(page), 'défilement conversation fluide jusqu’aux confirmations');
+	assert.ok(/scrollTo\(\{ top: list\.scrollHeight/.test(page), 'la liste défile après le rendu des cartes et messages');
 });
 
 test('Double submit bloqué côté client ET serveur', () => {

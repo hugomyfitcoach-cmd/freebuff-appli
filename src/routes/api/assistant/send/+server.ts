@@ -35,10 +35,10 @@ export const POST: RequestHandler = async (event) => {
 		const message = typeof body.message === 'string' ? body.message.trim().slice(0, 4000) : '';
 		const topic = typeof body.topic === 'string' ? body.topic : 'nutrition';
 		const threadId = typeof body.threadId === 'string' && body.threadId ? body.threadId.slice(0, 40) : undefined;
-		const imageDataUrl =
-			typeof body.imageDataUrl === 'string' && body.imageDataUrl.startsWith('data:image/')
-				? body.imageDataUrl.slice(0, 5_000_000)
-				: undefined;
+		const imageDataUrl = typeof body.imageDataUrl === 'string' ? body.imageDataUrl : undefined;
+		if (imageDataUrl && (!/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(imageDataUrl) || imageDataUrl.length > 750_000)) {
+			return json({ ok: false, reason: 'Photo invalide ou trop volumineuse. Choisis une image plus petite.' }, { status: 413 });
+		}
 		if (!message && !imageDataUrl) {
 			return json({ ok: false, reason: 'Écris un message 🙂' }, { status: 400 });
 		}

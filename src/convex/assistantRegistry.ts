@@ -511,6 +511,23 @@ export const ASSISTANT_REGISTRY: AssistantToolEntry[] = [
 		},
 	},
 	{
+		name: "prepareStepsRange",
+		kind: "prepare",
+		description: "PRÉPARE une répartition explicite d'un total de pas sur les 7 derniers jours (ou la période demandée). À utiliser uniquement si la cliente demande clairement de répartir ET d'enregistrer. Une seule carte affiche une ligne par date; rien n'est écrit avant le clic de confirmation.",
+		parameters: {
+			type: "object",
+			properties: { total: { type: "number" }, days: { type: "number" }, endDate: DATE },
+			required: ["total", "days"],
+		},
+		run: async (ctx, state, args) => {
+			const res = await ctx.runMutation(api.assistantTools.prepareStepsRange, {
+				sessionToken: state.sessionToken, threadId: state.threadId, topic: state.topic,
+				total: Number(args.total), days: Number(args.days), endDate: typeof args.endDate === "string" ? args.endDate : state.today,
+			});
+			return { ok: true, ...res };
+		},
+	},
+	{
 		name: "listCoachQuestions",
 		kind: "read",
 		description: "Liste les notes/questions effectivement enregistrées pour Hugo; la base serveur fait autorité, pas le fil de conversation.",

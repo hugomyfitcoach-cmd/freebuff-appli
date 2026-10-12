@@ -150,16 +150,28 @@ export const commitAnalyzedMeal = mutation({
 		if (components.length === 0) throw new ConvexError("Aucun composant à ajouter.");
 		if (components.length > 12) throw new ConvexError("Maximum 12 composants par repas analysé.");
 
-		// Idempotence : même requestId + même utilisateur → déjà commité, on
-		// renvoie le résultat d'origine sans rien réécrire (double-clic, retry).
+		// Idempotence : consulte les lignes réellement créées, jamais une seule
+		// ligne sentinelle. Le compte exact est nécessaire à la confirmation.
 		const rid = requestId?.trim();
 		if (rid) {
-			const prior = await ctx.db
-				.query("diaryEntries")
-				.withIndex("by_group", (q) => q.eq("mealGroup", `analyse:${rid}`))
-				.first();
-			if (prior) {
-				return { ok: true as const, created: 0, mealGroup: prior.mealGroup as string, duplicate: true };
+			const group = `analyse:${rid}`;
+			const priorDiary = await ctx.db.query("diaryEntries")
+				.withIndex("by_group", (q) => q.eq("mealGroup", group)).collect();
+			const priorPlanned = await ctx.db.query("plannedEntries")
+				.withIndex("by_meal_group", (q) => q.eq("mealGroup", group)).collect();
+			const priorDiaryRows = priorDiary.filter((row) => row.userId === user._id);
+			const priorPlannedRows = priorPlanned.filter((row) => row.userId === user._id);
+			const existingCount = priorDiaryRows.length + priorPlannedRows.length;
+			if (existingCount > 0) {
+				const expectedPlanned = date > trustedClientToday(clientDate);
+				if ((priorDiaryRows.length > 0 && priorPlannedRows.length > 0) ||
+					(expectedPlanned ? priorDiaryRows.length !== 0 : priorPlannedRows.length !== 0) ||
+					priorDiaryRows.some((row) => row.requestId !== rid) ||
+					priorPlannedRows.some((row) => row.mealGroup !== group) ||
+					existingCount !== components.length) {
+					throw new ConvexError("Une tentative précédente n'a enregistré qu'une partie des lignes. Aucune nouvelle écriture automatique n'a été faite; vérifie le journal.");
+				}
+				return { ok: true as const, created: existingCount, mealGroup: group, planned: priorPlannedRows.length > 0, duplicate: true };
 			}
 		}
 
@@ -286,7 +298,11 @@ export const commitAnalyzedMeal = mutation({
 				}
 			}
 		}
-		return { ok: true, created: future ? createdPlanned : created.length, mealGroup, planned: future };
+		const createdCount = future ? createdPlanned : created.length;
+		if (createdCount !== components.length) {
+			throw new ConvexError(`Nombre de lignes incohérent : ${createdCount}/${components.length}. La transaction est annulée.`);
+		}
+		return { ok: true, created: createdCount, mealGroup, planned: future };
 	},
 });
 

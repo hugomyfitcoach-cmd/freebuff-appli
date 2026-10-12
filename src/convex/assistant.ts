@@ -44,6 +44,7 @@ import { refineMatch } from "./assistantTools";
 import { contextFor, buildContextBlock } from "./assistantRead";
 import { OpenAiUnavailableError } from "../lib/server/openai";
 import { foodTraceEnabled, summarizeRequestedFoods, summarizeFoodItems } from "./previewFoodTrace";
+import { parseStepDistributionRequest } from "../lib/assistant/stepDistribution";
 
 /** Délai maximum d'un envoi « en cours » avant déblocage automatique (ms). */
 const INFLIGHT_TIMEOUT_MS = 60_000;
@@ -555,6 +556,39 @@ async function executeConfirmed(
 			});
 			return { result: `${Number(payload.count).toLocaleString("fr-FR")} pas enregistrés` };
 		}
+		case "steps_bulk": {
+			const entries = payload.entries as { date: string; count: number }[];
+			const previous = parseJson<{ entries?: { date: string; count: number | null; manualCount: number | null }[] }>(action.previousValue, {});
+			const before = previous.entries ?? [];
+			if (
+				!Array.isArray(entries) || entries.length < 2 || entries.length > 14 ||
+				!Number.isSafeInteger(payload.total) || entries.reduce((sum, entry) => sum + entry.count, 0) !== Number(payload.total) ||
+				new Set(entries.map((entry) => entry.date)).size !== entries.length || before.length !== entries.length
+			) throw new ConvexError("La répartition de pas est incohérente. Rien n'a été modifié.");
+			const rows = [] as { entry: { date: string; count: number }; existing: Doc<"dailySteps"> | null; old: typeof before[number] }[];
+			for (const entry of entries) {
+				if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.date) || !Number.isSafeInteger(entry.count) || entry.count < 0 || entry.count > 150_000) {
+					throw new ConvexError("Une date ou une valeur de pas est invalide. Rien n'a été modifié.");
+				}
+				const existing = await ctx.db.query("dailySteps")
+					.withIndex("by_user_date", (q) => q.eq("userId", action.userId).eq("date", entry.date)).first();
+				const old = before.find((candidate) => candidate.date === entry.date);
+				if (!old || (existing?.count ?? null) !== old.count || (existing?.manualCount ?? null) !== old.manualCount) {
+					throw new ConvexError("Une journée de pas a changé depuis l'aperçu. Rien n'a été modifié; prépare à nouveau la répartition.");
+				}
+				rows.push({ entry, existing, old });
+			}
+			// Toutes les lignes sont validées avant le premier write : cette mutation
+			// écrit les 7 dates atomiquement et laisse une annulation cohérente.
+			for (const { entry, existing } of rows) {
+				if (existing) await ctx.db.patch(existing._id, { count: entry.count, manualCount: entry.count, createdAt: Date.now() });
+				else await ctx.db.insert("dailySteps", { userId: action.userId, date: entry.date, count: entry.count, manualCount: entry.count, createdAt: Date.now() });
+			}
+			return {
+				result: `${Number(payload.total).toLocaleString("fr-FR")} pas enregistrés sur ${entries.length} jours`,
+				newValue: JSON.stringify({ entries, total: payload.total }),
+			};
+		}
 		case "weight":
 		case "measurement": {
 			await ctx.runMutation(api.metrics.upsert, {
@@ -661,6 +695,25 @@ async function undoConfirmed(
 				n++;
 			}
 			return `${n} aliment(s) restauré(s)`;
+		}
+		case "steps_bulk": {
+			const entries = (next?.entries ?? []) as { date: string; count: number }[];
+			const oldEntries = (previous?.entries ?? []) as { date: string; count: number | null; manualCount: number | null }[];
+			const rows = [] as { entry: { date: string; count: number }; old: typeof oldEntries[number]; row: Doc<"dailySteps"> | null }[];
+			for (const entry of entries) {
+				const old = oldEntries.find((candidate) => candidate.date === entry.date);
+				const row = await ctx.db.query("dailySteps")
+					.withIndex("by_user_date", (q) => q.eq("userId", action.userId).eq("date", entry.date)).first();
+				if (!old || row?.count !== entry.count || row.manualCount !== entry.count) {
+					throw new ConvexError("Une journée a été modifiée après l'enregistrement. Rien n'a été annulé; corrige-la manuellement.");
+				}
+				rows.push({ entry, old, row });
+			}
+			for (const { old, row } of rows) {
+				if (old.count != null) await ctx.db.patch(row!._id, { count: old.count, manualCount: old.manualCount ?? undefined, createdAt: Date.now() });
+				else await ctx.db.delete(row!._id);
+			}
+			return `${entries.length} journées de pas restaurées`;
 		}
 		case "steps": {
 			const date = String(payload.date);
@@ -805,7 +858,7 @@ export const resolveAction = mutation({
 		if (doc.actionType === "journal_add") {
 			const committed = parseJson<{ created?: number }>(newValue, {});
 			if ((committed.created ?? 0) !== confirmedPreview.lines.length) {
-				throw new ConvexError("Le nombre de lignes enregistrées ne correspond pas à la prévisualisation. La confirmation a été annulée.");
+				throw new ConvexError("Le nombre de lignes enregistrées ne correspond pas exactement à la prévisualisation. Rien n'est confirmé.");
 			}
 		}
 		await ctx.db.patch(doc._id, {
@@ -836,15 +889,15 @@ export const send = action({
 		message: v.string(),
 		/** Date locale du navigateur (fuseau horaire de la cliente). */
 		today: v.optional(v.string()),
-		/** Photo (dataURL) — optionnelle, réutilise la pipeline Repas IA. */
+		/** Photo (dataURL JPEG compressée) — bornée sous la limite de chaîne Convex. */
 		imageDataUrl: v.optional(v.string()),
 	},
 	handler: async (ctx, args) => {
 		const text = (args.message ?? "").trim().slice(0, 4000);
 		const withImage = typeof args.imageDataUrl === "string" && args.imageDataUrl.startsWith("data:image/");
 		if (!withImage && text.length < 1) throw new ConvexError("Écris un message 🙂");
-		if (withImage && args.imageDataUrl!.length > 5_000_000) {
-			throw new ConvexError("Photo trop lourde — réessaie avec un cadrage plus serré.");
+		if (withImage && (!/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(args.imageDataUrl!) || args.imageDataUrl!.length > 750_000)) {
+			throw new ConvexError("Photo invalide ou trop volumineuse — choisis une image plus petite.");
 		}
 
 		// 1) Réservation atomique (session + flag + quota + anti-spam + fil).
@@ -870,6 +923,20 @@ export const send = action({
 		try {
 			const today = reservation.today;
 			const intent = classifyAssistantIntent(text);
+			const stepDistribution = withImage ? null : parseStepDistributionRequest(text);
+			if (stepDistribution) {
+				const prep = await ctx.runMutation(api.assistantTools.prepareStepsRange, {
+					sessionToken: args.sessionToken, threadId, topic: "weight_steps",
+					total: stepDistribution.total, days: stepDistribution.days, endDate: today,
+				}) as { actionId: string; preview: unknown };
+				const reply = `Voici les ${stepDistribution.days} dates et valeurs, pour un total exact de ${stepDistribution.total.toLocaleString("fr-FR")} pas. Vérifie la répartition avant de confirmer; rien n'est enregistré pour l'instant.`;
+				await ctx.runMutation(api.assistant.commit, {
+					sessionToken: args.sessionToken, threadId, topic: "weight_steps",
+					userMessage: text, assistantMessage: reply, kind: "text", actionId: prep.actionId as Id<"assistantActions">,
+				});
+				return { ok: true as const, threadId, topic: "weight_steps" as const, reply, kind: "text" as const,
+					pendingAction: { actionId: prep.actionId, actionType: "steps_bulk" as const, preview: prep.preview }, usage: reservation.usage };
+			}
 			if (intent === "prepare_checkin") {
 				const reply = "Bien sûr. Ouvre l’onglet Bilan pour retrouver le formulaire de ton prochain bilan; je ne crée pas de note à Hugo avec cette demande.";
 				await ctx.runMutation(api.assistant.commit, {
@@ -916,7 +983,7 @@ export const send = action({
 					sessionToken: args.sessionToken,
 					threadId,
 					topic,
-					userMessage: text,
+					userMessage: text || (withImage ? "Photo jointe (transmise pour analyse)" : ""),
 					assistantMessage: DISTRESS_REPLY,
 					kind: "safety",
 				});
@@ -1127,8 +1194,10 @@ export const send = action({
 								? "coach_question_delete"
 								: /JournalRemoval/.test(name)
 									? "journal_remove"
-							: /Measurement/.test(name)
-								? "measurement"
+							: /StepsRange/.test(name)
+								? "steps_bulk"
+								: /Measurement/.test(name)
+									? "measurement"
 								: /CoachQuestion/.test(name)
 									? "coach_question"
 									: "journal_add",
@@ -1150,7 +1219,8 @@ export const send = action({
 				const turn = await runAssistantTurn({
 					system,
 					history: context,
-					userText: text || "(photo jointe)",
+					userText: text || "",
+					...(withImage ? { imageDataUrl: args.imageDataUrl } : {}),
 					...(imageHint ? { imageHint } : {}),
 					tools: registryToolDefs(),
 					callTool,
@@ -1210,6 +1280,7 @@ export const send = action({
 							{ role: "assistant" as const, content: reply },
 						],
 						userText: retryKind === "read" ? "(relance système : consulte les données réelles maintenant)" : "(relance système : appelle l'outil de préparation maintenant)",
+						...(withImage ? { imageDataUrl: args.imageDataUrl } : {}),
 						tools: registryToolDefs(),
 						callTool,
 						// LOT 2B (C1 batterie) — 2 rounds : un premier appel d'outil
@@ -1237,7 +1308,7 @@ export const send = action({
 					sessionToken: args.sessionToken,
 					threadId,
 					topic,
-					userMessage: text || "(message)",
+					userMessage: text || (withImage ? "Photo jointe (transmise pour analyse)" : "(message)"),
 					assistantMessage: e.message,
 					kind: "error",
 					model: assistantModel(),
@@ -1274,7 +1345,7 @@ export const send = action({
 				sessionToken: args.sessionToken,
 				threadId,
 				topic,
-				userMessage: text || "(photo jointe)",
+				userMessage: text || (withImage ? "Photo jointe (image réellement transmise pour analyse)" : ""),
 				assistantMessage: reply,
 				kind: "text",
 				...(pending ? { actionId: pending.actionId as Id<"assistantActions"> } : {}),

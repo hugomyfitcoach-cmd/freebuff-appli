@@ -42,8 +42,13 @@ export type ToolDef = {
 
 type ToolCall = { id: string; type: 'function'; function: { name: string; arguments: string } };
 
+type UserImageContent =
+	| { type: 'text'; text: string }
+	| { type: 'image_url'; image_url: { url: string; detail: 'high' } };
+
 type ChatMsg =
-	| { role: 'system' | 'user'; content: string }
+	| { role: 'system'; content: string }
+	| { role: 'user'; content: string | UserImageContent[] }
 	| { role: 'assistant'; content: string | null; tool_calls?: ToolCall[] }
 	| { role: 'tool'; tool_call_id: string; content: string };
 
@@ -131,7 +136,9 @@ export async function runAssistantTurn(opts: {
 	system: string;
 	history: { role: 'user' | 'assistant'; content: string }[];
 	userText: string;
-	/** Description d'une photo jointe (Repas IA) — optionnelle. */
+	/** Image réellement jointe au message multimodal, jamais réduite à un libellé. */
+	imageDataUrl?: string;
+	/** Résumé facultatif produit par Repas IA; l'image originale est transmise séparément. */
 	imageHint?: string;
 	tools: ToolDef[];
 	callTool: (name: string, args: Record<string, unknown>) => Promise<unknown>;
@@ -142,7 +149,23 @@ export async function runAssistantTurn(opts: {
 	const chunks: { input?: number; output?: number }[] = [];
 	const called: string[] = [];
 
-	const userContent = opts.imageHint ? `${opts.userText}\n\n[Photo jointe : ${opts.imageHint}]` : opts.userText;
+	if (opts.imageDataUrl && !/^data:image\/(?:png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/.test(opts.imageDataUrl)) {
+		throw new OpenAiUnavailableError('Image jointe invalide. Réessaie avec une autre photo.');
+	}
+	if (opts.imageDataUrl && opts.imageDataUrl.length > 750_000) {
+		throw new OpenAiUnavailableError('Image jointe trop lourde pour le transport sécurisé. Choisis une photo plus petite.');
+	}
+	if (opts.imageDataUrl && !/^(gpt-4o(-mini)?|gpt-4\.1(-mini|-nano)?|o4-mini)$/.test(model)) {
+		throw new OpenAiUnavailableError(`Le modèle ${model} configuré ne prend pas en charge les images. Configure ASSISTANT_MODEL avec un modèle vision compatible.`);
+	}
+	const promptText = [opts.userText || (opts.imageDataUrl ? 'Analyse la photo jointe.' : ''), opts.imageHint ? `[Résumé automatique de la photo : ${opts.imageHint}]` : '']
+		.filter(Boolean).join('\n\n');
+	const userContent: string | UserImageContent[] = opts.imageDataUrl
+		? [
+				{ type: 'text', text: promptText },
+				{ type: 'image_url', image_url: { url: opts.imageDataUrl, detail: 'high' } },
+			]
+		: promptText;
 	const messages: ChatMsg[] = [
 		{ role: 'system', content: opts.system },
 		...opts.history.map((m) => ({ role: m.role, content: m.content }) as ChatMsg),

@@ -9,6 +9,7 @@ export const assistantActionType = v.union(
 	v.literal("journal_add"),
 	v.literal("journal_remove"),
 	v.literal("steps"),
+	v.literal("steps_bulk"),
 	v.literal("weight"),
 	v.literal("measurement"),
 	v.literal("coach_question"),
