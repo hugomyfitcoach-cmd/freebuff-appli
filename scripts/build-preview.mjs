@@ -40,7 +40,7 @@ function readEnvFileVars() {
 
 const fileVars = readEnvFileVars();
 const deployKey = process.env.CONVEX_DEPLOY_KEY ?? fileVars.CONVEX_DEPLOY_KEY ?? '';
-/** En preview, `convex deploy` injecte l'URL du backend preview AVANT le build. */
+/** En preview, `convex deploy` injecte dans le processus --cmd l'URL réelle du backend (hostname généré, indépendant de --preview-name). */
 const publicConvexUrl = process.env.PUBLIC_CONVEX_URL ?? fileVars.PUBLIC_CONVEX_URL ?? '';
 
 if (isPreview) {
@@ -89,7 +89,7 @@ if (isPreview) {
 	if (
 		!parsedPreviewUrl ||
 		parsedPreviewUrl.protocol !== 'https:' ||
-		parsedPreviewUrl.hostname !== `${expectedPreviewName}.convex.cloud` ||
+		!parsedPreviewUrl.hostname.endsWith('.convex.cloud') ||
 		parsedPreviewUrl.username ||
 		parsedPreviewUrl.password ||
 		parsedPreviewUrl.port ||
@@ -97,7 +97,7 @@ if (isPreview) {
 		parsedPreviewUrl.search ||
 		parsedPreviewUrl.hash
 	) {
-		console.error(`⛔ Build PREVIEW refusé : PUBLIC_CONVEX_URL ne correspond pas exactement au Convex Preview ${expectedPreviewName}.`);
+		console.error(`⛔ Build PREVIEW refusé : PUBLIC_CONVEX_URL n'est pas une URL HTTPS de déploiement Convex valide.`);
 		process.exit(1);
 	}
 	console.log(`✅ Preview : PUBLIC_CONVEX_URL=${publicConvexUrl} (Convex Preview, pas ${PROD_DEPLOYMENT}).`);

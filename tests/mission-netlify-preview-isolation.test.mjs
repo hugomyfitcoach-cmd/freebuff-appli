@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -54,14 +54,16 @@ test('la commande conserve le preview nommé et ne remet jamais à zéro un back
 test('le build Preview vérifie aussi l’identité du backend avant embarquement', () => {
 	assert.match(buildScript, /process\.env\.PULL_REQUEST !== 'true'/);
 	assert.match(buildScript, /barcode-lookup-pr-\$\{reviewId\}/);
-	assert.match(buildScript, /parsedPreviewUrl\.hostname !== `\$\{expectedPreviewName\}\.convex\.cloud`/);
+	assert.match(buildScript, /parsedPreviewUrl\.hostname\.endsWith\('\.convex\.cloud'\)/);
 	assert.match(buildScript, /parsedPreviewUrl\.protocol !== 'https:'/);
 	assert.match(buildScript, /parsedPreviewUrl\.username/);
 	assert.match(buildScript, /parsedPreviewUrl\.password/);
+	assert.match(buildScript, /if \(publicConvexUrl\.includes\(PROD_URL_PART\) \|\| publicConvexUrl\.includes\(PROD_DEPLOYMENT\)\)/);
+	assert.match(buildScript, /process\.env\.PUBLIC_CONVEX_URL \?\? fileVars\.PUBLIC_CONVEX_URL/);
 	assert.match(buildScript, /deployKey\.startsWith\('preview:'\)/);
 });
 
-test('le build Preview n’accepte que l’URL HTTPS canonique du déploiement de cette PR', () => {
+test('le build Preview accepte le hostname régional Convex injecté et rejette les autres URL', () => {
 	const directory = mkdtempSync(join(tmpdir(), 'gflux-preview-guard-'));
 	const script = join(root, 'scripts/build-preview.mjs');
 	const runGuard = (url) => spawnSync(process.execPath, [script], {
@@ -77,12 +79,15 @@ test('le build Preview n’accepte que l’URL HTTPS canonique du déploiement d
 		encoding: 'utf8',
 	});
 	try {
-		const valid = runGuard('https://barcode-lookup-pr-271.convex.cloud');
+		// A stale .env.local value must not mask the canonical URL that Convex
+		// injects into the --cmd child (which overrides its inherited env).
+		writeFileSync(join(directory, '.env.local'), 'PUBLIC_CONVEX_URL=https://calm-jaguar-475.eu-west-1.convex.cloud\n');
+		const valid = runGuard('https://wooden-gnat-118.eu-west-1.convex.cloud');
 		assert.equal(valid.status, 0, valid.stderr);
 		for (const url of [
 			'http://barcode-lookup-pr-271.convex.cloud',
 			'https://barcode-lookup-pr-271.convex.site',
-			'https://barcode-lookup-pr-271.convex.cloud.attacker.example',
+			'https://not-convex.example',
 			'https://barcode-lookup-pr-271.convex.cloud.evil',
 			'https://user@barcode-lookup-pr-271.convex.cloud',
 			'https://barcode-lookup-pr-271.convex.cloud/path',
