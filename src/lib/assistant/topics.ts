@@ -70,7 +70,7 @@ export const TOPICS: TopicDef[] = [
 		label: 'Bilan',
 		icon: 'clipboardPen',
 		subtitle: 'Le factuel de ta période, prêt pour ton bilan.',
-		suggestions: ['Récap de ma journée', 'Récap de ma semaine', 'Préparer mon prochain bilan'],
+		suggestions: ['Récap de ma journée', 'Récap de ma semaine', 'Aide-moi à remplir mon bilan'],
 	},
 	{
 		id: 'coach_question',
@@ -79,7 +79,7 @@ export const TOPICS: TopicDef[] = [
 		subtitle: 'Hugo garde la main sur ton suivi.',
 		suggestions: [
 			'Noter une question pour Hugo',
-			'Ajouter cette question à mon prochain bilan',
+			'Ajouter une question à mon prochain bilan',
 			'Écrire à Hugo sur WhatsApp',
 		],
 		whatsappSuggestion: 'Écrire à Hugo sur WhatsApp',

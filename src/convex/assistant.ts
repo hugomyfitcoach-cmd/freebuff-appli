@@ -25,7 +25,7 @@ import { action, mutation, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { api } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { getSessionUser, localTodayISO } from "./helpers";
+import { getSessionUser, localTodayISO, dateISOInTimeZone, validTimeZone, addDaysISO, mondayISOof } from "./helpers";
 import { accessStateForUser } from "./billing";
 import {
 	assistantEnabledFor,
@@ -65,6 +65,68 @@ const ANNOUNCE_WITHOUT_TOOL_RE =
  */
 const ADD_INTENT_RE =
 	/\b(ajoute|ajouter|enregistre|enregistrer|note\b|mets\b|rajoute|prépare[- ]moi|petit[- ]déjeuner|déjeuner|d[îi]ner|collation)\b/i;
+
+/** Une formulation d'intention de bilan n'est pas une demande de l'écrire au coach. */
+export function classifyAssistantIntent(text: string): "prepare_checkin" | "add_coach_question" | "clarify_coach_question" | "other" {
+	const clean = text.trim().toLocaleLowerCase("fr-FR");
+	if (/\b(pr[ée]parer|pr[ée]pare|aide(?:-moi)?|remplir|compl[ée]ter)\b.*\bbilan\b|\bbilan\b.*\b(pr[ée]parer|remplir|compl[ée]ter)\b/i.test(clean)) {
+		return "prepare_checkin";
+	}
+	if (explicitCheckinQuestion(text)) {
+		return "add_coach_question";
+	}
+	if (/\bajoute(?:r)?\b.*\bquestion\b.*\b(?:prochain )?bilan\b/i.test(clean)) {
+		return "clarify_coach_question";
+	}
+	if (/\b(ajoute|ajouter|transmets|noter|note|enregistre)\b.*\b(question|note)\b.*\bbilan\b/i.test(clean)) {
+		return "add_coach_question";
+	}
+	return "other";
+}
+
+/** Normalise explicit relative date phrases from the trusted account-local today. */
+export function normalizeRelativeMealDate(text: string, today: string): string | null {
+	const clean = text.toLocaleLowerCase("fr-FR");
+	const mealContext = /\b(journal|repas|mange|mangé|alimentation)\b/.test(clean);
+	const relative = clean.match(/\b(hier|aujourd'hui|demain)\b(?:\s+(matin|midi|soir))?/);
+	if (relative) {
+		const offset = relative[1] === "hier" ? -1 : relative[1] === "demain" ? 1 : 0;
+		const date = addDaysISO(today, offset);
+		const meal = relative[2] === "soir" ? "dîner" : relative[2] === "midi" ? "déjeuner" : relative[2] === "matin" ? "petit-déjeuner" : null;
+		return text.replace(relative[0], `${date}${meal ? ` (${meal})` : ""}`);
+	}
+	if (!mealContext) return text;
+	const weekdays = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"];
+	const weekBase = new Date(`${today}T12:00:00Z`);
+	const currentDay = (weekBase.getUTCDay() + 6) % 7;
+	const explicitWeekday = clean.match(/\b(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)( dernier| dernier\s+\w+| de la semaine dernière| cette semaine)?\b/);
+	if (!explicitWeekday) {
+		if (/\b(?:dernier|dernière|passé|passée|cette semaine|semaine dernière|semaine passée)\b/.test(clean)) return null;
+		return text;
+	}
+	const targetDay = weekdays.indexOf(explicitWeekday[1]);
+	const qualifier = explicitWeekday[2]?.trim() ?? "";
+	if (!qualifier) return null;
+	if (qualifier.includes("dernière")) {
+		const daysBack = currentDay + 7 - targetDay;
+		return text.replace(explicitWeekday[0], addDaysISO(today, -daysBack));
+	}
+	if (qualifier === "dernier") {
+		const daysBack = ((currentDay - targetDay + 7) % 7) || 7;
+		return text.replace(explicitWeekday[0], addDaysISO(today, -daysBack));
+	}
+	if (targetDay > currentDay) return null;
+	return text.replace(explicitWeekday[0], addDaysISO(today, targetDay === currentDay ? 0 : -(currentDay - targetDay)));
+}
+
+/** Extrait uniquement le texte après une mention « au bilan : ... ? ». */
+export function explicitCheckinQuestion(text: string): string | null {
+	const match = text.trim().match(/(?:\b(?:au|dans le|pour le|pour mon)\s+bilan|à\s+(?:mon|ce)\s+bilan)\s*[:—-]\s*[«”"]?(.+?)[»”"]?\s*$/i);
+	const value = match?.[1]?.trim();
+	if (!value || value.length < 5 || !/[?]/.test(value)) return null;
+	if (/^(préparer|preparer|aide-moi|remplir|compléter)\b/i.test(value)) return null;
+	return value.slice(0, 600);
+}
 
 /**
  * Récitation de VALEURS nutritionnelles sans outil : des kcal annoncées dans
@@ -165,6 +227,12 @@ export const historyFor = query({
 			.order("desc")
 			.first();
 		const usable = pending && pending.threadId === thread._id && pending.expiresAt > Date.now() ? pending : null;
+		const operations = await ctx.db.query("assistantActions")
+			.withIndex("by_thread", (q) => q.eq("threadId", thread._id))
+			.order("desc").take(8);
+		const coachQuestions = await ctx.db.query("coachQuestions")
+			.withIndex("by_user", (q) => q.eq("userId", user._id))
+			.order("desc").take(12);
 		return {
 			threadId: thread._id as string,
 			topic: coerceTopic(thread.topic),
@@ -179,6 +247,8 @@ export const historyFor = query({
 			pendingAction: usable
 				? { actionId: usable._id as string, actionType: usable.actionType, preview: usable.preview, createdAt: usable.createdAt }
 				: null,
+			operations: operations.filter((row) => row.userId === user._id).map((row) => ({ actionId: row._id, status: row.status, actionType: row.actionType, preview: row.preview, result: row.result })),
+			coachQuestions: coachQuestions.filter((row) => !row.deletedAt).map((row) => ({ questionId: row._id, text: row.text, destination: row.destination, status: row.status, transmittedAt: row.transmittedAt ?? null, weekStart: row.weekStart ?? null })),
 		};
 	},
 });
@@ -202,14 +272,22 @@ export const reserve = mutation({
 		const user = await requireAssistantClient(ctx, sessionToken);
 		const limits = assistantLimits();
 		const now = Date.now();
-		const day = utcDay();
+		const tz = validTimeZone(user.timeZone);
+		if (!tz) throw new ConvexError("Ton fuseau horaire n'est pas défini. Ouvre G-FLUX depuis ton espace pour le synchroniser avant de demander une date relative.");
+		const day = dateISOInTimeZone(new Date(now), tz);
+		const utcQuotaDay = utcDay();
 
 		const row = await ctx.db
 			.query("assistantUsage")
 			.withIndex("by_user_day", (q) => q.eq("userId", user._id).eq("day", day))
 			.first();
-		const textCount = row?.textCount ?? 0;
-		const visionCount = row?.visionCount ?? 0;
+		const legacyUtcRow = day !== utcQuotaDay
+			? await ctx.db.query("assistantUsage")
+				.withIndex("by_user_day", (q) => q.eq("userId", user._id).eq("day", utcQuotaDay))
+				.first()
+			: null;
+		const textCount = Math.max(row?.textCount ?? 0, legacyUtcRow?.textCount ?? 0);
+		const visionCount = Math.max(row?.visionCount ?? 0, legacyUtcRow?.visionCount ?? 0);
 
 		// 1) Anti double-submit : un seul envoi actif (déblocage après 60 s).
 		if (row?.inFlightAt !== undefined && now - row.inFlightAt < INFLIGHT_TIMEOUT_MS) {
@@ -250,8 +328,8 @@ export const reserve = mutation({
 
 		if (row) {
 			await ctx.db.patch(row._id, {
-				textCount: textCount + 1,
-				...(withImage ? { visionCount: visionCount + 1 } : {}),
+				textCount: Math.max(0, row.textCount - (legacyUtcRow?.textCount ?? 0)) + 1,
+				...(withImage ? { visionCount: Math.max(0, row.visionCount - (legacyUtcRow?.visionCount ?? 0)) + 1 } : {}),
 				lastSendAt: now,
 				inFlightAt: now,
 				updatedAt: now,
@@ -260,8 +338,8 @@ export const reserve = mutation({
 			await ctx.db.insert("assistantUsage", {
 				userId: user._id,
 				day,
-				textCount: 1,
-				visionCount: withImage ? 1 : 0,
+				textCount: Math.max(0, legacyUtcRow?.textCount ?? 0) + 1,
+				visionCount: Math.max(0, legacyUtcRow?.visionCount ?? 0) + (withImage ? 1 : 0),
 				lastSendAt: now,
 				inFlightAt: now,
 				updatedAt: now,
@@ -272,6 +350,10 @@ export const reserve = mutation({
 			userId: user._id as string,
 			threadId: thread._id as string,
 			topic: coerceTopic(thread.topic, coerceTopic(topic)),
+			today: day,
+			timeZone: tz,
+			quotaDay: day,
+			legacyQuotaDay: legacyUtcRow ? utcQuotaDay : null,
 			usage: {
 				textCount: textCount + 1,
 				visionCount: visionCount + (withImage ? 1 : 0),
@@ -288,11 +370,12 @@ export const release = mutation({
 	handler: async (ctx, { sessionToken, withImage }) => {
 		const user = await getSessionUser(ctx, sessionToken);
 		if (!user || user.role !== "client") return { ok: false };
-		const day = utcDay();
-		const row = await ctx.db
-			.query("assistantUsage")
-			.withIndex("by_user_day", (q) => q.eq("userId", user._id).eq("day", day))
-			.first();
+		const day = user.timeZone ? dateISOInTimeZone(new Date(), user.timeZone) : utcDay();
+		const rows = await ctx.db.query("assistantUsage")
+			.withIndex("by_user", (q) => q.eq("userId", user._id))
+			.order("desc").take(10);
+		const row = rows.find((candidate) => candidate.day === day && candidate.inFlightAt !== undefined)
+			?? rows.find((candidate) => candidate.inFlightAt !== undefined);
 		if (!row) return { ok: false };
 		await ctx.db.patch(row._id, {
 			textCount: Math.max(0, row.textCount - 1),
@@ -382,11 +465,12 @@ export const commit = mutation({
 		}
 
 		// Le verrou « envoi en cours » est relâché ici (appel IA terminé).
-		const day = utcDay();
-		const usageRow = await ctx.db
-			.query("assistantUsage")
-			.withIndex("by_user_day", (q) => q.eq("userId", user._id).eq("day", day))
-			.first();
+		const day = user.timeZone ? dateISOInTimeZone(new Date(now), user.timeZone) : utcDay();
+		const utcQuotaDay = utcDay();
+		const usageRows = await ctx.db.query("assistantUsage")
+			.withIndex("by_user", (q) => q.eq("userId", user._id)).order("desc").take(10);
+		const usageRow = usageRows.find((candidate) => candidate.day === day && candidate.inFlightAt !== undefined)
+			?? (day !== utcQuotaDay ? usageRows.find((candidate) => candidate.day === utcQuotaDay && candidate.inFlightAt !== undefined) : undefined);
 		if (usageRow && usageRow.inFlightAt !== undefined) {
 			await ctx.db.patch(usageRow._id, { inFlightAt: undefined, updatedAt: now });
 		}
@@ -448,10 +532,12 @@ async function executeConfirmed(
 					...(c.aiFat100 !== undefined ? { aiFat100: c.aiFat100 } : {}),
 				})),
 				requestId: `assistant:${action._id}`,
-			})) as { ok: boolean; created: number; mealGroup: string };
+			})) as { ok: boolean; created: number; mealGroup: string; planned?: boolean };
 			return {
-				result: res.created > 0 ? `${res.created} aliment(s) ajouté(s) au journal` : "Déjà enregistré",
-				newValue: JSON.stringify({ mealGroup: res.mealGroup, created: res.created }),
+				result: res.planned
+					? `${res.created} aliment(s) ajouté(s) aux repas planifiés`
+					: res.created > 0 ? `${res.created} aliment(s) ajouté(s) au journal` : "Déjà enregistré",
+				newValue: JSON.stringify({ mealGroup: res.mealGroup, created: res.created, planned: !!res.planned }),
 			};
 		}
 		case "journal_remove": {
@@ -497,9 +583,27 @@ async function executeConfirmed(
 			});
 			return {
 				result:
-					payload.destination === "bilan" ? "Question ajoutée à ton prochain bilan" : "Question notée pour Hugo",
+					payload.destination === "bilan" ? "Question enregistrée pour ton prochain bilan (pas encore transmise)." : "Note enregistrée pour Hugo (pas encore transmise).",
 				newValue: JSON.stringify({ questionId: id }),
 			};
+		}
+		case "coach_question_update": {
+			const id = payload.questionId as Id<"coachQuestions">;
+			const existing = await ctx.db.get(id);
+			if (!existing || existing.userId !== action.userId || existing.deletedAt || existing.status !== "open") {
+				throw new ConvexError("Cette question n'est plus modifiable.");
+			}
+			await ctx.db.patch(id, { text: String(payload.text), updatedAt: Date.now() });
+			return { result: "Question mise à jour.", newValue: JSON.stringify({ questionId: id, text: payload.text }) };
+		}
+		case "coach_question_delete": {
+			const id = payload.questionId as Id<"coachQuestions">;
+			const existing = await ctx.db.get(id);
+			if (!existing || existing.userId !== action.userId || existing.deletedAt || existing.status !== "open") {
+				throw new ConvexError("Cette question n'est plus supprimable.");
+			}
+			await ctx.db.patch(id, { deletedAt: Date.now(), updatedAt: Date.now() });
+			return { result: "Question supprimée.", newValue: JSON.stringify({ questionId: id, deletedAt: Date.now() }) };
 		}
 		default:
 			throw new ConvexError("Action non supportée.");
@@ -519,6 +623,17 @@ async function undoConfirmed(
 		case "journal_add": {
 			const group = next?.mealGroup;
 			if (!group) return "Rien à annuler";
+			if (next?.planned === true) {
+				const rows = await ctx.db.query("plannedEntries")
+					.withIndex("by_meal_group", (q) => q.eq("mealGroup", String(group))).collect();
+				let n = 0;
+				for (const row of rows) {
+					if (row.userId !== action.userId) continue;
+					await ctx.db.delete(row._id);
+					n++;
+				}
+				return n > 0 ? `${n} aliment(s) retiré(s) des repas planifiés (annulé)` : "Rien à annuler";
+			}
 			const rows = await ctx.db
 				.query("diaryEntries")
 				.withIndex("by_group", (q) => q.eq("mealGroup", String(group)))
@@ -581,8 +696,23 @@ async function undoConfirmed(
 		}
 		case "coach_question": {
 			const id = next?.questionId;
-			if (id) await ctx.db.delete(id as Id<"coachQuestions">);
+			if (id) await ctx.db.patch(id as Id<"coachQuestions">, { deletedAt: Date.now(), updatedAt: Date.now() });
 			return "Question retirée";
+		}
+		case "coach_question_update": {
+			const id = payload.questionId as Id<"coachQuestions">;
+			const oldText = previous?.text;
+			const row = await ctx.db.get(id);
+			if (!row || row.userId !== action.userId || row.status !== "open") throw new ConvexError("Question introuvable ou déjà traitée.");
+			if (typeof oldText === "string") await ctx.db.patch(id, { text: oldText, updatedAt: Date.now() });
+			return "Question restaurée";
+		}
+		case "coach_question_delete": {
+			const id = payload.questionId as Id<"coachQuestions">;
+			const row = await ctx.db.get(id);
+			if (!row || row.userId !== action.userId || row.status !== "open") throw new ConvexError("Question introuvable ou déjà traitée.");
+			await ctx.db.patch(id, { deletedAt: undefined, updatedAt: Date.now() });
+			return "Question restaurée";
 		}
 		default:
 			throw new ConvexError("Action non supportée.");
@@ -599,8 +729,9 @@ export const resolveAction = mutation({
 		sessionToken: v.optional(v.string()),
 		actionId: v.string(),
 		decision: v.union(v.literal("confirm"), v.literal("cancel"), v.literal("undo")),
+		selectedLineIndexes: v.optional(v.array(v.number())),
 	},
-	handler: async (ctx, { sessionToken, actionId, decision }) => {
+	handler: async (ctx, { sessionToken, actionId, decision, selectedLineIndexes }) => {
 		const user = await requireAssistantClient(ctx, sessionToken);
 		if (!/^[a-zA-Z0-9_-]{10,}$/.test(actionId)) throw new ConvexError("Action introuvable.");
 		const doc = await ctx.db.get(actionId as Id<"assistantActions">);
@@ -633,11 +764,55 @@ export const resolveAction = mutation({
 			await ctx.db.patch(doc._id, { status: "expired", resolvedAt: now });
 			throw new ConvexError("Cette prévisualisation a expiré — refais la demande.");
 		}
-		const { result, newValue } = await executeConfirmed(ctx, sessionToken, doc);
+		let executable = doc;
+		let confirmedPreview = doc.preview;
+		if (doc.actionType === "journal_add") {
+			const payload = parseJson<PayloadJournalAdd>(doc.payload, { date: "", meal: "", components: [] });
+			const allIndexes = payload.components.map((_, index) => index);
+			const selected = selectedLineIndexes ?? allIndexes;
+			if (
+				selected.length === 0 ||
+				new Set(selected).size !== selected.length ||
+				selected.some((index) => !Number.isInteger(index) || index < 0 || index >= payload.components.length) ||
+				doc.preview.lines.length !== payload.components.length
+			) {
+				throw new ConvexError("La sélection des aliments est invalide. Rien n'a été enregistré.");
+			}
+			const selectedSet = new Set(selected);
+			const components = payload.components.filter((_, index) => selectedSet.has(index));
+			const lines = doc.preview.lines.filter((_, index) => selectedSet.has(index));
+			if (components.length !== selected.length || lines.length !== components.length) {
+				throw new ConvexError("La sélection ne correspond pas exactement aux aliments préparés. Rien n'a été enregistré.");
+			}
+			const totals = lines.reduce(
+				(sum, line) => ({
+					kcal: sum.kcal + (line.kcal ?? 0),
+					carbs: sum.carbs + (line.carbs ?? 0),
+					protein: sum.protein + (line.protein ?? 0),
+					fat: sum.fat + (line.fat ?? 0),
+				}),
+				{ kcal: 0, carbs: 0, protein: 0, fat: 0 }
+			);
+			confirmedPreview = {
+				...doc.preview,
+				lines,
+				totals,
+				notice: lines.some((line) => line.estimated) ? doc.preview.notice : undefined,
+			};
+			executable = { ...doc, payload: JSON.stringify({ ...payload, components }) };
+		}
+		const { result, newValue } = await executeConfirmed(ctx, sessionToken, executable);
+		if (doc.actionType === "journal_add") {
+			const committed = parseJson<{ created?: number }>(newValue, {});
+			if ((committed.created ?? 0) !== confirmedPreview.lines.length) {
+				throw new ConvexError("Le nombre de lignes enregistrées ne correspond pas à la prévisualisation. La confirmation a été annulée.");
+			}
+		}
 		await ctx.db.patch(doc._id, {
 			status: "confirmed",
 			resolvedAt: now,
 			result,
+			preview: confirmedPreview,
 			...(newValue ? { newValue } : {}),
 		});
 		return { ok: true as const, status: "confirmed" as const, message: result };
@@ -682,6 +857,10 @@ export const send = action({
 			userId: string;
 			threadId: string;
 			topic: AssistantTopic;
+			today: string;
+			timeZone: string;
+			quotaDay: string;
+			legacyQuotaDay: string | null;
 			usage: { textCount: number; visionCount: number; textPerDay: number; visionPerDay: number };
 		};
 
@@ -689,7 +868,47 @@ export const send = action({
 		let topic: AssistantTopic = coerceTopic(reservation.topic, coerceTopic(args.topic));
 
 		try {
-			const today = args.today && /^\d{4}-\d{2}-\d{2}$/.test(args.today) ? args.today : localTodayISO();
+			const today = reservation.today;
+			const intent = classifyAssistantIntent(text);
+			if (intent === "prepare_checkin") {
+				const reply = "Bien sûr. Ouvre l’onglet Bilan pour retrouver le formulaire de ton prochain bilan; je ne crée pas de note à Hugo avec cette demande.";
+				await ctx.runMutation(api.assistant.commit, {
+					sessionToken: args.sessionToken, threadId, topic: "checkin",
+					userMessage: text, assistantMessage: reply, kind: "text",
+				});
+				return { ok: true as const, threadId, topic: "checkin" as const, reply, kind: "text" as const, pendingAction: null, usage: reservation.usage };
+			}
+			if (intent === "clarify_coach_question") {
+				const reply = "Que souhaites-tu demander à Hugo dans ton bilan ? Écris la question après « Ajoute au bilan : … ».";
+				await ctx.runMutation(api.assistant.commit, {
+					sessionToken: args.sessionToken, threadId, topic: "coach_question",
+					userMessage: text, assistantMessage: reply, kind: "text",
+				});
+				return { ok: true as const, threadId, topic: "coach_question" as const, reply, kind: "text" as const, pendingAction: null, usage: reservation.usage };
+			}
+			const explicitQuestion = explicitCheckinQuestion(text);
+			if (intent === "add_coach_question" && explicitQuestion) {
+				const existingCheckin = (await ctx.runQuery(api.checkins.myCheckins, { sessionToken: args.sessionToken }))
+					.find((row: { weekStart: string; status: string }) => row.weekStart === mondayISOof(today));
+				if (existingCheckin?.status === "retour_envoye") {
+					const reply = "Ton dernier bilan a déjà été traité par Hugo. Je ne peux pas y ajouter une question; veux-tu plutôt préparer une note distincte pour lui ?";
+					await ctx.runMutation(api.assistant.commit, { sessionToken: args.sessionToken, threadId, topic: "coach_question", userMessage: text, assistantMessage: reply, kind: "text" });
+					return { ok: true as const, threadId, topic: "coach_question" as const, reply, kind: "text" as const, pendingAction: null, usage: reservation.usage };
+				}
+				const prep = (await ctx.runMutation(api.assistantTools.prepareCoachQuestion, {
+					sessionToken: args.sessionToken, threadId, topic: "coach_question",
+					text: explicitQuestion, destination: "bilan",
+				})) as { actionId: string; preview: unknown };
+				const reply = `Prévisualisation prête pour le prochain bilan : « ${explicitQuestion} ». Rien n'est enregistré avant ta confirmation.`;
+				await ctx.runMutation(api.assistant.commit, {
+					sessionToken: args.sessionToken, threadId, topic: "coach_question",
+					userMessage: text, assistantMessage: reply, kind: "text", actionId: prep.actionId as Id<"assistantActions">,
+				});
+				return {
+					ok: true as const, threadId, topic: "coach_question" as const, reply, kind: "text" as const,
+					pendingAction: { actionId: prep.actionId, actionType: "coach_question" as const, preview: prep.preview }, usage: reservation.usage,
+				};
+			}
 
 			// 2) Écran de sécurité DÉTERMINISTE (avant tout coût IA, §24).
 			if (text && safetyScreen(text).level === "distress") {
@@ -732,10 +951,29 @@ export const send = action({
 			const history = (await ctx.runQuery(api.assistant.historyFor, {
 				sessionToken: args.sessionToken,
 				threadId,
-			})) as { messages: { role: "user" | "assistant"; content: string }[] };
+			})) as {
+				messages: { role: "user" | "assistant"; content: string }[];
+				operations?: { actionId: string; status: string; actionType: string; preview: unknown; result?: string }[];
+				coachQuestions?: { questionId: string; text: string; destination: string; status: string; transmittedAt: number | null; weekStart: string | null }[];
+			};
 			const context = history.messages
 				.slice(-Math.max(2, assistantLimits().historyWindow - 2))
 				.map((m) => ({ role: m.role, content: m.content }));
+			const operations = history.operations ?? [];
+			const pendingOperations = operations.filter((op) => op.status === "pending");
+			const latestConfirmed = operations.find((op) => op.status === "confirmed");
+			const activeOperation = pendingOperations.find((op) => op.actionType === "journal_add");
+			if (activeOperation) {
+				context.push({ role: "assistant", content: `[ÉTAT SERVEUR] Prévisualisation en attente, non enregistrée : ${JSON.stringify(activeOperation.preview)}` });
+			} else if (latestConfirmed) {
+				context.push({ role: "assistant", content: `[ÉTAT SERVEUR] Dernière opération confirmée (${latestConfirmed.actionType}) : ${latestConfirmed.result ?? "enregistrée"}. Ne la recrée pas à moins qu'une nouvelle demande explicite le demande.` });
+			}
+			if (text.toLocaleLowerCase("fr-FR").includes("question") && /mes questions|questions.*hugo|dernière question/.test(text.toLocaleLowerCase("fr-FR"))) {
+				const savedQuestions = history.coachQuestions ?? [];
+				context.push({ role: "assistant", content: savedQuestions.length
+					? `[ÉTAT SERVEUR] Notes/questions enregistrées (source de vérité; aucune n'implique un envoi WhatsApp) : ${JSON.stringify(savedQuestions)}`
+					: "[ÉTAT SERVEUR] Aucune note/question enregistrée pour ce compte. La mémoire conversationnelle n'est pas une preuve d'enregistrement." });
+			}
 
 			// 5) Bloc CONTEXTE serveur (Lot 2) — compact, données à jour, injecté
 			// au system prompt. Échec → contexte vide, la boucle reste fonctionnelle.
@@ -825,12 +1063,21 @@ export const send = action({
 			const foodTrace = foodTraceEnabled()
 				? { textFoods: summarizeRequestedFoods(text), stages: [] as string[] }
 				: null;
+			const normalizedUserText = normalizeRelativeMealDate(text, today);
+			const mealDateIntent = /\b(journal|repas|mange|mangé|petit[- ]d[eé]jeuner|d[eé]jeuner|d[îi]ner|collation)\b/i.test(text);
+			if (normalizedUserText === null || (mealDateIntent && /\b(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\b/i.test(text) && !/\b\d{4}-\d{2}-\d{2}\b/.test(normalizedUserText))) {
+				const reply = "Je veux éviter de me tromper de jour : précise la date ou le jour exact (par exemple « mardi 12 mai »).";
+				await ctx.runMutation(api.assistant.commit, {
+					sessionToken: args.sessionToken, threadId, topic, userMessage: text, assistantMessage: reply, kind: "text",
+				});
+				return { ok: true as const, threadId, topic, reply, kind: "text" as const, pendingAction: null, usage: reservation.usage };
+			}
 			const state: ToolRunState = {
 				sessionToken: args.sessionToken,
 				threadId,
 				topic,
 				today,
-				userText: text,
+				userText: normalizedUserText,
 				...(foodTrace
 					? { traceFood: (stage, values) => foodTrace.stages.push(`${stage}:${JSON.stringify(summarizeFoodItems(values))}`) }
 					: {}),
@@ -874,8 +1121,12 @@ export const send = action({
 					// seule preview affichée : l'ancienne version devient obsolète).
 					holder.pending = {
 						actionId: withAction.actionId,
-						actionType: /JournalRemoval/.test(name)
-							? "journal_remove"
+						actionType: /CoachQuestionUpdate/.test(name)
+							? "coach_question_update"
+							: /CoachQuestionDelete/.test(name)
+								? "coach_question_delete"
+								: /JournalRemoval/.test(name)
+									? "journal_remove"
 							: /Measurement/.test(name)
 								? "measurement"
 								: /CoachQuestion/.test(name)
@@ -1005,6 +1256,20 @@ export const send = action({
 
 			// 6) Persistance (messages + action éventuelle + libération verrou).
 			const pending = holder.pending;
+			if (pending?.actionType === "journal_add") {
+				const preview = pending.preview as { lines?: { label?: string; detail?: string }[] };
+				const lines = Array.isArray(preview.lines) ? preview.lines : [];
+				const names = lines.map((line) => line.label).filter((label): label is string => typeof label === "string");
+				reply = names.length
+					? `Prévisualisation prête : ${names.length} aliment(s) dans la carte (${names.join(", ")}). Vérifie les lignes et ta sélection avant d'enregistrer.`
+					: "La prévisualisation est prête dans la carte. Vérifie-la avant d'enregistrer.";
+			} else if (pending?.actionType === "coach_question") {
+				const preview = pending.preview as { lines?: { label?: string }[] };
+				const text = preview.lines?.[0]?.label;
+				reply = typeof text === "string"
+					? `Prévisualisation prête pour Hugo — ${text}. Rien n'est transmis avant ta confirmation.`
+					: "Prévisualisation prête pour Hugo. Rien n'est transmis avant ta confirmation.";
+			}
 			await ctx.runMutation(api.assistant.commit, {
 				sessionToken: args.sessionToken,
 				threadId,

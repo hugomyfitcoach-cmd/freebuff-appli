@@ -4,9 +4,8 @@ import { getSessionUser } from "./helpers";
 import { ciqualFoodSource } from "./ciqualSource";
 import { attachThumbs, attachThumbsForFoodIds } from "./foodImages";
 import { trustedClientToday } from "./journal";
-import { internal } from "./_generated/api";
 import { resolveCoachPlanForDate } from "./mealPlans";
-import type { QueryCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Id, Doc } from "./_generated/dataModel";
 
 /**
@@ -40,6 +39,23 @@ async function requireClient(ctx: Pick<QueryCtx, "db">, sessionToken: string | u
 		throw new ConvexError("Seuls les comptes clients peuvent utiliser le journal alimentaire.");
 	}
 	return user;
+}
+
+/** Upsert la portion dans le contexte de la mutation appelante (même transaction). */
+async function upsertFoodPortionInTransaction(
+	ctx: MutationCtx,
+	args: { userId: Id<"users">; foodId?: Id<"foods">; customFoodId?: Id<"customFoods">; ciqualLabel?: string; qtyGrams: number; meal: string }
+) {
+	const keys = [args.foodId, args.customFoodId, args.ciqualLabel].filter(Boolean);
+	if (keys.length !== 1 || !Number.isFinite(args.qtyGrams) || args.qtyGrams < 1 || args.qtyGrams > 5000) return;
+	const existing = args.foodId
+		? await ctx.db.query("foodPortions").withIndex("by_user_food", (q) => q.eq("userId", args.userId).eq("foodId", args.foodId!)).first()
+		: args.customFoodId
+			? await ctx.db.query("foodPortions").withIndex("by_user_custom", (q) => q.eq("userId", args.userId).eq("customFoodId", args.customFoodId!)).first()
+			: await ctx.db.query("foodPortions").withIndex("by_user_ciqual", (q) => q.eq("userId", args.userId).eq("ciqualLabel", args.ciqualLabel!)).first();
+	const patch = { qtyGrams: Math.round(args.qtyGrams * 10) / 10, meal: args.meal, updatedAt: Date.now() };
+	if (existing) await ctx.db.patch(existing._id, patch);
+	else await ctx.db.insert("foodPortions", { userId: args.userId, foodId: args.foodId, customFoodId: args.customFoodId, ciqualLabel: args.ciqualLabel, ...patch });
 }
 
 import { guardedKcal100 } from "../lib/nutritionGuard";
@@ -147,13 +163,16 @@ export const commitAnalyzedMeal = mutation({
 			}
 		}
 
-		await resolveCoachPlanForDate(ctx, user._id, date);
 		const today = trustedClientToday(clientDate);
 		const future = date > today;
+		// Le plan coach est matérialisé seulement lors d'une écriture au journal
+		// consommé. Une préparation future ne doit pas muter le plan du jour.
+		if (!future) await resolveCoachPlanForDate(ctx, user._id, date);
 		// Regroupement : clé stable (requestId client si fourni — nécessaire
 		// pour l'idempotence, sinon timestamp) préfixée « analyse: ».
 		const mealGroup = `analyse:${rid ?? Date.now()}`;
 		const created: Id<"diaryEntries">[] = [];
+		let createdPlanned = 0;
 
 		for (const c of components) {
 			const qty = isFinite(c.qtyGrams) && c.qtyGrams > 0 && c.qtyGrams <= 5000 ? c.qtyGrams : 100;
@@ -238,8 +257,12 @@ export const commitAnalyzedMeal = mutation({
 					fat: row.fat,
 					foodId: row.foodId,
 					customFoodId: row.customFoodId,
+					ciqualLabel: ciqualRef ? c.ciqualLabel : undefined,
+					mealGroup,
 					createdAt: Date.now(),
-				});				} else {
+				});
+				createdPlanned++;
+			} else {
 				const id = await ctx.db.insert("diaryEntries", {
 					...row,
 					// Clé de regroupement : le Journal affiche UNE carte « repas
@@ -249,20 +272,21 @@ export const commitAnalyzedMeal = mutation({
 					requestId: rid,
 				});
 				created.push(id);
-				// Portion mémorisée (préférence utilisateur) : le composant avec
-				// identité stable (foodId/customFoodId/ciqualLabel) mémorise sa
-				// quantité validée — les estimations IA sans identité, jamais.
-				await ctx.runMutation(internal.foodPortions.upsertInternal, {
-					userId: user._id,
-					foodId: row.foodId,
-					customFoodId: row.customFoodId,
-					ciqualLabel: ciqualRef ? c.ciqualLabel : undefined,
-					qtyGrams: qty,
-					meal,
-				});
+				// Portion mémorisée (préférence utilisateur) : incluse dans cette
+				// transaction, afin que le repas et ses lignes restent atomiques.
+				if (row.foodId || row.customFoodId || ciqualRef) {
+					await upsertFoodPortionInTransaction(ctx, {
+						userId: user._id,
+						foodId: row.foodId,
+						customFoodId: row.customFoodId,
+						ciqualLabel: ciqualRef ? c.ciqualLabel : undefined,
+						qtyGrams: qty,
+						meal,
+					});
+				}
 			}
 		}
-		return { ok: true, created: created.length, mealGroup };
+		return { ok: true, created: future ? createdPlanned : created.length, mealGroup, planned: future };
 	},
 });
 

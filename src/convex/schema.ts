@@ -11,7 +11,9 @@ export const assistantActionType = v.union(
 	v.literal("steps"),
 	v.literal("weight"),
 	v.literal("measurement"),
-	v.literal("coach_question")
+	v.literal("coach_question"),
+	v.literal("coach_question_update"),
+	v.literal("coach_question_delete")
 );
 
 /** Ligne de prévisualisation — construite par le SERVEUR (outil prepare*),
@@ -860,10 +862,13 @@ export default defineSchema({
 		customFoodId: v.optional(v.id("customFoods")),
 		/** Fiche de RÉFÉRENCE Ciqual (ANSES) d'origine — info de source, valeurs en snapshot. */
 		ciqualLabel: v.optional(v.string()),
+		/** Groupement d'un repas analysé à une date future (annulation idempotente). */
+		mealGroup: v.optional(v.string()),
 		createdAt: v.number(),
 	})
 		.index("by_user_date", ["userId", "date"])
-		.index("by_user", ["userId"]),
+		.index("by_user", ["userId"])
+		.index("by_meal_group", ["mealGroup"]),
 
 	/**
 	 * Compte Google Calendar connecté du COACH (CRM) — système de rendez-vous.
@@ -1566,9 +1571,13 @@ export default defineSchema({
 	coachQuestions: defineTable({
 		userId: v.id("users"),
 		text: v.string(),
-		/** "bilan" = ajoutée au prochain bilan · "note" = simple note. */
+		/** "bilan" = conservée pour un bilan · "note" = note simple; ce n'est pas un envoi. */
 		destination: v.union(v.literal("bilan"), v.literal("note")),
 		status: v.union(v.literal("open"), v.literal("added"), v.literal("answered")),
+		/** Date de prise en charge effective par la coach, jamais présumée à la création. */
+		transmittedAt: v.optional(v.number()),
+		/** Suppression logique avec trace d'audit; propriétaire vérifié côté serveur. */
+		deletedAt: v.optional(v.number()),
 		/** Semaine de bilan visée (lundi ISO) quand destination = "bilan". */
 		weekStart: v.optional(v.string()),
 		threadId: v.optional(v.id("assistantThreads")),
@@ -1588,7 +1597,7 @@ export default defineSchema({
 		/** Envoi en cours — anti double-submit (1 requête active par fil). */
 		inFlightAt: v.optional(v.number()),
 		updatedAt: v.number(),
-	}).index("by_user_day", ["userId", "day"]),
+	}).index("by_user_day", ["userId", "day"]).index("by_user", ["userId"]),
 
 	/** Clé→valeur d'infrastructure (jamais de données métier). Version
 	 *  sémantique du backend : `appVersion = { key: 'api', version: '3' }`.

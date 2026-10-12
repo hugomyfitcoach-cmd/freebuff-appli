@@ -20,13 +20,21 @@ export const POST: RequestHandler = async (event) => {
 	await requireClientAccess(event, { next: '/espace/assistant' });
 	const token = event.cookies.get(SESSION_COOKIE);
 	try {
-		const body = (await event.request.json()) as { actionId?: unknown; decision?: unknown };
+		const body = (await event.request.json()) as { actionId?: unknown; decision?: unknown; selectedLineIndexes?: unknown };
 		const actionId = typeof body.actionId === 'string' ? body.actionId.trim().slice(0, 40) : '';
 		const decision = body.decision;
 		if (!actionId || (decision !== 'confirm' && decision !== 'cancel' && decision !== 'undo')) {
 			return json({ ok: false, reason: 'Action invalide.' }, { status: 400 });
 		}
-		const res = await convex.mutation(api.assistant.resolveAction, { sessionToken: token, actionId, decision });
+		const selectedLineIndexes = Array.isArray(body.selectedLineIndexes)
+			? body.selectedLineIndexes.slice(0, 13).map((value) => typeof value === 'number' ? value : Number.NaN)
+			: undefined;
+		const res = await convex.mutation(api.assistant.resolveAction, {
+			sessionToken: token,
+			actionId,
+			decision,
+			...(selectedLineIndexes ? { selectedLineIndexes } : {}),
+		});
 		return json(res);
 	} catch (e) {
 		return json({ ok: false, reason: userErrMsg(e, "Cette action n'a pas pu être traitée. Réessaie.") }, { status: 400 });

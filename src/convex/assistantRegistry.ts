@@ -62,6 +62,12 @@ export type AssistantToolEntry = {
 	run: (ctx: ActionCtx, state: ToolRunState, args: Record<string, unknown>) => Promise<unknown>;
 };
 
+/** Nombre de quantités explicites en g/ml que l'interprétation n'a pas représentées. */
+export function missingExplicitQuantityLines(userText: string, itemCount: number): number {
+	const quantities = userText.match(/\b\d+(?:[.,]\d+)?\s*(?:g|gr|grammes?|ml|millilitres?)\b/gi) ?? [];
+	return Math.max(0, quantities.length - itemCount);
+}
+
 /** Schémas JSON partagés (identiques V1 — stabilité du prompt). */
 const DATE = { type: "string", description: "Date au format yyyy-mm-dd (aujourd'hui si omise)." };
 const REF = {
@@ -274,6 +280,20 @@ export const ASSISTANT_REGISTRY: AssistantToolEntry[] = [
 			required: ["meal", "items"],
 		},
 		run: async (ctx, state, args) => {
+			// Lot A : refuse une sous-liste si la demande contenait davantage de
+			// quantités explicites. Aucun repas partiel ne doit devenir confirmable.
+			const rawItems = Array.isArray(args.items) ? args.items : [];
+			const askText = state.userText ?? "";
+			const isExplicitRelativeMeal = /\b(journal|mange|mangé|repas|petit[- ]d[eé]jeuner|d[eé]jeuner|d[iî]ner|collation)\b/i.test(askText)
+				&& /\b(hier|demain|aujourd'hui|lundi dernier|mardi dernier|mercredi dernier|jeudi dernier|vendredi dernier|samedi dernier|dimanche dernier)\b/i.test(askText);
+			const normalizedAsk = isExplicitRelativeMeal ? askText.replace(/\b\d{4}-\d{2}-\d{2}\b/g, "") : askText;
+		const missingCount = missingExplicitQuantityLines(normalizedAsk, rawItems.length);
+			if (missingCount > 0) {
+				return {
+					ok: false as const,
+					reason: `La demande contient ${rawItems.length + missingCount} quantités explicites en g/ml, mais seulement ${rawItems.length} aliment(s) interprété(s). Aucune prévisualisation ni écriture n'a été créée. Demande une précision sur les lignes manquantes et ne prétends pas que le repas est prêt.`,
+				};
+			}
 			// LOT 2B (B1/B2/B5 batterie) — DÉTOUR UPDATE : si une action
 			// journal_add est DÉJÀ en attente sur ce fil et que la demande du
 			// tour est courte (clarification : « en fait 4 œufs », « avec du
@@ -282,7 +302,7 @@ export const ASSISTANT_REGISTRY: AssistantToolEntry[] = [
 			// résultante écraserait la tâche (3 aliments → 1). Le serveur refuse
 			// et renvoie l'instruction update : les lignes existantes sont
 			// conservées par la mutation atomique.
-			const askLen = (state.userText ?? "").trim().split(/\s+/).filter(Boolean).length;
+			const askLen = normalizedAsk.trim().split(/\s+/).filter(Boolean).length;
 			if (askLen <= 12) {
 				try {
 					const open = (await ctx.runQuery(api.assistantTools.latestPendingJournalAdd, {
@@ -304,8 +324,7 @@ export const ASSISTANT_REGISTRY: AssistantToolEntry[] = [
 			// (invention / aliment hérité d'un tour antérieur). « 4 œufs »
 			// recouvre jour Bitte 3 œufs ; « fruit de la passion » ne
 			// recouvre rien → retiré avant toute écriture.
-			const ask = state.userText ?? "";
-			const rawItems = Array.isArray(args.items) ? args.items : [];
+			const ask = normalizedAsk;
 			state.traceFood?.("prepare:model", rawItems);
 			const items: Record<string, unknown>[] = rawItems.filter((it: unknown) => {
 				const rec = it as { name?: unknown };
@@ -326,6 +345,14 @@ export const ASSISTANT_REGISTRY: AssistantToolEntry[] = [
 				);
 			});
 			state.traceFood?.("prepare:filtered", items);
+			const removedItems = rawItems.filter((raw) => !items.includes(raw));
+			if (removedItems.length > 0) {
+				const names = removedItems.map((raw) => String((raw as { name?: unknown })?.name ?? "aliment sans nom")).slice(0, 8);
+				return {
+					ok: false as const,
+					reason: `Des lignes demandées ne correspondent pas au message et ont été écartées (${names.join(", ")}). Aucune prévisualisation n'a été créée. Demande une clarification; ne prétends pas que le repas est prêt.`,
+				};
+			}
 			if (items.length === 0) {
 				return {
 					ok: false as const,
@@ -359,12 +386,16 @@ export const ASSISTANT_REGISTRY: AssistantToolEntry[] = [
 					if (typeof it[k] === "string" && !/^[a-zA-Z0-9_-]{10,}$/.test(it[k] as string)) delete it[k];
 				}
 			}
+			const requestedDate = typeof args.date === "string" ? args.date : state.today;
+			const resolvedDate = requestedDate.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? state.today;
+			const dateMealMatch = normalizedAsk.match(/(\d{4}-\d{2}-\d{2})\s*\((dîner|déjeuner)\)/i);
+			const inferredMeal = dateMealMatch?.[2]?.toLowerCase() === "dîner" ? "diner" : dateMealMatch?.[2]?.toLowerCase() === "déjeuner" ? "dejeuner" : null;
 			const res = (await ctx.runMutation(api.assistantTools.prepareJournalEntry, {
 				sessionToken: state.sessionToken,
 				threadId: state.threadId,
 				topic: state.topic,
-				date: typeof args.date === "string" ? args.date : state.today,
-				meal: String(args.meal ?? "diner"),
+				date: resolvedDate,
+				meal: String(inferredMeal ?? args.meal ?? "diner"),
 				items: items as never,
 			})) as { actionId: string; preview: { lines?: { label?: string }[] } };
 			state.traceFood?.("prepare:server-input", items.map((item) => ({ name: item.name, qtyGrams: item.qtyGrams })));
@@ -477,6 +508,42 @@ export const ASSISTANT_REGISTRY: AssistantToolEntry[] = [
 				};
 			}
 			return { ok: true, actionId: res.actionId, preview: res.preview };
+		},
+	},
+	{
+		name: "listCoachQuestions",
+		kind: "read",
+		description: "Liste les notes/questions effectivement enregistrées pour Hugo; la base serveur fait autorité, pas le fil de conversation.",
+		parameters: { type: "object", properties: { limit: { type: "number" } }, required: [] },
+		run: async (ctx, state, args) => await ctx.runQuery(api.assistantTools.listCoachQuestions, {
+			sessionToken: state.sessionToken,
+			...(typeof args.limit === "number" ? { limit: args.limit } : {}),
+		}),
+	},
+	{
+		name: "prepareCoachQuestionUpdate",
+		kind: "prepare",
+		description: "Prépare la modification d'une question existante trouvée via listCoachQuestions; exige son questionId persistant et une nouvelle prévisualisation avec confirmation.",
+		parameters: { type: "object", properties: { questionId: { type: "string" }, text: { type: "string" } }, required: ["questionId", "text"] },
+		run: async (ctx, state, args) => {
+			const res = await ctx.runMutation(api.assistantTools.prepareCoachQuestionUpdate, {
+				sessionToken: state.sessionToken, threadId: state.threadId,
+				questionId: String(args.questionId ?? ""), text: String(args.text ?? ""),
+			});
+			return { ok: true, ...res };
+		},
+	},
+	{
+		name: "prepareCoachQuestionDelete",
+		kind: "prepare",
+		description: "Prépare la suppression d'une question existante trouvée via listCoachQuestions; exige son questionId persistant et confirmation explicite.",
+		parameters: { type: "object", properties: { questionId: { type: "string" } }, required: ["questionId"] },
+		run: async (ctx, state, args) => {
+			const res = await ctx.runMutation(api.assistantTools.prepareCoachQuestionDelete, {
+			sessionToken: state.sessionToken, threadId: state.threadId,
+			questionId: String(args.questionId ?? ""),
+			});
+			return { ok: true, ...res };
 		},
 	},
 	{

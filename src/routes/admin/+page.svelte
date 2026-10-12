@@ -40,6 +40,7 @@
 	const weekParam = $derived(data.weekParam ?? null);
 	const view = $derived(data.view ?? null);
 	const checkins = $derived(data.checkins ?? []);
+	const coachQuestions = $derived(data.coachQuestions ?? []);
 	const photos = $derived(data.photos ?? []);
 	const mediaAll = $derived(data.media ?? []);
 	// Onboarding de démarrage : formulaire initial + statuts des deux étapes.
@@ -3747,6 +3748,21 @@
 								</div>
 							</div>
 						</div>
+
+						{#if coachQuestions.length > 0}
+							<section class="rounded-2xl border border-line bg-card p-4">
+								<h3 class="font-display text-base font-semibold text-ink">Notes et questions pour Hugo</h3>
+								<p class="mt-1 text-xs text-mist">Éléments enregistrés par la coachée · une note n’est pas un message WhatsApp envoyé.</p>
+								<ul class="mt-3 space-y-2">
+									{#each coachQuestions as item (item._id)}
+										<li class="rounded-xl border border-line/70 bg-cream/40 px-3 py-2">
+											<p class="text-sm font-medium text-ink">{item.text}</p>
+											<p class="mt-1 text-[11px] text-mist">{item.destination === 'bilan' ? `Prochain bilan${item.weekStart ? ` · semaine du ${item.weekStart}` : ''}` : 'Note pour le coach'} · {item.status === 'open' ? 'enregistrée' : item.status === 'added' ? 'ajoutée au bilan' : 'répondue'}{item.transmittedAt ? ' · transmise' : ' · pas transmise'}</p>
+										</li>
+									{/each}
+								</ul>
+							</section>
+						{/if}
 
 						<!-- Historique semaine par semaine (bilan + réponses + retour coach) -->
 						{#each checkins as checkin (checkin._id)}

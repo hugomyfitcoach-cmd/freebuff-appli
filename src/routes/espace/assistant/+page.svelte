@@ -136,7 +136,7 @@ import RichText from '$lib/components/assistant/RichText.svelte';
 	}
 
 	/* ── Confirmation / annulation / undo ──────────────────────────────── */
-	async function resolveAction(decision: 'confirm' | 'cancel' | 'undo') {
+	async function resolveAction(decision: 'confirm' | 'cancel' | 'undo', selectedLineIndexes?: number[]) {
 		if (actionBusy) return;
 		const actionId = decision === 'undo' ? confirmed?.actionId : pendingAction?.actionId;
 		if (!actionId) return;
@@ -146,7 +146,13 @@ import RichText from '$lib/components/assistant/RichText.svelte';
 			const res = await fetch('/api/assistant/action', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ actionId, decision }),
+				body: JSON.stringify({
+					actionId,
+					decision,
+					...(decision === 'confirm' && pendingAction?.actionType === 'journal_add' && selectedLineIndexes
+						? { selectedLineIndexes }
+						: {}),
+				}),
 			});
 			const j = (await res.json()) as { ok?: boolean; message?: string; status?: string; reason?: string };
 			if (!res.ok || !j.ok || typeof j.message !== 'string') {
@@ -305,7 +311,8 @@ import RichText from '$lib/components/assistant/RichText.svelte';
 				preview={pendingAction.preview}
 				status="pending"
 				busy={actionBusy}
-				onconfirm={() => resolveAction('confirm')}
+				allowSelection={pendingAction.actionType === 'journal_add'}
+				onconfirm={(selected) => resolveAction('confirm', selected)}
 				oncancel={() => resolveAction('cancel')}
 			/>
 		</div>

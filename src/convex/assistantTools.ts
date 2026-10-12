@@ -22,7 +22,7 @@ import { v, ConvexError } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { getSessionUser, localTodayISO, mondayISOof, addDaysISO } from "./helpers";
+import { getSessionUser, localTodayISO, mondayISOof, addDaysISO, dateISOInTimeZone } from "./helpers";
 import { trustedClientToday } from "./journal";
 import { assistantLimits, assistantEnabledFor } from "../lib/assistant/policy";
 
@@ -33,7 +33,9 @@ type AssistantActionType =
 	| "steps"
 	| "weight"
 	| "measurement"
-	| "coach_question";
+	| "coach_question"
+	| "coach_question_update"
+	| "coach_question_delete";
 import { accessStateForUser } from "./billing";
 import { ciqualFoodSource } from "./ciqualSource";
 import { searchCiqualLocal } from "./ciqual";
@@ -919,9 +921,15 @@ export const prepareJournalEntry = mutation({
 				aiFat100: v.optional(v.number()),
 			})
 		),
-	},		handler: async (ctx, { sessionToken, threadId, topic, date, meal, items }) => {
+	},
+	handler: async (ctx, { sessionToken, threadId, topic, date, meal, items }) => {
 		const user = await requireAssistantClient(ctx, sessionToken);
 		const tId = await assertThread(ctx, user._id, threadId);
+		const existing = await ctx.db.query("assistantActions")
+			.withIndex("by_thread", (q) => q.eq("threadId", tId)).order("desc").take(20);
+		if (existing.some((row) => row.userId === user._id && row.actionType === "journal_add" && row.status === "pending" && row.expiresAt > Date.now())) {
+			throw new ConvexError("Un repas est déjà en attente sur cette conversation. Modifie ou annule sa prévisualisation avant d'en préparer un autre.");
+		}
 		const { preview, payload } = await buildJournalEntryPreview(ctx, user._id, date, meal, items);
 		return insertPending(ctx, user._id, tId, "journal_add", topic, preview, payload);
 	},
@@ -1411,9 +1419,27 @@ export const prepareCoachQuestion = mutation({
 	},
 	handler: async (ctx, { sessionToken, threadId, topic, text, destination }) => {
 		const user = await requireAssistantClient(ctx, sessionToken);
-		const clean = (text ?? "").trim().slice(0, 600);
-		if (clean.length < 3) throw new ConvexError("Question trop courte.");
-		const weekStart = destination === "bilan" ? mondayISOof(localTodayISO()) : undefined;
+		const clean = (text ?? "").trim().replace(/\s+/g, " ").slice(0, 600);
+		if (destination === "bilan" && !/[?]/.test(clean)) throw new ConvexError("Ajoute au bilan une question explicite terminée par un point d’interrogation.");
+		if (clean.length < 5 || !/[a-zàâçéèêëîïôûùüÿñæœ]{3}/i.test(clean)) {
+			throw new ConvexError("Écris une question ou une note compréhensible avant de la préparer.");
+		}
+		if (/^(préparer|preparer|aide-moi à|je souhaite préparer|je veux préparer)\b.*\bbilan\b[.!?]*$/i.test(clean)) {
+			throw new ConvexError("Cette phrase décrit une intention de préparer le bilan, pas une question à transmettre à Hugo.");
+		}
+		const weekStart = destination === "bilan"
+			? mondayISOof(user.timeZone ? dateISOInTimeZone(new Date(), user.timeZone) : localTodayISO())
+			: undefined;
+		const existingQuestions = (await ctx.db.query("coachQuestions")
+			.withIndex("by_user", (q) => q.eq("userId", user._id))
+			.order("desc").take(30));
+		const duplicate = existingQuestions.find((row) =>
+			!row.deletedAt && row.text.trim().toLocaleLowerCase("fr-FR") === clean.toLocaleLowerCase("fr-FR") &&
+			row.destination === destination && (row.weekStart ?? null) === (weekStart ?? null));
+		if (duplicate) throw new ConvexError("Cette note ou question existe déjà. Retrouve-la dans tes éléments enregistrés plutôt que de la créer en double.");
+		const checkin = destination === "bilan" ? await ctx.db.query("checkins")
+			.withIndex("by_user_week", (q) => q.eq("userId", user._id).eq("weekStart", weekStart!)).first() : null;
+		if (checkin?.status === "retour_envoye") throw new ConvexError("Le bilan visé est déjà traité par Hugo. Il faut lui transmettre une nouvelle question séparément.");
 		const preview = {
 			title: destination === "bilan" ? "Ajouter à mon prochain bilan" : "Noter une question pour Hugo",
 			lines: [{ label: clean, detail: destination === "bilan" ? "Visible par Hugo au prochain bilan" : "Note simple" }],
@@ -1430,16 +1456,82 @@ export const prepareCoachQuestion = mutation({
 	},
 });
 
+/** Éléments réellement enregistrés (source de vérité, pas la mémoire de conversation). */
+export const listCoachQuestions = query({
+	args: { sessionToken: v.optional(v.string()), limit: v.optional(v.number()) },
+	handler: async (ctx, { sessionToken, limit = 12 }) => {
+		const user = await requireAssistantClient(ctx, sessionToken);
+		const rows = await ctx.db.query("coachQuestions")
+			.withIndex("by_user", (q) => q.eq("userId", user._id))
+			.order("desc").take(Math.min(30, Math.max(1, limit)));
+		return rows.filter((row) => !row.deletedAt).map((row) => ({
+			questionId: row._id,
+			text: row.text,
+			destination: row.destination,
+			status: row.status,
+			weekStart: row.weekStart ?? null,
+			createdAt: row.createdAt,
+		}));
+	},
+});
+
+/** Prépare la modification d'une question persistante; aucune modification avant confirmation. */
+export const prepareCoachQuestionUpdate = mutation({
+	args: { sessionToken: v.optional(v.string()), threadId: v.string(), questionId: v.string(), text: v.string() },
+	handler: async (ctx, { sessionToken, threadId, questionId, text }) => {
+		const user = await requireAssistantClient(ctx, sessionToken);
+		const existing = await ctx.db.get(questionId as Id<"coachQuestions">);
+		if (!existing || existing.userId !== user._id || existing.deletedAt) throw new ConvexError("Question introuvable.");
+		if (existing.status !== "open") throw new ConvexError("Cette question est déjà traitée et ne peut plus être modifiée.");
+		if (existing.destination === "bilan" && existing.weekStart) {
+			const checkin = await ctx.db.query("checkins").withIndex("by_user_week", (q) => q.eq("userId", user._id).eq("weekStart", existing.weekStart!)).first();
+			if (checkin?.status === "retour_envoye") throw new ConvexError("Le bilan a déjà été traité par Hugo; la question liée ne peut plus être modifiée.");
+		}
+		const clean = text.trim().replace(/\s+/g, " ").slice(0, 600);
+		if (clean.length < 5 || !/[a-zàâçéèêëîïôûùüÿñæœ]{3}/i.test(clean)) throw new ConvexError("La question est trop courte ou inexploitable.");
+		return insertPending(ctx, user._id, await assertThread(ctx, user._id, threadId), "coach_question_update", "coach_question", {
+			title: "Modifier la question pour Hugo", lines: [{ label: clean, detail: `Remplace : ${existing.text.slice(0, 140)}` }],
+		}, { questionId: existing._id, text: clean, destination: existing.destination, weekStart: existing.weekStart }, { text: existing.text });
+	},
+});
+
+/** Prépare la suppression d'une question persistante; le clic de confirmation est obligatoire. */
+export const prepareCoachQuestionDelete = mutation({
+	args: { sessionToken: v.optional(v.string()), threadId: v.string(), questionId: v.string() },
+	handler: async (ctx, { sessionToken, threadId, questionId }) => {
+		const user = await requireAssistantClient(ctx, sessionToken);
+		const existing = await ctx.db.get(questionId as Id<"coachQuestions">);
+		if (!existing || existing.userId !== user._id || existing.deletedAt) throw new ConvexError("Question introuvable.");
+		if (existing.status !== "open") throw new ConvexError("Cette question est déjà traitée et ne peut plus être supprimée ici.");
+		if (existing.destination === "bilan" && existing.weekStart) {
+			const checkin = await ctx.db.query("checkins").withIndex("by_user_week", (q) => q.eq("userId", user._id).eq("weekStart", existing.weekStart!)).first();
+			if (checkin?.status === "retour_envoye") throw new ConvexError("Le bilan a déjà été traité par Hugo; la question liée ne peut plus être supprimée ici.");
+		}
+		return insertPending(ctx, user._id, await assertThread(ctx, user._id, threadId), "coach_question_delete", "coach_question", {
+			title: "Supprimer cette question pour Hugo ?", lines: [{ label: existing.text, detail: "Elle ne sera plus visible dans tes questions ouvertes." }],
+		}, { questionId: existing._id, destination: existing.destination, weekStart: existing.weekStart }, { text: existing.text });
+	},
+});
+
 /** Usage du jour (affichage discret des quotas — jamais un compteur anxiogène). */
 export const usageFor = query({
 	args: { sessionToken: v.optional(v.string()) },
 	handler: async (ctx, { sessionToken }) => {
 		const user = await requireAssistantClient(ctx, sessionToken);
-		const day = new Date().toISOString().slice(0, 10);
+		const day = user.timeZone ? dateISOInTimeZone(new Date(), user.timeZone) : localTodayISO();
+		const utcQuotaDay = new Date().toISOString().slice(0, 10);
 		const row = await ctx.db
 			.query("assistantUsage")
 			.withIndex("by_user_day", (q) => q.eq("userId", user._id).eq("day", day))
 			.first();
-		return { day, textCount: row?.textCount ?? 0, visionCount: row?.visionCount ?? 0 };
+		const legacy = day === utcQuotaDay ? null : await ctx.db
+			.query("assistantUsage")
+			.withIndex("by_user_day", (q) => q.eq("userId", user._id).eq("day", utcQuotaDay))
+			.first();
+		return {
+			day,
+			textCount: Math.max(row?.textCount ?? 0, legacy?.textCount ?? 0),
+			visionCount: Math.max(row?.visionCount ?? 0, legacy?.visionCount ?? 0),
+		};
 	},
 });

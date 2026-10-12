@@ -25,6 +25,9 @@ import { api } from '../../convex/_generated/api.js';	import { SESSION_COOKIE, r
 	const checkins = selectedId
 		? await convex.query(api.coach.checkinsFor, { sessionToken: token, userId: selectedId as never })
 		: [];
+	const coachQuestions = selectedId
+		? await convex.query(api.coach.coachQuestionsFor, { sessionToken: token, userId: selectedId as never })
+		: [];
 	const photos = selectedId
 		? await convex.query(api.photos.listForCoach, { sessionToken: token, userId: selectedId as never })
 		: [];
@@ -94,6 +97,7 @@ import { api } from '../../convex/_generated/api.js';	import { SESSION_COOKIE, r
 		weekParam,
 		view,
 		checkins,
+		coachQuestions,
 		photos,
 		media,
 		onboardingView,

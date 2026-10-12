@@ -32,6 +32,7 @@
 		status = 'pending',
 		result = '',
 		busy = false,
+		allowSelection = false,
 		onconfirm,
 		oncancel,
 		onundo,
@@ -40,10 +41,33 @@
 		status?: 'pending' | 'confirmed' | 'undone';
 		result?: string;
 		busy?: boolean;
-		onconfirm?: () => void;
+		allowSelection?: boolean;
+		onconfirm?: (selectedLineIndexes?: number[]) => void;
 		oncancel?: () => void;
 		onundo?: () => void;
 	} = $props();
+
+	let selectedLineIndexes = $state<number[]>([]);
+	$effect(() => {
+		const count = preview.lines.length;
+		selectedLineIndexes = Array.from({ length: count }, (_, index) => index);
+	});
+	const displayedTotals = $derived.by(() => {
+		if (!allowSelection || !preview.totals) return preview.totals;
+		const selected = new Set(selectedLineIndexes);
+		const lines = preview.lines.filter((_, index) => selected.has(index));
+		return {
+			kcal: lines.reduce((sum, line) => sum + (line.kcal ?? 0), 0),
+			carbs: lines.reduce((sum, line) => sum + (line.carbs ?? 0), 0),
+			protein: lines.reduce((sum, line) => sum + (line.protein ?? 0), 0),
+			fat: lines.reduce((sum, line) => sum + (line.fat ?? 0), 0),
+		};
+	});
+	function toggleLine(index: number) {
+		selectedLineIndexes = selectedLineIndexes.includes(index)
+			? selectedLineIndexes.filter((value) => value !== index)
+			: [...selectedLineIndexes, index].sort((a, b) => a - b);
+	}
 
 	const SOURCE_LABEL: Record<string, string> = {
 		product: 'Base G-FLUX',
@@ -75,10 +99,17 @@
 	<div class="px-4 py-3">
 		<p class="text-[13px] font-bold text-ink">{preview.title}</p>
 
+		{#if allowSelection && status === 'pending'}
+			<p class="mt-1 text-[11px] font-semibold text-mist-strong">Sélectionne les lignes à enregistrer : {selectedLineIndexes.length}/{preview.lines.length}</p>
+		{/if}
 		<ul class="mt-2 space-y-2">
-			{#each preview.lines as line (line.label + (line.detail ?? ''))}
+			{#each preview.lines as line, lineIndex (line.label + (line.detail ?? '') + lineIndex)}
 				<li class="flex items-start justify-between gap-3 rounded-2xl bg-soft/70 px-3 py-2">
-					<div class="min-w-0">
+					<div class="flex min-w-0 items-start gap-2">
+						{#if allowSelection && status === 'pending'}
+							<input type="checkbox" checked={selectedLineIndexes.includes(lineIndex)} aria-label={`Inclure ${line.label}`} onchange={() => toggleLine(lineIndex)} class="mt-1 h-4 w-4 shrink-0 accent-brand" />
+						{/if}
+						<div class="min-w-0">
 						<p class="truncate text-[13px] font-semibold text-ink">
 							{line.label}
 							{#if line.estimated}
@@ -91,6 +122,7 @@
 						{#if line.source && SOURCE_LABEL[line.source]}
 							<p class="mt-0.5 text-[10.5px] font-semibold text-mist-strong">Source : {SOURCE_LABEL[line.source]}</p>
 						{/if}
+						</div>
 					</div>
 					{#if line.kcal !== undefined}
 						<p class="shrink-0 whitespace-nowrap text-[13px] font-black text-ink tabular-nums">
@@ -101,11 +133,11 @@
 			{/each}
 		</ul>
 
-		{#if preview.totals}
+		{#if displayedTotals}
 			<div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-2xl border border-line bg-cream/50 px-3 py-2">
-				<p class="text-[13px] font-black text-ink tabular-nums">Total ≈ {Math.round(preview.totals.kcal)} kcal</p>
+				<p class="text-[13px] font-black text-ink tabular-nums">Total ≈ {Math.round(displayedTotals.kcal)} kcal</p>
 				<p class="text-[11.5px] font-semibold text-mist-strong tabular-nums">
-					G {fmt(preview.totals.carbs)} · P {fmt(preview.totals.protein)} · L {fmt(preview.totals.fat)}
+					G {fmt(displayedTotals.carbs)} · P {fmt(displayedTotals.protein)} · L {fmt(displayedTotals.fat)}
 				</p>
 			</div>
 		{/if}
@@ -127,8 +159,8 @@
 				<button
 					type="button"
 					class="min-h-11 flex-1 rounded-full bg-brand text-[13px] font-black text-white transition hover:bg-brand-dark disabled:opacity-60"
-					disabled={busy}
-					onclick={() => onconfirm?.()}
+					disabled={busy || (allowSelection && selectedLineIndexes.length === 0)}
+					onclick={() => onconfirm?.(allowSelection ? selectedLineIndexes : undefined)}
 				>
 					{busy ? 'Enregistrement…' : 'Enregistrer'}
 				</button>

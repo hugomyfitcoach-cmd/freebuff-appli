@@ -25,6 +25,8 @@ const { searchCiqualLocal, genericCiqualFirst } = { ...ciqual, genericCiqualFirs
 const { nameCovers } = tools;
 
 const assistantSrc = read('src/convex/assistant.ts');
+const assistantModule = await import(new URL('../src/convex/assistant.ts', import.meta.url).href);
+const helperModule = await import(new URL('../src/convex/helpers.ts', import.meta.url).href);
 const toolsSrc = read('src/convex/assistantTools.ts');
 const policySrc = read('src/lib/assistant/policy.ts');
 
@@ -245,4 +247,116 @@ test('historyFor : la carte restaurée au chargement est bien filtrée (pending 
 		/withIndex\("by_user_status", \(q\) => q\.eq\("userId", user\._id\)\.eq\("status", "pending"\)\)[\s\S]{0,120}pending\.threadId === thread\._id && pending\.expiresAt > Date\.now\(\)/.test(assistantSrc),
 		'aucune action annulée/expirée/d\'un autre fil ne peut réapparaître au rechargement',
 	);
+});
+
+
+/* ═══ 8. PR #16 hardening — confirmed selection, coach notes, timezone ═══ */
+
+test('Lot A: server classification distinguishes preparing a check-in from explicit question capture', () => {
+	const classify = assistantModule.classifyAssistantIntent;
+	assert.equal(classify('Je veux préparer mon prochain bilan'), 'prepare_checkin');
+	assert.equal(classify('Aide-moi à remplir mon bilan'), 'prepare_checkin');
+	assert.equal(classify('Ajoute une question à mon prochain bilan'), 'clarify_coach_question');
+	assert.equal(classify('Ajoute au bilan : dois-je augmenter mes calories ?'), 'add_coach_question');
+	assert.equal(assistantModule.explicitCheckinQuestion('Ajoute au bilan : dois-je augmenter mes calories ?'), 'dois-je augmenter mes calories ?');
+	assert.equal(assistantModule.explicitCheckinQuestion('Préparer le bilan'), null);
+});
+
+test('Lot A: relative meal dates use trusted local today and reject ambiguous weekdays', () => {
+	const normalize = assistantModule.normalizeRelativeMealDate;
+	assert.equal(normalize('Ajoute à mon journal d’hier soir', '2026-10-11'), 'Ajoute à mon journal d’2026-10-10 (dîner)');
+	assert.equal(normalize('Ajoute demain midi', '2026-10-11'), 'Ajoute 2026-10-12 (déjeuner)');
+	assert.equal(normalize('Ajoute au journal mercredi dernier', '2026-10-11'), 'Ajoute au journal 2026-10-07');
+	assert.equal(normalize('Ajoute au journal mardi', '2026-10-11'), null, 'jour sans semaine explicite reste ambigu');
+	assert.equal(normalize('Ajoute au journal mardi dernier', '2026-10-11'), 'Ajoute au journal 2026-10-06');
+	assert.equal(normalize('Quelles sont mes tâches lundi ?', '2026-10-11'), 'Quelles sont mes tâches lundi ?', 'pas de confusion hors repas');
+});
+
+test('Lot A: confirmation accepte une sélection non contiguë mais rejette sélection vide/duplicate/hors borne', () => {
+	assert.match(assistantSrc, /selectedLineIndexes: v\.optional\(v\.array\(v\.number\(\)\)\)/);
+	assert.match(assistantSrc, /new Set\(selected\)\.size !== selected\.length/);
+	assert.match(assistantSrc, /selected\.some\(\(index\) => !Number\.isInteger\(index\) \|\| index < 0 \|\| index >= payload\.components\.length\)/);
+	assert.match(assistantSrc, /selected\.length === 0/);
+	assert.match(assistantSrc, /components\.length !== selected\.length \|\| lines\.length !== components\.length/);
+	assert.match(assistantSrc, /committed\.created \?\? 0\) !== confirmedPreview\.lines\.length/);
+	assert.match(assistantSrc, /if \(next\?\.planned === true\)[\s\S]*?query\(\"plannedEntries\"\)/);
+	assert.match(assistantSrc, /planned: !!res\.planned/);
+	assert.match(read('src/lib/components/assistant/ActionPreviewCard.svelte'), /disabled=\{busy \|\| \(allowSelection && selectedLineIndexes\.length === 0\)\}/);
+});
+
+test('Lot A: atomic meal code keeps diary rows and learned portions in one mutation context', () => {
+	const meals = read('src/convex/meals.ts');
+	const mutationBody = meals.slice(meals.indexOf('export const commitAnalyzedMeal'), meals.indexOf('/**\n * Valide les ingrédients', meals.indexOf('export const commitAnalyzedMeal')));
+	assert.match(meals, /async function upsertFoodPortionInTransaction\(\s*ctx: MutationCtx/);
+	assert.doesNotMatch(mutationBody, /ctx\.runMutation/);
+	assert.match(mutationBody, /await ctx\.db\.insert\("diaryEntries"/);
+	assert.match(mutationBody, /await upsertFoodPortionInTransaction\(ctx/);
+	assert.match(mutationBody, /components\.length > 12/);
+	assert.match(mutationBody, /createdPlanned\+\+/);
+});
+
+test('Lot A: IANA timezone validator accepts nested regions and numeric Etc offsets', () => {
+	const valid = helperModule.validTimeZone;
+	assert.equal(valid('Europe/Paris'), 'Europe/Paris');
+	assert.equal(valid('America/Argentina/Buenos_Aires'), 'America/Argentina/Buenos_Aires');
+	assert.equal(valid('Etc/GMT+3'), 'Etc/GMT+3');
+	assert.equal(valid('Not/AZone'), null);
+	assert.equal(helperModule.dateISOInTimeZone(new Date('2026-10-11T23:30:00Z'), 'Europe/Paris'), '2026-10-12');
+});
+
+test('Lot A: quota reservation, release, completion, and displayed usage agree across UTC migration boundary', () => {
+	assert.match(assistantSrc, /legacyUtcRow/);
+	assert.match(assistantSrc, /textCount = Math\.max\(row\?\.textCount \?\? 0, legacyUtcRow\?\.textCount \?\? 0\)/);
+	assert.match(assistantSrc, /candidate\.inFlightAt !== undefined/);
+	assert.match(assistantSrc, /day !== utcQuotaDay \? usageRows\.find/);
+	const tools = read('src/convex/assistantTools.ts');
+	assert.match(tools, /dateISOInTimeZone\(new Date\(\), user\.timeZone\)/);
+	assert.match(tools, /textCount: Math\.max\(row\?\.textCount \?\? 0, legacy\?\.textCount \?\? 0\)/);
+});
+
+test('Lots B/C: question update/delete require a pending confirmation and coach gets only active records', () => {
+	const tools = read('src/convex/assistantTools.ts');
+	const coach = read('src/convex/coach.ts');
+	const admin = read('src/routes/admin/+page.svelte');
+	assert.match(tools, /prepareCoachQuestionUpdate = mutation/);
+	assert.match(tools, /prepareCoachQuestionDelete = mutation/);
+	assert.match(tools, /insertPending\(ctx, user\._id,[\s\S]*?"coach_question_update"/);
+	assert.match(tools, /insertPending\(ctx, user\._id,[\s\S]*?"coach_question_delete"/);
+	assert.match(coach, /export const coachQuestionsFor = query/);
+	assert.match(coach, /requireCoach\(ctx, sessionToken\)/);
+	assert.match(coach, /filter\(\(row\) => !row\.deletedAt\)/);
+	assert.match(admin, /Notes et questions pour Hugo/);
+	assert.match(admin, /pas transmise/);
+});
+
+test('Lots B/C: operation history is scoped to owned thread and data; no note implies WhatsApp transmission', () => {
+	const assistant = read('src/convex/assistant.ts');
+	const tools = read('src/convex/assistantTools.ts');
+	assert.match(assistant, /operations: operations\.filter\(\(row\) => row\.userId === user\._id\)/);
+	assert.match(assistant, /coachQuestions: coachQuestions\.filter\(\(row\) => !row\.deletedAt\)/);
+	assert.match(assistant, /pas encore transmise/);
+	assert.match(tools, /row\.destination === destination/);
+	assert.match(tools, /existing\.status !== "open"/);
+});
+
+test('Lot B/C: every coach-question action kind is resolved and undoable through the single confirmation endpoint', () => {
+	const assistant = read('src/convex/assistant.ts');
+	const route = read('src/routes/api/assistant/action/+server.ts');
+	for (const type of ['coach_question', 'coach_question_update', 'coach_question_delete']) {
+		assert.ok(assistant.includes(`case "${type}"`), `${type} is confirmed by server`);
+	}
+	assert.match(assistant, /case "coach_question_update":[\s\S]*?previous\?\.text/);
+	assert.match(assistant, /case "coach_question_delete":[\s\S]*?deletedAt: undefined/);
+	assert.match(assistant, /if \(next\?\.planned === true\)[\s\S]*?query\("plannedEntries"\)/);
+	assert.match(assistant, /planned: !!res\.planned/);
+	assert.match(route, /api\.assistant\.resolveAction/);
+	assert.match(assistant, /doc\.status !== "pending"/);
+});
+
+test('Lot B/C: duplicate registry tool removed and check-in intent cannot be mistaken for question submission', () => {
+	const names = (read('src/convex/assistantRegistry.ts').match(/name: "listCoachQuestions"/g) ?? []);
+	assert.equal(names.length, 1);
+	assert.equal(assistantModule.classifyAssistantIntent('Je veux préparer mon prochain bilan'), 'prepare_checkin');
+	assert.equal(assistantModule.classifyAssistantIntent('Ajoute une question à mon prochain bilan'), 'clarify_coach_question');
+	assert.equal(assistantModule.classifyAssistantIntent('Je souhaite ajouter à mon bilan : dois-je augmenter mes calories ?'), 'add_coach_question');
 });
