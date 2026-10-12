@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, tick, untrack } from 'svelte';
+	import { fly } from 'svelte/transition';
 	import { beforeNavigate } from '$app/navigation';
 	import { startBarcodeScanner, CameraPermissionError, normalizeProductCode, type BarcodeScannerHandle, type TorchHandle } from '$lib/barcodeScanner';
 	import { compressImage, detectBarcodeInDataUrl } from '$lib/labelBarcode';
@@ -799,11 +800,19 @@ import { optimizeImageFile } from '$lib/media';
 	/* ————— Modale : recherche, favoris, repas, code-barres ————— */
 	let logOpen = $state(false);
 	let logMode = $state<'search' | 'barcode'>('search');
+	let modeSlideX = $state(18);
+	let modeSlideDuration = $state(180);
+	function configureModeTransition(direction: -1 | 1) {
+		const reduced = typeof window === 'undefined' || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+		modeSlideX = reduced ? 0 : direction * 18;
+		modeSlideDuration = reduced ? 0 : 180;
+	}
 	let searchQ = $state('');
 	let searchTab = $state<'produits' | 'repas' | 'crees'>('produits');
 	let results = $state<Food[]>([]);
 	/** Fiches de référence Ciqual (ANSES) du bloc « Aliments de référence » — toujours séparées des produits OFF. */
 	let ciqualResults = $state<Food[]>([]);
+	let ciqualExpanded = $state(false);
 	/** Pagination OFF (scroll infini) : reste-t-il des produits au-delà de la tranche affichée ? */
 	let hasMore = $state(false);
 	/** Décalage serveur de la prochaine tranche (≠ results.length : la 1ʳᵉ page peut contenir des aliments « Créés par moi » non paginés). */
@@ -840,10 +849,12 @@ import { optimizeImageFile } from '$lib/media';
 			searchSeq++;
 			results = [];
 			ciqualResults = [];
+			ciqualExpanded = false;
 			hasMore = false;
 			return;
 		}
 		const guard = ++searchSeq;
+		ciqualExpanded = false;
 		searching = true;
 		searchError = '';
 		showScrollHint = false;
@@ -866,7 +877,7 @@ import { optimizeImageFile } from '$lib/media';
 				if (!favOnly) applyPersonalOverlay();
 			})
 			.then(() => null, (e) => e as Error);
-		const ciq = fetch(`/api/foods/ciqual?q=${encodeURIComponent(q)}`)
+		const ciq = fetch(`/api/foods/ciqual?q=${encodeURIComponent(q)}&limit=13`)
 			.then(async (r) => {
 				const j = await r.json();
 				ciqualResults = j.error
@@ -1079,6 +1090,7 @@ import { optimizeImageFile } from '$lib/media';
 		barcodePermBlocked = false;
 		barcodeManual = '';
 		logMode = 'search';
+		configureModeTransition(1);
 		logOpen = true;
 		freqLoaded = false;
 		recentLoaded = false;
@@ -1877,16 +1889,20 @@ import { optimizeImageFile } from '$lib/media';
 		if (tab !== 'produits') favOnly = false;
 	}	let mealSearchError = $state('');
 	/** Fiches Ciqual (ANSES) du bloc « Aliments de référence » — séparées des produits OFF. */
-	let mealCiqualResults = $state<Food[]>([]);	async function runMealSearch(q: string) {
+	let mealCiqualResults = $state<Food[]>([]);
+	let mealCiqualExpanded = $state(false);
+	async function runMealSearch(q: string) {
 		if (q.length < 2) {
 			mealResults = [];
 			mealCiqualResults = [];
+			mealCiqualExpanded = false;
 			mealHasMore = false;
 			mealNextOffset = 0;
 			mealShowScrollHint = false;
 			return;
 		}
 		const guard = ++mealSearchSeq;
+		mealCiqualExpanded = false;
 		mealSearching = true;
 		mealSearchError = '';
 		// Même séparation stricte que la recherche principale : Ciqual en tête,
@@ -1903,7 +1919,7 @@ import { optimizeImageFile } from '$lib/media';
 					mealShowScrollHint = mealHasMore;
 				})
 				.then(() => null, (e) => e as Error);
-		const ciq = fetch(`/api/foods/ciqual?q=${encodeURIComponent(q)}`)
+		const ciq = fetch(`/api/foods/ciqual?q=${encodeURIComponent(q)}&limit=13`)
 			.then(async (r) => {
 				const j = await r.json();
 				mealCiqualResults = j.error ? [] : (j as { label: string; kcal: number; protein?: number; carbs?: number; fat?: number }[]).map(ciqualToFood);
@@ -2708,6 +2724,7 @@ import { optimizeImageFile } from '$lib/media';
 	}
 	async function switchMode(m: 'search' | 'barcode') {
 		if (m === logMode) return;
+		configureModeTransition(m === 'barcode' ? 1 : -1);
 		if (m === 'barcode') {
 			logMode = 'barcode';
 			barcodeStatus = 'idle';
@@ -2834,6 +2851,7 @@ import { optimizeImageFile } from '$lib/media';
 	/** Capsule Recherche ⇄ Code-barres de la fenêtre produit (éditeur de repas). */
 	async function switchMealSearchMode(m: 'search' | 'barcode') {
 		if (m === mealSearchMode) return;
+		configureModeTransition(m === 'barcode' ? 1 : -1);
 		if (m === 'barcode') {
 			mealSearchMode = 'barcode';
 			barcodeStatus = 'idle';
@@ -2914,6 +2932,7 @@ import { optimizeImageFile } from '$lib/media';
 	const aiFlags = $derived(data.aiFlags ?? { foodLabelAi: false, mealPhotoAi: false });
 
 	function openMealPhoto(meal: 'petit-dej' | 'dejeuner' | 'diner' | 'collation' = 'dejeuner') {
+		configureModeTransition(1);
 		mealAnalyzedMeal = meal;
 		mealAnalyzed = null;
 		mealAnalyzedHint = '';
@@ -3139,7 +3158,7 @@ import { optimizeImageFile } from '$lib/media';
 		try {
 			const [prodR, ciqR] = await Promise.all([
 				fetch(`/api/foods/search?q=${encodeURIComponent(q)}&v=${FRONTEND_API_VERSION}`),
-				fetch(`/api/foods/ciqual?q=${encodeURIComponent(q)}`),
+				fetch(`/api/foods/ciqual?q=${encodeURIComponent(q)}&limit=13`),
 			]);
 			const prod = await prodR.json();
 			const ciq = ciqR.ok ? await ciqR.json() : [];
@@ -3492,8 +3511,8 @@ import { optimizeImageFile } from '$lib/media';
 		if (e.target === focusedFieldEl) focusedFieldEl = null;
 	}
 
-	/* Recherche ingrédient ouverte : pré-remplit le champ et lance la recherche
-	   initiale, puis focalise le champ (clavier immédiat, comme « Ajouter un aliment »). */
+	/* L'ouverture de la recherche d'ingrédients garde le clavier fermé ; la cliente
+	   le déclenche explicitement en touchant le champ de recherche. */
 	$effect(() => {
 		if (!mealSearchOpen) return;
 		mealSearchMode = 'search';
@@ -3505,8 +3524,6 @@ import { optimizeImageFile } from '$lib/media';
 		barcodeError = '';
 		barcodePermBlocked = false;
 		barcodeManual = '';
-		const el = document.getElementById('meal-picker-input');
-		el?.focus();
 	});
 
 	onMount(() => {
@@ -4028,21 +4045,19 @@ import { optimizeImageFile } from '$lib/media';
 				<!-- Recherche + onglets (fixes) -->
 				<div class="shrink-0 border-b border-line bg-white/95 px-2.5 pb-2 pt-2 backdrop-blur">
 					<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2 focus-within:border-brand">										<Icon name="search" size={17} class="shrink-0 text-mist" />
-						<!-- svelte-ignore a11y_autofocus -->
 						<input
 							type="search"
 							class="w-full bg-transparent text-[15px] text-ink outline-none placeholder:text-mist"
 							placeholder="Rechercher un produit…"
 							bind:value={searchQ}
 							oninput={onSearchInput}
-							autofocus
 						/>
 						{#if searchQ}
 							<button
 								type="button"
 								class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-line/70 text-mist transition hover:bg-line"
 								aria-label="Effacer la recherche"
-								onclick={() => { searchQ = ''; results = []; hasMore = false; nextOffset = 0; showScrollHint = false; ciqualResults = []; }}
+								onclick={() => { searchQ = ''; results = []; hasMore = false; nextOffset = 0; showScrollHint = false; ciqualResults = []; ciqualExpanded = false; }}
 							><Icon name="x" size={13} /></button>
 						{/if}
 					</div>
@@ -4069,7 +4084,7 @@ import { optimizeImageFile } from '$lib/media';
 
 				<!-- Résultats : liste seule scrollable (pb généreux : le dernier
 				     produit doit passer entièrement au-dessus de la capsule flottante) -->
-				<div bind:this={logListEl} class="flex-1 overflow-y-auto overscroll-contain px-2.5 pb-24">
+				<div bind:this={logListEl} class="flex-1 overflow-y-auto overscroll-contain px-2.5 pb-24" in:fly={{ x: modeSlideX, duration: modeSlideDuration }}>
 					{#if searchTab === 'repas' && mealEditor}
 						<!-- ═══════ Éditeur de repas ═══════ -->
 						<div>
@@ -4478,7 +4493,7 @@ import { optimizeImageFile } from '$lib/media';
 								<span class="text-[10px] text-mist">Ciqual – ANSES</span>
 							</div>
 							<ul class="mb-2 flex flex-col gap-1.5">
-								{#each ciqualResults as cfood (cfood._id)}
+								{#each (ciqualExpanded ? ciqualResults : ciqualResults.slice(0, 3)) as cfood (cfood._id)}
 									<li>
 										<button type="button" class="flex w-full items-center gap-2.5 rounded-2xl border border-line bg-white p-2 text-left shadow-sm transition hover:border-brand" onclick={() => openQty(cfood)}>
 											<span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand-light"><Icon name="salad" size={20} class="text-brand" /></span>
@@ -4491,6 +4506,9 @@ import { optimizeImageFile } from '$lib/media';
 									</li>
 								{/each}
 							</ul>
+							{#if ciqualResults.length > 3}
+								<button type="button" class="mb-2 w-full rounded-full py-2 text-xs font-semibold text-brand transition hover:bg-brand-light" onclick={() => (ciqualExpanded = !ciqualExpanded)} aria-expanded={ciqualExpanded}>{ciqualExpanded ? 'Voir moins' : 'Voir plus'}</button>
+							{/if}
 						{/if}
 						{#if results.length > 0}
 							<div class="flex items-baseline justify-between px-1 pb-1 pt-1.5">
@@ -4525,7 +4543,7 @@ import { optimizeImageFile } from '$lib/media';
 				     champ manuel reste complet (order-1 en mode manuel). Les ordres
 				     flex, la transition max-height et l'id bc-reader sont conservés
 				     (mécanismes validés mission saisie manuelle). -->
-				<div bind:this={bcListEl} class="flex flex-1 flex-col overflow-y-auto overscroll-contain px-3 pb-28 pt-3">
+				<div bind:this={bcListEl} class="flex flex-1 flex-col overflow-y-auto overscroll-contain px-3 pb-28 pt-3" in:fly={{ x: modeSlideX, duration: modeSlideDuration }}>
 					<div class="relative order-2 mx-auto aspect-[3/4.6] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-[max-height,border-color,box-shadow] duration-300 ease-out {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}" style:max-height={bcManualMode ? '7rem' : '120vh'}>
 						<div id="bc-reader" class="absolute inset-0"></div>
 						<!-- Croix de fermeture DIRECTEMENT sur la zone caméra : -->
@@ -4605,7 +4623,7 @@ import { optimizeImageFile } from '$lib/media';
 			     inutile dans ce contexte, elle grignotait la hauteur du formulaire
 			     (notamment avec le clavier numérique ouvert). Elle revient à la
 			     sortie de l'éditeur (retour à la liste). -->
-			{#if !customEditor}
+			{#if !customEditor && !(searchTab === 'repas' && mealEditor)}
 			<div class="pointer-events-none absolute inset-x-0 bottom-[calc(0.625rem+env(safe-area-inset-bottom))] z-10 flex justify-center px-4">
 				<!-- 3 zones équilibrées quand la bêta « Repas IA » est active pour le
 				     compte (méthode de TRACKING du journal — jamais une création
@@ -4779,7 +4797,7 @@ import { optimizeImageFile } from '$lib/media';
 	<div role="presentation" class="fixed inset-0 z-[75] flex items-end justify-center bg-ink/40 backdrop-blur-sm sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget && !mealAnalyzing && !mealCommitting) closeMealPhoto(); }} onkeydown={(e) => { if (e.key === 'Escape' && !mealAnalyzing && !mealCommitting) closeMealPhoto(); }}>
 		<!-- onfocusin/onfocusout : infra clavier existante (scrollFocusedIntoView)
 		     — le champ texte (et sa dictée native) reste au-dessus du clavier. -->
-		<div class="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 pb-[max(env(safe-area-inset-bottom),20px)] shadow-2xl sm:rounded-3xl" onfocusin={(e) => focusScroll(e.currentTarget, e.target)} onfocusout={blurScroll}>
+		<div class="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 pb-[max(env(safe-area-inset-bottom),20px)] shadow-2xl sm:rounded-3xl" in:fly={{ x: modeSlideX, duration: modeSlideDuration }} onfocusin={(e) => focusScroll(e.currentTarget, e.target)} onfocusout={blurScroll}>
 			<div class="mb-3 flex items-center justify-between">
 				<div class="min-w-0 pr-2">									<p class="font-display text-[17px] font-bold text-ink">Analyse ton repas</p>
 									<p class="mt-0.5 text-xs text-mist">Photo, texte, ou les deux — à toi de choisir.</p>
@@ -5170,11 +5188,11 @@ import { optimizeImageFile } from '$lib/media';
 							oninput={onMealSearchInput}
 						/>
 						{#if mealSearchQ}
-							<button type="button" class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-line/70 text-mist transition hover:bg-line" aria-label="Effacer la recherche"								onclick={() => { mealSearchQ = ''; mealResults = []; mealHasMore = false; mealNextOffset = 0; mealShowScrollHint = false; mealCiqualResults = []; }}><Icon name="x" size={13} /></button>
+							<button type="button" class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-line/70 text-mist transition hover:bg-line" aria-label="Effacer la recherche"								onclick={() => { mealSearchQ = ''; mealResults = []; mealHasMore = false; mealNextOffset = 0; mealShowScrollHint = false; mealCiqualResults = []; mealCiqualExpanded = false; }}><Icon name="x" size={13} /></button>
 						{/if}
 					</div>
 				</div>
-				<div bind:this={mealSearchListEl} class="flex-1 overflow-y-auto overscroll-contain px-2.5 pb-24">
+				<div bind:this={mealSearchListEl} class="flex-1 overflow-y-auto overscroll-contain px-2.5 pb-24" in:fly={{ x: modeSlideX, duration: modeSlideDuration }}>
 					{#if mealSearching && mealResults.length === 0}
 						<p class="flex items-center justify-center gap-2 py-10 text-sm text-mist" role="status">
 							<Icon name="search" size={16} class="animate-pulse text-mist" /> Recherche « {mealSearchQ.trim()} »…
@@ -5195,7 +5213,7 @@ import { optimizeImageFile } from '$lib/media';
 								<span class="text-[10px] text-mist">Ciqual – ANSES</span>
 							</div>
 							<ul class="mb-2 flex flex-col gap-1.5">
-								{#each mealCiqualResults as cfood, ci (cfood._id)}
+								{#each (mealCiqualExpanded ? mealCiqualResults : mealCiqualResults.slice(0, 3)) as cfood, ci (cfood._id)}
 									<li>
 										<button type="button" class="flex w-full items-center gap-2.5 rounded-2xl border border-line bg-white p-2 text-left shadow-sm transition hover:border-brand" onclick={() => openCiqualIngredientPortion(ci)}>
 											<span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand-light"><Icon name="salad" size={20} class="text-brand" /></span>
@@ -5208,6 +5226,9 @@ import { optimizeImageFile } from '$lib/media';
 									</li>
 								{/each}
 							</ul>
+								{#if mealCiqualResults.length > 3}
+									<button type="button" class="mb-2 w-full rounded-full py-2 text-xs font-semibold text-brand transition hover:bg-brand-light" onclick={() => (mealCiqualExpanded = !mealCiqualExpanded)} aria-expanded={mealCiqualExpanded}>{mealCiqualExpanded ? 'Voir moins' : 'Voir plus'}</button>
+								{/if}
 						{/if}
 						{#if mealResults.length > 0}
 							<div class="flex items-baseline justify-between px-1 pb-1 pt-1.5">
@@ -5250,7 +5271,7 @@ import { optimizeImageFile } from '$lib/media';
 				<!-- ═══════ Scanner code-barres de la fenêtre produit — même direction
 				     immersive que « Ajouter un aliment » : caméra haute, indication en
 				     overlay, lampe/zoom en pill compacte. Mécanismes validés conservés. -->
-				<div bind:this={mealBcListEl} class="flex flex-1 flex-col overflow-y-auto overscroll-contain px-3 pb-28 pt-3">
+				<div bind:this={mealBcListEl} class="flex flex-1 flex-col overflow-y-auto overscroll-contain px-3 pb-28 pt-3" in:fly={{ x: modeSlideX, duration: modeSlideDuration }}>
 					<div class="relative order-2 mx-auto aspect-[3/4.6] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-[max-height,border-color,box-shadow] duration-300 ease-out {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}" style:max-height={bcManualMode ? '7rem' : '120vh'}>
 						<div id="meal-bc-reader" class="absolute inset-0"></div>
 						{#if !bcManualMode && barcodeStatus === 'scanning' && !barcodeBusy}
