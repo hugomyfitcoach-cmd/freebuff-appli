@@ -1,6 +1,9 @@
 // See https://svelte.dev/docs/kit/types#app.d.ts
 // for information about these interfaces
 declare global {
+	const __NETLIFY_COMMIT_REF__: string;
+	const __NETLIFY_DEPLOY_ID__: string;
+
 	namespace App {
 		// interface Error {}
 		// interface Locals {}

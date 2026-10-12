@@ -139,7 +139,7 @@ export function formatWeekLabel(weekStartISO: string): string {
 
 const ISO_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-const TZ_NAME_RE = /^[A-Za-z_]+\/[A-Za-z_+\-]+$/;
+const TZ_NAME_RE = /^[A-Za-z_+-]+(?:\/[A-Za-z0-9_+-]+)+$/;
 
 /** Valide un nom de fuseau IANA (ex. "Europe/Paris") — jamais de valeur arbitraire stockée. */
 export function validTimeZone(tz: string | null | undefined): string | null {
@@ -150,6 +150,17 @@ export function validTimeZone(tz: string | null | undefined): string | null {
 	} catch {
 		return null;
 	}
+}
+
+/** Date ISO du jour dans le fuseau IANA du compte; jamais le fuseau du serveur. */
+export function dateISOInTimeZone(now: Date = new Date(), timeZone: string): string {
+	const tz = validTimeZone(timeZone);
+	if (!tz) throw new Error("Fuseau IANA invalide.");
+	const parts = new Intl.DateTimeFormat("en-CA", {
+		timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+	}).formatToParts(now);
+	const value = (type: string) => parts.find((part) => part.type === type)?.value ?? "00";
+	return `${value("year")}-${value("month")}-${value("day")}`;
 }
 
 /**

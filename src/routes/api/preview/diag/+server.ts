@@ -5,6 +5,7 @@ import { convex } from '$lib/server/convex';
 import { api } from '../../../../convex/_generated/api.js';
 import { errMsg } from '$lib/errors.js';
 import { env } from '$env/dynamic/private';
+import { BUILD_VERSION } from '$lib/buildVersion';
 
 /**
  * DIAGNOSTIC & RÉPARATION PREVIEW (commenté pour la bêta Alimentation IA).
@@ -44,12 +45,39 @@ export const GET = async () => {
 		.action(api.aiAnalysis.keyStatus, {})
 		.then((r) => ({ openaiKeyPresent: r.openaiKeyPresent, openaiModel: r.openaiModel, error: null }))
 		.catch((e) => ({ openaiKeyPresent: null, openaiModel: null, error: errMsg(e) }));
+	// Lot 2B — les nouvelles fonctions assistant sont-elles bien SUR LE
+	// BACKEND ciblé ? Un query sans session doit répondre « Session invalide »
+	// (fonction présente) et non une erreur « Unknown function » (backend
+	// pas à jour) — diagnostic du bypass clarification.
+	const lot2b = await convex
+		.query(api.assistantTools.latestPendingJournalAdd, { threadId: 'diag-probe-0001' })
+		.then(() => ({ latestPendingJournalAdd: true, error: null }))
+		.catch((e) => ({ latestPendingJournalAdd: !/unknown|does not exist/i.test(errMsg(e)), error: errMsg(e) }));
+	// §9 batterie — dernières erreurs d'outil tracées (échecs d'outils avalés
+	// par le registre pendant les tours IA). Vide si aucune erreur récente.
+	const toolTrace = await convex
+		.query(api.previewDiag.recentToolErrors, {})
+		.then((r: unknown) => r as { errors?: unknown; recentCalls?: unknown })
+		.catch(() => ({ errors: [], recentCalls: [] }));
+	const toolErrors = toolTrace.errors ?? [];
+	const recentCalls = toolTrace.recentCalls ?? [];
+	const foodTrace = await convex
+		.query(api.previewFoodTrace.recentFoodTraces, {})
+		.then((r: unknown) => r as { enabled?: boolean; traces?: unknown })
+		.catch(() => ({ enabled: false, traces: [] }));
 	return json({
 		enabled: true,
 		convexUrl: url,
 		isProdLike: url.includes(PROD_MARK),
 		netlifyContext: ctx || null,
+		deploySha: env.COMMIT_REF ?? __NETLIFY_COMMIT_REF__ ?? null,
+		deployId: env.DEPLOY_ID ?? env.BUILD_ID ?? __NETLIFY_DEPLOY_ID__ ?? null,
+		buildVersion: BUILD_VERSION,
 		ai,
+		lot2b,
+		toolErrors,
+		recentCalls,
+		foodTrace,
 	});
 };
 

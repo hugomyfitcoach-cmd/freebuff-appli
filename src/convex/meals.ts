@@ -4,9 +4,8 @@ import { getSessionUser } from "./helpers";
 import { ciqualFoodSource } from "./ciqualSource";
 import { attachThumbs, attachThumbsForFoodIds } from "./foodImages";
 import { trustedClientToday } from "./journal";
-import { internal } from "./_generated/api";
 import { resolveCoachPlanForDate } from "./mealPlans";
-import type { QueryCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Id, Doc } from "./_generated/dataModel";
 
 /**
@@ -40,6 +39,23 @@ async function requireClient(ctx: Pick<QueryCtx, "db">, sessionToken: string | u
 		throw new ConvexError("Seuls les comptes clients peuvent utiliser le journal alimentaire.");
 	}
 	return user;
+}
+
+/** Upsert la portion dans le contexte de la mutation appelante (même transaction). */
+async function upsertFoodPortionInTransaction(
+	ctx: MutationCtx,
+	args: { userId: Id<"users">; foodId?: Id<"foods">; customFoodId?: Id<"customFoods">; ciqualLabel?: string; qtyGrams: number; meal: string }
+) {
+	const keys = [args.foodId, args.customFoodId, args.ciqualLabel].filter(Boolean);
+	if (keys.length !== 1 || !Number.isFinite(args.qtyGrams) || args.qtyGrams < 1 || args.qtyGrams > 5000) return;
+	const existing = args.foodId
+		? await ctx.db.query("foodPortions").withIndex("by_user_food", (q) => q.eq("userId", args.userId).eq("foodId", args.foodId!)).first()
+		: args.customFoodId
+			? await ctx.db.query("foodPortions").withIndex("by_user_custom", (q) => q.eq("userId", args.userId).eq("customFoodId", args.customFoodId!)).first()
+			: await ctx.db.query("foodPortions").withIndex("by_user_ciqual", (q) => q.eq("userId", args.userId).eq("ciqualLabel", args.ciqualLabel!)).first();
+	const patch = { qtyGrams: Math.round(args.qtyGrams * 10) / 10, meal: args.meal, updatedAt: Date.now() };
+	if (existing) await ctx.db.patch(existing._id, patch);
+	else await ctx.db.insert("foodPortions", { userId: args.userId, foodId: args.foodId, customFoodId: args.customFoodId, ciqualLabel: args.ciqualLabel, ...patch });
 }
 
 import { guardedKcal100 } from "../lib/nutritionGuard";
@@ -134,26 +150,41 @@ export const commitAnalyzedMeal = mutation({
 		if (components.length === 0) throw new ConvexError("Aucun composant à ajouter.");
 		if (components.length > 12) throw new ConvexError("Maximum 12 composants par repas analysé.");
 
-		// Idempotence : même requestId + même utilisateur → déjà commité, on
-		// renvoie le résultat d'origine sans rien réécrire (double-clic, retry).
+		// Idempotence : consulte les lignes réellement créées, jamais une seule
+		// ligne sentinelle. Le compte exact est nécessaire à la confirmation.
 		const rid = requestId?.trim();
 		if (rid) {
-			const prior = await ctx.db
-				.query("diaryEntries")
-				.withIndex("by_group", (q) => q.eq("mealGroup", `analyse:${rid}`))
-				.first();
-			if (prior) {
-				return { ok: true as const, created: 0, mealGroup: prior.mealGroup as string, duplicate: true };
+			const group = `analyse:${rid}`;
+			const priorDiary = await ctx.db.query("diaryEntries")
+				.withIndex("by_group", (q) => q.eq("mealGroup", group)).collect();
+			const priorPlanned = await ctx.db.query("plannedEntries")
+				.withIndex("by_meal_group", (q) => q.eq("mealGroup", group)).collect();
+			const priorDiaryRows = priorDiary.filter((row) => row.userId === user._id);
+			const priorPlannedRows = priorPlanned.filter((row) => row.userId === user._id);
+			const existingCount = priorDiaryRows.length + priorPlannedRows.length;
+			if (existingCount > 0) {
+				const expectedPlanned = date > trustedClientToday(clientDate);
+				if ((priorDiaryRows.length > 0 && priorPlannedRows.length > 0) ||
+					(expectedPlanned ? priorDiaryRows.length !== 0 : priorPlannedRows.length !== 0) ||
+					priorDiaryRows.some((row) => row.requestId !== rid) ||
+					priorPlannedRows.some((row) => row.mealGroup !== group) ||
+					existingCount !== components.length) {
+					throw new ConvexError("Une tentative précédente n'a enregistré qu'une partie des lignes. Aucune nouvelle écriture automatique n'a été faite; vérifie le journal.");
+				}
+				return { ok: true as const, created: existingCount, mealGroup: group, planned: priorPlannedRows.length > 0, duplicate: true };
 			}
 		}
 
-		await resolveCoachPlanForDate(ctx, user._id, date);
 		const today = trustedClientToday(clientDate);
 		const future = date > today;
+		// Le plan coach est matérialisé seulement lors d'une écriture au journal
+		// consommé. Une préparation future ne doit pas muter le plan du jour.
+		if (!future) await resolveCoachPlanForDate(ctx, user._id, date);
 		// Regroupement : clé stable (requestId client si fourni — nécessaire
 		// pour l'idempotence, sinon timestamp) préfixée « analyse: ».
 		const mealGroup = `analyse:${rid ?? Date.now()}`;
 		const created: Id<"diaryEntries">[] = [];
+		let createdPlanned = 0;
 
 		for (const c of components) {
 			const qty = isFinite(c.qtyGrams) && c.qtyGrams > 0 && c.qtyGrams <= 5000 ? c.qtyGrams : 100;
@@ -238,8 +269,12 @@ export const commitAnalyzedMeal = mutation({
 					fat: row.fat,
 					foodId: row.foodId,
 					customFoodId: row.customFoodId,
+					ciqualLabel: ciqualRef ? c.ciqualLabel : undefined,
+					mealGroup,
 					createdAt: Date.now(),
-				});				} else {
+				});
+				createdPlanned++;
+			} else {
 				const id = await ctx.db.insert("diaryEntries", {
 					...row,
 					// Clé de regroupement : le Journal affiche UNE carte « repas
@@ -249,20 +284,25 @@ export const commitAnalyzedMeal = mutation({
 					requestId: rid,
 				});
 				created.push(id);
-				// Portion mémorisée (préférence utilisateur) : le composant avec
-				// identité stable (foodId/customFoodId/ciqualLabel) mémorise sa
-				// quantité validée — les estimations IA sans identité, jamais.
-				await ctx.runMutation(internal.foodPortions.upsertInternal, {
-					userId: user._id,
-					foodId: row.foodId,
-					customFoodId: row.customFoodId,
-					ciqualLabel: ciqualRef ? c.ciqualLabel : undefined,
-					qtyGrams: qty,
-					meal,
-				});
+				// Portion mémorisée (préférence utilisateur) : incluse dans cette
+				// transaction, afin que le repas et ses lignes restent atomiques.
+				if (row.foodId || row.customFoodId || ciqualRef) {
+					await upsertFoodPortionInTransaction(ctx, {
+						userId: user._id,
+						foodId: row.foodId,
+						customFoodId: row.customFoodId,
+						ciqualLabel: ciqualRef ? c.ciqualLabel : undefined,
+						qtyGrams: qty,
+						meal,
+					});
+				}
 			}
 		}
-		return { ok: true, created: created.length, mealGroup };
+		const createdCount = future ? createdPlanned : created.length;
+		if (createdCount !== components.length) {
+			throw new ConvexError(`Nombre de lignes incohérent : ${createdCount}/${components.length}. La transaction est annulée.`);
+		}
+		return { ok: true, created: createdCount, mealGroup, planned: future };
 	},
 });
 

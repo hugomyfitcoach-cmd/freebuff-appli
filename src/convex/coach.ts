@@ -166,6 +166,24 @@ export const checkinsFor = query({
 	},
 });
 
+/** Notes et questions réellement enregistrées par la cliente, visibles uniquement par elle et son coach. */
+export const coachQuestionsFor = query({
+	args: { sessionToken: v.optional(v.string()), userId: v.id("users") },
+	handler: async (ctx, { sessionToken, userId }) => {
+		await requireCoach(ctx, sessionToken);
+		const target = await ctx.db.get(userId);
+		if (!target || target.role !== "client") throw new ConvexError("Client introuvable.");
+		const rows = await ctx.db.query("coachQuestions")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.order("desc").take(100);
+		return rows.filter((row) => !row.deletedAt).map((row) => ({
+			_id: row._id, text: row.text, destination: row.destination, status: row.status,
+			transmittedAt: row.transmittedAt ?? null, weekStart: row.weekStart ?? null,
+			createdAt: row.createdAt, updatedAt: row.updatedAt,
+		}));
+	},
+});
+
 /**
  * File globale des bilans du CRM : dérivée des dates, du statut de
  * soumission et du statut du retour — rien n'est stocké, rien n'est lancé

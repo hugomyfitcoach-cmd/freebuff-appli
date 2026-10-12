@@ -1,5 +1,6 @@
 import { requireClientAccess, requireRole, SESSION_COOKIE } from '$lib/server/session';
 import { convex } from '$lib/server/convex';
+import { assistantEnabledFor } from '$lib/assistant/policy';
 import { api } from '../../convex/_generated/api.js';	/**
 	 * Routes accessibles pendant le HARD LOCK (décision produit : facturation =
 	 * re-souscription ; page de retour Stripe ; déconnexion via ?/logout). Tout
@@ -37,6 +38,10 @@ export const load = async (event) => {
 	const dashboard = await convex
 		.query(api.dashboard.getDashboard, { sessionToken: token, today, now: now.getTime() })
 		.catch(() => null);
+	// ASSISTANT G-FLUX (§36) : flag SERVEUR pur (env Convex/BFF), lu ici pour
+	// décider l'AFFICHAGE de l'onglet. La sécurité ne repose JAMAIS là-dessus :
+	// la page /espace/assistant et /api/assistant/* revérifient côté serveur.
+	const assistantEnabled = user.role === 'client' && assistantEnabledFor(user.email);
 	// Photo de profil (avatar de l'en-tête) : URL signée lue côté serveur —
 	// SSR cohérent avec le menu profil, sans aller-retour navigateur au premier rendu.
 	const profilePhotoUrl = await convex
@@ -47,7 +52,7 @@ export const load = async (event) => {
 	// est guidée vers l'installation (jamais en mode standalone — règle gérée
 	// côté client qui redirige aussitôt ; le layout ne bloque jamais l'accès).
 	if (user.pwaInstallStatus === 'not_seen') {
-		return { user, dashboard, today, profilePhotoUrl, pwaInstallNeeded: true, rdvAccessAllowed: dashboard?.rdvAccessAllowed ?? true };
+		return { user, dashboard, today, profilePhotoUrl, pwaInstallNeeded: true, rdvAccessAllowed: dashboard?.rdvAccessAllowed ?? true, assistantEnabled };
 	}
-	return { user, dashboard, today, profilePhotoUrl, pwaInstallNeeded: false, rdvAccessAllowed: dashboard?.rdvAccessAllowed ?? true };
+	return { user, dashboard, today, profilePhotoUrl, pwaInstallNeeded: false, rdvAccessAllowed: dashboard?.rdvAccessAllowed ?? true, assistantEnabled };
 };

@@ -88,6 +88,7 @@
 	showFooter
 	profilePhotoUrl={data.profilePhotoUrl ?? null}
 	allowRendezVous={data.dashboard?.rdvAccessAllowed ?? true}
+	assistantEnabled={data.assistantEnabled ?? false}
 >
 	{@render children()}
 </AppShell>

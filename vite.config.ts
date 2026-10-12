@@ -4,13 +4,11 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-	// Mission V3.2 — expérimentation scanner (modes A/B + debug) réservée aux
-	// builds NETLIFY PREVIEW. ⚠️ import.meta.env.PROD vaut TRUE sur une Deploy
-	// Preview (build de production Vite) : il ne peut PAS servir de garde.
-	// Le vrai discriminant est le CONTEXTE NETLIFY au build :
-	//  - CONTEXT=deploy-preview | branch-deploy → __SCANNER_EXPERIMENT__=true ;
-	//  - production / local (dev) → false (sauf dev: utile au diagnostic).
+	// Netlify deployment identity supports Preview diagnostics. The scanner
+	// experiment is gated by the Netlify context, not Vite's PROD flag.
 	define: {
+		__NETLIFY_COMMIT_REF__: JSON.stringify(process.env.COMMIT_REF ?? ''),
+		__NETLIFY_DEPLOY_ID__: JSON.stringify(process.env.DEPLOY_ID ?? ''),
 		__SCANNER_EXPERIMENT__: JSON.stringify(
 			process.env.CONTEXT === 'deploy-preview' || process.env.CONTEXT === 'branch-deploy' || process.env.NODE_ENV !== 'production'
 		),

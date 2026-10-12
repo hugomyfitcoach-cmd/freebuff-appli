@@ -6,7 +6,7 @@
 
 # ── Deploy Previews — workflow officiel Convex × Netlify ─────────────────
 # La PREVIEW deploy key (Netlify, scope Deploy Previews uniquement) fait :
-#   1. SUPPRIMER ET RECRÉER le Convex Preview « barcode-lookup-preview » ;
+#   1. SUPPRIMER ET RECRÉER le Convex Preview « alimentation-ia-preview » ;
 #   2. y pousser le schéma + fonctions (seed automatique via --preview-run) ;
 #   3. injecter l'URL du backend preview dans le build via PUBLIC_CONVEX_URL
 #      (--cmd-url-env-var-name) — aucune config manuelle d'URL.
@@ -18,21 +18,24 @@
 # de test réinitialisées — voulu pour la phase de test).
 # Garde-fous runtime : scripts/build-preview.mjs refuse toute preview dont
 # l'URL/clé ressemblerait à la production (calm-jaguar-475).
-# Chantier codes-barres : Preview Convex DÉDIÉE à cette branche, isolée de
-# « alimentation-ia-preview » (chantier assistant IA). Les deux chantiers
-# peuvent ainsi être développés/testés/publiés indépendamment.
+# Le scanner publié est activé ici par son flag Vite Preview. Comme le scanner
+# et l'assistant sont réunis dans cette branche, leur backend reste le Convex
+# Preview isolé « alimentation-ia-preview » ; ne pas le remplacer par celui du
+# chantier scanner autonome « barcode-lookup-preview ».
 # PRODUCTION : inchangée ci-dessus (npm run build, sans convex deploy — le
 # déploiement Convex prod reste manuel via scripts/deploy.mjs).
 [context.deploy-preview]
-  command = "npx convex deploy --preview-create barcode-lookup-preview --preview-run previewSeed:seedPreviewData --cmd-url-env-var-name PUBLIC_CONVEX_URL --cmd 'npm run build' && node scripts/set-preview-billing-env.mjs"
+  command = "node scripts/guard-convex-preview.mjs && node scripts/build-preview.mjs --preflight && npx convex deploy --preview-create alimentation-ia-preview --preview-run previewSeed:seedPreviewData --cmd-url-env-var-name PUBLIC_CONVEX_URL --cmd 'npm run build' && node scripts/set-preview-billing-env.mjs"
 
+# Branch deploys do not deploy Convex and use the normal frontend build only.
 [context.branch-deploy]
-  command = "npx convex deploy --preview-create barcode-lookup-preview --preview-run previewSeed:seedPreviewData --cmd-url-env-var-name PUBLIC_CONVEX_URL --cmd 'npm run build' && node scripts/set-preview-billing-env.mjs"
+  command = "npm run build"
 
 # Diagnostic/réparation preview (URL backend réelle + seed self-healing) —
 # activé UNIQUEMENT en contexte preview (jamais en production).
 [context.deploy-preview.environment]
   PREVIEW_DIAG = "1"
+  PREVIEW_FOOD_TRACE = "1"
 [context.branch-deploy.environment]
   PREVIEW_DIAG = "1"
 

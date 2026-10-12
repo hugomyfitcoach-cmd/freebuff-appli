@@ -162,6 +162,7 @@
 		Scale,
 		Scan,
 		Search,
+		Send,
 		Settings,
 		Share,
 		ShieldCheck,
@@ -328,6 +329,7 @@
 
 		// ---- Interaction ----
 		search: Search,
+		send: Send,
 		x: X,
 		barcode: Barcode,
 		qrCode: QrCode,

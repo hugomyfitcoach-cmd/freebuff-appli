@@ -52,6 +52,14 @@ if (!res.ok || j.status !== 'success') {
 console.log('✅ Convex Preview seedé (données 100 % fictives) :');
 console.log(`   Coach   : ${j.result.coachEmail} / ${j.result.coachPassword}`);
 console.log(`   Bêta IA : ${j.result.betaEmail} / ${j.result.betaPassword}  ← compte de test iPhone`);
+const asst = j.result.assistantDemo;
+if (asst) {
+	console.log(
+		asst.ok
+			? `   ASSISTANT : ${asst.demoEmail} / ${asst.demoPassword}  ← profil « Sophie Martin » (journal ${asst.entries} lignes)`
+			: `   ASSISTANT : seed non exécuté (${asst.error ?? 'inconnu'})`
+	);
+}
 const ex = j.result.exercises ?? { total: 0, imported: 0, updated: 0, unchanged: 0 };
 console.log(`   Bibliothèque officielle G-FLUX : ${ex.total} exercices (importés ${ex.imported}, maj ${ex.updated}, inchangés ${ex.unchanged}).`);
 console.log(`   Programme de test + séance « Haut du corps » (5 exercices × 3 séries) + assignation 4 semaines créés si absents.`);
