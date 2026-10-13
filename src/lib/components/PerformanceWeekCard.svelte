@@ -25,6 +25,7 @@
 		/** Index du jour sélectionné (page Performance) — surbrillance discrète. */
 		selected = null,
 		compact = false,
+		featured = false,
 		onSelect,
 	}: {
 		days: PerfDay[];
@@ -32,6 +33,8 @@
 		today: string;
 		selected?: number | null;
 		compact?: boolean;
+		/** Présentation pleine hauteur réservée à la carte Home de la maquette. */
+		featured?: boolean;
 		onSelect?: (index: number) => void;
 	} = $props();
 
@@ -87,7 +90,7 @@
 	});
 </script>
 
-<div class="grid grid-cols-7 {compact ? 'gap-1' : 'gap-1.5'} {revealed ? '' : 'perf-armed'}">
+<div class="grid grid-cols-7 {featured ? 'gap-1' : compact ? 'gap-1' : 'gap-1.5'} {revealed ? '' : 'perf-armed'}" class:perf-featured={featured}>
 	{#each days as d, i (d.date)}
 		{@const future = isFuture(d.date)}
 		{@const sel = selected === i}
@@ -96,19 +99,21 @@
 		<svelte:element
 			this={onSelect ? 'button' : 'div'}
 			type={onSelect ? 'button' : undefined}
+			role={onSelect ? undefined : 'img'}
 			class="flex flex-col items-center gap-1 rounded-2xl outline-none transition
 				{sel ? 'bg-brand-light/70 ring-1 ring-brand/40' : onSelect ? 'hover:bg-line/30' : ''}
 				{onSelect ? 'cursor-pointer active:scale-[0.97]' : ''}"
+			class:featured-day={featured}
 			onclick={onSelect ? () => onSelect(i) : undefined}
 			aria-label={`Performance du ${d.date}`}
 		>
-			<span class="text-[10px] font-bold uppercase tracking-wide {future ? 'text-mist/50' : isToday(d.date) ? 'text-brand-dark' : sel ? 'text-ink' : 'text-mist'}">
+			<span class="text-[10px] font-bold uppercase tracking-wide {future ? 'text-mist/50' : isToday(d.date) ? 'text-brand-dark' : sel ? 'text-ink' : 'text-mist'}" class:featured-day-letter={featured}>
 				{dayLetter(d.date)}
 			</span>
 
 			<!-- Barre de calories du jour (objectif = échelle commune) -->
-			<div class="flex w-full flex-1 items-end justify-center px-0.5 {compact ? 'h-14' : 'h-20'}">
-				<div class="relative h-full w-full max-w-[14px] overflow-hidden rounded-full bg-line/50">
+			<div class="flex w-full flex-1 items-end justify-center px-0.5 {featured ? 'h-[116px]' : compact ? 'h-14' : 'h-20'}">
+				<div class="relative h-full w-full overflow-hidden rounded-full bg-line/50 {featured ? 'max-w-[24px]' : 'max-w-[14px]'}">
 					{#if d.tracked && !future}
 						<div
 							class="perf-bar absolute bottom-0 left-0 w-full rounded-full transition-all duration-500
@@ -120,8 +125,8 @@
 			</div>
 
 			<!-- 3 mini-anneaux macros (Glucides / Protéines / Lipides) -->
-			<div class="relative {compact ? 'h-9 w-9' : 'h-11 w-11'}">
-				<svg viewBox="0 0 32 32" class="{compact ? 'h-9 w-9' : 'h-11 w-11'} -rotate-90">
+			<div class="relative {featured ? 'h-[38px] w-[38px]' : compact ? 'h-9 w-9' : 'h-11 w-11'}">
+				<svg viewBox="0 0 32 32" class="{featured ? 'h-[38px] w-[38px]' : compact ? 'h-9 w-9' : 'h-11 w-11'} -rotate-90">
 					{#each RINGS as ring, ringIdx (ring.key)}
 						{@const fill = d.tracked && !future ? macroPct(d.totals[ring.key], goals[ring.key]) : 0}
 						<circle cx="16" cy="16" r={ring.r} fill="none" stroke="#eef0ec" stroke-width={ring.sw} />
@@ -145,7 +150,7 @@
 			</div>
 
 			<!-- Valeur compacte : kcal du jour (jamais 0 inventé sur un jour sans données) -->
-			<span class="text-center text-[9px] font-bold leading-none tabular-nums {d.tracked && !future ? 'text-ink' : 'text-mist/50'}">
+			<span class="text-center text-[9px] font-bold leading-none tabular-nums {d.tracked && !future ? 'text-ink' : 'text-mist/50'}" class:featured-calories={featured}>
 				{#if d.tracked && !future}
 					{fmt(d.totals.kcal)}
 				{:else}
@@ -178,6 +183,25 @@
 	.perf-armed :global(.perf-ring) {
 		animation: perf-fade 300ms var(--ease-soft, ease-out) backwards;
 		animation-delay: calc(var(--perf-i, 0) * 10ms);
+	}
+	.perf-featured :global(.perf-bar) {
+		background: linear-gradient(to top, var(--color-brand-dark), var(--color-brand));
+	}
+	.perf-featured .featured-day-letter {
+		font-size: 13px;
+		font-weight: 900;
+	}
+	.perf-featured .featured-day {
+		align-self: stretch;
+	}
+	.perf-featured .featured-calories {
+		font-size: 12px;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.perf-armed :global(.perf-bar),
+		.perf-armed :global(.perf-ring) {
+			animation: none;
+		}
 	}
 	@keyframes perf-bar-in {
 		from {

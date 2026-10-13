@@ -98,9 +98,10 @@ test('fmtMacro : entier formaté fr-FR (2 ou 3 chiffres comme 4)', () => {
 /* ─── 4) Intégration Accueil : montage + données réutilisées + non-régression ─── */
 
 test('Accueil : MacroLine est montée DANS la carte Calories (après le texte de statut)', () => {
-	assert.ok(accueil.includes('<MacroLine data={macroState} />'), 'composant monté dans la carte Calories');
-	const statusIdx = accueil.indexOf('kcalStatusText}</span>');
-	const macroIdx = accueil.indexOf('<MacroLine data={macroState}');
+	assert.ok(accueil.includes('<MacroLine data={macroState} featured />'), 'composant monté dans la carte Calories');
+	const caloriesIdx = accueil.indexOf('gflux-home-calories');
+	const statusIdx = accueil.indexOf('kcalStatusText}', caloriesIdx);
+	const macroIdx = accueil.indexOf('<MacroLine data={macroState}', caloriesIdx);
 	assert.ok(statusIdx > 0 && macroIdx > statusIdx, 'la ligne macros vient APRÈS le texte kcal restant/objectif');
 });
 
@@ -113,9 +114,10 @@ test('Accueil : données = semaine du Journal existante, aucune nouvelle source 
 });
 
 test('Accueil : la carte Calories conserve sa navigation vers le Journal', () => {
-	const cardIdx = accueil.indexOf('<!-- CALORIES -->');
+	const cardIdx = accueil.indexOf('class="gflux-home-calories');
 	assert.ok(cardIdx > 0, 'carte Calories toujours présente');
-	const cardChunk = accueil.slice(cardIdx, accueil.indexOf('<!-- POIDS -->'));
+	const anchorStart = accueil.lastIndexOf('<a', cardIdx);
+	const cardChunk = accueil.slice(anchorStart, accueil.indexOf('gflux-home-steps', cardIdx));
 	assert.ok(cardChunk.includes('href="/espace/journal"'), 'la carte ouvre toujours /espace/journal');
 });
 
@@ -134,12 +136,12 @@ test('MacroLine : mêmes libellés que le Journal, objectif absent géré, dépa
 const pas = readFileSync(join(root, 'src/routes/espace/pas/+page.svelte'), 'utf8');
 const accueilServer = readFileSync(join(root, 'src/routes/espace/+page.server.ts'), 'utf8');
 
-test('Accueil : Calories (3/5) plus large que Pas (2/5), Poids/Cycle sur grille 2 colonnes', () => {
-	assert.ok(accueil.includes('grid grid-cols-5 gap-3'), 'grille équilibrée en 5 colonnes');
-	assert.ok(accueil.includes('col-span-2'), 'carte Pas compacte (2/5)');
-	const calIdx = accueil.indexOf('<!-- CALORIES -->');
-	const macroIdx = accueil.indexOf('<MacroLine data={macroState}');
-	assert.ok(calIdx > 0 && macroIdx > calIdx && accueil.slice(calIdx, macroIdx).includes('col-span-3'), 'carte Calories élargie (3/5)');
+test('Accueil : Calories principale, puis Pas, Poids/Cycle sur grille 2 colonnes', () => {
+	const today = accueil.slice(accueil.indexOf('<section aria-label="Aujourd\'hui"'), accueil.indexOf('<!-- ═══════════ Ma progression'));
+	const calIdx = today.indexOf('gflux-home-calories');
+	const stepsIdx = today.indexOf('gflux-home-steps');
+	assert.ok(calIdx >= 0 && stepsIdx > calIdx, 'carte Calories principale précède la carte Pas');
+	assert.ok(today.includes('flex flex-col gap-3'), 'composition empilée de la maquette Home');
 	assert.ok(accueil.includes('mt-3 grid grid-cols-2 gap-3'), 'Poids / Cycle restent en 2 colonnes');
 });
 
@@ -171,18 +173,17 @@ test('Accueil : mini-rings animés + labels macros entiers + tendance pas discr�
 	// Tendance pas : fenêtre stricte J-7 → J-1 (steps.myHistory), jour sans donnée jamais un 0.
 	assert.ok(accueil.includes('shiftISO(todayISO, -(7 - i))'), 'fenêtre des 7 derniers jours terminés');
 	assert.ok(accueilServer.includes('api.steps.myHistory'), 'source = query existante de la page Mes pas (loader)');
-	assert.ok(accueil.includes("d.count !== null ? 'bg-brand/45' : 'bg-line/60'"), 'jour sans donnée = repère gris (jamais un 0)');
-	// Alignement vertical avec le bloc macros de la carte Calories : même
-	// séparateur léger + même respiration (pt-2.5), zone ancrée en bas.
-	assert.ok(accueil.includes('mt-auto border-t border-line pt-2.5'), 'séparateur + respiration identiques au bloc macros');
-	assert.ok(accueil.includes('h-[60px]'), 'zone tendance calée sur la hauteur du bloc macros');
+	assert.ok(accueil.includes("d.count !== null ? 'bg-brand/35' : 'bg-line/70'"), 'jour sans donnée = repère gris (jamais un 0)');
+	// Histogramme des pas dédié sous la valeur du jour dans sa carte principale.
+	assert.ok(accueil.includes('mt-1.5 flex items-center justify-between border-t border-line pt-1.5'), 'séparateur + respiration dans la zone histogramme');
+	assert.ok(accueil.includes('flex h-14 items-end justify-between gap-1'), 'histogramme garde une hauteur compacte dédiée');
 });
 
 test('Carte Pas : valeur explicitement « du jour » + tendance 7 j étiquetée', () => {
 	// Anti-ambiguïté : la valeur affichée est celle du JOUR (pas une stat hebdo).
 	assert.ok(accueil.includes("Aujourd'hui · "), "libellé « Aujourd'hui » sur la carte Pas");
 	assert.ok(
-		accueil.includes('{/key} <span class="text-sm font-semibold text-mist">pas</span>'),
+		accueil.includes('{/key} <span class="text-sm font-bold text-mist">pas</span>'),
 		'la valeur du jour porte son unité (pas)'
 	);
 	assert.ok(accueil.includes('Objectif du jour atteint'), 'objectif formulé « du jour »');
