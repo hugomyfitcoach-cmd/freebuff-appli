@@ -797,10 +797,11 @@
 
 <svelte:head><title>Accueil — G-Flux</title></svelte:head>
 
+<div class="gflux-home-content">
 <!-- Apparitions (stagger CSS) : uniquement au chargement complet — voir « Motion G-FLUX » dans layout.css -->
 <!-- ═══════════ En-tête ═══════════ -->
-<header class="m-in mb-5 mt-1">
-	<h1 class="font-display text-[30px] font-semibold leading-tight tracking-tight text-ink sm:text-3xl">{greeting.title}</h1>
+<header class="gflux-home-greeting m-in mb-5 mt-1">
+	<h1 class="font-display text-[30px] font-black leading-tight tracking-tight text-ink sm:text-3xl">{greeting.title}</h1>
 	<p class="mt-1 text-sm text-mist">{greeting.dayLine ?? `${todayLabel} — voici où tu en es.`}</p>
 </header>
 
@@ -820,7 +821,7 @@
 {/if}
 
 <!-- ═══════════ Raccourcis horizontaux (désengorgent l'Accueil) ═══════════ -->
-<nav class="m-in -mx-4 mb-6 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:flex-wrap md:overflow-visible md:px-0" aria-label="Raccourcis" style="--m-i: 1">
+<nav class="m-in -mx-5 mb-6 flex gap-2 overflow-x-auto px-5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:flex-wrap md:overflow-visible md:px-0" aria-label="Raccourcis" style="--m-i: 1">
 	{#each chips as chip (chip.href)}
 		<a
 			href={chip.href}
@@ -1416,8 +1417,50 @@
 		</div>
 	</section>
 {/if}
+</div>
 
 <style>
+	.gflux-home-content {
+		width: 100%;
+		max-width: 560px;
+		margin-inline: auto;
+	}
+
+	.gflux-home-content > .gflux-home-greeting h1 {
+		font-weight: 900;
+		letter-spacing: -0.03em;
+	}
+
+	.gflux-home-content :global(.rounded-3xl.border) {
+		border-radius: var(--gf-r-24);
+		box-shadow: var(--gf-shadow-card);
+	}
+
+	.gflux-home-content :global(.tap:active) {
+		transform: scale(0.97);
+	}
+
+	.gflux-home-content :global(:focus-visible) {
+		outline: 3px solid var(--color-brand-deep);
+		outline-offset: 3px;
+	}
+
+	:global(.motion-armed) .gflux-home-content :global(.m-in) {
+		animation-duration: 280ms;
+		animation-timing-function: var(--gf-ease);
+	}
+
+	.gflux-home-content :global(input:not([type='checkbox']):not([type='radio'])),
+	.gflux-home-content :global(textarea) {
+		font-size: max(16px, 1em);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.gflux-home-content :global(.tap:active) {
+			transform: none;
+		}
+	}
+
 	/* Petite animation discrète à la première apparition du récap hebdo. */
 	.recap-card {
 		animation: recapIn 0.6s cubic-bezier(0.34, 1.4, 0.64, 1) both;

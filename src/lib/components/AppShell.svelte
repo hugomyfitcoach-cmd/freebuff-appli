@@ -46,6 +46,35 @@
 
 	const path = $derived(page.url.pathname);
 
+	/* La navigation mobile cède la place au clavier sans modifier la page active. */
+	let keyboardOpen = $state(false);
+	function syncKeyboardOpen() {
+		const active = document.activeElement;
+		if (active instanceof HTMLInputElement) {
+			keyboardOpen =
+				!active.disabled &&
+				!active.readOnly &&
+				!['button', 'submit', 'reset', 'checkbox', 'radio', 'file', 'image', 'hidden'].includes(active.type);
+			return;
+		}
+		keyboardOpen = active instanceof HTMLTextAreaElement || active instanceof HTMLSelectElement || (active instanceof HTMLElement && active.isContentEditable);
+	}
+	$effect(() => {
+		if (typeof window === 'undefined') return;
+		const onFocusOut = () => window.requestAnimationFrame(syncKeyboardOpen);
+		document.addEventListener('focusin', syncKeyboardOpen);
+		document.addEventListener('focusout', onFocusOut);
+		window.visualViewport?.addEventListener('resize', syncKeyboardOpen);
+		window.visualViewport?.addEventListener('scroll', syncKeyboardOpen);
+		syncKeyboardOpen();
+		return () => {
+			document.removeEventListener('focusin', syncKeyboardOpen);
+			document.removeEventListener('focusout', onFocusOut);
+			window.visualViewport?.removeEventListener('resize', syncKeyboardOpen);
+			window.visualViewport?.removeEventListener('scroll', syncKeyboardOpen);
+		};
+	});
+
 	/* Rafraîchir : re-fetch NON destructif des données de la page (re-run des
 	   load functions) — aucune saisie en cours n'est perdue. */
 	let refreshing = $state(false);
@@ -126,6 +155,7 @@
 	// chargement — le compteur doit retomber aussitôt, pas au prochain tick.
 	afterNavigate(() => {
 		if (role !== 'client') return;
+		keyboardOpen = false;
 		refreshNotificationsNow();
 	});
 
@@ -386,7 +416,11 @@
 	});
 </script>
 
-<div class="flex min-h-screen">
+<svelte:head>
+	<meta name="theme-color" content={role === 'client' && path === '/espace' ? '#FFFFFF' : '#1DB954'} />
+</svelte:head>
+
+<div class="flex min-h-screen min-h-[100dvh] {role === 'client' && path === '/espace' ? 'gflux-app-client-home' : ''}">
 	<!-- Bandeau « nouvelle version » : déploiement récent détecté (backend
 	     incompatible ou service worker en attente). Au-dessus de tout, visible
 	     même sur le Journal plein écran. Disparaît après le reload. -->
@@ -492,11 +526,11 @@
 		</div>
 	</aside>
 
-	<div class="flex min-w-0 flex-1 flex-col md:pl-64 {role === 'client' ? 'bg-soft' : 'ds-page-crm'}">
+	<div class="flex min-w-0 flex-1 flex-col md:pl-64 {role === 'client' ? (path === '/espace' ? 'bg-white' : 'bg-soft') : 'ds-page-crm'}">
 		<!-- Barre mobile : logo (Accueil) + Rafraîchir + menu utilisateur.
 		     Le Journal (vue plein écran) n'affiche AUCUN header global. -->
 		{#if !journalFullScreen}
-		<header class="sticky top-0 z-40 border-b border-line backdrop-blur md:hidden {role === 'client' ? 'bg-soft/90' : 'bg-white/95'}">
+		<header class="sticky top-0 z-40 border-b border-line backdrop-blur md:hidden {role === 'client' ? (path === '/espace' ? 'bg-white/95' : 'bg-soft/90') : 'bg-white/95'} {role === 'client' && path === '/espace' ? 'gflux-home-header' : ''}">
 			<div class="flex items-center justify-between gap-2 px-4 py-2">
 				{#if showBrand}
 					<a href={role === 'coach' ? '/admin' : '/espace'} class="flex items-center py-0.5" aria-label="Accueil G-FLUX">
@@ -647,7 +681,7 @@
 		</header>
 		{/if}
 
-		<main class="{mainClass} {role === 'coach' ? 'ds-crm' : ''}">
+		<main class="{mainClass} {role === 'coach' ? 'ds-crm' : ''} {role === 'client' && path === '/espace' ? 'gflux-home-main' : ''}">
 			{@render children()}
 		</main>				{#if showFooter}
 			<footer class="px-4 pb-6 pt-2 text-center text-[11px] text-mist/80">
@@ -656,28 +690,29 @@
 		{/if}
 
 		<!-- Espace pour la barre flottante mobile (cliente) — jamais de contenu masqué -->
-		{#if role === 'client'}
+		{#if role === 'client' && !keyboardOpen}
 			<div class="h-[calc(5.25rem+env(safe-area-inset-bottom))] shrink-0 md:hidden" aria-hidden="true"></div>
 		{/if}
 	</div>
 
 	<!-- Barre de navigation mobile FLOTTANTE (Accueil · Journal · Progression) :
 	     capsule arrondie, centrée, au-dessus de la safe-area — jamais collée au bord. -->
-	{#if role === 'client' && primaryLinks.length > 0}
+	{#if role === 'client' && primaryLinks.length > 0 && !keyboardOpen}
 		<nav
-			class="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 md:hidden"
-			aria-label="Navigation mobile"
-			style="padding-bottom:calc(env(safe-area-inset-bottom) + 10px)"
+			class="gflux-primary-nav pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-5 md:hidden"
+			aria-label="Navigation principale"
+			style="padding-bottom:calc(env(safe-area-inset-bottom) + 12px)"
 		>
-			<div class="pointer-events-auto flex w-full max-w-sm items-stretch justify-around rounded-full border border-line bg-white/95 p-1.5 shadow-lg shadow-ink/10 backdrop-blur">
+			<div class="gflux-nav-capsule pointer-events-auto flex w-full max-w-[430px] items-stretch justify-around rounded-[34px] border border-line-soft bg-white/95 p-1.5 shadow-lg backdrop-blur">
 				{#each primaryLinks as link (link.href)}
 					{@const active = isActive(link)}
 					<a
 						href={link.href}
 						data-sveltekit-prefetch
 						data-sveltekit-preload-data="tap"
-						class="relative flex flex-1 flex-col items-center justify-center gap-0.5 rounded-full px-2 py-2 text-[11px] font-semibold transition
+						class="gflux-nav-link relative flex flex-1 flex-col items-center justify-center gap-0.5 px-2 py-2 text-[11px] font-semibold transition
 							{active ? 'bg-brand-light text-brand-dark' : 'text-mist hover:bg-soft hover:text-ink'}"
+						aria-current={active ? 'page' : undefined}
 					>
 						<Icon name={link.icon ?? 'home'} size={22} strokeWidth={active ? 2.3 : 1.9} class="transition" />
 						<span>{link.label}</span>
