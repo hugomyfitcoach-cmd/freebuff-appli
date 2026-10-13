@@ -401,7 +401,7 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 		<div class="relative h-full rounded-full transition-[width] duration-500 ease-out {cardTone.bar}" style:width="{kcalPct}%"></div>
 		{#if maintenanceKcal}
 			<!-- Marqueur vertical de l'objectif (la cible principale) -->
-			<div class="absolute inset-y-[-3px] w-[2px] rounded-full bg-ink/50 shadow-[0_0_0_2px_rgba(255,255,255,0.7)]" style="left: {goalMarkPct}%" title="Objectif : {fmt(day.goals.kcal)} kcal"></div>
+			<div class="absolute top-[-3px] bottom-[-3px] w-[3px] rounded-[2px] bg-ink/50" style="left: {goalMarkPct}%" title="Objectif : {fmt(day.goals.kcal)} kcal"></div>
 		{/if}
 	</div>
 	<div class="flex items-baseline justify-between gap-2 {compact ? 'mt-1.5 text-[11px]' : 'mt-3 text-[13px]'}">
@@ -625,7 +625,7 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 			>✕</button>
 		{/if}
 		<p class="{compact ? 'text-[9px]' : 'text-[11px]'} font-bold uppercase tracking-[0.12em] text-brand-deep">Astuce du jour</p>
-		<p class="mt-1.5 {compact ? 'text-[13px]' : 'text-[15px]'} {onTipDismiss ? 'pr-8' : ''} leading-normal text-ink">{tip}</p>
+		<p class="mt-1.5 {compact ? 'text-[13px]' : 'text-[15px]'} {onTipDismiss ? 'pr-8' : ''} leading-[1.45] text-ink">{tip}</p>
 	</section>
 {/if}
 

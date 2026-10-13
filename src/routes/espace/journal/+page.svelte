@@ -3824,8 +3824,10 @@ import { optimizeImageFile } from '$lib/media';
 					onclick={openCalendar}
 					title="Choisir une date"
 				>
-					<span class="truncate text-[19px] font-bold tracking-tight text-ink">{dateLabel}</span>
-					<Icon name="chevronDown" size={16} class="shrink-0 text-mist" />
+				<h2 class="flex min-w-0 items-center gap-1.5 whitespace-nowrap rounded-[24px] border border-line-soft bg-white shadow-[0_1px_2px_rgba(15,21,18,.04),0_8px_20px_-8px_rgba(15,21,18,.14)] h-12 pl-4 pr-3 text-[17px] font-black tracking-[-0.02em] text-ink {calOpen ? '' : ''}">
+					<span class="truncate">{dateLabel}</span>
+					<Icon name="chevronDown" size={18} class={`shrink-0 text-mist-strong transition-transform ${calOpen ? 'rotate-180' : ''}`} />
+				</h2>
 				</button>
 				<div class="flex shrink-0 items-center gap-1">
 					{#if selIds.size > 0}
@@ -3845,11 +3847,13 @@ import { optimizeImageFile } from '$lib/media';
 					<button
 						type="button"
 						onclick={refreshDay}
-						class="grid h-11 w-11 place-items-center rounded-full text-mist transition hover:bg-line/40 hover:text-ink active:scale-95"
+						class="grid h-12 w-12 place-items-center rounded-[22px] [&>span]:grid [&>span]:h-[34px] [&>span]:w-[34px] [&>span]:place-items-center [&>span]:rounded-[17px] [&>span]:border [&>span]:border-line-soft [&>span]:bg-white [&>span]:text-ink [&>span]:shadow-[0_1px_2px_rgba(15,21,18,.04),0_6px_14px_-8px_rgba(15,21,18,.14)] text-mist transition hover:bg-line/40 active:scale-95"
 						title="Recharger la journée"
 						aria-label="Recharger la journée"
 					>
-						<Icon name="refreshCw" size={17} class={loadingDay ? 'animate-spin' : ''} />
+						<span class="relative">
+							<Icon name="refreshCw" size={17} class={loadingDay ? 'animate-spin' : ''} />
+						</span>
 					</button>
 				</div>
 				</header>
@@ -3959,14 +3963,26 @@ import { optimizeImageFile } from '$lib/media';
 		style:left="{barStyle.left}px"
 		style:width="{barStyle.width}px"
 	>
-		<div class="pointer-events-auto flex w-full items-center justify-between rounded-2xl border border-white/10 bg-ink/95 px-2 py-1.5 shadow-lg shadow-ink/25 backdrop-blur">
-			{#each stickyRings as r (r.label)}
+		<div class="pointer-events-auto flex w-full items-center justify-between rounded-[26px] border border-line-soft bg-white/95 px-2 py-1.5 shadow-[0_1px_2px_rgba(15,21,18,.05),0_14px_30px_-12px_rgba(15,21,18,.28)] backdrop-blur">
+			{#if stickyRings[0] && typeof stickyRings[0].goal === 'number'}
+				<!-- Bloc kcal à gauche (composition Claude) : valeur teintée par l'état calorique -->
+				<div class="flex flex-none flex-col pl-2 leading-[1.1]" style="color:{stickyRings[0].color}">
+					<div class="text-[9.5px] font-black uppercase tracking-[0.08em] text-mist-strong">KCAL</div>
+					<div class="text-[13px] font-black tabular-nums transition-colors">
+						{fmt(stickyRings[0].eaten)}<span class="text-[11px] font-bold text-mist-strong">/{fmt(stickyRings[0].goal)}</span>
+					</div>
+				</div>
+				<span class="h-[26px] w-px flex-none bg-line" aria-hidden="true"></span>
+			{/if}
+			{#each stickyRings.slice(1) as r (r.label)}
 				{@const pct = macroPct(r.eaten, r.goal)}
 				<div class="flex min-w-0 flex-1 items-center justify-center gap-1.5">
-					{@render miniRing(pct, r.color, 20)}
-					<div class="min-w-0 leading-none">
-						<div class="text-[11px] font-bold tabular-nums text-white">{fmt(r.eaten)}<span class="text-[9px] font-semibold text-white/50">/{fmt(r.goal)}</span></div>
-						<div class="mt-0.5 text-[8px] font-bold uppercase tracking-wide text-white/55">{r.label}</div>
+					{@render miniRing(pct, r.color, 24)}
+					<div class="min-w-0 leading-[1.1]">
+						<div class="text-[9.5px] font-black uppercase tracking-[0.06em] text-mist-strong">{r.label}</div>
+						<div class="whitespace-nowrap text-[12.5px] font-black tabular-nums text-ink">
+							{fmt(r.eaten)}<span class="text-[10.5px] font-bold text-mist-strong">/{fmt(r.goal)}</span>
+						</div>
 					</div>
 				</div>
 			{/each}
