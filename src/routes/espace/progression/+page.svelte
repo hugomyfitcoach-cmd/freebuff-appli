@@ -603,7 +603,7 @@
 	<!-- ═══════════ Vue principale ═══════════ -->
 	<div class="mx-auto w-full max-w-xl pb-28">
 		<BackToHome label="Ma progression" />
-		<h1 class="font-display text-2xl font-semibold text-ink">Ma progression <Icon name="trendingUp" size={22} class="inline -mt-1 text-brand" /></h1>
+		<h1 class="flex items-center gap-2.5 font-display text-[34px] font-black leading-[1.05] tracking-[-0.03em] text-ink">Ma progression <Icon name="trendingUp" size={26} strokeWidth={2.4} class="text-brand" /></h1>
 		<p class="mt-1 text-sm text-mist">Poids, mensurations et masse grasse estimée — touche une courbe pour la détailler.</p>
 
 		{#if error}
@@ -612,17 +612,23 @@
 
 		<!-- Carte taille -->
 		<section class="mt-5 rounded-2xl border border-line bg-card p-4 shadow-sm">
-			<div class="flex items-center justify-between gap-3">
-				<div class="flex items-center gap-3">
-					<div class="grid h-11 w-11 place-items-center rounded-xl bg-brand-light"><Icon name="ruler" size={22} class="text-brand" /></div>
-					<div>
-						<p class="text-[11px] font-bold uppercase tracking-wide text-mist">Taille</p>
-						<p class="font-display text-xl font-semibold text-ink">{heightCm !== null ? `${fmt(heightCm)} cm` : 'Non renseignée'}</p>
+			<div class="flex items-center justify-between gap-3">				<div class="flex min-w-0 items-center gap-3.5">
+						<div class="grid h-[48px] w-[48px] shrink-0 place-items-center rounded-[16px] bg-brand-light text-brand"><Icon name="ruler" size={24} /></div>
+						<div class="min-w-0">
+							<p class="text-[12px] font-black uppercase tracking-[0.12em] text-mist">Taille</p>
+							<p class="mt-0.5 flex items-baseline gap-[5px]">
+								{#if heightCm !== null}
+									<span class="font-display text-[32px] font-black leading-[1.1] tracking-[-0.03em] tabular-nums text-ink">{fmt(heightCm)}</span>
+									<span class="text-[16px] font-bold text-mist">cm</span>
+								{:else}
+									<span class="font-display text-xl font-bold text-ink">Non renseignée</span>
+								{/if}
+							</p>
+						</div>
 					</div>
-				</div>
-				<button type="button" class="rounded-full border-2 border-line px-4 py-2 text-xs font-bold text-ink transition hover:border-brand hover:text-brand" onclick={openHeight}>{heightCm !== null ? 'Modifier' : 'Ajouter'}</button>
+				<button type="button" class="shrink-0 rounded-full border border-line px-5 py-2.5 text-[15px] font-bold text-ink transition hover:border-brand" onclick={openHeight}>{heightCm !== null ? 'Modifier' : 'Ajouter'}</button>
 			</div>
-			<p class="mt-2 text-xs text-mist">La taille est renseignée une seule fois — elle reste associée à ton profil.</p>
+			<p class="mt-3 text-[13px] leading-[1.45] text-mist">La taille est renseignée une seule fois — elle reste associée à ton profil.</p>
 		</section>
 
 		<!-- Cartes métriques -->
@@ -634,14 +640,35 @@
 				<div class="px-4 pt-4">
 					<div class="flex items-start justify-between gap-3">
 						<div>
-							<p class="text-[11px] font-bold uppercase tracking-wide text-mist">{meta.label}</p>
-							<div class="mt-1 flex items-center gap-2">
-								<span class="font-display text-3xl font-semibold text-ink">
-									{last !== null ? `${fmt(Math.round(last * 10) / 10)} ` : '— '}
-									<span class="text-base font-semibold text-mist">{meta.unit}</span>
+							<p class="text-[12px] font-black uppercase tracking-[0.12em] text-mist">{meta.label}</p>
+							<div class="mt-2 flex flex-wrap items-center gap-2.5">
+								<span class="flex items-baseline gap-[5px]">
+									<span class="font-display text-[48px] font-black leading-none tracking-[-0.04em] tabular-nums text-ink">
+										{last !== null ? fmt(Math.round(last * 10) / 10) : '—'}
+									</span>
+									<span class="text-[18px] font-bold text-mist">{meta.unit}</span>
 								</span>
 								{#if d !== null}
-									<span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold {d <= 0 ? 'bg-brand-light text-brand-dark' : 'bg-warn-light text-warn'}">
+									<span class="inline-flex items-center gap-1 rounded-[12px] px-[11px] py-[6px] text-[13px] font-bold {d <= 0 ? 'bg-brand-light text-brand-dark' : 'bg-warn-light text-warn'}">
+										{d <= 0 ? '↓' : '↑'} {fmt(Math.abs(d))} {meta.unit}
+									</span>
+								{/if}
+								{#if focusMetric === meta.key}
+									<span class="inline-flex items-center gap-1 rounded-full bg-brand px-2 py-0.5 text-xs font-bold text-white">
+										<Icon name="circleCheck" size={12} /> Mis à jour
+									</span>
+								{/if}
+						<div>
+							<p class="text-[12px] font-black uppercase tracking-[0.12em] text-mist">{meta.label}</p>
+							<div class="mt-2 flex flex-wrap items-center gap-2.5">
+								<span class="flex items-baseline gap-[5px]">
+									<span class="font-display text-[48px] font-black leading-none tracking-[-0.04em] tabular-nums text-ink">
+										{last !== null ? fmt(Math.round(last * 10) / 10) : '—'}
+									</span>
+									<span class="text-[18px] font-bold text-mist">{meta.unit}</span>
+								</span>
+								{#if d !== null}
+									<span class="inline-flex items-center gap-1 rounded-[12px] px-[11px] py-[6px] text-[13px] font-bold {d <= 0 ? 'bg-brand-light text-brand-dark' : 'bg-warn-light text-warn'}">
 										{d <= 0 ? '↓' : '↑'} {fmt(Math.abs(d))} {meta.unit}
 									</span>
 								{/if}
@@ -651,9 +678,11 @@
 									</span>
 								{/if}
 							</div>
-							<p class="mt-1 text-xs text-mist">{meta.sub}</p>
+							<p class="mt-1 text-[14px] text-mist">{meta.sub}</p>
 						</div>
-						<Icon name={meta.icon} size={28} class="shrink-0 text-mist" />
+						<span class="relative grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[12px]" style:background="color-mix(in srgb, {meta.color} 15%, white)">
+							<Icon name={meta.icon} size={19} style={`color:${meta.color}`} />
+						</span>
 					</div>
 				</div>
 				<div role="button" tabindex="0" aria-label={`Voir la courbe ${meta.sub}`} class="block w-full cursor-pointer px-3 pt-2 text-left outline-none" onclick={() => openDetail(meta.key)} onkeydown={(e) => { if (e.key === 'Enter') openDetail(meta.key); }}>
@@ -669,9 +698,10 @@
 						</div>
 					{/if}
 				</div>
-				<button type="button" class="flex w-full items-center justify-between border-t border-line px-4 py-3.5 text-sm font-semibold text-ink transition hover:bg-line/40" onclick={() => openLog(meta.group)}>
-					<span>Enregistrer une valeur</span>
-					<span class="text-mist">›</span>
+				<button type="button" class="flex w-full items-center gap-3 border-t border-line-soft bg-white px-[20px] py-4 text-left text-[15px] font-bold text-ink transition hover:bg-line/40" onclick={() => openLog(meta.group)}>
+					<span class="grid h-[28px] w-[28px] shrink-0 place-items-center rounded-full bg-brand-light text-brand"><Icon name="plus" size={16} strokeWidth={2.6} /></span>
+					<span class="flex-1">Enregistrer une valeur</span>
+					<Icon name="chevronRight" size={18} class="text-mist" />
 				</button>
 			</section>
 		{/each}
