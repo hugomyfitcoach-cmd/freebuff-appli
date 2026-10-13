@@ -537,34 +537,35 @@
 						<img src="/logo-header.png" alt="G-Flux" class="h-auto w-[76px]" />
 					</a>
 				{/if}
-				<div class="ml-auto flex items-center gap-1">
+				<div class="ml-auto flex items-center -mr-1 gap-0.5">
 					{#if role === 'client'}
 						<button
 							type="button"
 							onclick={handleRefresh}
-							class="grid h-10 w-10 place-items-center rounded-full text-ink transition hover:bg-line/40 active:scale-95"
+							class="grid h-11 w-11 place-items-center rounded-full text-ink transition hover:bg-line/40 active:scale-95"
 							title={needsUpdate ? 'Nouvelle version disponible — actualiser' : path === '/espace/journal' ? 'Recharger la journée' : 'Actualiser les données'}
 							aria-label={needsUpdate ? 'Nouvelle version disponible — actualiser' : path === '/espace/journal' ? 'Recharger la journée' : 'Actualiser les données'}
 						>
-							<Icon name="refreshCw" size={18} class={refreshing || updating ? 'animate-spin' : ''} />
+							<Icon name="refreshCw" size={19} class={refreshing || updating ? 'animate-spin' : ''} />
 						</button>
 					{/if}
 					<div class="relative">
 						{#if role === 'client'}
 						<!-- Avatar profil : photo ronde (ou initiale + « + ») — remplace la roue.
 						     Le tap ouvre le menu profil (photo, réglages, déconnexion). -->
+						<!-- Maquette Claude : pastille 34px dans une cible tactile 44px, halo vert au liseré, badge « + » en jeu. -->
 						<button
 							type="button"
 							onclick={() => (menuOpen = !menuOpen)}
-							class="relative grid h-10 w-10 place-items-center rounded-full transition active:scale-95"
+							class="relative grid h-11 w-11 place-items-center rounded-full transition active:scale-95"
 							aria-label="Menu profil"
 							aria-expanded={menuOpen}
 						>
 							{#if photoUrl}
-								<img src={photoUrl} alt="Photo de profil" class="h-10 w-10 rounded-full border-2 border-line object-cover" />
+								<img src={photoUrl} alt="Photo de profil" class="h-[34px] w-[34px] rounded-full border-2 border-white object-cover shadow-[0_0_0_1px_rgba(29,185,84,0.3)]" />
 							{:else}
-								<span class="grid h-10 w-10 place-items-center rounded-full border-2 border-brand/30 bg-brand-light text-sm font-bold text-brand-dark">{initial}</span>
-								<span class="absolute -bottom-0.5 -right-0.5 grid h-4 w-4 place-items-center rounded-full bg-brand text-[10px] font-bold leading-none text-white ring-2 ring-white">
+							<span class="grid h-[34px] w-[34px] place-items-center rounded-full border-2 border-white bg-brand-light text-[12.5px] font-black text-brand-dark shadow-[0_0_0_1px_rgba(29,185,84,0.3)]">{initial}</span>
+								<span class="absolute bottom-0 right-0 grid h-4 w-4 place-items-center rounded-full bg-brand text-[10px] font-bold leading-none text-white ring-2 ring-white">
 									<Icon name="plus" size={10} strokeWidth={3} />
 								</span>
 							{/if}

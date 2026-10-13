@@ -1135,7 +1135,7 @@
 					<span class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-mist"><Icon name="scale" size={14} class="shrink-0 text-brand" /> Poids</span>
 					<Icon name="chevronRight" size={15} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
 				</div>
-				<p class="mt-2 font-display text-3xl font-bold leading-none tracking-tight text-ink tabular-nums">
+				<p class="mt-2 font-display text-4xl font-black leading-none tracking-tight text-ink tabular-nums">
 					{#if lastWeightKgShown !== null}{#key lastWeightKgShown}<CountUp value={lastWeightKgShown} format={fmtKg} duration={450} minFrom={0.985} distanceCap={4} />{/key} kg{:else}—{/if}
 				</p>
 				<div class="mt-1.5 flex items-center justify-between gap-2">
