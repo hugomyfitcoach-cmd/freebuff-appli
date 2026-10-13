@@ -1139,7 +1139,7 @@
 				</p>
 				<div class="mt-1.5 flex items-center justify-between gap-2">
 					<p class="min-w-0 truncate text-xs text-mist">
-						{#if weightDelta !== null}<span class="font-semibold {weightDelta <= 0.05 ? 'text-brand-dark' : 'text-mist'}">{weightDeltaLabel(weightDelta)}</span>{:else}Ta progression ici{/if}
+						{#if weightDelta !== null}<span class="inline-flex shrink-0 items-center rounded-full bg-brand-light px-2.5 py-1 text-[12px] font-bold text-brand-deep">{weightDeltaLabel(weightDelta)}</span>{:else}Ta progression ici{/if}
 					</p>
 					{#if !autonomy}
 
@@ -1165,8 +1165,7 @@
 					<Icon name="chevronRight" size={15} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
 				</div>
 				{#if cycle.kind === 'empty'}
-					<p class="mt-2 font-display text-xl font-bold leading-none tracking-tight text-ink">À configurer</p>
-					<p class="mt-1.5 text-xs text-brand-dark">Touche pour renseigner ton cycle</p>
+					<p class="mt-2 font-display text-xl font-black leading-none tracking-tight text-ink">À configurer</p>						<p class="mt-1.5 text-xs text-brand-dark">Touche pour renseigner ton cycle</p>
 				{:else if cycle.kind === 'hormonal'}
 					<p class="mt-2 font-display text-xl font-bold leading-none tracking-tight text-ink">Non concernée</p>
 					<p class="mt-1.5 text-xs text-mist">Suivi adapté à ta contraception</p>
@@ -1236,7 +1235,7 @@
 <a href="/espace/progression" class="group m-in tap tap-shadow mt-4 block rounded-3xl border border-line bg-card p-5 shadow-sm hover:border-brand" style="--m-i: 5">
 	<div class="flex items-center justify-between gap-3">
 		<h2 class="text-[11px] font-black uppercase tracking-widest text-mist">Ma progression</h2>
-		<Icon name="trendingUp" size={20} class="text-brand" />
+		<span class="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-brand-light text-brand"><Icon name="trendingUp" size={18} /></span>
 	</div>
 	<div class="mt-2 flex items-center justify-between gap-3">
 		<div class="min-w-0">
