@@ -3978,10 +3978,10 @@ import { optimizeImageFile } from '$lib/media';
 {#if !macroDetail}
 <button
 	type="button"
-	class="fixed bottom-[calc(6.5rem+env(safe-area-inset-bottom))] right-4 z-40 grid h-14 w-14 place-items-center rounded-full bg-brand text-white shadow-lg shadow-brand/30 transition hover:scale-105 hover:bg-brand-dark active:scale-95 md:bottom-6 md:right-6 md:h-16 md:w-16"
+	class="fixed bottom-[calc(6.75rem+env(safe-area-inset-bottom))] right-4 z-40 grid h-[62px] w-[62px] place-items-center rounded-full bg-brand text-white shadow-[0_18px_32px_-10px_rgba(23,163,73,.7)] transition hover:scale-105 hover:bg-brand-dark active:scale-95 md:bottom-6 md:right-6 md:h-16 md:w-16"
 	aria-label="Ajouter un aliment"
 	onclick={() => openLog()}
-><Icon name="plus" size={26} /></button>
+><Icon name="plus" size={28} strokeWidth={2.4} /></button>
 {/if}
 
 <!-- Ligne produit compacte (style FOOD) : image · nom · kcal · cœur -->
