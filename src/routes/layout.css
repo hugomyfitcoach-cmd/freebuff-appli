@@ -606,6 +606,13 @@ textarea,
 	display: flex;
 	overscroll-behavior-y: none;
 }
+/* La safe area iOS expose le fond racine, pas celui du conteneur Accueil.
+   Le sélecteur structurel reste actif dès le SSR et ne change pas le thème
+   crème des autres routes cliente ni celui du coach. */
+html:has(.gflux-app-client-home),
+body:has(.gflux-app-client-home) {
+	background: #ffffff;
+}
 
 /* ═══════════════════════════════════════════════════════════════════════
    MOTION G-FLUX — fondation partagée (Accueil + composants)
