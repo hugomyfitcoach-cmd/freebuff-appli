@@ -113,7 +113,7 @@
 
 			<!-- Barre de calories du jour (objectif = échelle commune) -->
 			<div class="flex w-full flex-1 items-end justify-center px-0.5 {featured ? 'h-[116px]' : compact ? 'h-14' : 'h-20'}">
-				<div class="relative h-full w-full overflow-hidden rounded-full bg-line/50 {featured ? 'max-w-[24px]' : 'max-w-[14px]'}">
+				<div class="relative h-full overflow-hidden rounded-full bg-line/50 {featured ? 'w-[30px]' : compact ? 'w-full max-w-[14px]' : 'w-full max-w-[14px]'}">
 					{#if d.tracked && !future}
 						<div
 							class="perf-bar absolute bottom-0 left-0 w-full rounded-full transition-all duration-500

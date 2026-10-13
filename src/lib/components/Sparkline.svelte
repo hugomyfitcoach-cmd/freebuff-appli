@@ -108,7 +108,7 @@
 			<path d={area} fill={`url(#spark-grad-${id})`} />
 		{/if}
 		{#if hasTrend && line}
-			<path d={line} fill="none" stroke={color} stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+			<path d={line} fill="none" stroke={color} stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
 		{/if}
 		{#if last}
 			<circle

@@ -1162,7 +1162,7 @@
 				class="tap tap-shadow group rounded-3xl border border-line bg-card p-4 text-left shadow-sm hover:border-brand/50"
 			>
 				<div class="flex items-center justify-between gap-1">
-					<span class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-mist"><Icon name="flower2" size={14} class="shrink-0 text-brand" /> Cycle</span>
+					<span class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-mist"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true" class="shrink-0 text-brand"><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"></circle><path d="M12 9.5C10 7.5 10 4.5 12 3c2 1.5 2 4.5 0 6.5ZM14.5 12c2-2 5-2 6.5 0-1.5 2-4.5 2-6.5 0ZM12 14.5c2 2 2 5 0 6.5-2-1.5-2-4.5 0-6.5ZM9.5 12c-2 2-5 2-6.5 0 1.5-2 4.5-2 6.5 0Z"></path></svg> Cycle</span>
 					<Icon name="chevronRight" size={15} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
 				</div>
 				{#if cycle.kind === 'empty'}
@@ -1251,7 +1251,7 @@
 			{/if}
 		</div>
 		{#if weightTrendPts.length >= 2}
-			<div class="shrink-0"><Sparkline points={weightTrendPts} color="#1db954" width={150} height={48} drawIn /></div>
+			<div class="shrink-0"><Sparkline points={weightTrendPts} color="#1db954" width={158} height={64} drawIn /></div>
 		{:else if weightTrendPts.length === 1}
 			<div class="shrink-0"><p class="rounded-xl border border-dashed border-line px-3 py-3 text-center text-[11px] leading-snug text-mist">Tendance bientôt<br />disponible</p></div>
 		{/if}
@@ -1401,34 +1401,51 @@
 
 <!-- ═══════════ Récap « Tes 7 derniers jours terminés » (fenêtre Vision 360) ═══════════ -->
 {#if recap}
-	<section class="m-in recap-card mt-4 rounded-3xl border border-brand/30 bg-brand-light p-5 shadow-sm" style="--m-i: 8">
+	<!-- Maquette : carte BLANCHE à liseré vert discret, titre vert film 900, chiffres 32px, dots jour renseigné. -->
+	<section class="m-in recap-card mt-4 rounded-3xl border border-brand/30 p-5 shadow-sm" style="--m-i: 8; background:linear-gradient(180deg,var(--color-brand-soft) 0%,#ffffff 100%)">
 		<div class="flex flex-wrap items-center justify-between gap-2">
-			<h2 class="text-[11px] font-bold uppercase tracking-widest text-brand-dark">Tes 7 derniers jours terminés</h2>
-			<span class="text-[11px] text-mist">{recapRangeLabel()}</span>
+			<h2 class="text-[11px] font-black uppercase tracking-[0.12em] text-brand-dark">Tes 7 derniers jours terminés</h2>
+			<span class="text-xs text-mist">{recapRangeLabel()}</span>
 		</div>
-		<div class="mt-4 space-y-4">
-			<div class="grid grid-cols-2 gap-3">
-				<div>
-					<p class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-mist"><Icon name="flame" size={12} class="shrink-0" /> Calories moyennes</p>
-					<p class="mt-0.5 font-display text-2xl font-semibold text-ink">{#if recap.calories.avg !== null}{#key recap.calories.avg}<CountUp value={recap.calories.avg} format={fmt} duration={450} />{/key} kcal{:else}—{/if}<span class="text-xs font-semibold text-mist"> / jour</span></p>
-					<p class="text-[11px] text-mist">
-						Objectif : {fmt(recap.calories.goal)} · {recap.calories.trackedDays} / 7 jours exploitables
-						{#if recap.calories.partialDays > 0}
-							· {recap.calories.partialDays} journée{recap.calories.partialDays > 1 ? 's' : ''} partiellement renseignée{recap.calories.partialDays > 1 ? 's' : ''} exclue{recap.calories.partialDays > 1 ? 's' : ''}
-						{/if}
-					</p>
-				</div>
-				<div>
-					<p class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-mist"><Icon name="footprints" size={12} class="shrink-0" /> Pas moyens</p>
-					<p class="mt-0.5 font-display text-2xl font-semibold text-ink">{#if recap.steps.avg !== null}{#key recap.steps.avg}<CountUp value={recap.steps.avg} format={fmt} duration={450} />{/key}{:else}—{/if}<span class="text-xs font-semibold text-mist"> / jour</span></p>
-					<p class="text-[11px] text-mist">{recap.steps.goal !== null ? `Objectif : ${fmt(recap.steps.goal)} · ` : ''}{recap.steps.trackedDays} / 7 jours renseignés</p>
+		<div class="mt-4 grid grid-cols-2 gap-4">
+			<div>
+				<p class="text-[11px] font-black uppercase tracking-[0.1em] text-mist">Calories moyennes</p>
+				<p class="mt-1.5 flex items-baseline gap-1.5 font-display tracking-tight text-ink">
+					<span class="text-[32px] font-black leading-none">{#if recap.calories.avg !== null}{#key recap.calories.avg}<CountUp value={recap.calories.avg} format={fmt} duration={450} />{/key}{:else}—{/if}</span>
+					<span class="text-[13px] font-bold text-mist">kcal / jour</span>
+				</p>
+				<p class="mt-2 text-xs text-mist">
+					Objectif : {fmt(recap.calories.goal)} · {recap.calories.trackedDays} / 7 jours exploitables
+					{#if recap.calories.partialDays > 0}
+						· {recap.calories.partialDays} journée{recap.calories.partialDays > 1 ? 's' : ''} partiellement renseignée{recap.calories.partialDays > 1 ? 's' : ''} exclue{recap.calories.partialDays > 1 ? 's' : ''}
+					{/if}
+				</p>
+				<div class="mt-2.5 flex gap-[5px]" role="img" aria-label="Jours renseignés pour les calories">
+					{#each Array(7) as _, i (i)}
+						<span class="h-1.5 w-3.5 rounded-[3px] {i < recap.calories.trackedDays ? 'bg-brand' : 'bg-line/60'}"></span>
+					{/each}
 				</div>
 			</div>
-			<div class="flex flex-wrap gap-x-5 gap-y-1 text-sm text-ink">
-				{#if !autonomy}<span class="inline-flex items-center gap-1"><Icon name="scale" size={14} class="shrink-0" /> Pesées : <strong>{Math.min(recap.weighins.count, recap.weighins.goal)} / {recap.weighins.goal}</strong>{recap.weighins.count >= recap.weighins.goal ? ' ✓' : ''}</span>{/if}
+			<div>
+				<p class="text-[11px] font-black uppercase tracking-[0.1em] text-mist">Pas moyens</p>
+				<p class="mt-1.5 flex items-baseline gap-1.5 font-display tracking-tight text-ink">
+					<span class="text-[32px] font-black leading-none">{#if recap.steps.avg !== null}{#key recap.steps.avg}<CountUp value={recap.steps.avg} format={fmt} duration={450} />{/key}{:else}—{/if}</span>
+					<span class="text-[13px] font-bold text-mist">/ jour</span>
+				</p>
+				<p class="mt-2 text-xs text-mist">{recap.steps.goal !== null ? `Objectif : ${fmt(recap.steps.goal)} · ` : ''}{recap.steps.trackedDays} / 7 jours renseignés</p>
+				<div class="mt-2.5 flex gap-[5px]" role="img" aria-label="Jours renseignés pour les pas">
+					{#each Array(7) as _, i (i)}
+						<span class="h-1.5 w-3.5 rounded-[3px] {i < recap.steps.trackedDays ? 'bg-brand' : 'bg-line/60'}"></span>
+					{/each}
+				</div>
+			</div>
+		</div>
+		{#if !autonomy}
+			<div class="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-sm text-ink">
+				<span class="inline-flex items-center gap-1"><Icon name="scale" size={14} class="shrink-0" /> Pesées : <strong>{Math.min(recap.weighins.count, recap.weighins.goal)} / {recap.weighins.goal}</strong>{recap.weighins.count >= recap.weighins.goal ? ' ✓' : ''}</span>
 				<span class="inline-flex items-center gap-1"><Icon name="clipboardList" size={14} class="shrink-0" /> Bilan : <strong>{recap.bilan.sent ? 'Envoyé ✓' : 'Non envoyé'}</strong></span>
 			</div>
-		</div>
+		{/if}
 	</section>
 {/if}
 </div>
