@@ -3817,18 +3817,30 @@ import { optimizeImageFile } from '$lib/media';
 	<!-- Ligne de date compacte type FOOD : à gauche, cliquable (▾ = calendrier) ;
 	     Refresh discret à droite (icon-only, ~44 px). UNE seule ligne, aucun gros
 	     bouton ‹ › — le swipe gère la navigation entre les jours. -->
-				<header class="relative z-10 mb-2 flex items-center justify-between gap-2">
-				<button
-					type="button"
-					class="flex min-w-0 items-center gap-1 rounded-xl py-1 pl-0 pr-1.5 text-left transition hover:bg-line/40"
-					onclick={openCalendar}
-					title="Choisir une date"
-				>
-				<h2 class="flex min-w-0 items-center gap-1.5 whitespace-nowrap rounded-[24px] border border-line-soft bg-white shadow-[0_1px_2px_rgba(15,21,18,.04),0_8px_20px_-8px_rgba(15,21,18,.14)] h-12 pl-4 pr-3 text-[17px] font-black tracking-[-0.02em] text-ink {calOpen ? '' : ''}">
-					<span class="truncate">{dateLabel}</span>
-					<Icon name="chevronDown" size={18} class={`shrink-0 text-mist-strong transition-transform ${calOpen ? 'rotate-180' : ''}`} />
-				</h2>
-				</button>
+				<header class="relative z-10 mb-2 flex items-center justify-between gap-2">						<button
+							type="button"
+							aria-expanded={calOpen}
+							title="Choisir une date"
+							class="flex min-w-0 select-none items-center gap-1.5 whitespace-nowrap rounded-[24px] border border-line-soft bg-white shadow-[0_1px_2px_rgba(15,21,18,.04),0_8px_20px_-8px_rgba(15,21,18,.14)] h-12 pl-4 pr-3 text-[17px] font-black tracking-[-0.02em] text-ink transition hover:border-line active:scale-[0.98]"
+							onclick={openCalendar}
+						>
+							<span class="truncate">{dateLabel}</span>
+							<Icon name="chevronDown" size={18} class={`shrink-0 text-mist-strong transition-transform ${calOpen ? 'rotate-180' : ''}`} />
+						</button>
+						<button
+							type="button"
+							aria-label="Jour précédent"
+							title="Jour précédent"
+							class="grid h-10 w-10 shrink-0 place-items-center rounded-[20px] text-mist-strong transition hover:text-ink active:scale-95"
+							onclick={() => shiftDay(-1)}
+						><Icon name="chevronLeft" size={20} strokeWidth={2.2} /></button>
+						<button
+							type="button"
+							aria-label="Jour suivant"
+							title="Jour suivant"
+							class="grid h-10 w-10 shrink-0 place-items-center rounded-[20px] text-mist-strong transition hover:text-ink active:scale-95"
+							onclick={() => shiftDay(1)}
+						><Icon name="chevronRight" size={20} strokeWidth={2.2} /></button>
 				<div class="flex shrink-0 items-center gap-1">
 					{#if selIds.size > 0}
 						<!-- Type FOOD : liens texte « Tout désélectionner » / « Annuler »

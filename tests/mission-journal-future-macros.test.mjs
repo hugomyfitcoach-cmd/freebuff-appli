@@ -161,14 +161,19 @@ test('Compaction : ~10 px d’air entre la ligne kcal/% et la carte d’aliments
 	assert.ok(journalDay.includes("mt-1.5 px-1 pb-1"), 'rendu coach inchangé (structure historique)');
 });
 
-test('Compaction phase 2 : en-têtes de repas resserrés SANS toucher polices ni boutons', () => {
+test('Compaction phase 2 : en-têtes de repas MAQUETTE CLAUDE (baseline unique)', () => {
 	// Section : mb-1 (au lieu de mb-2) — moins de vide entre deux repas.
 	assert.ok(journalDay.includes('<section class="mb-1">'), 'section repas compacte (mb-1)');
-	// Ligne kcal/%) : collée au titre (mt-0) avec interligne resserré (1,35).
-	assert.ok(journalDay.includes('mt-0 leading-[1.35] text-[13px] font-semibold tabular-nums text-brand'), 'ligne kcal collée au titre, interligne 1,35');
-	// NON-RÉGRESSION : polices inchangées (titre 18 px, kcal 13 px)…
-	assert.ok(journalDay.includes("text-[18px] font-bold tracking-tight text-ink"), 'titre repas toujours 18 px');
-	assert.ok(journalDay.includes('text-[13px] font-semibold tabular-nums text-brand'), 'ligne kcal toujours 13 px');
+	// MAQUETTE CLAUDE : badge 28px + titre 17px/900 + métrique kcal · % sur
+	// la MÊME baseline — jamais une deuxième ligne sous le titre (iPhone).
+	assert.ok(journalDay.includes('grid h-[28px] w-[28px] shrink-0 self-center place-items-center rounded-[9px] bg-brand-light text-brand'), 'badge repas 28px');
+	assert.ok(journalDay.includes('text-[17px] font-black leading-[1.1] tracking-[-0.02em] text-ink'), 'titre repas 17px/900');
+	assert.ok(journalDay.includes('whitespace-nowrap text-[12.5px] font-bold text-brand-deep tabular-nums'), 'métrique kcal · % sur la baseline du titre');
+	// L'ancien gabarit « kcal sous le titre » (2e ligne) est bien supprimé.
+	assert.ok(!journalDay.includes('mt-0 leading-[1.35] text-[13px] font-semibold tabular-nums text-brand'), 'ancienne ligne kcal séparée supprimée');
+	// Libellés métier intacts : « x kcal · y % » et « prévues ».
+	assert.ok(journalDay.includes(' kcal · '), 'libellé kcal · % intact');
+	assert.ok(journalDay.includes('kcal prévues'), 'libellé prévues intact');
 	// …et boutons caméra / + intacts (h-11 w-10 / h-11 w-11).
 	assert.ok(journalDay.includes('h-11 w-10 place-items-center text-brand'), 'bouton caméra intact');
 	assert.ok(journalDay.includes('h-11 w-11 place-items-center text-brand'), 'bouton + intact');

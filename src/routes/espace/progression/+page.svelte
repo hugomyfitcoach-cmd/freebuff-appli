@@ -658,25 +658,6 @@
 										<Icon name="circleCheck" size={12} /> Mis à jour
 									</span>
 								{/if}
-						<div>
-							<p class="text-[12px] font-black uppercase tracking-[0.12em] text-mist">{meta.label}</p>
-							<div class="mt-2 flex flex-wrap items-center gap-2.5">
-								<span class="flex items-baseline gap-[5px]">
-									<span class="font-display text-[48px] font-black leading-none tracking-[-0.04em] tabular-nums text-ink">
-										{last !== null ? fmt(Math.round(last * 10) / 10) : '—'}
-									</span>
-									<span class="text-[18px] font-bold text-mist">{meta.unit}</span>
-								</span>
-								{#if d !== null}
-									<span class="inline-flex items-center gap-1 rounded-[12px] px-[11px] py-[6px] text-[13px] font-bold {d <= 0 ? 'bg-brand-light text-brand-dark' : 'bg-warn-light text-warn'}">
-										{d <= 0 ? '↓' : '↑'} {fmt(Math.abs(d))} {meta.unit}
-									</span>
-								{/if}
-								{#if focusMetric === meta.key}
-									<span class="inline-flex items-center gap-1 rounded-full bg-brand px-2 py-0.5 text-xs font-bold text-white">
-										<Icon name="circleCheck" size={12} /> Mis à jour
-									</span>
-								{/if}
 							</div>
 							<p class="mt-1 text-[14px] text-mist">{meta.sub}</p>
 						</div>
