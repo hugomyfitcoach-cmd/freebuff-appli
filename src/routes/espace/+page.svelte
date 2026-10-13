@@ -1016,7 +1016,7 @@
 <!-- ═══════════ À faire (uniquement s'il y a des actions) ═══════════ -->
 {#if actions.length > 0}
 	<section class="m-in mt-4 space-y-3" style="--m-i: 3">
-		<h2 class="px-1 text-[11px] font-bold uppercase tracking-widest text-mist">À faire</h2>
+		<h2 class="px-1 text-[11px] font-black uppercase tracking-widest text-mist">À faire</h2>
 		{#each actions as action (action.id)}
 			<div class="rounded-3xl border px-5 py-4 transition {action.strong ? 'border-brand bg-brand-light' : 'border-line bg-card shadow-sm'}">
 				<a href={action.href} class="tap block">
@@ -1050,7 +1050,7 @@
 {#if dash}
 	<section aria-label="Aujourd'hui" class="m-in mt-5" style="--m-i: 4">
 		<div class="flex items-center justify-between px-1">
-			<h2 class="text-[11px] font-bold uppercase tracking-widest text-mist">Aujourd'hui</h2>
+			<h2 class="text-[11px] font-black uppercase tracking-widest text-mist">Aujourd'hui</h2>
 			<span class="text-[11px] text-mist">{todayLabel}</span>
 		</div>
 
@@ -1132,11 +1132,10 @@
 				class="tap tap-shadow group rounded-3xl border border-line bg-card p-4 shadow-sm hover:border-brand/50"
 			>
 				<div class="flex items-center justify-between gap-1">
-					<span class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-mist"><Icon name="scale" size={14} class="shrink-0 text-brand" /> Poids</span>
+					<span class="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-mist"><Icon name="scale" size={14} class="shrink-0 text-brand" /> Poids</span>
 					<Icon name="chevronRight" size={15} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
 				</div>
-				<p class="mt-2 font-display text-4xl font-black leading-none tracking-tight text-ink tabular-nums">
-					{#if lastWeightKgShown !== null}{#key lastWeightKgShown}<CountUp value={lastWeightKgShown} format={fmtKg} duration={450} minFrom={0.985} distanceCap={4} />{/key} kg{:else}—{/if}
+				<p class="mt-2 font-display text-4xl font-black leading-none tracking-tight text-ink tabular-nums">						{#if lastWeightKgShown !== null}{#key lastWeightKgShown}<CountUp value={lastWeightKgShown} format={fmtKg} duration={450} minFrom={0.985} distanceCap={4} />{/key} <span class="text-[16px] font-bold text-mist">kg</span>{:else}—{/if}
 				</p>
 				<div class="mt-1.5 flex items-center justify-between gap-2">
 					<p class="min-w-0 truncate text-xs text-mist">
@@ -1162,7 +1161,7 @@
 				class="tap tap-shadow group rounded-3xl border border-line bg-card p-4 text-left shadow-sm hover:border-brand/50"
 			>
 				<div class="flex items-center justify-between gap-1">
-					<span class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-mist"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true" class="shrink-0 text-brand"><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"></circle><path d="M12 9.5C10 7.5 10 4.5 12 3c2 1.5 2 4.5 0 6.5ZM14.5 12c2-2 5-2 6.5 0-1.5 2-4.5 2-6.5 0ZM12 14.5c2 2 2 5 0 6.5-2-1.5-2-4.5 0-6.5ZM9.5 12c-2 2-5 2-6.5 0 1.5-2 4.5-2 6.5 0Z"></path></svg> Cycle</span>
+					<span class="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-mist"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true" class="shrink-0 text-brand"><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"></circle><path d="M12 9.5C10 7.5 10 4.5 12 3c2 1.5 2 4.5 0 6.5ZM14.5 12c2-2 5-2 6.5 0-1.5 2-4.5 2-6.5 0ZM12 14.5c2 2 2 5 0 6.5-2-1.5-2-4.5 0-6.5ZM9.5 12c-2 2-5 2-6.5 0 1.5-2 4.5-2 6.5 0Z"></path></svg> Cycle</span>
 					<Icon name="chevronRight" size={15} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
 				</div>
 				{#if cycle.kind === 'empty'}
@@ -1236,13 +1235,13 @@
 <!-- NB : class commence par « group » immédiatement après href (ancre e2e-sport-ui). -->
 <a href="/espace/progression" class="group m-in tap tap-shadow mt-4 block rounded-3xl border border-line bg-card p-5 shadow-sm hover:border-brand" style="--m-i: 5">
 	<div class="flex items-center justify-between gap-3">
-		<h2 class="text-[11px] font-bold uppercase tracking-widest text-mist">Ma progression</h2>
+		<h2 class="text-[11px] font-black uppercase tracking-widest text-mist">Ma progression</h2>
 		<Icon name="trendingUp" size={20} class="text-brand" />
 	</div>
 	<div class="mt-2 flex items-center justify-between gap-3">
 		<div class="min-w-0">
-			<p class="font-display text-4xl font-bold leading-none tracking-tight text-ink">
-				{#if lastWeightKgShown !== null}{#key lastWeightKgShown}<CountUp value={lastWeightKgShown} format={fmtKg} duration={450} minFrom={0.985} distanceCap={4} />{/key} kg{:else}—{/if}
+			<p class="font-display text-4xl font-black leading-none tracking-tight text-ink tabular-nums">
+				{#if lastWeightKgShown !== null}{#key lastWeightKgShown}<CountUp value={lastWeightKgShown} format={fmtKg} duration={450} minFrom={0.985} distanceCap={4} />{/key} <span class="text-[16px] font-bold text-mist">kg</span>{:else}—{/if}
 			</p>
 			{#if weightDelta !== null}
 				<p class="mt-1.5 text-xs font-semibold {weightDelta <= 0.05 ? 'text-brand-dark' : 'text-mist'}">{weightDeltaLabel(weightDelta)} · dernière pesée {fmtShortDate(lastWeightDateShown)}</p>
@@ -1333,7 +1332,7 @@
 		class="tap tap-shadow group h-full rounded-3xl border border-line bg-card p-4 text-left shadow-sm hover:border-brand/50"
 	>
 		<div class="flex items-center justify-between gap-1">
-			<span class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-mist"><Icon name="zap" size={14} class="shrink-0 text-brand" /> Dépense sportive</span>
+			<span class="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-mist"><Icon name="zap" size={14} class="shrink-0 text-brand" /> Dépense sportive</span>
 			<Icon name="chevronRight" size={15} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
 		</div>
 		{#if sportWeek && sportWeek.totals.count > 0}
@@ -1366,7 +1365,7 @@
 		class="tap tap-shadow group h-full rounded-3xl border border-line bg-card p-4 text-left shadow-sm hover:border-brand/50"
 	>
 		<div class="flex items-center justify-between gap-1">
-			<span class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-mist"><Icon name="dumbbell" size={14} class="shrink-0 text-brand" /> Entraînement</span>
+			<span class="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-mist"><Icon name="dumbbell" size={14} class="shrink-0 text-brand" /> Entraînement</span>
 			<Icon name="chevronRight" size={15} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
 		</div>
 		{#if trainingToFinalize}
