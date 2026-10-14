@@ -1,927 +1,523 @@
-
-.guide-root{
-    --bg:        #0d0f0e;
-    --bg2:       #131614;
-    --bg3:       #181c1a;
-    --card:      #1a1e1c;
-    --border:    #252a27;
-    --border2:   #2e3530;
-    --green:     #4ade80;
-    --green-dim: rgba(74,222,128,0.08);
-    --green-mid: rgba(74,222,128,0.18);
-    --white:     #f0f4f1;
-    --gray:      #8a9490;
-    --gray2:     #5a6460;
-    --red:       #f87171;
-    --amber:     #fbbf24;
-  }
+/* ─── Guide Nutrition & Recettes — thème Claude v2 ────────────────────
+   Référence : docs/maquettes-claude/svelte (Recipes, Nutrition).
+   Palette : blanc #FFFFFF, encre #0F1512, gris #66716B,
+   vert vif #1db954, vert profond #0d7c36, menthe #e8fef0.
+   Les noms de classes sont conservés (guides HTML mémo/protéines, tests). */
 
 .guide-root *{ margin:0; padding:0; box-sizing:border-box; }
 
 .guide-root{
+    --bg:        #ffffff;
+    --bg2:       #ffffff;
+    --bg3:       #f7f9f8;
+    --card:      #ffffff;
+    --border:    #e9edea;
+    --border2:   #e6ebe8;
+    --line:      #eef1ef;
+    --green:     #1db954;
+    --green-deep:#0d7c36;
+    --mint:      #e8fef0;
+    --mint-bd:   rgba(29,185,84,0.3);
+    --chip:      #f3f6f4;
+    --green-dim: rgba(13,124,54,0.06);
+    --green-mid: rgba(29,185,84,0.14);
+    --white:     #0f1512;
+    --gray:      #66716b;
+    --gray2:     #66716b;
+    --red:       #dc2626;
+    --amber:     #b45309;
     background: var(--bg);
     color: var(--white);
     font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    font-size: 14px;
-    line-height: 1.6;
-    min-height: 100vh;
-  }
-
-  /* TOPBAR */
-.guide-root .topbar{
-    background: var(--bg2);
-    border-bottom: 1px solid var(--border);
-    padding: 0 32px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    height: 56px;
-    position: sticky;
-    top: 0;
-    z-index: 200;
-  }
-
-.guide-root .logo{
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    font-weight: 700;
-    font-size: 17px;
-    color: var(--white);
-    letter-spacing: 0.01em;
-  }
-
-.guide-root .logo-dot{
-    width: 8px; height: 8px;
-    background: var(--green);
-    border-radius: 50%;
-    box-shadow: 0 0 8px var(--green);
-  }
-
-.guide-root .logo span{ color: var(--green); }
-
-.guide-root .topbar-right{
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 12px;
-    color: var(--gray);
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    font-weight: 500;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-  }
-
-.guide-root .badge-count{
-    background: var(--green-dim);
-    border: 1px solid rgba(74,222,128,0.25);
-    color: var(--green);
-    padding: 3px 10px;
-    border-radius: 20px;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-  }
-
-  /* HERO STRIP */
-.guide-root .hero-strip{
-    background: linear-gradient(135deg, #0d1410 0%, #111a14 50%, #0d0f0e 100%);
-    border-bottom: 1px solid var(--border);
-    padding: 40px 32px 36px;
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 24px;
-  }
-
-.guide-root .hero-left h1{
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    font-size: 28px;
-    font-weight: 700;
-    color: var(--white);
-    letter-spacing: -0.01em;
-    margin-bottom: 6px;
-  }
-
-.guide-root .hero-left p{
-    font-size: 13px;
-    color: var(--gray);
-    max-width: 420px;
-    line-height: 1.7;
-  }
-
-.guide-root .hero-stats{
-    display: flex;
-    gap: 28px;
-    flex-shrink: 0;
-  }
-
-.guide-root .hstat{
-    text-align: center;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-  }
-
-.guide-root .hstat-num{
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    font-size: 26px;
-    font-weight: 700;
-    color: var(--green);
-    line-height: 1;
-  }
-
-.guide-root .hstat-label{
-    font-size: 10px;
-    color: var(--gray2);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-weight: 500;
-  }
-
-  /* NAV TABS */
-.guide-root .nav-tabs{
-    background: var(--bg2);
-    border-bottom: 1px solid var(--border);
-    padding: 0 32px;
-    display: flex;
-    gap: 0;
-    overflow-x: auto;
-    scrollbar-width: none;
-    position: sticky;
-    top: 56px;
-    z-index: 100;
-  }
-.guide-root .nav-tabs::-webkit-scrollbar{ display: none; }
-
-.guide-root .tab{
-    padding: 14px 20px;
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--gray2);
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
-    cursor: pointer;
-    white-space: nowrap;
-    transition: all 0.15s;
-    display: flex;
-    align-items: center;
-    gap: 7px;
-  }
-
-.guide-root .tab:hover{ color: var(--gray); }
-
-.guide-root .tab.active{
-    color: var(--green);
-    border-bottom-color: var(--green);
-  }
-
-.guide-root .tab-count{
-    background: var(--green-dim);
-    color: var(--green);
-    border-radius: 10px;
-    padding: 1px 7px;
-    font-size: 10px;
-    font-weight: 700;
-  }
-
-.guide-root .tab.active .tab-count{
-    background: var(--green-mid);
-  }
-
-  /* MAIN */
-.guide-root .main{ padding: 28px 32px 60px; max-width: 1400px; }
-
-  /* SECTION */
-.guide-root .section{ display: none; }
-.guide-root .section.active{ display: block; animation: fadeUp 0.25s ease; }
-
-  @keyframes fadeUp {
-    from { opacity:0; transform:translateY(6px); }
-    to   { opacity:1; transform:translateY(0); }
-  }
-
-.guide-root .section-title{
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--gray);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    margin-bottom: 16px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-.guide-root .section-title::before{
-    content: '';
-    width: 3px; height: 14px;
-    background: var(--green);
-    border-radius: 2px;
-  }
-
-  /* RECIPE GRID */
-.guide-root .recipe-grid{
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-    gap: 12px;
-  }
-
-  /* RECIPE CARD */
-.guide-root .recipe-card{
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    overflow: hidden;
-    transition: border-color 0.15s, box-shadow 0.15s;
-  }
-
-.guide-root .recipe-card:hover{
-    border-color: var(--border2);
-    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
-  }
-
-.guide-root .recipe-card.open{
-    border-color: rgba(74,222,128,0.3);
-  }
-
-.guide-root .card-header{
-    padding: 18px 20px 16px;
-    cursor: pointer;
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 12px;
-  }
-
-.guide-root .card-header-left{ flex: 1; }
-
-.guide-root .card-index{
-    font-size: 10px;
-    font-weight: 600;
-    color: var(--green);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    margin-bottom: 5px;
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-  }
-
-.guide-root .card-name{
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
     font-size: 15px;
-    font-weight: 600;
-    color: var(--white);
-    line-height: 1.35;
-    margin-bottom: 12px;
+    line-height: 1.5;
+    min-height: 100vh;
+    min-height: 100dvh;
   }
 
-.guide-root .card-macros{
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
+.guide-root button{ font-family: inherit; cursor: pointer; }
+.guide-root a{ text-decoration: none; color: inherit; }
 
-.guide-root .macro-pill{
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    background: var(--bg3);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 4px 10px;
-    font-size: 11px;
-    font-weight: 600;
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    white-space: nowrap;
-  }
-
-.guide-root .macro-pill .val{ color: var(--white); }
-.guide-root .macro-pill .lbl{ color: var(--gray2); font-weight: 400; }
-.guide-root .macro-pill.kcal .val{ color: var(--amber); }
-.guide-root .macro-pill.prot .val{ color: var(--green); }
-
-.guide-root .chevron{
-    color: var(--gray2);
-    font-size: 16px;
-    flex-shrink: 0;
-    margin-top: 2px;
-    transition: transform 0.2s;
-  }
-
-.guide-root .recipe-card.open .chevron{ transform: rotate(180deg); color: var(--green); }
-
-  /* RECIPE DETAIL */
-.guide-root .card-detail{
-    display: none;
-    border-top: 1px solid var(--border);
-    padding: 20px;
-    background: var(--bg3);
-  }
-
-.guide-root .recipe-card.open .card-detail{ display: block; }
-
-.guide-root .detail-section{
-    margin-bottom: 20px;
-  }
-
-.guide-root .detail-section:last-child{ margin-bottom: 0; }
-
-.guide-root .detail-label{
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--gray2);
-    margin-bottom: 10px;
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-  }
-
-  /* INGREDIENTS */
-.guide-root .ingredients-list{
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-  }
-
-.guide-root .ingredient-row{
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 6px 10px;
-    background: var(--card);
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    font-size: 12px;
-  }
-
-.guide-root .ingredient-dot{
-    width: 5px; height: 5px;
-    background: var(--green);
-    border-radius: 50%;
-    flex-shrink: 0;
-    opacity: 0.7;
-  }
-
-.guide-root .ingredient-name{ color: var(--white); flex: 1; }
-.guide-root .ingredient-qty{
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    font-weight: 600;
-    color: var(--green);
-    font-size: 11px;
-    white-space: nowrap;
-  }
-
-  /* STEPS */
-.guide-root .steps-list{
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-.guide-root .step-row{
-    display: flex;
-    gap: 12px;
-    align-items: flex-start;
-  }
-
-.guide-root .step-num{
-    width: 22px; height: 22px;
-    background: var(--green-dim);
-    border: 1px solid rgba(74,222,128,0.25);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--green);
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    flex-shrink: 0;
-    margin-top: 1px;
-  }
-
-.guide-root .step-text{
-    font-size: 12.5px;
-    color: var(--gray);
-    line-height: 1.6;
-    flex: 1;
-  }
-
-  /* TIME BADGE */
-.guide-root .time-badge{
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: var(--green-dim);
-    border: 1px solid rgba(74,222,128,0.2);
-    border-radius: 6px;
-    padding: 4px 10px;
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--green);
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    margin-bottom: 12px;
-  }
-
-  /* DESSERT CARD - wider */
-.guide-root .dessert-grid{
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
-    gap: 12px;
-  }
-
-  /* FOOTER */
-.guide-root .footer{
-    background: var(--bg2);
-    border-top: 1px solid var(--border);
-    padding: 20px 32px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    margin-top: 60px;
-  }
-
+/* ── Écran d'accueil « Toutes les sections » (maquette Nutrition) ── */
 .guide-root .home-back-accueil{
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    font-size: 13px;
+    gap: 4px;
+    height: 44px;
+    padding: 0 18px 0 10px;
+    margin: 16px 20px 0;
+    border-radius: 22px;
+    border: 1px solid var(--border);
+    background: var(--bg2);
+    box-shadow: 0 1px 2px rgba(15,21,18,.04), 0 8px 20px -8px rgba(15,21,18,.14);
+    font-size: 15px;
     font-weight: 700;
-    color: var(--gray);
-    padding: 8px 10px;
-    margin-bottom: 18px;
-    border-radius: 12px;
-    transition: color 0.15s ease, background 0.15s ease;
+    color: var(--white);
+    transition: transform .15s ease;
   }
+.guide-root .home-back-accueil:active{ transform: scale(.97); }
 
-.guide-root .home-back-accueil:hover{
-    color: var(--green);
-    background: rgba(255,255,255,0.06);
-  }
-
-.guide-root .footer-brand{
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    font-weight: 700;
-    font-size: 14px;
-    color: var(--gray2);
-  }
-
-.guide-root .footer-brand span{ color: var(--green); }
-
-.guide-root .footer-copy{
-    font-size: 11px;
-    color: var(--gray2);
-    letter-spacing: 0.03em;
-  }
-
-  /* RESPONSIVE */
-
-
-  /* HOME SCREEN */
 .guide-root .home-screen{
-    position: relative;
-    background: var(--bg);
-    padding: 56px 24px 60px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    min-height: 85vh;
+    max-width: 520px;
+    margin: 0 auto;
+    padding: 0 20px 60px;
+    animation: fadeUp .25s ease;
   }
-
 .guide-root .home-screen.hidden{ display: none; }
 
-.guide-root .home-logo{
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    font-weight: 700;
-    font-size: 20px;
-    color: var(--white);
-    margin-bottom: 28px;
-    letter-spacing: 0.05em;
-  }
-
 .guide-root .home-title{
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    font-size: clamp(24px, 5vw, 34px);
-    font-weight: 700;
-    color: var(--white);
-    text-align: center;
-    line-height: 1.15;
-    letter-spacing: -0.02em;
-    margin-bottom: 10px;
+    margin-top: 24px;
+    font-size: 34px;
+    font-weight: 900;
+    letter-spacing: -0.03em;
+    line-height: 1.05
   }
-
 .guide-root .home-sub{
-    font-size: 13px;
-    color: var(--gray2);
-    margin-bottom: 40px;
-    text-align: center;
-    letter-spacing: 0.05em;
+    margin-top: 10px;
+    font-size: 15px;
+    line-height: 1.45;
+    color: var(--gray)
   }
 
-.guide-root .home-nav{
-    width: 100%;
-    max-width: 700px;
-    display: flex;
-    flex-direction: column;
-    gap: 28px;
-  }
-
-.guide-root .home-group{}
-
+.guide-root .home-group{ margin-top: 30px; }
 .guide-root .home-group-label{
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.12em;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: .14em;
     text-transform: uppercase;
-    color: var(--gray2);
-    margin-bottom: 10px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--border);
+    color: var(--gray)
   }
-
 .guide-root .home-items{
+    margin-top: 14px;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 10px;
   }
 
 .guide-root .home-btn{
     display: flex;
     align-items: center;
     gap: 14px;
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 14px 18px;
-    cursor: pointer;
-    transition: all 0.15s;
-    text-align: left;
     width: 100%;
+    text-align: left;
+    padding: 12px 16px 12px 12px;
+    border-radius: 20px;
+    border: 1px solid var(--line);
+    background: var(--bg2);
+    box-shadow: 0 1px 2px rgba(15,21,18,.04), 0 12px 28px -16px rgba(15,21,18,.18);
+    color: var(--white);
+    transition: transform .15s ease, box-shadow .2s ease;
   }
-
-.guide-root .home-btn:hover{
-    background: #1e2420;
-    border-color: var(--green);
-    transform: translateX(3px);
-  }
+.guide-root .home-btn:active{ transform: scale(.98); }
 
 .guide-root .home-btn-icon{
-    font-size: 20px;
-    flex-shrink: 0;
-    width: 28px;
-    text-align: center;
-  }
-
-.guide-root .home-btn-text{
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    font-size: 15px;
-    font-weight: 600;
+    width: 46px;
+    height: 46px;
+    border-radius: 15px;
+    background: var(--chip);
     color: var(--white);
-    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
   }
-
+.guide-root .home-btn-text{ flex: 1; font-size: 17px; font-weight: 700; }
 .guide-root .home-btn-count{
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    font-size: 11px;
-    font-weight: 700;
-    color: var(--green);
-    background: var(--green-dim);
-    border: 1px solid rgba(74,222,128,0.2);
-    border-radius: 20px;
-    padding: 3px 10px;
-    white-space: nowrap;
+    min-width: 30px;
+    box-sizing: border-box;
+    text-align: center;
+    font-size: 14px;
+    font-weight: 900;
+    color: var(--green-deep);
+    background: var(--mint);
+    border: 1px solid var(--mint-bd);
+    border-radius: 14px;
+    padding: 6px 11px;
   }
 
 .guide-root .home-footer{
     margin-top: 40px;
-    font-size: 11px;
-    color: var(--gray2);
-    letter-spacing: 0.08em;
     text-align: center;
-  }
-
-  /* BOUTON RETOUR */
-.guide-root .home-back-btn{
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--gray);
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
     font-size: 12px;
-    font-weight: 500;
-    padding: 5px 12px;
-    cursor: pointer;
-    margin-right: 12px;
-    transition: all 0.15s;
-    letter-spacing: 0.04em;
-  }
-.guide-root .home-back-btn:hover{
-    border-color: var(--green);
-    color: var(--green);
-  }
-
-  /* TABLES PROTÉINES */
-.guide-root .prot-table-wrap{
-    overflow-x: auto;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    margin-bottom: 8px;
-  }
-
-.guide-root .prot-table{
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 12.5px;
-    min-width: 500px;
-  }
-
-.guide-root .prot-table thead tr{
-    background: #111614;
-  }
-
-.guide-root .prot-table th{
-    padding: 10px 16px;
-    text-align: left;
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--gray);
-    border-bottom: 1px solid var(--border2);
-    white-space: nowrap;
-    background: #111614;
-  }
-
-.guide-root .prot-table td{
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--border);
-    color: var(--gray);
-    line-height: 1.5;
-    vertical-align: top;
-    background: var(--bg);
-  }
-
-.guide-root .prot-table td:first-child{
-    color: var(--white);
-    font-weight: 500;
-    background: var(--bg);
-  }
-
-.guide-root .prot-table td:nth-child(2){
-    color: var(--green);
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    font-weight: 600;
-    white-space: nowrap;
-  }
-
-.guide-root .prot-table td:nth-child(3){
-    color: var(--amber);
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    font-weight: 600;
-    white-space: nowrap;
-  }
-
-.guide-root .prot-table tbody tr:last-child td{ border-bottom: none; }
-.guide-root .prot-table tbody tr:hover td{ background: #111614; }
-
-.guide-root .prot-note{
-    font-size: 11.5px;
+    letter-spacing: .08em;
     color: var(--gray2);
-    font-style: italic;
-    padding: 8px 4px;
-    line-height: 1.6;
-  }
-.guide-root .prot-note strong{ color: var(--amber); font-style: normal; }
-
-  /* MÉMO */
-.guide-root .memo-intro{
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--amber);
-    border-radius: 8px;
-    padding: 16px 20px;
-    font-size: 13px;
-    color: var(--gray);
-    line-height: 1.7;
-    margin-bottom: 28px;
-  }
-.guide-root .memo-intro strong{ color: var(--white); }
-
-.guide-root .memo-group{
-    margin-bottom: 32px;
   }
 
-.guide-root .memo-group-title{
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--amber);
-    margin-bottom: 12px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid var(--border);
+/* ── Barre de section (maquette Recipes) ─────────────────────────── */
+.guide-root .topbar{
+    max-width: 520px;
+    margin: 0 auto;
+    padding: 16px 20px 0;
     display: flex;
     align-items: center;
-    gap: 8px;
-  }
-
-.guide-root .memo-grid{
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 8px;
-  }
-
-.guide-root .memo-card{
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 14px 16px;
-    transition: border-color 0.15s;
-  }
-.guide-root .memo-card:hover{ border-color: var(--border2); }
-.guide-root .memo-card.highlight{ border-left: 2px solid var(--green); }
-.guide-root .memo-card.alert{ border-left: 2px solid var(--amber); }
-
-.guide-root .memo-item{
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--white);
-    margin-bottom: 4px;
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-  }
-
-.guide-root .memo-val{
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    font-size: 17px;
-    font-weight: 700;
-    color: var(--green);
-    margin-bottom: 4px;
-    line-height: 1.2;
-  }
-.guide-root .memo-card.alert .memo-val{ color: var(--amber); }
-
-.guide-root .memo-sub{
-    font-size: 11px;
-    color: var(--gray2);
-    line-height: 1.5;
-  }
-
-.guide-root .memo-rules{
-    background: linear-gradient(135deg, #111a14 0%, #0d1410 100%);
-    border: 1px solid rgba(74,222,128,0.2);
-    border-radius: 10px;
-    padding: 24px;
-    margin-top: 8px;
-  }
-
-.guide-root .memo-rule-title{
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--green);
-    margin-bottom: 16px;
-  }
-
-.guide-root .memo-rules-grid{
-    display: flex;
-    flex-direction: column;
+    justify-content: space-between;
     gap: 12px;
   }
 
-.guide-root .memo-rule{
-    display: flex;
-    gap: 16px;
-    align-items: flex-start;
-    font-size: 13px;
-    color: var(--gray);
-    line-height: 1.6;
-  }
-
-.guide-root .memo-rule strong{ color: var(--white); }
-
-.guide-root .rule-num{
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    font-size: 11px;
+.guide-root .home-back-btn{
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 44px;
+    padding: 0 18px 0 10px;
+    border-radius: 22px;
+    border: 1px solid var(--border);
+    background: var(--bg2);
+    box-shadow: 0 1px 2px rgba(15,21,18,.04), 0 8px 20px -8px rgba(15,21,18,.14);
+    font-size: 15px;
     font-weight: 700;
-    color: var(--green);
-    background: var(--green-dim);
-    border: 1px solid rgba(74,222,128,0.2);
-    border-radius: 4px;
-    padding: 2px 7px;
-    white-space: nowrap;
-    flex-shrink: 0;
-    margin-top: 2px;
+    color: var(--white);
+    transition: transform .15s ease;
   }
+.guide-root .home-back-btn:active{ transform: scale(.97); }
 
-  @media (max-width: 720px) {
-.guide-root .memo-grid{ grid-template-columns: 1fr; }
-  }
-
-  @media (max-width: 720px) {
-.guide-root .topbar{ padding: 0 16px; }
-.guide-root .hero-strip{ padding: 28px 16px; flex-direction: column; align-items: flex-start; }
-.guide-root .nav-tabs{ padding: 0 16px; top: 56px; }
-.guide-root .main{ padding: 20px 16px 60px; }
-.guide-root .recipe-grid{ grid-template-columns: 1fr; }
-.guide-root .dessert-grid{ grid-template-columns: 1fr; }
-.guide-root .hero-stats{ gap: 20px; }
-.guide-root .footer{ padding: 16px; flex-direction: column; gap: 8px; text-align: center; }
-  }
-
-/* Adaptations app (scopées guide) */
-.guide-root .main { margin: 0 auto; width: 100%; }
-.guide-root .topbar { position: sticky; top: 0; z-index: 150; }
-.guide-root .nav-tabs { position: sticky; top: 56px; z-index: 140; }
-
-/* ─── Mode clair : palette cream/brand G-Flux ─────────────────────── */
-.guide-root.theme-light {
-    --bg:        #f7f5f0;
-    --bg2:       #ffffff;
-    --bg3:       #f1efe7;
-    --card:      #ffffff;
-    --border:    #e5e3dc;
-    --border2:   #d6d2c7;
-    --green:     #1db954;
-    --green-dim: rgba(29,185,84,0.08);
-    --green-mid: rgba(29,185,84,0.16);
-    --white:     #111110;
-    --gray:      #6f6d65;
-    --gray2:     #99948a;
-    --red:       #dc2626;
-    --amber:     #b45309;
-}
-
-/* Déclinaisons des rares couleurs codées en dur pour le sombre */
-.guide-root.theme-light .hero-strip {
-    background: linear-gradient(135deg, #eaf6ee 0%, #f7f5f0 60%, #fdfdfa 100%);
-}
-.guide-root.theme-light .recipe-card:hover {
-    box-shadow: 0 4px 24px rgba(17, 17, 16, 0.08);
-}
-.guide-root.theme-light .home-btn:hover {
-    background: #e8fef0;
-}
-.guide-root.theme-light .prot-table thead tr,
-.guide-root.theme-light .prot-table th {
-    background: #eef7f0;
-}
-.guide-root.theme-light .prot-table tbody tr:hover td {
-    background: #f0fdf4;
-}
-.guide-root.theme-light .memo-rules {
-    background: linear-gradient(135deg, #f0fdf4 0%, #f7f5f0 100%);
-}
-
-/* ─── Ajouter une recette à « Mes repas » ─────────────────────────── */
-.guide-root .gflux-add-btn {
-    display: block;
-    width: 100%;
-    margin-bottom: 14px;
-    padding: 9px 14px;
-    border-radius: 8px;
-    border: 1px solid var(--green);
-    background: var(--green-dim);
-    color: var(--green);
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
+.guide-root .topbar-right{
     font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.2s, color 0.2s, opacity 0.2s;
-}
-.guide-root .gflux-add-btn:hover:not(:disabled) {
+    font-weight: 900;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--gray);
+    white-space: nowrap;
+  }
+
+/* ── Héros de section ────────────────────────────────────────────── */
+.guide-root .hero-strip{
+    max-width: 520px;
+    margin: 0 auto;
+    padding: 24px 20px 0;
+  }
+.guide-root .badge-count{
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--green-deep);
+    background: var(--mint);
+    border: 1px solid var(--mint-bd);
+    border-radius: 14px;
+    padding: 7px 12px;
+  }
+.guide-root .hero-left h1{
+    margin-top: 14px;
+    font-size: 38px;
+    font-weight: 900;
+    letter-spacing: -0.035em;
+    line-height: 1.05;
+  }
+.guide-root .hero-left p{
+    margin-top: 12px;
+    font-size: 15px;
+    line-height: 1.55;
+    color: var(--gray);
+  }
+
+.guide-root .hero-stats{
+    margin-top: 22px;
+    padding: 18px 6px;
+    border-radius: 24px;
+    border: 1px solid var(--line);
+    background: var(--bg2);
+    box-shadow: 0 1px 2px rgba(15,21,18,.04), 0 16px 36px -18px rgba(15,21,18,.2);
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0,1fr));
+    gap: 0;
+  }
+.guide-root .hstat{
+    text-align: center;
+    border-left: 1px solid var(--line);
+  }
+.guide-root .hstat:first-child{ border-left: none; }
+.guide-root .hstat-num{
+    font-size: 30px;
+    font-weight: 900;
+    letter-spacing: -0.03em;
+    color: var(--green-deep);
+  }
+.guide-root .hstat-label{
+    margin-top: 4px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--gray);
+  }
+
+/* ── Onglets pilule ──────────────────────────────────────────────── */
+.guide-root .nav-tabs{
+    position: sticky;
+    top: 0;
+    z-index: 140;
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 14px 20px;
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    background: linear-gradient(to bottom, #ffffff 78%, rgba(255,255,255,0));
+  }
+.guide-root .nav-tabs::-webkit-scrollbar{ display: none; }
+
+.guide-root .tab{
+    flex: none;
+    height: 46px;
+    padding: 0 10px 0 18px;
+    border-radius: 23px;
+    border: 1px solid var(--border);
+    background: var(--bg2);
+    color: #3a4540;
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    white-space: nowrap;
+    transition: transform .15s ease;
+  }
+.guide-root .tab:active{ transform: scale(.97); }
+
+.guide-root .tab-count{
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--green-deep);
+    background: var(--mint);
+    border-radius: 12px;
+    padding: 4px 9px;
+  }
+.guide-root .tab.active{
+    border: 0;
     background: var(--green);
     color: #ffffff;
-}
-.guide-root .gflux-add-btn:disabled {
-    cursor: default;
-    opacity: 0.85;
-}
-.guide-root .gflux-add-btn.added {
-    border-color: rgba(74, 222, 128, 0.45);
-    background: rgba(74, 222, 128, 0.10);
-    color: var(--green);
-    opacity: 0.95;
-}
+    box-shadow: 0 8px 18px -8px rgba(23,163,73,.55);
+  }
+.guide-root .tab.active .tab-count{
+    color: var(--green-deep);
+    background: #ffffff;
+  }
 
-/* ─── Toast « Ajouté à Mes repas » ────────────────────────────────── */
-.guide-root .gflux-recipe-toast {
+/* ── Sections & cartes recette ───────────────────────────────────── */
+.guide-root .main{
+    max-width: 560px;
+    margin: 0 auto;
+    width: 100%;
+    padding: 0 20px 80px;
+  }
+.guide-root .section{ display: none; }
+.guide-root .section.active{ display: block; padding-top: 12px; animation: fadeUp .25s ease; }
+
+.guide-root .section-title{
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-bottom: 14px;
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: #3a4540;
+  }
+.guide-root .section-title::before{
+    content: "";
+    width: 4px;
+    height: 20px;
+    border-radius: 2px;
+    background: var(--green);
+    flex: none;
+  }
+
+.guide-root .recipe-grid,
+.guide-root .dessert-grid{
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+.guide-root .recipe-card{
+    border-radius: 28px;
+    border: 1px solid var(--mint-bd);
+    background: var(--bg2);
+    box-shadow: 0 1px 2px rgba(15,21,18,.04), 0 18px 40px -18px rgba(15,21,18,.2);
+    overflow: hidden;
+  }
+
+.guide-root .card-header{
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 20px 16px 20px 20px;
+    cursor: pointer;
+    user-select: none;
+  }
+
+.guide-root .card-index{
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: .16em;
+    color: var(--green-deep);
+  }
+.guide-root .card-name{
+    margin-top: 8px;
+    font-size: 23px;
+    font-weight: 900;
+    letter-spacing: -0.025em;
+    line-height: 1.2;
+  }
+.guide-root .card-macros{
+    margin-top: 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+.guide-root .macro-pill{
+    border-radius: 14px;
+    padding: 8px 13px;
+    font-size: 14px;
+    color: var(--gray);
+    background: var(--chip);
+    border: 1px solid var(--border2);
+  }
+.guide-root .macro-pill .val{ color: var(--white); font-weight: 900; }
+.guide-root .macro-pill .lbl{ font-weight: 400; }
+.guide-root .macro-pill.kcal,
+.guide-root .macro-pill.prot{
+    background: var(--mint);
+    border-color: var(--mint-bd);
+  }
+.guide-root .macro-pill.kcal .val,
+.guide-root .macro-pill.prot .val{ color: var(--green-deep); }
+
+.guide-root .chevron{
+    flex: none;
+    width: 36px;
+    height: 36px;
+    border-radius: 18px;
+    background: var(--mint);
+    color: var(--green);
+    font-size: 0;
+    line-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform .2s ease, background .2s ease;
+  }
+.guide-root .chevron::before{
+    content: "";
+    width: 11px;
+    height: 11px;
+    border-right: 2.6px solid currentColor;
+    border-bottom: 2.6px solid currentColor;
+    transform: rotate(45deg) translate(-2px, -2px);
+    border-color: currentColor;
+  }
+.guide-root .recipe-card.open .chevron{ transform: rotate(180deg); }
+
+.guide-root .card-detail{ display: none; }
+.guide-root .recipe-card.open .card-detail{
+    display: block;
+    padding: 20px;
+    border-top: 1px solid var(--border2);
+    background: var(--bg3);
+  }
+
+.guide-root .time-badge{
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border-radius: 14px;
+    background: var(--mint);
+    border: 1px solid var(--mint-bd);
+    padding: 9px 14px;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--green-deep);
+  }
+
+.guide-root .detail-section{ margin-bottom: 26px; }
+.guide-root .detail-section:last-child{ margin-bottom: 0; }
+.guide-root .detail-label{
+    margin-bottom: 12px;
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--gray);
+  }
+
+.guide-root .ingredients-list{
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+.guide-root .ingredient-row{
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 50px;
+    padding: 0 16px;
+    border-radius: 15px;
+    border: 1px solid var(--border);
+    background: var(--bg2);
+    box-shadow: 0 8px 18px -14px rgba(15,21,18,.2);
+  }
+.guide-root .ingredient-dot{
+    width: 8px;
+    height: 8px;
+    border-radius: 4px;
+    background: var(--green);
+    flex: none;
+  }
+.guide-root .ingredient-name{ flex: 1; font-size: 16px; color: var(--white); }
+.guide-root .ingredient-qty{ font-size: 15px; font-weight: 900; color: var(--green-deep); }
+
+.guide-root .steps-list{ display: flex; flex-direction: column; gap: 16px; }
+.guide-root .step-row{ display: flex; align-items: flex-start; gap: 14px; }
+.guide-root .step-num{
+    width: 34px;
+    height: 34px;
+    border-radius: 17px;
+    background: var(--mint);
+    border: 1.5px solid var(--mint-bd);
+    color: var(--green-deep);
+    font-size: 14px;
+    font-weight: 900;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+  }
+.guide-root .step-text{ padding-top: 5px; font-size: 16px; line-height: 1.5; color: var(--white); }
+
+/* ── Ajouter une recette à « Mes repas » ─────────────────────────── */
+.guide-root .gflux-add-btn{
+    display: block;
+    width: 100%;
+    margin: 14px 0 0;
+    height: 54px;
+    padding: 0 14px;
+    border-radius: 18px;
+    border: 1.5px solid var(--green);
+    background: var(--mint);
+    color: var(--green-deep);
+    font-size: 16px;
+    font-weight: 700;
+    transition: background .2s ease, color .2s ease, opacity .2s ease, transform .15s ease;
+  }
+.guide-root .gflux-add-btn:hover:not(:disabled){
+    background: var(--green);
+    color: #ffffff;
+  }
+.guide-root .gflux-add-btn:disabled{ cursor: default; opacity: .85; }
+.guide-root .gflux-add-btn.added{ border-color: var(--mint-bd); background: var(--mint); color: var(--green-deep); }
+
+/* ── Toast « Ajouté à Mes repas » ────────────────────────────────── */
+.guide-root .gflux-recipe-toast{
     position: fixed;
     left: 50%;
     bottom: 84px;
@@ -931,63 +527,182 @@
     align-items: center;
     gap: 10px;
     max-width: calc(100vw - 32px);
-    padding: 10px 16px;
-    border-radius: 10px;
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
+    padding: 12px 16px;
+    border-radius: 14px;
     font-size: 13px;
-    font-weight: 600;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
-    animation: gflux-toast-in 0.25s ease;
-}
-.guide-root .gflux-recipe-toast.ok {
-    background: var(--green-dim);
-    border: 1px solid rgba(74, 222, 128, 0.4);
-    color: var(--green);
-}
-.guide-root .gflux-recipe-toast.err {
-    background: rgba(248, 113, 113, 0.14);
-    border: 1px solid rgba(248, 113, 113, 0.4);
-    color: #f87171;
-}
-.guide-root .gflux-recipe-toast-close {
+    font-weight: 700;
+    background: var(--bg2);
+    box-shadow: 0 18px 40px -12px rgba(15,21,18,.35);
+    animation: gflux-toast-in .25s ease;
+  }
+.guide-root .gflux-recipe-toast.ok{
+    border: 1px solid var(--mint-bd);
+    color: var(--green-deep);
+  }
+.guide-root .gflux-recipe-toast.err{
+    border: 1px solid rgba(220,38,38,.35);
+    color: var(--red);
+  }
+.guide-root .gflux-recipe-toast-close{
     background: none;
     border: none;
     color: inherit;
     font-size: 14px;
     cursor: pointer;
-    opacity: 0.7;
-}
-.guide-root .gflux-recipe-toast-close:hover { opacity: 1; }
-@keyframes gflux-toast-in {
-    from { opacity: 0; transform: translateX(-50%) translateY(8px); }
-    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
-}
+    opacity: .7;
+  }
+.guide-root .gflux-recipe-toast-close:hover{ opacity: 1; }
+@keyframes gflux-toast-in{
+    from{ opacity: 0; transform: translateX(-50%) translateY(8px); }
+    to  { opacity: 1; transform: translateX(-50%) translateY(0); }
+  }
 
-/* ─── Bouton de bascule de thème ──────────────────────────────────── */
-.guide-root .theme-toggle {
-    position: fixed;
-    right: 16px;
-    bottom: 16px;
-    z-index: 300;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 16px;
-    border-radius: 999px;
-    background: var(--card);
-    border: 1px solid var(--border2);
+/* ── Guides HTML (Mémo tracking / Protéines) ─────────────────────── */
+.guide-root .prot-table-wrap{
+    overflow-x: auto;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: var(--bg2);
+  }
+.guide-root .prot-table{ width: 100%; border-collapse: collapse; font-size: 14px; }
+.guide-root .prot-table thead tr{ background: var(--chip); }
+.guide-root .prot-table th{
+    padding: 12px 14px;
+    text-align: left;
+    font-weight: 900;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    font-size: 11px;
+    color: #3a4540;
+    border-bottom: 1px solid var(--border2);
+  }
+.guide-root .prot-table td{
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line);
     color: var(--white);
-    font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
-    transition: background 0.2s, border-color 0.2s, transform 0.15s;
-}
-.guide-root .theme-toggle:hover {
-    border-color: var(--green);
-    transform: translateY(-1px);
-}
-@media (max-width: 720px) {
-    .guide-root .theme-toggle { right: 12px; bottom: 12px; padding: 8px 12px; font-size: 12px; }
-}
+  }
+.guide-root .prot-table td:first-child{ font-weight: 700; }
+.guide-root .prot-table tbody tr:last-child td{ border-bottom: none; }
+.guide-root .prot-table tbody tr:hover td{ background: var(--mint); }
+
+.guide-root .prot-note{
+    margin-top: 16px;
+    padding: 14px 16px;
+    border-radius: 16px;
+    background: var(--mint);
+    border: 1px solid var(--mint-bd);
+    font-size: 14px;
+    color: #3a4540;
+  }
+.guide-root .prot-note strong{ color: var(--green-deep); font-style: normal; }
+
+.guide-root .memo-intro{ font-size: 15px; color: var(--gray); padding-bottom: 8px; }
+.guide-root .memo-intro strong{ color: var(--white); }
+
+.guide-root .memo-group{ margin-top: 26px; }
+.guide-root .memo-group-title{
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: #3a4540;
+  }
+.guide-root .memo-group-title::before{
+    content: "";
+    width: 4px;
+    height: 20px;
+    border-radius: 2px;
+    background: var(--green);
+    flex: none;
+  }
+
+.guide-root .memo-grid{
+    margin-top: 14px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0,1fr));
+    gap: 10px;
+  }
+.guide-root .memo-card{
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: var(--bg2);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    box-shadow: 0 1px 2px rgba(15,21,18,.04), 0 12px 28px -16px rgba(15,21,18,.18);
+  }
+.guide-root .memo-card.highlight{ border-left: 4px solid var(--green); }
+.guide-root .memo-card.alert{ border-left: 4px solid #d97706; }
+
+.guide-root .memo-item{ font-size: 13px; color: var(--gray); }
+.guide-root .memo-val{ font-size: 16px; font-weight: 900; color: var(--green-deep); }
+.guide-root .memo-card.alert .memo-val{ color: #b45309; }
+.guide-root .memo-sub{ font-size: 12px; color: var(--gray2); }
+
+.guide-root .memo-rules{
+    margin-top: 26px;
+    padding: 18px;
+    border-radius: 24px;
+    background: var(--bg3);
+    border: 1px solid var(--line);
+  }
+.guide-root .memo-rule-title{
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: #3a4540;
+  }
+.guide-root .memo-rules-grid{ margin-top: 14px; display: flex; flex-direction: column; gap: 14px; }
+.guide-root .memo-rule{
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    font-size: 14px;
+    color: var(--gray);
+  }
+.guide-root .memo-rule strong{ color: var(--white); }
+.guide-root .rule-num{
+    width: 34px;
+    height: 34px;
+    border-radius: 17px;
+    background: var(--mint);
+    border: 1.5px solid var(--mint-bd);
+    color: var(--green-deep);
+    font-size: 14px;
+    font-weight: 900;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+  }
+
+/* ── Pied de page ───────────────────────────────────────────────── */
+.guide-root .footer-brand span{ color: var(--green); }
+.guide-root .footer{
+    max-width: 520px;
+    margin: 0 auto;
+    padding: 8px 20px 48px;
+    text-align: center;
+  }
+.guide-root .footer-copy{ font-size: 12px; color: var(--gray2); }
+
+@keyframes fadeUp{
+    from{ opacity: 0; transform: translateY(10px); }
+    to  { opacity: 1; transform: translateY(0); }
+  }
+
+/* ── Largeurs d'écran généreuses : mêmes cartes, centrées ────────── */
+@media (min-width: 720px){
+    .guide-root .home-title{ font-size: 40px; }
+    .guide-root .hero-left h1{ font-size: 44px; }
+  }
+@media (prefers-reduced-motion: reduce){
+    .guide-root *{ animation: none !important; transition: none !important; }
+  }

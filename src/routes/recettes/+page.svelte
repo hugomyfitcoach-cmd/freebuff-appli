@@ -198,16 +198,17 @@
 	{:else}
 		<!-- BARRE DU GUIDE -->
 		<div class="topbar">
-			<button type="button" class="home-back-btn" onclick={goHome}>← Toutes les sections</button>
-			<div class="topbar-right">
-				<span class="badge-count">105 recettes · 5 guides</span>
-				<span>Guide Nutrition</span>
-			</div>
+			<button type="button" class="home-back-btn" onclick={goHome} aria-label="Retour à toutes les sections">
+				<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+				Toutes les sections
+			</button>
+			<div class="topbar-right">Guide Nutrition</div>
 		</div>
 
 		<!-- HERO -->
 		<div class="hero-strip">
 			<div class="hero-left">
+				<span class="badge-count">105 recettes · 5 guides</span>
 				<h1>Recettes</h1>
 				<p>
 					Chaque recette est calibrée pour 1 personne · 1 portion.<br />
