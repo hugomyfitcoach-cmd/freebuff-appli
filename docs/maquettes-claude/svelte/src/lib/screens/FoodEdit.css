@@ -1,0 +1,7 @@
+/* Styles propres à l'écran « Food-Edit » (portée .s-food-edit). Les keyframes et classes communes sont dans styles/dc-base.css. */
+.s-food-edit button{font-family:inherit;cursor:pointer}
+.s-food-edit a{text-decoration:none;color:inherit}
+.s-food-edit input{font-family:inherit}
+.s-food-edit input::placeholder{color:#9AA39E}
+.s-food-edit .press{transition:transform .15s ease,box-shadow .2s ease}
+.s-food-edit .press:active{transform:scale(.97)}

@@ -1,0 +1,7 @@
+/* Styles propres à l'écran « Meal-AI » (portée .s-meal-ai). Les keyframes et classes communes sont dans styles/dc-base.css. */
+.s-meal-ai button{font-family:inherit;cursor:pointer}
+.s-meal-ai a{text-decoration:none;color:inherit}
+.s-meal-ai input,.s-meal-ai textarea,.s-meal-ai select{font-family:inherit}
+.s-meal-ai .press{transition:transform .15s ease,box-shadow .2s ease,background-color .2s ease,border-color .2s ease}
+.s-meal-ai .press:active{transform:scale(.97)}
+.s-meal-ai .area{animation:areaIn .6s ease-out .45s both}

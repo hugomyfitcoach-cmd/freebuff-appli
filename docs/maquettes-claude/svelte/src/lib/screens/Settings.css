@@ -1,0 +1,7 @@
+/* Styles propres à l'écran « Settings » (portée .s-settings). Les keyframes et classes communes sont dans styles/dc-base.css. */
+.s-settings button{font-family:inherit;cursor:pointer}
+.s-settings a{text-decoration:none;color:inherit}
+.s-settings input,.s-settings textarea,.s-settings select{font-family:inherit}
+.s-settings .press{transition:transform .15s ease,box-shadow .2s ease,background-color .2s ease,border-color .2s ease}
+.s-settings .press:active{transform:scale(.97)}
+.s-settings .area{animation:areaIn .6s ease-out .45s both}

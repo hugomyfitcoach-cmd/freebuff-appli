@@ -1,0 +1,7 @@
+/* Styles propres à l'écran « Recap » (portée .s-recap). Les keyframes et classes communes sont dans styles/dc-base.css. */
+.s-recap button{font-family:inherit;cursor:pointer}
+.s-recap a{text-decoration:none;color:inherit}
+.s-recap input,.s-recap textarea,.s-recap select{font-family:inherit}
+.s-recap .press{transition:transform .15s ease,box-shadow .2s ease,background-color .2s ease,border-color .2s ease}
+.s-recap .press:active{transform:scale(.97)}
+.s-recap .area{animation:areaIn .6s ease-out .45s both}

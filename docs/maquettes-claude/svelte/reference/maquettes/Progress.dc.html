@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Ma progression</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Lato',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button{font-family:inherit;cursor:pointer}
+a{text-decoration:none;color:inherit}
+.press{transition:transform .15s ease,box-shadow .2s ease}
+.press:active{transform:scale(.97)}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes screenIn{from{opacity:0}to{opacity:1}}
+@keyframes ringIn{from{stroke-dasharray:0 1000}}
+@keyframes drawIn{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+@keyframes barIn{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes areaIn{from{opacity:0}to{opacity:1}}
+.screen{animation:screenIn .24s ease-out both}
+.card{animation:fadeUp .28s ease-out both}
+.card:nth-child(2){animation-delay:40ms}.card:nth-child(3){animation-delay:80ms}.card:nth-child(4){animation-delay:120ms}.card:nth-child(5){animation-delay:160ms}.card:nth-child(6){animation-delay:200ms}.card:nth-child(7){animation-delay:240ms}
+.draw{stroke-dasharray:1;stroke-dashoffset:0;animation:drawIn .9s cubic-bezier(.3,.7,.2,1) .15s both}
+.area{animation:areaIn .6s ease-out .5s both}
+.bar{transform-origin:left;animation:barIn .6s cubic-bezier(.2,.8,.2,1) .15s both}
+@media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
+</style>
+</helmet>
+<div class="screen" style="width:390px;height:844px;box-sizing:border-box;background:#FFFFFF;display:flex;flex-direction:column;position:relative;overflow:hidden;color:#0F1512;font-family:'Lato',system-ui,sans-serif">
+
+  <div style="padding:52px 20px 0;display:flex;align-items:center;justify-content:space-between">
+    <a class="press" href="Home.dc.html" aria-label="Retour à l'accueil" style="height:44px;box-sizing:border-box;padding:0 18px 0 10px;border-radius:22px;border:1px solid #E9EDEA;background:#FFFFFF;box-shadow:0 1px 2px rgba(15,21,18,.04),0 8px 20px -8px rgba(15,21,18,.14);display:flex;align-items:center;gap:4px;font-size:15px;font-weight:700;color:#0F1512">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>
+      Accueil
+    </a>
+    <div style="display:flex;align-items:center;gap:10px">
+      <button class="press" aria-label="Actualiser" style="width:44px;height:44px;padding:0;border-radius:22px;border:1px solid #E9EDEA;background:#FFFFFF;box-shadow:0 1px 2px rgba(15,21,18,.04),0 8px 20px -8px rgba(15,21,18,.14);display:flex;align-items:center;justify-content:center;color:#0F1512">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.5-4.2L4 9"></path><path d="M4 4v5h5"></path><path d="M4 13a8 8 0 0 0 14.5 4.2L20 15"></path><path d="M20 20v-5h-5"></path></svg>
+      </button>
+      <button class="press" aria-label="Profil" style="width:44px;height:44px;padding:0;border-radius:22px;border:2px solid #FFFFFF;background:#e8fef0;box-shadow:0 0 0 1px rgba(29,185,84,.3),0 8px 20px -8px rgba(15,21,18,.18);display:flex;align-items:center;justify-content:center;color:#0d7c36;font-size:15px;font-weight:900">HG</button>
+    </div>
+  </div>
+
+  <div style="flex:1;min-height:0;overflow-y:auto;padding:0 0 140px">
+
+    <div style="padding:24px 20px 0">
+      <div style="display:flex;align-items:center;gap:10px">
+        <h1 style="margin:0;font-size:34px;font-weight:900;letter-spacing:-0.03em;line-height:1.05">Ma progression</h1>
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"></path><path d="M15 7h6v6"></path></svg>
+      </div>
+      <p style="margin:10px 0 0;font-size:15px;line-height:1.45;color:#66716B">Poids, mensurations et masse grasse estimée — touche une courbe pour la détailler.</p>
+    </div>
+
+    <div style="padding:22px 20px 0;display:flex;flex-direction:column;gap:16px">
+
+      <div class="card" style="padding:18px 20px;border-radius:26px;border:1px solid #EEF1EF;background:#FFFFFF;box-shadow:0 1px 2px rgba(15,21,18,.04),0 16px 36px -18px rgba(15,21,18,.2)">
+        <div style="display:flex;align-items:center;gap:14px">
+          <span style="width:48px;height:48px;border-radius:16px;background:#e8fef0;color:#1db954;display:flex;align-items:center;justify-content:center;flex:none"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 16.500L16.500 4l3.500 3.500L7.500 20Z"></path><path d="M8 12.500l2 2M11 9.500l1.500 1.500M14 6.500l2 2"></path></svg></span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;font-weight:900;letter-spacing:.12em;color:#66716B">TAILLE</div>
+            <div style="margin-top:2px;display:flex;align-items:baseline;gap:5px"><span style="font-size:32px;font-weight:900;letter-spacing:-0.03em;line-height:1.1">173</span><span style="font-size:16px;font-weight:700;color:#66716B">cm</span></div>
+          </div>
+          <a class="press" href="Sheet-Taille.dc.html" style="flex:none;height:44px;box-sizing:border-box;display:flex;align-items:center;padding:0 20px;border-radius:22px;border:1px solid #DDE3DF;background:#FFFFFF;font-size:15px;font-weight:700;color:#0F1512">Modifier</a>
+        </div>
+        <p style="margin:12px 0 0;font-size:13px;line-height:1.45;color:#66716B">La taille est renseignée une seule fois — elle reste associée à ton profil.</p>
+      </div>
+
+      <sc-for list="{{metrics}}" as="c" hint-placeholder-count="4">
+        <div class="card" style="position:relative;border-radius:28px;border:1px solid #EEF1EF;background:#FFFFFF;box-shadow:0 1px 2px rgba(15,21,18,.04),0 18px 40px -18px rgba(15,21,18,.2);overflow:hidden"><a href="{{c.detail}}" aria-label="Voir le détail et l'historique" style="position:absolute;left:0;right:0;top:0;height:150px;z-index:1"></a>
+          <div style="padding:20px 20px 4px">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <span style="font-size:12px;font-weight:900;letter-spacing:.12em;color:#66716B">{{c.label}}</span>
+              <span style="width:34px;height:34px;border-radius:12px;background:{{c.tint}};color:{{c.color}};display:flex;align-items:center;justify-content:center">
+                <sc-if value="{{c.isWeight}}" hint-placeholder-val="{{ false }}"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v16M7 20h10M5 8h14"></path><path d="M5 8l-2.500 6a3 3 0 0 0 5 0Z"></path><path d="M19 8l-2.500 6a3 3 0 0 0 5 0Z"></path></svg></sc-if>
+                <sc-if value="{{c.isRuler}}" hint-placeholder-val="{{ true }}"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 16.500L16.500 4l3.500 3.500L7.500 20Z"></path><path d="M8 12.500l2 2M11 9.500l1.500 1.500M14 6.500l2 2"></path></svg></sc-if>
+                <sc-if value="{{c.isTarget}}" hint-placeholder-val="{{ false }}"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.500"></circle><circle cx="12" cy="12" r="4.500"></circle><circle cx="12" cy="12" r="1" fill="currentColor"></circle></svg></sc-if>
+              </span>
+            </div>
+            <div style="margin-top:10px;display:flex;align-items:center;flex-wrap:wrap;gap:10px 12px">
+              <div style="display:flex;align-items:baseline;gap:6px"><span style="font-size:48px;font-weight:900;letter-spacing:-0.04em;line-height:1">{{c.value}}</span><span style="font-size:18px;font-weight:700;color:#66716B">{{c.unit}}</span></div>
+              <span style="display:inline-flex;align-items:center;gap:4px;border-radius:12px;padding:6px 11px;font-size:13px;font-weight:700;background:{{c.chipBg}};color:{{c.chipFg}}">
+                <sc-if value="{{c.down}}" hint-placeholder-val="{{ true }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6"></path></svg></sc-if>
+                <sc-if value="{{c.up}}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"></path></svg></sc-if>
+                {{c.delta}}
+              </span>
+            </div>
+            <div style="margin-top:6px;font-size:14px;color:#66716B">{{c.sub}}</div>
+          </div>
+
+          <div style="padding:6px 18px 6px">
+            <div style="position:relative;touch-action:pan-y" onMouseMove="{{c.move}}" onTouchMove="{{c.move}}" onTouchStart="{{c.move}}" onMouseLeave="{{c.leave}}" onTouchEnd="{{c.leave}}">
+              <svg viewBox="0 0 318 132" width="100%" height="132" style="display:block;overflow:visible" role="img" aria-label="{{c.aria}}">
+                <defs><linearGradient id="{{c.gid}}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{{c.color}}" stop-opacity="0.24"></stop><stop offset="1" stop-color="{{c.color}}" stop-opacity="0"></stop></linearGradient></defs>
+                <line x1="0" y1="20" x2="318" y2="20" stroke="#EEF1EF" stroke-width="1" stroke-dasharray="3 5"></line>
+                <line x1="0" y1="66" x2="318" y2="66" stroke="#EEF1EF" stroke-width="1" stroke-dasharray="3 5"></line>
+                <line x1="0" y1="112" x2="318" y2="112" stroke="#EEF1EF" stroke-width="1" stroke-dasharray="3 5"></line>
+                <path class="area" d="{{c.area}}" fill="url(#{{c.gid}})"></path>
+                <path class="draw" pathLength="1" d="{{c.line}}" fill="none" stroke="{{c.color}}" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"></path>
+                <path class="area" d="{{c.dots}}" fill="none" stroke="{{c.color}}" stroke-width="9" stroke-linecap="round"></path>
+                <path class="area" d="{{c.dots}}" fill="none" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round"></path>
+                <line x1="{{c.hx}}" y1="12" x2="{{c.hx}}" y2="112" stroke="{{c.color}}" stroke-opacity="0.4" stroke-width="1.5" stroke-dasharray="3 4" style="transition:x1 .15s ease,x2 .15s ease"></line>
+                <circle cx="{{c.hx}}" cy="{{c.hy}}" r="11" fill="{{c.color}}" fill-opacity="0.18" style="transition:cx .15s ease,cy .15s ease"></circle>
+                <circle cx="{{c.hx}}" cy="{{c.hy}}" r="6.5" fill="{{c.color}}" stroke="#FFFFFF" stroke-width="2.5" style="transition:cx .15s ease,cy .15s ease"></circle>
+              </svg>
+              <div aria-live="polite" style="position:absolute;top:{{c.tipTop}}px;left:{{c.tipLeft}}%;transform:translate(-50%,-100%);pointer-events:none;padding:7px 12px;border-radius:12px;background:#111A15;color:#FFFFFF;text-align:center;white-space:nowrap;box-shadow:0 12px 24px -10px rgba(15,21,18,.5);transition:left .15s ease,top .15s ease"><div style="font-size:14px;font-weight:900;line-height:1.2">{{c.tipVal}}</div><div style="font-size:11.5px;color:#C9D0CC;line-height:1.3">{{c.tipDate}}</div></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:4px 2px 0;font-size:11.5px;color:#7B857F"><span>{{c.d0}}</span><span>{{c.d1}}</span></div>
+          </div>
+
+          <sc-if value="{{c.manual}}" hint-placeholder-val="{{ true }}">
+            <a class="press" href="{{c.sheet}}" style="width:100%;box-sizing:border-box;display:flex;align-items:center;gap:12px;padding:16px 20px;border:0;border-top:1px solid #EEF1EF;background:#FFFFFF;font-size:15px;font-weight:700;color:#0F1512;text-align:left">
+              <span style="width:28px;height:28px;border-radius:14px;background:#e8fef0;color:#1db954;display:flex;align-items:center;justify-content:center;flex:none"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></span>
+              <span style="flex:1">Enregistrer une valeur</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9AA39E" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"></path></svg>
+            </a>
+          </sc-if>
+          <sc-if value="{{c.auto}}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:flex-start;gap:12px;padding:16px 20px;border-top:1px solid #EEF1EF;background:#FBFCFB">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9AA39E" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:none;margin-top:1px"><path d="M9 18h6M10 21h4"></path><path d="M12 3a6 6 0 0 0-3.500 10.900c.6.5 1 1.200 1 2.100h5c0-.9.4-1.600 1-2.100A6 6 0 0 0 12 3Z"></path></svg>
+              <span style="font-size:13px;line-height:1.5;color:#66716B">Calcul automatique depuis tes mensurations — impossible à modifier. Touche la courbe pour voir l'historique.</span>
+            </div>
+          </sc-if>
+        </div>
+      </sc-for>
+
+      <div style="padding:16px 20px;border-radius:22px;background:#FFF6EE;border:1px solid #FDE3CC;font-size:13px;line-height:1.5;color:#8A4A12">Estimation sensible aux conditions de mesure. La tendance compte plus qu'un chiffre isolé.</div>
+    </div>
+  </div>
+
+  <div style="position:absolute;left:0;right:0;bottom:0;height:140px;background:linear-gradient(to bottom,rgba(255,255,255,0),#FFFFFF 66%);pointer-events:none"></div>
+
+  <nav aria-label="Navigation principale" style="position:absolute;left:20px;right:20px;bottom:28px;height:68px;box-sizing:border-box;padding:6px;border-radius:34px;background:#FFFFFF;border:1px solid #EEF1EF;box-shadow:0 18px 40px -14px rgba(15,21,18,.28),0 2px 6px rgba(15,21,18,.06);display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px">
+    <a href="Home.dc.html" style="border-radius:28px;color:#66716B;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;font-weight:700">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1Z"></path></svg>Accueil
+    </a>
+    <a href="Journal.dc.html" style="border-radius:28px;color:#66716B;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;font-weight:700">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3.500" width="13" height="17" rx="2"></rect><path d="M9 8h6M9 12h6M9 16h3"></path></svg>Journal
+    </a>
+    <a href="Progress.dc.html" aria-current="page" style="border-radius:28px;background:#e8fef0;color:#0d7c36;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;font-weight:700">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"></path><path d="M15 7h6v6"></path></svg>Progression
+    </a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { hov: {} }; }
+  monotone(pts) {
+    const n = pts.length;
+    const dx = [], m = [], t = [];
+    for (let i = 0; i < n - 1; i++) {
+      dx[i] = pts[i + 1].x - pts[i].x;
+      m[i] = (pts[i + 1].y - pts[i].y) / dx[i];
+    }
+    t[0] = m[0];
+    t[n - 1] = m[n - 2];
+    for (let i = 1; i < n - 1; i++) {
+      if (m[i - 1] * m[i] <= 0) { t[i] = 0; }
+      else {
+        const a = dx[i - 1], b = dx[i];
+        t[i] = (3 * (a + b)) / ((2 * b + a) / m[i - 1] + (b + 2 * a) / m[i]);
+      }
+    }
+    let d = 'M' + pts[0].x.toFixed(1) + ' ' + pts[0].y.toFixed(1);
+    for (let i = 0; i < n - 1; i++) {
+      const x0 = pts[i].x, y0 = pts[i].y, x1 = pts[i + 1].x, y1 = pts[i + 1].y, h = dx[i] / 3;
+      d += ' C' + (x0 + h).toFixed(1) + ' ' + (y0 + t[i] * h).toFixed(1) + ' ' + (x1 - h).toFixed(1) + ' ' + (y1 - t[i + 1] * h).toFixed(1) + ' ' + x1.toFixed(1) + ' ' + y1.toFixed(1);
+    }
+    return d;
+  }
+  chart(pts0, unit, dec, hk) {
+    const W = 318, H = 132, pt = 20, pb = 20, px = 8;
+    const MOIS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+    const base = new Date(2026, 8, 7);
+    const dateOf = (t) => { const d = new Date(base.getTime() + t * 86400000); return d.getDate() + ' ' + MOIS[d.getMonth()] + ' ' + d.getFullYear(); };
+    const fmt = (v) => v.toFixed(dec).replace('.', ',') + ' ' + unit;
+    const t0 = pts0[0].t, t1 = pts0[pts0.length - 1].t;
+    let vmin = Math.min.apply(null, pts0.map((p) => p.v)), vmax = Math.max.apply(null, pts0.map((p) => p.v));
+    if (vmax - vmin < 1e-9) { vmin -= 1; vmax += 1; }
+    const pts = pts0.map((p) => ({ x: px + (p.t - t0) / (t1 - t0) * (W - 2 * px), y: pt + (1 - (p.v - vmin) / (vmax - vmin)) * (H - pt - pb) }));
+    const line = this.monotone(pts);
+    const last = pts[pts.length - 1];
+    const area = line + ' L' + last.x.toFixed(1) + ' ' + H + ' L' + pts[0].x.toFixed(1) + ' ' + H + ' Z';
+    const dots = pts.slice(0, pts.length - 1).map((p) => 'M' + p.x.toFixed(1) + ' ' + p.y.toFixed(1) + ' h0').join(' ');
+    const k = (hk === undefined || hk === null) ? pts.length - 1 : hk;
+    const hp = pts[k];
+    return { line, area, dots, xs: pts.map((p) => p.x), hx: hp.x.toFixed(1), hy: hp.y.toFixed(1),
+      tipTop: Math.max(hp.y - 14, 34).toFixed(0), tipLeft: Math.min(Math.max(hp.x / W * 100, 18), 82).toFixed(1),
+      tipVal: fmt(pts0[k].v), tipDate: dateOf(pts0[k].t), d0: dateOf(t0), d1: dateOf(t1) };
+  }
+  renderVals() {
+    const weightRaw = [[0,1],[0.034,0.728],[0.068,0.531],[0.102,0.798],[0.138,0.798],[0.586,0.732],[0.62,0.732],[0.655,0.798],[0.725,0.596],[0.793,0.667],[0.862,0.531],[0.896,0.798],[0.93,0.93],[0.966,0],[1,0.268]];
+    const weight = weightRaw.map((p) => ({ t: Math.round(p[0] * 29), v: 72.7 + p[1] * 1.5 }));
+    const green = { chipBg: '#e8fef0', chipFg: '#0d7c36' };
+    const orange = { chipBg: '#FFF1E6', chipFg: '#f97316' };
+    const defs = [
+      Object.assign({ label: 'POIDS', value: '73,1', unit: 'kg', delta: '1,1 kg', down: true, up: false, sub: 'Poids', color: '#1db954', tint: '#e8fef0', gid: 'gWeight', isWeight: true, isRuler: false, isTarget: false, manual: true, auto: false, aria: 'Courbe de poids', pts: weight, dec: 1 }, green),
+      Object.assign({ label: 'TOUR DE TAILLE FINE', value: '85', unit: 'cm', delta: '5 cm', down: true, up: false, sub: 'Partie la plus fine', color: '#F97316', tint: '#FFF1E6', gid: 'gWaist', isWeight: false, isRuler: true, isTarget: false, manual: true, auto: false, aria: 'Courbe du tour de taille', pts: [{ t: 0, v: 90 }, { t: 20, v: 85 }], dec: 0 }, green),
+      Object.assign({ label: 'FESSIERS', value: '107', unit: 'cm', delta: '7 cm', down: false, up: true, sub: 'Circonférence', color: '#EC4899', tint: '#FDE8F3', gid: 'gHips', isWeight: false, isRuler: true, isTarget: false, manual: true, auto: false, aria: 'Courbe des fessiers', pts: [{ t: 0, v: 100 }, { t: 20, v: 107 }], dec: 0 }, orange),
+      Object.assign({ label: 'TOUR DE COU', value: '33', unit: 'cm', delta: '3 cm', down: false, up: true, sub: 'Circonférence', color: '#3B82F6', tint: '#E8F0FE', gid: 'gNeck', isWeight: false, isRuler: true, isTarget: false, manual: true, auto: false, aria: 'Courbe du tour de cou', pts: [{ t: 0, v: 30 }, { t: 20, v: 33 }], dec: 0 }, orange),
+      Object.assign({ label: '% DE MASSE GRASSE ESTIMÉ', value: '35,7', unit: '%', delta: '0,5 % depuis le démarrage', down: true, up: false, sub: 'Estimation indicative — méthode US Navy', color: '#A855F7', tint: '#F3E8FF', gid: 'gFat', isWeight: false, isRuler: false, isTarget: true, manual: false, auto: true, aria: 'Courbe de masse grasse estimée', pts: [{ t: 0, v: 36.2 }, { t: 2, v: 36.2 }, { t: 20, v: 35.7 }, { t: 29, v: 35.7 }], dec: 1 }, green)
+    ];
+    const details = ['Poids.dc.html', 'Partie-fine.dc.html', 'Fessiers.dc.html', 'Cou.dc.html', 'Masse-grasse.dc.html'];
+    const hov = this.state.hov;
+    return { metrics: defs.map((d, i) => {
+      const c = this.chart(d.pts, d.unit, d.dec, hov[i]);
+      const move = (e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        const t = e.touches && e.touches.length ? e.touches[0] : e;
+        const x = (t.clientX - r.left) / r.width * 318;
+        let best = 0;
+        c.xs.forEach((px, k) => { if (Math.abs(px - x) < Math.abs(c.xs[best] - x)) best = k; });
+        if (this.state.hov[i] !== best) { const h = Object.assign({}, this.state.hov); h[i] = best; this.setState({ hov: h }); }
+      };
+      const leave = () => { const h = Object.assign({}, this.state.hov); delete h[i]; this.setState({ hov: h }); };
+      return Object.assign({ detail: details[i], sheet: i === 0 ? 'Sheet-Poids.dc.html' : 'Sheet-Mesures.dc.html', move: move, leave: leave }, d, c);
+    }) };
+  }
+}
+</script>
+</body>
+</html>

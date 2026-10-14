@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Composants et états</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Lato',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.hd{box-sizing:border-box;width:1100px;padding:44px 48px 52px;background:#FFFFFF;color:#0F1512;font-family:'Lato',system-ui,sans-serif}
+.hd h1{margin:0;font-size:38px;font-weight:900;letter-spacing:-0.03em;line-height:1.1}
+.hd .sub{margin:10px 0 0;font-size:16px;line-height:1.5;color:#66716B;max-width:760px}
+.hd h2{margin:40px 0 14px;font-size:20px;font-weight:900;letter-spacing:-0.02em}
+.hd h3{margin:0 0 6px;font-size:15px;font-weight:900}
+.hd p{margin:0;font-size:14px;line-height:1.55;color:#3A4540}
+.grid{display:grid;gap:14px}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}.g3{grid-template-columns:repeat(3,minmax(0,1fr))}.g4{grid-template-columns:repeat(4,minmax(0,1fr))}.g5{grid-template-columns:repeat(5,minmax(0,1fr))}
+.card{border-radius:20px;border:1px solid #EEF1EF;background:#fff;box-shadow:0 1px 2px rgba(15,21,18,.04),0 14px 32px -18px rgba(15,21,18,.18);padding:16px 18px}
+.sw{height:54px;border-radius:12px;border:1px solid rgba(15,21,18,.08);margin-bottom:10px}
+.tk{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:#0d7c36;font-weight:700}
+.hx{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:#66716B}
+.note{font-size:12.5px;line-height:1.45;color:#66716B;margin-top:4px}
+table{width:100%;border-collapse:collapse;font-size:13.5px;line-height:1.45}
+th{text-align:left;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#66716B;padding:0 12px 8px 0;border-bottom:1px solid #E9EDEA}
+td{padding:11px 12px 11px 0;border-bottom:1px solid #EEF1EF;vertical-align:top;color:#3A4540}
+td b{color:#0F1512}
+pre{margin:0;padding:16px 18px;border-radius:16px;background:#111A15;color:#e8fef0;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.55;overflow-x:auto;white-space:pre}
+.tag{display:inline-block;font-size:11px;font-weight:900;letter-spacing:.04em;border-radius:8px;padding:3px 8px;margin-right:6px}
+.ok{background:#e8fef0;color:#0d7c36}.wa{background:#fff8f0;color:#ff9500}.ko{background:#fff0f0;color:#ff4444}
+.ol{margin:0;padding-left:20px;font-size:14px;line-height:1.6;color:#3A4540}
+</style>
+</helmet>
+<div class="hd"><h1>Composants et états à créer</h1>
+<p class="sub">Les maquettes montrent le cas heureux. Cette liste dit ce qui est déjà dessiné et ce que Freebuff doit construire <b>dans le même langage</b>, plutôt que l’inventer écran par écran.</p>
+<h2>Inventaire des composants</h2>
+<div class="card"><table><thead><tr><th>Composant</th><th>Où</th><th>États dessinés</th><th>États à construire</th></tr></thead><tbody><tr><td><b>Carte</b></td><td>Progression, Drive, Home, Journal</td><td>Défaut, pressée (scale .97)</td><td>Chargement (squelette), vide</td></tr><tr><td><b>Champ de saisie</b></td><td>Connexion, mensurations, poids, recherche</td><td>Défaut, focus (anneau vert 4 px)</td><td>Erreur (bordure rouge + message), désactivé, valeur invalide (poids hors plage)</td></tr><tr><td><b>Boutons pleins / pill</b></td><td>Se connecter, Enregistrer, Ajouter au journal</td><td>Défaut, pressé, survol (desktop)</td><td>Chargement (spinner, largeur fixe), désactivé</td></tr><tr><td><b>Sélecteur segmenté / onglets</b></td><td>Espace coach/client, Grammes/Portions/Repères</td><td>Sélectionné, indicateur glissant</td><td>Désactivé, variante défilante si &gt; 3 onglets</td></tr><tr><td><b>Stepper et chips de quantité</b></td><td>Fiche aliment</td><td>Valeur, +/−, chip sélectionnée</td><td>Limite min/max, appui long pour répéter</td></tr><tr><td><b>Sélecteur de repas (4 pictos)</b></td><td>Fiche aliment, Journal, Repas IA</td><td>Sélectionné / non sélectionné</td><td>—</td></tr><tr><td><b>Cellule macro</b></td><td>Journal, fiche aliment, Edition repas</td><td>Valeur + unité</td><td>Valeur absente (—), dépassement (orange/rouge)</td></tr><tr><td><b>Ligne d’historique</b></td><td>Détails Poids / mensurations</td><td>Défaut, sélectionnée, avec/sans stylo</td><td>Suppression (confirmation), liste vide</td></tr><tr><td><b>Fenêtre de saisie (bottom sheet)</b></td><td>Poids, mensurations, taille</td><td>Ouverte (glisse), fermer</td><td>Clavier ouvert (la fenêtre remonte), erreur de saisie, enregistrement réussi</td></tr><tr><td><b>Barre de navigation flottante</b></td><td>Accueil, Journal, Progression</td><td>Onglet actif</td><td>Badge de notification, masquée quand le clavier est ouvert</td></tr><tr><td><b>Barre de macros flottante</b></td><td>Journal</td><td>Visible au défilement</td><td>Masquée si aucune donnée</td></tr><tr><td><b>Graphique en courbe + info-bulle</b></td><td>Progression, détails</td><td>Survol / toucher, point par défaut = dernier</td><td>Une seule mesure (pas de courbe), aucune mesure, chargement</td></tr><tr><td><b>Pastille de variation</b></td><td>Détails (↑ ↓ —)</td><td>Hausse, baisse, stable</td><td>Première mesure (masquée)</td></tr></tbody></table></div>
+<h2>États par écran (aucun n’est dessiné)</h2>
+<div class="card"><table><tbody><tr><td style="width:260px"><b>Connexion</b></td><td>Erreur d’identifiants, e-mail invalide, bouton en chargement, compte verrouillé, « Mot de passe oublié ? » (parcours à définir : hors maquette).</td></tr><tr><td style="width:260px"><b>Tous les écrans de liste</b></td><td>Vide, chargement, erreur réseau avec relance, hors-ligne (PWA : afficher les dernières données connues).</td></tr><tr><td style="width:260px"><b>Enregistrements (poids, mensurations, repas)</b></td><td>Confirmation (toast ou retour animé), annulation, doublon à la même date.</td></tr><tr><td style="width:260px"><b>Suppression</b></td><td>Confirmation explicite avant toute suppression de repas, aliment ou mesure.</td></tr><tr><td style="width:260px"><b>Scanner</b></td><td>Permission caméra refusée, code introuvable, lecture impossible → saisie manuelle déjà prévue.</td></tr><tr><td style="width:260px"><b>Repas IA</b></td><td>Analyse en cours, échec de l’analyse, résultat à valider avant ajout au journal.</td></tr></tbody></table></div>
+<h2>Règle de passation</h2>
+<div class="card"><ol class="ol"><li>La maquette est la référence <b>esthétique</b> ; l’app actuelle est la référence <b>fonctionnelle</b>. Tout bouton ou action de l’app actuelle absent d’une maquette est conservé.</li>
+<li>Une donnée d’exemple de la maquette n’est jamais une donnée produit. Valeurs de Meal-Edit / Food-Edit, étapes 2–3 des recettes, historique des mesures (reconstitué depuis les graphiques) : à remplacer par les données réelles.</li>
+<li>Logos et avatar : découpés dans des captures, donc à remplacer par les fichiers sources.</li>
+<li>Les couleurs de ce projet sont indicatives : variables officielles G-FLUX prioritaires.</li></ol></div></div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1100,"height":1760}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

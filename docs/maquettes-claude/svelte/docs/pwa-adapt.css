@@ -1,0 +1,14 @@
+html,body{height:100%;margin:0;background:#FFFFFF;overscroll-behavior-y:none;
+  -webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%}
+.app{min-height:100vh;min-height:100dvh;               /* remplace height:844px */
+  padding-top:env(safe-area-inset-top)}                /* remplace padding-top:52px */
+.header{padding-top:max(12px, env(safe-area-inset-top))}
+.nav-float{bottom:calc(env(safe-area-inset-bottom) + 12px)}  /* remplace bottom:28px */
+.cta-bar{padding-bottom:max(20px, env(safe-area-inset-bottom))}
+button,a{touch-action:manipulation}
+input,textarea{font-size:16px}                        /* évite le zoom auto d'iOS */
+.scroll{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.glass{background:rgba(255,255,255,.9)}
+@supports ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  .glass{-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}

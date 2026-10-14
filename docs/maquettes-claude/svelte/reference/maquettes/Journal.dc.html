@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Journal</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Lato',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button{font-family:inherit;cursor:pointer}
+a{text-decoration:none;color:inherit}
+.press{transition:transform .15s ease,box-shadow .2s ease,background-color .2s ease}
+.press:active{transform:scale(.96)}
+@property --k{syntax:'<integer>';inherits:false;initial-value:0}
+@property --h{syntax:'<integer>';inherits:false;initial-value:0}
+@property --t{syntax:'<integer>';inherits:false;initial-value:0}
+@property --n{syntax:'<integer>';inherits:false;initial-value:0}
+.c4::before{counter-reset:k var(--k) h var(--h) t var(--t);content:counter(k) "\00a0" counter(h) counter(t,decimal-leading-zero)}
+.c1::before{counter-reset:n var(--n);content:counter(n)}
+@keyframes fadeA{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes fadeB{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes ringA{from{stroke-dasharray:0 201}}
+@keyframes ringB{from{stroke-dasharray:0 201}}
+@keyframes barA{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes barB{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes cntA{from{--k:0;--h:0;--t:0;--n:0}}
+@keyframes cntB{from{--k:0;--h:0;--t:0;--n:0}}
+@keyframes popA{0%{transform:scale(.8)}60%{transform:scale(1.12)}100%{transform:scale(1)}}
+@keyframes popIn{from{opacity:0;transform:translateY(-8px) scale(.97)}to{opacity:1;transform:none}}
+@keyframes scrimIn{from{opacity:0}to{opacity:1}}
+@keyframes calRA{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
+@keyframes calRB{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
+@keyframes calLA{from{opacity:0;transform:translateX(-18px)}to{opacity:1;transform:none}}
+@keyframes calLB{from{opacity:0;transform:translateX(-18px)}to{opacity:1;transform:none}}
+@keyframes screenIn{from{opacity:0}to{opacity:1}}
+.screen{animation:screenIn .24s ease-out both}
+@media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
+</style>
+</helmet>
+<div class="screen" style="width:390px;height:844px;box-sizing:border-box;background:#FFFFFF;display:flex;flex-direction:column;position:relative;overflow:hidden;color:#0F1512;font-family:'Lato',system-ui,sans-serif">
+
+  <div style="padding:52px 20px 0;display:flex;align-items:center;justify-content:space-between;position:relative;z-index:30">
+    <sc-if value="{{cal}}" hint-placeholder-val="{{ false }}"><button aria-label="Fermer le calendrier" onClick="{{toggleCal}}" style="position:absolute;left:0;top:0;width:390px;height:844px;padding:0;border:0;background:rgba(15,21,18,.18);animation:scrimIn .2s ease-out both"></button></sc-if>
+    <div style="position:relative;display:flex;align-items:center;gap:2px">
+      <button class="press" onClick="{{toggleCal}}" aria-label="Choisir la date" aria-expanded="{{cal}}" style="height:48px;padding:0 12px 0 16px;border-radius:24px;border:1px solid #E9EDEA;background:#FFFFFF;box-shadow:0 1px 2px rgba(15,21,18,.04),0 8px 20px -8px rgba(15,21,18,.14);display:flex;align-items:center;gap:6px;font-size:17px;font-weight:900;letter-spacing:-0.02em;color:#0F1512;white-space:nowrap">{{dayLabel}}<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#66716B" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="transform:rotate({{chevRot}}deg);transition:transform .2s ease"><path d="M6 9l6 6 6-6"></path></svg></button>
+      <button class="press" aria-label="Jour précédent" onClick="{{prevDay}}" style="position:relative;width:40px;height:40px;padding:0;border-radius:20px;border:0;background:transparent;color:#4A5550;display:flex;align-items:center;justify-content:center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg></button><button class="press" aria-label="Jour suivant" onClick="{{nextDay}}" style="position:relative;width:40px;height:40px;padding:0;border-radius:20px;border:0;background:transparent;color:#4A5550;display:flex;align-items:center;justify-content:center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"></path></svg></button>
+    </div>
+    <button class="press" aria-label="Actualiser" style="position:relative;width:44px;height:44px;padding:0;border-radius:22px;border:1px solid #E9EDEA;background:#FFFFFF;box-shadow:0 1px 2px rgba(15,21,18,.04),0 8px 20px -8px rgba(15,21,18,.14);display:flex;align-items:center;justify-content:center;color:#0F1512">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.5-4.2L4 9"></path><path d="M4 4v5h5"></path><path d="M4 13a8 8 0 0 0 14.5 4.2L20 15"></path><path d="M20 20v-5h-5"></path></svg>
+    </button>
+    <sc-if value="{{cal}}" hint-placeholder-val="{{ false }}">
+      <div role="dialog" aria-label="Calendrier" style="position:absolute;left:20px;right:20px;top:108px;box-sizing:border-box;padding:14px 14px 14px;border-radius:28px;background:#FFFFFF;border:1px solid #EEF1EF;box-shadow:0 30px 60px -18px rgba(15,21,18,.4);transform-origin:top left;animation:popIn .22s cubic-bezier(.2,.8,.2,1) both">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:0 4px 0 10px">
+          <div style="font-size:18px;font-weight:900;letter-spacing:-0.02em">{{monthTitle}}</div>
+          <div style="display:flex;gap:2px">
+            <button class="press" aria-label="Mois précédent" onClick="{{prevMonth}}" style="width:44px;height:44px;padding:0;border-radius:22px;border:0;background:#F3F6F4;color:#0F1512;display:flex;align-items:center;justify-content:center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg></button>
+            <button class="press" aria-label="Mois suivant" onClick="{{nextMonth}}" style="width:44px;height:44px;padding:0;border-radius:22px;border:0;background:#F3F6F4;color:#0F1512;display:flex;align-items:center;justify-content:center;margin-left:6px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"></path></svg></button>
+          </div>
+        </div>
+        <div style="margin-top:8px;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));text-align:center;font-size:11.5px;font-weight:900;letter-spacing:.08em;color:#7B857F"><span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span><span>D</span></div>
+        <div style="margin-top:4px;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));row-gap:2px;animation:{{calAnim}} .22s ease-out both">
+          <sc-for list="{{cells}}" as="d" hint-placeholder-count="31">
+            <div style="height:44px;display:flex;align-items:center;justify-content:center">
+              <sc-if value="{{d.show}}" hint-placeholder-val="{{ true }}"><button class="press" onClick="{{d.pick}}" aria-label="{{d.label}}" aria-pressed="{{d.sel}}" style="position:relative;width:40px;height:40px;padding:0;border-radius:20px;border:{{d.bd}};background:{{d.bg}};color:{{d.fg}};font-size:15.5px;font-weight:{{d.fw}};transition:background-color .18s ease,color .18s ease">{{d.n}}<span style="position:absolute;left:50%;bottom:4px;margin-left:-2px;width:4px;height:4px;border-radius:2px;background:{{d.dot}}"></span></button></sc-if>
+            </div>
+          </sc-for>
+        </div>
+        <div style="margin-top:8px;padding-top:10px;border-top:1px solid #EEF1EF;display:flex;align-items:center;justify-content:space-between">
+          <div style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:#7B857F;padding-left:6px"><span style="width:6px;height:6px;border-radius:3px;background:#1db954"></span>Jours renseignés</div>
+          <button class="press" onClick="{{goToday}}" style="height:44px;padding:0 20px;border-radius:22px;border:0;background:{{todayBg}};color:{{todayFg}};font-size:14.5px;font-weight:700">Aujourd'hui</button>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+
+  <div role="status" aria-label="Macros du jour" style="position:absolute;left:16px;right:16px;top:104px;z-index:6;height:52px;box-sizing:border-box;padding:0 8px 0 14px;border-radius:26px;background:rgba(255,255,255,.94);border:1px solid #E9EDEA;box-shadow:0 1px 2px rgba(15,21,18,.05),0 14px 30px -12px rgba(15,21,18,.28);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);display:flex;align-items:center;gap:10px;opacity:{{fb.o}};transform:translateY({{fb.y}}px);transition:opacity .22s ease,transform .26s cubic-bezier(.2,.8,.2,1);pointer-events:none">
+      <div style="display:flex;flex-direction:column;line-height:1.1;flex:none">
+        <span style="font-size:10px;font-weight:900;letter-spacing:.08em;color:#66716B">KCAL</span>
+        <span style="font-size:14px;font-weight:900;color:{{hero.text}}">{{hero.consumed}}<span style="font-weight:700;color:#66716B">/2&nbsp;400</span></span>
+      </div>
+      <span style="width:1px;height:26px;background:#E9EDEA;flex:none"></span>
+      <sc-for list="{{fbMacros}}" as="m" hint-placeholder-count="3">
+        <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:0">
+          <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true" style="flex:none"><circle cx="14" cy="14" r="10.500" fill="none" stroke="#eef0ec" stroke-width="4"></circle><circle cx="14" cy="14" r="10.500" fill="none" stroke="{{m.color}}" stroke-width="4" stroke-linecap="round" stroke-dasharray="{{m.fdash}}" transform="rotate(-90 14 14)"></circle></svg>
+          <div style="display:flex;flex-direction:column;line-height:1.1;min-width:0">
+            <span style="font-size:9.500px;font-weight:900;letter-spacing:.06em;color:#66716B">{{m.short}}</span>
+            <span style="font-size:12.500px;font-weight:900;color:{{m.text}};white-space:nowrap">{{m.got}}<span style="font-weight:700;color:#66716B">/{{m.goal}}</span></span>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+
+  <div onScroll="{{onScroll}}" style="flex:1;min-height:0;overflow-y:auto;padding:14px 20px 170px">
+
+    <div style="animation:{{an.fade}} .28s ease-out both;padding:16px 18px;border-radius:24px;border:1px solid {{hero.border}};background:{{hero.bg}};box-shadow:0 18px 40px -22px {{hero.shadow}}">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+        <div>
+          <div style="font-size:15px;font-weight:700;color:#3A4540">{{hero.prefix}}</div>
+          <div style="margin-top:2px;display:flex;align-items:baseline;gap:7px"><span aria-label="{{hero.value}}" class="{{hero.cls}}" style="--k:{{hero.k}};--h:{{hero.h}};--t:{{hero.t}};--n:{{hero.n}};animation:{{an.cnt}} .7s ease-out both;font-size:40px;font-weight:900;letter-spacing:-0.04em;line-height:1.05;font-variant-numeric:tabular-nums"></span><span style="font-size:17px;font-weight:700;color:#66716B">kcal</span></div>
+        </div>
+        <span style="width:42px;height:42px;border-radius:21px;background:#FFFFFF;color:{{hero.accent}};display:flex;align-items:center;justify-content:center;flex:none;box-shadow:0 6px 16px -8px rgba(15,21,18,.3)">
+          <sc-if value="{{hero.shield}}" hint-placeholder-val="{{ true }}"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 5-3 8.5-7 10-4-1.5-7-5-7-10V6Z"></path><path d="M9 12l2 2 4-4"></path></svg></sc-if>
+          <sc-if value="{{hero.bell}}" hint-placeholder-val="{{ false }}"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15Z"></path><path d="M10 21h4"></path></svg></sc-if>
+        </span>
+      </div>
+      <sc-if value="{{hero.pulse}}" hint-placeholder-val="{{ false }}">
+        <div style="margin-top:10px;display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;color:{{hero.text}}">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l2-5 4 10 2-5h6"></path></svg>{{hero.sub}}
+        </div>
+      </sc-if>
+      <sc-if value="{{hero.alert}}" hint-placeholder-val="{{ false }}">
+        <div style="margin-top:10px;display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;color:{{hero.text}}">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:none"><path d="M12 4l9 16H3Z"></path><path d="M12 10v4M12 17v.5"></path></svg>{{hero.sub}}
+        </div>
+      </sc-if>
+      <div style="position:relative;margin-top:14px;height:10px;border-radius:5px;background:#E8EDEA">
+        <div style="width:{{hero.fill}};height:100%;border-radius:5px;background:{{hero.accent}};transform-origin:left;animation:{{an.bar}} .6s cubic-bezier(.2,.8,.2,1) both"></div>
+        <div style="position:absolute;left:88.9%;top:-3px;width:3px;height:16px;border-radius:2px;background:#0F1512;opacity:.55"></div>
+      </div>
+      <div style="margin-top:12px;display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:13px">
+        <span style="font-weight:700;color:{{hero.text}}">{{hero.consumed}} kcal consommées</span>
+        <span style="color:#66716B"><strong style="color:#0F1512">Objectif : 2&nbsp;400</strong> · Maint. : 2&nbsp;700</span>
+      </div>
+    </div>
+
+    <div style="margin-top:10px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
+      <sc-for list="{{macros}}" as="m" hint-placeholder-count="3">
+        <div style="animation:{{an.fade}} .28s ease-out both;animation-delay:{{m.delay}}ms;padding:10px 6px 11px;border-radius:20px;border:1px solid #EEF1EF;background:#FFFFFF;box-shadow:0 1px 2px rgba(15,21,18,.04),0 12px 26px -16px rgba(15,21,18,.18);display:flex;flex-direction:column;align-items:center;gap:6px">
+          <span style="font-size:12.500px;font-weight:700;color:#3A4540">{{m.label}}</span>
+          <div style="position:relative;width:64px;height:64px">
+            <svg width="64" height="64" viewBox="0 0 76 76" aria-hidden="true"><circle cx="38" cy="38" r="32" fill="none" stroke="#eef0ec" stroke-width="7"></circle><circle cx="38" cy="38" r="32" fill="none" stroke="{{m.color}}" stroke-width="7" stroke-linecap="round" stroke-dasharray="{{m.dash}}" transform="rotate(-90 38 38)" style="animation:{{an.ring}} .8s cubic-bezier(.2,.8,.2,1) both"></circle></svg>
+            <span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;color:{{m.text}}"><span aria-label="{{m.pct}}" class="c1" style="--n:{{m.n}};animation:{{an.cnt}} .7s ease-out both"></span>%</span>
+          </div>
+          <span style="font-size:12.500px;color:#66716B"><strong style="color:#0F1512">{{m.got}}</strong>/{{m.goal}}g</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <sc-for list="{{meals}}" as="meal" hint-placeholder-count="2">
+      <div>
+        <div style="animation:{{an.fade}} .28s ease-out both;animation-delay:{{meal.delay}}ms;display:flex;align-items:center;justify-content:space-between;margin-top:14px">
+          <div style="min-width:0">
+            <div style="display:flex;align-items:baseline;gap:8px;white-space:nowrap"><span aria-hidden="true" style="align-self:center;width:28px;height:28px;border-radius:9px;background:#e8fef0;color:#1db954;display:flex;align-items:center;justify-content:center;flex:none"><sc-if value="{{meal.i0}}" hint-placeholder-val="{{ true }}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 9.5h11v4.5a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4V9.5Z"></path><path d="M16 11h1.2a2.3 2.3 0 0 1 0 4.600H16"></path><path d="M8.500 3.500v2.500M12.500 3.500v2.500"></path></svg></sc-if><sc-if value="{{meal.i1}}" hint-placeholder-val="{{ false }}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3v5.500a2.500 2.500 0 0 0 5 0V3M9.500 3v18"></path><path d="M17.500 21V3c-2.500 1.400-3.500 4.200-3.500 8.500h3.500"></path></svg></sc-if><sc-if value="{{meal.i2}}" hint-placeholder-val="{{ false }}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.500A8 8 0 0 1 9.500 4a8 8 0 1 0 10.500 10.500Z"></path><path d="M17.500 4v3M16 5.500h3"></path></svg></sc-if><sc-if value="{{meal.i3}}" hint-placeholder-val="{{ false }}"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8.500c-1.500-1.300-6-1.500-6 3.500 0 4 2.500 8 4.500 8 .8 0 1-.5 1.500-.5s.7.5 1.500.5c2 0 4.500-4 4.500-8 0-5-4.500-4.800-6-3.500Z"></path><path d="M12 8.500c0-2 .8-3.500 2.500-4.500"></path></svg></sc-if></span><h2 style="margin:0;font-size:17px;font-weight:900;letter-spacing:-0.02em;line-height:1.1">{{meal.name}}</h2><span style="font-size:12.5px;font-weight:700;color:#0d7c36">{{meal.summary}}</span></div>
+                      </div>
+          <div style="display:flex;gap:6px;flex:none">
+            <button class="press" aria-label="Ajouter par photo" style="width:38px;height:38px;padding:0;border-radius:19px;border:0;background:#e8fef0;color:#1db954;display:flex;align-items:center;justify-content:center">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l1.5-2h7L17 8h3v11H4Z"></path><circle cx="12" cy="13" r="3.5"></circle></svg>
+            </button>
+            <button class="press" aria-label="Ajouter un aliment" style="width:38px;height:38px;padding:0;border-radius:19px;border:0;background:#e8fef0;color:#1db954;display:flex;align-items:center;justify-content:center">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+            </button>
+          </div>
+        </div>
+        <sc-if value="{{meal.hasItems}}" hint-placeholder-val="{{ true }}">
+          <div style="animation:{{an.fade}} .28s ease-out both;animation-delay:{{meal.delay2}}ms;margin-top:6px;border-radius:18px;border:1px solid #EEF1EF;background:#FFFFFF;box-shadow:0 1px 2px rgba(15,21,18,.04),0 12px 26px -16px rgba(15,21,18,.18);overflow:hidden">
+            <sc-for list="{{meal.items}}" as="it" hint-placeholder-count="3">
+              <div style="display:flex;align-items:center;gap:11px;padding:5px 0 5px 8px;border-top:{{it.border}}">
+                <sc-if value="{{it.hasImg}}" hint-placeholder-val="{{ true }}">
+                  <img src="{{it.img}}" alt="" style="width:36px;height:36px;border-radius:10px;object-fit:cover;flex:none;background:#F3F6F4">
+                </sc-if>
+                <sc-if value="{{it.noImg}}" hint-placeholder-val="{{ false }}">
+                  <div style="width:36px;height:36px;border-radius:10px;background:#e8fef0;color:#1db954;display:flex;align-items:center;justify-content:center;flex:none">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 3v5.5a2.5 2.5 0 0 0 5 0V3"></path><path d="M8 3v6.5M8 11v10"></path><path d="M17 21V3c-2.5 1.2-3.5 4-3.5 8H17"></path></svg>
+                  </div>
+                </sc-if>
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:14px;font-weight:700;line-height:1.2;letter-spacing:-0.005em;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden">{{it.name}}</div>
+                  <div style="margin-top:1px;font-size:12px;color:#66716B;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="font-size:12px;font-weight:700;color:#0d7c36">{{it.kcal}} kcal</span> · {{it.qty}}</div>
+                </div>
+                <button class="press" aria-label="Marquer comme fait" onClick="{{it.toggle}}" style="width:42px;height:42px;padding:0;border:0;background:transparent;display:flex;align-items:center;justify-content:center;flex:none">
+                  <span style="width:23px;height:23px;box-sizing:border-box;border-radius:13px;border:2px solid {{it.ring}};background:{{it.fill}};color:#FFFFFF;display:flex;align-items:center;justify-content:center;transition:background-color .18s ease,border-color .18s ease">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="opacity:{{it.check}};transform:scale({{it.sc}});transition:opacity .15s ease,transform .2s cubic-bezier(.3,1.6,.5,1)"><path d="M5 12.5l4.500 4.500L19 7.500"></path></svg>
+                  </span>
+                </button>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+    </sc-for>
+
+    <sc-if value="{{tipOpen}}" hint-placeholder-val="{{ true }}">
+      <div style="animation:{{an.fade}} .28s ease-out both;animation-delay:240ms;margin-top:18px;padding:14px 16px;border-radius:20px;border:1.5px dashed rgba(29,185,84,.3);background:#f3fcf7;display:flex;align-items:flex-start;gap:12px">
+        <div style="flex:1">
+          <div style="font-size:11px;font-weight:900;letter-spacing:.12em;color:#0d7c36">ASTUCE DU JOUR</div>
+          <div style="margin-top:6px;font-size:15px;line-height:1.45;color:#0F1512">Dépasser une macro ponctuellement n'est pas un échec. Regarde d'abord l'ensemble de ta journée et ta moyenne sur plusieurs jours.</div>
+        </div>
+        <button class="press" aria-label="Fermer l'astuce" onClick="{{closeTip}}" style="width:44px;height:44px;padding:0;border-radius:22px;border:0;background:transparent;color:#4A5550;display:flex;align-items:center;justify-content:center;flex:none">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+        </button>
+      </div>
+    </sc-if>
+  </div>
+
+  <div style="position:absolute;left:0;right:0;bottom:0;height:150px;background:linear-gradient(to bottom,rgba(255,255,255,0),#FFFFFF 66%);pointer-events:none"></div>
+
+  <a class="press" href="Search.dc.html" aria-label="Ajouter un aliment" style="position:absolute;right:20px;bottom:118px;width:62px;height:62px;border-radius:31px;background:#1db954;color:#FFFFFF;display:flex;align-items:center;justify-content:center;box-shadow:0 18px 32px -10px rgba(23,163,73,.7)">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+  </a>
+
+  <nav aria-label="Navigation principale" style="position:absolute;left:20px;right:20px;bottom:28px;height:68px;box-sizing:border-box;padding:6px;border-radius:34px;background:#FFFFFF;border:1px solid #EEF1EF;box-shadow:0 18px 40px -14px rgba(15,21,18,.28),0 2px 6px rgba(15,21,18,.06);display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px">
+    <a href="Home.dc.html" style="border-radius:28px;color:#66716B;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;font-weight:700">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1Z"></path></svg>Accueil
+    </a>
+    <a href="Journal.dc.html" aria-current="page" style="border-radius:28px;transition:background-color .2s ease;background:#e8fef0;color:#0d7c36;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;font-weight:700">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3.5" width="13" height="17" rx="2"></rect><path d="M9 8h6M9 12h6M9 16h3"></path></svg>Journal
+    </a>
+    <a href="Progress.dc.html" style="border-radius:28px;color:#66716B;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;font-weight:700">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"></path><path d="M15 7h6v6"></path></svg>Progression
+    </a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { day: '2026-10-13', cal: false, cy: 2026, cm: 9, cflip: 0, dir: 1, tipOpen: true, done: {}, flip: 0, scrolled: false };
+  }
+  data() {
+    const IMG = {
+      fromage: '../assets/fromage.png',
+      haricots: '../assets/haricots.png',
+      poulet: '../assets/poulet.png',
+      frosties: '../assets/frosties.png',
+      superieur: '../assets/superieur.png',
+      lando: '../assets/lando.png'
+    };
+    const OK = { bg: '#f3fcf7', border: 'rgba(29,185,84,.3)', shadow: 'rgba(29,185,84,.35)', accent: '#1db954', text: '#0d7c36', shield: true, bell: false, pulse: false, alert: false };
+    return {
+      today: {
+        label: "Aujourd'hui · 13 oct.",
+        hero: Object.assign({}, OK, { prefix: 'Il te reste', value: '2 093', sub: '', consumed: '307', fill: '11.4%' }),
+        macros: [
+          { label: 'Glucides', color: '#EC4899', text: '#ec4899', pct: 19, got: '49', goal: '258' },
+          { label: 'Protéines', color: '#3B82F6', text: '#3b82f6', pct: 9, got: '17', goal: '192' },
+          { label: 'Lipides', color: '#F97316', text: '#f97316', pct: 4, got: '2', goal: '67' }
+        ],
+        meals: [
+          { name: 'Petit-déjeuner', summary: '307 kcal · 13 %', items: [
+            { id: 't1', name: 'Fromage blanc nature 0%MG - 1kg', kcal: '50', qty: '100 g', img: IMG.fromage },
+            { id: 't2', name: 'Pain complet ou intégral (à la farine T150)', kcal: '257', qty: '110 g', img: '' } ] },
+          { name: 'Déjeuner', summary: '0 kcal · 0 %', items: [] },
+          { name: 'Dîner', summary: '0 kcal · 0 %', items: [] },
+          { name: 'Collations', summary: '0 kcal · 0 %', items: [] }
+        ]
+      },
+      fri: {
+        label: 'vendredi · 9 oct.',
+        hero: { bg: '#fff8f0', border: '#F8D9A4', shadow: 'rgba(245,158,11,.4)', accent: '#F59E0B', text: '#B45309', shield: true, bell: false, pulse: true, alert: false, prefix: 'Objectif dépassé de', value: '261', sub: 'Dans ton filet de sécurité', consumed: '2 661', fill: '98.5%' },
+        macros: [
+          { label: 'Glucides', color: '#EC4899', text: '#ec4899', pct: 121, got: '313', goal: '258' },
+          { label: 'Protéines', color: '#3B82F6', text: '#3b82f6', pct: 107, got: '205', goal: '192' },
+          { label: 'Lipides', color: '#F97316', text: '#f97316', pct: 81, got: '54', goal: '67' }
+        ],
+        meals: [
+          { name: 'Petit-déjeuner', summary: '552 kcal · 23 %', items: [
+            { id: 'f1', name: 'Fromage blanc nature 0%MG - 1kg', kcal: '200', qty: '400 g', img: IMG.fromage },
+            { id: 'f2', name: 'Pain complet ou intégral (à la farine T150)', kcal: '234', qty: '100 g', img: '' },
+            { id: 'f3', name: 'Chocolat noir 70 % de cacao environ, de d…', kcal: '118', qty: '20 g', img: '' } ] },
+          { name: 'Déjeuner', summary: '2 109 kcal · 88 %', items: [
+            { id: 'f4', name: "Haricots rouges d'aucy 250g", kcal: '240', qty: '250 g', img: IMG.haricots },
+            { id: 'f5', name: 'Blanc de Poulet - Rôti à la Broche', kcal: '125', qty: '120 g', img: IMG.poulet } ] }
+        ]
+      },
+      sat: {
+        label: 'samedi · 10 oct.',
+        hero: { bg: '#fff0f0', border: '#F7C4BE', shadow: 'rgba(239,68,68,.35)', accent: '#EF4444', text: '#ef4444', shield: false, bell: true, pulse: false, alert: true, prefix: 'Maintenance dépassée de', value: '405', sub: 'On ajuste ensemble — ça reste dans le cadre.', consumed: '3 105', fill: '100%' },
+        macros: [
+          { label: 'Glucides', color: '#EC4899', text: '#ec4899', pct: 181, got: '468', goal: '258' },
+          { label: 'Protéines', color: '#3B82F6', text: '#3b82f6', pct: 75, got: '144', goal: '192' },
+          { label: 'Lipides', color: '#F97316', text: '#f97316', pct: 104, got: '70', goal: '67' }
+        ],
+        meals: [
+          { name: 'Petit-déjeuner', summary: '0 kcal · 0 %', items: [] },
+          { name: 'Déjeuner', summary: '3 105 kcal · 129 %', items: [
+            { id: 's1', name: 'Frosties', kcal: '263', qty: '70 g', img: IMG.frosties },
+            { id: 's2', name: 'Fromage blanc nature 0%MG - 1kg', kcal: '150', qty: '300 g', img: IMG.fromage },
+            { id: 's3', name: 'Blanc de Poulet - Rôti à la Broche', kcal: '62', qty: '60 g', img: IMG.poulet },
+            { id: 's4', name: "Le Supérieur - à l'Etouffée - Conservation …", kcal: '127', qty: '110 g', img: IMG.superieur },
+            { id: 's5', name: "Haricot vert, bouilli/cuit à l'eau", kcal: '81', qty: '300 g', img: '' },
+            { id: 's6', name: 'Lando Norris Zero Sugar', kcal: '10', qty: '500 g', img: IMG.lando } ] }
+        ]
+      }
+    };
+  }
+  shift(n) { const d = this.parse(this.state.day); d.setDate(d.getDate() + n); this.setState({ day: this.keyOf(d), cy: d.getFullYear(), cm: d.getMonth(), flip: this.state.flip + 1 }); }
+  parse(key) { const p = key.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
+  keyOf(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  emptyDay(key) {
+    const d = this.parse(key);
+    const WD = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+    const MO = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+    return {
+      label: WD[d.getDay()] + ' · ' + d.getDate() + ' ' + MO[d.getMonth()],
+      hero: { bg: '#f3fcf7', border: 'rgba(29,185,84,.3)', shadow: 'rgba(29,185,84,.35)', accent: '#1db954', text: '#0d7c36', shield: true, bell: false, pulse: false, alert: false, prefix: 'Il te reste', value: '2 400', sub: '', consumed: '0', fill: '0%' },
+      macros: [
+        { label: 'Glucides', color: '#EC4899', text: '#ec4899', pct: 0, got: '0', goal: '258' },
+        { label: 'Protéines', color: '#3B82F6', text: '#3b82f6', pct: 0, got: '0', goal: '192' },
+        { label: 'Lipides', color: '#F97316', text: '#f97316', pct: 0, got: '0', goal: '67' }
+      ],
+      meals: ['Petit-déjeuner', 'Déjeuner', 'Dîner', 'Collations'].map((n) => ({ name: n, summary: '0 kcal · 0 %', items: [] }))
+    };
+  }
+  renderVals() {
+    const MEAL_ICONS = {
+      'Petit-déjeuner': '<path d="M5 9.5h11v4.5a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4V9.5Z"/><path d="M16 11h1.2a2.3 2.3 0 0 1 0 4.600H16"/><path d="M8.500 3.500v2.500M12.500 3.500v2.500"/>',
+      'Déjeuner': '<path d="M7 3v5.500a2.500 2.500 0 0 0 5 0V3M9.500 3v18"/><path d="M17.500 21V3c-2.500 1.400-3.500 4.200-3.500 8.500h3.500"/>',
+      'Dîner': '<path d="M20 14.500A8 8 0 0 1 9.500 4a8 8 0 1 0 10.500 10.500Z"/><path d="M17.500 4v3M16 5.500h3"/>',
+      'Collations': '<path d="M12 8.500c-1.500-1.300-6-1.500-6 3.500 0 4 2.500 8 4.500 8 .8 0 1-.5 1.500-.5s.7.5 1.500.5c2 0 4.500-4 4.500-8 0-5-4.500-4.800-6-3.500Z"/><path d="M12 8.500c0-2 .8-3.500 2.500-4.500"/>'
+    };
+    const all = this.data();
+    const TODAY = '2026-10-13';
+    const KEYMAP = { '2026-10-13': 'today', '2026-10-09': 'fri', '2026-10-10': 'sat' };
+    const key = KEYMAP[this.state.day];
+    const cur = key ? all[key] : this.emptyDay(this.state.day);
+    const done = this.state.done;
+    const circ = 201;
+    const f = this.state.flip % 2 ? 'B' : 'A';
+    const an = { fade: 'fade' + f, ring: 'ring' + f, bar: 'bar' + f, cnt: 'cnt' + f };
+    const num = (str) => parseInt(String(str).replace(/\D/g, ''), 10);
+    const split = (v) => ({ k: Math.floor(v / 1000), h: Math.floor((v % 1000) / 100), t: v % 100, n: v, cls: v >= 1000 ? 'c4' : 'c1' });
+    const hv = split(num(cur.hero.value));
+    const shorts = ['GLUC.', 'PROT.', 'LIP.'];
+    const sc = this.state.scrolled;
+    return {
+      an: an,
+      fb: { o: sc ? 1 : 0, y: sc ? 0 : -14 },
+      fbMacros: cur.macros.map((m, i) => ({
+        color: m.color, text: m.text, got: m.got, goal: m.goal, short: shorts[i],
+        fdash: (Math.min(m.pct, 100) / 100 * 66).toFixed(1) + ' 66'
+      })),
+      onScroll: (e) => {
+        const on = e.target.scrollTop > 190;
+        if (on !== this.state.scrolled) this.setState({ scrolled: on });
+      },
+      dayLabel: cur.label,
+      cal: this.state.cal,
+      chevRot: this.state.cal ? 180 : 0,
+      toggleCal: () => { const d = this.parse(this.state.day); this.setState({ cal: !this.state.cal, cy: d.getFullYear(), cm: d.getMonth() }); },
+      prevDay: () => this.shift(-1),
+      nextDay: () => this.shift(1),
+      monthTitle: (() => { const M = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre']; const t = M[this.state.cm] + ' ' + this.state.cy; return t.charAt(0).toUpperCase() + t.slice(1); })(),
+      calAnim: 'cal' + (this.state.dir > 0 ? 'R' : 'L') + (this.state.cflip % 2 ? 'B' : 'A'),
+      prevMonth: () => { const m = this.state.cm - 1; this.setState({ cm: (m + 12) % 12, cy: m < 0 ? this.state.cy - 1 : this.state.cy, dir: -1, cflip: this.state.cflip + 1 }); },
+      nextMonth: () => { const m = this.state.cm + 1; this.setState({ cm: m % 12, cy: m > 11 ? this.state.cy + 1 : this.state.cy, dir: 1, cflip: this.state.cflip + 1 }); },
+      goToday: () => this.setState({ day: TODAY, cy: 2026, cm: 9, cal: false, flip: this.state.flip + 1 }),
+      todayBg: this.state.day === TODAY ? '#F3F6F4' : '#e8fef0',
+      todayFg: this.state.day === TODAY ? '#9AA39E' : '#0d7c36',
+      cells: (() => {
+        const cy = this.state.cy, cm = this.state.cm;
+        const off = (new Date(cy, cm, 1).getDay() + 6) % 7;
+        const nd = new Date(cy, cm + 1, 0).getDate();
+        const out = [];
+        for (let i = 0; i < off; i++) out.push({ show: false });
+        for (let n = 1; n <= nd; n++) {
+          const k = this.keyOf(new Date(cy, cm, n));
+          const sel = k === this.state.day, tod = k === TODAY, has = !!KEYMAP[k];
+          out.push({ show: true, n: n, sel: sel,
+            bg: sel ? '#1db954' : 'transparent', fg: sel ? '#FFFFFF' : (tod ? '#0d7c36' : '#0F1512'), fw: (sel || tod) ? 900 : 700,
+            bd: (tod && !sel) ? '1.5px solid #1db954' : '1.5px solid transparent',
+            dot: has ? (sel ? '#FFFFFF' : '#1db954') : 'transparent',
+            label: n + ' ' + ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'][cm] + ' ' + cy,
+            pick: () => this.setState({ day: k, cal: false, flip: this.state.flip + 1 }) });
+        }
+        return out;
+      })(),
+      hero: Object.assign({}, cur.hero, hv),
+      macros: cur.macros.map((m, i) => Object.assign({}, m, {
+        pct: m.pct + '%', n: m.pct, delay: 40 + i * 50,
+        dash: (Math.min(m.pct, 100) / 100 * circ).toFixed(1) + ' ' + circ
+      })),
+      meals: cur.meals.map((meal, mi) => ({
+        delay: 120 + mi * 50, delay2: 150 + mi * 50,
+        name: meal.name,
+        i0: meal.name === 'Petit-déjeuner', i1: meal.name === 'Déjeuner', i2: meal.name === 'Dîner', i3: meal.name === 'Collations',
+        summary: meal.summary,
+        hasItems: meal.items.length > 0,
+        items: meal.items.map((it, i) => ({
+          name: it.name, kcal: it.kcal, qty: it.qty, img: it.img,
+          hasImg: !!it.img, noImg: !it.img,
+          border: i === 0 ? 'none' : '1px solid #EEF1EF',
+          ring: done[it.id] ? '#1db954' : '#DDE3DF',
+          fill: done[it.id] ? '#1db954' : '#FFFFFF',
+          check: done[it.id] ? 1 : 0, sc: done[it.id] ? 1 : 0.4,
+          toggle: () => { const d = Object.assign({}, this.state.done); d[it.id] = !d[it.id]; this.setState({ done: d }); }
+        }))
+      })),
+      tipOpen: this.state.tipOpen && key === 'today',
+      closeTip: () => this.setState({ tipOpen: false })
+    };
+  }
+}
+</script>
+</body>
+</html>

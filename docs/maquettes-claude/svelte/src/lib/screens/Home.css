@@ -1,0 +1,6 @@
+/* Styles propres à l'écran « Home » (portée .s-home). Les keyframes et classes communes sont dans styles/dc-base.css. */
+.s-home button{font-family:inherit;cursor:pointer}
+.s-home a{text-decoration:none;color:inherit}
+.s-home .press{transition:transform .15s ease,box-shadow .2s ease}
+.s-home .press:active{transform:scale(.97)}
+.s-home .area{animation:areaIn .6s ease-out .5s both}

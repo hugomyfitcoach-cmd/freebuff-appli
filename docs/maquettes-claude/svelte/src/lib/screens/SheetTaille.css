@@ -1,0 +1,7 @@
+/* Styles propres à l'écran « Sheet-Taille » (portée .s-sheet-taille). Les keyframes et classes communes sont dans styles/dc-base.css. */
+.s-sheet-taille button{font-family:inherit;cursor:pointer}
+.s-sheet-taille a{text-decoration:none;color:inherit}
+.s-sheet-taille input,.s-sheet-taille textarea,.s-sheet-taille select{font-family:inherit}
+.s-sheet-taille .press{transition:transform .15s ease,box-shadow .2s ease,background-color .2s ease,border-color .2s ease}
+.s-sheet-taille .press:active{transform:scale(.97)}
+.s-sheet-taille .area{animation:areaIn .6s ease-out .45s both}

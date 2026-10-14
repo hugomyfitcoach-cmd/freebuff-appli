@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Scanner de codes-barres</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Lato',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button{font-family:inherit;cursor:pointer}
+a{text-decoration:none;color:inherit}
+input,textarea,select{font-family:inherit}
+.press{transition:transform .15s ease,box-shadow .2s ease,background-color .2s ease,border-color .2s ease}
+.press:active{transform:scale(.97)}
+.fld:focus-within{border-color:#1db954 !important;box-shadow:0 0 0 4px rgba(29,185,84,.14) !important}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes screenIn{from{opacity:0}to{opacity:1}}
+@keyframes sheetUp{from{transform:translateY(60px);opacity:0}to{transform:none;opacity:1}}
+@keyframes scrimIn{from{opacity:0}to{opacity:1}}
+@keyframes drawIn{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+@keyframes areaIn{from{opacity:0}to{opacity:1}}
+@keyframes barIn{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes barUp{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+@keyframes ringIn{from{stroke-dasharray:0 1000}}
+@keyframes scan{0%{transform:translateY(0);opacity:0}15%{opacity:1}85%{opacity:1}100%{transform:translateY(150px);opacity:0}}
+.screen{animation:screenIn .24s ease-out both}
+.fx{animation:fadeUp .28s ease-out both}
+.sheet{animation:sheetUp .28s cubic-bezier(.2,.8,.2,1) both}
+.scrim{animation:scrimIn .24s ease-out both}
+.draw{stroke-dasharray:1;stroke-dashoffset:0;animation:drawIn .9s cubic-bezier(.3,.7,.2,1) .15s both}
+.area{animation:areaIn .6s ease-out .45s both}
+.hbar{transform-origin:left;animation:barIn .6s cubic-bezier(.2,.8,.2,1) .15s both}
+.vbar{transform-origin:bottom;animation:barUp .6s cubic-bezier(.2,.8,.2,1) .15s both}
+@keyframes scanB{0%{transform:translateY(0);opacity:0}15%{opacity:1}85%{opacity:1}100%{transform:translateY(118px);opacity:0}}
+@keyframes camIn{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:none}}
+@keyframes navIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
+
+</style>
+</helmet>
+<div class="screen" style="width:390px;height:844px;box-sizing:border-box;background:#FFFFFF;display:flex;flex-direction:column;position:relative;overflow:hidden;color:#0F1512;font-family:'Lato',system-ui,sans-serif"><div style="animation:camIn .32s cubic-bezier(.2,.8,.2,1) both;position:relative;margin:52px 16px 0;height:540px;border-radius:30px;overflow:hidden;background:radial-gradient(120% 90% at 30% 20%,#4A4E4C,#232625);flex:none"><div style="position:absolute;inset:0;background:#000;opacity:{{shade}};transition:opacity .2s ease"></div><div style="position:absolute;left:29px;right:29px;top:150px;height:150px"><span style="position:absolute;left:0;top:0;width:34px;height:34px;border-color:#FFFFFF;border-style:solid;border-width:0;border-left-width:4px;border-top-width:4px;border-radius:14px 0 0 0"></span><span style="position:absolute;right:0;top:0;width:34px;height:34px;border-color:#FFFFFF;border-style:solid;border-width:0;border-right-width:4px;border-top-width:4px;border-radius:0 14px 0 0"></span><span style="position:absolute;left:0;bottom:0;width:34px;height:34px;border-color:#FFFFFF;border-style:solid;border-width:0;border-left-width:4px;border-bottom-width:4px;border-radius:0 0 0 14px"></span><span style="position:absolute;right:0;bottom:0;width:34px;height:34px;border-color:#FFFFFF;border-style:solid;border-width:0;border-right-width:4px;border-bottom-width:4px;border-radius:0 0 14px 0"></span><div style="position:absolute;left:12px;right:12px;top:14px;height:2px;border-radius:1px;background:#1db954;box-shadow:0 0 14px #1db954;animation:scanB 2s ease-in-out infinite"></div></div><button class="press" onClick="{{toggleFlash}}" aria-pressed="{{flashOn}}" aria-label="Flash" style="position:absolute;left:16px;top:16px;width:44px;height:44px;padding:0;border:0;border-radius:22px;background:{{flashBg}};color:#FFFFFF;display:flex;align-items:center;justify-content:center"><svg width="20" height="20" viewBox="0 0 24 24" fill="{{flashFill}}" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 3L5 13.5h6L10 21l8-10.5h-6L13 3Z"></path></svg></button><a class="press" href="Search.dc.html" aria-label="Fermer" style="position:absolute;right:16px;top:16px;width:44px;height:44px;border-radius:22px;background:rgba(17,26,21,.7);color:#FFFFFF;display:flex;align-items:center;justify-content:center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></a><div style="position:absolute;left:16px;right:16px;bottom:66px;text-align:center;font-size:13px;font-weight:700;color:#FFFFFF">Place le code-barres dans le cadre. La lecture est automatique.</div><button class="press" onClick="{{toggleZoom}}" aria-label="Zoom numérique" style="position:absolute;left:50%;bottom:12px;transform:translateX(-50%);min-width:58px;height:40px;padding:0 16px;border:0;border-radius:20px;background:rgba(17,26,21,.6);color:#FFFFFF;font-size:14px;font-weight:900;letter-spacing:.02em;font-variant-numeric:tabular-nums">{{zoomTxt}}</button></div><div class="fx" style="animation-delay:110ms;margin:18px 16px 0"><label class="fld" style="display:flex;align-items:center;gap:10px;height:56px;box-sizing:border-box;padding:0 8px 0 16px;border-radius:28px;border:1.5px solid #E3E8E5;background:#F6F8F6"><span style="color:#7B857F;display:flex"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6v12M7.5 6v12M11 6v12M14.5 6v12M18 6v12M20.5 6v12"></path></svg></span><input type="text" inputmode="numeric" value="{{code}}" onChange="{{setCode}}" placeholder="Ou saisis le code (ex. 3017620422003)" aria-label="Code-barres" style="flex:1;min-width:0;border:0;outline:0;background:transparent;font-size:16px;color:#0F1512"><a class="press" href="Food-Detail.dc.html" aria-label="Rechercher le code" style="flex:none;width:44px;height:44px;border-radius:22px;background:{{goBg}};color:#FFFFFF;display:flex;align-items:center;justify-content:center;transition:background-color .2s ease"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></a></label></div><nav aria-label="Mode d'ajout" style="animation:navIn .3s cubic-bezier(.2,.8,.2,1) .05s both;position:absolute;left:36px;right:36px;bottom:28px;height:68px;box-sizing:border-box;padding:6px;border-radius:34px;background:#111A15;box-shadow:0 18px 40px -12px rgba(15,21,18,.55),0 2px 6px rgba(15,21,18,.2);display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px"><a class="press" href="Search.dc.html" style="position:relative;border-radius:28px;background:transparent;color:rgba(255,255,255,.66);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;font-weight:700"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>Recherche</a><a class="press" href="Scanner.dc.html" aria-current="true" style="position:relative;border-radius:28px;background:rgba(255,255,255,.13);color:#FFFFFF;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;font-weight:700"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6v12M7.5 6v12M11 6v12M14.5 6v12M18 6v12M20.5 6v12"></path></svg>Code-barres</a><a class="press" href="Meal-AI.dc.html" style="position:relative;border-radius:28px;background:transparent;color:rgba(255,255,255,.66);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;font-weight:700"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l1.5-2h7L17 8h3v11H4Z"></path><circle cx="12" cy="13" r="3.5"></circle></svg>Repas IA<span style="position:absolute;top:2px;right:8px;font-size:9px;font-weight:900;letter-spacing:.04em;color:#06361B;background:#1db954;border-radius:6px;padding:2px 5px">BÊTA</span></a></nav></div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { code: '', flash: false, zoom: 1 }; }
+  renderVals() {
+    const s = this.state;
+    return {
+      code: s.code, setCode: (e) => this.setState({ code: e.target.value.replace(/\D/g, '') }),
+      goBg: s.code.length >= 8 ? '#1db954' : '#C9D0CC',
+      toggleFlash: () => this.setState({ flash: !s.flash }),
+      flashOn: s.flash ? 'true' : 'false',
+      flashBg: s.flash ? '#1db954' : 'rgba(17,26,21,.7)',
+      flashFill: s.flash ? 'currentColor' : 'none',
+      toggleZoom: () => this.setState({ zoom: s.zoom === 1 ? 2 : 1 }),
+      zoomTxt: s.zoom + '×',
+      shade: s.flash ? '0.18' : '0.5'
+    };
+  }
+}
+</script>
+</body>
+</html>

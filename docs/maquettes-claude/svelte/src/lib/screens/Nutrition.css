@@ -1,0 +1,5 @@
+/* Styles propres à l'écran « Nutrition » (portée .s-nutrition). Les keyframes et classes communes sont dans styles/dc-base.css. */
+.s-nutrition button{font-family:inherit;cursor:pointer}
+.s-nutrition a{text-decoration:none;color:inherit}
+.s-nutrition .press{transition:transform .15s ease,box-shadow .2s ease}
+.s-nutrition .press:active{transform:scale(.98)}

@@ -1,0 +1,8 @@
+/* Styles propres à l'écran « Login » (portée .s-login). Les keyframes et classes communes sont dans styles/dc-base.css. */
+.s-login button{font-family:inherit;cursor:pointer}
+.s-login a{text-decoration:none;color:inherit}
+.s-login input,.s-login textarea,.s-login select{font-family:inherit}
+.s-login .press{transition:transform .15s ease,box-shadow .2s ease,background-color .2s ease,border-color .2s ease}
+.s-login .press:active{transform:scale(.97)}
+.s-login .area{animation:areaIn .6s ease-out .45s both}
+.s-login .cta:hover .arr,.s-login .cta:active .arr{transform:translateX(4px)}
