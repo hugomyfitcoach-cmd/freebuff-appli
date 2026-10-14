@@ -3017,7 +3017,7 @@
 										<span class="text-[10px] text-mist">Ciqual – ANSES</span>
 									</div>
 									<div class="space-y-1">
-										{#each foodSearch.state.ciqual as hit (hit._id)}
+										{#each (foodSearch.state.ciqualExpanded ? foodSearch.state.ciqual : foodSearch.state.ciqual.slice(0, 3)) as hit (hit._id)}
 											<button
 												onclick={() => addFood(hit)}
 												class="flex w-full items-center gap-3 rounded-xl border border-brand/30 bg-brand-light/40 px-3 py-2 text-left transition hover:border-brand"
@@ -3031,6 +3031,14 @@
 											</button>
 										{/each}
 									</div>
+									{#if foodSearch.state.ciqual.length > 3}
+										<button
+											type="button"
+											class="w-full rounded-full py-2 text-xs font-semibold text-brand transition hover:bg-brand-light"
+											onclick={() => foodSearch.toggleCiqualExpanded()}
+											aria-expanded={foodSearch.state.ciqualExpanded}
+										>{foodSearch.state.ciqualExpanded ? 'Voir moins' : `Voir plus (${foodSearch.state.ciqual.length - 3})`}</button>
+									{/if}
 								{/if}
 								<!-- 2. PRODUITS : Open Food Facts (moteur classé PWA, ranking
 								     identique côté cliente ; la liste reste affichée pendant
@@ -3479,6 +3487,7 @@
 						><Icon name="arrowLeft" size={14} class="shrink-0" /> Tous les bilans</a>
 						<span class="text-[11px] text-mist">Bilans de {fullName(selected.user)} — semaine après semaine</span>
 					</div>
+
 					{#if checkins.length === 0}
 						<div class="rounded-2xl border border-dashed border-line bg-card px-6 py-10 text-center">
 							<p class="grid place-items-center"><Icon name="calendarDays" size={30} class="text-mist" /></p>
