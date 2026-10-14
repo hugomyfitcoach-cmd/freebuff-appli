@@ -50,6 +50,15 @@ import { api } from '../../convex/_generated/api.js';	import { SESSION_COOKIE, r
 				.query(api.coach.sport360, { sessionToken: token, userId: selectedId as never })
 				.catch(() => null)
 		: null;
+	// Hydratation de la cliente (Vision 360) : objectif + totaux par jour,
+	// MÊMES enregistrements que l'écran cliente (hydrationEntries). Non
+	// bloquant : backend sans le module → null (encart masqué, jamais d'erreur
+	// bloquante — règle « ne jamais empêcher l'utilisation »).
+	const hydrationView = selectedId
+		? await convex
+				.query(api.hydration.clientHydration, { sessionToken: token, clientId: selectedId as never })
+				.catch(() => null)
+		: null;
 	// HOTFIX fiche cliente (500 SSR) : la query coach.sport360 renvoie
 	// { weeks: SportWeekAgg[], today } — l'encart « Aperçu » consomme un bloc
 	// type client360.sport (trend + previous S-1…S-4). Normalisation ICI, côté
@@ -99,6 +108,7 @@ import { api } from '../../convex/_generated/api.js';	import { SESSION_COOKIE, r
 		onboardingView,
 		messageLog,
 		sport360Overview,
+		hydrationView,
 		globalMessage,
 		google,
 		googleBanner,

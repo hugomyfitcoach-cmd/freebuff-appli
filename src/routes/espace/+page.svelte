@@ -460,6 +460,18 @@
 	const stepsChartLabel = $derived(
 		`7 derniers jours : ${stepsLast7.filter((day) => day.count !== null).length} jour${stepsLast7.filter((day) => day.count !== null).length > 1 ? 's renseignés' : ' renseigné'}`
 	);
+
+	/* ————— Hydratation (carte du kit Claude v2, sous « Pas ») —————
+	   Même source de vérité que l'écran « Mon hydratation » et le CRM :
+	   hydrationEntries agrégées par jour (loader, lecture pure).
+	   Affichage du jour LOCAL uniquement (dayFresh) : jamais la veille. */
+	type HydrationHistoryData = { goalMl: number; days: { date: string; ml: number }[] } | null;
+	const hydrationHistory = $derived((data.hydrationHistory ?? null) as HydrationHistoryData);
+	const hydrationToday = $derived(dayFresh ? (hydrationHistory?.days.find((d) => d.date === todayISO)?.ml ?? null) : null);
+	const hydrationGoal = $derived(hydrationHistory?.goalMl ?? null);
+	/** Anneau r = 23 → circonférence 2π·23 ≈ 144.5 (maquette Claude v2). */
+	const hydrationRing = $derived(hydrationToday !== null && hydrationGoal ? Math.min(hydrationToday / hydrationGoal, 1) : 0);
+	const hydrationPct = $derived(Math.round(hydrationRing * 100));
 	// Tendance du poids : delta entre la première et la dernière pesée de la fenêtre.
 	const weightDelta = $derived.by(() => {
 		const w = weightTrendShown ?? [];
@@ -1123,6 +1135,52 @@
 					</div>
 				</div>
 			</a>
+
+			<!-- HYDRATATION : carte du kit Claude v2 (sous « Pas ») — total du
+			     jour local + anneau de progression, ouvre l'écran détaillé.
+			     Masquée tant que le module backend n'est pas disponible (loader
+			     null) : l'Accueil ne casse jamais, la carte apparaît seule. -->
+			{#if hydrationHistory}
+				<a
+					href="/espace/hydratation"
+					class="gflux-home-hydration tap tap-shadow group order-3 block rounded-3xl border border-line bg-card p-[18px] shadow-sm hover:border-brand/50"
+				>
+					<div class="flex min-h-[104px] items-stretch gap-3.5">
+						<div class="flex min-w-0 flex-1 flex-col justify-between">
+							<div class="flex items-center gap-2">
+								<Icon name="droplet" size={18} class="shrink-0 text-brand" />
+								<span class="text-[11px] font-black uppercase tracking-widest text-mist">Hydratation</span>
+							</div>
+							<p class="mt-2 whitespace-nowrap font-display text-4xl font-black leading-none tracking-tight text-ink tabular-nums">
+								{#key hydrationToday}{hydrationToday !== null ? fmt(hydrationToday) : '—'}{/key}
+								<span class="text-[15px] font-bold text-mist">/ {hydrationGoal !== null ? fmt(hydrationGoal) : '—'} ml</span>
+							</p>
+							<p class="mt-1.5 text-[13px] text-mist">Aujourd'hui · Voir le détail</p>
+						</div>
+						<div class="flex w-[118px] shrink-0 flex-col justify-end">
+							<div class="flex justify-end">
+								<div class="relative h-14 w-14" role="img" aria-label={`Objectif d'hydratation atteint à ${hydrationPct} %`}>
+									<svg width="56" height="56" viewBox="0 0 56 56" aria-hidden="true">
+										<circle cx="28" cy="28" r="23" fill="none" class="stroke-line" stroke-width="6" />
+										<circle
+											cx="28" cy="28" r="23" fill="none"
+											class="stroke-brand transition-all duration-500"
+											stroke-width="6" stroke-linecap="round"
+											stroke-dasharray={`${(hydrationRing * 144.5).toFixed(1)} 144.5`}
+											transform="rotate(-90 28 28)"
+										/>
+									</svg>
+									<span class="absolute inset-0 grid place-items-center font-display text-[13px] font-black text-ink">{hydrationPct} %</span>
+								</div>
+							</div>
+							<div class="mt-1.5 flex items-center justify-between border-t border-line pt-1.5">
+								<Icon name="chevronRight" size={14} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
+								<span class="text-[11px] font-black uppercase tracking-wider text-mist/70">Objectif</span>
+							</div>
+						</div>
+					</div>
+				</a>
+			{/if}
 		</div>
 
 		<div class="mt-3 grid grid-cols-2 gap-3">

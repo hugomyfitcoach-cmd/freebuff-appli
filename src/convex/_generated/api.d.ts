@@ -32,6 +32,7 @@ import type * as foodRanking from "../foodRanking.js";
 import type * as googleCalendar from "../googleCalendar.js";
 import type * as helpers from "../helpers.js";
 import type * as http from "../http.js";
+import type * as hydration from "../hydration.js";
 import type * as journal from "../journal.js";
 import type * as maintenance from "../maintenance.js";
 import type * as mealMatch from "../mealMatch.js";
@@ -90,6 +91,7 @@ declare const fullApi: ApiFromModules<{
   googleCalendar: typeof googleCalendar;
   helpers: typeof helpers;
   http: typeof http;
+  hydration: typeof hydration;
   journal: typeof journal;
   maintenance: typeof maintenance;
   mealMatch: typeof mealMatch;
