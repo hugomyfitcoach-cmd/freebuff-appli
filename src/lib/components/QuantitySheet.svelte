@@ -547,24 +547,24 @@
 				<!-- ─── Macros en 4 cartes (code couleur du Journal) ───
 			     vert kcal · rose glucides · bleu protéines · orange lipides. -->
 			<div class="mt-3.5 px-5 pb-3">
-				<div class="grid grid-cols-4 gap-2">
-					<div class="rounded-xl bg-cream px-1 py-2.5 text-center">
-						<p class="flex items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-wide text-brand"><Icon name="flame" size={11} class="shrink-0" />Calories</p>
+				<div class="grid grid-cols-4 overflow-hidden rounded-[20px] border border-[#EEF1EF] bg-white shadow-[0_1px_2px_rgba(15,21,18,0.04),0_12px_26px_-16px_rgba(15,21,18,0.18)]">
+					<div class="border-l border-[#EEF1EF] px-1 py-3 text-center first:border-l-0">
+						<p class="text-[10px] font-bold uppercase tracking-wide text-brand">Calories</p>
 						<p class="mt-0.5 text-[17px] font-bold leading-none text-brand tabular-nums">{valid ? fmtQty(kcal) : '—'}</p>
 						<p class="text-[9px] font-semibold text-mist">kcal</p>
 					</div>
-					<div class="rounded-xl bg-cream px-1 py-2.5 text-center">
-						<p class="flex items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-wide" style:color="#ec4899"><Icon name="wheat" size={11} class="shrink-0" />Glucides</p>
+					<div class="border-l border-[#EEF1EF] px-1 py-3 text-center first:border-l-0">
+						<p class="text-[10px] font-bold uppercase tracking-wide" style:color="#ec4899">Glucides</p>
 						<p class="mt-0.5 text-[17px] font-bold leading-none tabular-nums" style:color="#ec4899">{valid ? fmtQty(carbs) : '—'}</p>
 						<p class="text-[9px] font-semibold text-mist">g</p>
 					</div>
-					<div class="rounded-xl bg-cream px-1 py-2.5 text-center">
-						<p class="flex items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-wide" style:color="#3b82f6"><Icon name="drumstick" size={11} class="shrink-0" />Protéines</p>
+					<div class="border-l border-[#EEF1EF] px-1 py-3 text-center first:border-l-0">
+						<p class="text-[10px] font-bold uppercase tracking-wide" style:color="#3b82f6">Protéines</p>
 						<p class="mt-0.5 text-[17px] font-bold leading-none tabular-nums" style:color="#3b82f6">{valid ? fmtQty(protein) : '—'}</p>
 						<p class="text-[9px] font-semibold text-mist">g</p>
 					</div>
-					<div class="rounded-xl bg-cream px-1 py-2.5 text-center">
-						<p class="flex items-center justify-center gap-1 text-[10px] font-bold uppercase tracking-wide" style:color="#f97316"><Icon name="droplet" size={11} class="shrink-0" />Lipides</p>
+					<div class="border-l border-[#EEF1EF] px-1 py-3 text-center first:border-l-0">
+						<p class="text-[10px] font-bold uppercase tracking-wide" style:color="#f97316">Lipides</p>
 						<p class="mt-0.5 text-[17px] font-bold leading-none tabular-nums" style:color="#f97316">{valid ? fmtQty(fat) : '—'}</p>
 						<p class="text-[9px] font-semibold text-mist">g</p>
 					</div>
@@ -576,7 +576,7 @@
 					{#each mealDefs as m (m.id)}
 						<button
 							type="button"
-							class="flex flex-col items-center gap-1 rounded-xl px-2 py-2.5 text-[12px] font-semibold transition {meal === m.id ? 'bg-brand text-white' : 'bg-line/50 text-mist'}"
+							class="flex flex-col items-center gap-1 rounded-[16px] border-2 px-2 py-2.5 text-[12px] font-semibold transition {meal === m.id ? 'border-brand bg-[#e8fef0] font-bold text-[#0d7c36]' : 'border-[#EEF1EF] bg-white text-mist'}"
 							onclick={() => (meal = m.id)}
 						>
 							<Icon name={m.icon} size={16} class="shrink-0" />
