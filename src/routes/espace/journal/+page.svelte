@@ -1841,6 +1841,9 @@ import { optimizeImageFile } from '$lib/media';
 
 	/* ————— Éditeur de repas ————— */
 	let mealEditor = $state(false);
+	/* Écran autonome Claude : repas ou aliment en création / modification.
+	   Dans ce cas, l'en-tête « Ajouter un aliment », la recherche et les onglets sont masqués. */
+	const fullEditorOpen = $derived((searchTab === 'repas' && mealEditor) || (searchTab === 'crees' && customEditor));
 	/** Repas en cours de modification (null = création). */
 	let mealEditingId = $state<string | null>(null);
 	let mealName = $state('');
@@ -4141,7 +4144,7 @@ import { optimizeImageFile } from '$lib/media';
 			<!-- En-tête fixe (respire sous l'encoche en PWA installée, cf. convention safe-area de l'app).
 			     MODE CODE-BARRES : en-tête MINIMAL (pas de titre, pas d'explication) —
 			     la croix vit SUR la caméra (overlay) et l'écran est immersif. -->
-			{#if logMode !== 'barcode'}
+			{#if logMode !== 'barcode' && !fullEditorOpen}
 			<!-- Header Claude v2 : croix 44px bordée + titre Lato 900 (dock cartouche) -->
 			<div class="flex shrink-0 items-center justify-between border-b border-line bg-white px-3 pt-[max(env(safe-area-inset-top),10px)] pb-2.5">
 				<button type="button" class="grid h-11 w-11 place-items-center rounded-full border border-line bg-white text-ink shadow-[0_1px_2px_rgba(15,21,18,0.04),0_8px_20px_-8px_rgba(15,21,18,0.14)] transition active:scale-95" aria-label="Fermer" onclick={() => closeLog()}><Icon name="x" size={20} /></button>
@@ -4150,7 +4153,15 @@ import { optimizeImageFile } from '$lib/media';
 			</div>
 			{/if}
 
-			{#if logMode === 'search'}
+			{#if logMode !== 'barcode' && fullEditorOpen}
+				<!-- En-tête d'écran autonome (Claude) : pilule Retour + libellé « AJOUTER UN ALIMENT ». -->
+				<div class="flex shrink-0 items-center justify-between bg-white px-5 pb-2 pt-[max(env(safe-area-inset-top),12px)]">
+					<button type="button" class="inline-flex h-[44px] items-center gap-1 rounded-[22px] border border-[#E9EDEA] bg-white pl-2.5 pr-[18px] text-[14px] font-bold text-[#0d7c36] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_8px_20px_-8px_rgba(15,21,18,0.14)]" aria-label={searchTab === 'repas' ? 'Retour aux repas' : 'Retour à mes aliments'} onclick={searchTab === 'repas' ? closeMealEditor : closeCustomEditor}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>{searchTab === 'repas' ? 'Repas' : 'Mes aliments'}</button>
+					<span class="text-[12px] font-bold uppercase tracking-[0.08em] text-mist">Ajouter un aliment</span>
+				</div>
+			{/if}
+
+			{#if logMode === 'search' && !fullEditorOpen}
 				<!-- Recherche + onglets (fixes) -->
 				<div class="shrink-0 border-b border-line bg-white/95 px-2.5 pb-2 pt-2 backdrop-blur">
 					<div class="flex h-[52px] items-center gap-2.5 rounded-2xl border border-line bg-white px-4 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_28px_-12px_rgba(15,21,18,0.14)] transition focus-within:border-brand">										<Icon name="search" size={17} class="shrink-0 text-mist" />
@@ -4193,7 +4204,6 @@ import { optimizeImageFile } from '$lib/media';
 					{#if searchTab === 'repas' && mealEditor}
 						<!-- ═══════ Éditeur de repas ═══════ -->
 						<div>
-							<button type="button" class="mb-3 inline-flex h-[44px] items-center gap-1 self-start rounded-[22px] border border-[#E9EDEA] bg-white pl-2.5 pr-[18px] text-[14px] font-bold text-[#0d7c36] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_8px_20px_-8px_rgba(15,21,18,0.14)]" aria-label="Retour aux repas" onclick={closeMealEditor}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>Repas</button>
 							<h2 class="mb-3 text-[30px] font-black leading-[1.1] tracking-[-0.03em] text-ink">{mealEditingId ? 'Modifier le repas' : 'Nouveau repas'}</h2>
 
 							<input
@@ -4327,7 +4337,6 @@ import { optimizeImageFile } from '$lib/media';
 						<!-- ═══════ Créés par moi : aliments personnels ═══════ -->
 						{#if searchTab === 'crees' && customEditor}
 				<div bind:this={customFormEl} onfocusin={(e) => focusScroll(e.currentTarget, e.target)} onfocusout={blurScroll}>
-							<button type="button" class="mb-3 inline-flex h-[44px] items-center gap-1 self-start rounded-[22px] border border-[#E9EDEA] bg-white pl-2.5 pr-[18px] text-[14px] font-bold text-[#0d7c36] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_8px_20px_-8px_rgba(15,21,18,0.14)]" aria-label="Retour à mes aliments" onclick={closeCustomEditor}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>Mes aliments</button>
 							<h2 class="mb-3 text-[30px] font-black leading-[1.1] tracking-[-0.03em] text-ink">{cfEditingId ? 'Modifier l\'aliment' : 'Nouvel aliment'}</h2>
 							<p class="mb-3 text-xs text-mist">{cfEditingId ? 'Mets à jour les valeurs pour 100 g : les prochains ajouts au journal utiliseront les nouvelles valeurs.' : 'Reçois-tu un plat avec une étiquette nutritionnelle ? Saisis les valeurs pour 100 g : l\'aliment sera ajouté à ta base.'}</p>
 
