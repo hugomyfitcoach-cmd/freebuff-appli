@@ -10,6 +10,7 @@
  * Usage : node scripts/e2e-hotfix-flows.mjs <baseUrl-preview>
  */
 import { ConvexHttpClient } from 'convex/browser';
+import { assertE2eTargetEnv } from './lib/e2e-env.mjs';
 
 const BASE = (process.argv[2] ?? '').replace(/\/$/, '');
 if (!BASE || !BASE.includes('netlify.app')) {
@@ -58,6 +59,7 @@ if (!diag?.enabled) fail('preview/diag indisponible — ce n\'est pas un environ
 if (diag.isProdLike || (diag.convexUrl ?? '').includes(PROD_MARK)) {
 	fail('REFUS : l\'URL Convex ressemble à la PRODUCTION.');
 }
+assertE2eTargetEnv(diag.convexUrl);
 ok(`preview confirmée : ${diag.convexUrl}`);
 ok(`OpenAI sur le preview : ${diag.ai?.openaiKeyPresent ?? 'inconnu'}`);
 
