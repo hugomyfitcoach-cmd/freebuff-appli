@@ -1406,6 +1406,7 @@ import { optimizeImageFile } from '$lib/media';
 		}
 	}
 	function openCustomEditor() {
+		leaveBarcodeForEditor();
 		customEditor = true;
 		createSheetOpen = false;
 		cfEditingId = null;
@@ -1430,6 +1431,7 @@ import { optimizeImageFile } from '$lib/media';
 	}
 	/** Édition : pré-remplit le formulaire avec la fiche existante (sauvegarde → mise à jour). */
 	function openCustomEditorFor(food: Food) {
+		leaveBarcodeForEditor();
 		customEditor = true;
 		removeCustomFoodPhoto();
 		cfEditingId = food._id;
@@ -1869,6 +1871,7 @@ import { optimizeImageFile } from '$lib/media';
 	let mealError = $state('');
 
 	function openMealEditor() {
+		leaveBarcodeForEditor();
 		mealEditor = true;
 		mealEditingId = null;
 		mealName = '';
@@ -1884,6 +1887,7 @@ import { optimizeImageFile } from '$lib/media';
 	/** Édition : pré-remplit l'éditeur avec le repas existant (ingrédients « reconstruits »
 	 *  depuis le snapshot — mêmes valeurs /100 g, le serveur recalcule à l'enregistrement). */
 	function openMealEditorFor(meal: Meal) {
+		leaveBarcodeForEditor();
 		mealEditor = true;
 		mealEditingId = meal._id;
 		mealName = meal.name;
@@ -2723,6 +2727,15 @@ import { optimizeImageFile } from '$lib/media';
 			scannerBusy = false;
 		}
 	}
+	/** Ouvrir un formulaire (repas / aliment) : on quitte TOUJOURS le mode
+	 *  code-barres et on arrête le lecteur, pour qu'aucun écran scanner ne
+	 *  subsiste derrière le formulaire. */
+	function leaveBarcodeForEditor() {
+		if (logMode === 'barcode') {
+			void stopScanner();
+			logMode = 'search';
+		}
+	}
 	async function stopScanner() {
 		if (scanner) {
 			try {
@@ -3436,6 +3449,9 @@ import { optimizeImageFile } from '$lib/media';
 	let vvH = $state(typeof window !== 'undefined' ? Math.round(window.visualViewport?.height ?? window.innerHeight) : 700);
 	/** Décalage vertical du visualViewport (clavier iOS : l'overlay reste dans la zone visible). */
 	let vvTop = $state(0);
+	/** Clavier iOS ouvert (viewport visible nettement plus petit que la fenêtre) :
+	 *  la capsule Recherche / Code-barres / Repas IA se masque pour libérer les résultats. */
+	let keyboardOpen = $state(false);
 	let mobile = $state(typeof window !== 'undefined' ? window.matchMedia('(max-width: 639px)').matches : true);
 	let refreshing = $state(false);
 
@@ -3590,6 +3606,7 @@ import { optimizeImageFile } from '$lib/media';
 		const setVh = () => {
 			vvH = Math.round((vv?.height ?? window.innerHeight) ?? 0);
 			vvTop = vv?.offsetTop ?? 0;
+			keyboardOpen = !!vv && vv.height < window.innerHeight - 150;
 			/* Ouverture du clavier = la hauteur DIMINUE ; fermeture = elle
 			   AUGMENTE (le clavier libère l'écran). */
 			const closed = vvH > prevVvH + 4;
@@ -4737,35 +4754,35 @@ import { optimizeImageFile } from '$lib/media';
 			     inutile dans ce contexte, elle grignotait la hauteur du formulaire
 			     (notamment avec le clavier numérique ouvert). Elle revient à la
 			     sortie de l'éditeur (retour à la liste). -->
-			{#if !customEditor && !(searchTab === 'repas' && mealEditor)}
-			<div class="pointer-events-none absolute inset-x-0 bottom-[calc(0.625rem+env(safe-area-inset-bottom))] z-10 flex justify-center px-5">
+			{#if !customEditor && !(searchTab === 'repas' && mealEditor) && !keyboardOpen}
+			<div class="pointer-events-none absolute inset-x-0 bottom-[calc(0.5rem+env(safe-area-inset-bottom))] z-10 flex justify-center px-5 transition-opacity duration-200">
 				<!-- 3 zones équilibrées quand la bêta « Repas IA » est active pour le
 				     compte (méthode de TRACKING du journal — jamais une création
 				     d'aliment) ; sinon capsule 2 zones inchangée. -->
-				<div class="pointer-events-auto flex h-[68px] items-center gap-1 rounded-[34px] bg-[#111A15] p-1.5 shadow-[0_18px_40px_-12px_rgba(15,21,18,0.55),0_2px_6px_rgba(15,21,18,0.2)] {aiFlags.mealPhotoAi ? 'w-full max-w-[380px]' : 'w-[58%] min-w-[200px] max-w-[270px]'}">
+				<div class="pointer-events-auto flex h-[50px] items-center gap-0.5 rounded-[25px] bg-[#111A15] p-1 shadow-[0_12px_28px_-12px_rgba(15,21,18,0.5),0_2px_4px_rgba(15,21,18,0.18)] {aiFlags.mealPhotoAi ? 'w-full max-w-[330px]' : 'w-[52%] min-w-[180px] max-w-[230px]'}">
 					<button
 						type="button"
-						class="flex h-full flex-1 flex-col items-center justify-center gap-[3px] rounded-[28px] text-[12px] font-bold transition {logMode === 'search' ? 'bg-white/[0.13] text-white' : 'text-white/65 hover:text-white'}"
+						class="flex h-full flex-1 flex-col items-center justify-center gap-[1px] rounded-[21px] text-[10.5px] font-bold leading-none transition {logMode === 'search' ? 'bg-white/[0.13] text-white' : 'text-white/65 hover:text-white'}"
 						onclick={() => switchMode('search')}
 					>
-						<Icon name="search" size={20} />
+						<Icon name="search" size={17} />
 						<span>Recherche</span>
 					</button>
 					<button
 						type="button"
-						class="flex h-full flex-1 flex-col items-center justify-center gap-[3px] rounded-[28px] text-[12px] font-bold transition {logMode === 'barcode' ? 'bg-white/[0.13] text-white' : 'text-white/65 hover:text-white'}"
+						class="flex h-full flex-1 flex-col items-center justify-center gap-[1px] rounded-[21px] text-[10.5px] font-bold leading-none transition {logMode === 'barcode' ? 'bg-white/[0.13] text-white' : 'text-white/65 hover:text-white'}"
 						onclick={() => switchMode('barcode')}
 					>
-						<Icon name="barcode" size={20} />
+						<Icon name="barcode" size={17} />
 						<span>Code-barres</span>
 					</button>
 					{#if aiFlags.mealPhotoAi}
 						<button
 							type="button"
-							class="relative flex h-full flex-1 flex-col items-center justify-center gap-[3px] rounded-[28px] text-[12px] font-bold text-white/65 transition hover:text-white"
+							class="relative flex h-full flex-1 flex-col items-center justify-center gap-[1px] rounded-[21px] text-[10.5px] font-bold leading-none text-white/65 transition hover:text-white"
 							onclick={() => openMealPhoto()}
 						>
-							<Icon name="camera" size={20} />
+							<Icon name="camera" size={17} />
 							<span>Repas IA</span>
 							<span class="absolute right-2 top-0.5 rounded-[6px] bg-brand px-[5px] py-[2px] text-[9px] font-black leading-none tracking-[0.04em] text-[#06361B]">BÊTA</span>
 						</button>

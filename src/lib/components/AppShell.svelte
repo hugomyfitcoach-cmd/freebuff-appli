@@ -420,7 +420,7 @@
 	<meta name="theme-color" content={role === 'client' && path === '/espace' ? '#FFFFFF' : '#1DB954'} />
 </svelte:head>
 
-<div class="flex min-h-screen min-h-[100dvh] {role === 'client' && path === '/espace' ? 'gflux-app-client-home' : ''}">
+<div class="flex min-h-screen min-h-[100dvh] {role === 'client' ? 'gflux-app-client' : ''} {role === 'client' && path === '/espace' ? 'gflux-app-client-home' : ''}">
 	<!-- Bandeau « nouvelle version » : déploiement récent détecté (backend
 	     incompatible ou service worker en attente). Au-dessus de tout, visible
 	     même sur le Journal plein écran. Disparaît après le reload. -->

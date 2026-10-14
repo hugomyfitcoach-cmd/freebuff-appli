@@ -1079,8 +1079,7 @@
 		</section>
 
 		<footer>
-			Quantités indicatives (sources : Ciqual ANSES). Ton plan personnalisé prime toujours.<br />
-			© 2026 G-FLUX — Tous droits réservés
+			Quantités indicatives (sources : Ciqual ANSES). Ton plan personnalisé prime toujours.
 		</footer>
 	</div>
 

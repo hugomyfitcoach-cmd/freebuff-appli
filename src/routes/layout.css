@@ -613,6 +613,12 @@ html:has(.gflux-app-client-home),
 body:has(.gflux-app-client-home) {
 	background: #ffffff;
 }
+/* Toutes les routes cliente : fond racine BLANC (safe areas et overscroll iOS
+   montrent le fond de html/body, jamais la crème --bg). Coach inchangé. */
+html:has(.gflux-app-client),
+body:has(.gflux-app-client) {
+	background: #ffffff;
+}
 
 /* Keyframes & utilitaires Claude v2 (dc-base.css) */
 @keyframes ringIn {

@@ -85,7 +85,6 @@
 	user={data.user}
 	badges={data.dashboard?.badges}
 	contentWidth="std"
-	showFooter
 	profilePhotoUrl={data.profilePhotoUrl ?? null}
 	allowRendezVous={data.dashboard?.rdvAccessAllowed ?? true}
 >

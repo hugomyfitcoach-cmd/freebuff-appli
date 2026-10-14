@@ -16,7 +16,7 @@ test('ouvrir la recherche ne focalise pas automatiquement le champ principal ni 
 });
 
 test('la capsule inférieure est masquée uniquement dans le constructeur de repas', () => {
-	assert.match(journal, /\{#if !customEditor && !\(searchTab === 'repas' && mealEditor\)\}[\s\S]{0,150}pointer-events-none absolute inset-x-0 bottom/);
+	assert.match(journal, /\{#if !customEditor && !\(searchTab === 'repas' && mealEditor\) && !keyboardOpen\}[\s\S]{0,150}pointer-events-none absolute inset-x-0 bottom/);
 	assert.match(journal, /onclick=\{\(\) => \(mealSearchOpen = true\)\}[\s\S]{0,180}Ajouter un produit/);
 	assert.match(journal, /id="meal-picker-input"/);
 	assert.match(journal, /switchMealSearchMode\('barcode'\)/);

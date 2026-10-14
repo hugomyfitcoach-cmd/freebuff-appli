@@ -173,14 +173,6 @@
 		<!-- ACCUEIL : choix d'une section (Nutrition.svelte) -->
 		<div class="home-screen">
 			<div class="w-full max-w-[560px]">
-				<a
-					href="/espace"
-					aria-label="Retour à l'accueil"
-					class="tap mb-5 inline-flex h-[44px] items-center gap-1 rounded-[22px] border border-[#E9EDEA] bg-white pl-[10px] pr-[18px] text-[15px] font-bold text-[#0F1512] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_8px_20px_-8px_rgba(15,21,18,0.14)] transition hover:border-brand/50"
-				>
-					<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="shrink-0"><path d="M15 5l-7 7 7 7"></path></svg>
-					Accueil
-				</a>
 				<h1 class="home-title">Nutrition &amp; recettes</h1>
 				<p class="home-sub">Choisis une catégorie</p>
 
@@ -338,9 +330,6 @@
 		</div>
 
 		<!-- PIED DE PAGE -->
-		<div class="footer">
-			<div class="footer-copy">© 2026 G-FLUX — Tous droits réservés</div>
-		</div>
 	{/if}
 
 	{#if recipeMsg}
