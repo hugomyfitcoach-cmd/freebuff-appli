@@ -209,7 +209,9 @@ import { optimizeImageFile } from '$lib/media';
 	let calOpen = $state(false);
 	let calDraft = $state('');
 	function openCalendar() {
-		calDraft = date; // la journée déjà consultée est pré-sélectionnée
+		calDraft = date;
+		calMonth = new Date(date + 'T12:00:00').getMonth();
+		calYear = new Date(date + 'T12:00:00').getFullYear();
 		calOpen = true;
 	}
 	function pickDay(d: string) {
@@ -217,6 +219,50 @@ import { optimizeImageFile } from '$lib/media';
 		if (!d) return;
 		void setDate(d); // futur AUTORISÉ : planifier ses journées à l'avance
 	}
+
+	/* Choix visuel type Claude : grand mois navigable avec point vert sous
+	   chaque jour RENSEIGNÉ (données consommées enregistrées), jour affiché
+	   = pastille verte pleine, bas de sheet = légende + « Aujourd'hui ». */
+	/** Map « date ISO → jour renseigné » (semaines chargées via /api/journal/week). */
+	let trackedDays = $state<Record<string, boolean>>({});
+	/** Semaines déjà demandées (évite un fetch par mois flippé en boucle). */
+	let loadedWeeks = new Set<string>();
+	/** Semaine (lundi ISO) contenant une date du mois affiché — fetch une seule fois. */
+	function weekStartOf(iso: string): string {
+		const d = new Date(iso + 'T12:00:00');
+		const shift = (d.getDay() + 6) % 7; // lundi = 0
+		d.setDate(d.getDate() - shift);
+		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+	}
+	/** Charge les semaines couvrant le mois affiché (jusqu'à 6 semaines, 1-2 fetch). */
+	async function loadTrackedMonth() {
+		const wanted = new Set<string>();
+		for (const cell of calCells) {
+			if (cell) wanted.add(weekStartOf(calDayISO(cell)));
+		}
+		const todo = [...wanted].filter((w) => !loadedWeeks.has(w));
+		if (!todo.length) return;
+		for (const w of todo) loadedWeeks.add(w);
+		try {
+			await Promise.all(
+				todo.map(async (w) => {
+					const r = await fetch(`/api/journal/week?start=${w}`);
+					if (!r.ok) return;
+					const j = await r.json();
+					const next: Record<string, boolean> = {};
+					for (const d of j.days ?? []) next[d.date] = !!d.tracked;
+					trackedDays = { ...trackedDays, ...next };
+				})
+			);
+		} catch {
+			/* hors-ligne : le calendrier reste utilisable sans points */
+			for (const w of todo) loadedWeeks.delete(w);
+		}
+	}
+	$effect(() => {
+		// Recharge au changement de mois affiché dans la sheet openCalendar.
+		if (calOpen) void loadTrackedMonth();
+	});
 
 	/* Changement de journée (minuit / reprise) : si on affichait « aujourd'hui »,
 	   on bascule sur la nouvelle journée. Une date historique consultée n'est
@@ -3926,22 +3972,62 @@ import { optimizeImageFile } from '$lib/media';
 	</div>
 	{/if}
 
-<!-- Sélecteur de date natif : sheet compacte, <input type="date">,
-     max = aujourd'hui local → aucune date future possible. -->
+<!-- Sélecteur de date : sheet calendrier visuel Claude — grand mois
+     navigable, en-têtes L M M J V S D, jour affiché = pastille verte,
+     point vert sous chaque jour RENSEIGNÉ, « Aujourd'hui » en bas. -->
 {#if calOpen}
 	<button type="button" class="fixed inset-0 z-40 bg-ink/25" aria-label="Fermer le calendrier" onclick={() => (calOpen = false)}></button>
 	<div class="fixed inset-x-0 bottom-0 z-50 rounded-t-3xl bg-white p-5 pb-[max(env(safe-area-inset-bottom),20px)] shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[360px] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-3xl">
-		<p class="mb-3 text-center text-[17px] font-bold text-ink">Choisir une date</p>
-		<input
-			type="date"
-			value={calDraft}
-			onchange={(e) => pickDay(e.currentTarget.value)}
-			class="w-full rounded-2xl border-2 border-line bg-cream px-3 py-3 text-center text-[17px] font-semibold text-ink outline-none transition focus:border-brand/60"
-			aria-label="Choisir une date"
-		/>
-		<div class="mt-4 flex items-center justify-between">
-			<button type="button" class="rounded-full px-3 py-2 text-[14px] font-semibold text-mist transition hover:text-ink" onclick={() => (calOpen = false)}>Annuler</button>
-			<button type="button" class="rounded-full bg-brand px-5 py-2 text-[14px] font-bold text-white transition hover:bg-brand-dark" onclick={() => pickDay(todayISO)}>Aujourd'hui</button>
+		<div class="mb-2 flex items-center justify-between">
+			<p class="text-[22px] font-black tracking-tight text-ink">{MOIS_CAL[calMonth]} {calYear}</p>
+			<div class="flex items-center gap-1">
+				<button type="button" class="grid h-10 w-10 place-items-center rounded-full bg-cream text-ink transition hover:bg-line/50 active:scale-95" aria-label="Mois précédent" onclick={() => shiftCalMonth(-1)}>
+					<Icon name="chevronLeft" size={20} />
+				</button>
+				<button type="button" class="grid h-10 w-10 place-items-center rounded-full bg-cream text-ink transition hover:bg-line/50 active:scale-95" aria-label="Mois suivant" onclick={() => shiftCalMonth(1)}>
+					<Icon name="chevronRight" size={20} />
+				</button>
+			</div>
+		</div>
+		<div class="mb-1 grid grid-cols-7 text-center text-[13px] font-bold text-mist">
+			<span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span><span>D</span>
+		</div>
+		<div class="grid grid-cols-7 gap-y-1">
+			{#each calCells as cell, i (i)}
+				<div class="grid place-items-center">
+					{#if cell}
+						{@const iso = calDayISO(cell)}
+						{@const selected = calDraft === iso}
+						{@const tracked = trackedDays[iso] === true}
+						<button
+							type="button"
+							class="grid h-10 w-10 place-items-center rounded-full {selected
+								? 'bg-brand text-white shadow-[0_4px_12px_-2px_rgba(27,169,84,0.45)]'
+								: 'text-ink transition hover:bg-brand/10'} text-[15px] font-bold transition active:scale-95"
+							aria-label={`Choisir le ${cell} ${MOIS_CAL[calMonth]}`}
+							aria-pressed={selected}
+							aria-current={iso === todayISO ? 'date' : undefined}
+							onclick={() => pickDay(iso)}
+						>
+							<span class={tracked && !selected ? 'pt-0.5' : ''}>{cell}</span>
+							{#if tracked && !selected}
+								<span class="pointer-events-none mt-[-3px] block h-[4px] w-[4px] rounded-full bg-brand"></span>
+							{/if}
+						</button>
+					{/if}
+				</div>
+			{/each}
+		</div>
+		<div class="mt-3 border-t border-line-soft pt-3">
+			<div class="flex items-center justify-between">
+				<span class="flex items-center gap-2 text-[13px] font-semibold text-mist">
+					<span class="inline-block h-[5px] w-[5px] rounded-full bg-brand"></span>
+					Jours renseignés
+				</span>
+				<button type="button" class="rounded-full bg-cream px-5 py-2.5 text-[14px] font-bold text-ink transition hover:bg-line/50 disabled:opacity-50" disabled={isToday} onclick={() => pickDay(todayISO)}>
+					Aujourd'hui
+				</button>
+			</div>
 		</div>
 	</div>
 {/if}
