@@ -4300,7 +4300,7 @@ import { optimizeImageFile } from '$lib/media';
 							<ul class="flex flex-col gap-2">
 								{#each meals as meal (meal._id)}
 									{@const isRecipe = meal.sourceType === 'gflux_recipe'}
-									<li class="flex items-center gap-2 rounded-[20px] border border-[#EEF1EF] bg-white p-2.5 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_14px_28px_-16px_rgba(15,21,18,0.18)] transition hover:border-brand">
+									<li class="flex items-center gap-2 rounded-[18px] border border-[#EEF1EF] bg-white py-2 pl-2 pr-1.5 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_14px_28px_-16px_rgba(15,21,18,0.18)] transition hover:border-brand">
 										<button type="button" class="flex min-w-0 flex-1 items-center gap-3 text-left" onclick={() => openPortion(meal)}>
 											{#if meal.ingredients[0]?.imageUrl}
 												<FoodImg src={meal.ingredients[0].thumbUrl} fallbackSrc={meal.ingredients[0].imageUrl} alt="" class="h-11 w-11 rounded-xl" />
@@ -4308,7 +4308,7 @@ import { optimizeImageFile } from '$lib/media';
 												<div class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name="soup" size={20} class="text-brand" /></div>
 											{/if}
 											<span class="min-w-0 flex-1">
-												<span class="block truncate text-sm font-semibold text-ink">{meal.name}</span>
+												<span class="block truncate text-[14.5px] font-bold leading-[1.22] text-ink">{meal.name}</span>
 												<span class="block text-xs text-mist">
 													<strong class="font-bold text-brand">{fmt(meal.kcal)} kcal</strong>
 													{#if isRecipe}
@@ -4513,7 +4513,7 @@ import { optimizeImageFile } from '$lib/media';
 							{:else}
 								<ul class="flex flex-col gap-2">
 									{#each customFoods as food (food._id)}
-										<li class="flex items-center gap-2">
+										<li class="flex items-center gap-[11px] rounded-[18px] border border-[#EEF1EF] bg-white py-2 pl-2 pr-1.5 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_22px_-14px_rgba(15,21,18,0.16)]">
 											<button type="button" class="flex min-w-0 flex-1 items-center gap-3 rounded-[13px] bg-transparent text-left transition hover:opacity-90" onclick={() => openQty(food)}>															{#if food.photoUrl}
 																<FoodImg src={food.photoUrl} alt="" class="h-11 w-11 rounded-xl" />
 															{:else}
