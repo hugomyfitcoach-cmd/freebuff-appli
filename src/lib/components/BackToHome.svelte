@@ -1,24 +1,17 @@
 <script lang="ts">
-	import Icon from './Icon.svelte';
-
 	/**
 	 * Retour rapide vers l'ACCUEIL client G-FLUX depuis un écran secondaire.
-	 * Ouvre toujours la route /espace (jamais history.back()) — comportement
-	 * prévisible, identique sur desktop et mobile. Complémentaire de la bottom
-	 * navigation mobile (qui reste la navigation principale).
-	 *
-	 * Usage : <BackToHome label="Photos de suivi" />
+	 * Sur mobile, AppShell affiche déjà la pilule « ‹ Accueil » dans la barre supérieure
+	 * (fidèle aux maquettes Claude). Sur desktop (md+), cette pilule prend le relais.
 	 */
 	let { label = 'Accueil' }: { label?: string } = $props();
 </script>
 
 <a
 	href="/espace"
-	class="group mb-2 inline-flex min-h-11 items-center gap-1.5 self-start rounded-xl pr-2 text-sm font-bold text-ink transition hover:text-brand-dark"
-	aria-label="Retour à l’accueil G-FLUX"
+	class="tap mb-3 hidden h-[44px] items-center gap-1 self-start rounded-[22px] border border-[#E9EDEA] bg-white pl-2.5 pr-4 text-[14px] font-bold text-[#0d7c36] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_8px_20px_-8px_rgba(15,21,18,0.14)] md:inline-flex"
+	aria-label="Retour à l’accueil G-FLUX — {label}"
 >
-	<span class="grid h-11 w-11 shrink-0 place-items-center rounded-full text-mist transition group-hover:bg-line/50 group-hover:text-ink">
-		<Icon name="arrowLeft" size={19} />
-	</span>
-	<span>{label}</span>
+	<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>
+	<span>Accueil</span>
 </a>

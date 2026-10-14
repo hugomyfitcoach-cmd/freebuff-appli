@@ -359,7 +359,7 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
      Aucun calcul, aucun seuil, aucun texte métier modifié. -->
 <section
 	bind:this={calCardEl}
-	class="mb-2 rounded-3xl border transition-[border-color,background-color,box-shadow] duration-300 {cardTone.border} {cardTone.bg} {compact ? 'px-3.5 py-2.5' : 'p-4 md:p-[18px]'}"
+	class="mb-2.5 rounded-[24px] border transition-[border-color,background-color,box-shadow] duration-300 {cardTone.border} {cardTone.bg} {compact ? 'px-[18px] py-4' : 'p-4 md:p-[18px]'}"
 	style:box-shadow={`0 2px 6px rgba(16, 24, 40, 0.04), 0 18px 40px -22px ${kcalTone}59`}
 >
 	<div class="flex items-start justify-between {compact ? 'gap-3' : 'gap-3'} md:gap-4">
@@ -368,20 +368,20 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 				{overGoal ? (overMaintenance ? 'Maintenance dépassée de' : 'Objectif dépassé de') : 'Il te reste'}
 			</p>
 			<p class="mt-0.5 flex items-baseline gap-2">
-				<span class="font-black leading-[1.05] tracking-[-0.04em] text-ink tabular-nums {compact ? 'text-[26px]' : 'text-4xl md:text-[40px]'}">
+				<span class="font-black leading-[1.05] tracking-[-0.04em] text-ink tabular-nums {compact ? 'text-[40px]' : 'text-4xl md:text-[40px]'}">
 					{overGoal ? (overMaintenance ? fmt(totals.kcal - (maintenanceKcal ?? day.goals.kcal)) : fmt(totals.kcal - day.goals.kcal)) : fmt(remaining)}
 				</span>
-				<span class="{compact ? 'text-[12px]' : 'text-[15px] md:text-[17px]'} font-bold text-mist">kcal</span>
+				<span class="{compact ? 'text-[17px]' : 'text-[15px] md:text-[17px]'} font-bold text-mist">kcal</span>
 			</p>
 		</div>
-		<span class="grid {compact ? 'h-8 w-8' : 'h-10 w-10 md:h-[42px] md:w-[42px] md:rounded-[21px]'} shrink-0 place-items-center rounded-full bg-white {cardTone.badge}" style:box-shadow={compact ? undefined : '0 6px 16px -8px rgba(15,21,18,0.3)'} aria-hidden="true">
-			<Icon name={overMaintenance ? 'bell' : 'shieldCheck'} size={compact ? 16 : 20} class={cardTone.icon} />
+		<span class="grid {compact ? 'h-[42px] w-[42px] rounded-[21px]' : 'h-10 w-10 md:h-[42px] md:w-[42px] md:rounded-[21px]'} shrink-0 place-items-center rounded-full bg-white {cardTone.badge}" style:box-shadow="0 6px 16px -8px rgba(15,21,18,0.3)" aria-hidden="true">
+			<Icon name={overMaintenance ? 'bell' : 'shieldCheck'} size={compact ? 24 : 20} class={cardTone.icon} />
 		</span>
 	</div>
 	{#if compact}
 		{#if inSafetyNet || overMaintenance}
-			<p class="mt-1 flex items-center gap-1.5 text-[11px] font-semibold {cardTone.soft}">
-				<Icon name={overMaintenance ? 'triangleAlert' : 'activity'} size={12} class="shrink-0" />
+			<p class="mt-2.5 flex items-center gap-2 text-[14px] font-bold {cardTone.soft}">
+				<Icon name={overMaintenance ? 'triangleAlert' : 'activity'} size={18} class="shrink-0" />
 				{overMaintenance ? 'On ajuste ensemble — ça reste dans le cadre.' : 'Dans ton filet de sécurité'}
 			</p>
 		{/if}
@@ -393,25 +393,25 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 			<p class="mt-1 flex items-center gap-1.5 text-xs font-semibold {cardTone.soft}"><Icon name="triangleAlert" size={13} class="shrink-0" /> Ta journée reste dans le cadre sur la durée — on ajuste ensemble si besoin.</p>
 		{/if}
 	{/if}
-	<div class="relative w-full overflow-hidden rounded-full bg-[#e8edea] {compact ? 'mt-2.5 h-1.5' : 'mt-3 h-2.5 md:h-[10px]'}">
+	<div class="relative w-full overflow-hidden rounded-[5px] bg-[#e8edea] {compact ? 'mt-3.5 h-[10px]' : 'mt-3 h-2.5 md:h-[10px]'}">
 		{#if maintenanceKcal}
 			<!-- Zone « filet de sécurité » entre l'objectif et la maintenance -->
 			<div class="absolute inset-y-0 rounded-full bg-warn-light" style="left: {goalMarkPct}%; right: 0"></div>
 		{/if}
-		<div class="relative h-full rounded-full transition-[width] duration-500 ease-out {cardTone.bar}" style:width="{kcalPct}%"></div>
+		<div class="relative h-full rounded-[5px] transition-[width] duration-500 ease-out {cardTone.bar}" style:width="{kcalPct}%"></div>
 		{#if maintenanceKcal}
 			<!-- Marqueur vertical de l'objectif (la cible principale) -->
 			<div class="absolute top-[-3px] bottom-[-3px] w-[3px] rounded-[2px] bg-ink/50" style="left: {goalMarkPct}%" title="Objectif : {fmt(day.goals.kcal)} kcal"></div>
 		{/if}
 	</div>
-	<div class="flex items-baseline justify-between gap-2 {compact ? 'mt-1.5 text-[11px]' : 'mt-3 text-[13px]'}">
+	<div class="flex items-baseline justify-between gap-2 {compact ? 'mt-3 text-[13px]' : 'mt-3 text-[13px]'}">
 		<span class="font-bold tabular-nums {overMaintenance ? 'text-danger' : overGoal ? 'text-warn' : 'text-brand'}">
 			{fmt(Math.round(totals.kcal))} kcal consommées{#if plannedKcalTotal > 0}<span class="font-normal text-mist"> · {fmt(plannedKcalTotal)} prévues</span>{/if}
 		</span>
 		<span class="text-right">
-			<span class="font-semibold text-ink">Objectif : {fmt(day.goals.kcal)}</span>
+			<span class="font-bold text-ink">Objectif : {fmt(day.goals.kcal)}</span>
 			{#if maintenanceKcal}
-				<span class="ml-1 text-mist {compact ? 'text-[10px]' : 'text-[11px]'}">· Maint. : {fmt(maintenanceKcal)}</span>
+				<span class="ml-1 text-mist {compact ? 'text-[13px]' : 'text-[11px]'}">· Maint. : {fmt(maintenanceKcal)}</span>
 			{/if}
 		</span>
 	</div>
@@ -421,7 +421,7 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
      CONSOMMÉ / OBJECTIF — sauf jour FUTUR : macros PRÉVUES (plannedTotals,
      même source que les kcal prévues) en rendu atténué (gris + désaturé),
      jamais interprétées comme consommées (aucune écriture, aucun comptage). -->
-<section class="grid grid-cols-3 {compact ? 'mb-1.5 gap-1.5' : 'mb-2.5 gap-2'}">
+<section class="grid grid-cols-3 {compact ? 'mb-3.5 gap-2' : 'mb-2.5 gap-2'}">
 	{#each rings as ring (ring.label)}
 		{@const pct = macroPct(ring.eaten, ring.goal)}
 		{@const ringFill = Math.min(100, pct)}
@@ -429,37 +429,37 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 		{@const macroKey = ring.label === 'Glucides' ? 'carbs' : ring.label === 'Protéines' ? 'protein' : 'fat'}
 		{@const clickable = mode === 'client' && !!onMacroClick}
 		<div
-			class="rounded-2xl border border-line bg-card text-center {compact ? 'px-1.5 pb-2 pt-2' : 'px-2 pb-2.5 pt-2.5'} {macrosPlanned ? 'opacity-60 saturate-50' : ''} {clickable ? 'cursor-pointer outline-none transition duration-150 hover:shadow-sm active:scale-[0.97]' : ''}"
+			class="rounded-[20px] border border-[#EEF1EF] bg-white text-center shadow-[0_1px_2px_rgba(15,21,18,0.04),0_12px_26px_-16px_rgba(15,21,18,0.18)] {compact ? 'px-1.5 pb-[11px] pt-2.5' : 'px-2 pb-2.5 pt-2.5'} {macrosPlanned ? 'opacity-60 saturate-50' : ''} {clickable ? 'cursor-pointer outline-none transition duration-150 hover:shadow-sm active:scale-[0.97]' : ''}"
 			role={clickable ? 'button' : undefined}
 			tabindex={clickable ? 0 : undefined}
 			aria-label={clickable ? `Voir le détail des ${ring.label.toLowerCase()}` : undefined}
 			onclick={clickable ? () => onMacroClick?.(macroKey) : undefined}
 			onkeydown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onMacroClick?.(macroKey); } } : undefined}
 		>
-			<div class="mb-2 flex items-center justify-between px-0.5">
-				<span class="font-bold {compact ? 'text-[10px]' : 'text-[12.5px]'} {macrosPlanned ? 'text-mist' : 'text-ink'}">{ring.label}</span>
+			<div class="mb-1.5 flex items-center justify-center gap-1 px-0.5">
 				<Icon name={ring.icon} size={compact ? 12 : 14} class="shrink-0" style={macrosPlanned ? `color:${PLANNED_GRAY}` : `color:${ring.color}`} />
+				<span class="font-bold {compact ? 'text-[12.5px] text-[#3A4540]' : 'text-[12.5px]'} {macrosPlanned ? 'text-mist' : 'text-ink'}">{ring.label}</span>
 			</div>
-			<div class="relative mx-auto {compact ? 'h-[76px] w-[76px]' : 'h-[64px] w-[64px] md:h-[84px] md:w-[84px]'}">
-				<svg viewBox="0 0 76 76" class="-rotate-90 {compact ? 'h-[76px] w-[76px]' : 'h-[64px] w-[64px] md:h-[84px] md:w-[84px]'}">
-					<circle cx="38" cy="38" r="32" fill="none" stroke="#eef0ec" stroke-width={compact ? 4 : 7} />
+			<div class="relative mx-auto {compact ? 'h-[64px] w-[64px]' : 'h-[64px] w-[64px] md:h-[84px] md:w-[84px]'}">
+				<svg viewBox="0 0 76 76" class="-rotate-90 {compact ? 'h-[64px] w-[64px]' : 'h-[64px] w-[64px] md:h-[84px] md:w-[84px]'}">
+					<circle cx="38" cy="38" r="32" fill="none" stroke="#eef0ec" stroke-width={compact ? 7 : 7} />
 					<circle
 						cx="38"
 						cy="38"
 						r="32"
 						fill="none"
 						stroke={macrosPlanned ? PLANNED_GRAY : ring.color}
-						stroke-width={compact ? 4 : 7}
+						stroke-width={compact ? 7 : 7}
 						stroke-linecap="round"
 						stroke-dasharray={circ}
 						stroke-dashoffset={circ * (1 - ringFill / 100)}
 						style="transition: stroke-dashoffset .5s"
 					/>
 				</svg>
-				<span class="absolute inset-0 grid place-items-center font-bold leading-none" style:color={macrosPlanned ? PLANNED_GRAY : ring.color}>
-					<span class="{compact ? 'text-[15px]' : 'text-[14px] md:text-[18px]'}">{Math.round(pct)}%</span>
+				<span class="absolute inset-0 grid place-items-center font-black leading-none" style:color={macrosPlanned ? PLANNED_GRAY : ring.color}>
+					<span class="{compact ? 'text-[14px]' : 'text-[14px] md:text-[18px]'}">{Math.round(pct)}%</span>
 				</span>		</div>
-		<p class="{macrosPlanned ? 'text-mist' : 'text-ink'} {compact ? 'mt-1.5 text-[10px]' : 'mt-0.5 text-[12.5px]'}">
+		<p class="{macrosPlanned ? 'text-mist' : 'text-ink'} {compact ? 'mt-1.5 text-[12.5px]' : 'mt-0.5 text-[12.5px]'}">
 			<strong class="font-bold tabular-nums {macrosPlanned ? 'text-mist' : 'text-ink'}">{fmt(Math.round(ring.eaten))}</strong><span class="text-mist">/{fmt(ring.goal)}g</span>
 		</p>
 	</div>

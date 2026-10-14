@@ -1,22 +1,22 @@
 @import 'tailwindcss';
 
-/* ─── Palette G-Flux (extraite du formulaire d'origine) ─────────────── */
+/* ─── Palette G-Flux (alignée sur les maquettes Claude v2) ─────────────── */
 @theme {
-	--color-cream: #f7f5f0;
-	--color-ink: #111110;
+	--color-cream: #ffffff;
+	--color-ink: #0f1512;
 	--color-brand: #1db954;
 	--color-brand-dark: #17a349;
 	--color-brand-deep: #0d7c36;
 	--color-brand-light: #e8fef0;
 	--color-brand-soft: #f3fcf7;
-	--color-mist: #999990;
-	--color-mist-strong: #6f736b;
+	--color-mist: #66716b;
+	--color-mist-strong: #66716b;
 	--color-card: #ffffff;
-	--color-line: #e5e3dc;
-	--color-line-soft: #efede6;
-	/* Espace cliente : fond gris très doux à nuance verte (direction mobile premium). */
-	--color-soft: #f4f6f4;
-	--color-soft-deep: #e9ede9;
+	--color-line: #eef1ef;
+	--color-line-soft: #eef1ef;
+	/* Espace cliente : fond blanc pur et surfaces d'inputs très douces (#f6f8f6). */
+	--color-soft: #f6f8f6;
+	--color-soft-deep: #e3e8e5;
 	--color-danger: #ff4444;
 	--color-danger-light: #fff0f0;
 	--color-warn: #ff9500;
@@ -26,14 +26,14 @@
 }
 
 :root {
-	--bg: #f7f5f0;
-	--text: #111110;
+	--bg: #ffffff;
+	--text: #0f1512;
 	--accent: #1db954;
 	--accent-dark: #17a349;
 	--accent-light: #e8fef0;
-	--muted: #999990;
+	--muted: #66716b;
 	--card: #ffffff;
-	--border: #e5e3dc;
+	--border: #eef1ef;
 	--red: #ff4444;
 	--red-l: #fff0f0;
 	--orange: #ff9500;
@@ -612,6 +612,76 @@ textarea,
 html:has(.gflux-app-client-home),
 body:has(.gflux-app-client-home) {
 	background: #ffffff;
+}
+
+/* Keyframes & utilitaires Claude v2 (dc-base.css) */
+@keyframes ringIn {
+	from {
+		stroke-dasharray: 0 1000;
+	}
+}
+@keyframes drawIn {
+	from {
+		stroke-dashoffset: 1;
+	}
+	to {
+		stroke-dashoffset: 0;
+	}
+}
+@keyframes barIn {
+	from {
+		transform: scaleX(0);
+	}
+	to {
+		transform: scaleX(1);
+	}
+}
+@keyframes barUp {
+	from {
+		transform: scaleY(0);
+	}
+	to {
+		transform: scaleY(1);
+	}
+}
+@keyframes areaIn {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+@keyframes popA {
+	0% {
+		transform: scale(0.92);
+	}
+	60% {
+		transform: scale(1.06);
+	}
+	100% {
+		transform: scale(1);
+	}
+}
+.draw {
+	stroke-dasharray: 1;
+	stroke-dashoffset: 0;
+	animation: drawIn 0.9s cubic-bezier(0.3, 0.7, 0.2, 1) 0.15s both;
+}
+.area {
+	animation: areaIn 0.6s ease-out 0.15s both;
+}
+.vbar {
+	transform-origin: bottom;
+	animation: barUp 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) 0.15s both;
+}
+.hbar {
+	transform-origin: left;
+	animation: barIn 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) 0.15s both;
+}
+.fld:focus-within {
+	border-color: #1db954 !important;
+	box-shadow: 0 0 0 4px rgba(29, 185, 84, 0.14) !important;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════

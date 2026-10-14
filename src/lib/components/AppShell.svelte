@@ -526,27 +526,38 @@
 		</div>
 	</aside>
 
-	<div class="flex min-w-0 flex-1 flex-col md:pl-64 {role === 'client' ? (path === '/espace' ? 'bg-white' : 'bg-soft') : 'ds-page-crm'}">
-		<!-- Barre mobile : logo (Accueil) + Rafraîchir + menu utilisateur.
+	<div class="flex min-w-0 flex-1 flex-col md:pl-64 {role === 'client' ? 'bg-white' : 'ds-page-crm'}">
+		<!-- Barre mobile : logo (Accueil) + pilule Retour (écrans secondaires) + Rafraîchir + menu utilisateur.
 		     Le Journal (vue plein écran) n'affiche AUCUN header global. -->
 		{#if !journalFullScreen}
-		<header class="sticky top-0 z-40 border-b border-line backdrop-blur md:hidden {role === 'client' ? (path === '/espace' ? 'bg-white/95' : 'bg-soft/90') : 'bg-white/95'} {role === 'client' && path === '/espace' ? 'gflux-home-header' : ''}">
-			<div class="flex items-center justify-between gap-2 px-4 py-2">
+		<header class="sticky top-0 z-40 border-b border-line backdrop-blur md:hidden bg-white/95 {role === 'client' && path === '/espace' ? 'gflux-home-header' : ''}">
+			<div class="flex items-center justify-between gap-2 px-5 py-2.5">
 				{#if showBrand}
 					<a href={role === 'coach' ? '/admin' : '/espace'} class="flex items-center py-0.5" aria-label="Accueil G-FLUX">
 						<img src="/logo-header.png" alt="G-Flux" class="h-auto w-[76px]" />
 					</a>
+				{:else if role === 'client'}
+					<a
+						href="/espace"
+						class="tap inline-flex h-[44px] items-center gap-1 rounded-[22px] border border-[#E9EDEA] bg-white pl-2.5 pr-4 text-[14px] font-bold text-[#0d7c36] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_8px_20px_-8px_rgba(15,21,18,0.14)]"
+						aria-label="Retour à l’accueil G-FLUX"
+					>
+						<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>
+						<span>Accueil</span>
+					</a>
 				{/if}
-				<div class="ml-auto flex items-center -mr-1 gap-0.5">
+				<div class="ml-auto flex items-center -mr-1 gap-1.5">
 					{#if role === 'client'}
 						<button
 							type="button"
 							onclick={handleRefresh}
-							class="grid h-11 w-11 place-items-center rounded-full text-ink transition hover:bg-line/40 active:scale-95"
+							class="grid h-11 w-11 place-items-center rounded-full text-ink transition active:scale-95"
 							title={needsUpdate ? 'Nouvelle version disponible — actualiser' : path === '/espace/journal' ? 'Recharger la journée' : 'Actualiser les données'}
 							aria-label={needsUpdate ? 'Nouvelle version disponible — actualiser' : path === '/espace/journal' ? 'Recharger la journée' : 'Actualiser les données'}
 						>
-							<Icon name="refreshCw" size={19} class={refreshing || updating ? 'animate-spin' : ''} />
+							<span class="grid h-[38px] w-[38px] place-items-center rounded-full border border-[#E9EDEA] bg-white text-[#0F1512] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_6px_14px_-8px_rgba(15,21,18,0.14)]">
+								<Icon name="refreshCw" size={18} class={refreshing || updating ? 'animate-spin' : ''} />
+							</span>
 						</button>
 					{/if}
 					<div class="relative">
