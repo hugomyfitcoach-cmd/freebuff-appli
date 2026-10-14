@@ -437,7 +437,6 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 			onkeydown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onMacroClick?.(macroKey); } } : undefined}
 		>
 			<div class="mb-1.5 flex items-center justify-center gap-1 px-0.5">
-				<Icon name={ring.icon} size={compact ? 12 : 14} class="shrink-0" style={macrosPlanned ? `color:${PLANNED_GRAY}` : `color:${ring.color}`} />
 				<span class="font-bold {compact ? 'text-[12.5px] text-[#3A4540]' : 'text-[12.5px]'} {macrosPlanned ? 'text-mist' : 'text-ink'}">{ring.label}</span>
 			</div>
 			<div class="relative mx-auto {compact ? 'h-[64px] w-[64px]' : 'h-[64px] w-[64px] md:h-[84px] md:w-[84px]'}">

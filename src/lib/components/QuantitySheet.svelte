@@ -326,7 +326,7 @@
 				<!-- Favori = cœur ENTIÈREMENT REMPLI en vert (fill), même logique qu'avant. -->
 				<button
 					type="button"
-					class="grid h-9 w-9 place-items-center rounded-full bg-white/90 shadow-md backdrop-blur transition {favActive ? 'text-brand' : 'text-mist hover:text-brand'}"
+					class="grid h-11 w-11 place-items-center rounded-[22px] border border-[#E9EDEA] bg-white/95 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_8px_20px_-8px_rgba(15,21,18,0.14)] transition {favActive ? 'text-brand' : 'text-mist hover:text-brand'}"
 					aria-label={favActive ? 'Retirer des favoris' : 'Ajouter aux favoris'}
 					onclick={onToggleFav}
 				>
@@ -338,7 +338,7 @@
 			<!-- Fermeture : toujours atteignable, contraste garanti. -->
 			<button
 				type="button"
-				class="grid h-9 w-9 place-items-center rounded-full bg-white/90 text-mist shadow-md backdrop-blur transition hover:text-ink"
+				class="grid h-11 w-11 place-items-center rounded-[22px] border border-[#E9EDEA] bg-white/95 text-[#0F1512] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_8px_20px_-8px_rgba(15,21,18,0.14)] transition"
 				aria-label="Fermer"
 				onclick={() => { if (!saving) onClose(); }}
 			>
@@ -373,7 +373,7 @@
 
 			<!-- ─── Identité : nom complet (JAMAIS tronqué) + marque + référence ─── -->
 			<div class="px-5 {qtyFocused ? 'pt-14' : 'pt-4'}">
-				<h2 class="break-words text-[17px] font-bold leading-snug text-ink">{food.name}</h2>
+				<h2 class="break-words text-[22px] font-black leading-[1.2] tracking-[-0.02em] text-ink">{food.name}</h2>
 				{#if qtyFocused}
 					<!-- Mode focus : le nom reste visible au-dessus du clavier, la ligne
 				     kcal/100g et les badges sont masqués pour garder la quantité,

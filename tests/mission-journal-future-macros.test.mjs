@@ -51,7 +51,8 @@ test('Journal futur : rendu atténué des anneaux (désaturé + gris), jamais «
 	assert.ok(journalDay.includes('stroke={macrosPlanned ? PLANNED_GRAY : ring.color}'), 'arc gris neutre en mode prévu, couleur d’identité sinon');
 	// §1 phase 2 : TITRE et ICÔNE grisés (plus aucune couleur d’identité).
 	assert.ok(journalDay.includes("{macrosPlanned ? 'text-mist' : 'text-ink'}\">{ring.label}"), 'titre de carte gris en mode prévu');
-	assert.match(journalDay, /style=\{macrosPlanned \? `color:\$\{PLANNED_GRAY\}` : `color:\$\{ring\.color\}`\}/, 'icône grisée en mode prévu');
+	// Maquette Claude : aucune icône décorative sur les cartes Glucides / Protéines / Lipides.
+	assert.ok(!journalDay.includes('Icon name={ring.icon}'), 'carte macro sans icône décorative (présentation Claude)');
 	// Pourcentage + valeur en gris au centre.
 	assert.ok(journalDay.includes('style:color={macrosPlanned ? PLANNED_GRAY : ring.color}'), 'pourcentage gris en mode prévu');
 	assert.ok(journalDay.includes("{macrosPlanned ? 'text-mist' : 'text-ink'}"), 'grammage neutre en mode prévu');

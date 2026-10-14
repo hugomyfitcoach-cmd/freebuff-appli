@@ -3736,12 +3736,7 @@ import { optimizeImageFile } from '$lib/media';
 <svelte:head><title>Journal — G-Flux</title></svelte:head>
 
 <svelte:window ontouchstart={onTouchStart} ontouchend={onTouchEnd} onkeydown={(e) => { if (macroDetail && !logOpen && !qtyFood && !editEntry && !qtyMealSel && !dupOpen && !mealCreateOpen && e.key === 'Escape') closeMacroDetail(); }} />
-	<!-- VUE PLEIN ÉCRAN : le gradient appartient au VIEWPORT (pas au container).
-	     Halo menthe très pâle, diffus, très large — jamais une bande verte. -->
-	<div
-		aria-hidden="true"
-		class="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(120%_55%_at_50%_0%,#ddefe4_0%,#e7f2ea_38%,rgba(244,246,244,0)_78%)]"
-	></div>
+	<!-- Fond blanc Claude : aucun halo décoratif sur le Journal (les cartes portent le relief). -->
 	{#if macroDetail}
 		<!-- ═══════ VUE DÉTAIL MACRO (clic carte Glucides / Protéines / Lipides) ═══════
 		     Principe fonctionnel FOOD, rendu 100 % G-FLUX : mêmes couleurs et
