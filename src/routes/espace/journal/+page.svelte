@@ -1933,7 +1933,8 @@ import { optimizeImageFile } from '$lib/media';
 		if (customEditor) closeCustomEditor();
 		searchTab = tab;
 		if (tab !== 'produits') favOnly = false;
-	}	let mealSearchError = $state('');
+	}
+	let mealSearchError = $state('');
 	/** Fiches Ciqual (ANSES) du bloc « Aliments de référence » — séparées des produits OFF. */
 	let mealCiqualResults = $state<Food[]>([]);
 	let mealCiqualExpanded = $state(false);
@@ -4789,8 +4790,11 @@ import { optimizeImageFile } from '$lib/media';
 	<div role="presentation" class="fixed inset-0 z-[55] flex items-end justify-center bg-ink/40 backdrop-blur-sm sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget && !recipeAnalyzing) closeRecipeImport(); }} onkeydown={(e) => { if (e.key === 'Escape' && !recipeAnalyzing) closeRecipeImport(); }}>
 		<div class="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 pb-[max(env(safe-area-inset-bottom),20px)] shadow-2xl sm:rounded-3xl">
 			<div class="mb-3 flex items-center justify-between">
-				<p class="font-display text-[17px] font-bold text-ink">Importer une recette</p>
-				<button type="button" class="grid h-8 w-8 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={closeRecipeImport} disabled={recipeAnalyzing}><Icon name="x" size={18} /></button>
+				<div class="min-w-0">
+					<p class="font-display text-[17px] font-bold text-ink">Importer une recette</p>
+					<p class="mt-0.5 text-[11px] text-mist">Photo ou texte — macros issues de la base G-FLUX</p>
+				</div>
+				<button type="button" class="grid h-8 w-8 shrink-0 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={closeRecipeImport} disabled={recipeAnalyzing}><Icon name="x" size={18} /></button>
 			</div>
 
 			{#if !recipeComps}
