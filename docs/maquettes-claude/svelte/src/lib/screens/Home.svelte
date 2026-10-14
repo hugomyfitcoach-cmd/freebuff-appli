@@ -56,9 +56,9 @@
           </div>
           <span style="font-size:12px;font-weight:700;color:#0d7c36;background:#e8fef0;border-radius:12px;padding:6px 11px">Objectif 2&nbsp;400</span>
         </div>
-        <div style="display:flex;align-items:baseline;gap:8px;margin-top:16px">
-          <span style="font-size:60px;font-weight:900;letter-spacing:-0.04em;line-height:1">0</span>
-          <span style="font-size:18px;font-weight:700;color:#66716B">kcal</span>
+        <div style="display:flex;align-items:baseline;gap:7px;margin-top:12px">
+          <span style="font-size:44px;font-weight:900;letter-spacing:-0.035em;line-height:1">0</span>
+          <span style="font-size:15px;font-weight:700;color:#66716B">kcal</span>
         </div>
         <div style="margin-top:16px;height:10px;border-radius:5px;background:#eef0ec;overflow:hidden"><div style="width:0%;height:100%;border-radius:5px;background:#1db954"></div></div>
         <div style="margin-top:10px;font-size:14px;color:#66716B">Il te reste <strong style="color:#0F1512;font-weight:900">2&nbsp;400</strong> kcal</div>
@@ -87,6 +87,21 @@
           <div style="width:118px;flex:none;display:flex;flex-direction:column;justify-content:flex-end">
             <div role="img" aria-label="7 derniers jours : deux jours renseignés" style="display:flex;align-items:flex-end;justify-content:space-between;height:56px"><span style="width:12px;height:8px;border-radius:4px;background:#eef0ec"></span><span style="width:12px;height:8px;border-radius:4px;background:#eef0ec"></span><span class="vbar" style="width:12px;height:52px;border-radius:6px;background:rgba(29,185,84,.3);animation-delay:230ms"></span><span class="vbar" style="width:12px;height:52px;border-radius:6px;background:rgba(29,185,84,.3);animation-delay:270ms"></span><span style="width:12px;height:8px;border-radius:4px;background:#eef0ec"></span><span style="width:12px;height:8px;border-radius:4px;background:#eef0ec"></span><span style="width:12px;height:8px;border-radius:4px;background:#eef0ec"></span></div>
             <div style="margin-top:6px;padding-top:5px;border-top:1px solid #EEF1EF;display:flex;justify-content:space-between;align-items:center"><span style="color:#9AA39E;display:flex"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"></path></svg></span><span style="font-size:11px;font-weight:900;letter-spacing:.1em;color:#9AA39E">7 J</span></div>
+          </div>
+        </div>
+      </div>
+
+
+      <div class="press card" style="position:relative;padding:16px 18px;border-radius:24px;border:1px solid #EEF1EF;background:#FFFFFF;box-shadow:0 1px 2px rgba(15,21,18,.04),0 14px 32px -16px rgba(15,21,18,.18)"><a href="/hydratation" aria-label="Voir mon hydratation" style="position:absolute;inset:0;border-radius:24px;z-index:1"></a>
+        <div style="display:flex;align-items:stretch;gap:14px">
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;justify-content:space-between">
+            <div style="display:flex;align-items:center;gap:8px;color:#1db954"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5c3.2 4 6 7 6 10.5a6 6 0 0 1-12 0c0-3.500 2.800-6.500 6-10.500Z"></path></svg><span style="font-size:12px;font-weight:900;letter-spacing:.12em;color:#66716B">HYDRATATION</span></div>
+            <div style="margin-top:8px;font-size:36px;font-weight:900;letter-spacing:-0.03em;line-height:1;white-space:nowrap">1&nbsp;250 <span style="font-size:15px;font-weight:700;color:#66716B;letter-spacing:0">/ 2&nbsp;500 ml</span></div>
+            <div style="margin-top:6px;font-size:13px;color:#66716B;white-space:nowrap">Aujourd'hui · Voir le détail</div>
+          </div>
+          <div style="width:118px;flex:none;display:flex;flex-direction:column;justify-content:flex-end">
+            <div role="img" aria-label="Objectif d'hydratation atteint à 50 %" style="display:flex;justify-content:flex-end"><div style="position:relative;width:56px;height:56px"><svg width="56" height="56" viewBox="0 0 56 56" aria-hidden="true"><circle cx="28" cy="28" r="23" fill="none" stroke="#eef0ec" stroke-width="6"></circle><circle cx="28" cy="28" r="23" fill="none" stroke="#1db954" stroke-width="6" stroke-linecap="round" stroke-dasharray="72.3 144.5" transform="rotate(-90 28 28)" style="animation:ringIn .8s cubic-bezier(.2,.8,.2,1) .1s both"></circle></svg><span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;color:#0F1512">50 %</span></div></div>
+            <div style="margin-top:6px;padding-top:5px;border-top:1px solid #EEF1EF;display:flex;justify-content:space-between;align-items:center"><span style="color:#9AA39E;display:flex"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"></path></svg></span><span style="font-size:11px;font-weight:900;letter-spacing:.1em;color:#9AA39E">OBJECTIF</span></div>
           </div>
         </div>
       </div>

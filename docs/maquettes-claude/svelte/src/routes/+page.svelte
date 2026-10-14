@@ -3,12 +3,12 @@
   const groups = ['Principal', 'Journal', 'Progression', 'Outils', 'Compte'];
 </script>
 
-<svelte:head><title>G-FLUX · 35 écrans Svelte</title></svelte:head>
+<svelte:head><title>G-FLUX · 36 écrans Svelte</title></svelte:head>
 
 <main class="index">
   <header>
     <img src="/assets/lockup-header.png" alt="G-FLUX" height="34" />
-    <h1>35 écrans · Svelte 5 / SvelteKit 2</h1>
+    <h1>36 écrans · Svelte 5 / SvelteKit 2</h1>
     <p>
       Conversion visuelle des maquettes validées. Données fictives conservées pour la prévisualisation.
       Les boutons de navigation fonctionnent d'un écran à l'autre ; touches ← → pour passer à l'écran précédent / suivant.

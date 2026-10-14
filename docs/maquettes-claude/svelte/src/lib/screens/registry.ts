@@ -7,6 +7,7 @@ export const screens: ScreenInfo[] = [
   { slug: 'food-edit', name: 'Food-Edit', label: "4 · Modification d'un aliment", group: 'Journal', load: () => import('./FoodEdit.svelte') },
   { slug: 'home', name: 'Home', label: '5 · Accueil', group: 'Principal', load: () => import('./Home.svelte') },
   { slug: 'progress', name: 'Progress', label: '6 · Progression', group: 'Principal', load: () => import('./Progress.svelte') },
+  { slug: 'hydratation', name: 'Hydratation', label: '5b · Mon hydratation', group: 'Principal', load: () => import('./Hydratation.svelte') },
   { slug: 'journal', name: 'Journal', label: '7 · Journal', group: 'Principal', load: () => import('./Journal.svelte') },
   { slug: 'search', name: 'Search', label: '8 · Recherche · Tous les produits', group: 'Journal', load: () => import('./Search.svelte') },
   { slug: 'drive', name: 'Drive', label: '9 · Drive', group: 'Outils', load: () => import('./Drive.svelte') },

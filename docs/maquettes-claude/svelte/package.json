@@ -2,7 +2,7 @@
   "name": "gflux-svelte-ui",
   "version": "1.0.0",
   "private": true,
-  "description": "G-FLUX — 35 écrans mobiles convertis en composants Svelte 5 / SvelteKit 2 (conversion visuelle, données fictives).",
+  "description": "G-FLUX — 36 écrans mobiles convertis en composants Svelte 5 / SvelteKit 2 (conversion visuelle, données fictives).",
   "type": "module",
   "scripts": {
     "dev": "vite dev",

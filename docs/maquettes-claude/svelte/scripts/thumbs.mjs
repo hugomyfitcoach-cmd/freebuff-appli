@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 const BASE = process.argv[2] || 'http://localhost:4173';
 const pw = await import(process.env.PW_MODULE || 'playwright');
-const SLUGS = ['main','meal-edit','foods','food-edit','home','progress','journal','search','drive','bilans','calibrage','nutrition','recipes','messages','depense','guide','poids','partie-fine','performance','cycle','steps','settings','recap','sheet-mesures','sheet-taille','food-detail','food-banane','scanner','meal-ai','journal-select','login','fessiers','cou','masse-grasse','sheet-poids'];
+const SLUGS = ['main','meal-edit','foods','food-edit','home','progress','hydratation','journal','search','drive','bilans','calibrage','nutrition','recipes','messages','depense','guide','poids','partie-fine','performance','cycle','steps','settings','recap','sheet-mesures','sheet-taille','food-detail','food-banane','scanner','meal-ai','journal-select','login','fessiers','cou','masse-grasse','sheet-poids'];
 const browser = await pw.chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 0.7 });
 fs.mkdirSync('static/thumbs', { recursive: true });

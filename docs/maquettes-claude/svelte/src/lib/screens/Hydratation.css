@@ -1,0 +1,7 @@
+/* Styles propres à l'écran « Hydratation » (portée .s-hydratation). Les keyframes et classes communes sont dans styles/dc-base.css. */
+.s-hydratation button{font-family:inherit;cursor:pointer}
+.s-hydratation a{text-decoration:none;color:inherit}
+.s-hydratation input,.s-hydratation textarea,.s-hydratation select{font-family:inherit}
+.s-hydratation .press{transition:transform .15s ease,box-shadow .2s ease,background-color .2s ease,border-color .2s ease}
+.s-hydratation .press:active{transform:scale(.97)}
+.s-hydratation .area{animation:areaIn .6s ease-out .45s both}

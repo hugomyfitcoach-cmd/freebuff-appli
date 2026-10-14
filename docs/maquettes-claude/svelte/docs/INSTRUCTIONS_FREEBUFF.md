@@ -16,7 +16,7 @@ Lis ce fichier en entier avant toute modification. Puis `charte/` et `reference/
 10. Les couleurs viennent des variables de l'app (voir `CHARTE_GRAPHIQUE.md`). Ne pas inventer de nouveaux seuils nutritionnels : la logique orange/rouge des calories existe déjà dans l'app, ne pas la modifier.
 
 ## 2. Comment lire les maquettes
-- `reference/maquettes/*.dc.html` : 35 écrans (390 × 844). Ce ne sont **pas** des pages prêtes à l'emploi : HTML + styles en ligne + un bloc de script d'état. `{{x}}` = valeur dynamique, `<sc-for>` = boucle, `<sc-if>` = condition. À utiliser comme **spécification** (structure, tailles, couleurs, animations) et à reproduire avec les composants Svelte.
+- `reference/maquettes/*.dc.html` : 36 écrans (390 × 844). Ce ne sont **pas** des pages prêtes à l'emploi : HTML + styles en ligne + un bloc de script d'état. `{{x}}` = valeur dynamique, `<sc-for>` = boucle, `<sc-if>` = condition. À utiliser comme **spécification** (structure, tailles, couleurs, animations) et à reproduire avec les composants Svelte.
 - Les liens `X.dc.html` indiquent la navigation voulue entre écrans ; dans l'app, garder les routes existantes.
 - Les images sont dans `static/assets/` (chemins `../assets/...`). Les images d'aliments sont des exemples, pas des ressources produit. Le logo est un export bitmap : utiliser la source vectorielle de l'app.
 - `reference/passation/` : tokens, composants et états, intégration PWA, logo. **À lire en premier.**

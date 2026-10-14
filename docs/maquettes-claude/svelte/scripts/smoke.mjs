@@ -9,7 +9,7 @@ const pw = await import(process.env.PW_MODULE || 'playwright');
 const browser = await pw.chromium.launch();
 let failed = 0;
 const check = (ok, msg) => { console.log(`${ok ? 'OK   ' : 'ÉCHEC'} ${msg}`); if (!ok) failed++; };
-const SLUGS = ['main','meal-edit','foods','food-edit','home','progress','journal','search','drive','bilans','calibrage','nutrition','recipes','messages','depense','guide','poids','partie-fine','performance','cycle','steps','settings','recap','sheet-mesures','sheet-taille','food-detail','food-banane','scanner','meal-ai','journal-select','login','fessiers','cou','masse-grasse','sheet-poids'];
+const SLUGS = ['main','meal-edit','foods','food-edit','home','progress','hydratation','journal','search','drive','bilans','calibrage','nutrition','recipes','messages','depense','guide','poids','partie-fine','performance','cycle','steps','settings','recap','sheet-mesures','sheet-taille','food-detail','food-banane','scanner','meal-ai','journal-select','login','fessiers','cou','masse-grasse','sheet-poids'];
 
 async function open(ctx, slug) {
   const p = await ctx.newPage();
@@ -21,7 +21,7 @@ async function open(ctx, slug) {
   return p;
 }
 
-// 1. liens internes : chaque lien <a href="/..."> des 35 écrans pointe vers un écran existant
+// 1. liens internes : chaque lien <a href="/..."> des 36 écrans pointe vers un écran existant
 {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 920 } });
   const bad = new Set();

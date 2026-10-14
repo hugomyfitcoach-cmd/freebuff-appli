@@ -1,6 +1,6 @@
-# G-FLUX — 35 écrans en Svelte 5 / SvelteKit 2 (TypeScript)
+# G-FLUX — 36 écrans en Svelte 5 / SvelteKit 2 (TypeScript)
 
-Conversion **visuelle** des 35 maquettes validées en composants Svelte autonomes. Aucune connexion à l'application réelle : les **données sont fictives** (celles des maquettes) pour permettre la prévisualisation.
+Conversion **visuelle** des 36 maquettes validées en composants Svelte autonomes. Aucune connexion à l'application réelle : les **données sont fictives** (celles des maquettes) pour permettre la prévisualisation.
 
 ## Lancer
 Prérequis : Node ≥ 20.
@@ -12,7 +12,7 @@ npm run build && npm run preview     # http://localhost:4173
 ```
 
 ## Naviguer
-- `/` : index des 35 écrans avec vignettes, groupés (Principal, Journal, Progression, Outils, Compte).
+- `/` : index des 36 écrans avec vignettes, groupés (Principal, Journal, Progression, Outils, Compte).
 - `/<écran>` : un écran, par exemple `/home`, `/journal`, `/food-banane`, `/scanner`, `/login` (liste complète dans `src/lib/screens/registry.ts`).
 - **Bureau** (> 640 px) : liste des écrans à gauche, écran 390 × 844 centré dans un cadre (réduit automatiquement si la fenêtre est trop basse). Touches **← →** : écran précédent / suivant.
 - **Mobile / PWA** (≤ 640 px) : l'écran occupe toute la fenêtre. Il est mis à l'échelle **proportionnellement** à la largeur (360 px → ×0,92 ; 430 px → ×1,10), jamais déformé ; sa hauteur suit la fenêtre.
@@ -20,14 +20,14 @@ npm run build && npm run preview     # http://localhost:4173
 
 ## Contenu
 ```
-src/lib/screens/            35 écrans : Nom.svelte (gabarit) + Nom.logic.svelte.ts (état + valeurs fictives) + Nom.css (styles propres)
+src/lib/screens/            36 écrans : Nom.svelte (gabarit) + Nom.logic.svelte.ts (état + valeurs fictives) + Nom.css (styles propres)
 src/lib/screens/registry.ts liste des écrans (slug, titre, groupe, chargement à la demande)
 src/lib/components/         BottomNav.svelte (barre du bas partagée, 3 variantes), Stage.svelte (cadre responsive)
 src/lib/dc/DCLogic.svelte.ts   classe de base de la logique (état réactif $state + setState)
 src/lib/styles/             dc-base.css (keyframes et classes communes), tokens.css (charte officielle), app.css (cadre de prévisualisation)
 src/routes/                 / (index), [slug] (un écran), +layout (polices, CSS, cadre)
 static/assets/              images et logos ; static/icons + manifest.webmanifest (PWA) ; static/thumbs (vignettes)
-reference/maquettes/        les 35 maquettes HTML d'origine (référence absolue) ; reference/passation/ : 4 pages de passation
+reference/maquettes/        les 36 maquettes HTML d'origine (référence absolue) ; reference/passation/ : 4 pages de passation
 docs/                       INSTRUCTIONS_FREEBUFF.md (règles et plan par lots), CHARTE_GRAPHIQUE.md, GUIDE_ECRANS.md, INTEGRATION_SVELTE.md, fichiers PWA
 scripts/                    fidelity.mjs, smoke.mjs, thumbs.mjs (tests, voir plus bas)
 ```
@@ -41,7 +41,7 @@ scripts/                    fidelity.mjs, smoke.mjs, thumbs.mjs (tests, voir plu
 
 ## Vérifications effectuées
 - `npm run build` : compile sans erreur ni avertissement ; `npm run check` (svelte-check) : 0 erreur.
-- `node scripts/fidelity.mjs` : pour chacun des 35 écrans, la maquette d'origine (évaluée avec sa propre logique, état initial) et la route Svelte sont rendues dans Chromium puis comparées élément par élément (balises, attributs, styles, textes, position et taille). **Résultat : 35 / 35 identiques.**
+- `node scripts/fidelity.mjs` : pour chacun des 36 écrans, la maquette d'origine (évaluée avec sa propre logique, état initial) et la route Svelte sont rendues dans Chromium puis comparées élément par élément (balises, attributs, styles, textes, position et taille). **Résultat : 35 / 35 identiques.**
 - `node scripts/smoke.mjs` : liens internes valides, clic sur tous les boutons sans erreur, interactions clés (quantité, favori, scanner, calendrier, bascule cru/cuit, navigation) et rendu à 360×740, 375×667, 390×844, 430×932, 1280×900 et 1024×600 sans défilement horizontal ni écran coupé.
 
 Pour relancer ces tests : `npm run build && npm run preview -- --port 4173`, puis dans un autre terminal `npx playwright install chromium` (une fois), `npm run test:fidelity` et `npm run test:smoke`.

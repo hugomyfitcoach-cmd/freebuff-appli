@@ -44,11 +44,19 @@ Animations communes (définies dans chaque maquette, valeurs à reprendre) : `fa
 
 ## 5 · Accueil
 - Maquette : `reference/maquettes/Home.dc.html`
-- À reproduire : En-tête : logo G-FLUX (variante « lockup »), bouton actualiser et avatar « HG » (placeholder), 34 px visibles avec zone sensible de 44 px ; l'en-tête reste fixe au scroll avec un léger dégradé de fondu en dessous. Carte Performance (colonnes MOYENNE / OBJECTIF / DÉFICIT, barre de progression, pastille « Voir › »), histogramme des pas, raccourcis (Entraînement, Recettes, Drive, Bilans), barre du bas flottante à 3 onglets. À l'arrivée sur l'onglet, les cartes se « rafraîchissent » en cascade : règle ouverture / retour d'onglet dans `reference/passation/Handoff-PWA.dc.html` (section 9).
+- À reproduire : Carte Calories compactée (chiffre 44 px). Carte « HYDRATATION » sous « Pas ». En-tête : logo G-FLUX (variante « lockup »), bouton actualiser et avatar « HG » (placeholder), 34 px visibles avec zone sensible de 44 px ; l'en-tête reste fixe au scroll avec un léger dégradé de fondu en dessous. Carte Performance (colonnes MOYENNE / OBJECTIF / DÉFICIT, barre de progression, pastille « Voir › »), histogramme des pas, raccourcis (Entraînement, Recettes, Drive, Bilans), barre du bas flottante à 3 onglets. À l'arrivée sur l'onglet, les cartes se « rafraîchissent » en cascade : règle ouverture / retour d'onglet dans `reference/passation/Handoff-PWA.dc.html` (section 9).
 - Titres visibles : Bonjour Hugo · Aujourd'hui
 - Boutons / liens visibles : Entraînement · Ajouter · HG · Recettes · Drive · Bilans · Accueil · Journal · Progression
-- Navigation prévue vers : `Bilans`, `Cycle`, `Depense`, `Drive`, `Journal`, `Nutrition`, `Performance`, `Progress`, `Recap`, `Steps`
+- Navigation prévue vers : `Bilans`, `Cycle`, `Depense`, `Drive`, `Hydratation`, `Journal`, `Nutrition`, `Performance`, `Progress`, `Recap`, `Steps`
 - Animations : fondu d'écran à l'ouverture; tracé de courbe animé (drawIn); barre horizontale qui se remplit; barres verticales qui montent; anneau qui se remplit; retour tactile (scale .97, 150 ms)
+
+## 5b · Mon hydratation (nouveau)
+- Maquette : `reference/maquettes/Hydratation.dc.html` (route `/hydratation`). Accessible depuis la carte « HYDRATATION » de l'accueil, placée juste sous la carte « Pas » (carte entièrement cliquable).
+- À reproduire : en-tête identique à « Mes pas » (retour Accueil, actualiser, avatar). Carte « Aujourd'hui » : anneau de progression (112 px), total en ml, objectif, pastille « Il reste X ml » / « Objectif atteint », bouton « Objectif » qui ouvre l'édition de l'objectif quotidien (500–6 000 ml). Carte « Ajouter de l'eau » : boutons rapides +150 / +250 / +500 ml, saisie libre en ml, lien « Annuler le dernier ajout ». Carte « 7 derniers jours » : histogramme avec ligne d'objectif en pointillé (barres vertes si objectif atteint, noires sinon). Carte « Historique par jour » : 7 lignes (total, %, jauge), dépliables pour voir les prises horodatées.
+- Interactions dans la maquette : `add`, `addCustom`, `setCustom`, `toggleGoal`, `setGoalDraft`, `saveGoal`, `undo`, `r.toggle`
+- Données fictives : 7 jours (7 au 13 oct.), objectif 2 500 ml ; à remplacer par les vraies données. Aucune persistance dans la maquette.
+- Carte accueil : valeurs figées (1 250 / 2 500 ml, 50 %) ; la carte et l'écran ne partagent pas d'état dans la maquette.
+- Animations : fondu d'écran, cascade fadeUp, anneau (ringIn + transition de dasharray), barres (barUp), pulsation du total à l'ajout (popA 300 ms), jauge de l'historique (transition largeur 400 ms) ; désactivées avec `prefers-reduced-motion`.
 
 ## 6 · Progression
 - Maquette : `reference/maquettes/Progress.dc.html`

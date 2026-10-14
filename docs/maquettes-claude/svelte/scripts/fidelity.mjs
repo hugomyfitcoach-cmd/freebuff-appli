@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Test de fidélité : pour chacun des 35 écrans, compare
+ * Test de fidélité : pour chacun des 36 écrans, compare
  *   (A) le rendu de RÉFÉRENCE : la maquette d'origine (reference/maquettes/*.dc.html) évaluée avec sa propre
  *       logique (état initial) puis rendue telle quelle dans Chromium ;
  *   (B) le rendu SVELTE de la route correspondante.
