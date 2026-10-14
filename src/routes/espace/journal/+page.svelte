@@ -4107,9 +4107,9 @@ import { optimizeImageFile } from '$lib/media';
 			{#if food.photoUrl}
 				<!-- Photo posée par la cliente sur SON aliment : prioritaire (jamais
 				     une image OFF — un aliment personnalisé n'a pas de fiche OFF). -->
-				<FoodImg src={food.photoUrl} alt="" class="h-10 w-10 rounded-lg" />
+				<FoodImg src={food.photoUrl} alt="" class="h-11 w-11 rounded-[12px]" />
 			{:else if food.thumbUrl || food.imageUrl}
-				<FoodImg src={food.thumbUrl} fallbackSrc={food.imageUrl} alt="" class="h-10 w-10 rounded-lg" />
+				<FoodImg src={food.thumbUrl} fallbackSrc={food.imageUrl} alt="" class="h-11 w-11 rounded-[12px]" />
 			{:else}
 				<div class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={18} class="text-brand" /></div>
 			{/if}
@@ -4117,14 +4117,12 @@ import { optimizeImageFile } from '$lib/media';
 				<span class="flex items-center gap-1">
 					<span class="truncate text-[14px] font-semibold text-ink">{food.name}</span>
 					{#if !food.custom}<span class="shrink-0 text-[9px] font-bold text-brand" title="Vérifié Open Food Facts">✓</span>{/if}
-				</span>
-				<span class="block text-[12px] text-mist tabular-nums">
-					<strong class="font-bold text-brand">{fmt(food.kcal100)} kcal</strong> · 100 g{#if food.kcalRecalculated}<span class="ml-1 rounded bg-line/70 px-1 py-px text-[9px] font-semibold text-mist">Valeur recalculée</span>{/if}{#if food.brand && food.brand !== 'null'} · {food.brand}{/if}
-				</span>
+				</span>								<span class="block text-[12px] text-mist tabular-nums">
+									<strong class="text-[13px] font-bold" style="color:#0d7c36">{fmt(food.kcal100)} kcal</strong> · 100 g{#if food.kcalRecalculated}<span class="ml-1 rounded bg-line/70 px-1 py-px text-[9px] font-semibold text-mist">Valeur recalculée</span>{/if}{#if food.brand && food.brand !== 'null'} · {food.brand}{/if}
+								</span>
 			</span>
 		</button>
-		{#if !food.custom}
-			<button type="button" class="grid h-10 w-10 shrink-0 place-items-center rounded-full transition {fav ? 'text-brand' : 'text-mist hover:text-brand'}" aria-label={fav ? `Retirer ${food.name} des favoris` : `Ajouter ${food.name} aux favoris`}					onclick={() => toggleFav(food)}>
+		{#if !food.custom}				<button type="button" class="grid h-11 w-11 shrink-0 place-items-center rounded-full transition {fav ? 'text-brand' : 'text-[#4A5550] hover:text-brand'}" aria-label={fav ? `Retirer ${food.name} des favoris` : `Ajouter ${food.name} aux favoris`}					onclick={() => toggleFav(food)}>
 					<!-- Favori = cœur ENTIÈREMENT REMPLI en vert (fill), pas un simple contour vert. -->
 					<svg viewBox="0 0 24 24" width="18" height="18" class={fav ? 'text-brand' : ''} fill={fav ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 						<path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5" />
@@ -4149,20 +4147,21 @@ import { optimizeImageFile } from '$lib/media';
 			     MODE CODE-BARRES : en-tête MINIMAL (pas de titre, pas d'explication) —
 			     la croix vit SUR la caméra (overlay) et l'écran est immersif. -->
 			{#if logMode !== 'barcode'}
-			<div class="flex shrink-0 items-center justify-between border-b border-line bg-white/95 px-3 pt-[max(env(safe-area-inset-top),10px)] pb-2.5 backdrop-blur">
-				<button type="button" class="grid h-9 w-9 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={() => closeLog()}><Icon name="x" size={20} /></button>
-				<h2 class="font-display text-[15px] font-semibold text-ink">Ajouter un aliment</h2>
-				<span class="w-9"></span>
+			<!-- Header Claude v2 : croix 44px bordée + titre Lato 900 (dock cartouche) -->
+			<div class="flex shrink-0 items-center justify-between border-b border-line bg-white px-3 pt-[max(env(safe-area-inset-top),10px)] pb-2.5">
+				<button type="button" class="grid h-11 w-11 place-items-center rounded-full border border-line bg-white text-ink shadow-[0_1px_2px_rgba(15,21,18,0.04),0_8px_20px_-8px_rgba(15,21,18,0.14)] transition active:scale-95" aria-label="Fermer" onclick={() => closeLog()}><Icon name="x" size={20} /></button>
+				<h2 class="font-display text-[18px] font-black tracking-[-0.01em] text-ink">Ajouter un aliment</h2>
+				<span class="w-11"></span>
 			</div>
 			{/if}
 
 			{#if logMode === 'search'}
 				<!-- Recherche + onglets (fixes) -->
 				<div class="shrink-0 border-b border-line bg-white/95 px-2.5 pb-2 pt-2 backdrop-blur">
-					<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2 focus-within:border-brand">										<Icon name="search" size={17} class="shrink-0 text-mist" />
+					<div class="flex h-[52px] items-center gap-2.5 rounded-2xl border border-line bg-white px-4 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_28px_-12px_rgba(15,21,18,0.14)] transition focus-within:border-brand">										<Icon name="search" size={17} class="shrink-0 text-mist" />
 						<input
 							type="search"
-							class="w-full bg-transparent text-[15px] text-ink outline-none placeholder:text-mist"
+							class="w-full bg-transparent text-[16px] text-ink outline-none placeholder:text-mist"
 							placeholder="Rechercher un produit…"
 							bind:value={searchQ}
 							oninput={onSearchInput}
@@ -4176,24 +4175,22 @@ import { optimizeImageFile } from '$lib/media';
 							><Icon name="x" size={13} /></button>
 						{/if}
 					</div>
-					<div class="mt-2 flex items-center gap-1.5 overflow-x-auto">
-						<button
-							type="button"
-							class="grid h-8 w-8 shrink-0 place-items-center rounded-full transition {favOnly ? 'bg-brand text-white' : 'bg-line/50 text-mist hover:text-ink'}"
-							title={favOnly ? 'Voir tous les produits' : 'Voir mes favoris'}
-							aria-label="Voir mes favoris"
-							onclick={() => (favOnly = !favOnly)}
-						>
-							<Icon name="heart" size={16} class={favOnly ? 'text-white' : 'text-mist'} />
-						</button>
-						<button type="button" class="shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition {searchTab === 'produits' ? 'bg-brand text-white' : 'bg-line/50 text-mist'}" onclick={() => { searchTab = 'produits'; favOnly = false; }}>Tous les produits</button>
+					<div class="mt-2 flex items-center gap-1.5 overflow-x-auto">									<button
+										type="button"
+										class="grid h-11 w-11 shrink-0 place-items-center rounded-full transition active:scale-95 {favOnly ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#4A5550] hover:text-ink'}"
+										title={favOnly ? 'Voir tous les produits' : 'Voir mes favoris'}
+										aria-label="Voir mes favoris"
+										onclick={() => (favOnly = !favOnly)}
+									>
+										<Icon name="heart" size={20} class={favOnly ? 'text-white' : 'text-[#4A5550]'} />
+									</button>
+									<button type="button" class="h-11 shrink-0 rounded-full px-[18px] text-[14px] font-bold transition active:scale-95 {searchTab === 'produits' ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#3A4540]'}" onclick={() => { searchTab = 'produits'; favOnly = false; }}>Tous les produits</button>
 						<!-- Switch d'onglet DIRECT : ferme l'éditeur de repas / créateur
 						     d'aliment en cours — les sous-vues ne « captent » plus l'onglet
 						     (le contenu est conditionné à searchTab D'ABORD, jamais à
 						     mealEditor/customEditor seuls). La saisie en cours passe en
-						     brouillon (reprise au retour, cf. draft). -->
-						<button type="button" class="shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition {searchTab === 'repas' ? 'bg-brand text-white' : 'bg-line/50 text-mist'}" onclick={() => switchTab('repas')}>Repas</button>
-						<button type="button" class="shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition {searchTab === 'crees' ? 'bg-brand text-white' : 'bg-line/50 text-mist'}" onclick={() => switchTab('crees')}>Créés par moi</button>
+						     brouillon (reprise au retour, cf. draft). -->									<button type="button" class="h-11 shrink-0 rounded-full px-[20px] text-[14px] font-bold transition active:scale-95 {searchTab === 'repas' ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#3A4540]'}" onclick={() => switchTab('repas')}>Repas</button>
+									<button type="button" class="h-11 shrink-0 rounded-full px-[18px] text-[14px] font-bold transition active:scale-95 {searchTab === 'crees' ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#3A4540]'}" onclick={() => switchTab('crees')}>Créés par moi</button>
 					</div>
 				</div>
 
@@ -4289,10 +4286,10 @@ import { optimizeImageFile } from '$lib/media';
 						</div>
 					{:else if searchTab === 'repas'}
 						<!-- ═══════ Mes repas ═══════ -->
-						<button type="button" class="mb-3 flex w-full items-center gap-2 rounded-xl bg-brand-light px-3 py-2.5 text-sm font-semibold text-brand transition hover:bg-brand/15" onclick={openMealEditor}>
+						<button type="button" class="mb-3 flex w-full items-center gap-3.5 rounded-2xl border px-3.5 py-2.5 text-left transition active:scale-[0.98] {searchTab === 'repas' ? 'bg-brand-light border-brand/30 text-brand' : 'border border-[rgba(29,185,84,0.3)] bg-[#e8fef0] text-[#0d7c36]'}" onclick={openMealEditor}>
 							<!-- Icône REPAS COMPLET (bol fumant) ≠ fiche produit de « Créer un aliment » -->
-							<span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand text-white"><Icon name="soup" size={13} /></span>
-							Ajouter un nouveau repas
+							<span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand text-white"><Icon name="soup" size={20} /></span>
+							<span class="text-[16px] font-bold">Ajouter un nouveau repas</span>
 						</button>
 						{#if mealsError}
 							<p class="rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{mealsError}</p>
@@ -4502,10 +4499,10 @@ import { optimizeImageFile } from '$lib/media';
 							</button>
 							</div>
 						{:else}
-						<button type="button" class="mb-3 flex w-full items-center gap-2 rounded-xl bg-brand-light px-3 py-2.5 text-sm font-semibold text-brand transition hover:bg-brand/15" onclick={openCreateSheet}>
+						<button type="button" class="mb-3 flex w-full items-center gap-3.5 rounded-2xl border px-3.5 py-2.5 text-left transition active:scale-[0.98] {searchTab === 'crees' ? 'bg-brand-light border-brand/30 text-brand' : 'border border-[rgba(29,185,84,0.3)] bg-[#e8fef0] text-[#0d7c36]'}" onclick={openCreateSheet}>
 							<!-- Icône FICHE PRODUIT + crayon ≠ bol fumant de « Ajouter un nouveau repas » -->
-							<span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand text-white"><Icon name="clipboardPen" size={13} /></span>
-							Créer un aliment
+							<span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand text-white"><Icon name="clipboardPen" size={20} /></span>
+							<span class="text-[16px] font-bold">Créer un aliment</span>
 						</button>
 							{#if customFoodsError}
 								<p class="rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{customFoodsError}</p>
@@ -4567,7 +4564,7 @@ import { optimizeImageFile } from '$lib/media';
 						     Aliments réellement consommés par cette cliente (jamais inventés). -->
 						{#if freqFoods.length > 0}
 							<div class="flex items-baseline justify-between px-1 pb-1 pt-1.5">
-								<h3 class="text-[11px] font-bold uppercase tracking-widest text-mist">Tes aliments fréquents</h3>
+								<h3 class="text-[12px] font-black uppercase tracking-[0.12em] text-mist">Tes aliments fréquents</h3>
 								<span class="text-[10px] text-mist">tes habitudes</span>
 							</div>
 							<ul class="flex flex-col divide-y divide-line/50">
@@ -4581,7 +4578,7 @@ import { optimizeImageFile } from '$lib/media';
 						{/if}
 						{#if recentFoods.length > 0}
 							<div class="flex items-baseline justify-between px-1 pb-1 pt-1.5">
-								<h3 class="text-[11px] font-bold uppercase tracking-widest text-mist">Récemment utilisés</h3>
+								<h3 class="text-[12px] font-black uppercase tracking-[0.12em] text-mist">Récemment utilisés</h3>
 								<span class="text-[10px] text-mist">derniers ajouts</span>
 							</div>
 							<ul class="flex flex-col divide-y divide-line/50">
@@ -4604,7 +4601,7 @@ import { optimizeImageFile } from '$lib/media';
 						     aucune photo produit, fiche entièrement cliquable. ═══ -->
 						{#if ciqualResults.length > 0}
 							<div class="flex items-baseline justify-between px-1 pb-1 pt-1.5">
-								<h3 class="text-[11px] font-bold uppercase tracking-widest text-mist">Aliments de référence</h3>
+								<h3 class="text-[12px] font-black uppercase tracking-[0.12em] text-mist">Aliments de référence</h3>
 								<span class="text-[10px] text-mist">Ciqual – ANSES</span>
 							</div>
 							<ul class="mb-2 flex flex-col gap-1.5">
@@ -4627,7 +4624,7 @@ import { optimizeImageFile } from '$lib/media';
 						{/if}
 						{#if results.length > 0}
 							<div class="flex items-baseline justify-between px-1 pb-1 pt-1.5">
-								<h3 class="text-[11px] font-bold uppercase tracking-widest text-mist">Produits</h3>
+								<h3 class="text-[12px] font-black uppercase tracking-[0.12em] text-mist">Produits</h3>
 								<span class="text-[10px] text-mist">Open Food Facts</span>
 							</div>
 							<!-- Résultats : conservés pendant une nouvelle recherche (pas de flash blanc) -->
@@ -5058,7 +5055,7 @@ import { optimizeImageFile } from '$lib/media';
 					<button type="button" class="grid h-8 w-8 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={() => { mealAddSearchOpen = false; mealReplaceIdx = null; }}><Icon name="x" size={18} /></button>
 				</div>
 				<div class="shrink-0 border-b border-line px-3 py-2">
-					<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2 focus-within:border-brand">
+					<div class="flex h-[52px] items-center gap-2.5 rounded-2xl border border-line bg-white px-4 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_28px_-12px_rgba(15,21,18,0.14)] transition focus-within:border-brand">
 						<Icon name="search" size={16} class="shrink-0 text-mist" />
 						<input type="search" class="w-full bg-transparent text-[15px] text-ink outline-none placeholder:text-mist" placeholder="Ex. huile d'olive, sauce tomate…" bind:value={mealAddQuery} oninput={onMealAddInput} />
 					</div>
@@ -5295,12 +5292,12 @@ import { optimizeImageFile } from '$lib/media';
 
 			{#if mealSearchMode === 'search'}
 				<div class="shrink-0 border-b border-line bg-white/95 px-2.5 pb-2 pt-2 backdrop-blur">
-					<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2 focus-within:border-brand">
+					<div class="flex h-[52px] items-center gap-2.5 rounded-2xl border border-line bg-white px-4 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_28px_-12px_rgba(15,21,18,0.14)] transition focus-within:border-brand">
 						<Icon name="search" size={17} class="shrink-0 text-mist" />
 						<input
 							id="meal-picker-input"
 							type="search"
-							class="w-full bg-transparent text-[15px] text-ink outline-none placeholder:text-mist"
+							class="w-full bg-transparent text-[16px] text-ink outline-none placeholder:text-mist"
 							placeholder="Rechercher un produit…"
 							bind:value={mealSearchQ}
 							oninput={onMealSearchInput}
@@ -5327,7 +5324,7 @@ import { optimizeImageFile } from '$lib/media';
 					{:else}
 						{#if mealCiqualResults.length > 0}
 							<div class="flex items-baseline justify-between px-1 pb-1 pt-1.5">
-								<h3 class="text-[11px] font-bold uppercase tracking-widest text-mist">Aliments de référence</h3>
+								<h3 class="text-[12px] font-black uppercase tracking-[0.12em] text-mist">Aliments de référence</h3>
 								<span class="text-[10px] text-mist">Ciqual – ANSES</span>
 							</div>
 							<ul class="mb-2 flex flex-col gap-1.5">
@@ -5350,7 +5347,7 @@ import { optimizeImageFile } from '$lib/media';
 						{/if}
 						{#if mealResults.length > 0}
 							<div class="flex items-baseline justify-between px-1 pb-1 pt-1.5">
-								<h3 class="text-[11px] font-bold uppercase tracking-widest text-mist">Produits</h3>
+								<h3 class="text-[12px] font-black uppercase tracking-[0.12em] text-mist">Produits</h3>
 								<span class="text-[10px] text-mist">Open Food Facts</span>
 							</div>
 							<ul class="flex flex-col divide-y divide-line/50 transition-opacity {mealSearching ? 'opacity-50' : ''}">
@@ -5358,7 +5355,7 @@ import { optimizeImageFile } from '$lib/media';
 									<li>
 										<button type="button" class="flex w-full items-center gap-2 px-1 py-2 text-left transition hover:opacity-70" onclick={() => openIngredientPortion(i)}>
 											{#if food.thumbUrl || food.imageUrl}
-												<FoodImg src={food.thumbUrl} fallbackSrc={food.imageUrl} alt="" class="h-10 w-10 rounded-lg" />
+												<FoodImg src={food.thumbUrl} fallbackSrc={food.imageUrl} alt="" class="h-11 w-11 rounded-[12px]" />
 											{:else}
 												<div class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={18} class="text-brand" /></div>
 											{/if}
