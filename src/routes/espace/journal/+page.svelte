@@ -4193,8 +4193,8 @@ import { optimizeImageFile } from '$lib/media';
 					{#if searchTab === 'repas' && mealEditor}
 						<!-- ═══════ Éditeur de repas ═══════ -->
 						<div>
-							<button type="button" class="mb-3 flex items-center gap-1 text-sm font-semibold text-mist hover:text-ink" onclick={closeMealEditor}>← Retour aux repas</button>
-							<p class="mb-1 text-sm font-semibold text-ink">{mealEditingId ? 'Modifier le repas' : 'Nouveau repas'}</p>
+							<button type="button" class="mb-3 inline-flex h-[44px] items-center gap-1 self-start rounded-[22px] border border-[#E9EDEA] bg-white pl-2.5 pr-[18px] text-[14px] font-bold text-[#0d7c36] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_8px_20px_-8px_rgba(15,21,18,0.14)]" aria-label="Retour aux repas" onclick={closeMealEditor}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>Repas</button>
+							<h2 class="mb-3 text-[30px] font-black leading-[1.1] tracking-[-0.03em] text-ink">{mealEditingId ? 'Modifier le repas' : 'Nouveau repas'}</h2>
 
 							<input
 								type="text"
@@ -4327,8 +4327,8 @@ import { optimizeImageFile } from '$lib/media';
 						<!-- ═══════ Créés par moi : aliments personnels ═══════ -->
 						{#if searchTab === 'crees' && customEditor}
 				<div bind:this={customFormEl} onfocusin={(e) => focusScroll(e.currentTarget, e.target)} onfocusout={blurScroll}>
-							<button type="button" class="mb-3 flex items-center gap-1 text-sm font-semibold text-mist hover:text-ink" onclick={closeCustomEditor}>← Retour à mes aliments</button>
-							<p class="mb-1 text-sm font-semibold text-ink">{cfEditingId ? 'Modifier l\'aliment' : 'Nouvel aliment'}</p>
+							<button type="button" class="mb-3 inline-flex h-[44px] items-center gap-1 self-start rounded-[22px] border border-[#E9EDEA] bg-white pl-2.5 pr-[18px] text-[14px] font-bold text-[#0d7c36] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_8px_20px_-8px_rgba(15,21,18,0.14)]" aria-label="Retour à mes aliments" onclick={closeCustomEditor}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>Mes aliments</button>
+							<h2 class="mb-3 text-[30px] font-black leading-[1.1] tracking-[-0.03em] text-ink">{cfEditingId ? 'Modifier l\'aliment' : 'Nouvel aliment'}</h2>
 							<p class="mb-3 text-xs text-mist">{cfEditingId ? 'Mets à jour les valeurs pour 100 g : les prochains ajouts au journal utiliseront les nouvelles valeurs.' : 'Reçois-tu un plat avec une étiquette nutritionnelle ? Saisis les valeurs pour 100 g : l\'aliment sera ajouté à ta base.'}</p>
 
 							<!-- PHOTO (OPTIONNELLE) : caméra OU galerie → compression + preview

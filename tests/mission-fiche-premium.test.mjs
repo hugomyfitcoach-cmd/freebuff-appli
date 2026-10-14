@@ -87,7 +87,7 @@ test('Densité : plus de sur-compaction — quantité, macros, repas et CTA touj
 	// acceptable mais RIEN n'est jamais masqué.
 	assert.ok(sheet.includes('min-h-0 flex-1 overflow-y-auto'), 'scroll interne de secours (très petits écrans)');
 	assert.ok(sheet.includes("qtyFocused ? 'pt-14' : 'pt-4'"), 'bloc identité respiré (fin du compactage) + espacé sous la croix en mode focus');
-	assert.ok(sheet.includes('mt-3.5 flex items-center justify-center'), 'onglets unités respirés');
+	assert.ok(sheet.includes('mt-3.5 flex items-stretch justify-around'), 'onglets unités respirés (onglets soulignés Claude)');
 	assert.ok(sheet.includes('mt-3 flex items-center justify-between'), 'quantité centrale avec vraie marge');
 	assert.ok(sheet.includes('rounded-full border-2 border-line px-3.5 py-2'), 'raccourcis 50/100/150/200 g touchables (44 px)');
 	assert.ok(sheet.includes('mt-3.5 px-5 pb-3'), 'bloc macros respiré');

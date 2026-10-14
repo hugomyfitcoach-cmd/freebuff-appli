@@ -405,23 +405,23 @@
 			<div class="px-5">
 				<!-- Bascule Grammes / Portions (si portion OFF fiable) / Repères G-FLUX
 			     (si un repère usuel correspond) — onglets dynamiques. -->
-				{#if tabCount > 1}						<div class="mt-3.5 flex items-center justify-center gap-1 rounded-full bg-line/50 p-1 text-xs font-bold {tabCount > 2 ? 'gap-0.5 px-0.5' : ''}">
+				{#if tabCount > 1}						<div class="mt-3.5 flex items-stretch justify-around border-b border-[#E9EDEA] text-[14px] font-bold">
 						<button
 							type="button"
-							class="rounded-full px-5 py-2 transition {unitMode === 'g' ? 'bg-brand text-white shadow-sm' : 'text-mist hover:text-ink'}"
+							class="relative h-11 flex-1 px-2 transition {unitMode === 'g' ? 'text-[#1db954] after:absolute after:-bottom-px after:left-1/2 after:h-[3px] after:w-11 after:-translate-x-1/2 after:rounded after:bg-[#1db954]' : 'text-mist hover:text-ink'}"
 							onclick={() => { if (!qtyFocused) switchMode('g'); }}
 						>Grammes</button>
 						{#if hasServing}
 							<button
 								type="button"
-								class="rounded-full px-5 py-2 transition {unitMode === 'portion' ? 'bg-brand text-white shadow-sm' : 'text-mist hover:text-ink'}"
+								class="relative h-11 flex-1 px-2 transition {unitMode === 'portion' ? 'text-[#1db954] after:absolute after:-bottom-px after:left-1/2 after:h-[3px] after:w-11 after:-translate-x-1/2 after:rounded after:bg-[#1db954]' : 'text-mist hover:text-ink'}"
 								onclick={() => { if (!qtyFocused) switchMode('portion'); }}
 							>Portions</button>
 						{/if}
 						{#if hasRepere}
 							<button
 								type="button"
-								class="rounded-full px-5 py-2 transition {unitMode === 'repere' ? 'bg-brand text-white shadow-sm' : 'text-mist hover:text-ink'}"
+								class="relative h-11 flex-1 px-2 transition {unitMode === 'repere' ? 'text-[#1db954] after:absolute after:-bottom-px after:left-1/2 after:h-[3px] after:w-11 after:-translate-x-1/2 after:rounded after:bg-[#1db954]' : 'text-mist hover:text-ink'}"
 								onclick={() => { if (!qtyFocused) switchMode('repere'); }}
 							>Repères G-FLUX</button>
 						{/if}
