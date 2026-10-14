@@ -30,6 +30,7 @@
  */
 import { ConvexHttpClient } from 'convex/browser';
 import { readFileSync } from 'node:fs';
+import { assertE2eTargetEnv } from './lib/e2e-env.mjs';
 
 const BASE = process.argv[2] ?? 'http://127.0.0.1:5174';
 
@@ -44,6 +45,7 @@ if (!env.COACH_EMAIL || !env.COACH_PASSWORD) {
 	process.exit(1);
 }
 
+assertE2eTargetEnv(env.PUBLIC_CONVEX_URL);
 const client = new ConvexHttpClient(env.PUBLIC_CONVEX_URL);
 const { api } = await import('../src/convex/_generated/api.js');
 

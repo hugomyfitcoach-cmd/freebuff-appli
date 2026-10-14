@@ -4,6 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { checkinStatus, coachingModeKind } from "./schema";
 import {
+	assertE2eEmailAllowed,
 	EMAIL_RE,
 	addDaysISO,
 	daysBetweenISO,
@@ -338,6 +339,7 @@ export const createClient = mutation({
 	handler: async (ctx, { sessionToken, email, password, prenom, nom, startDate }) => {
 		const coach = await requireCoach(ctx, sessionToken);
 		const emailClean = normalizeEmail(email);
+		assertE2eEmailAllowed(emailClean);
 		if (!EMAIL_RE.test(emailClean)) throw new ConvexError("Adresse email invalide.");
 		const prenomClean = prenom.trim().slice(0, 60);
 		if (!prenomClean) throw new ConvexError("Le prénom est requis.");
@@ -464,6 +466,7 @@ export const updateClient = mutation({
 		}
 		if (email !== undefined) {
 			const emailClean = normalizeEmail(email);
+			assertE2eEmailAllowed(emailClean);
 			if (!EMAIL_RE.test(emailClean)) throw new ConvexError("Adresse email invalide.");
 			const clash = await ctx.db
 				.query("users")
