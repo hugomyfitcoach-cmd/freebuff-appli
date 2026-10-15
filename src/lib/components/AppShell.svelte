@@ -5,7 +5,7 @@
 	import Icon from './Icon.svelte';
 	import AvatarCrop from './AvatarCrop.svelte';
 	import { progressionBack } from '$lib/progressionBack.svelte';
-	import { noteSync } from '../navMemory';
+	import { noteSync, resetScroll } from '../navMemory';
 	import { isStandalone } from '../pwa';
 	import { forceAppUpdate, onUpdateState, startCompatWatch } from '../swUpdate';
 	import { registerServiceWorker } from '../push';
@@ -734,6 +734,7 @@
 						href={link.href}
 						data-sveltekit-prefetch
 						data-sveltekit-preload-data="tap"
+						onclick={() => resetScroll(link.href)}
 						class="gflux-nav-link relative flex flex-1 flex-col items-center justify-center gap-0.5 px-2 py-2 text-[11px] font-semibold transition
 							{active ? 'bg-brand-light text-brand-dark' : 'text-mist hover:bg-soft hover:text-ink'}"
 						aria-current={active ? 'page' : undefined}

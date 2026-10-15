@@ -48,6 +48,12 @@ export function restoreScroll(route: string): number {
 	return scrollAt[route] ?? 0;
 }
 
+/** Onglet racine ouvert depuis la barre principale : la page repart toujours
+ *  tout en haut, sans restaurer la position de la dernière visite. */
+export function resetScroll(route: string) {
+	scrollAt[route] = 0;
+}
+
 export function cacheGet<T>(key: string): T | undefined {
 	return dataCache[key] as T | undefined;
 }
