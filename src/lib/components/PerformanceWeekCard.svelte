@@ -168,7 +168,7 @@
 		<span class="inline-flex items-center gap-1"><span class="h-1.5 w-1.5 rounded-full" style="background:{MACRO_COLORS.carbs}"></span> Glucides</span>
 		<span class="inline-flex items-center gap-1"><span class="h-1.5 w-1.5 rounded-full" style="background:{MACRO_COLORS.protein}"></span> Protéines</span>
 		<span class="inline-flex items-center gap-1"><span class="h-1.5 w-1.5 rounded-full" style="background:{MACRO_COLORS.fat}"></span> Lipides</span>
-		<span class="ml-auto inline-flex items-center gap-1"><Icon name="flame" size={10} class="shrink-0" /> Objectif : {fmt(goals.kcal)} kcal</span>
+		<span class="ml-auto inline-flex items-center gap-1"><span aria-hidden="true" class="h-1.5 w-1.5 shrink-0 rounded-full bg-brand"></span> Objectif : {fmt(goals.kcal)} kcal</span>
 	</div>
 {/if}
 

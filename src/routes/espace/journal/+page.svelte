@@ -3875,7 +3875,7 @@ import { optimizeImageFile } from '$lib/media';
 				</section>
 			{:else}
 				<div class="mt-4 rounded-2xl border border-dashed border-line bg-card/60 px-4 py-10 text-center">
-					<Icon name={macroMeta.icon} size={22} class="mx-auto text-mist" />
+					<span aria-hidden="true" class="mx-auto block h-1.5 w-1.5 rounded-full" style:background={macroMeta.color}></span>
 					<p class="mt-2 text-sm text-mist">{isFuture ? 'Rien de prévu sur cette journée.' : 'Rien de consommé sur cette journée.'}</p>
 				</div>
 			{/each}
@@ -4251,19 +4251,19 @@ import { optimizeImageFile } from '$lib/media';
 
 							<!-- Totaux live -->
 							<div class="mt-3 grid grid-cols-4 gap-2">
-								<div class="rounded-xl border border-line bg-white p-2 text-center">											<Icon name="flame" size={16} class="mx-auto block text-brand" />
+								<div class="rounded-xl border border-line bg-white p-2 text-center">											<span aria-hidden="true" class="mx-auto block h-1.5 w-1.5 rounded-full bg-brand"></span>
 									<span class="block text-xs font-bold text-ink">{fmt(mealTotals.kcal)}</span>
 									<span class="block text-[10px] text-mist">kcal</span>
 								</div>
-								<div class="rounded-xl border border-line bg-white p-2 text-center">											<Icon name="wheat" size={16} class="mx-auto block" style="color:#ec4899" />
+								<div class="rounded-xl border border-line bg-white p-2 text-center">											<span aria-hidden="true" class="mx-auto block h-1.5 w-1.5 rounded-full" style="background:#ec4899"></span>
 									<span class="block text-xs font-bold text-ink">{fmt(mealTotals.carbs)} g</span>
 									<span class="block text-[10px] text-mist">glucides</span>
 								</div>
-								<div class="rounded-xl border border-line bg-white p-2 text-center">											<Icon name="drumstick" size={16} class="mx-auto block" style="color:#3b82f6" />
+								<div class="rounded-xl border border-line bg-white p-2 text-center">											<span aria-hidden="true" class="mx-auto block h-1.5 w-1.5 rounded-full" style="background:#3b82f6"></span>
 									<span class="block text-xs font-bold text-ink">{fmt(mealTotals.protein)} g</span>
 									<span class="block text-[10px] text-mist">protéines</span>
 								</div>
-								<div class="rounded-xl border border-line bg-white p-2 text-center">											<Icon name="droplet" size={16} class="mx-auto block" style="color:#f97316" />
+								<div class="rounded-xl border border-line bg-white p-2 text-center">											<span aria-hidden="true" class="mx-auto block h-1.5 w-1.5 rounded-full" style="background:#f97316"></span>
 									<span class="block text-xs font-bold text-ink">{fmt(mealTotals.fat)} g</span>
 									<span class="block text-[10px] text-mist">lipides</span>
 								</div>

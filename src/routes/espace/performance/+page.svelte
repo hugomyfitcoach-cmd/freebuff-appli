@@ -249,7 +249,7 @@
 				<div class="mt-3">
 					<div class="flex items-baseline justify-between gap-2">
 						<p class="flex items-center gap-1.5 text-sm font-bold text-ink">
-							<Icon name="flame" size={15} class="shrink-0 text-brand" /> Calories
+							<span aria-hidden="true" class="h-1.5 w-1.5 shrink-0 rounded-full bg-brand"></span> Calories
 						</p>
 						<p class="text-sm tabular-nums">
 							<strong class="font-bold text-ink">{fmt(selected.totals.kcal)}</strong>
@@ -272,7 +272,7 @@
 						<div class="rounded-2xl border border-line bg-card px-1.5 pb-2 pt-2 text-center">
 							<div class="mb-2 flex items-center justify-between px-0.5">
 								<span class="text-[10px] font-bold text-ink">{ring.label}</span>
-								<Icon name={ring.icon} size={12} class="shrink-0" style="color:{ring.color}" />
+								<span aria-hidden="true" class="h-1.5 w-1.5 shrink-0 rounded-full" style="background:{ring.color}"></span>
 							</div>
 							<div class="relative mx-auto h-[76px] w-[76px]">
 								<svg viewBox="0 0 64 64" class="h-[76px] w-[76px] -rotate-90">
@@ -316,7 +316,7 @@
 		{#if avg}
 			<div class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
 				<div class="rounded-2xl bg-soft px-3 py-2.5">
-					<p class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-mist"><Icon name="flame" size={11} class="shrink-0" /> kcal moy.</p>
+					<p class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-mist"><span aria-hidden="true" class="h-1.5 w-1.5 shrink-0 rounded-full bg-brand"></span> kcal moy.</p>
 					<p class="mt-0.5 font-display text-xl font-bold tabular-nums leading-tight text-ink">{fmt(avg.kcal)}</p>
 					<p class="text-[10px] text-mist">Objectif {fmt(week.goals.kcal)}</p>
 				</div>
