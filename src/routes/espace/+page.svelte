@@ -268,13 +268,13 @@
 	    « Rendez-vous » : libellé INVARIABLE, même gabarit que les autres (§16).
 	    MODE AUTONOMIE : le raccourci disparaît (retour Coaching = réapparaît). */
 	const chips = $derived([
-		// Les quatre premières entrées suivent Home.dc.html; les raccourcis métier
-		// restants (dont Rendez-vous) gardent leurs conditions et badges existants.
+		// « Rendez-vous » en première position (visible à l'ouverture) ; l'ordre des
+		// autres raccourcis est inchangé. Conditions et badges existants conservés.
+		...(autonomy ? [] : [{ href: '/espace/rendez-vous', label: 'Rendez-vous', icon: 'calendarCheck', badge: 0 }]),
 		{ href: '/recettes', label: 'Recettes', icon: 'chefHat', badge: 0 },
 		{ href: '/espace/ressources', label: 'Drive', icon: 'cloud', badge: 0 },
 		{ href: '/espace/historique', label: 'Bilans', icon: 'clipboardCheck', badge: dash?.badges.bilans ?? 0 },
 		{ href: '/espace/entrainement', label: 'Entraînement', icon: 'dumbbell', badge: 0 },
-		...(autonomy ? [] : [{ href: '/espace/rendez-vous', label: 'Rendez-vous', icon: 'calendarCheck', badge: 0 }]),
 		{ href: '/espace/messages', label: 'Messages', icon: 'messageCircle', badge: dash?.badges.message ?? 0 },
 		{ href: '/outils', label: 'Outils', icon: 'wrench', badge: 0 },
 	]);
