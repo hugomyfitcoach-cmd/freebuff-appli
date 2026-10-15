@@ -4,6 +4,13 @@
   command = "npm run build"
   publish = "build"
 
+# ── Production : déployer Convex avant le frontend ────────────────────────
+# Netlify doit avoir CONVEX_DEPLOY_KEY configurée dans le scope Production
+# (clé prod: liée à calm-jaguar-475). Le script refuse toute autre cible et
+# propage l'échec : le build/publication frontend n'a lieu qu'après Convex.
+[context.production]
+  command = "node scripts/deploy.mjs && npm run build"
+
 # ── Deploy Previews — backend isolé par PR ────────────────────────────────
 # Ne jamais supprimer/recréer ou réutiliser un backend partagé entre PR :
 # `--preview-create` efface ses données à chaque build, tandis que

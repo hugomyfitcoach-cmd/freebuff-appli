@@ -11,6 +11,8 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const netlify = readFileSync(join(root, 'netlify.toml'), 'utf8');
 const deployScript = readFileSync(join(root, 'scripts/deploy-preview.mjs'), 'utf8');
 const buildScript = readFileSync(join(root, 'scripts/build-preview.mjs'), 'utf8');
+const productionDeployScript = readFileSync(join(root, 'scripts/deploy.mjs'), 'utf8');
+const schema = readFileSync(join(root, 'src/convex/schema.ts'), 'utf8');
 
 const validPr = { CONTEXT: 'deploy-preview', PULL_REQUEST: 'true', REVIEW_ID: '271', HEAD: 'ux/journal-alimentaire' };
 
@@ -49,6 +51,24 @@ test('la commande conserve le preview nommé et ne remet jamais à zéro un back
 	assert.match(deployScript, /CONTEXT !== 'deploy-preview'/);
 	assert.match(deployScript, /PULL_REQUEST !== 'true'/);
 	assert.match(deployScript, /REVIEW_ID/);
+});
+
+test('Production déploie Convex verrouillé avant le build frontend, en fail-closed', () => {
+	const productionCommand = netlify.match(/\[context\.production\][\s\S]*?command = \"([^\"]+)\"/)?.[1] ?? '';
+	assert.equal(productionCommand, 'node scripts/deploy.mjs && npm run build');
+	assert.ok(productionCommand.indexOf('scripts/deploy.mjs') < productionCommand.indexOf('npm run build'));
+	assert.match(productionCommand, /&&/, 'build uniquement si le déploiement Convex réussit');
+	assert.match(productionDeployScript, /const PROD_NAME = 'calm-jaguar-475'/);
+	assert.match(productionDeployScript, /key\.startsWith\('prod:'\)/);
+	assert.match(productionDeployScript, /key\.includes\(PROD_NAME\)/);
+	assert.match(productionDeployScript, /\['convex', 'deploy'/);
+	assert.match(productionDeployScript, /process\.exit\(result\.status \?\? 1\)/, 'échec Convex bloque Netlify');
+	assert.match(netlify, /\[context\.deploy-preview\][\s\S]*?node scripts\/deploy-preview\.mjs/);
+});
+
+test('aucune déclaration de suppression n’est ajoutée au schéma Convex', () => {
+	assert.doesNotMatch(schema, /\.(?:drop|delete|remove)Table\(/i);
+	assert.doesNotMatch(schema, /removeTable|dropTable|deleteTable/i);
 });
 
 test('le build Preview vérifie aussi l’identité du backend avant embarquement', () => {
