@@ -5,6 +5,8 @@
 	import { clearMetricField, upsertMetricRow, withDerivedBodyFat, type Measurement, type MetricKey, type MetricsSnapshot } from '../../../lib/metrics';
 	import MetricTrend from '../../../lib/components/MetricTrend.svelte';
 	import BackToHome from '../../../lib/components/BackToHome.svelte';
+	import { fade, fly } from 'svelte/transition';
+	import { sheetFade, sheetFly } from '../../../lib/sheetMotion';
 	import Icon from '../../../lib/components/Icon.svelte';
 	import { KEY_MEASURES, MEASURE_IMAGES, MEASURE_TIPS, PHOTO_EXAMPLES, PHOTO_PROTOCOL } from '../../../lib/data/guide';
 
@@ -892,8 +894,8 @@
 
 <!-- ═══════════ Feuille POIDS (unique, maquette SheetPoids.svelte) ═══════════ -->
 {#if logType === 'weight'}
-	<div role="presentation" class="fixed inset-0 z-[60] flex items-end justify-center bg-[#0F1512]/38 backdrop-blur-sm sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget && !saving) logType = null; }} onkeydown={(e) => { if (e.key === 'Escape' && !saving) logType = null; }}>
-		<div class="w-full max-w-lg rounded-t-[30px] bg-white px-5 pb-7 pt-[22px] shadow-[0_-20px_50px_-20px_rgba(15,21,18,0.35)] sm:rounded-[30px] {saving ? 'pointer-events-none' : ''}">
+	<div role="presentation" transition:fade={sheetFade()} class="fixed inset-0 z-[60] flex items-end justify-center bg-[#0F1512]/38 backdrop-blur-sm sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget && !saving) logType = null; }} onkeydown={(e) => { if (e.key === 'Escape' && !saving) logType = null; }}>
+		<div transition:fly={sheetFly()} class="w-full max-w-lg rounded-t-[30px] bg-white px-5 pb-7 pt-[22px] shadow-[0_-20px_50px_-20px_rgba(15,21,18,0.35)] sm:rounded-[30px] {saving ? 'pointer-events-none' : ''}">
 			<div class="flex items-start justify-between">
 				<h2 class="font-display text-[20px] font-black tracking-[-0.02em] text-[#0F1512]">Enregistrer mon poids</h2>
 				<button type="button" class="grid h-11 w-11 -mr-2 -mt-1.5 place-items-center rounded-full text-[#66716B] hover:bg-[#F6F8F6]" aria-label="Fermer" onclick={() => (logType = null)}>
@@ -928,8 +930,8 @@
 
 <!-- ═══════════ Feuille MENSURATIONS (groupées, maquette SheetMesures.svelte) ═══════════ -->
 {#if logType === 'mensurations'}
-	<div role="presentation" class="fixed inset-0 z-[60] flex items-end justify-center bg-[#0F1512]/38 backdrop-blur-sm sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget && !saving) logType = null; }} onkeydown={(e) => { if (e.key === 'Escape' && !saving) logType = null; }}>
-		<div class="w-full max-w-lg rounded-t-[30px] bg-white px-5 pb-7 pt-[22px] shadow-[0_-20px_50px_-20px_rgba(15,21,18,0.35)] sm:rounded-[30px] {saving ? 'pointer-events-none' : ''}">
+	<div role="presentation" transition:fade={sheetFade()} class="fixed inset-0 z-[60] flex items-end justify-center bg-[#0F1512]/38 backdrop-blur-sm sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget && !saving) logType = null; }} onkeydown={(e) => { if (e.key === 'Escape' && !saving) logType = null; }}>
+		<div transition:fly={sheetFly()} class="w-full max-w-lg rounded-t-[30px] bg-white px-5 pb-7 pt-[22px] shadow-[0_-20px_50px_-20px_rgba(15,21,18,0.35)] sm:rounded-[30px] {saving ? 'pointer-events-none' : ''}">
 			<div class="flex items-start justify-between">
 				<h2 class="font-display text-[20px] font-black tracking-[-0.02em] text-[#0F1512]">Enregistrer mes mensurations</h2>
 				<button type="button" class="grid h-11 w-11 -mr-2 -mt-1.5 place-items-center rounded-full text-[#66716B] hover:bg-[#F6F8F6]" aria-label="Fermer" onclick={() => (logType = null)}>
@@ -976,8 +978,8 @@
 
 <!-- ═══════════ Feuille édition / suppression d'une valeur ═══════════ -->
 {#if edit && editMeta}
-	<div role="presentation" class="fixed inset-0 z-[60] flex items-end justify-center bg-[#0F1512]/38 backdrop-blur-sm sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget && !editSaving) edit = null; }} onkeydown={(e) => { if (e.key === 'Escape' && !editSaving) edit = null; }}>
-		<div class="w-full max-w-lg rounded-t-[30px] bg-white px-5 pb-7 pt-[22px] shadow-[0_-20px_50px_-20px_rgba(15,21,18,0.35)] sm:rounded-[30px]">
+	<div role="presentation" transition:fade={sheetFade()} class="fixed inset-0 z-[60] flex items-end justify-center bg-[#0F1512]/38 backdrop-blur-sm sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget && !editSaving) edit = null; }} onkeydown={(e) => { if (e.key === 'Escape' && !editSaving) edit = null; }}>
+		<div transition:fly={sheetFly()} class="w-full max-w-lg rounded-t-[30px] bg-white px-5 pb-7 pt-[22px] shadow-[0_-20px_50px_-20px_rgba(15,21,18,0.35)] sm:rounded-[30px]">
 			<div class="flex items-start justify-between">
 				<h2 class="font-display text-[20px] font-black tracking-[-0.02em] text-[#0F1512]">Modifier {editMeta.sub.toLowerCase()}</h2>
 				<button type="button" class="grid h-11 w-11 -mr-2 -mt-1.5 place-items-center rounded-full text-[#66716B] hover:bg-[#F6F8F6]" aria-label="Fermer" onclick={() => (edit = null)}>
@@ -1013,8 +1015,8 @@
 
 <!-- ═══════════ Édition de la taille (maquette SheetTaille.svelte) ═══════════ -->
 {#if heightEdit}
-	<div role="presentation" class="fixed inset-0 z-[60] flex items-end justify-center bg-[#0F1512]/38 backdrop-blur-sm sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget && !saving) heightEdit = false; }} onkeydown={(e) => { if (e.key === 'Escape' && !saving) heightEdit = false; }}>
-		<div class="w-full max-w-lg rounded-t-[30px] bg-white px-5 pb-7 pt-[22px] shadow-[0_-20px_50px_-20px_rgba(15,21,18,0.35)] sm:rounded-[30px]">
+	<div role="presentation" transition:fade={sheetFade()} class="fixed inset-0 z-[60] flex items-end justify-center bg-[#0F1512]/38 backdrop-blur-sm sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget && !saving) heightEdit = false; }} onkeydown={(e) => { if (e.key === 'Escape' && !saving) heightEdit = false; }}>
+		<div transition:fly={sheetFly()} class="w-full max-w-lg rounded-t-[30px] bg-white px-5 pb-7 pt-[22px] shadow-[0_-20px_50px_-20px_rgba(15,21,18,0.35)] sm:rounded-[30px]">
 			<h2 class="font-display text-[20px] font-black tracking-[-0.02em] text-[#0F1512]">Ta taille</h2>
 			<p class="mt-1 text-[13.5px] text-[#66716B]">Renseignée une seule fois (cm).</p>
 			<div class="mt-4 flex items-center gap-2.5">

@@ -1439,7 +1439,7 @@
 		     state premium — titre, texte explicatif, CTA discret vers la page
 		     dédiée (action déjà existante, aucune logique métier ajoutée).
 		     Même structure que la carte Entraînement vide → mêmes hauteurs. -->
-			<p class="mt-2 font-display text-lg font-bold leading-tight text-ink">Aucune activité</p>
+			<p class="mt-2 font-display text-lg font-bold leading-tight tracking-tight text-ink">Aucune activité</p>
 			<p class="mt-1 text-[11px] leading-snug text-mist">Ajoute une activité pour suivre ton volume de sport.</p>
 			<p class="mt-2.5 inline-flex items-center gap-1 text-[11px] font-bold text-brand-dark">
 				<Icon name="plus" size={12} class="shrink-0" /> Ajouter
@@ -1470,7 +1470,7 @@
 			<p class="mt-2 font-display text-lg font-bold leading-tight text-ink">Séance faite ✓</p>
 			<p class="mt-1 min-w-0 truncate text-xs font-semibold text-mist">{trainingTodayCompleted.name}</p>
 		{:else if trainingWeek?.nextSession}
-			<p class="mt-2 font-display text-lg font-bold leading-tight text-ink">Prochaine séance</p>
+			<p class="mt-2 font-display text-lg font-bold leading-tight tracking-tight text-ink">Prochaine séance</p>
 			<p class="mt-1 min-w-0 truncate text-xs font-semibold text-mist">
 				{new Date(trainingWeek.nextSession.date + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long' })}{#if trainingWeek.nextSession.name} · {trainingWeek.nextSession.name}{/if}
 			</p>

@@ -2,6 +2,7 @@
 	import { fade, fly } from 'svelte/transition';
 	import { untrack } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import { sheetFade, sheetFly } from '$lib/sheetMotion';
 	import { checkWeightKg, parseWeightKg, saveWeightKg } from '$lib/weightLog';
 
 	/* Saisie rapide du poids depuis l'Accueil : feuille compacte, clavier décimal,
@@ -101,7 +102,7 @@
 {#if open}
 	<div
 		role="presentation"
-		transition:fade={{ duration: 160 }}
+		transition:fade={sheetFade()}
 		class="fixed inset-0 z-[60] flex items-end justify-center bg-[#0F1512]/38 backdrop-blur-sm sm:items-center sm:p-6"
 		onclick={(e) => {
 			if (e.target === e.currentTarget) requestClose();
@@ -111,7 +112,7 @@
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="weight-quick-title"
-			transition:fly={{ y: 48, duration: 240 }}
+			transition:fly={sheetFly()}
 			class="w-full max-w-md rounded-t-[28px] bg-white px-5 pt-5 shadow-[0_-20px_50px_-20px_rgba(15,21,18,0.35)] sm:rounded-[28px]"
 			style="padding-bottom: max(env(safe-area-inset-bottom), 20px);"
 		>
