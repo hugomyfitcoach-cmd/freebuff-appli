@@ -4165,7 +4165,7 @@ import { optimizeImageFile } from '$lib/media';
 			<!-- Header Claude v2 : croix 44px bordée + titre Lato 900 (dock cartouche) -->
 			<div class="flex shrink-0 items-center justify-between border-b border-line bg-white px-3 pt-[max(env(safe-area-inset-top),10px)] pb-2.5">
 				<button type="button" class="grid h-11 w-11 place-items-center rounded-full border border-line bg-white text-ink shadow-[0_1px_2px_rgba(15,21,18,0.04),0_8px_20px_-8px_rgba(15,21,18,0.14)] transition active:scale-95" aria-label="Fermer" onclick={() => closeLog()}><Icon name="x" size={20} /></button>
-				<h2 class="font-display text-[18px] font-black tracking-[-0.01em] text-ink">Ajouter un aliment</h2>
+				<h2 class="font-display text-[16px] font-black tracking-[-0.01em] text-ink">Ajouter un aliment</h2>
 				<span class="w-11"></span>
 			</div>
 			{/if}
@@ -4182,7 +4182,7 @@ import { optimizeImageFile } from '$lib/media';
 				<!-- Recherche + onglets (fixes) : masqués pendant un éditeur (écran autonome) -->
 				{#if !fullEditorOpen}
 				<div class="shrink-0 border-b border-line bg-white/95 px-2.5 pb-2 pt-2 backdrop-blur">
-					<div class="flex h-[52px] items-center gap-2.5 rounded-2xl border border-line bg-white px-4 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_28px_-12px_rgba(15,21,18,0.14)] transition focus-within:border-brand">										<Icon name="search" size={17} class="shrink-0 text-mist" />
+					<div class="flex h-11 items-center gap-2.5 rounded-2xl border border-line bg-white px-3.5 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_28px_-12px_rgba(15,21,18,0.14)] transition focus-within:border-brand">										<Icon name="search" size={17} class="shrink-0 text-mist" />
 						<input
 							type="search"
 							class="w-full bg-transparent text-[16px] text-ink outline-none placeholder:text-mist"
@@ -4201,18 +4201,18 @@ import { optimizeImageFile } from '$lib/media';
 					</div>
 					<div class="mt-2 flex items-center gap-1.5 overflow-x-auto">									<button
 										type="button"
-										class="grid h-11 w-11 shrink-0 place-items-center rounded-full transition active:scale-95 {favOnly ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#4A5550] hover:text-ink'}"
+										class="grid h-9 w-9 shrink-0 place-items-center rounded-full transition active:scale-95 {favOnly ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#4A5550] hover:text-ink'}"
 							title={favOnly ? 'Voir tous les produits' : 'Voir mes favoris'}
 							aria-label="Voir mes favoris"
 							onclick={() => (favOnly = !favOnly)}
 						>									<Icon name="heart" size={20} class={favOnly ? 'text-white' : 'text-[#4A5550]'} />
-						</button>									<button type="button" class="h-11 shrink-0 rounded-full px-[18px] text-[14px] font-bold transition active:scale-95 {searchTab === 'produits' ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#3A4540]'}" onclick={() => { searchTab = 'produits'; favOnly = false; }}>Tous les produits</button>
+						</button>									<button type="button" class="h-9 shrink-0 rounded-full px-3.5 text-[13px] font-bold transition active:scale-95 {searchTab === 'produits' ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#3A4540]'}" onclick={() => { searchTab = 'produits'; favOnly = false; }}>Tous les produits</button>
 						<!-- Switch d'onglet DIRECT : ferme l'éditeur de repas / créateur
 						     d'aliment en cours — les sous-vues ne « captent » plus l'onglet
 						     (le contenu est conditionné à searchTab D'ABORD, jamais à
 						     mealEditor/customEditor seuls). La saisie en cours passe en
-						     brouillon (reprise au retour, cf. draft). -->									<button type="button" class="h-11 shrink-0 rounded-full px-[20px] text-[14px] font-bold transition active:scale-95 {searchTab === 'repas' ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#3A4540]'}" onclick={() => switchTab('repas')}>Repas</button>
-									<button type="button" class="h-11 shrink-0 rounded-full px-[18px] text-[14px] font-bold transition active:scale-95 {searchTab === 'crees' ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#3A4540]'}" onclick={() => switchTab('crees')}>Créés par moi</button>
+						     brouillon (reprise au retour, cf. draft). -->									<button type="button" class="h-9 shrink-0 rounded-full px-3.5 text-[13px] font-bold transition active:scale-95 {searchTab === 'repas' ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#3A4540]'}" onclick={() => switchTab('repas')}>Repas</button>
+									<button type="button" class="h-9 shrink-0 rounded-full px-3.5 text-[13px] font-bold transition active:scale-95 {searchTab === 'crees' ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#3A4540]'}" onclick={() => switchTab('crees')}>Créés par moi</button>
 					</div>
 				</div>
 				{/if}
