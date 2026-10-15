@@ -4178,8 +4178,9 @@ import { optimizeImageFile } from '$lib/media';
 				</div>
 			{/if}
 
-			{#if logMode === 'search' && !fullEditorOpen}
-				<!-- Recherche + onglets (fixes) -->
+			{#if logMode === 'search'}
+				<!-- Recherche + onglets (fixes) : masqués pendant un éditeur (écran autonome) -->
+				{#if !fullEditorOpen}
 				<div class="shrink-0 border-b border-line bg-white/95 px-2.5 pb-2 pt-2 backdrop-blur">
 					<div class="flex h-[52px] items-center gap-2.5 rounded-2xl border border-line bg-white px-4 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_28px_-12px_rgba(15,21,18,0.14)] transition focus-within:border-brand">										<Icon name="search" size={17} class="shrink-0 text-mist" />
 						<input
@@ -4214,6 +4215,7 @@ import { optimizeImageFile } from '$lib/media';
 									<button type="button" class="h-11 shrink-0 rounded-full px-[18px] text-[14px] font-bold transition active:scale-95 {searchTab === 'crees' ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#3A4540]'}" onclick={() => switchTab('crees')}>Créés par moi</button>
 					</div>
 				</div>
+				{/if}
 
 				<!-- Résultats : liste seule scrollable (pb généreux : le dernier
 				     produit doit passer entièrement au-dessus de la capsule flottante) -->
