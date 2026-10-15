@@ -3462,6 +3462,8 @@ import { optimizeImageFile } from '$lib/media';
 	let customFormEl = $state<HTMLElement | undefined>();
 	let logListEl = $state<HTMLElement | undefined>();
 	let bcListEl = $state<HTMLElement | undefined>();
+	/** Consigne unique du scanner code-barres (affichée une seule fois par écran). */
+	const BARCODE_HINT = 'Place le code-barres dans le cadre. La lecture est automatique.';
 	let mealSearchListEl = $state<HTMLElement | undefined>();
 	let mealBcListEl = $state<HTMLElement | undefined>();
 
@@ -4685,7 +4687,7 @@ import { optimizeImageFile } from '$lib/media';
 						     de la pill lampe/zoom — plus de superposition texte/contrôles,
 						     lisibilité garantie sur petits écrans et safe areas. -->
 						{#if !bcManualMode && barcodeStatus === 'scanning' && !barcodeBusy}
-							<p class="pointer-events-none absolute inset-x-3 bottom-[4.75rem] z-10 text-center text-[11px] font-semibold text-white/85 drop-shadow">Place le code-barres dans le cadre. La lecture est automatique.</p>
+							<p class="pointer-events-none absolute inset-x-3 bottom-[4.75rem] z-10 text-center text-[11px] font-semibold text-white/85 drop-shadow">{BARCODE_HINT}</p>
 						{/if}
 						<!-- Lampe + zoom : pill compacte en bas de la caméra (plus de gros blocs) -->
 						{#if !bcManualMode && scannerCaps && (scannerCaps.torch || scannerCaps.zoom)}
@@ -5411,7 +5413,7 @@ import { optimizeImageFile } from '$lib/media';
 					<div class="relative order-2 mx-auto aspect-[3/4.6] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-[max-height,border-color,box-shadow] duration-300 ease-out {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}" style:max-height={bcManualMode ? '7rem' : '120vh'}>
 						<div id="meal-bc-reader" class="absolute inset-0"></div>
 						{#if !bcManualMode && barcodeStatus === 'scanning' && !barcodeBusy}
-							<p class="pointer-events-none absolute inset-x-3 bottom-2.5 z-10 text-center text-[11px] font-semibold text-white/85 drop-shadow">Présente le code-barres à plat devant l'objectif — dès la lecture, la feuille de portion s'ouvre.</p>
+							<p class="pointer-events-none absolute inset-x-3 bottom-2.5 z-10 text-center text-[11px] font-semibold text-white/85 drop-shadow">{BARCODE_HINT}</p>
 						{/if}
 						{#if !bcManualMode && scannerCaps && (scannerCaps.torch || scannerCaps.zoom)}
 							<div class="absolute bottom-9 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-ink/55 px-2 py-1 backdrop-blur">

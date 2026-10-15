@@ -823,8 +823,8 @@
 <div class="gflux-home-content">
 <!-- Apparitions (stagger CSS) : uniquement au chargement complet — voir « Motion G-FLUX » dans layout.css -->
 <!-- ═══════════ En-tête ═══════════ -->
-<header class="gflux-home-greeting m-in mb-4 mt-1 px-1 pt-5">
-	<h1 class="font-display text-4xl font-black leading-[1.05] tracking-tight text-ink">{greeting.title}</h1>
+<header class="gflux-home-greeting m-in mb-4 px-1 pt-0">
+	<h1 class="font-display text-[32px] font-black leading-[1.05] tracking-tight text-ink">{greeting.title}</h1>
 	<p class="mt-1 text-sm text-mist">{greeting.dayLine ?? `${todayLabel} — voici où tu en es.`}</p>
 </header>
 

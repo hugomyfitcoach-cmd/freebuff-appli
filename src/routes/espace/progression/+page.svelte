@@ -724,7 +724,7 @@
 	<!-- ═══════════ Vue principale ═══════════ -->
 	<div class="mx-auto w-full max-w-xl pb-28">
 		<BackToHome label="Ma progression" />
-		<h1 class="flex items-center gap-2.5 font-display text-[34px] font-black leading-[1.05] tracking-[-0.03em] text-ink">Ma progression <Icon name="trendingUp" size={26} strokeWidth={2.4} class="text-brand" /></h1>
+		<h1 class="flex items-center gap-2.5 font-display text-[28px] font-black leading-[1.05] tracking-[-0.03em] text-ink">Ma progression <Icon name="trendingUp" size={26} strokeWidth={2.4} class="text-brand" /></h1>
 		<p class="mt-1 text-sm text-mist">Poids, mensurations et masse grasse estimée — touche une courbe pour la détailler.</p>
 
 		{#if error}
