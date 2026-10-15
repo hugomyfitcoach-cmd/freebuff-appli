@@ -346,11 +346,15 @@
 		<!-- Perte de graisse théorique estimée (maintenance disponible uniquement, sinon masqué) -->
 		{#if theoreticalFatKg !== null && maintenance}
 			<div class="mt-3 rounded-2xl border border-line bg-soft px-3.5 py-3">
-				<p class="flex items-center gap-1.5 text-sm font-semibold text-ink">
-					<Icon name="scale" size={15} class="shrink-0 text-brand" />
-					Perte de graisse théorique estimée à ce stade de la semaine : <strong class="font-bold">{String(theoreticalFatKg).replace('.', ',')} kg</strong>
+				<p class="flex items-start gap-1.5 text-sm font-semibold leading-snug text-ink">
+					<Icon name="scale" size={15} class="mt-0.5 shrink-0 text-brand" />
+					<span>Perte de graisse théorique estimée à ce stade de la semaine</span>
 				</p>
-				<p class="mt-1 text-[11px] leading-snug text-mist">
+				<p class="mt-1 whitespace-nowrap font-display text-[28px] font-black leading-none tracking-tight text-ink tabular-nums">
+					{String(theoreticalFatKg).replace('.', ',')}
+					<span class="text-base font-bold text-mist">kg</span>
+				</p>
+				<p class="mt-1.5 text-[11px] leading-snug text-mist">
 					Estimation indicative calculée uniquement sur les jours renseignés de la semaine, selon le déficit calorique cumulé à l'instant T.
 				</p>
 			</div>
