@@ -5,6 +5,7 @@
 	import { clearMetricField, upsertMetricRow, withDerivedBodyFat, type Measurement, type MetricKey, type MetricsSnapshot } from '../../../lib/metrics';
 	import MetricTrend from '../../../lib/components/MetricTrend.svelte';
 	import BackToHome from '../../../lib/components/BackToHome.svelte';
+	import { progressionBack } from '../../../lib/progressionBack.svelte';
 	import { fade, fly } from 'svelte/transition';
 	import { sheetFade, sheetFly } from '../../../lib/sheetMotion';
 	import Icon from '../../../lib/components/Icon.svelte';
@@ -179,6 +180,20 @@
 
 	/* ————— Guide « Mesures & photos » (pédagogique, lecture seule) ————— */
 	let guideOpen = $state(false);
+
+	/* Retour du header : ferme la sous-page ouverte (détail, masse grasse, guide)
+	   et revient à « Ma progression ». Le store est vidé à la sortie de la page. */
+	function closeSubPage() {
+		detailKey = null;
+		bfDetail = false;
+		guideOpen = false;
+	}
+	$effect(() => {
+		progressionBack.close = detailKey !== null || bfDetail || guideOpen ? closeSubPage : null;
+		return () => {
+			progressionBack.close = null;
+		};
+	});
 	function openGuide() {
 		guideOpen = true;
 		/* Le DOM se met à jour après le flush Svelte : on remonte en haut une
@@ -415,16 +430,6 @@
 {#if detailKey !== null && detailMeta}
 	<!-- ═══════════ Vue détail d'une métrique (maquette Claude v2 Poids / PartieFine / Fessiers / Cou) ═══════════ -->
 	<div class="mx-auto w-full max-w-xl pb-28">
-		<div class="mb-4 flex items-center gap-2">
-			<button
-				type="button"
-				onclick={() => (detailKey = null)}
-				class="tap inline-flex h-[44px] items-center gap-1 rounded-[22px] border border-[#E9EDEA] bg-white pl-2.5 pr-4 text-[14px] font-bold text-[#0d7c36] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_8px_20px_-8px_rgba(15,21,18,0.14)]"
-			>
-				<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>
-				<span>Retour</span>
-			</button>
-		</div>
 
 		<h1 class="text-[#0F1512] page-title">{detailMeta.sub}</h1>
 		<p class="mt-1 text-[14px] leading-[1.4] text-[#66716B]">Touche une date pour corriger ou supprimer une valeur.</p>
@@ -539,16 +544,6 @@
 	</div>	{:else if bfDetail}
 	<!-- ═══════════ Vue détail : masse grasse estimée (lecture seule, maquette MasseGrasse.svelte) ═══════════ -->
 	<div class="mx-auto w-full max-w-xl pb-28">
-		<div class="mb-4 flex items-center gap-2">
-			<button
-				type="button"
-				onclick={() => (bfDetail = false)}
-				class="tap inline-flex h-[44px] items-center gap-1 rounded-[22px] border border-[#E9EDEA] bg-white pl-2.5 pr-4 text-[14px] font-bold text-[#0d7c36] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_8px_20px_-8px_rgba(15,21,18,0.14)]"
-			>
-				<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>
-				<span>Retour</span>
-			</button>
-		</div>
 		<h1 class="text-[#0F1512] page-title">Masse grasse estimée</h1>
 		<p class="mt-1 text-[14px] leading-[1.4] text-[#66716B]">Estimation indicative calculée avec la méthode US Navy — elle n'est pas modifiable.</p>
 
@@ -624,11 +619,6 @@
 	{:else if guideOpen}
 	<!-- ═══════════ Vue guide : Comment bien prendre mes mesures & mes photos (lecture seule) ═══════════ -->
 	<div class="mx-auto w-full max-w-xl pb-28">
-		<div class="mb-3 flex items-center gap-1 text-sm font-semibold text-mist">
-			<button type="button" class="flex min-h-9 items-center gap-1 rounded-lg pr-2 transition hover:text-ink" onclick={() => (guideOpen = false)}><Icon name="chevronLeft" size={16} /> Retour</button>
-			<span class="text-mist/50" aria-hidden="true">·</span>
-			<a href="/espace" class="flex min-h-9 items-center gap-1 rounded-lg px-1 transition hover:text-ink"><Icon name="arrowLeft" size={16} /> Accueil</a>
-		</div>
 		<h1 class="text-ink page-title">Bien prendre tes mesures &amp; tes photos</h1>
 		<p class="mt-1 text-sm text-mist">Le guide complet — à lire avant ta première prise, puis à chaque semaine de suivi.</p>
 

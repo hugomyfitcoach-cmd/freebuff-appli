@@ -4,6 +4,7 @@
 	import type { Snippet } from 'svelte';
 	import Icon from './Icon.svelte';
 	import AvatarCrop from './AvatarCrop.svelte';
+	import { progressionBack } from '$lib/progressionBack.svelte';
 	import { noteSync } from '../navMemory';
 	import { isStandalone } from '../pwa';
 	import { forceAppUpdate, onUpdateState, startCompatWatch } from '../swUpdate';
@@ -536,6 +537,17 @@
 					<a href={role === 'coach' ? '/admin' : '/espace'} class="flex items-center py-0.5" aria-label="Accueil G-FLUX">
 						<img src="/logo-header.png" alt="G-Flux" class="h-auto w-[76px]" />
 					</a>
+				{:else if role === 'client' && progressionBack.close}
+					<!-- Sous-page de « Ma progression » ouverte : Retour ramène à Ma progression (jamais à l'Accueil). -->
+					<button
+						type="button"
+						onclick={() => progressionBack.close?.()}
+						class="tap inline-flex h-[34px] items-center gap-0.5 rounded-[17px] border border-[#E9EDEA] bg-white pl-2 pr-3 text-[13px] font-bold text-[#0d7c36] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_6px_14px_-8px_rgba(15,21,18,0.14)]"
+						aria-label="Retour à Ma progression"
+					>
+						<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>
+						<span>Retour</span>
+					</button>
 				{:else if role === 'client'}
 					<a
 						href="/espace"
