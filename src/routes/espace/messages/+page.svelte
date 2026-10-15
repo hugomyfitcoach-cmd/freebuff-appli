@@ -60,7 +60,7 @@
 
 <header class="mb-5 flex items-end justify-between gap-3">
 	<div>
-		<h1 class="flex items-center gap-2 font-display text-2xl font-semibold text-ink">
+		<h1 class="flex items-center gap-2 font-display text-2xl font-bold text-ink">
 			<Icon name="messageCircle" size={22} class="shrink-0 text-brand" /> Messages
 		</h1>
 		<p class="mt-1 text-sm text-mist">Les messages de ton coach, texte et audio, conservés ici.</p>

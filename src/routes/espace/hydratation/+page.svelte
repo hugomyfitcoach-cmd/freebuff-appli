@@ -234,7 +234,7 @@
       <Icon name="droplet" size={22} class="text-brand" />
     </div>
     <div class="min-w-0 flex-1">
-      <h1 class="font-display text-2xl font-semibold tracking-tight text-ink">
+      <h1 class="font-display text-2xl font-bold tracking-tight text-ink">
         Mon hydratation
       </h1>
       <p class="text-sm text-mist">

@@ -58,7 +58,7 @@
 			<div class="mx-auto grid h-14 w-14 place-items-center rounded-full bg-brand-light">
 				<Icon name="circleCheck" size={30} class="text-brand" />
 			</div>
-			<h1 class="mt-4 font-display text-[1.5rem] font-black leading-tight tracking-tight text-ink">Tout est à jour ✓</h1>
+			<h1 class="mt-4 font-display text-[1.5rem] font-bold leading-tight tracking-tight text-ink">Tout est à jour ✓</h1>
 			<p class="mt-2 text-sm font-semibold text-mist-strong">Ton abonnement G-FLUX a bien été mis à jour.</p>
 			<p class="mt-1 text-[13px] text-mist">Tu peux maintenant revenir dans l'application.</p>
 			{#if b.subscription && b.subscription.currentPeriodEnd}
@@ -74,7 +74,7 @@
 			<div class="mx-auto grid h-14 w-14 place-items-center rounded-full bg-warn-light">
 				<Icon name="triangleAlert" size={26} class="text-warn" />
 			</div>
-			<h1 class="mt-4 font-display text-[1.5rem] font-black leading-tight tracking-tight text-ink">Presque terminé</h1>
+			<h1 class="mt-4 font-display text-[1.5rem] font-bold leading-tight tracking-tight text-ink">Presque terminé</h1>
 			<p class="mt-2 text-sm leading-relaxed text-mist-strong">
 				Ton accès reste ouvert. Il ne reste que ton moyen de paiement à mettre à jour — continue sereinement.
 			</p>
@@ -84,7 +84,7 @@
 			<div class="mx-auto grid h-14 w-14 place-items-center rounded-full bg-cream">
 				<Icon name="refreshCw" size={24} class="animate-spin text-mist" />
 			</div>
-			<h1 class="mt-4 font-display text-[1.5rem] font-black leading-tight tracking-tight text-ink">Mise à jour en cours de confirmation</h1>
+			<h1 class="mt-4 font-display text-[1.5rem] font-bold leading-tight tracking-tight text-ink">Mise à jour en cours de confirmation</h1>
 			<p class="mt-2 text-sm leading-relaxed text-mist-strong">
 				Dès que Stripe confirme, ton accès s'ouvre automatiquement — cette page se met à jour d'elle-même.
 			</p>

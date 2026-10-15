@@ -318,7 +318,7 @@
 	{:else}
 		<!-- ═══ Entête + navigation semaine ═══ -->
 		<header class="mt-1 flex items-center justify-between gap-2">
-			<h1 class="font-display text-2xl font-semibold tracking-tight text-ink">Dépense sportive</h1>
+			<h1 class="font-display text-2xl font-bold tracking-tight text-ink">Dépense sportive</h1>
 			<button
 				type="button"
 				onclick={() => openAdd()}

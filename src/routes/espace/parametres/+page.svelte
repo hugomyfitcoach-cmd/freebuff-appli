@@ -70,7 +70,7 @@
 		<a href="/espace" class="inline-flex items-center gap-1 text-[13px] font-bold text-mist transition hover:text-brand" data-sveltekit-noscroll>
 			<Icon name="arrowLeft" size={14} /> Retour
 		</a>
-		<h1 class="mt-3 font-display text-[1.6rem] font-black leading-tight tracking-tight text-ink">Paramètres</h1>
+		<h1 class="mt-3 font-display text-[1.6rem] font-bold leading-tight tracking-tight text-ink">Paramètres</h1>
 	</header>
 
 	<!-- ═══ PROFIL ═══ -->

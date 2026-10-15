@@ -31,7 +31,7 @@
 
 <div class="mb-6 flex flex-wrap items-end justify-between gap-2">
 	<div>
-		<h1 class="flex items-center gap-2 font-display text-2xl font-semibold text-ink"><Icon name="clipboardCheck" size={22} class="shrink-0 text-brand" /> Mes bilans</h1>
+		<h1 class="flex items-center gap-2 font-display text-2xl font-bold text-ink"><Icon name="clipboardCheck" size={22} class="shrink-0 text-brand" /> Mes bilans</h1>
 		<p class="mt-1 text-sm text-mist">
 			{checkins.length} bilan{checkins.length > 1 ? 's' : ''} envoyé{checkins.length > 1 ? 's' : ''}
 			{#if done > 0} · {done} avec retour de ton coach{/if}

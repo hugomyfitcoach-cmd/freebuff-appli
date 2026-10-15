@@ -172,7 +172,7 @@
 			<Icon name="chartColumn" size={22} class="text-brand" />
 		</div>
 		<div class="min-w-0 flex-1">
-			<h1 class="font-display text-2xl font-semibold tracking-tight text-ink">Performance</h1>
+			<h1 class="font-display text-2xl font-bold tracking-tight text-ink">Performance</h1>
 			<p class="text-sm text-mist">Ta semaine dans le Journal — jours futurs grisés, jours sans données ignorés.</p>
 		</div>
 	</div>

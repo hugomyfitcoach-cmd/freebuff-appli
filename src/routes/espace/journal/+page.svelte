@@ -3776,7 +3776,7 @@ import { optimizeImageFile } from '$lib/media';
 					title="Retour au Journal"
 					onclick={closeMacroDetail}
 				><Icon name="chevronLeft" size={20} /></button>
-				<h1 class="font-display text-[15px] font-semibold text-ink">Détail {macroMeta.label}</h1>
+				<h1 class="font-display text-[15px] font-bold text-ink">Détail {macroMeta.label}</h1>
 				<span class="w-11" aria-hidden="true"></span>
 			</header>
 
@@ -3892,11 +3892,11 @@ import { optimizeImageFile } from '$lib/media';
 							type="button"
 							aria-expanded={calOpen}
 							title="Choisir une date"
-							class="flex min-w-0 select-none items-center gap-1.5 whitespace-nowrap rounded-[24px] border border-line-soft bg-white shadow-[0_1px_2px_rgba(15,21,18,.04),0_8px_20px_-8px_rgba(15,21,18,.14)] h-12 pl-4 pr-3 text-[17px] font-black tracking-[-0.02em] text-ink transition hover:border-line active:scale-[0.98]"
+							class="flex min-w-0 select-none items-center gap-1 whitespace-nowrap rounded-full border border-line-soft bg-white shadow-[0_1px_2px_rgba(15,21,18,.04),0_6px_14px_-8px_rgba(15,21,18,.14)] h-[34px] pl-3 pr-2 text-[14.5px] font-bold tracking-[-0.01em] text-ink transition hover:border-line active:scale-[0.98]"
 							onclick={openCalendar}
 						>
 							<span class="truncate">{dateLabel}</span>
-							<Icon name="chevronDown" size={18} class={`shrink-0 text-mist-strong transition-transform ${calOpen ? 'rotate-180' : ''}`} />
+							<Icon name="chevronDown" size={15} class={`shrink-0 text-mist-strong transition-transform ${calOpen ? 'rotate-180' : ''}`} />
 						</button>
 						<button
 							type="button"
@@ -4192,8 +4192,8 @@ import { optimizeImageFile } from '$lib/media';
 			{#if logMode === 'search'}
 				<!-- Recherche + onglets (fixes) : masqués pendant un éditeur (écran autonome) -->
 				{#if !fullEditorOpen}
-				<div class="shrink-0 border-b border-line bg-white/95 px-2.5 pb-2 pt-2 backdrop-blur">
-					<div class="flex h-11 items-center gap-2.5 rounded-2xl border border-line bg-white px-3.5 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_28px_-12px_rgba(15,21,18,0.14)] transition focus-within:border-brand">										<Icon name="search" size={17} class="shrink-0 text-mist" />
+				<div class="shrink-0 border-b border-line bg-white/95 px-2.5 pb-1.5 pt-1.5 backdrop-blur">
+					<div class="flex h-10 items-center gap-2 rounded-2xl border border-line bg-white px-3 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_28px_-12px_rgba(15,21,18,0.14)] transition focus-within:border-brand">										<Icon name="search" size={17} class="shrink-0 text-mist" />
 						<input
 							type="search"
 							class="w-full bg-transparent text-[16px] text-ink outline-none placeholder:text-mist"
@@ -4210,20 +4210,20 @@ import { optimizeImageFile } from '$lib/media';
 							><Icon name="x" size={13} /></button>
 						{/if}
 					</div>
-					<div class="mt-2 flex items-center gap-1.5 overflow-x-auto">									<button
+					<div class="mt-1.5 flex items-center gap-1.5 overflow-x-auto">									<button
 										type="button"
-										class="grid h-9 w-9 shrink-0 place-items-center rounded-full transition active:scale-95 {favOnly ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#4A5550] hover:text-ink'}"
+										class="grid h-7 w-7 shrink-0 place-items-center rounded-full transition active:scale-95 {favOnly ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#4A5550] hover:text-ink'}"
 							title={favOnly ? 'Voir tous les produits' : 'Voir mes favoris'}
 							aria-label="Voir mes favoris"
 							onclick={() => (favOnly = !favOnly)}
-						>									<Icon name="heart" size={20} class={favOnly ? 'text-white' : 'text-[#4A5550]'} />
-						</button>									<button type="button" class="h-9 shrink-0 rounded-full px-3.5 text-[13px] font-bold transition active:scale-95 {searchTab === 'produits' ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#3A4540]'}" onclick={() => { searchTab = 'produits'; favOnly = false; }}>Tous les produits</button>
+						>									<Icon name="heart" size={16} class={favOnly ? 'text-white' : 'text-[#4A5550]'} />
+						</button>									<button type="button" class="h-7 shrink-0 rounded-full px-3 text-[12.5px] font-bold transition active:scale-95 {searchTab === 'produits' ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#3A4540]'}" onclick={() => { searchTab = 'produits'; favOnly = false; }}>Tous les produits</button>
 						<!-- Switch d'onglet DIRECT : ferme l'éditeur de repas / créateur
 						     d'aliment en cours — les sous-vues ne « captent » plus l'onglet
 						     (le contenu est conditionné à searchTab D'ABORD, jamais à
 						     mealEditor/customEditor seuls). La saisie en cours passe en
-						     brouillon (reprise au retour, cf. draft). -->									<button type="button" class="h-9 shrink-0 rounded-full px-3.5 text-[13px] font-bold transition active:scale-95 {searchTab === 'repas' ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#3A4540]'}" onclick={() => switchTab('repas')}>Repas</button>
-									<button type="button" class="h-9 shrink-0 rounded-full px-3.5 text-[13px] font-bold transition active:scale-95 {searchTab === 'crees' ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#3A4540]'}" onclick={() => switchTab('crees')}>Créés par moi</button>
+						     brouillon (reprise au retour, cf. draft). -->									<button type="button" class="h-7 shrink-0 rounded-full px-3 text-[12.5px] font-bold transition active:scale-95 {searchTab === 'repas' ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#3A4540]'}" onclick={() => switchTab('repas')}>Repas</button>
+									<button type="button" class="h-7 shrink-0 rounded-full px-3 text-[12.5px] font-bold transition active:scale-95 {searchTab === 'crees' ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#3A4540]'}" onclick={() => switchTab('crees')}>Créés par moi</button>
 					</div>
 				</div>
 				{/if}
@@ -4321,8 +4321,8 @@ import { optimizeImageFile } from '$lib/media';
 						<!-- ═══════ Mes repas ═══════ -->
 						<button type="button" class="mb-3 flex w-full items-center gap-3.5 rounded-2xl border px-3.5 py-2.5 text-left transition active:scale-[0.98] {searchTab === 'repas' ? 'bg-brand-light border-brand/30 text-brand' : 'border border-[rgba(29,185,84,0.3)] bg-[#e8fef0] text-[#0d7c36]'}" onclick={openMealEditor}>
 							<!-- Icône REPAS COMPLET (bol fumant) ≠ fiche produit de « Créer un aliment » -->
-							<span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand text-white"><Icon name="soup" size={20} /></span>
-							<span class="text-[16px] font-bold">Ajouter un nouveau repas</span>
+							<span class="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-full bg-brand text-white"><Icon name="soup" size={17} /></span>
+							<span class="text-[15px] font-bold">Ajouter un nouveau repas</span>
 						</button>
 						{#if mealsError}
 							<p class="rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{mealsError}</p>
@@ -4533,8 +4533,8 @@ import { optimizeImageFile } from '$lib/media';
 						{:else}
 						<button type="button" class="mb-3 flex w-full items-center gap-3.5 rounded-2xl border px-3.5 py-2.5 text-left transition active:scale-[0.98] {searchTab === 'crees' ? 'bg-brand-light border-brand/30 text-brand' : 'border border-[rgba(29,185,84,0.3)] bg-[#e8fef0] text-[#0d7c36]'}" onclick={openCreateSheet}>
 							<!-- Icône FICHE PRODUIT + crayon ≠ bol fumant de « Ajouter un nouveau repas » -->
-							<span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand text-white"><Icon name="clipboardPen" size={20} /></span>
-							<span class="text-[16px] font-bold">Créer un aliment</span>
+							<span class="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-full bg-brand text-white"><Icon name="clipboardPen" size={17} /></span>
+							<span class="text-[15px] font-bold">Créer un aliment</span>
 						</button>
 							{#if customFoodsError}
 								<p class="rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{customFoodsError}</p>
@@ -4772,7 +4772,7 @@ import { optimizeImageFile } from '$lib/media';
 				<!-- 3 zones équilibrées quand la bêta « Repas IA » est active pour le
 				     compte (méthode de TRACKING du journal — jamais une création
 				     d'aliment) ; sinon capsule 2 zones inchangée. -->
-				<div class="pointer-events-auto flex h-[50px] items-center gap-0.5 rounded-[25px] bg-[#111A15] p-1 shadow-[0_12px_28px_-12px_rgba(15,21,18,0.5),0_2px_4px_rgba(15,21,18,0.18)] {aiFlags.mealPhotoAi ? 'w-full max-w-[330px]' : 'w-[52%] min-w-[180px] max-w-[230px]'}">
+				<div class="pointer-events-auto flex h-[50px] items-center gap-0.5 rounded-[25px] bg-[#111A15] p-1 shadow-[0_12px_28px_-12px_rgba(15,21,18,0.5),0_2px_4px_rgba(15,21,18,0.18)] {aiFlags.mealPhotoAi ? 'w-full max-w-[300px]' : 'w-[52%] min-w-[180px] max-w-[230px]'}">
 					<button
 						type="button"
 						class="flex h-full flex-1 flex-col items-center justify-center gap-[1px] rounded-[21px] text-[10.5px] font-bold leading-none transition {logMode === 'search' ? 'bg-white/[0.13] text-white' : 'text-white/65 hover:text-white'}"
@@ -5323,7 +5323,7 @@ import { optimizeImageFile } from '$lib/media';
 			</div>
 
 			{#if mealSearchMode === 'search'}
-				<div class="shrink-0 border-b border-line bg-white/95 px-2.5 pb-2 pt-2 backdrop-blur">
+				<div class="shrink-0 border-b border-line bg-white/95 px-2.5 pb-1.5 pt-1.5 backdrop-blur">
 					<div class="flex h-[52px] items-center gap-2.5 rounded-2xl border border-line bg-white px-4 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_28px_-12px_rgba(15,21,18,0.14)] transition focus-within:border-brand">
 						<Icon name="search" size={17} class="shrink-0 text-mist" />
 						<input
@@ -5485,7 +5485,7 @@ import { optimizeImageFile } from '$lib/media';
 
 			<!-- Capsule flottante Recherche ⇄ Code-barres (identique à « Ajouter un aliment ») -->
 			<div class="pointer-events-none absolute inset-x-0 bottom-[calc(0.625rem+env(safe-area-inset-bottom))] z-10 flex justify-center px-4">
-				<div class="pointer-events-auto flex h-14 w-[55%] min-w-[190px] max-w-[260px] items-center gap-1 rounded-full bg-ink/95 p-1 shadow-lg shadow-ink/30 ring-1 ring-white/10">
+				<div class="pointer-events-auto flex h-[50px] w-[55%] min-w-[190px] max-w-[260px] items-center gap-1 rounded-full bg-ink/95 p-1 shadow-lg shadow-ink/30 ring-1 ring-white/10">
 					<button
 						type="button"
 						class="flex h-full flex-1 flex-col items-center justify-center gap-0.5 rounded-full text-[11px] font-semibold transition {mealSearchMode === 'search' ? 'bg-white/15 text-white' : 'text-white/70 hover:text-white'}"

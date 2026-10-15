@@ -426,7 +426,7 @@
 			</button>
 		</div>
 
-		<h1 class="font-display text-[30px] font-black leading-[1.1] tracking-[-0.03em] text-[#0F1512]">{detailMeta.sub}</h1>
+		<h1 class="font-display text-[30px] font-bold leading-[1.1] tracking-[-0.03em] text-[#0F1512]">{detailMeta.sub}</h1>
 		<p class="mt-1 text-[14px] leading-[1.4] text-[#66716B]">Touche une date pour corriger ou supprimer une valeur.</p>
 
 		<section class="mt-4 rounded-[24px] border border-[#EEF1EF] bg-white px-4 pb-3 pt-[18px] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_14px_32px_-16px_rgba(15,21,18,0.18)]">
@@ -549,7 +549,7 @@
 				<span>Retour</span>
 			</button>
 		</div>
-		<h1 class="font-display text-[30px] font-black leading-[1.1] tracking-[-0.03em] text-[#0F1512]">Masse grasse estimée</h1>
+		<h1 class="font-display text-[30px] font-bold leading-[1.1] tracking-[-0.03em] text-[#0F1512]">Masse grasse estimée</h1>
 		<p class="mt-1 text-[14px] leading-[1.4] text-[#66716B]">Estimation indicative calculée avec la méthode US Navy — elle n'est pas modifiable.</p>
 
 		<section class="mt-4 rounded-[24px] border border-[#EEF1EF] bg-white px-4 pb-3 pt-[18px] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_14px_32px_-16px_rgba(15,21,18,0.18)]">
@@ -629,7 +629,7 @@
 			<span class="text-mist/50" aria-hidden="true">·</span>
 			<a href="/espace" class="flex min-h-9 items-center gap-1 rounded-lg px-1 transition hover:text-ink"><Icon name="arrowLeft" size={16} /> Accueil</a>
 		</div>
-		<h1 class="font-display text-2xl font-semibold text-ink">Bien prendre tes mesures &amp; tes photos</h1>
+		<h1 class="font-display text-2xl font-bold text-ink">Bien prendre tes mesures &amp; tes photos</h1>
 		<p class="mt-1 text-sm text-mist">Le guide complet — à lire avant ta première prise, puis à chaque semaine de suivi.</p>
 
 		<!-- Mensurations : les 3 mesures clés -->
@@ -728,7 +728,7 @@
 	<!-- ═══════════ Vue principale ═══════════ -->
 	<div class="mx-auto w-full max-w-xl pb-28">
 		<BackToHome label="Ma progression" />
-		<h1 class="flex items-center gap-2.5 font-display text-[28px] font-black leading-[1.05] tracking-[-0.03em] text-ink">Ma progression <Icon name="trendingUp" size={26} strokeWidth={2.4} class="text-brand" /></h1>
+		<h1 class="flex items-center gap-2.5 font-display text-[28px] font-bold leading-[1.05] tracking-[-0.03em] text-ink">Ma progression <Icon name="trendingUp" size={26} strokeWidth={2.4} class="text-brand" /></h1>
 		<p class="mt-1 text-sm text-mist">Poids, mensurations et masse grasse estimée — touche une courbe pour la détailler.</p>
 
 		{#if error}
