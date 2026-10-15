@@ -1,0 +1,7 @@
+/* Styles propres à l'écran « Messages » (portée .s-messages). Les keyframes et classes communes sont dans styles/dc-base.css. */
+.s-messages button{font-family:inherit;cursor:pointer}
+.s-messages a{text-decoration:none;color:inherit}
+.s-messages input,.s-messages textarea,.s-messages select{font-family:inherit}
+.s-messages .press{transition:transform .15s ease,box-shadow .2s ease,background-color .2s ease,border-color .2s ease}
+.s-messages .press:active{transform:scale(.97)}
+.s-messages .area{animation:areaIn .6s ease-out .45s both}

@@ -148,7 +148,7 @@
 	<!-- En-tête -->
 	<div class="mb-5">
 		<p class="text-[11px] font-bold uppercase tracking-widest text-mist">Étape 1 · Formulaire de démarrage</p>
-		<h1 class="flex items-center gap-2 font-display text-2xl font-semibold text-ink"><Icon name="rocket" size={22} class="shrink-0 text-brand" /> Ton profil pour démarrer</h1>
+		<h1 class="flex items-center gap-2 text-ink page-title"><Icon name="rocket" size={22} class="shrink-0 text-brand" /> Ton profil pour démarrer</h1>
 		<p class="mt-1 text-sm text-mist">
 			Réponds naturellement — c'est notre point de départ pour préparer ton accompagnement.
 		</p>

@@ -172,7 +172,7 @@
 			<Icon name="chartColumn" size={22} class="text-brand" />
 		</div>
 		<div class="min-w-0 flex-1">
-			<h1 class="font-display text-2xl font-semibold tracking-tight text-ink">Performance</h1>
+			<h1 class="text-ink page-title">Performance</h1>
 			<p class="text-sm text-mist">Ta semaine dans le Journal — jours futurs grisés, jours sans données ignorés.</p>
 		</div>
 	</div>
@@ -249,7 +249,7 @@
 				<div class="mt-3">
 					<div class="flex items-baseline justify-between gap-2">
 						<p class="flex items-center gap-1.5 text-sm font-bold text-ink">
-							<Icon name="flame" size={15} class="shrink-0 text-brand" /> Calories
+							<span aria-hidden="true" class="h-1.5 w-1.5 shrink-0 rounded-full bg-brand"></span> Calories
 						</p>
 						<p class="text-sm tabular-nums">
 							<strong class="font-bold text-ink">{fmt(selected.totals.kcal)}</strong>
@@ -272,7 +272,7 @@
 						<div class="rounded-2xl border border-line bg-card px-1.5 pb-2 pt-2 text-center">
 							<div class="mb-2 flex items-center justify-between px-0.5">
 								<span class="text-[10px] font-bold text-ink">{ring.label}</span>
-								<Icon name={ring.icon} size={12} class="shrink-0" style="color:{ring.color}" />
+								<span aria-hidden="true" class="h-1.5 w-1.5 shrink-0 rounded-full" style="background:{ring.color}"></span>
 							</div>
 							<div class="relative mx-auto h-[76px] w-[76px]">
 								<svg viewBox="0 0 64 64" class="h-[76px] w-[76px] -rotate-90">
@@ -316,7 +316,7 @@
 		{#if avg}
 			<div class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
 				<div class="rounded-2xl bg-soft px-3 py-2.5">
-					<p class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-mist"><Icon name="flame" size={11} class="shrink-0" /> kcal moy.</p>
+					<p class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-mist"><span aria-hidden="true" class="h-1.5 w-1.5 shrink-0 rounded-full bg-brand"></span> kcal moy.</p>
 					<p class="mt-0.5 font-display text-xl font-bold tabular-nums leading-tight text-ink">{fmt(avg.kcal)}</p>
 					<p class="text-[10px] text-mist">Objectif {fmt(week.goals.kcal)}</p>
 				</div>
@@ -346,11 +346,15 @@
 		<!-- Perte de graisse théorique estimée (maintenance disponible uniquement, sinon masqué) -->
 		{#if theoreticalFatKg !== null && maintenance}
 			<div class="mt-3 rounded-2xl border border-line bg-soft px-3.5 py-3">
-				<p class="flex items-center gap-1.5 text-sm font-semibold text-ink">
-					<Icon name="scale" size={15} class="shrink-0 text-brand" />
-					Perte de graisse théorique estimée à ce stade de la semaine : <strong class="font-bold">{String(theoreticalFatKg).replace('.', ',')} kg</strong>
+				<p class="flex items-start gap-1.5 text-sm font-semibold leading-snug text-ink">
+					<Icon name="scale" size={15} class="mt-0.5 shrink-0 text-brand" />
+					<span>Perte de graisse théorique estimée à ce stade de la semaine</span>
 				</p>
-				<p class="mt-1 text-[11px] leading-snug text-mist">
+				<p class="mt-1 whitespace-nowrap font-display text-[28px] font-black leading-none tracking-tight text-ink tabular-nums">
+					{String(theoreticalFatKg).replace('.', ',')}
+					<span class="text-base font-bold text-mist">kg</span>
+				</p>
+				<p class="mt-1.5 text-[11px] leading-snug text-mist">
 					Estimation indicative calculée uniquement sur les jours renseignés de la semaine, selon le déficit calorique cumulé à l'instant T.
 				</p>
 			</div>

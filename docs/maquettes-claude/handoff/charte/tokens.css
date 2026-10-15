@@ -1,0 +1,46 @@
+/* G-FLUX — jetons de la charte officielle (extraits du code de l'app). RÉFÉRENCE : ne pas écraser les variables existantes.
+   Les noms --color-* / --accent* sont ceux de l'app (src/routes/layout.css). Les alias --gf-* ne servent qu'à lire les maquettes. */
+:root{
+  /* Verts */
+  --color-brand:#1db954;        /* principal / accent : boutons, icônes, anneaux, courbes, calories (état normal) */
+  --color-brand-dark:#17a349;   /* hover / pressé des boutons pleins */
+  --color-brand-deep:#0d7c36;   /* texte vert, état actif (fond --color-brand-light) */
+  --color-brand-light:#e8fef0;  /* fond vert clair : pastilles, onglet actif */
+  --color-brand-soft:#f3fcf7;   /* vert très clair : dégradés doux */
+  --green-mid:rgba(29,185,84,.3); /* bordure verte translucide (--green-mid de tools.css) */
+  /* Alertes */
+  --color-warn:#ff9500;  --color-warn-light:#fff8f0;     /* avertissement général */
+  --color-danger:#ff4444; --color-danger-light:#fff0f0;  /* erreur / danger */
+  /* Jauge calories (Journal) */
+  --kcal-ok:#1db954;     /* consommé <= objectif */
+  --kcal-warn:#f59e0b;   /* objectif dépassé, maintenance non dépassée (ou pas de maintenance) */
+  --kcal-danger:#ef4444; /* maintenance dépassée */
+  --kcal-over-zone:#fff8f0; /* zone au-delà de l'objectif (si maintenance définie) */
+  --gauge-track:#eef0ec;
+  /* Macronutriments (jamais orange/rouge selon le pourcentage) */
+  --macro-carbs:#ec4899; --macro-protein:#3b82f6; --macro-fat:#f97316;
+  --macro-future:#9aa19a; /* macros d'un jour futur (+ opacity .6, saturate .5) */
+  /* Neutres de l'app (valeurs officielles) */
+  --color-ink:#111110; --color-mist:#999990; --color-mist-strong:#6f736b;
+  --color-card:#ffffff; --color-line:#e5e3dc; --color-line-soft:#efede6;
+  --color-soft:#f4f6f4; --color-soft-deep:#e9ede9; --color-cream:#f7f5f0;
+  /* Ombres et mouvement de l'app */
+  --ds-sh-sm:0 1px 2px rgba(17,17,16,.05),0 1px 3px rgba(17,17,16,.03);
+  --ds-sh-md:0 2px 6px rgba(17,17,16,.05),0 10px 28px rgba(17,17,16,.06);
+  --ds-ease:cubic-bezier(.22,1,.36,1);
+  --font-sans:'Lato',ui-sans-serif,system-ui,sans-serif;
+}
+/* --- Aliases lus dans les maquettes (valeurs de la maquette -> variable officielle à utiliser) --- */
+:root{
+  --gf-brand:var(--color-brand); --gf-brand-fill:var(--color-brand); --gf-brand-hover:var(--color-brand-dark);
+  --gf-brand-text:var(--color-brand-deep); --gf-brand-tint:var(--color-brand-light); --gf-brand-tint-bd:var(--green-mid);
+  --gf-carbs:var(--macro-carbs); --gf-protein:var(--macro-protein); --gf-fat:var(--macro-fat); --gf-kcal:var(--kcal-ok);
+  --gf-warn:var(--color-warn); --gf-danger:var(--color-danger);
+  /* neutres de la maquette (voir CHARTE_GRAPHIQUE.md, tableau de correspondance) */
+  --gf-ink:#0F1512; --gf-ink-2:#3A4540; --gf-muted:#66716B; --gf-faint:#7B857F; --gf-line:#EEF1EF; --gf-line-2:#E3E8E5; --gf-soft:#F3F6F4; --gf-dark:#111A15;
+  --gf-shadow-card:0 1px 2px rgba(15,21,18,.04),0 14px 32px -16px rgba(15,21,18,.18);
+  --gf-shadow-cta:0 14px 26px -12px rgba(23,163,73,.65);
+  --gf-shadow-nav:0 18px 40px -14px rgba(15,21,18,.28);
+  --gf-ease:cubic-bezier(.2,.8,.2,1);
+  --gf-r-12:12px; --gf-r-16:16px; --gf-r-18:18px; --gf-r-20:20px; --gf-r-24:24px; --gf-r-28:28px; --gf-r-30:30px; --gf-r-pill:999px; --gf-gutter:20px;
+}

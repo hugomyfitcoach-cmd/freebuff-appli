@@ -1,0 +1,5 @@
+/* Styles propres à l'écran « Bilans » (portée .s-bilans). Les keyframes et classes communes sont dans styles/dc-base.css. */
+.s-bilans button{font-family:inherit;cursor:pointer}
+.s-bilans a{text-decoration:none;color:inherit}
+.s-bilans .press{transition:transform .15s ease,box-shadow .2s ease}
+.s-bilans .press:active{transform:scale(.97)}

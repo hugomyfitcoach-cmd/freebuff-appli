@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Intégration PWA</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Lato',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.hd{box-sizing:border-box;width:1100px;padding:44px 48px 52px;background:#FFFFFF;color:#0F1512;font-family:'Lato',system-ui,sans-serif}
+.hd h1{margin:0;font-size:38px;font-weight:900;letter-spacing:-0.03em;line-height:1.1}
+.hd .sub{margin:10px 0 0;font-size:16px;line-height:1.5;color:#66716B;max-width:760px}
+.hd h2{margin:40px 0 14px;font-size:20px;font-weight:900;letter-spacing:-0.02em}
+.hd h3{margin:0 0 6px;font-size:15px;font-weight:900}
+.hd p{margin:0;font-size:14px;line-height:1.55;color:#3A4540}
+.grid{display:grid;gap:14px}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}.g3{grid-template-columns:repeat(3,minmax(0,1fr))}.g4{grid-template-columns:repeat(4,minmax(0,1fr))}.g5{grid-template-columns:repeat(5,minmax(0,1fr))}
+.card{border-radius:20px;border:1px solid #EEF1EF;background:#fff;box-shadow:0 1px 2px rgba(15,21,18,.04),0 14px 32px -18px rgba(15,21,18,.18);padding:16px 18px}
+.sw{height:54px;border-radius:12px;border:1px solid rgba(15,21,18,.08);margin-bottom:10px}
+.tk{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:#0d7c36;font-weight:700}
+.hx{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:#66716B}
+.note{font-size:12.5px;line-height:1.45;color:#66716B;margin-top:4px}
+table{width:100%;border-collapse:collapse;font-size:13.5px;line-height:1.45}
+th{text-align:left;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#66716B;padding:0 12px 8px 0;border-bottom:1px solid #E9EDEA}
+td{padding:11px 12px 11px 0;border-bottom:1px solid #EEF1EF;vertical-align:top;color:#3A4540}
+td b{color:#0F1512}
+pre{margin:0;padding:16px 18px;border-radius:16px;background:#111A15;color:#e8fef0;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.55;overflow-x:auto;white-space:pre}
+.tag{display:inline-block;font-size:11px;font-weight:900;letter-spacing:.04em;border-radius:8px;padding:3px 8px;margin-right:6px}
+.ok{background:#e8fef0;color:#0d7c36}.wa{background:#fff8f0;color:#ff9500}.ko{background:#fff0f0;color:#ff4444}
+.ol{margin:0;padding-left:20px;font-size:14px;line-height:1.6;color:#3A4540}
+</style>
+</helmet>
+<div class="hd"><h1>Intégration PWA — Android et iPhone</h1>
+<p class="sub">Vos utilisateurs ouvrent G-FLUX depuis l’icône de l’écran d’accueil, en plein écran. Les maquettes sont dessinées dans un cadre fixe : voici ce qui change pour qu’elles tiennent sur tous les téléphones.</p>
+<h2>1 · Ce qui est codé en dur dans les maquettes</h2>
+<div class="card"><table><tbody><tr><td style="width:150px"><span class="tag ko">27 écrans sur 35</span></td><td>ont un padding-top de 52 px codé en dur (hauteur de barre d’état simulée)</td><td><b>Remplacer par env(safe-area-inset-top)</b></td></tr><tr><td style="width:150px"><span class="tag ko">26 écrans sur 35</span></td><td>ont la barre du bas à bottom:28px</td><td><b>calc(env(safe-area-inset-bottom) + 12px)</b></td></tr><tr><td style="width:150px"><span class="tag wa">Tous les écrans</span></td><td>sont dessinés dans un cadre fixe 390×844</td><td><b>width:100%, min-height:100dvh. Vérifier 360 px de large (Android courant) : grilles à 4 colonnes serrées</b></td></tr><tr><td style="width:150px"><span class="tag ok">6 champs de saisie</span></td><td>étaient sous 16 px (Scanner, Cycle, Paramètres, Repas IA) : iOS zoomerait la page au focus</td><td><b>Déjà corrigé à 16 px dans cette version</b></td></tr><tr><td style="width:150px"><span class="tag ok">2 règles :hover</span></td><td>seulement : aucune information n’est accessible au survol seul sur mobile</td><td><b>Rien à faire (les info-bulles de courbes fonctionnent au toucher)</b></td></tr><tr><td style="width:150px"><span class="tag wa">Aucune balise PWA</span></td><td>dans les maquettes (normal : ce sont des écrans)</td><td><b>Blocs ci-dessous à intégrer</b></td></tr></tbody></table></div>
+<h2>2 · Bloc &lt;head&gt; à intégrer</h2>
+<pre>&lt;meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"&gt;
+&lt;meta name="theme-color" content="#FFFFFF"&gt;
+&lt;link rel="manifest" href="/manifest.webmanifest"&gt;
+&lt;link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png"&gt;
+&lt;meta name="apple-mobile-web-app-capable" content="yes"&gt;
+&lt;meta name="apple-mobile-web-app-title" content="G-FLUX"&gt;
+&lt;meta name="apple-mobile-web-app-status-bar-style" content="default"&gt;</pre>
+<h2>3 · CSS d’adaptation (zones sûres, hauteur, clavier)</h2>
+<pre>html,body{height:100%;margin:0;background:#FFFFFF;overscroll-behavior-y:none;
+  -webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%}
+.app{min-height:100vh;min-height:100dvh;               /* remplace height:844px */
+  padding-top:env(safe-area-inset-top)}                /* remplace padding-top:52px */
+.header{padding-top:max(12px, env(safe-area-inset-top))}
+.nav-float{bottom:calc(env(safe-area-inset-bottom) + 12px)}  /* remplace bottom:28px */
+.cta-bar{padding-bottom:max(20px, env(safe-area-inset-bottom))}
+button,a{touch-action:manipulation}
+input,textarea{font-size:16px}                        /* évite le zoom auto d'iOS */
+.scroll{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.glass{background:rgba(255,255,255,.9)}
+@supports ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  .glass{-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}</pre>
+<div style="height:14px"></div><pre>// Clavier : sur iOS il recouvre la page, sur Android il redimensionne la zone visible
+const vv = window.visualViewport;
+vv.addEventListener('resize', () =&gt; {
+  const kb = Math.max(0, window.innerHeight - vv.height);
+  document.documentElement.style.setProperty('--kb', kb + 'px');   // fenêtre de saisie : bottom: var(--kb)
+});</pre>
+<h2>4 · Manifest</h2>
+<pre>{
+  "id": "/",
+  "name": "G-FLUX",
+  "short_name": "G-FLUX",
+  "description": "Suivi nutrition et composition corporelle",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "lang": "fr",
+  "background_color": "#FFFFFF",
+  "theme_color": "#FFFFFF",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}</pre>
+<h2>5 · Icônes de l’écran d’accueil</h2>
+<div class="grid g2"><div class="card"><table><tbody>
+<tr><td><b>180 × 180</b></td><td>apple-touch-icon (iPhone). Fond <b>plein</b> : iOS remplace la transparence par du noir.</td></tr>
+<tr><td><b>192 × 192</b></td><td>Android, icône standard.</td></tr>
+<tr><td><b>512 × 512</b></td><td>Android, installation et écran de démarrage.</td></tr>
+<tr><td><b>512 × 512 maskable</b></td><td>Android rogne en cercle ou en « squircle » : le logo doit tenir dans le disque central (≈ 80 % de la largeur), fond plein jusqu’aux bords.</td></tr></tbody></table></div>
+<div class="card"><h3>Point bloquant à lever</h3><p>Le logo G que j’ai utilisé fait <b>236 px</b> et vient d’une capture d’écran : trop petit et flou pour une icône de 512 px. Il faut le logo source en vectoriel (SVG) ou en PNG d’au moins 1024 px, fond transparent. Dès que vous l’avez, je prépare les 4 formats.</p><p style="margin-top:10px">Écran de démarrage iOS : sans image dédiée (apple-touch-startup-image, une par taille d’iPhone), iOS affiche un écran blanc. Comme le fond G-FLUX est blanc, c’est acceptable.</p></div></div>
+<h2>6 · Différences iPhone / Android</h2>
+<div class="card"><table><thead><tr><th>Sujet</th><th>iPhone (Safari)</th><th>Android (Chrome)</th></tr></thead><tbody><tr><td style="width:150px"><b>Installation</b></td><td>Pas de bannière : Partager → « Sur l’écran d’accueil ». Prévoir un encart d’aide.</td><td>Bannière native (événement beforeinstallprompt) : on peut proposer un bouton « Installer ».</td></tr><tr><td style="width:150px"><b>Barre d’état</b></td><td>apple-mobile-web-app-status-bar-style : « default » = texte sombre sur fond blanc (recommandé). « black-translucent » fait passer la page dessous.</td><td>theme-color du manifest. Fond blanc = icônes sombres.</td></tr><tr><td style="width:150px"><b>Retour arrière</b></td><td>Geste de bord d’écran : utiliser l’API History pour que les fenêtres de saisie se ferment au retour, pas l’app entière.</td><td>Bouton / geste Retour système : même exigence, sinon l’app se ferme.</td></tr><tr><td style="width:150px"><b>Clavier</b></td><td>Recouvre la page (visualViewport pour repositionner les fenêtres de saisie).</td><td>Redimensionne la zone visible : tester que la barre du bas se masque.</td></tr><tr><td style="width:150px"><b>Tirer pour actualiser</b></td><td>Pas d’effet en mode installé.</td><td>Peut se déclencher : overscroll-behavior-y:none.</td></tr><tr><td style="width:150px"><b>Notifications push</b></td><td>Possibles seulement si l’app est installée sur l’écran d’accueil (iOS récent).</td><td>Possibles dans le navigateur et installée.</td></tr><tr><td style="width:150px"><b>Scanner de codes-barres</b></td><td>Pas de détection native : prévoir une bibliothèque JS de lecture sur flux caméra (getUserMedia, HTTPS obligatoire).</td><td>L’API native BarcodeDetector existe sur Chrome mais pas partout : même bibliothèque de repli.</td></tr><tr><td style="width:150px"><b>Vibration (haptique)</b></td><td>Non disponible.</td><td>navigator.vibrate possible. Ne pas en dépendre.</td></tr></tbody></table>
+<div class="note" style="margin-top:10px">Ces points reflètent l’état de mes connaissances : les versions minimales de prise en charge sont à revérifier sur caniuse au moment de l’intégration.</div></div>
+<h2>7 · Appareils à tester</h2>
+<div class="card"><table><tbody><tr><td style="width:170px"><b>iPhone SE / mini</b></td><td style="width:170px"><span class="hx">375 × 667 / 375 × 812</span></td><td>Plus petit écran Apple courant : les écrans les plus denses (fiche aliment, Edition repas) doivent défiler sans rien couper.</td></tr><tr><td style="width:170px"><b>iPhone standard</b></td><td style="width:170px"><span class="hx">390 × 844 · 393 × 852</span></td><td>Taille de référence des maquettes.</td></tr><tr><td style="width:170px"><b>iPhone Pro Max</b></td><td style="width:170px"><span class="hx">430 × 932</span></td><td>Vérifier que le contenu ne s’étire pas trop (largeur max ≈ 480 px, centré).</td></tr><tr><td style="width:170px"><b>Android courant</b></td><td style="width:170px"><span class="hx">360 × 800</span></td><td>Plus étroit que la maquette de 30 px : cartes macros, onglets et pastilles de repas à tester en priorité.</td></tr><tr><td style="width:170px"><b>Android grand</b></td><td style="width:170px"><span class="hx">412 × 915</span></td><td>Barre système de navigation visible : tester la marge du bas.</td></tr><tr><td style="width:170px"><b>Très petit</b></td><td style="width:170px"><span class="hx">320 × 568</span></td><td>Cas limite à ne pas casser.</td></tr></tbody></table></div>
+<h2>8 · Performance et accessibilité</h2>
+<div class="card"><ol class="ol"><li>Connexion : le flou d’arrière-plan et les formes animées en boucle coûtent de la batterie sur mobile d’entrée de gamme. Les arrêter après quelques secondes ou les retirer si l’affichage saccade.</li>
+<li>Compteurs animés (CSS @property) : repli sur la valeur finale sans animation si le navigateur ne les gère pas.</li>
+<li>Zones de toucher : 44 px minimum. Dans les maquettes, le stylo (32 px), les chips (36 px) et les boutons « retirer » (36 px) sont en dessous : agrandir la zone sensible sans agrandir le dessin.</li>
+<li>Textes : planchers à 12 px (11 px pour les libellés en capitales) ; rien en dessous de 4,5:1 de contraste pour du petit texte. Utiliser min-height plutôt que height pour que le texte agrandi par l’utilisateur ne soit pas coupé.</li>
+<li>Courbes : prévoir un texte alternatif (« Poids : 72,7 kg le 7 sept → 73,8 kg ») pour les lecteurs d’écran.</li></ol></div>
+<h2>9 · Animation de l’Accueil : ouverture et retour d’un autre onglet</h2>
+<div class="card"><table><thead><tr><th>Situation</th><th>Comportement</th><th>Durée</th></tr></thead><tbody><tr><td style="width:250px"><b>Ouverture de la PWA (démarrage à froid)</b></td><td>Animation complète : compteurs de 0 à la valeur du jour, anneaux, histogramme des pas, tracé de la courbe de Progression.</td><td style="width:190px">≈ 600 ms au total, cartes décalées de 60 à 80 ms</td></tr><tr><td style="width:250px"><b>Retour sur l’Accueil, valeurs inchangées</b></td><td>Aucun mouvement. Apparition immédiate ou fondu très court.</td><td style="width:190px">0 à 150 ms</td></tr><tr><td style="width:250px"><b>Retour sur l’Accueil, valeurs modifiées</b></td><td>Seules les cartes concernées s’animent, <b>de l’ancienne valeur vers la nouvelle</b> (ex. 571 → 790 kcal, anneau glucides 8 % → 14 %). Courbe de Progression : seul le dernier segment se prolonge.</td><td style="width:190px">400 à 500 ms</td></tr><tr><td style="width:250px"><b>Données en cours de chargement</b></td><td>Squelette gris. L’animation se joue à l’arrivée des vraies valeurs, jamais avant.</td><td style="width:190px">—</td></tr><tr><td style="width:250px"><b>App rouverte après une longue absence (multitâche)</b></td><td>Rafraîchir les données, puis appliquer la règle « valeurs modifiées ». Seuil à définir (ex. 30 min) : à valider côté produit.</td><td style="width:190px">—</td></tr><tr><td style="width:250px"><b>Réduction des animations activée</b></td><td>Valeurs mises à jour instantanément, sans mouvement.</td><td style="width:190px">0 ms</td></tr></tbody></table>
+<div class="note" style="margin-top:12px"><b>Pourquoi pas depuis zéro à chaque retour :</b> cela rallonge un geste très fréquent et ressemble à un rechargement. Partir de l’ancienne valeur informe l’utilisateur de ce qu’il vient de changer en saisissant un repas.</div></div>
+<div class="grid g2" style="margin-top:14px"><div class="card"><h3>Mise en œuvre</h3><ol class="ol"><li>Garder en mémoire de l’app la dernière valeur affichée de chaque carte (kcal, glucides, protéines, lipides, pas, date de la dernière mesure).</li><li>Au retour sur l’Accueil, comparer avec les valeurs actuelles : égal = aucune animation, différent = animer la carte concernée.</li><li>Faire tourner les compteurs en JavaScript (requestAnimationFrame) plutôt qu’avec CSS @property : meilleur repli sur les anciens navigateurs.</li><li>Ne pas rejouer l’animation à chaque nouveau rendu : la déclencher sur un changement de valeur.</li></ol></div>
+<div class="card"><h3>Garde-fous</h3><ol class="ol"><li>Le chiffre affiché doit toujours être le vrai chiffre du jour, même en cours d’animation (pas de valeur intermédiaire trompeuse arrêtée en cours de route).</li><li>Pas plus de 3 cartes animées en même temps.</li><li>L’animation ne doit jamais retarder l’accès aux boutons ni aux cartes cliquables.</li></ol></div></div></div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1100,"height":4700}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

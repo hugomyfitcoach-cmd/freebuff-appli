@@ -6,6 +6,7 @@
  */
 import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
+import { ConvexError } from "convex/values";
 
 /** Durée de vie d'une session (30 jours). */
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -46,6 +47,33 @@ export function normalizeEmail(email: string): string {
 }
 
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Domaine réservé aux comptes jetables E2E (scripts scripts/e2e-*.mjs). */
+export const E2E_TEST_EMAIL_RE = /@example\.test$/i;
+
+/**
+ * Refuse un email de compte jetable E2E (@example.test — domaine réservé,
+ * RFC 2606) sur tout
+ * déploiement qui ne s'est PAS explicitement déclaré isolé des vraies données
+ * (preview dédiée de PR, backend `convex dev` local) via la variable d'env
+ * Convex E2E_TEST_ACCOUNTS_ALLOWED=1.
+ *
+ * Pourquoi : les scripts E2E historiques lisaient PUBLIC_CONVEX_URL de
+ * .env.local (qui pointe vers la production pour le dev) et y créaient des
+ * comptes de test qui polluaient le vrai CRM coach. Ce garde-fou côté serveur
+ * ferme définitivement la porte sur la production, même si un script ou une
+ * session agent passe outre le garde-fou client.
+ */
+export function assertE2eEmailAllowed(email: string): void {
+	if (!E2E_TEST_EMAIL_RE.test(email)) return;
+	if (process.env.E2E_TEST_ACCOUNTS_ALLOWED !== "1") {
+		throw new ConvexError(
+			"Refus : comptes de test E2E (@example.test) autorisés UNIQUEMENT sur un déploiement isolé " +
+				"(preview de PR ou backend local, E2E_TEST_ACCOUNTS_ALLOWED=1). Le CRM de production n'accepte " +
+				"aucun faux compte."
+		);
+	}
+}
 
 /* ── Mots de passe (PBKDF2-SHA256, sel aléatoire par compte) ───────── */
 
@@ -139,7 +167,7 @@ export function formatWeekLabel(weekStartISO: string): string {
 
 const ISO_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-const TZ_NAME_RE = /^[A-Za-z_]+\/[A-Za-z_+\-]+$/;
+const TZ_NAME_RE = /^[A-Za-z_]+(?:\/[A-Za-z_+\-]+)+$/;
 
 /** Valide un nom de fuseau IANA (ex. "Europe/Paris") — jamais de valeur arbitraire stockée. */
 export function validTimeZone(tz: string | null | undefined): string | null {

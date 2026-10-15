@@ -1,22 +1,22 @@
 @import 'tailwindcss';
 
-/* ─── Palette G-Flux (extraite du formulaire d'origine) ─────────────── */
+/* ─── Palette G-Flux (alignée sur les maquettes Claude v2) ─────────────── */
 @theme {
-	--color-cream: #f7f5f0;
-	--color-ink: #111110;
+	--color-cream: #ffffff;
+	--color-ink: #0f1512;
 	--color-brand: #1db954;
 	--color-brand-dark: #17a349;
 	--color-brand-deep: #0d7c36;
 	--color-brand-light: #e8fef0;
 	--color-brand-soft: #f3fcf7;
-	--color-mist: #999990;
-	--color-mist-strong: #6f736b;
+	--color-mist: #66716b;
+	--color-mist-strong: #66716b;
 	--color-card: #ffffff;
-	--color-line: #e5e3dc;
-	--color-line-soft: #efede6;
-	/* Espace cliente : fond gris très doux à nuance verte (direction mobile premium). */
-	--color-soft: #f4f6f4;
-	--color-soft-deep: #e9ede9;
+	--color-line: #eef1ef;
+	--color-line-soft: #eef1ef;
+	/* Espace cliente : fond blanc pur et surfaces d'inputs très douces (#f6f8f6). */
+	--color-soft: #f6f8f6;
+	--color-soft-deep: #e3e8e5;
 	--color-danger: #ff4444;
 	--color-danger-light: #fff0f0;
 	--color-warn: #ff9500;
@@ -26,14 +26,14 @@
 }
 
 :root {
-	--bg: #f7f5f0;
-	--text: #111110;
+	--bg: #ffffff;
+	--text: #0f1512;
 	--accent: #1db954;
 	--accent-dark: #17a349;
 	--accent-light: #e8fef0;
-	--muted: #999990;
+	--muted: #66716b;
 	--card: #ffffff;
-	--border: #e5e3dc;
+	--border: #eef1ef;
 	--red: #ff4444;
 	--red-l: #fff0f0;
 	--orange: #ff9500;
@@ -43,6 +43,27 @@
 	--ds-sh-sm: 0 1px 2px rgba(17, 17, 16, 0.05), 0 1px 3px rgba(17, 17, 16, 0.03);
 	--ds-sh-md: 0 2px 6px rgba(17, 17, 16, 0.05), 0 10px 28px rgba(17, 17, 16, 0.06);
 	--ds-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Alias G-FLUX Premium : les couleurs et neutres restent ceux de l'app. */
+:root {
+	--gf-brand: var(--color-brand);
+	--gf-brand-hover: var(--color-brand-dark);
+	--gf-brand-text: var(--color-brand-deep);
+	--gf-brand-tint: var(--color-brand-light);
+	--gf-ink: var(--color-ink);
+	--gf-muted: var(--color-mist-strong);
+	--gf-line: var(--color-line-soft);
+	--gf-soft: var(--color-soft);
+	--gf-r-20: 20px;
+	--gf-r-24: 24px;
+	--gf-r-28: 28px;
+	--gf-gutter: 20px;
+	--gf-touch-target: 44px;
+	--gf-shadow-card: 0 1px 2px rgba(15, 21, 18, 0.04), 0 14px 32px -16px rgba(15, 21, 18, 0.18);
+	--gf-shadow-cta: 0 14px 26px -12px rgba(23, 163, 73, 0.65);
+	--gf-shadow-nav: 0 18px 40px -14px rgba(15, 21, 18, 0.28);
+	--gf-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -537,6 +558,138 @@ textarea,
 	}
 }
 
+/* Éléments partagés de la navigation flottante et du gabarit Accueil Premium.
+   Les fonds crème globaux sont conservés pour tous les écrans non redessinés. */
+.gflux-home-main {
+	padding-inline: var(--gf-gutter) !important;
+}
+@media (min-width: 640px) {
+	.gflux-home-main {
+		padding-inline: 24px !important;
+	}
+}
+.gflux-home-header {
+	padding-top: max(env(safe-area-inset-top, 0px), 0px);
+	background-color: rgba(255, 255, 255, 0.96) !important;
+	border-bottom-color: var(--color-line-soft) !important;
+}
+.gflux-home-header::after {
+	position: absolute;
+	inset: 100% 0 auto;
+	height: 14px;
+	background: linear-gradient(to bottom, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0));
+	content: '';
+	pointer-events: none;
+}
+.gflux-home-header button[aria-label='Menu profil'],
+.gflux-home-header button[aria-label*='Actualiser'] {
+	min-width: var(--gf-touch-target);
+	min-height: var(--gf-touch-target);
+}
+.gflux-primary-nav {
+	padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px) !important;
+}
+.gflux-nav-capsule {
+	box-sizing: border-box;
+	min-height: 68px;
+	border-radius: 34px;
+	box-shadow: var(--gf-shadow-nav);
+}
+.gflux-nav-link {
+	min-width: var(--gf-touch-target);
+	min-height: 52px;
+	border-radius: 28px;
+}
+.gflux-app-client-home {
+	min-height: 100vh;
+	min-height: 100dvh;
+	display: flex;
+	overscroll-behavior-y: none;
+}
+/* La safe area iOS expose le fond racine, pas celui du conteneur Accueil.
+   Le sélecteur structurel reste actif dès le SSR et ne change pas le thème
+   crème des autres routes cliente ni celui du coach. */
+html:has(.gflux-app-client-home),
+body:has(.gflux-app-client-home) {
+	background: #ffffff;
+}
+/* Toutes les routes cliente : fond racine BLANC (safe areas et overscroll iOS
+   montrent le fond de html/body, jamais la crème --bg). Coach inchangé. */
+html:has(.gflux-app-client),
+body:has(.gflux-app-client) {
+	background: #ffffff;
+}
+
+/* Keyframes & utilitaires Claude v2 (dc-base.css) */
+@keyframes ringIn {
+	from {
+		stroke-dasharray: 0 1000;
+	}
+}
+@keyframes drawIn {
+	from {
+		stroke-dashoffset: 1;
+	}
+	to {
+		stroke-dashoffset: 0;
+	}
+}
+@keyframes barIn {
+	from {
+		transform: scaleX(0);
+	}
+	to {
+		transform: scaleX(1);
+	}
+}
+@keyframes barUp {
+	from {
+		transform: scaleY(0);
+	}
+	to {
+		transform: scaleY(1);
+	}
+}
+@keyframes areaIn {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+@keyframes popA {
+	0% {
+		transform: scale(0.92);
+	}
+	60% {
+		transform: scale(1.06);
+	}
+	100% {
+		transform: scale(1);
+	}
+}
+.draw {
+	stroke-dasharray: 1;
+	stroke-dashoffset: 0;
+	animation: drawIn 0.9s cubic-bezier(0.3, 0.7, 0.2, 1) 0.15s both;
+}
+.area {
+	animation: areaIn 0.6s ease-out 0.15s both;
+}
+.vbar {
+	transform-origin: bottom;
+	animation: barUp 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) 0.15s both;
+}
+.hbar {
+	transform-origin: left;
+	animation: barIn 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) 0.15s both;
+}
+.fld:focus-within {
+	border-color: #1db954 !important;
+	box-shadow: 0 0 0 4px rgba(29, 185, 84, 0.14) !important;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════
    MOTION G-FLUX — fondation partagée (Accueil + composants)
 
@@ -662,5 +815,61 @@ textarea,
 		animation-duration: 0.01ms !important;
 		animation-iteration-count: 1 !important;
 		transition-duration: 0.01ms !important;
+	}
+}
+
+/* Titre principal de page (référence : « Nutrition & recettes ») : Lato 900,
+   interlettrage et interligne identiques partout. Taille : 3 px de moins sur
+   mobile, 4 px de moins à partir de 720 px. Les titres longs passent à la
+   ligne (équilibrés) sans déborder. */
+.page-title {
+	font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
+	font-size: 31px;
+	font-weight: 900;
+	letter-spacing: -0.03em;
+	line-height: 1.05;
+	text-wrap: balance;
+	overflow-wrap: break-word;
+}
+@media (min-width: 720px) {
+	.page-title {
+		font-size: 36px;
+	}
+}
+
+/* ── Pictogramme Calories (Accueil) : indicateur d'activité ───────────────
+   Seul le point central reçoit un halo (::after) qui s'élargit puis s'efface,
+   toutes les 3 s. Le point et le carré ne bougent pas. Transform + opacity
+   uniquement (GPU, sans relayout). Désactivé sous prefers-reduced-motion. */
+@keyframes kcal-halo {
+	0% {
+		transform: scale(1);
+		opacity: 0.5;
+		animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
+	}
+	60%,
+	100% {
+		transform: scale(3.4);
+		opacity: 0;
+	}
+}
+.gflux-kcal-pulse {
+	position: relative;
+}
+.gflux-kcal-pulse::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	background: var(--color-brand);
+	opacity: 0;
+	pointer-events: none;
+	will-change: transform, opacity;
+	animation: kcal-halo 3s infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+	.gflux-kcal-pulse::after {
+		animation: none;
+		display: none;
 	}
 }

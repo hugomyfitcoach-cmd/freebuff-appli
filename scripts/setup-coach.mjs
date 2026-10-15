@@ -33,7 +33,12 @@ if (!email || !password || !code) {
 	process.exit(1);
 }
 
-const url = env.PUBLIC_CONVEX_URL ?? 'https://calm-jaguar-475.eu-west-1.convex.cloud';
+// Pas de repli sur la production : sans URL explicite, on s'arrête avant tout appel.
+const url = env.PUBLIC_CONVEX_URL;
+if (!url) {
+	console.error('❌ PUBLIC_CONVEX_URL absente de .env.local — aucune cible par défaut (jamais de repli sur la production).');
+	process.exit(1);
+}
 const client = new ConvexClient(url);
 
 try {

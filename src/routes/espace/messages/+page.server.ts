@@ -6,18 +6,17 @@ import { SESSION_COOKIE, requireRole } from '$lib/server/session';
 /**
  * Section « Messages » : la cliente retrouve ici tous les messages de sa coach
  * (texte et/ou audio), y compris ceux déjà lus qui ont quitté la zone
- * prioritaire de l'Accueil. Ouvrir réellement cette page = consultation :
- * les messages non encore marqués « Vu » passent en « lu » (journal CRM).
+ * prioritaire de l'Accueil. Ouvrir cette page ne marque RIEN comme lu : seul le
+ * bouton « J'ai lu » (explicite) consomme l'état non lu.
  */
 export const load: PageServerLoad = async (event) => {
 	await requireRole(event, 'client', { next: '/espace/messages' });
 	const token = event.cookies.get(SESSION_COOKIE);
-	// Consultation réelle (jamais déclenchée par le simple affichage de l'Accueil).
-	await convex
-		.mutation(api.dashboard.markAllCoachMessagesRead, { sessionToken: token })
-		.catch(() => {});
-	const messages = await convex
+	const messagesP = convex
 		.query(api.dashboard.myCoachMessages, { sessionToken: token })
 		.catch(() => []);
-	return { messages };
+	const coachP = convex
+		.query(api.dashboard.myCoachProfile, { sessionToken: token })
+		.catch(() => null);
+	return { messages: await messagesP, coach: await coachP };
 };

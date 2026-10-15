@@ -1,0 +1,7 @@
+/* Styles propres à l'écran « Scanner » (portée .s-scanner). Les keyframes et classes communes sont dans styles/dc-base.css. */
+.s-scanner button{font-family:inherit;cursor:pointer}
+.s-scanner a{text-decoration:none;color:inherit}
+.s-scanner input,.s-scanner textarea,.s-scanner select{font-family:inherit}
+.s-scanner .press{transition:transform .15s ease,box-shadow .2s ease,background-color .2s ease,border-color .2s ease}
+.s-scanner .press:active{transform:scale(.97)}
+.s-scanner .area{animation:areaIn .6s ease-out .45s both}

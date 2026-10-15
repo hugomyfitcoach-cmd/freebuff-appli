@@ -1,0 +1,28 @@
+/* Cadre de l'application de prévisualisation (hors écrans). */
+html, body { margin: 0; height: 100%; background: #fff; -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
+body { font-family: 'Lato', system-ui, sans-serif; color: #0f1512; -webkit-font-smoothing: antialiased; }
+
+.index { max-width: 1180px; margin: 0 auto; padding: 32px 20px 64px; }
+.index header { margin-bottom: 24px; }
+.index h1 { margin: 14px 0 6px; font-size: 30px; font-weight: 900; letter-spacing: -0.02em; }
+.index header p { margin: 0 0 10px; max-width: 620px; font-size: 15px; line-height: 1.5; color: #66716b; }
+.index .cta { display: inline-flex; align-items: center; height: 48px; padding: 0 24px; border-radius: 24px; background: #1db954; color: #fff; font-weight: 700; text-decoration: none; }
+.index h2 { margin: 36px 0 12px; font-size: 14px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; color: #66716b; }
+.index ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 18px; }
+.index li a { display: flex; flex-direction: column; gap: 8px; text-decoration: none; color: inherit; }
+.index li img { width: 100%; height: auto; aspect-ratio: 390 / 844; border-radius: 18px; border: 1px solid #eef1ef; box-shadow: 0 1px 2px rgba(15,21,18,.04), 0 12px 26px -16px rgba(15,21,18,.18); background: #f3f6f4; object-fit: cover; }
+.index li span { font-size: 13px; font-weight: 700; line-height: 1.3; }
+.index li a:hover img { box-shadow: 0 1px 2px rgba(15,21,18,.04), 0 18px 34px -16px rgba(15,21,18,.28); }
+
+/* Stage */
+.stage-mobile { position: fixed; inset: 0; background: #fff; overflow-x: hidden; overflow-y: auto; }
+.stage-desktop { min-height: 100dvh; display: grid; grid-template-columns: 260px 1fr; background: #f3f6f4; }
+.stage-desktop aside { position: sticky; top: 0; height: 100dvh; overflow-y: auto; background: #fff; border-right: 1px solid #eef1ef; padding: 18px 14px 28px; box-sizing: border-box; }
+.stage-desktop aside .brand { display: flex; align-items: center; gap: 8px; margin: 0 6px 12px; text-decoration: none; color: inherit; font-weight: 900; }
+.stage-desktop aside h3 { margin: 16px 8px 6px; font-size: 11px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; color: #7b857f; }
+.stage-desktop aside a.item { display: block; padding: 7px 10px; border-radius: 10px; font-size: 13.5px; color: #3a4540; text-decoration: none; }
+.stage-desktop aside a.item:hover { background: #f3f6f4; }
+.stage-desktop aside a.item[aria-current='page'] { background: #e8fef0; color: #0d7c36; font-weight: 700; }
+.stage-desktop main { display: flex; align-items: center; justify-content: center; padding: 24px; min-width: 0; }
+.device { background: #fff; box-shadow: 0 0 0 1px #e3e8e5, 0 30px 80px -30px rgba(15,21,18,.45), 0 6px 18px rgba(15,21,18,.08); overflow: hidden; position: relative; }
+.hint { position: fixed; right: 16px; bottom: 12px; font-size: 12px; color: #7b857f; }

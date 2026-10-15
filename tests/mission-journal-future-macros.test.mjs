@@ -51,7 +51,8 @@ test('Journal futur : rendu atténué des anneaux (désaturé + gris), jamais «
 	assert.ok(journalDay.includes('stroke={macrosPlanned ? PLANNED_GRAY : ring.color}'), 'arc gris neutre en mode prévu, couleur d’identité sinon');
 	// §1 phase 2 : TITRE et ICÔNE grisés (plus aucune couleur d’identité).
 	assert.ok(journalDay.includes("{macrosPlanned ? 'text-mist' : 'text-ink'}\">{ring.label}"), 'titre de carte gris en mode prévu');
-	assert.match(journalDay, /style=\{macrosPlanned \? `color:\$\{PLANNED_GRAY\}` : `color:\$\{ring\.color\}`\}/, 'icône grisée en mode prévu');
+	// Maquette Claude : aucune icône décorative sur les cartes Glucides / Protéines / Lipides.
+	assert.ok(!journalDay.includes('Icon name={ring.icon}'), 'carte macro sans icône décorative (présentation Claude)');
 	// Pourcentage + valeur en gris au centre.
 	assert.ok(journalDay.includes('style:color={macrosPlanned ? PLANNED_GRAY : ring.color}'), 'pourcentage gris en mode prévu');
 	assert.ok(journalDay.includes("{macrosPlanned ? 'text-mist' : 'text-ink'}"), 'grammage neutre en mode prévu');
@@ -67,7 +68,7 @@ test('Journal futur : modale détail macro entièrement au gris « prévu » (co
 	const modal = journalPage.slice(modalStart, journalPage.indexOf('{:else}', modalStart));
 	assert.match(modal, /stroke=\{macroMetaTint\}/, 'arc de la modale gris en futur');
 	assert.match(modal, /style:color=\{macroMetaTint\}/, '% + totaux grisés en futur');
-	assert.match(modal, /isFuture \? `color:\$\{PLANNED_GRAY\}` : `color:\$\{macroMeta\.color\}`/, 'icône grisée en futur');
+	assert.match(modal, /style:background=\{isFuture \? PLANNED_GRAY : macroMeta\.color\}/, 'pastille grisée en futur (remplace le pictogramme)');
 	assert.ok(modal.includes('macroMetaTint'), 'détail par aliment (g par item) via la même teinte');
 });
 
@@ -161,16 +162,22 @@ test('Compaction : ~10 px d’air entre la ligne kcal/% et la carte d’aliments
 	assert.ok(journalDay.includes("mt-1.5 px-1 pb-1"), 'rendu coach inchangé (structure historique)');
 });
 
-test('Compaction phase 2 : en-têtes de repas resserrés SANS toucher polices ni boutons', () => {
+test('Compaction phase 2 : en-têtes de repas MAQUETTE CLAUDE (baseline unique)', () => {
 	// Section : mb-1 (au lieu de mb-2) — moins de vide entre deux repas.
 	assert.ok(journalDay.includes('<section class="mb-1">'), 'section repas compacte (mb-1)');
-	// Ligne kcal/%) : collée au titre (mt-0) avec interligne resserré (1,35).
-	assert.ok(journalDay.includes('mt-0 leading-[1.35] text-[13px] font-semibold tabular-nums text-brand'), 'ligne kcal collée au titre, interligne 1,35');
-	// NON-RÉGRESSION : polices inchangées (titre 18 px, kcal 13 px)…
-	assert.ok(journalDay.includes("text-[18px] font-bold tracking-tight text-ink"), 'titre repas toujours 18 px');
-	assert.ok(journalDay.includes('text-[13px] font-semibold tabular-nums text-brand'), 'ligne kcal toujours 13 px');
-	// …et boutons caméra / + intacts (h-11 w-10 / h-11 w-11).
-	assert.ok(journalDay.includes('h-11 w-10 place-items-center text-brand'), 'bouton caméra intact');
+	// MAQUETTE CLAUDE : badge 28px + titre 17px/900 + métrique kcal · % sur
+	// la MÊME baseline — jamais une deuxième ligne sous le titre (iPhone).
+	assert.ok(journalDay.includes('grid h-[28px] w-[28px] shrink-0 self-center place-items-center rounded-[9px] bg-brand-light text-brand'), 'badge repas 28px');
+	assert.ok(journalDay.includes('text-[17px] font-black leading-[1.1] tracking-[-0.02em] text-ink'), 'titre repas 17px/900');
+	assert.ok(journalDay.includes('whitespace-nowrap text-[12.5px] font-bold text-brand-deep tabular-nums'), 'métrique kcal · % sur la baseline du titre');
+	// L'ancien gabarit « kcal sous le titre » (2e ligne) est bien supprimé.
+	assert.ok(!journalDay.includes('mt-0 leading-[1.35] text-[13px] font-semibold tabular-nums text-brand'), 'ancienne ligne kcal séparée supprimée');
+	// Libellés métier intacts : « x kcal · y % » et « prévues ».
+	assert.ok(journalDay.includes(' kcal · '), 'libellé kcal · % intact');
+	assert.ok(journalDay.includes('kcal prévues'), 'libellé prévues intact');
+	// …et boutons caméra / + alignés sur la même boîte 44 px (h-11 w-11) :
+	// même espacement et même axe pour les quatre repas.
+	assert.ok(journalDay.includes('h-11 w-11 place-items-center text-brand transition active:scale-90'), 'bouton caméra 44 px');
 	assert.ok(journalDay.includes('h-11 w-11 place-items-center text-brand'), 'bouton + intact');
 });
 

@@ -436,6 +436,32 @@ export default defineSchema({
 		.index("by_user_date", ["userId", "date"])
 		.index("by_user", ["userId"]),
 
+	/**
+	 * HYDRATATION — consommations d'eau de la cliente, documentation du module
+	 * `hydration.ts`. Une ligne PAR PRISE (jamais un upsert par jour) : l'app
+	 * cliente affiche l'historique horaire de la journée (annuler une saisie
+	 * possible), et le coach consulte le total du jour + évolution 7/30 j.
+	 * Dates "yyyy-mm-dd" calculées côté cliente (fuseau local) — même
+	 * convention que `dailySteps.date`.
+	 */
+	hydrationEntries: defineTable({
+		userId: v.id("users"),
+		/** Date "yyyy-mm-dd" (fuseau local de la cliente). */
+		date: v.string(),
+		/** Volume de LA prise, en ml (1–5000). Origine : raccourci ou saisie manuelle. */
+		ml: v.number(),
+		createdAt: v.number(),
+	})
+		.index("by_user", ["userId"]),
+
+	/** Objectif quotidien d'hydratation de la cliente — 1 ligne par cliente. */
+	hydrationGoals: defineTable({
+		userId: v.id("users"),
+		/** Objectif en ml (500–6000), modifiable par la cliente sur son écran. */
+		goalMl: v.number(),
+		updatedAt: v.number(),
+	}).index("by_userId", ["userId"]),
+
 	/* ═══ Repas personnalisés & favoris ═══ */
 
 	/** Repas « créés par moi » : recette + totaux calculés côté serveur. */

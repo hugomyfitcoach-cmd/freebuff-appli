@@ -5,7 +5,8 @@
  *
  * Deux usages distincts (règle produit : scan = OFF uniquement, Ciqual =
  * recherche texte) :
- *  - `searchCiqual(q)` : jusqu'à 3 références VRAIMENT pertinentes pour le
+ *  - `searchCiqual(q)` : jusqu'à 13 références à la demande (3 par défaut),
+ *    vraiment pertinentes pour le
  *    bloc « Aliments de référence » — exact > préfixe de mots > mots entiers,
  *    PUIS références officielles préférées (libellés courts, sans « aliment
  *    moyen » ni variantes ultra-spécifiques) ;
@@ -20,7 +21,9 @@ import { query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { getSessionUser } from "./helpers";
 
-export const CIQUAL_MAX_RESULTS = 3;
+export const CIQUAL_DEFAULT_RESULTS = 3;
+/** Hard ceiling for a user-requested expanded list. */
+export const CIQUAL_MAX_RESULTS = 13;
 
 /** Fiche publique de recherche : libellé officiel + valeurs /100 g. */
 export type CiqualHit = {
@@ -215,7 +218,9 @@ const REFS_BY_FIRST: Map<string, { toks: string[]; ref: CiqualHit }[]> = (() => 
  * candidates), et les mots NON préparatoires (« riz complet » → complet)
  * doivent TOUS être présents — « complet » seul ne ramène pas autre chose.
  */
-export function searchCiqualLocal(query: string): CiqualHit[] {
+export function searchCiqualLocal(query: string, limit = CIQUAL_DEFAULT_RESULTS): CiqualHit[] {
+	const requestedLimit = Number.isFinite(limit) ? Math.floor(limit) : CIQUAL_DEFAULT_RESULTS;
+	const maxResults = Math.max(1, Math.min(CIQUAL_MAX_RESULTS, requestedLimit));
 	const qt = tokenize(query);
 	if (qt.length === 0) return [];
 	const anchors = anchorTokens(query);
@@ -237,7 +242,7 @@ export function searchCiqualLocal(query: string): CiqualHit[] {
 			if (seen.has(c.ref.label)) continue;
 			seen.add(c.ref.label);
 			out.push(c.ref);
-			if (out.length >= CIQUAL_MAX_RESULTS) break;
+			if (out.length >= maxResults) break;
 		}
 		return out;
 	}
@@ -270,7 +275,7 @@ export function searchCiqualLocal(query: string): CiqualHit[] {
 	 * donne une tête « oeuf cru ») — exclusif à la famille œuf. */
 	const isEggQuery = leaderBase.startsWith("oeuf");
 	if (isEggQuery) {
-		for (let r = 0; r < 3 && picked.length < CIQUAL_MAX_RESULTS; r++) {
+		for (let r = 0; r < 3 && picked.length < maxResults; r++) {
 			const hit = candidates.find(
 				(c) => !usedLabels.has(c.ref.label) && eggStateRank(c.ref.label) === r
 			);
@@ -283,7 +288,7 @@ export function searchCiqualLocal(query: string): CiqualHit[] {
 		}
 	}
 	for (const c of candidates) {
-		if (picked.length >= CIQUAL_MAX_RESULTS) break;
+		if (picked.length >= maxResults) break;
 		if (baseOf(c.ref.label) !== leaderBase) continue;
 		if (modeOf(c.ref.label) === "") continue; // recettes/états non qualifiés → phases B/C
 		pick(c);
@@ -292,7 +297,7 @@ export function searchCiqualLocal(query: string): CiqualHit[] {
 	 * « saumon » (fumé en tête, sans état qualifié en queue) reçoit quand même
 	 * ses variantes crue puis bouillie réellement présentes dans Ciqual. */
 	for (const c of candidates) {
-		if (picked.length >= CIQUAL_MAX_RESULTS) break;
+		if (picked.length >= maxResults) break;
 		if (modeOf(c.ref.label) === "") continue;
 		if (usedModes.has(modeOf(c.ref.label))) continue;
 		pick(c);
@@ -305,12 +310,12 @@ export function searchCiqualLocal(query: string): CiqualHit[] {
 		candidates.some((c) => !usedLabels.has(c.ref.label) && COOKED_MODES.has(modeOf(c.ref.label)));
 	for (const skipCrue of [true, false]) {
 		for (const c of candidates) {
-			if (picked.length >= CIQUAL_MAX_RESULTS) break;
+			if (picked.length >= maxResults) break;
 			if (usedLabels.has(c.ref.label)) continue;
 			if (skipCrue && modeOf(c.ref.label) === "cru" && hasCookedLeft()) continue;
 			pick(c);
 		}
-		if (picked.length >= CIQUAL_MAX_RESULTS) break;
+		if (picked.length >= maxResults) break;
 	}
 	return picked.map((c) => c.ref);
 }
@@ -336,15 +341,15 @@ export const CIQUAL_SOURCE_LABEL = "Référence Ciqual – ANSES";
 
 /**
  * Recherche locale de fiches Ciqual (bloc « Aliments de référence ») —
- * jusqu'à 3 références pertinentes, aucun remplissage artificiel. Lecture
+ * jusqu'à 13 références pertinentes à la demande, aucun remplissage artificiel. Lecture
  * seule : la table Ciqual est embarquée, la base OFF n'est JAMAIS touchée.
  */
 export const searchCiqual = query({
-	args: { sessionToken: v.optional(v.string()), query: v.string() },
-	handler: async (ctx, { sessionToken, query: q }) => {
+	args: { sessionToken: v.optional(v.string()), query: v.string(), limit: v.optional(v.number()) },
+	handler: async (ctx, { sessionToken, query: q, limit }) => {
 		const user = await getSessionUser(ctx, sessionToken);
 		if (!user) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
 		if (q.trim().length < 2) return [] as CiqualHit[];
-		return searchCiqualLocal(q);
+		return searchCiqualLocal(q, limit ?? CIQUAL_DEFAULT_RESULTS);
 	},
 });

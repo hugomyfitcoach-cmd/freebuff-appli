@@ -3,14 +3,17 @@
 	import type { Doc } from '../../convex/_generated/dataModel.js';
 	import AudioPlayer from './AudioPlayer.svelte';
 	import Icon from './Icon.svelte';
+	import CoachAvatar from './CoachAvatar.svelte';
 	import { fmtMs, fmtSize, type CoachMediaItem } from '../media.js';
 
 	let {
 		checkin,
 		media = [],
+		coach = null,
 	}: {
 		checkin: Doc<'checkins'>;
 		media?: CoachMediaItem[];
+		coach?: { prenom: string; profilePhotoUrl: string | null } | null;
 	} = $props();
 
 	const lines = $derived(answerLines(checkin));
@@ -78,11 +81,10 @@
 
 	<!-- Retour de la coach : texte + éventuel retour audio + pièces jointes -->
 	<div class="border-t border-line bg-cream/50 px-5 py-4">
-		{#if published}
-			<div class="flex items-start gap-3">
-				<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-light"><Icon name="messageCircle" size={17} class="text-brand" /></div>
+		{#if published}			<div class="flex items-start gap-3">
+				<CoachAvatar url={coach?.profilePhotoUrl ?? null} name={coach?.prenom ?? 'Coach'} size={36} />
 				<div class="min-w-0 flex-1">
-					<div class="text-xs font-bold uppercase tracking-wide text-mist">Retour de ton coach</div>
+					<div class="text-xs font-bold uppercase tracking-wide text-mist">Ton coach</div>
 					{#if checkin.feedback}
 						<p class="mt-1 whitespace-pre-line text-sm leading-relaxed text-ink">{checkin.feedback}</p>
 					{/if}

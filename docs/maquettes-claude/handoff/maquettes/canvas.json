@@ -1,0 +1,494 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "Bilans.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "10 · Mes bilans",
+      "w": 390,
+      "x": 1410,
+      "y": 2500
+    },
+    "Calibrage.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "11 · Calibrage",
+      "w": 390,
+      "x": 0,
+      "y": 3700
+    },
+    "Cou.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "33 · Tour de cou · détail",
+      "w": 390,
+      "x": 1410,
+      "y": 9700
+    },
+    "Cycle.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "20 · Mon cycle",
+      "w": 390,
+      "x": 940,
+      "y": 6100
+    },
+    "Depense.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "15 · Dépense sportive",
+      "w": 390,
+      "x": 470,
+      "y": 4900
+    },
+    "Drive.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "9 · Drive",
+      "w": 390,
+      "x": 940,
+      "y": 2500
+    },
+    "Fessiers.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "32 · Fessiers · détail",
+      "w": 390,
+      "x": 940,
+      "y": 9700
+    },
+    "Food-Banane.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "27 · Fiche aliment · édition",
+      "w": 390,
+      "x": 470,
+      "y": 8500
+    },
+    "Food-Detail.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "26 · Fiche aliment · ajout",
+      "w": 390,
+      "x": 0,
+      "y": 8500
+    },
+    "Food-Edit.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "4 · Modification d'un aliment",
+      "w": 390,
+      "x": 1410,
+      "y": 0
+    },
+    "Foods.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "3 · Aliments créés par moi",
+      "w": 390,
+      "x": 940,
+      "y": 0
+    },
+    "Guide.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "16 · Guide des mesures & photos",
+      "w": 390,
+      "x": 940,
+      "y": 4900
+    },
+    "Handoff-Composants.dc.html": {
+      "h": 1760,
+      "radius": 24,
+      "title": "37 · Passation · composants et états",
+      "w": 1100,
+      "x": 1180,
+      "y": 12300
+    },
+    "Handoff-Logo.dc.html": {
+      "h": 1440,
+      "radius": 24,
+      "title": "39 · Passation · logo et icône",
+      "w": 1100,
+      "x": 0,
+      "y": 16400
+    },
+    "Handoff-PWA.dc.html": {
+      "h": 4700,
+      "radius": 24,
+      "title": "38 · Passation · intégration PWA",
+      "w": 1100,
+      "x": 2360,
+      "y": 12300
+    },
+    "Handoff-Tokens.dc.html": {
+      "h": 2480,
+      "radius": 24,
+      "title": "36 · Passation · design tokens",
+      "w": 1100,
+      "x": 0,
+      "y": 12300
+    },
+    "Home.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "5 · Accueil",
+      "w": 390,
+      "x": 0,
+      "y": 1300
+    },
+    "Journal-Select.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "30 · Journal · sélection",
+      "w": 390,
+      "x": 0,
+      "y": 9700
+    },
+    "Journal.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "7 · Journal",
+      "w": 390,
+      "x": 0,
+      "y": 2500
+    },
+    "Login.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "31 · Connexion",
+      "w": 390,
+      "x": 470,
+      "y": 9700
+    },
+    "Main.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "1 · Liste des repas",
+      "w": 390,
+      "x": 0,
+      "y": 0
+    },
+    "Masse-grasse.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "34 · Masse grasse · détail",
+      "w": 390,
+      "x": 0,
+      "y": 10900
+    },
+    "Meal-AI.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "29 · Analyse ton repas (IA)",
+      "w": 390,
+      "x": 1410,
+      "y": 8500
+    },
+    "Meal-Edit.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "2 · Modification d'un repas",
+      "w": 390,
+      "x": 470,
+      "y": 0
+    },
+    "Messages.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "14 · Messages",
+      "w": 390,
+      "x": 0,
+      "y": 4900
+    },
+    "Nutrition.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "12 · Nutrition & recettes",
+      "w": 390,
+      "x": 470,
+      "y": 3700
+    },
+    "Partie-fine.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "18 · Partie la plus fine",
+      "w": 390,
+      "x": 0,
+      "y": 6100
+    },
+    "Performance.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "19 · Performance",
+      "w": 390,
+      "x": 470,
+      "y": 6100
+    },
+    "Poids.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "17 · Poids · historique",
+      "w": 390,
+      "x": 1410,
+      "y": 4900
+    },
+    "Progress.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "6 · Progression",
+      "w": 390,
+      "x": 470,
+      "y": 1300
+    },
+    "Recap.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "23 · Récap de la semaine · menu profil",
+      "w": 390,
+      "x": 470,
+      "y": 7300
+    },
+    "Recipes.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "13 · Recettes",
+      "w": 390,
+      "x": 940,
+      "y": 3700
+    },
+    "Scanner.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "28 · Scanner de codes-barres",
+      "w": 390,
+      "x": 940,
+      "y": 8500
+    },
+    "Search.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "8 · Recherche · Tous les produits",
+      "w": 390,
+      "x": 470,
+      "y": 2500
+    },
+    "Settings.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "22 · Paramètres",
+      "w": 390,
+      "x": 0,
+      "y": 7300
+    },
+    "Sheet-Mesures.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "24 · Saisie des mensurations",
+      "w": 390,
+      "x": 940,
+      "y": 7300
+    },
+    "Sheet-Poids.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "35 · Saisie du poids",
+      "w": 390,
+      "x": 470,
+      "y": 10900
+    },
+    "Sheet-Taille.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "25 · Saisie de la taille",
+      "w": 390,
+      "x": 1410,
+      "y": 7300
+    },
+    "Steps.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "radius": 44,
+      "title": "21 · Mes pas",
+      "w": 390,
+      "x": 1410,
+      "y": 6100
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-10-13T06:25:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {
+    "head": {
+      "kind": "title1",
+      "maxW": 1800,
+      "text": "G-FLUX · Journal alimentaire — 4 écrans modernisés",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    },
+    "head10": {
+      "kind": "title1",
+      "maxW": 1800,
+      "text": "G-FLUX · Connexion premium & pages détail Progression",
+      "w": 240,
+      "x": 0,
+      "y": 10600
+    },
+    "head11": {
+      "kind": "title1",
+      "maxW": 2400,
+      "text": "G-FLUX · Passation à Freebuff — tokens, composants, PWA",
+      "w": 240,
+      "x": 0,
+      "y": 12000
+    },
+    "head2": {
+      "kind": "title1",
+      "maxW": 860,
+      "text": "G-FLUX · Accueil & Progression",
+      "w": 240,
+      "x": 0,
+      "y": 1000
+    },
+    "head3": {
+      "kind": "title1",
+      "maxW": 1800,
+      "text": "G-FLUX · Journal, Recherche, Drive & Bilans",
+      "w": 240,
+      "x": 0,
+      "y": 2200
+    },
+    "head4": {
+      "kind": "title1",
+      "maxW": 1330,
+      "text": "G-FLUX · Calibrage, Nutrition & Recettes",
+      "w": 240,
+      "x": 0,
+      "y": 3400
+    },
+    "head5": {
+      "kind": "title1",
+      "maxW": 1800,
+      "text": "G-FLUX · Messages, Dépense sportive, Guide & Poids",
+      "w": 240,
+      "x": 0,
+      "y": 4600
+    },
+    "head6": {
+      "kind": "title1",
+      "maxW": 1800,
+      "text": "G-FLUX · Détails, Performance, Cycle & Pas",
+      "w": 240,
+      "x": 0,
+      "y": 5800
+    },
+    "head7": {
+      "kind": "title1",
+      "maxW": 1800,
+      "text": "G-FLUX · Paramètres, Récap, menu profil & saisies",
+      "w": 240,
+      "x": 0,
+      "y": 7000
+    },
+    "head8": {
+      "kind": "title1",
+      "maxW": 1800,
+      "text": "G-FLUX · Fiches aliment, Scanner & Repas IA",
+      "w": 240,
+      "x": 0,
+      "y": 8200
+    },
+    "head9": {
+      "kind": "title1",
+      "maxW": 1800,
+      "text": "G-FLUX · Journal en mode sélection",
+      "w": 240,
+      "x": 0,
+      "y": 9400
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Meal-Edit.dc.html",
+    "Foods.dc.html",
+    "Food-Edit.dc.html",
+    "Home.dc.html",
+    "Progress.dc.html",
+    "Journal.dc.html",
+    "Search.dc.html",
+    "Drive.dc.html",
+    "Bilans.dc.html",
+    "Calibrage.dc.html",
+    "Nutrition.dc.html",
+    "Recipes.dc.html",
+    "Messages.dc.html",
+    "Depense.dc.html",
+    "Guide.dc.html",
+    "Poids.dc.html",
+    "Partie-fine.dc.html",
+    "Performance.dc.html",
+    "Cycle.dc.html",
+    "Steps.dc.html",
+    "Settings.dc.html",
+    "Recap.dc.html",
+    "Sheet-Mesures.dc.html",
+    "Sheet-Taille.dc.html",
+    "Food-Detail.dc.html",
+    "Food-Banane.dc.html",
+    "Scanner.dc.html",
+    "Meal-AI.dc.html",
+    "Journal-Select.dc.html",
+    "Login.dc.html",
+    "Fessiers.dc.html",
+    "Cou.dc.html",
+    "Masse-grasse.dc.html",
+    "Sheet-Poids.dc.html",
+    "Handoff-Tokens.dc.html",
+    "Handoff-Composants.dc.html",
+    "Handoff-PWA.dc.html",
+    "Handoff-Logo.dc.html"
+  ],
+  "pages": [],
+  "title": "G-FLUX · Journal alimentaire"
+}

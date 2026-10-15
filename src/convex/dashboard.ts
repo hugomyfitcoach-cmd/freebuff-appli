@@ -663,6 +663,27 @@ export const myCoachMessages = query({
 });
 
 /**
+ * Identité publique de la coach pour la cliente (prénom + photo de profil du
+ * CRM). Lecture seule : aucune donnée de la coach n'est modifiée, et la photo
+ * est celle déjà configurée dans son profil (même stockage que les clientes).
+ */
+export const myCoachProfile = query({
+	args: { sessionToken: v.optional(v.string()) },
+	handler: async (ctx, { sessionToken }) => {
+		await requireClient(ctx, sessionToken);
+		const coach = await ctx.db
+			.query("users")
+			.filter((q) => q.eq(q.field("role"), "coach"))
+			.first();
+		if (!coach) return null;
+		const profilePhotoUrl = coach.profilePhotoStorageId
+			? ((await ctx.storage.getUrl(coach.profilePhotoStorageId)) ?? null)
+			: null;
+		return { prenom: coach.prenom || "Coach", profilePhotoUrl };
+	},
+});
+
+/**
  * Message du coach visible par la cliente sur son dashboard.
  * Réservé à la coach : un message vide supprime le message courant.
  * Le message est associé au jour courant et expire le lendemain.

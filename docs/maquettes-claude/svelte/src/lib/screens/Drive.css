@@ -1,0 +1,5 @@
+/* Styles propres à l'écran « Drive » (portée .s-drive). Les keyframes et classes communes sont dans styles/dc-base.css. */
+.s-drive button{font-family:inherit;cursor:pointer}
+.s-drive a{text-decoration:none;color:inherit}
+.s-drive .press{transition:transform .15s ease,box-shadow .2s ease}
+.s-drive .press:active{transform:scale(.97)}

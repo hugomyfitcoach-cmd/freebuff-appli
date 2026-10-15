@@ -80,7 +80,7 @@
 <BackToHome label="Drive" />
 
 <header class="mb-5">
-	<h1 class="flex items-center gap-2 font-display text-2xl font-semibold text-ink">
+	<h1 class="flex items-center gap-2 text-ink page-title">
 		<Icon name="cloud" size={22} class="shrink-0 text-brand" /> Drive
 	</h1>
 	<p class="mt-1 text-sm text-mist">Documents et récap partagés par ton coach — plus récents en premier.</p>

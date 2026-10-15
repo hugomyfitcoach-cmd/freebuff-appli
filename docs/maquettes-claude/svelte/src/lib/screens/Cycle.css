@@ -1,0 +1,7 @@
+/* Styles propres à l'écran « Cycle » (portée .s-cycle). Les keyframes et classes communes sont dans styles/dc-base.css. */
+.s-cycle button{font-family:inherit;cursor:pointer}
+.s-cycle a{text-decoration:none;color:inherit}
+.s-cycle input,.s-cycle textarea,.s-cycle select{font-family:inherit}
+.s-cycle .press{transition:transform .15s ease,box-shadow .2s ease,background-color .2s ease,border-color .2s ease}
+.s-cycle .press:active{transform:scale(.97)}
+.s-cycle .area{animation:areaIn .6s ease-out .45s both}

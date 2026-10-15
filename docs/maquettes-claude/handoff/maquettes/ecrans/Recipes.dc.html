@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Recettes</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Lato',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button{font-family:inherit;cursor:pointer}
+a{text-decoration:none;color:inherit}
+.press{transition:transform .15s ease,box-shadow .2s ease}
+.press:active{transform:scale(.98)}
+</style>
+</helmet>
+<div style="width:390px;height:844px;box-sizing:border-box;background:#FFFFFF;display:flex;flex-direction:column;position:relative;overflow:hidden;color:#0F1512;font-family:'Lato',system-ui,sans-serif">
+
+  <div style="padding:52px 20px 0;display:flex;align-items:center;justify-content:space-between">
+    <a class="press" href="Nutrition.dc.html" aria-label="Retour à toutes les sections" style="height:44px;box-sizing:border-box;padding:0 18px 0 10px;border-radius:22px;border:1px solid #E9EDEA;background:#FFFFFF;box-shadow:0 1px 2px rgba(15,21,18,.04),0 8px 20px -8px rgba(15,21,18,.14);display:flex;align-items:center;gap:4px;font-size:15px;font-weight:700;color:#0F1512">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>
+      Toutes les sections
+    </a>
+    <span style="font-size:12px;font-weight:900;letter-spacing:.12em;color:#66716B">GUIDE NUTRITION</span>
+  </div>
+
+  <div style="flex:1;min-height:0;overflow-y:auto;padding:0 0 150px">
+
+    <div style="padding:24px 20px 0">
+      <span style="display:inline-block;font-size:11px;font-weight:900;letter-spacing:.1em;color:#0d7c36;background:#e8fef0;border:1px solid rgba(29,185,84,.3);border-radius:14px;padding:7px 12px">105 RECETTES · 5 GUIDES</span>
+      <h1 style="margin:14px 0 0;font-size:38px;font-weight:900;letter-spacing:-0.035em;line-height:1.05">Recettes</h1>
+      <p style="margin:12px 0 0;font-size:15px;line-height:1.55;color:#66716B">Chaque recette est calibrée pour 1 personne · 1 portion. Protéines ciblées, déficit intelligent, préparation rapide.</p>
+    </div>
+
+    <div style="margin:22px 20px 0;padding:18px 6px;border-radius:24px;border:1px solid #EEF1EF;background:#FFFFFF;box-shadow:0 1px 2px rgba(15,21,18,.04),0 16px 36px -18px rgba(15,21,18,.2);display:grid;grid-template-columns:repeat(4,minmax(0,1fr))">
+      <div style="text-align:center"><div style="font-size:30px;font-weight:900;letter-spacing:-0.03em;color:#0d7c36">100</div><div style="margin-top:4px;font-size:10.5px;font-weight:700;letter-spacing:.08em;color:#66716B">RECETTES</div></div>
+      <div style="text-align:center;border-left:1px solid #EEF1EF"><div style="font-size:30px;font-weight:900;letter-spacing:-0.03em;color:#0d7c36">5</div><div style="margin-top:4px;font-size:10.5px;font-weight:700;letter-spacing:.08em;color:#66716B">DESSERTS</div></div>
+      <div style="text-align:center;border-left:1px solid #EEF1EF"><div style="font-size:30px;font-weight:900;letter-spacing:-0.03em;color:#0d7c36">30g+</div><div style="margin-top:4px;font-size:10.5px;font-weight:700;letter-spacing:.06em;color:#66716B">PROT. MOY.</div></div>
+      <div style="text-align:center;border-left:1px solid #EEF1EF"><div style="font-size:30px;font-weight:900;letter-spacing:-0.03em;color:#0d7c36">&lt;20'</div><div style="margin-top:4px;font-size:10.5px;font-weight:700;letter-spacing:.06em;color:#66716B">PRÉPA MAX</div></div>
+    </div>
+
+    <div style="display:flex;gap:8px;padding:22px 20px 4px;overflow-x:auto">
+      <button class="press" style="flex:none;height:46px;padding:0 10px 0 18px;border-radius:23px;border:1px solid #E9EDEA;background:#FFFFFF;color:#3A4540;font-size:13px;font-weight:900;letter-spacing:.06em;display:flex;align-items:center;gap:10px">PETIT-DÉJEUNER <span style="font-size:13px;letter-spacing:0;color:#0d7c36;background:#e8fef0;border-radius:12px;padding:4px 9px">20</span></button>
+      <button class="press" aria-pressed="true" style="flex:none;height:46px;padding:0 10px 0 18px;border-radius:23px;border:0;background:#1db954;color:#FFFFFF;font-size:13px;font-weight:900;letter-spacing:.06em;display:flex;align-items:center;gap:10px;box-shadow:0 8px 18px -8px rgba(23,163,73,.55)">DÉJEUNER <span style="font-size:13px;letter-spacing:0;color:#0d7c36;background:#FFFFFF;border-radius:12px;padding:4px 9px">30</span></button>
+      <button class="press" style="flex:none;height:46px;padding:0 10px 0 18px;border-radius:23px;border:1px solid #E9EDEA;background:#FFFFFF;color:#3A4540;font-size:13px;font-weight:900;letter-spacing:.06em;display:flex;align-items:center;gap:10px">DÎNER <span style="font-size:13px;letter-spacing:0;color:#0d7c36;background:#e8fef0;border-radius:12px;padding:4px 9px">30</span></button>
+    </div>
+
+    <div style="padding:22px 20px 0">
+      <div style="display:flex;align-items:center;gap:12px;padding-bottom:14px">
+        <span style="width:4px;height:20px;border-radius:2px;background:#1db954"></span>
+        <h2 style="margin:0;font-size:12px;font-weight:900;letter-spacing:.12em;color:#3A4540">DÉJEUNER · 30 RECETTES · 1 PORTION</h2>
+      </div>
+
+      <div style="border-radius:28px;border:1px solid rgba(29,185,84,.3);background:#FFFFFF;box-shadow:0 1px 2px rgba(15,21,18,.04),0 18px 40px -18px rgba(15,21,18,.2);overflow:hidden">
+        <div style="padding:20px">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <span style="font-size:12px;font-weight:900;letter-spacing:.16em;color:#0d7c36">DJ-01</span>
+            <button class="press" onClick="{{toggle}}" aria-label="Replier ou déplier la recette" aria-expanded="{{ariaOpen}}" style="width:36px;height:36px;padding:0;border-radius:18px;border:0;background:#e8fef0;color:#1db954;display:flex;align-items:center;justify-content:center">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="transform:rotate({{chevRot}});transition:transform .2s"><path d="M6 15l6-6 6 6"></path></svg>
+            </button>
+          </div>
+          <h3 style="margin:8px 0 0;font-size:23px;font-weight:900;letter-spacing:-0.025em;line-height:1.2">Bowl poulet rôti quinoa épinards citron</h3>
+          <div style="margin-top:16px;display:flex;flex-wrap:wrap;gap:8px">
+            <span style="border-radius:14px;background:#e8fef0;border:1px solid rgba(29,185,84,.3);padding:8px 13px;font-size:14px;color:#66716B"><strong style="color:#0d7c36;font-weight:900">443</strong> kcal</span>
+            <span style="border-radius:14px;background:#e8fef0;border:1px solid rgba(29,185,84,.3);padding:8px 13px;font-size:14px;color:#66716B"><strong style="color:#0d7c36;font-weight:900">44.4g</strong> prot.</span>
+            <span style="border-radius:14px;background:#F3F6F4;border:1px solid #E6EBE8;padding:8px 13px;font-size:14px;color:#66716B"><strong style="color:#0F1512;font-weight:900">39.3g</strong> glucides</span>
+            <span style="border-radius:14px;background:#F3F6F4;border:1px solid #E6EBE8;padding:8px 13px;font-size:14px;color:#66716B"><strong style="color:#0F1512;font-weight:900">11.6g</strong> lipides</span>
+          </div>
+        </div>
+
+        <sc-if value="{{open}}" hint-placeholder-val="{{ true }}">
+          <div style="padding:20px;border-top:1px solid #E6EBE8;background:#F7F9F8">
+            <span style="display:inline-flex;align-items:center;gap:8px;border-radius:14px;background:#e8fef0;border:1px solid rgba(29,185,84,.3);padding:9px 14px;font-size:15px;font-weight:700;color:#0d7c36">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>20 min
+            </span>
+            <button class="press" style="margin-top:14px;width:100%;height:54px;border-radius:18px;border:1.5px solid #1db954;background:#e8fef0;color:#0d7c36;font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.500 4.500L19 7.500"></path></svg>Dans Mes repas
+            </button>
+
+            <div style="margin-top:24px;font-size:12px;font-weight:900;letter-spacing:.12em;color:#66716B">INGRÉDIENTS · 1 PORTION</div>
+            <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px">
+              <sc-for list="{{ingredients}}" as="g" hint-placeholder-count="6">
+                <div style="display:flex;align-items:center;gap:12px;height:50px;box-sizing:border-box;padding:0 16px;border-radius:15px;border:1px solid #E9EDEA;background:#FFFFFF;box-shadow:0 8px 18px -14px rgba(15,21,18,.2)">
+                  <span style="width:8px;height:8px;border-radius:4px;background:#1db954;flex:none"></span>
+                  <span style="flex:1;font-size:16px">{{g.name}}</span>
+                  <span style="font-size:15px;font-weight:900;color:#0d7c36">{{g.qty}}</span>
+                </div>
+              </sc-for>
+            </div>
+
+            <div style="margin-top:26px;font-size:12px;font-weight:900;letter-spacing:.12em;color:#66716B">PRÉPARATION</div>
+            <div style="margin-top:14px;display:flex;flex-direction:column;gap:16px">
+              <sc-for list="{{steps}}" as="s" hint-placeholder-count="4">
+                <div style="display:flex;align-items:flex-start;gap:14px">
+                  <span style="width:34px;height:34px;border-radius:17px;background:#e8fef0;border:1.5px solid rgba(29,185,84,.3);color:#0d7c36;font-size:14px;font-weight:900;display:flex;align-items:center;justify-content:center;flex:none">{{s.n}}</span>
+                  <span style="padding-top:5px;font-size:16px;line-height:1.5;color:{{s.color}}">{{s.text}}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+  </div>
+
+  <div style="position:absolute;left:0;right:0;bottom:0;height:140px;background:linear-gradient(to bottom,rgba(255,255,255,0),#FFFFFF 66%);pointer-events:none"></div>
+
+  <nav aria-label="Navigation principale" style="position:absolute;left:20px;right:20px;bottom:28px;height:68px;box-sizing:border-box;padding:6px;border-radius:34px;background:#FFFFFF;border:1px solid #EEF1EF;box-shadow:0 18px 40px -14px rgba(15,21,18,.28),0 2px 6px rgba(15,21,18,.06);display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px">
+    <a href="Home.dc.html" style="border-radius:28px;color:#66716B;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;font-weight:700">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1Z"></path></svg>Accueil
+    </a>
+    <a href="Journal.dc.html" style="border-radius:28px;color:#66716B;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;font-weight:700">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3.5" width="13" height="17" rx="2"></rect><path d="M9 8h6M9 12h6M9 16h3"></path></svg>Journal
+    </a>
+    <a href="Progress.dc.html" style="border-radius:28px;color:#66716B;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;font-weight:700">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"></path><path d="M15 7h6v6"></path></svg>Progression
+    </a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { open: true };
+  }
+  renderVals() {
+    const open = this.state.open;
+    return {
+      open,
+      ariaOpen: open ? 'true' : 'false',
+      chevRot: open ? '0deg' : '180deg',
+      toggle: () => this.setState({ open: !this.state.open }),
+      ingredients: [
+        { name: 'Blanc de poulet', qty: '150g' },
+        { name: 'Quinoa cuit', qty: '100g' },
+        { name: 'Épinards frais', qty: '60g' },
+        { name: 'Jus de citron', qty: '1 cs' },
+        { name: "Huile d'olive", qty: '5ml' },
+        { name: 'Sel, poivre, paprika fumé', qty: 'QS' }
+      ],
+      steps: [
+        { n: '1', text: 'Assaisonner le poulet de sel, poivre et paprika fumé.', color: '#3A4540' },
+        { n: '2', text: '[Étape 2 — texte à compléter]', color: '#9AA39E' },
+        { n: '3', text: '[Étape 3 — texte à compléter]', color: '#9AA39E' },
+        { n: '4', text: "Faire tomber les épinards 1 min à la poêle avec une goutte d'eau.", color: '#3A4540' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, tick, untrack } from 'svelte';
+	import { fade, fly } from 'svelte/transition';
 	import { beforeNavigate } from '$app/navigation';
 	import { startBarcodeScanner, CameraPermissionError, normalizeProductCode, type BarcodeScannerHandle, type TorchHandle } from '$lib/barcodeScanner';
 	import { compressImage, detectBarcodeInDataUrl } from '$lib/labelBarcode';
@@ -208,7 +209,9 @@ import { optimizeImageFile } from '$lib/media';
 	let calOpen = $state(false);
 	let calDraft = $state('');
 	function openCalendar() {
-		calDraft = date; // la journée déjà consultée est pré-sélectionnée
+		calDraft = date;
+		calMonth = new Date(date + 'T12:00:00').getMonth();
+		calYear = new Date(date + 'T12:00:00').getFullYear();
 		calOpen = true;
 	}
 	function pickDay(d: string) {
@@ -216,6 +219,50 @@ import { optimizeImageFile } from '$lib/media';
 		if (!d) return;
 		void setDate(d); // futur AUTORISÉ : planifier ses journées à l'avance
 	}
+
+	/* Choix visuel type Claude : grand mois navigable avec point vert sous
+	   chaque jour RENSEIGNÉ (données consommées enregistrées), jour affiché
+	   = pastille verte pleine, bas de sheet = légende + « Aujourd'hui ». */
+	/** Map « date ISO → jour renseigné » (semaines chargées via /api/journal/week). */
+	let trackedDays = $state<Record<string, boolean>>({});
+	/** Semaines déjà demandées (évite un fetch par mois flippé en boucle). */
+	let loadedWeeks = new Set<string>();
+	/** Semaine (lundi ISO) contenant une date du mois affiché — fetch une seule fois. */
+	function weekStartOf(iso: string): string {
+		const d = new Date(iso + 'T12:00:00');
+		const shift = (d.getDay() + 6) % 7; // lundi = 0
+		d.setDate(d.getDate() - shift);
+		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+	}
+	/** Charge les semaines couvrant le mois affiché (jusqu'à 6 semaines, 1-2 fetch). */
+	async function loadTrackedMonth() {
+		const wanted = new Set<string>();
+		for (const cell of calCells) {
+			if (cell) wanted.add(weekStartOf(calDayISO(cell)));
+		}
+		const todo = [...wanted].filter((w) => !loadedWeeks.has(w));
+		if (!todo.length) return;
+		for (const w of todo) loadedWeeks.add(w);
+		try {
+			await Promise.all(
+				todo.map(async (w) => {
+					const r = await fetch(`/api/journal/week?start=${w}`);
+					if (!r.ok) return;
+					const j = await r.json();
+					const next: Record<string, boolean> = {};
+					for (const d of j.days ?? []) next[d.date] = !!d.tracked;
+					trackedDays = { ...trackedDays, ...next };
+				})
+			);
+		} catch {
+			/* hors-ligne : le calendrier reste utilisable sans points */
+			for (const w of todo) loadedWeeks.delete(w);
+		}
+	}
+	$effect(() => {
+		// Recharge au changement de mois affiché dans la sheet openCalendar.
+		if (calOpen) void loadTrackedMonth();
+	});
 
 	/* Changement de journée (minuit / reprise) : si on affichait « aujourd'hui »,
 	   on bascule sur la nouvelle journée. Une date historique consultée n'est
@@ -729,6 +776,7 @@ import { optimizeImageFile } from '$lib/media';
 	/* ————— Mini-barre sticky (HUD nutritionnel) ————— */
 	let stickyBar = $state(false);
 	let calCardEl: HTMLElement | undefined;
+	let macroCardsEl: HTMLElement | undefined;
 	let pageWrap: HTMLElement | undefined;
 	/** Position/portée de la mini-barre : calée sur le conteneur du Journal. */
 	let barStyle = $state({ left: 0, width: 0 });
@@ -799,11 +847,19 @@ import { optimizeImageFile } from '$lib/media';
 	/* ————— Modale : recherche, favoris, repas, code-barres ————— */
 	let logOpen = $state(false);
 	let logMode = $state<'search' | 'barcode'>('search');
+	let modeSlideX = $state(18);
+	let modeSlideDuration = $state(180);
+	function configureModeTransition(direction: -1 | 1) {
+		const reduced = typeof window === 'undefined' || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+		modeSlideX = reduced ? 0 : direction * 18;
+		modeSlideDuration = reduced ? 0 : 180;
+	}
 	let searchQ = $state('');
 	let searchTab = $state<'produits' | 'repas' | 'crees'>('produits');
 	let results = $state<Food[]>([]);
 	/** Fiches de référence Ciqual (ANSES) du bloc « Aliments de référence » — toujours séparées des produits OFF. */
 	let ciqualResults = $state<Food[]>([]);
+	let ciqualExpanded = $state(false);
 	/** Pagination OFF (scroll infini) : reste-t-il des produits au-delà de la tranche affichée ? */
 	let hasMore = $state(false);
 	/** Décalage serveur de la prochaine tranche (≠ results.length : la 1ʳᵉ page peut contenir des aliments « Créés par moi » non paginés). */
@@ -840,10 +896,12 @@ import { optimizeImageFile } from '$lib/media';
 			searchSeq++;
 			results = [];
 			ciqualResults = [];
+			ciqualExpanded = false;
 			hasMore = false;
 			return;
 		}
 		const guard = ++searchSeq;
+		ciqualExpanded = false;
 		searching = true;
 		searchError = '';
 		showScrollHint = false;
@@ -866,7 +924,7 @@ import { optimizeImageFile } from '$lib/media';
 				if (!favOnly) applyPersonalOverlay();
 			})
 			.then(() => null, (e) => e as Error);
-		const ciq = fetch(`/api/foods/ciqual?q=${encodeURIComponent(q)}`)
+		const ciq = fetch(`/api/foods/ciqual?q=${encodeURIComponent(q)}&limit=13`)
 			.then(async (r) => {
 				const j = await r.json();
 				ciqualResults = j.error
@@ -1079,6 +1137,7 @@ import { optimizeImageFile } from '$lib/media';
 		barcodePermBlocked = false;
 		barcodeManual = '';
 		logMode = 'search';
+		configureModeTransition(1);
 		logOpen = true;
 		freqLoaded = false;
 		recentLoaded = false;
@@ -1348,6 +1407,7 @@ import { optimizeImageFile } from '$lib/media';
 		}
 	}
 	function openCustomEditor() {
+		leaveBarcodeForEditor();
 		customEditor = true;
 		createSheetOpen = false;
 		cfEditingId = null;
@@ -1372,6 +1432,7 @@ import { optimizeImageFile } from '$lib/media';
 	}
 	/** Édition : pré-remplit le formulaire avec la fiche existante (sauvegarde → mise à jour). */
 	function openCustomEditorFor(food: Food) {
+		leaveBarcodeForEditor();
 		customEditor = true;
 		removeCustomFoodPhoto();
 		cfEditingId = food._id;
@@ -1783,6 +1844,9 @@ import { optimizeImageFile } from '$lib/media';
 
 	/* ————— Éditeur de repas ————— */
 	let mealEditor = $state(false);
+	/* Écran autonome Claude : repas ou aliment en création / modification.
+	   Dans ce cas, l'en-tête « Ajouter un aliment », la recherche et les onglets sont masqués. */
+	const fullEditorOpen = $derived((searchTab === 'repas' && mealEditor) || (searchTab === 'crees' && customEditor));
 	/** Repas en cours de modification (null = création). */
 	let mealEditingId = $state<string | null>(null);
 	let mealName = $state('');
@@ -1808,6 +1872,7 @@ import { optimizeImageFile } from '$lib/media';
 	let mealError = $state('');
 
 	function openMealEditor() {
+		leaveBarcodeForEditor();
 		mealEditor = true;
 		mealEditingId = null;
 		mealName = '';
@@ -1823,6 +1888,7 @@ import { optimizeImageFile } from '$lib/media';
 	/** Édition : pré-remplit l'éditeur avec le repas existant (ingrédients « reconstruits »
 	 *  depuis le snapshot — mêmes valeurs /100 g, le serveur recalcule à l'enregistrement). */
 	function openMealEditorFor(meal: Meal) {
+		leaveBarcodeForEditor();
 		mealEditor = true;
 		mealEditingId = meal._id;
 		mealName = meal.name;
@@ -1875,18 +1941,23 @@ import { optimizeImageFile } from '$lib/media';
 		if (customEditor) closeCustomEditor();
 		searchTab = tab;
 		if (tab !== 'produits') favOnly = false;
-	}	let mealSearchError = $state('');
+	}
+	let mealSearchError = $state('');
 	/** Fiches Ciqual (ANSES) du bloc « Aliments de référence » — séparées des produits OFF. */
-	let mealCiqualResults = $state<Food[]>([]);	async function runMealSearch(q: string) {
+	let mealCiqualResults = $state<Food[]>([]);
+	let mealCiqualExpanded = $state(false);
+	async function runMealSearch(q: string) {
 		if (q.length < 2) {
 			mealResults = [];
 			mealCiqualResults = [];
+			mealCiqualExpanded = false;
 			mealHasMore = false;
 			mealNextOffset = 0;
 			mealShowScrollHint = false;
 			return;
 		}
 		const guard = ++mealSearchSeq;
+		mealCiqualExpanded = false;
 		mealSearching = true;
 		mealSearchError = '';
 		// Même séparation stricte que la recherche principale : Ciqual en tête,
@@ -1903,7 +1974,7 @@ import { optimizeImageFile } from '$lib/media';
 					mealShowScrollHint = mealHasMore;
 				})
 				.then(() => null, (e) => e as Error);
-		const ciq = fetch(`/api/foods/ciqual?q=${encodeURIComponent(q)}`)
+		const ciq = fetch(`/api/foods/ciqual?q=${encodeURIComponent(q)}&limit=13`)
 			.then(async (r) => {
 				const j = await r.json();
 				mealCiqualResults = j.error ? [] : (j as { label: string; kcal: number; protein?: number; carbs?: number; fat?: number }[]).map(ciqualToFood);
@@ -2657,6 +2728,15 @@ import { optimizeImageFile } from '$lib/media';
 			scannerBusy = false;
 		}
 	}
+	/** Ouvrir un formulaire (repas / aliment) : on quitte TOUJOURS le mode
+	 *  code-barres et on arrête le lecteur, pour qu'aucun écran scanner ne
+	 *  subsiste derrière le formulaire. */
+	function leaveBarcodeForEditor() {
+		if (logMode === 'barcode') {
+			void stopScanner();
+			logMode = 'search';
+		}
+	}
 	async function stopScanner() {
 		if (scanner) {
 			try {
@@ -2708,6 +2788,7 @@ import { optimizeImageFile } from '$lib/media';
 	}
 	async function switchMode(m: 'search' | 'barcode') {
 		if (m === logMode) return;
+		configureModeTransition(m === 'barcode' ? 1 : -1);
 		if (m === 'barcode') {
 			logMode = 'barcode';
 			barcodeStatus = 'idle';
@@ -2774,7 +2855,7 @@ import { optimizeImageFile } from '$lib/media';
 				} else {
 					// Hors bêta : comportement historique (message + recherche par nom).
 					barcodeStatus = 'notfound';
-					barcodeError = `Aucun produit trouvé pour le code ${code}. Cherche-le par nom, ou crée-le dans « Créés par moi ».`;
+					barcodeError = `Aucun produit trouvé pour le code ${code}. Cherche-le par nom, ou crée-le dans « Mes aliments ».`;
 				}
 		} catch (e) {
 			barcodeStatus = 'error';
@@ -2834,6 +2915,7 @@ import { optimizeImageFile } from '$lib/media';
 	/** Capsule Recherche ⇄ Code-barres de la fenêtre produit (éditeur de repas). */
 	async function switchMealSearchMode(m: 'search' | 'barcode') {
 		if (m === mealSearchMode) return;
+		configureModeTransition(m === 'barcode' ? 1 : -1);
 		if (m === 'barcode') {
 			mealSearchMode = 'barcode';
 			barcodeStatus = 'idle';
@@ -2914,6 +2996,7 @@ import { optimizeImageFile } from '$lib/media';
 	const aiFlags = $derived(data.aiFlags ?? { foodLabelAi: false, mealPhotoAi: false });
 
 	function openMealPhoto(meal: 'petit-dej' | 'dejeuner' | 'diner' | 'collation' = 'dejeuner') {
+		configureModeTransition(1);
 		mealAnalyzedMeal = meal;
 		mealAnalyzed = null;
 		mealAnalyzedHint = '';
@@ -3139,7 +3222,7 @@ import { optimizeImageFile } from '$lib/media';
 		try {
 			const [prodR, ciqR] = await Promise.all([
 				fetch(`/api/foods/search?q=${encodeURIComponent(q)}&v=${FRONTEND_API_VERSION}`),
-				fetch(`/api/foods/ciqual?q=${encodeURIComponent(q)}`),
+				fetch(`/api/foods/ciqual?q=${encodeURIComponent(q)}&limit=13`),
 			]);
 			const prod = await prodR.json();
 			const ciq = ciqR.ok ? await ciqR.json() : [];
@@ -3367,6 +3450,9 @@ import { optimizeImageFile } from '$lib/media';
 	let vvH = $state(typeof window !== 'undefined' ? Math.round(window.visualViewport?.height ?? window.innerHeight) : 700);
 	/** Décalage vertical du visualViewport (clavier iOS : l'overlay reste dans la zone visible). */
 	let vvTop = $state(0);
+	/** Clavier iOS ouvert (viewport visible nettement plus petit que la fenêtre) :
+	 *  la capsule Recherche / Code-barres / Repas IA se masque pour libérer les résultats. */
+	let keyboardOpen = $state(false);
 	let mobile = $state(typeof window !== 'undefined' ? window.matchMedia('(max-width: 639px)').matches : true);
 	let refreshing = $state(false);
 
@@ -3377,6 +3463,8 @@ import { optimizeImageFile } from '$lib/media';
 	let customFormEl = $state<HTMLElement | undefined>();
 	let logListEl = $state<HTMLElement | undefined>();
 	let bcListEl = $state<HTMLElement | undefined>();
+	/** Consigne unique du scanner code-barres (affichée une seule fois par écran). */
+	const BARCODE_HINT = 'Place le code-barres dans le cadre. La lecture est automatique.';
 	let mealSearchListEl = $state<HTMLElement | undefined>();
 	let mealBcListEl = $state<HTMLElement | undefined>();
 
@@ -3492,8 +3580,8 @@ import { optimizeImageFile } from '$lib/media';
 		if (e.target === focusedFieldEl) focusedFieldEl = null;
 	}
 
-	/* Recherche ingrédient ouverte : pré-remplit le champ et lance la recherche
-	   initiale, puis focalise le champ (clavier immédiat, comme « Ajouter un aliment »). */
+	/* L'ouverture de la recherche d'ingrédients garde le clavier fermé ; la cliente
+	   le déclenche explicitement en touchant le champ de recherche. */
 	$effect(() => {
 		if (!mealSearchOpen) return;
 		mealSearchMode = 'search';
@@ -3505,8 +3593,6 @@ import { optimizeImageFile } from '$lib/media';
 		barcodeError = '';
 		barcodePermBlocked = false;
 		barcodeManual = '';
-		const el = document.getElementById('meal-picker-input');
-		el?.focus();
 	});
 
 	onMount(() => {
@@ -3523,6 +3609,7 @@ import { optimizeImageFile } from '$lib/media';
 		const setVh = () => {
 			vvH = Math.round((vv?.height ?? window.innerHeight) ?? 0);
 			vvTop = vv?.offsetTop ?? 0;
+			keyboardOpen = !!vv && vv.height < window.innerHeight - 150;
 			/* Ouverture du clavier = la hauteur DIMINUE ; fermeture = elle
 			   AUGMENTE (le clavier libère l'écran). */
 			const closed = vvH > prevVvH + 4;
@@ -3650,13 +3737,14 @@ import { optimizeImageFile } from '$lib/media';
 		}
 	}
 
-	/* Mini-barre sticky : dès que la carte nutritionnelle (rendue par JournalDay)
-	   sort du viewport, on affiche le HUD compact ; il disparaît au retour en haut. */
+	/* Mini-barre sticky : elle n'apparaît que lorsque les cartes macros (rendues par
+	   JournalDay) sont COMPLÈTEMENT sorties par le haut de l'écran, et disparaît dès
+	   qu'une part d'entre elles redevient visible (remontée). */
 	$effect(() => {
-		const el = calCardEl;
+		const el = macroCardsEl;
 		if (!el || typeof IntersectionObserver === 'undefined') return;
 		const io = new IntersectionObserver((entries) => {
-			for (const e of entries) stickyBar = !e.isIntersecting;
+			for (const e of entries) stickyBar = !e.isIntersecting && e.boundingClientRect.bottom <= 0;
 		}, { threshold: 0 });
 		io.observe(el);
 		return () => io.disconnect();
@@ -3672,12 +3760,7 @@ import { optimizeImageFile } from '$lib/media';
 <svelte:head><title>Journal — G-Flux</title></svelte:head>
 
 <svelte:window ontouchstart={onTouchStart} ontouchend={onTouchEnd} onkeydown={(e) => { if (macroDetail && !logOpen && !qtyFood && !editEntry && !qtyMealSel && !dupOpen && !mealCreateOpen && e.key === 'Escape') closeMacroDetail(); }} />
-	<!-- VUE PLEIN ÉCRAN : le gradient appartient au VIEWPORT (pas au container).
-	     Halo menthe très pâle, diffus, très large — jamais une bande verte. -->
-	<div
-		aria-hidden="true"
-		class="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(120%_55%_at_50%_0%,#ddefe4_0%,#e7f2ea_38%,rgba(244,246,244,0)_78%)]"
-	></div>
+	<!-- Fond blanc Claude : aucun halo décoratif sur le Journal (les cartes portent le relief). -->
 	{#if macroDetail}
 		<!-- ═══════ VUE DÉTAIL MACRO (clic carte Glucides / Protéines / Lipides) ═══════
 		     Principe fonctionnel FOOD, rendu 100 % G-FLUX : mêmes couleurs et
@@ -3693,7 +3776,7 @@ import { optimizeImageFile } from '$lib/media';
 					title="Retour au Journal"
 					onclick={closeMacroDetail}
 				><Icon name="chevronLeft" size={20} /></button>
-				<h1 class="font-display text-[15px] font-semibold text-ink">Détail {macroMeta.label}</h1>
+				<h1 class="font-display text-[15px] font-bold text-ink">Détail {macroMeta.label}</h1>
 				<span class="w-11" aria-hidden="true"></span>
 			</header>
 
@@ -3732,7 +3815,12 @@ import { optimizeImageFile } from '$lib/media';
 						</p>
 						<p class="mt-1.5 text-[13px] font-semibold tabular-nums" style:color={macroMetaTint}>{fmtG(macroEaten)}/{fmtG(macroGoal)} g {isFuture ? 'prévus' : 'consommés'}</p>
 					</div>
-					<Icon name={macroMeta.icon} size={26} class="shrink-0" style={isFuture ? `color:${PLANNED_GRAY}` : `color:${macroMeta.color}`} />
+					<!-- Pastille colorée (remplace le pictogramme décoratif, cf. références Claude) -->
+					<span
+						aria-hidden="true"
+						class="h-3 w-3 shrink-0 self-start rounded-full"
+						style:background={isFuture ? PLANNED_GRAY : macroMeta.color}
+					></span>
 				</div>
 			</section>
 
@@ -3787,7 +3875,7 @@ import { optimizeImageFile } from '$lib/media';
 				</section>
 			{:else}
 				<div class="mt-4 rounded-2xl border border-dashed border-line bg-card/60 px-4 py-10 text-center">
-					<Icon name={macroMeta.icon} size={22} class="mx-auto text-mist" />
+					<span aria-hidden="true" class="mx-auto block h-1.5 w-1.5 rounded-full" style:background={macroMeta.color}></span>
 					<p class="mt-2 text-sm text-mist">{isFuture ? 'Rien de prévu sur cette journée.' : 'Rien de consommé sur cette journée.'}</p>
 				</div>
 			{/each}
@@ -3800,16 +3888,30 @@ import { optimizeImageFile } from '$lib/media';
 	<!-- Ligne de date compacte type FOOD : à gauche, cliquable (▾ = calendrier) ;
 	     Refresh discret à droite (icon-only, ~44 px). UNE seule ligne, aucun gros
 	     bouton ‹ › — le swipe gère la navigation entre les jours. -->
-				<header class="relative z-10 mb-2 flex items-center justify-between gap-2">
-				<button
-					type="button"
-					class="flex min-w-0 items-center gap-1 rounded-xl py-1 pl-0 pr-1.5 text-left transition hover:bg-line/40"
-					onclick={openCalendar}
-					title="Choisir une date"
-				>
-					<span class="truncate text-[19px] font-bold tracking-tight text-ink">{dateLabel}</span>
-					<Icon name="chevronDown" size={16} class="shrink-0 text-mist" />
-				</button>
+				<header class="relative z-10 mb-2 flex items-center justify-between gap-2">						<button
+							type="button"
+							aria-expanded={calOpen}
+							title="Choisir une date"
+							class="flex min-w-0 select-none items-center gap-1 whitespace-nowrap rounded-full border border-line-soft bg-white shadow-[0_1px_2px_rgba(15,21,18,.04),0_6px_14px_-8px_rgba(15,21,18,.14)] h-[34px] pl-3 pr-2 text-[14.5px] font-bold tracking-[-0.01em] text-ink transition hover:border-line active:scale-[0.98]"
+							onclick={openCalendar}
+						>
+							<span class="truncate">{dateLabel}</span>
+							<Icon name="chevronDown" size={15} class={`shrink-0 text-mist-strong transition-transform ${calOpen ? 'rotate-180' : ''}`} />
+						</button>
+						<button
+							type="button"
+							aria-label="Jour précédent"
+							title="Jour précédent"
+							class="grid h-10 w-10 shrink-0 place-items-center rounded-[20px] text-mist-strong transition hover:text-ink active:scale-95"
+							onclick={() => shiftDay(-1)}
+						><Icon name="chevronLeft" size={20} strokeWidth={2.2} /></button>
+						<button
+							type="button"
+							aria-label="Jour suivant"
+							title="Jour suivant"
+							class="grid h-10 w-10 shrink-0 place-items-center rounded-[20px] text-mist-strong transition hover:text-ink active:scale-95"
+							onclick={() => shiftDay(1)}
+						><Icon name="chevronRight" size={20} strokeWidth={2.2} /></button>
 				<div class="flex shrink-0 items-center gap-1">
 					{#if selIds.size > 0}
 						<!-- Type FOOD : liens texte « Tout désélectionner » / « Annuler »
@@ -3828,11 +3930,13 @@ import { optimizeImageFile } from '$lib/media';
 					<button
 						type="button"
 						onclick={refreshDay}
-						class="grid h-11 w-11 place-items-center rounded-full text-mist transition hover:bg-line/40 hover:text-ink active:scale-95"
+						class="grid h-12 w-12 place-items-center rounded-[22px] [&>span]:grid [&>span]:h-[34px] [&>span]:w-[34px] [&>span]:place-items-center [&>span]:rounded-[17px] [&>span]:border [&>span]:border-line-soft [&>span]:bg-white [&>span]:text-ink [&>span]:shadow-[0_1px_2px_rgba(15,21,18,.04),0_6px_14px_-8px_rgba(15,21,18,.14)] text-mist transition hover:bg-line/40 active:scale-95"
 						title="Recharger la journée"
 						aria-label="Recharger la journée"
 					>
-						<Icon name="refreshCw" size={17} class={loadingDay ? 'animate-spin' : ''} />
+						<span class="relative">
+							<Icon name="refreshCw" size={17} class={loadingDay ? 'animate-spin' : ''} />
+						</span>
 					</button>
 				</div>
 				</header>
@@ -3886,6 +3990,7 @@ import { optimizeImageFile } from '$lib/media';
 			selIds={selIds}
 			onToggleSel={toggleSel}
 			onCalCardMount={(el) => (calCardEl = el)}
+			onMacroCardsMount={(el) => (macroCardsEl = el)}
 			onTipDismiss={() => (tipDismissed = true)}
 			onPhoto={aiFlags.mealPhotoAi ? (meal) => openMealPhoto(meal as 'petit-dej' | 'dejeuner' | 'diner' | 'collation') : undefined}
 			/>
@@ -3893,22 +3998,62 @@ import { optimizeImageFile } from '$lib/media';
 	</div>
 	{/if}
 
-<!-- Sélecteur de date natif : sheet compacte, <input type="date">,
-     max = aujourd'hui local → aucune date future possible. -->
+<!-- Sélecteur de date : sheet calendrier visuel Claude — grand mois
+     navigable, en-têtes L M M J V S D, jour affiché = pastille verte,
+     point vert sous chaque jour RENSEIGNÉ, « Aujourd'hui » en bas. -->
 {#if calOpen}
 	<button type="button" class="fixed inset-0 z-40 bg-ink/25" aria-label="Fermer le calendrier" onclick={() => (calOpen = false)}></button>
 	<div class="fixed inset-x-0 bottom-0 z-50 rounded-t-3xl bg-white p-5 pb-[max(env(safe-area-inset-bottom),20px)] shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-[360px] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-3xl">
-		<p class="mb-3 text-center text-[17px] font-bold text-ink">Choisir une date</p>
-		<input
-			type="date"
-			value={calDraft}
-			onchange={(e) => pickDay(e.currentTarget.value)}
-			class="w-full rounded-2xl border-2 border-line bg-cream px-3 py-3 text-center text-[17px] font-semibold text-ink outline-none transition focus:border-brand/60"
-			aria-label="Choisir une date"
-		/>
-		<div class="mt-4 flex items-center justify-between">
-			<button type="button" class="rounded-full px-3 py-2 text-[14px] font-semibold text-mist transition hover:text-ink" onclick={() => (calOpen = false)}>Annuler</button>
-			<button type="button" class="rounded-full bg-brand px-5 py-2 text-[14px] font-bold text-white transition hover:bg-brand-dark" onclick={() => pickDay(todayISO)}>Aujourd'hui</button>
+		<div class="mb-2 flex items-center justify-between">
+			<p class="text-[22px] font-black tracking-tight text-ink">{MOIS_CAL[calMonth]} {calYear}</p>
+			<div class="flex items-center gap-1">
+				<button type="button" class="grid h-10 w-10 place-items-center rounded-full bg-cream text-ink transition hover:bg-line/50 active:scale-95" aria-label="Mois précédent" onclick={() => shiftCalMonth(-1)}>
+					<Icon name="chevronLeft" size={20} />
+				</button>
+				<button type="button" class="grid h-10 w-10 place-items-center rounded-full bg-cream text-ink transition hover:bg-line/50 active:scale-95" aria-label="Mois suivant" onclick={() => shiftCalMonth(1)}>
+					<Icon name="chevronRight" size={20} />
+				</button>
+			</div>
+		</div>
+		<div class="mb-1 grid grid-cols-7 text-center text-[13px] font-bold text-mist">
+			<span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span><span>D</span>
+		</div>
+		<div class="grid grid-cols-7 gap-y-1">
+			{#each calCells as cell, i (i)}
+				<div class="grid place-items-center">
+					{#if cell}
+						{@const iso = calDayISO(cell)}
+						{@const selected = calDraft === iso}
+						{@const tracked = trackedDays[iso] === true}
+						<button
+							type="button"
+							class="grid h-10 w-10 place-items-center rounded-full {selected
+								? 'bg-brand text-white shadow-[0_4px_12px_-2px_rgba(27,169,84,0.45)]'
+								: 'text-ink transition hover:bg-brand/10'} text-[15px] font-bold transition active:scale-95"
+							aria-label={`Choisir le ${cell} ${MOIS_CAL[calMonth]}`}
+							aria-pressed={selected}
+							aria-current={iso === todayISO ? 'date' : undefined}
+							onclick={() => pickDay(iso)}
+						>
+							<span class={tracked && !selected ? 'pt-0.5' : ''}>{cell}</span>
+							{#if tracked && !selected}
+								<span class="pointer-events-none mt-[-3px] block h-[4px] w-[4px] rounded-full bg-brand"></span>
+							{/if}
+						</button>
+					{/if}
+				</div>
+			{/each}
+		</div>
+		<div class="mt-3 border-t border-line-soft pt-3">
+			<div class="flex items-center justify-between">
+				<span class="flex items-center gap-2 text-[13px] font-semibold text-mist">
+					<span class="inline-block h-[5px] w-[5px] rounded-full bg-brand"></span>
+					Jours renseignés
+				</span>
+				<button type="button" class="rounded-full bg-cream px-5 py-2.5 text-[14px] font-bold text-ink transition hover:bg-line/50 disabled:opacity-50" disabled={isToday} onclick={() => pickDay(todayISO)}>
+					Aujourd'hui
+				</button>
+			</div>
 		</div>
 	</div>
 {/if}
@@ -3937,19 +4082,32 @@ import { optimizeImageFile } from '$lib/media';
 
 {#if stickyBar && !logOpen && !macroDetail}
 	<div
-		class="pointer-events-none fixed z-30 transition-opacity duration-200"
+		transition:fade={{ duration: 160 }}
+		class="pointer-events-none fixed z-30"
 		style:top="{barTop}px"
 		style:left="{barStyle.left}px"
 		style:width="{barStyle.width}px"
 	>
-		<div class="pointer-events-auto flex w-full items-center justify-between rounded-2xl border border-white/10 bg-ink/95 px-2 py-1.5 shadow-lg shadow-ink/25 backdrop-blur">
-			{#each stickyRings as r (r.label)}
+		<div class="pointer-events-auto flex w-full items-center justify-between rounded-[26px] border border-line-soft bg-white/95 px-2 py-1.5 shadow-[0_1px_2px_rgba(15,21,18,.05),0_14px_30px_-12px_rgba(15,21,18,.28)] backdrop-blur">
+			{#if stickyRings[0] && typeof stickyRings[0].goal === 'number'}
+				<!-- Bloc kcal à gauche (composition Claude) : valeur teintée par l'état calorique -->
+				<div class="flex flex-none flex-col pl-2 leading-[1.1]" style="color:{stickyRings[0].color}">
+					<div class="text-[9.5px] font-black uppercase tracking-[0.08em] text-mist-strong">KCAL</div>
+					<div class="text-[13px] font-black tabular-nums transition-colors">
+						{fmt(stickyRings[0].eaten)}<span class="text-[11px] font-bold text-mist-strong">/{fmt(stickyRings[0].goal)}</span>
+					</div>
+				</div>
+				<span class="h-[26px] w-px flex-none bg-line" aria-hidden="true"></span>
+			{/if}
+			{#each stickyRings.slice(1) as r (r.label)}
 				{@const pct = macroPct(r.eaten, r.goal)}
 				<div class="flex min-w-0 flex-1 items-center justify-center gap-1.5">
-					{@render miniRing(pct, r.color, 20)}
-					<div class="min-w-0 leading-none">
-						<div class="text-[11px] font-bold tabular-nums text-white">{fmt(r.eaten)}<span class="text-[9px] font-semibold text-white/50">/{fmt(r.goal)}</span></div>
-						<div class="mt-0.5 text-[8px] font-bold uppercase tracking-wide text-white/55">{r.label}</div>
+					{@render miniRing(pct, r.color, 24)}
+					<div class="min-w-0 leading-[1.1]">
+						<div class="text-[9.5px] font-black uppercase tracking-[0.06em] text-mist-strong">{r.label}</div>
+						<div class="whitespace-nowrap text-[12.5px] font-black tabular-nums text-ink">
+							{fmt(r.eaten)}<span class="text-[10.5px] font-bold text-mist-strong">/{fmt(r.goal)}</span>
+						</div>
 					</div>
 				</div>
 			{/each}
@@ -3961,40 +4119,38 @@ import { optimizeImageFile } from '$lib/media';
 {#if !macroDetail}
 <button
 	type="button"
-	class="fixed bottom-[calc(6.5rem+env(safe-area-inset-bottom))] right-4 z-40 grid h-14 w-14 place-items-center rounded-full bg-brand text-white shadow-lg shadow-brand/30 transition hover:scale-105 hover:bg-brand-dark active:scale-95 md:bottom-6 md:right-6 md:h-16 md:w-16"
+	class="fixed bottom-[calc(6.75rem+env(safe-area-inset-bottom))] right-4 z-40 grid h-[62px] w-[62px] place-items-center rounded-full bg-brand text-white shadow-[0_18px_32px_-10px_rgba(23,163,73,.7)] transition hover:scale-105 hover:bg-brand-dark active:scale-95 md:bottom-6 md:right-6 md:h-16 md:w-16"
 	aria-label="Ajouter un aliment"
 	onclick={() => openLog()}
-><Icon name="plus" size={26} /></button>
+><Icon name="plus" size={28} strokeWidth={2.4} /></button>
 {/if}
 
-<!-- Ligne produit compacte (style FOOD) : image · nom · kcal · cœur -->
+<!-- Ligne produit compacte (style Search.svelte) : image 44px · nom · kcal vert · cœur -->
 {#snippet foodRow(food: Food)}
 	{@const fav = favSet.has(food._id)}
-	<li class="flex items-center gap-1">
-		<button type="button" class="flex min-w-0 flex-1 items-center gap-2.5 py-2 pl-1 pr-1 text-left transition hover:bg-line/30" onclick={() => openQty(food)}>
+	<li class="flex items-center gap-1 px-1">
+		<button type="button" class="flex min-w-0 flex-1 items-center gap-2.5 py-2 pl-1.5 pr-1 text-left transition hover:bg-line/30" onclick={() => openQty(food)}>
 			{#if food.photoUrl}
 				<!-- Photo posée par la cliente sur SON aliment : prioritaire (jamais
 				     une image OFF — un aliment personnalisé n'a pas de fiche OFF). -->
-				<FoodImg src={food.photoUrl} alt="" class="h-10 w-10 rounded-lg" />
+				<FoodImg src={food.photoUrl} alt="" class="h-10 w-10 rounded-[12px]" />
 			{:else if food.thumbUrl || food.imageUrl}
-				<FoodImg src={food.thumbUrl} fallbackSrc={food.imageUrl} alt="" class="h-10 w-10 rounded-lg" />
+				<FoodImg src={food.thumbUrl} fallbackSrc={food.imageUrl} alt="" class="h-10 w-10 rounded-[12px]" />
 			{:else}
-				<div class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={18} class="text-brand" /></div>
+				<div class="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-[#e8fef0]"><Icon name="utensils" size={18} class="text-brand" /></div>
 			{/if}
 			<span class="min-w-0 flex-1">
 				<span class="flex items-center gap-1">
-					<span class="truncate text-[14px] font-semibold text-ink">{food.name}</span>
-					{#if !food.custom}<span class="shrink-0 text-[9px] font-bold text-brand" title="Vérifié Open Food Facts">✓</span>{/if}
+					<span class="truncate text-[14.5px] font-bold leading-[1.22] text-[#0F1512]">{food.name}</span>
+					{#if !food.custom}<span class="shrink-0 text-[11px] font-black text-brand" title="Vérifié Open Food Facts">✓</span>{/if}
 				</span>
-				<span class="block text-[12px] text-mist tabular-nums">
-					<strong class="font-bold text-brand">{fmt(food.kcal100)} kcal</strong> · 100 g{#if food.kcalRecalculated}<span class="ml-1 rounded bg-line/70 px-1 py-px text-[9px] font-semibold text-mist">Valeur recalculée</span>{/if}{#if food.brand && food.brand !== 'null'} · {food.brand}{/if}
+				<span class="block text-[12px] text-mist tabular-nums">								<strong class="text-[13px] font-bold" style="color:#0d7c36">{fmt(food.kcal100)} kcal</strong> · 100 g{#if food.kcalRecalculated}<span class="ml-1 rounded bg-line/70 px-1 py-px text-[9px] font-semibold text-mist">Valeur recalculée</span>{/if}{#if food.brand && food.brand !== 'null'} · {food.brand}{/if}
 				</span>
 			</span>
 		</button>
-		{#if !food.custom}
-			<button type="button" class="grid h-10 w-10 shrink-0 place-items-center rounded-full transition {fav ? 'text-brand' : 'text-mist hover:text-brand'}" aria-label={fav ? `Retirer ${food.name} des favoris` : `Ajouter ${food.name} aux favoris`}					onclick={() => toggleFav(food)}>
+		{#if !food.custom}				<button type="button" class="grid h-10 w-10 shrink-0 place-items-center rounded-full transition {fav ? 'text-brand' : 'text-[#4A5550] hover:text-brand'}" aria-label={fav ? `Retirer ${food.name} des favoris` : `Ajouter ${food.name} aux favoris`}					onclick={() => toggleFav(food)}>
 					<!-- Favori = cœur ENTIÈREMENT REMPLI en vert (fill), pas un simple contour vert. -->
-					<svg viewBox="0 0 24 24" width="18" height="18" class={fav ? 'text-brand' : ''} fill={fav ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+					<svg viewBox="0 0 24 24" width="18" height="18" class={fav ? 'text-brand' : ''} fill={fav ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 						<path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5" />
 					</svg>
 			</button>
@@ -4016,70 +4172,74 @@ import { optimizeImageFile } from '$lib/media';
 			<!-- En-tête fixe (respire sous l'encoche en PWA installée, cf. convention safe-area de l'app).
 			     MODE CODE-BARRES : en-tête MINIMAL (pas de titre, pas d'explication) —
 			     la croix vit SUR la caméra (overlay) et l'écran est immersif. -->
-			{#if logMode !== 'barcode'}
-			<div class="flex shrink-0 items-center justify-between border-b border-line bg-white/95 px-3 pt-[max(env(safe-area-inset-top),10px)] pb-2.5 backdrop-blur">
-				<button type="button" class="grid h-9 w-9 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={() => closeLog()}><Icon name="x" size={20} /></button>
-				<h2 class="font-display text-[15px] font-semibold text-ink">Ajouter un aliment</h2>
-				<span class="w-9"></span>
+			{#if logMode !== 'barcode' && !fullEditorOpen}
+			<!-- Header Claude v2 : croix 44px bordée + titre Lato 900 (dock cartouche) -->
+			<div class="flex shrink-0 items-center justify-between border-b border-line bg-white px-3 pt-[max(env(safe-area-inset-top),10px)] pb-2.5">
+				<button type="button" class="grid h-11 w-11 place-items-center rounded-full border border-line bg-white text-ink shadow-[0_1px_2px_rgba(15,21,18,0.04),0_8px_20px_-8px_rgba(15,21,18,0.14)] transition active:scale-95" aria-label="Fermer" onclick={() => closeLog()}><Icon name="x" size={20} /></button>
+				<h2 class="font-display text-[16px] font-black tracking-[-0.01em] text-ink">Ajouter un aliment</h2>
+				<span class="w-11"></span>
 			</div>
 			{/if}
 
+			{#if logMode !== 'barcode' && fullEditorOpen}
+				<!-- En-tête d'écran autonome (Claude) : pilule Retour + libellé « AJOUTER UN ALIMENT ». -->
+				<div class="flex shrink-0 items-center justify-between bg-white px-5 pb-2 pt-[max(env(safe-area-inset-top),8px)]">
+					<button type="button" class="inline-flex h-[44px] items-center gap-1 rounded-[22px] border border-[#E9EDEA] bg-white pl-2 pr-3.5 text-[14px] font-bold text-[#0d7c36] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_8px_20px_-8px_rgba(15,21,18,0.14)]" aria-label={searchTab === 'repas' ? 'Retour à mes recettes' : 'Retour à mes aliments'} onclick={searchTab === 'repas' ? closeMealEditor : closeCustomEditor}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>{searchTab === 'repas' ? 'Mes recettes' : 'Mes aliments'}</button>
+					<span class="text-[12px] font-bold uppercase tracking-[0.08em] text-mist">Ajouter un aliment</span>
+				</div>
+			{/if}
+
 			{#if logMode === 'search'}
-				<!-- Recherche + onglets (fixes) -->
-				<div class="shrink-0 border-b border-line bg-white/95 px-2.5 pb-2 pt-2 backdrop-blur">
-					<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2 focus-within:border-brand">										<Icon name="search" size={17} class="shrink-0 text-mist" />
-						<!-- svelte-ignore a11y_autofocus -->
+				<!-- Recherche + onglets (fixes) : masqués pendant un éditeur (écran autonome) -->
+				{#if !fullEditorOpen}
+				<div class="shrink-0 border-b border-line bg-white/95 px-2.5 pb-1.5 pt-1.5 backdrop-blur">
+					<div class="flex h-10 items-center gap-2 rounded-2xl border border-line bg-white px-3 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_28px_-12px_rgba(15,21,18,0.14)] transition focus-within:border-brand">										<Icon name="search" size={17} class="shrink-0 text-mist" />
 						<input
 							type="search"
-							class="w-full bg-transparent text-[15px] text-ink outline-none placeholder:text-mist"
+							class="w-full bg-transparent text-[16px] text-ink outline-none placeholder:text-mist"
 							placeholder="Rechercher un produit…"
 							bind:value={searchQ}
 							oninput={onSearchInput}
-							autofocus
 						/>
 						{#if searchQ}
 							<button
 								type="button"
 								class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-line/70 text-mist transition hover:bg-line"
 								aria-label="Effacer la recherche"
-								onclick={() => { searchQ = ''; results = []; hasMore = false; nextOffset = 0; showScrollHint = false; ciqualResults = []; }}
+								onclick={() => { searchQ = ''; results = []; hasMore = false; nextOffset = 0; showScrollHint = false; ciqualResults = []; ciqualExpanded = false; }}
 							><Icon name="x" size={13} /></button>
 						{/if}
 					</div>
-					<div class="mt-2 flex items-center gap-1.5 overflow-x-auto">
-						<button
-							type="button"
-							class="grid h-8 w-8 shrink-0 place-items-center rounded-full transition {favOnly ? 'bg-brand text-white' : 'bg-line/50 text-mist hover:text-ink'}"
+					<div class="mt-1.5 flex items-center gap-1.5 overflow-x-auto">									<button
+										type="button"
+										class="grid h-7 w-7 shrink-0 place-items-center rounded-full transition active:scale-95 {favOnly ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#4A5550] hover:text-ink'}"
 							title={favOnly ? 'Voir tous les produits' : 'Voir mes favoris'}
 							aria-label="Voir mes favoris"
 							onclick={() => (favOnly = !favOnly)}
-						>
-							<Icon name="heart" size={16} class={favOnly ? 'text-white' : 'text-mist'} />
-						</button>
-						<button type="button" class="shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition {searchTab === 'produits' ? 'bg-brand text-white' : 'bg-line/50 text-mist'}" onclick={() => { searchTab = 'produits'; favOnly = false; }}>Tous les produits</button>
+						>									<Icon name="heart" size={16} class={favOnly ? 'text-white' : 'text-[#4A5550]'} />
+						</button>									<button type="button" class="h-7 shrink-0 rounded-full px-3 text-[12.5px] font-bold transition active:scale-95 {searchTab === 'produits' ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#3A4540]'}" onclick={() => { searchTab = 'produits'; favOnly = false; }}>Tous les produits</button>
 						<!-- Switch d'onglet DIRECT : ferme l'éditeur de repas / créateur
 						     d'aliment en cours — les sous-vues ne « captent » plus l'onglet
 						     (le contenu est conditionné à searchTab D'ABORD, jamais à
 						     mealEditor/customEditor seuls). La saisie en cours passe en
-						     brouillon (reprise au retour, cf. draft). -->
-						<button type="button" class="shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition {searchTab === 'repas' ? 'bg-brand text-white' : 'bg-line/50 text-mist'}" onclick={() => switchTab('repas')}>Repas</button>
-						<button type="button" class="shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition {searchTab === 'crees' ? 'bg-brand text-white' : 'bg-line/50 text-mist'}" onclick={() => switchTab('crees')}>Créés par moi</button>
+						     brouillon (reprise au retour, cf. draft). -->									<button type="button" class="h-7 shrink-0 rounded-full px-3 text-[12.5px] font-bold transition active:scale-95 {searchTab === 'repas' ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#3A4540]'}" onclick={() => switchTab('repas')}>Mes recettes</button>
+									<button type="button" class="h-7 shrink-0 rounded-full px-3 text-[12.5px] font-bold transition active:scale-95 {searchTab === 'crees' ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#3A4540]'}" onclick={() => switchTab('crees')}>Mes aliments</button>
 					</div>
 				</div>
+				{/if}
 
 				<!-- Résultats : liste seule scrollable (pb généreux : le dernier
 				     produit doit passer entièrement au-dessus de la capsule flottante) -->
-				<div bind:this={logListEl} class="flex-1 overflow-y-auto overscroll-contain px-2.5 pb-24">
+				<div bind:this={logListEl} class="flex-1 overflow-y-auto overscroll-contain px-2.5 pb-24" in:fly={{ x: modeSlideX, duration: modeSlideDuration }}>
 					{#if searchTab === 'repas' && mealEditor}
 						<!-- ═══════ Éditeur de repas ═══════ -->
 						<div>
-							<button type="button" class="mb-3 flex items-center gap-1 text-sm font-semibold text-mist hover:text-ink" onclick={closeMealEditor}>← Retour aux repas</button>
-							<p class="mb-1 text-sm font-semibold text-ink">{mealEditingId ? 'Modifier le repas' : 'Nouveau repas'}</p>
+							<h2 class="mt-4 mb-3 text-[30px] font-black leading-[1.1] tracking-[-0.03em] text-ink">{mealEditingId ? 'Modifier la recette' : 'Nouvelle recette'}</h2>
 
 							<input
 								type="text"
 								class="w-full rounded-xl border-2 border-line bg-cream px-3 py-2.5 text-sm font-semibold text-ink outline-none focus:border-brand"
-								placeholder="Nom du repas (ex. Hachis parmentier)"
+								placeholder="Nom de la recette (ex. Hachis parmentier)"
 								bind:value={mealName}
 							/>
 							<input
@@ -4091,19 +4251,19 @@ import { optimizeImageFile } from '$lib/media';
 
 							<!-- Totaux live -->
 							<div class="mt-3 grid grid-cols-4 gap-2">
-								<div class="rounded-xl border border-line bg-white p-2 text-center">											<Icon name="flame" size={16} class="mx-auto block text-brand" />
+								<div class="rounded-xl border border-line bg-white p-2 text-center">											<span aria-hidden="true" class="mx-auto block h-1.5 w-1.5 rounded-full bg-brand"></span>
 									<span class="block text-xs font-bold text-ink">{fmt(mealTotals.kcal)}</span>
 									<span class="block text-[10px] text-mist">kcal</span>
 								</div>
-								<div class="rounded-xl border border-line bg-white p-2 text-center">											<Icon name="wheat" size={16} class="mx-auto block" style="color:#ec4899" />
+								<div class="rounded-xl border border-line bg-white p-2 text-center">											<span aria-hidden="true" class="mx-auto block h-1.5 w-1.5 rounded-full" style="background:#ec4899"></span>
 									<span class="block text-xs font-bold text-ink">{fmt(mealTotals.carbs)} g</span>
 									<span class="block text-[10px] text-mist">glucides</span>
 								</div>
-								<div class="rounded-xl border border-line bg-white p-2 text-center">											<Icon name="drumstick" size={16} class="mx-auto block" style="color:#3b82f6" />
+								<div class="rounded-xl border border-line bg-white p-2 text-center">											<span aria-hidden="true" class="mx-auto block h-1.5 w-1.5 rounded-full" style="background:#3b82f6"></span>
 									<span class="block text-xs font-bold text-ink">{fmt(mealTotals.protein)} g</span>
 									<span class="block text-[10px] text-mist">protéines</span>
 								</div>
-								<div class="rounded-xl border border-line bg-white p-2 text-center">											<Icon name="droplet" size={16} class="mx-auto block" style="color:#f97316" />
+								<div class="rounded-xl border border-line bg-white p-2 text-center">											<span aria-hidden="true" class="mx-auto block h-1.5 w-1.5 rounded-full" style="background:#f97316"></span>
 									<span class="block text-xs font-bold text-ink">{fmt(mealTotals.fat)} g</span>
 									<span class="block text-[10px] text-mist">lipides</span>
 								</div>
@@ -4154,28 +4314,28 @@ import { optimizeImageFile } from '$lib/media';
 							{/if}
 
 							<button type="button" class="mt-4 w-full rounded-full bg-brand py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={mealSaving || mealItems.length === 0 || mealName.trim().length < 2} onclick={saveMeal}>
-								{mealSaving ? 'Enregistrement…' : mealEditingId ? 'Enregistrer les modifications' : 'Enregistrer le repas'}
+								{mealSaving ? 'Enregistrement…' : mealEditingId ? 'Enregistrer les modifications' : 'Enregistrer la recette'}
 							</button>
 						</div>
 					{:else if searchTab === 'repas'}
 						<!-- ═══════ Mes repas ═══════ -->
-						<button type="button" class="mb-3 flex w-full items-center gap-2 rounded-xl bg-brand-light px-3 py-2.5 text-sm font-semibold text-brand transition hover:bg-brand/15" onclick={openMealEditor}>
+						<button type="button" class="mb-3 flex w-full items-center gap-3.5 rounded-2xl border px-3.5 py-2.5 text-left transition active:scale-[0.98] {searchTab === 'repas' ? 'bg-brand-light border-brand/30 text-brand' : 'border border-[rgba(29,185,84,0.3)] bg-[#e8fef0] text-[#0d7c36]'}" onclick={openMealEditor}>
 							<!-- Icône REPAS COMPLET (bol fumant) ≠ fiche produit de « Créer un aliment » -->
-							<span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand text-white"><Icon name="soup" size={13} /></span>
-							Ajouter un nouveau repas
+							<span class="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-full bg-brand text-white"><Icon name="soup" size={17} /></span>
+							<span class="text-[15px] font-bold">Créer une recette</span>
 						</button>
 						{#if mealsError}
 							<p class="rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{mealsError}</p>
 						{:else if meals.length === 0}
 							<div class="py-10 text-center">													<div class="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-brand-light"><Icon name="utensils" size={26} class="text-brand" /></div>
-								<p class="text-sm font-semibold text-ink">Aucun repas pour l'instant</p>
+								<p class="text-sm font-semibold text-ink">Aucune recette pour l'instant</p>
 								<p class="mx-auto mt-1 max-w-xs text-xs text-mist">Crée tes recettes (ingrédients + quantités) : les macros de chaque portion se calculent toutes seules.</p>
 							</div>
 						{:else}
 							<ul class="flex flex-col gap-2">
 								{#each meals as meal (meal._id)}
 									{@const isRecipe = meal.sourceType === 'gflux_recipe'}
-									<li class="flex items-center gap-2 rounded-2xl border border-line bg-white p-2.5 shadow-sm transition hover:border-brand">
+									<li class="flex items-center gap-2 rounded-[18px] border border-[#EEF1EF] bg-white py-2 pl-2 pr-1.5 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_14px_28px_-16px_rgba(15,21,18,0.18)] transition hover:border-brand">
 										<button type="button" class="flex min-w-0 flex-1 items-center gap-3 text-left" onclick={() => openPortion(meal)}>
 											{#if meal.ingredients[0]?.imageUrl}
 												<FoodImg src={meal.ingredients[0].thumbUrl} fallbackSrc={meal.ingredients[0].imageUrl} alt="" class="h-11 w-11 rounded-xl" />
@@ -4183,7 +4343,7 @@ import { optimizeImageFile } from '$lib/media';
 												<div class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name="soup" size={20} class="text-brand" /></div>
 											{/if}
 											<span class="min-w-0 flex-1">
-												<span class="block truncate text-sm font-semibold text-ink">{meal.name}</span>
+												<span class="block truncate text-[14.5px] font-bold leading-[1.22] text-ink">{meal.name}</span>
 												<span class="block text-xs text-mist">
 													<strong class="font-bold text-brand">{fmt(meal.kcal)} kcal</strong>
 													{#if isRecipe}
@@ -4201,14 +4361,13 @@ import { optimizeImageFile } from '$lib/media';
 									</li>
 								{/each}
 							</ul>
-							<p class="mt-3 text-center text-xs text-mist">Touche un repas pour ajouter une portion au journal.</p>
+							<p class="mt-3 text-center text-xs text-mist">Touche une recette pour ajouter une portion au journal.</p>
 						{/if}
 					{:else if searchTab === 'crees'}
 						<!-- ═══════ Créés par moi : aliments personnels ═══════ -->
 						{#if searchTab === 'crees' && customEditor}
 				<div bind:this={customFormEl} onfocusin={(e) => focusScroll(e.currentTarget, e.target)} onfocusout={blurScroll}>
-							<button type="button" class="mb-3 flex items-center gap-1 text-sm font-semibold text-mist hover:text-ink" onclick={closeCustomEditor}>← Retour à mes aliments</button>
-							<p class="mb-1 text-sm font-semibold text-ink">{cfEditingId ? 'Modifier l\'aliment' : 'Nouvel aliment'}</p>
+							<h2 class="mt-4 mb-3 text-[30px] font-black leading-[1.1] tracking-[-0.03em] text-ink">{cfEditingId ? 'Modifier l\'aliment' : 'Nouvel aliment'}</h2>
 							<p class="mb-3 text-xs text-mist">{cfEditingId ? 'Mets à jour les valeurs pour 100 g : les prochains ajouts au journal utiliseront les nouvelles valeurs.' : 'Reçois-tu un plat avec une étiquette nutritionnelle ? Saisis les valeurs pour 100 g : l\'aliment sera ajouté à ta base.'}</p>
 
 							<!-- PHOTO (OPTIONNELLE) : caméra OU galerie → compression + preview
@@ -4260,19 +4419,19 @@ import { optimizeImageFile } from '$lib/media';
 
 							<div class="mt-3 grid grid-cols-2 gap-2">
 								<label class="rounded-xl border-2 px-3 py-2 {cfReview.has('kcal') ? 'border-warn bg-warn-light/40' : 'border-line bg-cream'}">
-									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist">Calories / 100 g{#if cfReview.has('kcal')}<span class="ml-1 normal-case text-warn">· à vérifier</span>{/if}</span>
+									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist"><span aria-hidden="true" class="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-brand align-middle"></span>Calories / 100 g{#if cfReview.has('kcal')}<span class="ml-1 normal-case text-warn">· à vérifier</span>{/if}</span>
 									<input type="text" inputmode="decimal" class="mt-1 w-full bg-transparent text-sm font-bold text-ink outline-none" placeholder="Ex. 120" bind:value={cfKcal} />
 								</label>
 								<label class="rounded-xl border-2 border-line bg-cream px-3 py-2">
-									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist">Glucides / 100 g</span>
+									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist"><span aria-hidden="true" class="mr-1.5 inline-block h-1.5 w-1.5 rounded-full align-middle" style="background:#ec4899"></span>Glucides / 100 g</span>
 									<input type="text" inputmode="decimal" class="mt-1 w-full bg-transparent text-sm font-bold text-ink outline-none" placeholder="Ex. 15" bind:value={cfCarbs} />
 								</label>
 								<label class="rounded-xl border-2 border-line bg-cream px-3 py-2">
-									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist">Protéines / 100 g</span>
+									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist"><span aria-hidden="true" class="mr-1.5 inline-block h-1.5 w-1.5 rounded-full align-middle" style="background:#3b82f6"></span>Protéines / 100 g</span>
 									<input type="text" inputmode="decimal" class="mt-1 w-full bg-transparent text-sm font-bold text-ink outline-none" placeholder="Ex. 10" bind:value={cfProtein} />
 								</label>
 								<label class="rounded-xl border-2 border-line bg-cream px-3 py-2">
-									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist">Lipides / 100 g</span>
+									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist"><span aria-hidden="true" class="mr-1.5 inline-block h-1.5 w-1.5 rounded-full align-middle" style="background:#f97316"></span>Lipides / 100 g</span>
 									<input type="text" inputmode="decimal" class="mt-1 w-full bg-transparent text-sm font-bold text-ink outline-none" placeholder="Ex. 4" bind:value={cfFat} />
 								</label>
 								<label class="rounded-xl border-2 border-line bg-cream px-3 py-2">
@@ -4372,10 +4531,10 @@ import { optimizeImageFile } from '$lib/media';
 							</button>
 							</div>
 						{:else}
-						<button type="button" class="mb-3 flex w-full items-center gap-2 rounded-xl bg-brand-light px-3 py-2.5 text-sm font-semibold text-brand transition hover:bg-brand/15" onclick={openCreateSheet}>
+						<button type="button" class="mb-3 flex w-full items-center gap-3.5 rounded-2xl border px-3.5 py-2.5 text-left transition active:scale-[0.98] {searchTab === 'crees' ? 'bg-brand-light border-brand/30 text-brand' : 'border border-[rgba(29,185,84,0.3)] bg-[#e8fef0] text-[#0d7c36]'}" onclick={openCreateSheet}>
 							<!-- Icône FICHE PRODUIT + crayon ≠ bol fumant de « Ajouter un nouveau repas » -->
-							<span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand text-white"><Icon name="clipboardPen" size={13} /></span>
-							Créer un aliment
+							<span class="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-full bg-brand text-white"><Icon name="clipboardPen" size={17} /></span>
+							<span class="text-[15px] font-bold">Créer un aliment</span>
 						</button>
 							{#if customFoodsError}
 								<p class="rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{customFoodsError}</p>
@@ -4388,19 +4547,19 @@ import { optimizeImageFile } from '$lib/media';
 							{:else}
 								<ul class="flex flex-col gap-2">
 									{#each customFoods as food (food._id)}
-										<li class="flex items-center gap-2">
-											<button type="button" class="flex min-w-0 flex-1 items-center gap-3 rounded-2xl border border-line bg-white p-2.5 text-left shadow-sm transition hover:border-brand" onclick={() => openQty(food)}>															{#if food.photoUrl}
+										<li class="flex items-center gap-[11px] rounded-[18px] border border-[#EEF1EF] bg-white py-2 pl-2 pr-1.5 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_22px_-14px_rgba(15,21,18,0.16)]">
+											<button type="button" class="flex min-w-0 flex-1 items-center gap-3 rounded-[13px] bg-transparent text-left transition hover:opacity-90" onclick={() => openQty(food)}>															{#if food.photoUrl}
 																<FoodImg src={food.photoUrl} alt="" class="h-11 w-11 rounded-xl" />
 															{:else}
 																<div class="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-light"><Icon name="soup" size={20} class="text-brand" /></div>
 															{/if}
 														<span class="min-w-0 flex-1">
 														<span class="block truncate text-sm font-semibold text-ink">{food.name}</span>
-														<span class="block text-xs text-mist"><strong class="font-bold text-brand">{fmt(food.kcal100)} kcal</strong> · 100 g{#if food.brand} · {food.brand}{/if}</span>
+														<span class="block text-xs text-mist"><strong class="text-[13px] font-bold" style="color:#0d7c36">{fmt(food.kcal100)} kcal</strong> · 100 g{#if food.brand} · {food.brand}{/if}</span>
 											</span>
 										</button>
-										<button type="button" class="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-mist transition hover:bg-line/70 hover:text-ink" aria-label={`Modifier ${food.name}`} onclick={() => openCustomEditorFor(food)}><Icon name="pencil" size={15} /></button>
-										<button type="button" class="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-mist transition hover:bg-danger-light hover:text-danger" aria-label={`Supprimer ${food.name}`} onclick={() => deleteCustomFood(food)}><Icon name="trash" size={16} /></button>
+										<button type="button" class="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] text-[#4A5550] transition hover:text-ink" aria-label={`Modifier ${food.name}`} onclick={() => openCustomEditorFor(food)}><Icon name="pencil" size={19} /></button>
+										<button type="button" class="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] text-[#4A5550] transition hover:text-danger" aria-label={`Supprimer ${food.name}`} onclick={() => deleteCustomFood(food)}><Icon name="trash" size={19} /></button>
 										</li>
 									{/each}
 								</ul>
@@ -4413,7 +4572,7 @@ import { optimizeImageFile } from '$lib/media';
 							<div class="py-10 text-center">												<div class="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-brand-light"><Icon name="heart" size={26} class="text-brand" /></div>
 								<p class="text-sm font-semibold text-ink">Aucun favori</p>											<p class="mx-auto mt-1 max-w-xs text-xs text-mist">Touche le cœur <Icon name="heart" size={13} class="inline -mt-0.5 text-brand" /> d'un produit pour le retrouver ici en un geste.</p>
 							</div>
-						{:else}											<ul class="flex flex-col divide-y divide-line/50">
+						{:else}										<ul class="flex flex-col divide-y divide-[#EEF1EF] rounded-[20px] border border-[#EEF1EF] bg-white shadow-[0_1px_2px_rgba(15,21,18,0.04),0_12px_26px_-16px_rgba(15,21,18,0.18)] overflow-hidden">
 												{#each favorites as food (food._id)}
 													{@render foodRow(food)}
 												{/each}
@@ -4463,7 +4622,7 @@ import { optimizeImageFile } from '$lib/media';
 							<div class="py-10 text-center">
 								<div class="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-brand-light"><Icon name="search" size={22} class="text-brand" /></div>
 								<p class="text-sm font-semibold text-ink">Recherche un produit</p>
-								<p class="mx-auto mt-1 max-w-xs text-xs text-mist">Base G-Flux (780 000 aliments), code-barres, ou « Créés par moi » pour un plat avec étiquette.</p>
+								<p class="mx-auto mt-1 max-w-xs text-xs text-mist">Base G-Flux (780 000 aliments), code-barres, ou « Mes aliments » pour un plat avec étiquette.</p>
 							</div>
 						{/if}
 					{:else if results.length === 0 && ciqualResults.length === 0}
@@ -4478,7 +4637,7 @@ import { optimizeImageFile } from '$lib/media';
 								<span class="text-[10px] text-mist">Ciqual – ANSES</span>
 							</div>
 							<ul class="mb-2 flex flex-col gap-1.5">
-								{#each ciqualResults as cfood (cfood._id)}
+								{#each (ciqualExpanded ? ciqualResults : ciqualResults.slice(0, 3)) as cfood (cfood._id)}
 									<li>
 										<button type="button" class="flex w-full items-center gap-2.5 rounded-2xl border border-line bg-white p-2 text-left shadow-sm transition hover:border-brand" onclick={() => openQty(cfood)}>
 											<span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand-light"><Icon name="salad" size={20} class="text-brand" /></span>
@@ -4491,6 +4650,9 @@ import { optimizeImageFile } from '$lib/media';
 									</li>
 								{/each}
 							</ul>
+							{#if ciqualResults.length > 3}
+								<button type="button" class="mb-2 w-full rounded-full py-2 text-xs font-semibold text-brand transition hover:bg-brand-light" onclick={() => (ciqualExpanded = !ciqualExpanded)} aria-expanded={ciqualExpanded}>{ciqualExpanded ? 'Voir moins' : 'Voir plus'}</button>
+							{/if}
 						{/if}
 						{#if results.length > 0}
 							<div class="flex items-baseline justify-between px-1 pb-1 pt-1.5">
@@ -4525,7 +4687,7 @@ import { optimizeImageFile } from '$lib/media';
 				     champ manuel reste complet (order-1 en mode manuel). Les ordres
 				     flex, la transition max-height et l'id bc-reader sont conservés
 				     (mécanismes validés mission saisie manuelle). -->
-				<div bind:this={bcListEl} class="flex flex-1 flex-col overflow-y-auto overscroll-contain px-3 pb-28 pt-3">
+				<div bind:this={bcListEl} class="flex flex-1 flex-col overflow-y-auto overscroll-contain px-3 pb-28 pt-3" in:fly={{ x: modeSlideX, duration: modeSlideDuration }}>
 					<div class="relative order-2 mx-auto aspect-[3/4.6] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-[max-height,border-color,box-shadow] duration-300 ease-out {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}" style:max-height={bcManualMode ? '7rem' : '120vh'}>
 						<div id="bc-reader" class="absolute inset-0"></div>
 						<!-- Croix de fermeture DIRECTEMENT sur la zone caméra : -->
@@ -4534,7 +4696,7 @@ import { optimizeImageFile } from '$lib/media';
 						     de la pill lampe/zoom — plus de superposition texte/contrôles,
 						     lisibilité garantie sur petits écrans et safe areas. -->
 						{#if !bcManualMode && barcodeStatus === 'scanning' && !barcodeBusy}
-							<p class="pointer-events-none absolute inset-x-3 bottom-[4.75rem] z-10 text-center text-[11px] font-semibold text-white/85 drop-shadow">Place le code-barres dans le cadre. La lecture est automatique.</p>
+							<p class="pointer-events-none absolute inset-x-3 bottom-[4.75rem] z-10 text-center text-[11px] font-semibold text-white/85 drop-shadow">{BARCODE_HINT}</p>
 						{/if}
 						<!-- Lampe + zoom : pill compacte en bas de la caméra (plus de gros blocs) -->
 						{#if !bcManualMode && scannerCaps && (scannerCaps.torch || scannerCaps.zoom)}
@@ -4550,7 +4712,7 @@ import { optimizeImageFile } from '$lib/media';
 					</div>
 
 					<div class="{bcManualMode ? 'order-1' : 'order-4'} mx-auto mt-3 w-full max-w-sm">
-						<div class="flex items-center gap-2 rounded-xl border-2 {bcManualMode ? 'border-brand bg-white' : 'border-line bg-cream'} px-3 py-2.5 focus-within:border-brand">														<Icon name="barcode" size={18} class="shrink-0 text-mist" />
+						<div class="flex h-[52px] items-center gap-2.5 rounded-2xl border {bcManualMode ? 'border-brand bg-white' : 'border-line bg-white'} px-4 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_28px_-12px_rgba(15,21,18,0.14)] transition focus-within:border-brand">														<Icon name="barcode" size={18} class="shrink-0 text-mist" />
 						<!-- Clavier iOS : le champ reste AU-DESSUS du clavier — le resize du
 						     visualViewport replace le champ focalisé dans la zone visible
 						     (scrollFocusedIntoView). Aucun blur(), aucun polling : compatible
@@ -4605,15 +4767,15 @@ import { optimizeImageFile } from '$lib/media';
 			     inutile dans ce contexte, elle grignotait la hauteur du formulaire
 			     (notamment avec le clavier numérique ouvert). Elle revient à la
 			     sortie de l'éditeur (retour à la liste). -->
-			{#if !customEditor}
-			<div class="pointer-events-none absolute inset-x-0 bottom-[calc(0.625rem+env(safe-area-inset-bottom))] z-10 flex justify-center px-4">
+			{#if !customEditor && !(searchTab === 'repas' && mealEditor) && !keyboardOpen}
+			<div class="pointer-events-none absolute inset-x-0 bottom-[calc(0.5rem+env(safe-area-inset-bottom))] z-10 flex justify-center px-5 transition-opacity duration-200">
 				<!-- 3 zones équilibrées quand la bêta « Repas IA » est active pour le
 				     compte (méthode de TRACKING du journal — jamais une création
 				     d'aliment) ; sinon capsule 2 zones inchangée. -->
-				<div class="pointer-events-auto flex h-14 items-center gap-1 rounded-full bg-ink/95 p-1 shadow-lg shadow-ink/30 ring-1 ring-white/10 {aiFlags.mealPhotoAi ? 'w-[86%] max-w-[380px]' : 'w-[55%] min-w-[190px] max-w-[260px]'}">
+				<div class="pointer-events-auto flex h-[50px] items-center gap-0.5 rounded-[25px] bg-[#111A15] p-1 shadow-[0_12px_28px_-12px_rgba(15,21,18,0.5),0_2px_4px_rgba(15,21,18,0.18)] {aiFlags.mealPhotoAi ? 'w-full max-w-[300px]' : 'w-[52%] min-w-[180px] max-w-[230px]'}">
 					<button
 						type="button"
-						class="flex h-full flex-1 flex-col items-center justify-center gap-0.5 rounded-full text-[11px] font-semibold transition {logMode === 'search' ? 'bg-white/15 text-white' : 'text-white/70 hover:text-white'}"
+						class="flex h-full flex-1 flex-col items-center justify-center gap-[1px] rounded-[21px] text-[10.5px] font-bold leading-none transition {logMode === 'search' ? 'bg-white/[0.13] text-white' : 'text-white/65 hover:text-white'}"
 						onclick={() => switchMode('search')}
 					>
 						<Icon name="search" size={17} />
@@ -4621,7 +4783,7 @@ import { optimizeImageFile } from '$lib/media';
 					</button>
 					<button
 						type="button"
-						class="flex h-full flex-1 flex-col items-center justify-center gap-0.5 rounded-full text-[11px] font-semibold transition {logMode === 'barcode' ? 'bg-white/15 text-white' : 'text-white/70 hover:text-white'}"
+						class="flex h-full flex-1 flex-col items-center justify-center gap-[1px] rounded-[21px] text-[10.5px] font-bold leading-none transition {logMode === 'barcode' ? 'bg-white/[0.13] text-white' : 'text-white/65 hover:text-white'}"
 						onclick={() => switchMode('barcode')}
 					>
 						<Icon name="barcode" size={17} />
@@ -4630,12 +4792,12 @@ import { optimizeImageFile } from '$lib/media';
 					{#if aiFlags.mealPhotoAi}
 						<button
 							type="button"
-							class="relative flex h-full flex-1 flex-col items-center justify-center gap-0.5 rounded-full text-[11px] font-semibold text-white/70 transition hover:text-white"
+							class="relative flex h-full flex-1 flex-col items-center justify-center gap-[1px] rounded-[21px] text-[10.5px] font-bold leading-none text-white/65 transition hover:text-white"
 							onclick={() => openMealPhoto()}
 						>
 							<Icon name="camera" size={17} />
 							<span>Repas IA</span>
-							<span class="absolute right-1.5 top-1 rounded-full bg-brand px-1 py-px text-[8px] font-bold leading-none text-white">BÊTA</span>
+							<span class="absolute right-2 top-0.5 rounded-[6px] bg-brand px-[5px] py-[2px] text-[9px] font-black leading-none tracking-[0.04em] text-[#06361B]">BÊTA</span>
 						</button>
 					{/if}
 				</div>
@@ -4657,8 +4819,11 @@ import { optimizeImageFile } from '$lib/media';
 	<div role="presentation" class="fixed inset-0 z-[55] flex items-end justify-center bg-ink/40 backdrop-blur-sm sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget && !recipeAnalyzing) closeRecipeImport(); }} onkeydown={(e) => { if (e.key === 'Escape' && !recipeAnalyzing) closeRecipeImport(); }}>
 		<div class="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 pb-[max(env(safe-area-inset-bottom),20px)] shadow-2xl sm:rounded-3xl">
 			<div class="mb-3 flex items-center justify-between">
-				<p class="font-display text-[17px] font-bold text-ink">Importer une recette</p>
-				<button type="button" class="grid h-8 w-8 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={closeRecipeImport} disabled={recipeAnalyzing}><Icon name="x" size={18} /></button>
+				<div class="min-w-0">
+					<p class="font-display text-[17px] font-bold text-ink">Importer une recette</p>
+					<p class="mt-0.5 text-[11px] text-mist">Photo ou texte — macros issues de la base G-FLUX</p>
+				</div>
+				<button type="button" class="grid h-8 w-8 shrink-0 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={closeRecipeImport} disabled={recipeAnalyzing}><Icon name="x" size={18} /></button>
 			</div>
 
 			{#if !recipeComps}
@@ -4762,7 +4927,7 @@ import { optimizeImageFile } from '$lib/media';
 				<button type="button" class="mt-4 w-full rounded-full bg-brand py-3.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={recipeComps.some((c) => c.qtyUncertain)} onclick={applyRecipeToMeal}>
 					{recipeComps.some((c) => c.qtyUncertain) ? 'Complète les quantités manquantes' : 'Utiliser cette recette'}
 				</button>
-				<p class="mt-2 text-center text-[11px] text-mist">Les ingrédients remplissent le repas en cours — rien n'est enregistré avant « Enregistrer le repas ».</p>
+				<p class="mt-2 text-center text-[11px] text-mist">Les ingrédients remplissent le repas en cours — rien n'est enregistré avant « Enregistrer la recette ».</p>
 			{/if}
 		</div>
 	</div>
@@ -4779,7 +4944,7 @@ import { optimizeImageFile } from '$lib/media';
 	<div role="presentation" class="fixed inset-0 z-[75] flex items-end justify-center bg-ink/40 backdrop-blur-sm sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget && !mealAnalyzing && !mealCommitting) closeMealPhoto(); }} onkeydown={(e) => { if (e.key === 'Escape' && !mealAnalyzing && !mealCommitting) closeMealPhoto(); }}>
 		<!-- onfocusin/onfocusout : infra clavier existante (scrollFocusedIntoView)
 		     — le champ texte (et sa dictée native) reste au-dessus du clavier. -->
-		<div class="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 pb-[max(env(safe-area-inset-bottom),20px)] shadow-2xl sm:rounded-3xl" onfocusin={(e) => focusScroll(e.currentTarget, e.target)} onfocusout={blurScroll}>
+		<div class="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-5 pb-[max(env(safe-area-inset-bottom),20px)] shadow-2xl sm:rounded-3xl" in:fly={{ x: modeSlideX, duration: modeSlideDuration }} onfocusin={(e) => focusScroll(e.currentTarget, e.target)} onfocusout={blurScroll}>
 			<div class="mb-3 flex items-center justify-between">
 				<div class="min-w-0 pr-2">									<p class="font-display text-[17px] font-bold text-ink">Analyse ton repas</p>
 									<p class="mt-0.5 text-xs text-mist">Photo, texte, ou les deux — à toi de choisir.</p>
@@ -4922,7 +5087,7 @@ import { optimizeImageFile } from '$lib/media';
 					<button type="button" class="grid h-8 w-8 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={() => { mealAddSearchOpen = false; mealReplaceIdx = null; }}><Icon name="x" size={18} /></button>
 				</div>
 				<div class="shrink-0 border-b border-line px-3 py-2">
-					<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2 focus-within:border-brand">
+					<div class="flex h-[52px] items-center gap-2.5 rounded-2xl border border-line bg-white px-4 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_28px_-12px_rgba(15,21,18,0.14)] transition focus-within:border-brand">
 						<Icon name="search" size={16} class="shrink-0 text-mist" />
 						<input type="search" class="w-full bg-transparent text-[15px] text-ink outline-none placeholder:text-mist" placeholder="Ex. huile d'olive, sauce tomate…" bind:value={mealAddQuery} oninput={onMealAddInput} />
 					</div>
@@ -5041,7 +5206,7 @@ import { optimizeImageFile } from '$lib/media';
 					</div>
 				</div>
 			{:else}
-				<p class="mb-3 rounded-xl bg-line/40 px-3 py-2 text-xs text-mist">Un produit absent de la base ? Scan, photo d'étiquette (préremplissage IA) ou saisie libre : l'aliment rejoint « Créés par moi ».</p>
+				<p class="mb-3 rounded-xl bg-line/40 px-3 py-2 text-xs text-mist">Un produit absent de la base ? Scan, photo d'étiquette (préremplissage IA) ou saisie libre : l'aliment rejoint « Mes aliments ».</p>
 			{/if}
 
 			<div class="flex flex-col gap-2">
@@ -5135,7 +5300,7 @@ import { optimizeImageFile } from '$lib/media';
 		initialQtyGrams={ingEdit.qty}			mode={mealPickedFood ? 'add' : 'edit'}
 			source={(mealPickedFood ?? ingEdit?.food)?.ciqual ? 'ciqual' : undefined}
 		saving={false}
-		saveLabel={mealPickedFood ? 'Ajouter au repas' : undefined}
+		saveLabel={mealPickedFood ? 'Ajouter à la recette' : undefined}
 		onSave={saveIngredientQty2}
 		onDelete={mealPickedFood
 			? () => { ingEdit = null; mealPickedFood = null; }
@@ -5158,23 +5323,23 @@ import { optimizeImageFile } from '$lib/media';
 			</div>
 
 			{#if mealSearchMode === 'search'}
-				<div class="shrink-0 border-b border-line bg-white/95 px-2.5 pb-2 pt-2 backdrop-blur">
-					<div class="flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2 focus-within:border-brand">
+				<div class="shrink-0 border-b border-line bg-white/95 px-2.5 pb-1.5 pt-1.5 backdrop-blur">
+					<div class="flex h-[52px] items-center gap-2.5 rounded-2xl border border-line bg-white px-4 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_28px_-12px_rgba(15,21,18,0.14)] transition focus-within:border-brand">
 						<Icon name="search" size={17} class="shrink-0 text-mist" />
 						<input
 							id="meal-picker-input"
 							type="search"
-							class="w-full bg-transparent text-[15px] text-ink outline-none placeholder:text-mist"
+							class="w-full bg-transparent text-[16px] text-ink outline-none placeholder:text-mist"
 							placeholder="Rechercher un produit…"
 							bind:value={mealSearchQ}
 							oninput={onMealSearchInput}
 						/>
 						{#if mealSearchQ}
-							<button type="button" class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-line/70 text-mist transition hover:bg-line" aria-label="Effacer la recherche"								onclick={() => { mealSearchQ = ''; mealResults = []; mealHasMore = false; mealNextOffset = 0; mealShowScrollHint = false; mealCiqualResults = []; }}><Icon name="x" size={13} /></button>
+							<button type="button" class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-line/70 text-mist transition hover:bg-line" aria-label="Effacer la recherche"								onclick={() => { mealSearchQ = ''; mealResults = []; mealHasMore = false; mealNextOffset = 0; mealShowScrollHint = false; mealCiqualResults = []; mealCiqualExpanded = false; }}><Icon name="x" size={13} /></button>
 						{/if}
 					</div>
 				</div>
-				<div bind:this={mealSearchListEl} class="flex-1 overflow-y-auto overscroll-contain px-2.5 pb-24">
+				<div bind:this={mealSearchListEl} class="flex-1 overflow-y-auto overscroll-contain px-2.5 pb-24" in:fly={{ x: modeSlideX, duration: modeSlideDuration }}>
 					{#if mealSearching && mealResults.length === 0}
 						<p class="flex items-center justify-center gap-2 py-10 text-sm text-mist" role="status">
 							<Icon name="search" size={16} class="animate-pulse text-mist" /> Recherche « {mealSearchQ.trim()} »…
@@ -5185,7 +5350,7 @@ import { optimizeImageFile } from '$lib/media';
 							<button type="button" class="mt-2 w-full rounded-full bg-danger py-2 text-xs font-bold text-white transition hover:opacity-90" onclick={() => runMealSearch(mealSearchQ.trim())}>Réessayer</button>
 						</div>
 					{:else if mealSearchQ.trim().length < 2}
-						<p class="py-10 text-center text-sm text-mist">Recherche un produit — base G-Flux (780 000 aliments) et tes aliments « Créés par moi ».</p>
+						<p class="py-10 text-center text-sm text-mist">Recherche un produit — base G-Flux (780 000 aliments) et ceux de « Mes aliments ».</p>
 					{:else if mealResults.length === 0 && mealCiqualResults.length === 0}
 						<p class="py-10 text-center text-sm text-mist">Aucun résultat pour « {mealSearchQ.trim()} ».</p>
 					{:else}
@@ -5195,9 +5360,9 @@ import { optimizeImageFile } from '$lib/media';
 								<span class="text-[10px] text-mist">Ciqual – ANSES</span>
 							</div>
 							<ul class="mb-2 flex flex-col gap-1.5">
-								{#each mealCiqualResults as cfood, ci (cfood._id)}
+								{#each (mealCiqualExpanded ? mealCiqualResults : mealCiqualResults.slice(0, 3)) as cfood, ci (cfood._id)}
 									<li>
-										<button type="button" class="flex w-full items-center gap-2.5 rounded-2xl border border-line bg-white p-2 text-left shadow-sm transition hover:border-brand" onclick={() => openCiqualIngredientPortion(ci)}>
+										<button type="button" class="flex w-full items-center gap-2.5 rounded-[18px] border border-[#EEF1EF] bg-white p-2 text-left shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_22px_-14px_rgba(15,21,18,0.16)] transition hover:border-brand" onclick={() => openCiqualIngredientPortion(ci)}>
 											<span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand-light"><Icon name="salad" size={20} class="text-brand" /></span>
 										<span class="min-w-0 flex-1">
 											<span class="block truncate text-[14px] font-semibold text-ink">{cfood.name}</span>
@@ -5208,6 +5373,9 @@ import { optimizeImageFile } from '$lib/media';
 									</li>
 								{/each}
 							</ul>
+								{#if mealCiqualResults.length > 3}
+									<button type="button" class="mb-2 w-full rounded-full py-2 text-xs font-semibold text-brand transition hover:bg-brand-light" onclick={() => (mealCiqualExpanded = !mealCiqualExpanded)} aria-expanded={mealCiqualExpanded}>{mealCiqualExpanded ? 'Voir moins' : 'Voir plus'}</button>
+								{/if}
 						{/if}
 						{#if mealResults.length > 0}
 							<div class="flex items-baseline justify-between px-1 pb-1 pt-1.5">
@@ -5219,7 +5387,7 @@ import { optimizeImageFile } from '$lib/media';
 									<li>
 										<button type="button" class="flex w-full items-center gap-2 px-1 py-2 text-left transition hover:opacity-70" onclick={() => openIngredientPortion(i)}>
 											{#if food.thumbUrl || food.imageUrl}
-												<FoodImg src={food.thumbUrl} fallbackSrc={food.imageUrl} alt="" class="h-10 w-10 rounded-lg" />
+												<FoodImg src={food.thumbUrl} fallbackSrc={food.imageUrl} alt="" class="h-11 w-11 rounded-[12px]" />
 											{:else}
 												<div class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={18} class="text-brand" /></div>
 											{/if}
@@ -5250,11 +5418,11 @@ import { optimizeImageFile } from '$lib/media';
 				<!-- ═══════ Scanner code-barres de la fenêtre produit — même direction
 				     immersive que « Ajouter un aliment » : caméra haute, indication en
 				     overlay, lampe/zoom en pill compacte. Mécanismes validés conservés. -->
-				<div bind:this={mealBcListEl} class="flex flex-1 flex-col overflow-y-auto overscroll-contain px-3 pb-28 pt-3">
+				<div bind:this={mealBcListEl} class="flex flex-1 flex-col overflow-y-auto overscroll-contain px-3 pb-28 pt-3" in:fly={{ x: modeSlideX, duration: modeSlideDuration }}>
 					<div class="relative order-2 mx-auto aspect-[3/4.6] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-[max-height,border-color,box-shadow] duration-300 ease-out {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}" style:max-height={bcManualMode ? '7rem' : '120vh'}>
 						<div id="meal-bc-reader" class="absolute inset-0"></div>
 						{#if !bcManualMode && barcodeStatus === 'scanning' && !barcodeBusy}
-							<p class="pointer-events-none absolute inset-x-3 bottom-2.5 z-10 text-center text-[11px] font-semibold text-white/85 drop-shadow">Présente le code-barres à plat devant l'objectif — dès la lecture, la feuille de portion s'ouvre.</p>
+							<p class="pointer-events-none absolute inset-x-3 bottom-2.5 z-10 text-center text-[11px] font-semibold text-white/85 drop-shadow">{BARCODE_HINT}</p>
 						{/if}
 						{#if !bcManualMode && scannerCaps && (scannerCaps.torch || scannerCaps.zoom)}
 							<div class="absolute bottom-9 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-ink/55 px-2 py-1 backdrop-blur">
@@ -5269,7 +5437,7 @@ import { optimizeImageFile } from '$lib/media';
 					</div>
 
 					<div class="{bcManualMode ? 'order-1' : 'order-4'} mx-auto mt-3 w-full max-w-sm">
-						<div class="flex items-center gap-2 rounded-xl border-2 {bcManualMode ? 'border-brand bg-white' : 'border-line bg-cream'} px-3 py-2.5 focus-within:border-brand">
+						<div class="flex h-[52px] items-center gap-2.5 rounded-2xl border {bcManualMode ? 'border-brand bg-white' : 'border-line bg-white'} px-4 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_28px_-12px_rgba(15,21,18,0.14)] transition focus-within:border-brand">
 							<Icon name="barcode" size={18} class="shrink-0 text-mist" />
 						<!-- Clavier iOS : même repositionnement que « Ajouter un aliment »
 						     (visualViewport → scrollFocusedIntoView, sans blur ni polling). -->
@@ -5317,7 +5485,7 @@ import { optimizeImageFile } from '$lib/media';
 
 			<!-- Capsule flottante Recherche ⇄ Code-barres (identique à « Ajouter un aliment ») -->
 			<div class="pointer-events-none absolute inset-x-0 bottom-[calc(0.625rem+env(safe-area-inset-bottom))] z-10 flex justify-center px-4">
-				<div class="pointer-events-auto flex h-14 w-[55%] min-w-[190px] max-w-[260px] items-center gap-1 rounded-full bg-ink/95 p-1 shadow-lg shadow-ink/30 ring-1 ring-white/10">
+				<div class="pointer-events-auto flex h-[50px] w-[55%] min-w-[190px] max-w-[260px] items-center gap-1 rounded-full bg-ink/95 p-1 shadow-lg shadow-ink/30 ring-1 ring-white/10">
 					<button
 						type="button"
 						class="flex h-full flex-1 flex-col items-center justify-center gap-0.5 rounded-full text-[11px] font-semibold transition {mealSearchMode === 'search' ? 'bg-white/15 text-white' : 'text-white/70 hover:text-white'}"

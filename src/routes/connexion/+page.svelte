@@ -53,7 +53,7 @@
 			</div>
 
 			<!-- Titre + sous-titre -->
-			<h1 class="mt-5 text-center font-display text-[26px] font-black leading-tight tracking-tight text-ink sm:text-[30px]">Connexion à G-FLUX</h1>
+			<h1 class="mt-5 text-center text-ink page-title">Connexion à G-FLUX</h1>
 			<p class="mt-2 text-center text-[15px] leading-snug text-mist">Accédez à votre espace coach ou à votre espace client.</p>
 
 			<!-- Switch Espace coach / Espace client (UX — le rôle réel est décidé

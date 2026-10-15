@@ -78,12 +78,18 @@
 
 	import { beforeNavigate, goto, invalidateAll } from '$app/navigation';
 	import { onMount } from 'svelte';
+	import { fade } from 'svelte/transition';
+	import { refreshNotificationsNow } from '$lib/notificationPoll';
+	import CoachAvatar from '$lib/components/CoachAvatar.svelte';
 	import { appWarm, clearSharedMetricsStale, firstVisit, getSharedMetrics, isFresh, noteSync, restoreScroll, saveScroll, type MetricsShared } from '$lib/navMemory';
 	import { currentLocalDay } from '$lib/currentDay.svelte';
 	import { getGreeting } from '$lib/greetings';
 	import AudioPlayer from '$lib/components/AudioPlayer.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Sparkline from '$lib/components/Sparkline.svelte';
+	import WeightQuickSheet from '$lib/components/WeightQuickSheet.svelte';
+	import HydrationQuickSheet from '$lib/components/HydrationQuickSheet.svelte';
+	import { applyWeightLocally } from '$lib/weightLog';
 	import PerformanceWeekCard from '$lib/components/PerformanceWeekCard.svelte';
 	import CountUp from '$lib/components/CountUp.svelte';
 	import MacroLine from '$lib/components/MacroLine.svelte';
@@ -121,7 +127,11 @@
 		msgReadBusy = true;
 		try {
 			const r = await fetch('/api/media/message-read', { method: 'POST' });
-			if (r.ok) await invalidateAll();
+			if (r.ok) {
+				// Badge de la barre de navigation : recalcul immédiat (sans attendre le prochain poll).
+				refreshNotificationsNow();
+				await invalidateAll();
+			}
 		} catch {
 			/* silencieux : l'utilisatrice peut réessayer */
 		} finally {
@@ -132,6 +142,8 @@
 	let { data } = $props();
 	const user = $derived(data.user);
 	const dash = $derived<Dashboard | null>(data.dashboard ?? null);
+	/** Identité du coach (prénom + photo CRM) : avatar du message du jour. */
+	const coachProfile = $derived((data.coach ?? null) as { prenom: string; profilePhotoUrl: string | null } | null);
 
 	/* ── MODE AUTONOMIE (post-coaching) — repli sûr : absent = coaching ──
 	   Outils et données 100 % conservés ; seules les sollicitations du coaching
@@ -265,6 +277,8 @@
 	    « Rendez-vous » : libellé INVARIABLE, même gabarit que les autres (§16).
 	    MODE AUTONOMIE : le raccourci disparaît (retour Coaching = réapparaît). */
 	const chips = $derived([
+		// « Rendez-vous » en première position (visible à l'ouverture) ; l'ordre des
+		// autres raccourcis est inchangé. Conditions et badges existants conservés.
 		...(autonomy ? [] : [{ href: '/espace/rendez-vous', label: 'Rendez-vous', icon: 'calendarCheck', badge: 0 }]),
 		{ href: '/recettes', label: 'Recettes', icon: 'chefHat', badge: 0 },
 		{ href: '/espace/ressources', label: 'Drive', icon: 'cloud', badge: 0 },
@@ -454,6 +468,22 @@
 	});
 	/** Hauteur relative des barres (0 si aucune donnée → tous les repères gris). */
 	const stepsLast7Max = $derived(Math.max(0, ...stepsLast7.map((d) => d.count ?? 0)));
+	/** Lecture vocale de l'histogramme : seules les journées réellement renseignées sont comptées. */
+	const stepsChartLabel = $derived(
+		`7 derniers jours : ${stepsLast7.filter((day) => day.count !== null).length} jour${stepsLast7.filter((day) => day.count !== null).length > 1 ? 's renseignés' : ' renseigné'}`
+	);
+
+	/* ————— Hydratation (carte du kit Claude v2, sous « Pas ») —————
+	   Même source de vérité que l'écran « Mon hydratation » et le CRM :
+	   hydrationEntries agrégées par jour (loader, lecture pure).
+	   Affichage du jour LOCAL uniquement (dayFresh) : jamais la veille. */
+	type HydrationHistoryData = { goalMl: number; days: { date: string; ml: number }[] } | null;
+	const hydrationHistory = $derived((data.hydrationHistory ?? null) as HydrationHistoryData);
+	const hydrationToday = $derived(dayFresh ? (hydrationHistory?.days.find((d) => d.date === todayISO)?.ml ?? null) : null);
+	const hydrationGoal = $derived(hydrationHistory?.goalMl ?? null);
+	/** Anneau r = 23 → circonférence 2π·23 ≈ 144.5 (maquette Claude v2). */
+	const hydrationRing = $derived(hydrationToday !== null && hydrationGoal ? Math.min(hydrationToday / hydrationGoal, 1) : 0);
+	const hydrationPct = $derived(Math.round(hydrationRing * 100));
 	// Tendance du poids : delta entre la première et la dernière pesée de la fenêtre.
 	const weightDelta = $derived.by(() => {
 		const w = weightTrendShown ?? [];
@@ -488,16 +518,48 @@
 	const optimisticFresh = $derived(
 		optimisticMetrics !== null && nowTick - optimisticMetrics.savedAt < SHARED_TTL_MS
 	);
+	/* Saisie rapide du poids (feuille de l'Accueil) : la pesée enregistrée s'affiche
+	   immédiatement, avant la revalidation serveur ; elle est levée ensuite. */
+	let weightOverride = $state<{ kg: number; date: string } | null>(null);
+	let weightSheetOpen = $state(false);
+	let hydrationSheetOpen = $state(false);
+	function openHydrationSheet() {
+		hydrationSheetOpen = true;
+	}
+	/** Après une prise d'eau : la carte Hydratation (total, %, anneau) est revalidée. */
+	async function onHydrationSaved() {
+		await invalidateAll();
+	}
 	const lastWeightKgShown = $derived(
-		optimisticFresh && optimisticMetrics
-			? (optimisticMetrics.measurements.filter((m) => m.weightKg !== undefined).at(-1)?.weightKg ?? dash?.progression.lastWeightKg ?? null)
-			: (dash?.progression.lastWeightKg ?? null)
+		weightOverride
+			? weightOverride.kg
+			: optimisticFresh && optimisticMetrics
+				? (optimisticMetrics.measurements.filter((m) => m.weightKg !== undefined).at(-1)?.weightKg ?? dash?.progression.lastWeightKg ?? null)
+				: (dash?.progression.lastWeightKg ?? null)
 	);
 	const lastWeightDateShown = $derived(
-		optimisticFresh && optimisticMetrics
-			? (optimisticMetrics.measurements.filter((m) => m.weightKg !== undefined).at(-1)?.date ?? dash?.progression.lastWeightDate ?? null)
-			: (dash?.progression.lastWeightDate ?? null)
+		weightOverride
+			? weightOverride.date
+			: optimisticFresh && optimisticMetrics
+				? (optimisticMetrics.measurements.filter((m) => m.weightKg !== undefined).at(-1)?.date ?? dash?.progression.lastWeightDate ?? null)
+				: (dash?.progression.lastWeightDate ?? null)
 	);
+	function openWeightSheet() {
+		weightSheetOpen = true;
+	}
+	/** Après enregistrement : carte Poids + « Ma progression » à jour sur l'heure,
+	 *  puis revalidation serveur (source de vérité). */
+	async function onWeightSaved(kg: number, date: string) {
+		weightOverride = { kg, date };
+		if (applyWeightLocally(kg, date)) optimisticMetrics = getSharedMetrics() ?? null;
+		try {
+			await invalidateAll();
+			weightOverride = null;
+			optimisticMetrics = null;
+		} catch {
+			// Revalidation en échec : on garde l'affichage optimiste (la pesée est bien enregistrée).
+		}
+	}
 	const weightTrendShown = $derived(
 		optimisticFresh && optimisticMetrics
 			? optimisticMetrics.measurements
@@ -598,6 +660,11 @@
 		perfTracked.length > 0 ? Math.round(perfTracked.reduce((s, d) => s + d.totals.kcal, 0) / perfTracked.length) : null
 	);
 	const perfKcalGoal = $derived(perfWeek?.goals.kcal ?? dash?.tracking.kcalGoal ?? null);
+	const perfKcalPct = $derived(
+		perfKcalAvg !== null && perfKcalGoal !== null && perfKcalGoal > 0
+			? Math.min(100, Math.round((perfKcalAvg / perfKcalGoal) * 100))
+			: 0
+	);
 	/** Déficit cumulé estimé sur la semaine à ce jour (0 si un jour dépasse sa cible). */
 	const perfDeficit = $derived.by(() => {
 		if (!perfWeek || perfTracked.length === 0) return null;
@@ -797,10 +864,11 @@
 
 <svelte:head><title>Accueil — G-Flux</title></svelte:head>
 
+<div class="gflux-home-content">
 <!-- Apparitions (stagger CSS) : uniquement au chargement complet — voir « Motion G-FLUX » dans layout.css -->
 <!-- ═══════════ En-tête ═══════════ -->
-<header class="m-in mb-5 mt-1">
-	<h1 class="font-display text-[30px] font-semibold leading-tight tracking-tight text-ink sm:text-3xl">{greeting.title}</h1>
+<header class="gflux-home-greeting m-in mb-4 px-1 pt-0">
+	<h1 class="text-ink page-title">{greeting.title}</h1>
 	<p class="mt-1 text-sm text-mist">{greeting.dayLine ?? `${todayLabel} — voici où tu en es.`}</p>
 </header>
 
@@ -820,11 +888,11 @@
 {/if}
 
 <!-- ═══════════ Raccourcis horizontaux (désengorgent l'Accueil) ═══════════ -->
-<nav class="m-in -mx-4 mb-6 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:flex-wrap md:overflow-visible md:px-0" aria-label="Raccourcis" style="--m-i: 1">
+<nav class="gflux-home-shortcuts m-in -mx-5 mb-6 flex gap-2 overflow-x-auto px-5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:flex-wrap md:overflow-visible md:px-0" aria-label="Raccourcis" style="--m-i: 1">
 	{#each chips as chip (chip.href)}
 		<a
 			href={chip.href}
-			class="tap group flex shrink-0 items-center gap-2 rounded-full border border-line bg-card py-1.5 pl-1.5 pr-4 text-sm font-bold text-ink shadow-sm hover:border-brand/60 hover:shadow"
+			class="tap group flex h-12 shrink-0 items-center gap-2 rounded-full border border-line bg-card pl-1.5 pr-4 text-sm font-bold text-ink shadow-sm hover:border-brand/60 hover:shadow"
 		>
 			<span class="grid h-8 w-8 place-items-center rounded-full bg-brand-light text-brand transition group-hover:bg-brand group-hover:text-white">
 				<Icon name={chip.icon} size={16} class="shrink-0" />
@@ -885,20 +953,13 @@
 		     et reste consultable dans la section Messages. -->
 		{#if dash?.coachMessage && !dash.coachMessage.read}
 			{@const msg = dash.coachMessage}
-			<div class="rounded-3xl border border-brand bg-brand-light px-5 py-4 ring-1 ring-brand/30">
-				<div class="flex items-start justify-between gap-2">
+			<div out:fade={{ duration: 220 }} class="rounded-3xl border border-brand bg-brand-light px-5 py-4 ring-1 ring-brand/30">
+				<div class="flex items-center gap-3">
+					<CoachAvatar url={coachProfile?.profilePhotoUrl ?? null} name={coachProfile?.prenom ?? 'Coach'} size={36} />
 					<p class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-brand-dark">
-						Message de ton coach
+						Ton coach
 						<span class="badge-in rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Nouveau</span>
 					</p>
-					<button
-						type="button"
-						onclick={markMsgRead}
-						disabled={msgReadBusy}
-						class="tap inline-flex shrink-0 items-center gap-1 rounded-full border-2 border-brand/30 bg-white px-3 py-1 text-xs font-bold text-brand-dark hover:border-brand disabled:opacity-60"
-					>
-						<Icon name="check" size={14} class="shrink-0" /> Vu
-					</button>
 				</div>
 				{#if msg.text}
 					<p class="mt-1.5 text-[15px] leading-relaxed text-ink">{msg.text}</p>
@@ -910,7 +971,15 @@
 						<AudioPlayer src={a.url} durationMs={a.durationMs} onFirstPlay={() => listen(a.mediaId)} />
 					</div>
 				{/if}
-				<p class="mt-2 text-[11px] text-mist">Une fois lu, ce message reste dans <a href="/espace/messages" class="font-semibold text-brand-dark">Messages</a>.</p>
+				<button
+					type="button"
+					onclick={markMsgRead}
+					disabled={msgReadBusy}
+					class="tap mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
+				>
+					<Icon name="check" size={16} strokeWidth={2.5} /> J'ai lu
+				</button>
+				<p class="mt-2 text-center text-[11px] text-mist">Une fois lu, ce message reste dans <a href="/espace/messages" class="font-semibold text-brand-dark">Messages</a>.</p>
 			</div>
 		{/if}
 
@@ -1004,7 +1073,7 @@
 <!-- ═══════════ À faire (uniquement s'il y a des actions) ═══════════ -->
 {#if actions.length > 0}
 	<section class="m-in mt-4 space-y-3" style="--m-i: 3">
-		<h2 class="px-1 text-[11px] font-bold uppercase tracking-widest text-mist">À faire</h2>
+		<h2 class="px-1 text-[11px] font-black uppercase tracking-widest text-mist">À faire</h2>
 		{#each actions as action (action.id)}
 			<div class="rounded-3xl border px-5 py-4 transition {action.strong ? 'border-brand bg-brand-light' : 'border-line bg-card shadow-sm'}">
 				<a href={action.href} class="tap block">
@@ -1034,128 +1103,170 @@
 	</section>
 {/if}
 
-<!-- ═══════════ KPI compacts « Aujourd'hui » (2 par ligne) ═══════════ -->
+<!-- ═══════════ Accueil — cartes du lot 1 ═══════════ -->
 {#if dash}
-	<section aria-label="Aujourd'hui" class="m-in mt-7" style="--m-i: 4">
+	<section aria-label="Aujourd'hui" class="m-in mt-5" style="--m-i: 4">
 		<div class="flex items-center justify-between px-1">
-			<h2 class="text-[11px] font-bold uppercase tracking-widest text-mist">Aujourd'hui</h2>
+			<h2 class="text-[11px] font-black uppercase tracking-widest text-mist">Aujourd'hui</h2>
 			<span class="text-[11px] text-mist">{todayLabel}</span>
 		</div>
 
-		<!-- Équilibre premium : Pas compacte (2/5) car moins d'informations,
-		     Calories plus présente (3/5) depuis l'ajout des macros. Poids / Cycle
-		     restent sur la grille 2 colonnes historique. -->
-		<div class="mt-2 grid grid-cols-5 gap-3">
-			<!-- PAS → vue statistiques « Mes pas » (7 derniers jours) -->
-			<a
-				href="/espace/pas"
-				class="tap tap-shadow group col-span-2 flex h-full flex-col rounded-3xl border border-line bg-card p-4 text-left shadow-sm hover:border-brand/50"
-			>
-				<div class="flex items-center justify-between gap-1">
-					<span class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-mist"><Icon name="footprints" size={14} class="shrink-0 text-brand" /> Pas</span>
-					<Icon name="chevronRight" size={15} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
-				</div>
-				<p class="mt-2 font-display text-3xl font-bold leading-none tracking-tight text-ink tabular-nums">
-					{#key data.today}<CountUp value={todaySteps ?? 0} format={fmt} duration={550} />{/key} <span class="text-sm font-semibold text-mist">pas</span>
-				</p>
-				<p class="mt-1.5 flex items-center gap-1 text-xs font-semibold {stepsReached ? 'text-brand-dark' : 'text-mist'}">
-					{#if stepsReached}
-						<Icon name="circleCheck" size={13} class="shrink-0" />
-						Objectif du jour atteint
-					{:else if todaySteps !== null && stepGoal !== null}
-						<span class="min-w-0 truncate">Aujourd'hui · {fmt(todaySteps)} / {fmt(stepGoal)} pas</span>
-					{:else}
-						<span class="min-w-0 truncate">{todaySteps === 0 && !dayFresh ? 'Synchronisation de la journée…' : "Aujourd'hui · Voir mes statistiques"}</span>
-					{/if}
-				</p>
-				<!-- Tendance discrète des 7 derniers jours (données déjà chargées
-				     par le dashboard — aucune logique métier nouvelle). Le SVG
-				     s'adapte à la largeur de la colonne (petits écrans compris). -->
-				{#if stepsLast7.some((d) => d.count !== null)}
-					<!-- Zone secondaire — MÊME GRAMMAIRE que les macros de la carte
-				     Calories : séparateur léger + même respiration (pt-2.5).
-				     Ancrée en bas (mt-auto) : les deux cartes de la rangée partagent
-				     la même structure verticale (haut = info principale, bas = info
-				     secondaire alignée). Mini histogramme des 7 derniers jours
-				     TERMINÉS (J-7 → J-1) : aujourd'hui n'y entre jamais (c'est la
-				     valeur du jour, au-dessus) ; un jour sans saisie = repère gris,
-				     jamais un 0 inventé. -->
-					<div class="mt-auto border-t border-line pt-2.5">
-						<div class="flex w-full items-end gap-1.5">
-						<!-- Hauteur calée sur le bloc macros (label + ring + valeur =
-						     60 px) : les deux zones secondaires démarrent à la même
-						     hauteur, barres ancrées en bas. -->
-						<div class="flex h-[60px] min-w-0 flex-1 items-end gap-1" aria-hidden="true">
-							{#each stepsLast7 as d, i (d.date)}
-								{@const h = d.count !== null && stepsLast7Max > 0 ? Math.max(12, Math.round((d.count / stepsLast7Max) * 38)) : 5}
-									<div
-										class="w-full flex-1 rounded-full {d.count !== null ? 'bg-brand/45' : 'bg-line/60'}"
-										style="height: {h}px"
-									></div>
-								{/each}
-							</div>
-							<span class="shrink-0 pb-0.5 text-[9px] font-bold uppercase tracking-wider text-mist/70">7 j</span>
-						</div>
-					</div>
-				{/if}
-			</a>
-
-			<!-- CALORIES -->
+		<!-- Calories en carte principale, puis histogramme des pas : composition
+		     du lot 1. L'ordre visuel change, jamais les sources ni les seuils métier. -->
+		<div class="gflux-home-today-cards mt-3 flex flex-col gap-3">
+			<!-- CALORIES : progression journalière et anneaux de macros dynamiques -->
 			<a
 				href="/espace/journal"
-				class="tap tap-shadow group col-span-3 rounded-3xl border border-line bg-card p-4 shadow-sm hover:border-brand/50"
+				class="gflux-home-calories tap tap-shadow order-1 block rounded-3xl border border-line p-5 shadow-sm hover:border-brand/50"
+				style="background:radial-gradient(120% 90% at 100% 0%,var(--color-brand-light) 0%,transparent 62%),var(--color-card)"
 			>
-				<div class="flex items-center justify-between gap-1">
-					<span class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-mist"><Icon name="flame" size={14} class="shrink-0 text-brand" /> Calories</span>
-					<Icon name="chevronRight" size={15} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
+				<div class="flex items-center justify-between gap-2">
+					<span class="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-mist">
+						<span class="grid h-[34px] w-[34px] place-items-center rounded-xl bg-brand-light"><span aria-hidden="true" class="gflux-kcal-pulse h-1.5 w-1.5 rounded-full bg-brand"></span></span>
+						Calories
+					</span>
+					<span class="shrink-0 rounded-xl bg-brand-light px-3 py-1.5 text-xs font-bold text-brand-deep">Objectif {fmt(dash.tracking.kcalGoal)}</span>
 				</div>
-				<p class="mt-2 font-display text-3xl font-bold leading-none tracking-tight text-ink tabular-nums">
-					{#key data.today}<CountUp value={kcalToday} format={fmt} duration={550} />{/key} <span class="text-sm font-semibold text-mist">kcal</span>
+				<p class="mt-4 flex items-baseline gap-2 font-display leading-none">
+					<span class="text-[60px] font-black tracking-tight text-ink tabular-nums">{#key data.today}<CountUp value={kcalToday} format={fmt} duration={550} />{/key}</span>
+					<span class="text-base font-bold text-mist">kcal</span>
 				</p>
-				<div class="mt-2 h-1.5 overflow-hidden rounded-full bg-line/70">
+				<div class="mt-4 h-2.5 overflow-hidden rounded-full bg-line/70" aria-label="Progression des calories" role="img">
 					<div class="h-full rounded-full transition-all duration-500 {kcalBarClass}" style="width: {kcalPct}%"></div>
 				</div>
-				<p class="mt-1.5 flex items-center gap-1 text-xs font-semibold {kcalStatusClass}">
-					{#if kcalState === 'aligned'}
-						<Icon name="circleCheck" size={13} class="shrink-0" />
-					{/if}
-					<span class="min-w-0 truncate">{kcalStatusText}</span>
+				<p class="mt-2 text-sm text-mist" class:font-bold={kcalState === 'aligned'} class:text-brand-dark={kcalState === 'aligned'}>
+					{#if kcalState === 'aligned'}<Icon name="circleCheck" size={14} class="mr-1 inline" />{/if}
+					{kcalStatusText}
 				</p>
-				<!-- Aperçu compact macros (Glucides | Protéines | Lipides) — même
-				     ordre, mêmes couleurs et mêmes valeurs que le Journal. -->
-				<MacroLine data={macroState} />
+				<!-- Aperçu compact macros (Glucides | Protéines | Lipides) — valeurs existantes du Journal. -->
+				<MacroLine data={macroState} featured />
 			</a>
+
+			<!-- PAS : donnée du jour à gauche, mini-histogramme réel J-7 → J-1 à droite. -->
+			<a
+				href="/espace/pas"
+				class="gflux-home-steps tap tap-shadow group order-2 block rounded-3xl border border-line bg-card p-4 shadow-sm hover:border-brand/50 sm:p-[18px]"
+			>
+				<div class="flex min-h-[104px] items-stretch gap-3">
+					<div class="flex min-w-0 flex-1 flex-col justify-between">
+						<div class="flex items-center gap-2">
+							<span class="grid h-[34px] w-[34px] place-items-center rounded-xl bg-brand-light text-brand"><Icon name="footprints" size={19} /></span>
+							<span aria-hidden="true" class="gflux-kcal-pulse h-1.5 w-1.5 shrink-0 rounded-full bg-brand"></span>
+							<span class="text-[11px] font-black uppercase tracking-widest text-mist">Pas</span>
+						</div>
+						<p class="mt-2 font-display text-4xl font-black leading-none tracking-tight text-ink tabular-nums">
+							{#key data.today}<CountUp value={todaySteps ?? 0} format={fmt} duration={550} />{/key} <span class="text-sm font-bold text-mist">pas</span>
+						</p>
+						<p class="mt-1.5 flex items-center gap-1 text-xs font-semibold {stepsReached ? 'text-brand-dark' : 'text-mist'}">
+							{#if stepsReached}
+								<Icon name="circleCheck" size={13} class="shrink-0" /> Objectif du jour atteint
+							{:else if todaySteps !== null && stepGoal !== null}
+								<span class="min-w-0 truncate">Aujourd'hui · {fmt(todaySteps)} / {fmt(stepGoal)} pas</span>
+							{:else}
+								<span class="min-w-0 truncate">{todaySteps === 0 && !dayFresh ? 'Synchronisation de la journée…' : "Aujourd'hui · Voir le détail"}</span>
+							{/if}
+						</p>
+					</div>
+					<div class="flex w-[118px] shrink-0 flex-col justify-end" role="img" aria-label={stepsChartLabel}>
+						<div class="flex h-14 items-end justify-between gap-1">
+							{#each stepsLast7 as d (d.date)}
+								{@const h = d.count !== null && stepsLast7Max > 0 ? Math.max(8, Math.round((d.count / stepsLast7Max) * 52)) : 8}
+								<div class="min-w-0 flex-1 rounded-md {d.count !== null ? 'bg-brand/35' : 'bg-line/70'}" style="height:{h}px" title={d.count !== null ? `${fmt(d.count)} pas` : 'Aucune donnée'}></div>
+							{/each}
+						</div>
+						<div class="mt-1.5 flex items-center justify-between border-t border-line pt-1.5 text-[9px] font-black uppercase tracking-wider text-mist/70">
+							<Icon name="chevronRight" size={14} />
+							<span>7 j</span>
+						</div>
+					</div>
+				</div>
+			</a>
+
+			<!-- HYDRATATION : carte du kit Claude v2 (sous « Pas ») — total du
+			     jour local + anneau de progression, ouvre l'écran détaillé.
+			     Masquée tant que le module backend n'est pas disponible (loader
+			     null) : l'Accueil ne casse jamais, la carte apparaît seule. -->
+			{#if hydrationHistory}
+			<div class="gflux-home-hydration group relative order-3 rounded-3xl border border-line bg-card shadow-sm hover:border-brand/50">
+				<!-- Bouton + : frère du lien, jamais de navigation vers « Mon hydratation » -->
+				<button
+					type="button"
+					onclick={openHydrationSheet}
+					aria-haspopup="dialog"
+					aria-label="Ajouter de l'eau"
+					class="tap absolute bottom-[60px] left-[calc(50%+28px)] z-10 grid h-8 w-8 place-items-center rounded-full bg-brand-light text-brand-dark transition hover:bg-brand hover:text-white"
+				>
+					<Icon name="plus" size={16} strokeWidth={2.5} />
+				</button>
+				<a href="/espace/hydratation" class="tap tap-shadow block rounded-3xl p-[18px]">
+					<div class="flex min-h-[104px] items-stretch gap-3.5">
+						<div class="flex min-w-0 flex-1 flex-col justify-between">
+							<div class="flex items-center gap-2">
+								<Icon name="droplet" size={18} class="shrink-0 text-brand" />
+								<span aria-hidden="true" class="gflux-kcal-pulse h-1.5 w-1.5 shrink-0 rounded-full bg-brand"></span>
+								<span class="text-[11px] font-black uppercase tracking-widest text-mist">Hydratation</span>
+							</div>
+							<p class="mt-2 whitespace-nowrap font-display text-4xl font-black leading-none tracking-tight text-ink tabular-nums">
+								{#key hydrationToday}{hydrationToday !== null ? fmt(hydrationToday) : '—'}{/key}
+								<span class="text-[15px] font-bold text-mist">/ {hydrationGoal !== null ? fmt(hydrationGoal) : '—'} ml</span>
+							</p>
+							<p class="mt-1.5 text-[13px] text-mist">Aujourd'hui · Voir le détail</p>
+						</div>
+						<div class="flex w-[118px] shrink-0 flex-col justify-end">
+							<div class="flex justify-end">
+								<div class="relative h-14 w-14" role="img" aria-label={`Objectif d'hydratation atteint à ${hydrationPct} %`}>
+									<svg width="56" height="56" viewBox="0 0 56 56" aria-hidden="true">
+										<circle cx="28" cy="28" r="23" fill="none" class="stroke-line" stroke-width="6" />
+										<circle
+											cx="28" cy="28" r="23" fill="none"
+											class="stroke-brand transition-all duration-500"
+											stroke-width="6" stroke-linecap="round"
+											stroke-dasharray={`${(hydrationRing * 144.5).toFixed(1)} 144.5`}
+											transform="rotate(-90 28 28)"
+										/>
+									</svg>
+									<span class="absolute inset-0 grid place-items-center font-display text-[13px] font-black text-ink">{hydrationPct} %</span>
+								</div>
+							</div>
+							<div class="mt-1.5 flex items-center justify-between border-t border-line pt-1.5">
+								<Icon name="chevronRight" size={14} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
+								<span class="text-[11px] font-black uppercase tracking-wider text-mist/70">Objectif</span>
+							</div>
+						</div>
+					</div>
+				</a>
+			</div>
+			{/if}
 		</div>
 
 		<div class="mt-3 grid grid-cols-2 gap-3">
-			<!-- POIDS -->
-			<a
-				href="/espace/progression"
-				class="tap tap-shadow group rounded-3xl border border-line bg-card p-4 shadow-sm hover:border-brand/50"
+			<!-- POIDS : saisie rapide dans une feuille (sans changer de page) -->
+			<button
+				type="button"
+				onclick={openWeightSheet}
+				aria-haspopup="dialog"
+				class="tap tap-shadow group rounded-3xl border border-line bg-card p-4 text-left shadow-sm hover:border-brand/50"
 			>
 				<div class="flex items-center justify-between gap-1">
-					<span class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-mist"><Icon name="scale" size={14} class="shrink-0 text-brand" /> Poids</span>
+					<span class="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-mist"><Icon name="scale" size={14} class="shrink-0 text-brand" /> Poids</span>
 					<Icon name="chevronRight" size={15} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
 				</div>
-				<p class="mt-2 font-display text-3xl font-bold leading-none tracking-tight text-ink tabular-nums">
-					{#if lastWeightKgShown !== null}{#key lastWeightKgShown}<CountUp value={lastWeightKgShown} format={fmtKg} duration={450} minFrom={0.985} distanceCap={4} />{/key} kg{:else}—{/if}
+				<p class="mt-2 font-display text-4xl font-black leading-none tracking-tight text-ink tabular-nums">						{#if lastWeightKgShown !== null}{#key lastWeightKgShown}<CountUp value={lastWeightKgShown} format={fmtKg} duration={450} minFrom={0.985} distanceCap={4} />{/key} <span class="text-[16px] font-bold text-mist">kg</span>{:else}—{/if}
 				</p>
-				<div class="mt-1.5 flex items-center justify-between gap-2">
-					<p class="min-w-0 truncate text-xs text-mist">
-						{#if weightDelta !== null}<span class="font-semibold {weightDelta <= 0.05 ? 'text-brand-dark' : 'text-mist'}">{weightDeltaLabel(weightDelta)}</span>{:else}Ta progression ici{/if}					</p>
-						{#if !autonomy}
+				<!-- Badges : insécables et adaptatifs — le second passe à la ligne plutôt que d'être tronqué -->
+				<div class="mt-1.5 flex flex-wrap items-center gap-1.5">
+					{#if weightDelta !== null}<span class="inline-flex max-w-full items-center whitespace-nowrap rounded-full bg-brand-light px-2.5 py-1 text-[12px] font-bold leading-none text-brand-deep">{weightDeltaLabel(weightDelta)}</span>{:else}<p class="min-w-0 text-xs text-mist">Ta progression ici</p>{/if}
+					{#if !autonomy}
 
 							{#if peseesDone}
-								<span class="inline-flex shrink-0 items-center gap-1 rounded-full bg-brand-light px-2 py-0.5 text-[11px] font-bold text-brand-dark">
+								<span class="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-brand-light px-2 py-1 text-[11px] font-bold leading-none text-brand-dark">
 									<Icon name="circleCheck" size={12} class="shrink-0" /> Pesées 3/3
 								</span>
 							{:else}
-								<span class="shrink-0 text-[11px] font-semibold tabular-nums text-mist">Pesées {peseesCount}/3</span>
-							{/if}
-						{/if}
+								<span class="inline-flex items-center whitespace-nowrap rounded-full bg-soft px-2 py-1 text-[11px] font-semibold leading-none tabular-nums text-mist">Pesées {peseesCount}/3</span>							{/if}
+					{/if}
 				</div>
-			</a>
-
+			</button>
 			<!-- CYCLE -->
 			<button
 				type="button"
@@ -1163,12 +1274,11 @@
 				class="tap tap-shadow group rounded-3xl border border-line bg-card p-4 text-left shadow-sm hover:border-brand/50"
 			>
 				<div class="flex items-center justify-between gap-1">
-					<span class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-mist"><Icon name="flower2" size={14} class="shrink-0 text-brand" /> Cycle</span>
+					<span class="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-mist"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true" class="shrink-0 text-brand"><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"></circle><path d="M12 9.5C10 7.5 10 4.5 12 3c2 1.5 2 4.5 0 6.5ZM14.5 12c2-2 5-2 6.5 0-1.5 2-4.5 2-6.5 0ZM12 14.5c2 2 2 5 0 6.5-2-1.5-2-4.5 0-6.5ZM9.5 12c-2 2-5 2-6.5 0 1.5-2 4.5-2 6.5 0Z"></path></svg> Cycle</span>
 					<Icon name="chevronRight" size={15} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
 				</div>
 				{#if cycle.kind === 'empty'}
-					<p class="mt-2 font-display text-xl font-bold leading-none tracking-tight text-ink">À configurer</p>
-					<p class="mt-1.5 text-xs text-brand-dark">Touche pour renseigner ton cycle</p>
+					<p class="mt-2 font-display text-xl font-black leading-none tracking-tight text-ink">À configurer</p>						<p class="mt-1.5 text-xs text-brand-dark">Touche pour renseigner ton cycle</p>
 				{:else if cycle.kind === 'hormonal'}
 					<p class="mt-2 font-display text-xl font-bold leading-none tracking-tight text-ink">Non concernée</p>
 					<p class="mt-1.5 text-xs text-mist">Suivi adapté à ta contraception</p>
@@ -1233,17 +1343,35 @@
 	</section>
 {/if}
 
+<!-- Feuille de saisie rapide du poids (carte Poids) -->
+<WeightQuickSheet
+	open={weightSheetOpen}
+	date={currentLocalDay()}
+	lastKg={lastWeightKgShown}
+	lastDate={lastWeightDateShown}
+	onClose={() => (weightSheetOpen = false)}
+	onSaved={onWeightSaved}
+/>
+
+<!-- Feuille d'ajout rapide d'eau (carte Hydratation) -->
+<HydrationQuickSheet
+	open={hydrationSheetOpen}
+	date={currentLocalDay()}
+	onClose={() => (hydrationSheetOpen = false)}
+	onSaved={onHydrationSaved}
+/>
+
 <!-- ═══════════ Ma progression ═══════════ -->
 <!-- NB : class commence par « group » immédiatement après href (ancre e2e-sport-ui). -->
 <a href="/espace/progression" class="group m-in tap tap-shadow mt-4 block rounded-3xl border border-line bg-card p-5 shadow-sm hover:border-brand" style="--m-i: 5">
 	<div class="flex items-center justify-between gap-3">
-		<h2 class="text-[11px] font-bold uppercase tracking-widest text-mist">Ma progression</h2>
-		<Icon name="trendingUp" size={20} class="text-brand" />
+		<h2 class="text-[11px] font-black uppercase tracking-widest text-mist">Ma progression</h2>
+		<span class="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-brand-light text-brand"><Icon name="trendingUp" size={18} /></span>
 	</div>
 	<div class="mt-2 flex items-center justify-between gap-3">
 		<div class="min-w-0">
-			<p class="font-display text-4xl font-bold leading-none tracking-tight text-ink">
-				{#if lastWeightKgShown !== null}{#key lastWeightKgShown}<CountUp value={lastWeightKgShown} format={fmtKg} duration={450} minFrom={0.985} distanceCap={4} />{/key} kg{:else}—{/if}
+			<p class="font-display text-4xl font-black leading-none tracking-tight text-ink tabular-nums">
+				{#if lastWeightKgShown !== null}{#key lastWeightKgShown}<CountUp value={lastWeightKgShown} format={fmtKg} duration={450} minFrom={0.985} distanceCap={4} />{/key} <span class="text-[16px] font-bold text-mist">kg</span>{:else}—{/if}
 			</p>
 			{#if weightDelta !== null}
 				<p class="mt-1.5 text-xs font-semibold {weightDelta <= 0.05 ? 'text-brand-dark' : 'text-mist'}">{weightDeltaLabel(weightDelta)} · dernière pesée {fmtShortDate(lastWeightDateShown)}</p>
@@ -1252,7 +1380,7 @@
 			{/if}
 		</div>
 		{#if weightTrendPts.length >= 2}
-			<div class="shrink-0"><Sparkline points={weightTrendPts} color="#1db954" width={150} height={48} drawIn /></div>
+			<div class="shrink-0"><Sparkline points={weightTrendPts} color="#1db954" width={158} height={64} drawIn /></div>
 		{:else if weightTrendPts.length === 1}
 			<div class="shrink-0"><p class="rounded-xl border border-dashed border-line px-3 py-3 text-center text-[11px] leading-snug text-mist">Tendance bientôt<br />disponible</p></div>
 		{/if}
@@ -1266,47 +1394,63 @@
 <!-- ═══════════ Performance — aperçu de la semaine (lundi → dimanche) ═══════════ -->
 <a
 	href="/espace/performance"
-	class="m-in tap tap-shadow group mt-4 block rounded-3xl border border-line bg-card p-5 shadow-sm hover:border-brand"
+	class="gflux-home-performance m-in tap tap-shadow group mt-4 block rounded-3xl border border-line bg-card p-5 shadow-sm hover:border-brand"
 	style="--m-i: 6"
 >
 	<div class="flex items-center justify-between gap-3">
-		<h2 class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-mist">
-			<Icon name="chartColumn" size={14} class="shrink-0 text-brand" /> Performance
+		<h2 class="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-mist">
+			<span class="grid h-8 w-8 place-items-center rounded-xl bg-brand-light text-brand"><Icon name="chartColumn" size={18} /></span>
+			Performance
 		</h2>
-		<Icon name="chevronRight" size={16} class="text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
+		<span class="inline-flex h-[30px] items-center gap-0.5 rounded-full bg-brand-light pl-3 pr-2 text-xs font-black text-brand-deep transition group-hover:bg-brand group-hover:text-white">Voir <Icon name="chevronRight" size={15} /></span>
 	</div>
 	{#if perfWeek}
-		<div class="mt-3">
-			<PerformanceWeekCard days={perfWeek.days} goals={perfWeek.goals} today={perfToday} compact />
+		<div class="mt-4">
+			<PerformanceWeekCard days={perfWeek.days} goals={perfWeek.goals} today={perfToday} compact featured />
 		</div>
 	{:else}
-		<!-- État neutre : aucune valeur inventée tant que la semaine n'est pas chargée -->
-		<div class="mt-3 grid grid-cols-7 gap-1.5">
+		<!-- Squelette aux dimensions finales : semaine et anneaux issus du journal existant. -->
+		<div class="mt-4 grid grid-cols-7 gap-1">
 			{#each Array(7) as _, i (i)}
-				<div class="flex flex-col items-center gap-1">
-					<span class="h-2.5 w-2.5 animate-pulse rounded-full bg-line"></span>
-					<div class="h-14 w-full max-w-[14px] rounded-full bg-line/40"></div>
-					<div class="h-9 w-9 rounded-full border-2 border-dashed border-line/70"></div>
-					<span class="h-2 w-6 rounded bg-line/40"></span>
+				<div class="flex flex-col items-center gap-2">
+					<span class="h-3 w-3 animate-pulse rounded-full bg-line"></span>
+					<div class="h-[116px] w-full max-w-6 rounded-full bg-line/40"></div>
+					<div class="h-[38px] w-[38px] rounded-full border-[3px] border-dashed border-line/70"></div>
+					<span class="h-3 w-8 rounded bg-line/40"></span>
 				</div>
 			{/each}
 		</div>
 	{/if}
-	<div class="mt-3 flex items-center justify-between gap-2 border-t border-line pt-3">
-		<p class="min-w-0 text-xs font-semibold leading-snug {perfKcalAvg !== null ? 'text-brand-dark' : 'text-mist'}">
-			{#if perfKcalAvg !== null}
-					{#key perfKcalAvg}<CountUp value={perfKcalAvg} format={fmt} duration={450} />{/key} kcal de moyenne · objectif {perfKcalGoal !== null ? fmt(perfKcalGoal) : '—'}
-				{#if perfDeficit !== null && perfDeficit > 0}
-					· déficit cumulé ~{fmt(perfDeficit)} kcal
-				{/if}
-				{#if perfTracked.length > 0}
-					<span class="whitespace-nowrap">sur {perfTracked.length} jour{perfTracked.length > 1 ? 's' : ''} renseigné{perfTracked.length > 1 ? 's' : ''}</span>
-				{/if}
+	<div class="mt-4 border-t border-line pt-4">
+		<div class="grid grid-cols-[1.2fr_1fr_1fr]">
+			<div class="min-w-0 pr-2">
+				<p class="text-[9px] font-black uppercase tracking-[0.08em] text-mist sm:text-[10px]">Moyenne</p>
+				<p class="mt-1 flex items-baseline gap-1 font-display text-xl font-black leading-none tracking-tight text-ink tabular-nums sm:text-2xl">
+					{#if perfKcalAvg !== null}{#key perfKcalAvg}<CountUp value={perfKcalAvg} format={fmt} duration={450} />{/key}{:else}—{/if}
+					<span class="text-[10px] font-bold text-mist">kcal</span>
+				</p>
+			</div>
+			<div class="min-w-0 border-l border-line px-2">
+				<p class="text-[9px] font-black uppercase tracking-[0.08em] text-mist sm:text-[10px]">Objectif</p>
+				<p class="mt-1 truncate font-display text-xl font-black leading-none tracking-tight text-ink tabular-nums sm:text-2xl">{perfKcalGoal !== null ? fmt(perfKcalGoal) : '—'}</p>
+			</div>
+			<div class="min-w-0 border-l border-line pl-2">
+				<p class="text-[9px] font-black uppercase tracking-[0.08em] text-mist sm:text-[10px]">Déficit</p>
+				<p class="mt-1 flex items-baseline gap-0.5 truncate font-display text-xl font-black leading-none tracking-tight text-brand-deep tabular-nums sm:text-2xl">
+					{#if perfDeficit !== null}<Icon name="arrowDown" size={13} class="shrink-0" />~{fmt(perfDeficit)}{:else}—{/if}
+				</p>
+			</div>
+		</div>
+		<div class="mt-4 h-1.5 overflow-hidden rounded-full bg-line/70" role="img" aria-label={perfTracked.length > 0 ? `Moyenne à ${perfKcalPct}% de l’objectif` : 'Aucune journée renseignée'}>
+			<div class="h-full rounded-full bg-gradient-to-r from-brand-dark to-brand transition-[width] duration-500" style="width:{perfTracked.length > 0 ? perfKcalPct : 0}%"></div>
+		</div>
+		<p class="mt-2 text-[11px] leading-relaxed text-mist">
+			{#if perfTracked.length > 0}
+				Déficit cumulé sur {perfTracked.length} jour{perfTracked.length > 1 ? 's' : ''} renseigné{perfTracked.length > 1 ? 's' : ''} · moyenne à {perfKcalPct}% de l’objectif
 			{:else}
-				Ta semaine d'un coup d'œil
+				Aucune journée renseignée cette semaine
 			{/if}
 		</p>
-		<span class="shrink-0 rounded-xl bg-ink px-3 py-1.5 text-xs font-bold text-white transition group-hover:bg-brand">Voir</span>
 	</div>
 </a>
 
@@ -1318,7 +1462,7 @@
 		class="tap tap-shadow group h-full rounded-3xl border border-line bg-card p-4 text-left shadow-sm hover:border-brand/50"
 	>
 		<div class="flex items-center justify-between gap-1">
-			<span class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-mist"><Icon name="zap" size={14} class="shrink-0 text-brand" /> Dépense sportive</span>
+			<span class="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-mist"><Icon name="zap" size={14} class="shrink-0 text-brand" /> Dépense sportive</span>
 			<Icon name="chevronRight" size={15} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
 		</div>
 		{#if sportWeek && sportWeek.totals.count > 0}
@@ -1333,7 +1477,7 @@
 		     state premium — titre, texte explicatif, CTA discret vers la page
 		     dédiée (action déjà existante, aucune logique métier ajoutée).
 		     Même structure que la carte Entraînement vide → mêmes hauteurs. -->
-			<p class="mt-2 font-display text-lg font-bold leading-tight text-ink">Aucune activité</p>
+			<p class="mt-2 font-display text-lg font-bold leading-tight tracking-tight text-ink">Aucune activité</p>
 			<p class="mt-1 text-[11px] leading-snug text-mist">Ajoute une activité pour suivre ton volume de sport.</p>
 			<p class="mt-2.5 inline-flex items-center gap-1 text-[11px] font-bold text-brand-dark">
 				<Icon name="plus" size={12} class="shrink-0" /> Ajouter
@@ -1351,7 +1495,7 @@
 		class="tap tap-shadow group h-full rounded-3xl border border-line bg-card p-4 text-left shadow-sm hover:border-brand/50"
 	>
 		<div class="flex items-center justify-between gap-1">
-			<span class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-mist"><Icon name="dumbbell" size={14} class="shrink-0 text-brand" /> Entraînement</span>
+			<span class="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-mist"><Icon name="dumbbell" size={14} class="shrink-0 text-brand" /> Entraînement</span>
 			<Icon name="chevronRight" size={15} class="shrink-0 text-mist transition group-hover:translate-x-0.5 group-hover:text-brand" />
 		</div>
 		{#if trainingToFinalize}
@@ -1364,7 +1508,7 @@
 			<p class="mt-2 font-display text-lg font-bold leading-tight text-ink">Séance faite ✓</p>
 			<p class="mt-1 min-w-0 truncate text-xs font-semibold text-mist">{trainingTodayCompleted.name}</p>
 		{:else if trainingWeek?.nextSession}
-			<p class="mt-2 font-display text-lg font-bold leading-tight text-ink">Prochaine séance</p>
+			<p class="mt-2 font-display text-lg font-bold leading-tight tracking-tight text-ink">Prochaine séance</p>
 			<p class="mt-1 min-w-0 truncate text-xs font-semibold text-mist">
 				{new Date(trainingWeek.nextSession.date + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long' })}{#if trainingWeek.nextSession.name} · {trainingWeek.nextSession.name}{/if}
 			</p>
@@ -1386,38 +1530,101 @@
 
 <!-- ═══════════ Récap « Tes 7 derniers jours terminés » (fenêtre Vision 360) ═══════════ -->
 {#if recap}
-	<section class="m-in recap-card mt-4 rounded-3xl border border-brand/30 bg-brand-light p-5 shadow-sm" style="--m-i: 8">
+	<!-- Maquette : carte BLANCHE à liseré vert discret, titre vert film 900, chiffres 32px, dots jour renseigné. -->
+	<section class="m-in recap-card mt-4 rounded-3xl border border-brand/30 p-5 shadow-sm" style="--m-i: 8; background:linear-gradient(180deg,var(--color-brand-soft) 0%,#ffffff 100%)">
 		<div class="flex flex-wrap items-center justify-between gap-2">
-			<h2 class="text-[11px] font-bold uppercase tracking-widest text-brand-dark">Tes 7 derniers jours terminés</h2>
-			<span class="text-[11px] text-mist">{recapRangeLabel()}</span>
+			<h2 class="text-[11px] font-black uppercase tracking-[0.12em] text-brand-dark">Tes 7 derniers jours terminés</h2>
+			<span class="text-xs text-mist">{recapRangeLabel()}</span>
 		</div>
-		<div class="mt-4 space-y-4">
-			<div class="grid grid-cols-2 gap-3">
-				<div>
-					<p class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-mist"><Icon name="flame" size={12} class="shrink-0" /> Calories moyennes</p>
-					<p class="mt-0.5 font-display text-2xl font-semibold text-ink">{#if recap.calories.avg !== null}{#key recap.calories.avg}<CountUp value={recap.calories.avg} format={fmt} duration={450} />{/key} kcal{:else}—{/if}<span class="text-xs font-semibold text-mist"> / jour</span></p>
-					<p class="text-[11px] text-mist">
-						Objectif : {fmt(recap.calories.goal)} · {recap.calories.trackedDays} / 7 jours exploitables
-						{#if recap.calories.partialDays > 0}
-							· {recap.calories.partialDays} journée{recap.calories.partialDays > 1 ? 's' : ''} partiellement renseignée{recap.calories.partialDays > 1 ? 's' : ''} exclue{recap.calories.partialDays > 1 ? 's' : ''}
-						{/if}
-					</p>
-				</div>
-				<div>
-					<p class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-mist"><Icon name="footprints" size={12} class="shrink-0" /> Pas moyens</p>
-					<p class="mt-0.5 font-display text-2xl font-semibold text-ink">{#if recap.steps.avg !== null}{#key recap.steps.avg}<CountUp value={recap.steps.avg} format={fmt} duration={450} />{/key}{:else}—{/if}<span class="text-xs font-semibold text-mist"> / jour</span></p>
-					<p class="text-[11px] text-mist">{recap.steps.goal !== null ? `Objectif : ${fmt(recap.steps.goal)} · ` : ''}{recap.steps.trackedDays} / 7 jours renseignés</p>
+		<div class="mt-4 grid grid-cols-2 gap-4">
+			<div>
+				<p class="text-[11px] font-black uppercase tracking-[0.1em] text-mist">Calories moyennes</p>
+				<p class="mt-1.5 flex items-baseline gap-1.5 font-display tracking-tight text-ink">
+					<span class="text-[32px] font-black leading-none">{#if recap.calories.avg !== null}{#key recap.calories.avg}<CountUp value={recap.calories.avg} format={fmt} duration={450} />{/key}{:else}—{/if}</span>
+					<span class="text-[13px] font-bold text-mist">kcal / jour</span>
+				</p>
+				<p class="mt-2 text-xs text-mist">
+					Objectif : {fmt(recap.calories.goal)} · {recap.calories.trackedDays} / 7 jours exploitables
+					{#if recap.calories.partialDays > 0}
+						· {recap.calories.partialDays} journée{recap.calories.partialDays > 1 ? 's' : ''} partiellement renseignée{recap.calories.partialDays > 1 ? 's' : ''} exclue{recap.calories.partialDays > 1 ? 's' : ''}
+					{/if}
+				</p>
+				<div class="mt-2.5 flex gap-[5px]" role="img" aria-label="Jours renseignés pour les calories">
+					{#each Array(7) as _, i (i)}
+						<span class="h-1.5 w-3.5 rounded-[3px] {i < recap.calories.trackedDays ? 'bg-brand' : 'bg-line/60'}"></span>
+					{/each}
 				</div>
 			</div>
-			<div class="flex flex-wrap gap-x-5 gap-y-1 text-sm text-ink">
-				{#if !autonomy}<span class="inline-flex items-center gap-1"><Icon name="scale" size={14} class="shrink-0" /> Pesées : <strong>{Math.min(recap.weighins.count, recap.weighins.goal)} / {recap.weighins.goal}</strong>{recap.weighins.count >= recap.weighins.goal ? ' ✓' : ''}</span>{/if}
+			<div>
+				<p class="text-[11px] font-black uppercase tracking-[0.1em] text-mist">Pas moyens</p>
+				<p class="mt-1.5 flex items-baseline gap-1.5 font-display tracking-tight text-ink">
+					<span class="text-[32px] font-black leading-none">{#if recap.steps.avg !== null}{#key recap.steps.avg}<CountUp value={recap.steps.avg} format={fmt} duration={450} />{/key}{:else}—{/if}</span>
+					<span class="text-[13px] font-bold text-mist">/ jour</span>
+				</p>
+				<p class="mt-2 text-xs text-mist">{recap.steps.goal !== null ? `Objectif : ${fmt(recap.steps.goal)} · ` : ''}{recap.steps.trackedDays} / 7 jours renseignés</p>
+				<div class="mt-2.5 flex gap-[5px]" role="img" aria-label="Jours renseignés pour les pas">
+					{#each Array(7) as _, i (i)}
+						<span class="h-1.5 w-3.5 rounded-[3px] {i < recap.steps.trackedDays ? 'bg-brand' : 'bg-line/60'}"></span>
+					{/each}
+				</div>
+			</div>
+		</div>
+		{#if !autonomy}
+			<div class="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-sm text-ink">
+				<span class="inline-flex items-center gap-1"><Icon name="scale" size={14} class="shrink-0" /> Pesées : <strong>{Math.min(recap.weighins.count, recap.weighins.goal)} / {recap.weighins.goal}</strong>{recap.weighins.count >= recap.weighins.goal ? ' ✓' : ''}</span>
 				<span class="inline-flex items-center gap-1"><Icon name="clipboardList" size={14} class="shrink-0" /> Bilan : <strong>{recap.bilan.sent ? 'Envoyé ✓' : 'Non envoyé'}</strong></span>
 			</div>
-		</div>
+		{/if}
 	</section>
 {/if}
+</div>
 
 <style>
+	.gflux-home-content {
+		width: 100%;
+		max-width: 560px;
+		margin-inline: auto;
+	}
+
+	.gflux-home-content > .gflux-home-greeting h1 {
+		font-weight: 900;
+		letter-spacing: -0.03em;
+	}
+
+	.gflux-home-shortcuts a {
+		min-height: 48px;
+	}
+
+	.gflux-home-content :global(.rounded-3xl.border) {
+		border-radius: var(--gf-r-24);
+		box-shadow: var(--gf-shadow-card);
+	}
+
+	.gflux-home-content :global(.tap:active) {
+		transform: scale(0.97);
+	}
+
+	.gflux-home-content :global(:focus-visible) {
+		outline: 3px solid var(--color-brand-deep);
+		outline-offset: 3px;
+	}
+
+	:global(.motion-armed) .gflux-home-content :global(.m-in) {
+		animation-duration: 280ms;
+		animation-timing-function: var(--gf-ease);
+	}
+
+	.gflux-home-content :global(input:not([type='checkbox']):not([type='radio'])),
+	.gflux-home-content :global(textarea) {
+		font-size: max(16px, 1em);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.gflux-home-content :global(.tap:active) {
+			transform: none;
+		}
+	}
+
 	/* Petite animation discrète à la première apparition du récap hebdo. */
 	.recap-card {
 		animation: recapIn 0.6s cubic-bezier(0.34, 1.4, 0.64, 1) both;

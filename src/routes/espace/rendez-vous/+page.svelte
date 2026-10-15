@@ -238,7 +238,7 @@
 
 <div class="mx-auto w-full max-w-md pb-5 pt-3">
 	<header class="mb-4">
-		<h1 class="flex items-center gap-2 font-display text-2xl font-semibold text-ink">
+		<h1 class="flex items-center gap-2 text-ink page-title">
 			<Icon name="calendarCheck" size={22} class="text-brand" /> Rendez-vous
 		</h1>
 		<p class="mt-0.5 text-sm text-mist">Ton prochain rendez-vous avec ton coach.</p>

@@ -19,6 +19,13 @@ export const load: PageServerLoad = async (event) => {
 	// « Mes pas » (steps.myHistory, lecture pure) — la fenêtre de 7 jours est
 	// découpée côté page. Lancée en parallèle, jamais bloquante pour l'Accueil.
 	const stepsHistoryP = convex.query(api.steps.myHistory, { sessionToken: token }).catch(() => null);
+	// Hydratation de la carte Accueil (sous « Pas ») : même query que l'écran
+	// « Mon hydratation » (lecture pure). Non bloquante : null = module pas
+	// encore déployé — la carte reste masquée, l'Accueil ne casse jamais.
+	const hydrationHistoryP = convex.query(api.hydration.myHistory, { sessionToken: token }).catch(() => null);
+	// Identité du coach (prénom + photo CRM) pour l'avatar du message du jour.
+	// Non bloquant : null = repli sur l'initiale, l'Accueil ne casse jamais.
+	const coachP = convex.query(api.dashboard.myCoachProfile, { sessionToken: token }).catch(() => null);
 	const checkins = await convex.query(api.checkins.myCheckins, { sessionToken: token });
 	// Médias publiés des retours (audios + pièces jointes), groupés par bilan.
 	const published = await convex.query(api.media.myPublished, { sessionToken: token }).catch(() => null);
@@ -35,6 +42,8 @@ export const load: PageServerLoad = async (event) => {
 		checkins: safe as typeof checkins,
 		media: (published?.byCheckin ?? {}) as Record<string, unknown[]>,
 		cycle,
+		coach: await coachP,
 		stepsHistory: await stepsHistoryP,
+		hydrationHistory: await hydrationHistoryP,
 	};
 };

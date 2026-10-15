@@ -137,8 +137,8 @@
 		{ id: 'volume', label: 'Repas volume', count: '10', title: 'Repas volume · 10 recettes · Satiété maximale · 1 portion', gridClass: 'recipe-grid' },
 		{ id: 'keto', label: 'Kéto', count: '15', title: 'Kéto · 15 recettes · Bas en glucides · 1 portion', gridClass: 'recipe-grid' },
 		{ id: 'sansgl', label: 'Sans lactose & gluten', count: '25', title: 'Sans lactose & gluten · 25 recettes · Protéinées · 1 portion', gridClass: 'recipe-grid' },
-		{ id: 'memo', label: 'Repères Mémo', count: 'Guide', chipStyle: 'background:rgba(251,191,36,0.15);color:#fbbf24;border-color:rgba(251,191,36,0.3)' },
-		{ id: 'proteines', label: 'Protéines dominantes', count: 'Guide', chipStyle: 'background:rgba(248,113,113,0.12);color:#f87171;border-color:rgba(248,113,113,0.3)' },
+		{ id: 'memo', label: 'Repères Mémo', count: 'Guide' },
+		{ id: 'proteines', label: 'Protéines dominantes', count: 'Guide' },
 	];
 
 	const RECIPE_TABS = $derived(TABS.filter((t) => t.gridClass));
@@ -170,68 +170,70 @@
 
 <div class="guide-root theme-light">
 	{#if view === 'home'}
-		<!-- ACCUEIL : choix d'une section -->
+		<!-- ACCUEIL : choix d'une section (Nutrition.svelte) -->
 		<div class="home-screen">
-			<a href="/espace" class="home-back-accueil"><Icon name="arrowLeft" size={16} class="shrink-0" /> Accueil</a>
-			<div class="home-title">Nutrition &amp; recettes</div>
-			<div class="home-sub">Choisis une catégorie</div>
+			<div class="w-full max-w-[560px]">
+				<h1 class="home-title">Nutrition &amp; recettes</h1>
+				<p class="home-sub">Choisis une catégorie</p>
 
-			<div class="home-nav">
-				{#each HOME_GROUPS as group (group.label)}
-					<div class="home-group">
-						<div class="home-group-label">{group.label}</div>
-						<div class="home-items">
-							{#each group.items as item (item.id)}
-								<button type="button" class="home-btn" onclick={() => goTo(item.id)}>
-									<span class="home-btn-icon"><Icon name={item.icon} size={20} /></span>
-									<span class="home-btn-text">{item.label}</span>
-									<span class="home-btn-count">{item.count}</span>
-								</button>
-							{/each}
+				<div class="home-nav">
+					{#each HOME_GROUPS as group (group.label)}
+						<div class="home-group">
+							<h2 class="home-group-label">{group.label}</h2>
+							<div class="home-items">
+								{#each group.items as item (item.id)}
+									<button type="button" class="home-btn tap" onclick={() => goTo(item.id)}>
+										<span class="home-btn-icon"><Icon name={item.icon} size={24} /></span>
+										<span class="home-btn-text">{item.label}</span>
+										<span class="home-btn-count">{item.count}</span>
+									</button>
+								{/each}
+							</div>
 						</div>
-					</div>
-				{/each}
-			</div>
+					{/each}
+				</div>
 
-			<div class="home-footer">105 recettes · 5 guides · G-Flux™ Coaching</div>
+				<div class="home-footer">105 recettes · 5 guides · G-Flux™ Coaching</div>
+			</div>
 		</div>
 	{:else}
-		<!-- BARRE DU GUIDE -->
+		<!-- BARRE DU GUIDE (Recipes.svelte) -->
 		<div class="topbar">
-			<button type="button" class="home-back-btn" onclick={goHome}>← Toutes les sections</button>
-			<div class="topbar-right">
-				<span class="badge-count">105 recettes · 5 guides</span>
-				<span>Guide Nutrition</span>
-			</div>
+			<button type="button" class="home-back-btn" onclick={goHome} aria-label="Retour à toutes les sections">
+				<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+				Toutes les sections
+			</button>
+			<div class="topbar-right">Guide Nutrition</div>
 		</div>
 
-		<!-- HERO -->
+		<!-- HERO (Recipes.svelte) -->
 		<div class="hero-strip">
 			<div class="hero-left">
+				<span class="badge-count">105 recettes · 5 guides</span>
 				<h1>Recettes</h1>
 				<p>
-					Chaque recette est calibrée pour 1 personne · 1 portion.<br />
+					Chaque recette est calibrée pour 1 personne · 1 portion.
 					Protéines ciblées, déficit intelligent, préparation rapide.
 				</p>
 			</div>
 			<div class="hero-stats">
 				<div class="hstat"><div class="hstat-num">100</div><div class="hstat-label">Recettes</div></div>
 				<div class="hstat"><div class="hstat-num">5</div><div class="hstat-label">Desserts</div></div>
-				<div class="hstat"><div class="hstat-num">30g+</div><div class="hstat-label">Protéines moy.</div></div>
+				<div class="hstat"><div class="hstat-num">30g+</div><div class="hstat-label">Prot. moy.</div></div>
 				<div class="hstat"><div class="hstat-num">&lt;20'</div><div class="hstat-label">Prépa max</div></div>
 			</div>
 		</div>
 
-		<!-- ONGLETS -->
+		<!-- ONGLETS (pilules Recipes.svelte) -->
 		<div class="nav-tabs">
 			{#each TABS as tab (tab.id)}
 				<button
 					type="button"
-					class="tab"
+					class="tab tap"
 					class:active={view === tab.id}
 					onclick={() => goTo(tab.id)}
 				>
-					{tab.label} <span class="tab-count" style={tab.chipStyle}>{tab.count}</span>
+					{tab.label} <span class="tab-count">{tab.count}</span>
 				</button>
 			{/each}
 		</div>
@@ -257,7 +259,12 @@
 									}}
 								>
 									<div class="card-header-left">
-										<div class="card-index">{r.index}</div>
+										<div class="card-top-row">
+											<div class="card-index">{r.index}</div>
+											<div class="chevron" aria-hidden="true">
+												<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>
+											</div>
+										</div>
 										<div class="card-name">{r.name}</div>
 										<div class="card-macros">
 											<div class="macro-pill kcal"><span class="val">{r.kcal}</span><span class="lbl">kcal</span></div>
@@ -266,26 +273,26 @@
 											<div class="macro-pill"><span class="val">{r.lipides}g</span><span class="lbl">lipides</span></div>
 										</div>
 									</div>
-									<div class="chevron">▾</div>
-								</div>									<div class="card-detail">
-										<div class="time-badge"><Icon name="clock" size={13} /> {r.temps}</div>
-										{#if isClient}
-											<button
-												type="button"
-												class="gflux-add-btn"
-												class:added={savedRecipes.has(r.index)}
-												disabled={savingRecipe === r.index || savedRecipes.has(r.index)}
-												onclick={() => addRecipeToMeals(r.index)}
-											>
-												{savedRecipes.has(r.index)
-													? '✓ Dans Mes repas'
-													: savingRecipe === r.index
-														? 'Ajout…'
-														: '＋ Ajouter à mes repas'}
-											</button>
-										{/if}
-										<div class="detail-section">
-											<div class="detail-label">Ingrédients · 1 portion</div>
+								</div>
+								<div class="card-detail">
+									<div class="time-badge"><Icon name="clock" size={16} /> {r.temps}</div>
+									{#if isClient}
+										<button
+											type="button"
+											class="gflux-add-btn tap"
+											class:added={savedRecipes.has(r.index)}
+											disabled={savingRecipe === r.index || savedRecipes.has(r.index)}
+											onclick={() => addRecipeToMeals(r.index)}
+										>
+											{savedRecipes.has(r.index)
+												? '✓ Dans Mes repas'
+												: savingRecipe === r.index
+													? 'Ajout…'
+													: '＋ Ajouter à mes repas'}
+										</button>
+									{/if}
+									<div class="detail-section">
+										<div class="detail-label">Ingrédients · 1 portion</div>
 										<div class="ingredients-list">
 											{#each r.ingredients as ing (ing.name)}
 												<div class="ingredient-row">
@@ -323,9 +330,6 @@
 		</div>
 
 		<!-- PIED DE PAGE -->
-		<div class="footer">
-			<div class="footer-copy">© 2026 G-FLUX — Tous droits réservés</div>
-		</div>
 	{/if}
 
 	{#if recipeMsg}

@@ -82,6 +82,19 @@ test('Œufs : requête spécifique (« œuf dur », « œuf au plat ») → pert
 	assert.deepEqual(searchCiqualLocal('oeuf au plat').map((h) => h.label), ['Oeuf au plat, sans matière grasse']);
 });
 
+test('Ciqual : défaut conservateur 3, extension bornée à 13 et aucune fiche en double', () => {
+	for (const q of ['pomme', 'oeuf', 'riz', 'poulet']) {
+		const defaults = searchCiqualLocal(q);
+		const expanded = searchCiqualLocal(q, 13);
+		assert.equal(defaults.length, 3, `« ${q} » conserve trois fiches visibles par défaut`);
+		assert.equal(expanded.length, 13, `« ${q} » expose treize références à la demande`);
+		assert.equal(new Set(expanded.map((hit) => hit.label)).size, expanded.length, `« ${q} » sans doublon`);
+		assert.deepEqual(searchCiqualLocal(q, 99), expanded, `« ${q} » plafonné à treize`);
+	}
+	assert.equal(searchCiqualLocal('pomme', 0).length, 1, 'limite minimale = une fiche');
+	assert.equal(searchCiqualLocal('pomme', Number.NaN).length, 3, 'limite non finie = défaut conservateur');
+});
+
 test('Œufs : le repère de saisie « 1 œuf = 50 g » reste intact (y compris au plat)', () => {
 	for (const name of ['Oeuf', 'Oeuf cru', 'Oeuf dur', 'Oeuf au plat']) {
 		const r = reperesForFood(name);

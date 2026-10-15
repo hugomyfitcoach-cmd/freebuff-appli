@@ -1,0 +1,90 @@
+/* Styles communs extraits des maquettes (keyframes, classes utilitaires, reduced-motion). */
+body{margin:0;font-family:'Lato',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.fld:focus-within{border-color:#1db954 !important;box-shadow:0 0 0 4px rgba(29,185,84,.14) !important}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes screenIn{from{opacity:0}to{opacity:1}}
+.screen{animation:screenIn .24s ease-out both}
+.li{animation:fadeUp .26s ease-out both}
+.li:nth-child(1){animation-delay:30ms}
+.li:nth-child(2){animation-delay:60ms}
+.li:nth-child(3){animation-delay:90ms}
+.li:nth-child(4){animation-delay:120ms}
+.li:nth-child(5){animation-delay:150ms}
+.li:nth-child(6){animation-delay:180ms}
+.li:nth-child(7){animation-delay:210ms}
+.li:nth-child(8){animation-delay:240ms}
+.li:nth-child(9){animation-delay:270ms}
+.li:nth-child(10){animation-delay:300ms}
+@media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
+@keyframes ringIn{from{stroke-dasharray:0 1000}}
+@keyframes drawIn{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+@keyframes barIn{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes areaIn{from{opacity:0}to{opacity:1}}
+.card{animation:fadeUp .28s ease-out both}
+.card:nth-child(2){animation-delay:40ms}
+.card:nth-child(3){animation-delay:80ms}
+.card:nth-child(4){animation-delay:120ms}
+.card:nth-child(5){animation-delay:160ms}
+.card:nth-child(6){animation-delay:200ms}
+.card:nth-child(7){animation-delay:240ms}
+.draw{stroke-dasharray:1;stroke-dashoffset:0;animation:drawIn .9s cubic-bezier(.3,.7,.2,1) .15s both}
+.bar{transform-origin:left;animation:barIn .6s cubic-bezier(.2,.8,.2,1) .15s both}
+@keyframes barUp{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+.vbar{transform-origin:bottom;animation:barUp .6s cubic-bezier(.2,.8,.2,1) .15s both}
+@keyframes sheetUp{from{transform:translateY(60px);opacity:0}to{transform:none;opacity:1}}
+@keyframes scrimIn{from{opacity:0}to{opacity:1}}
+@keyframes popA{0%{transform:scale(.92)}60%{transform:scale(1.06)}100%{transform:scale(1)}}
+@keyframes scan{0%{transform:translateY(0);opacity:0}15%{opacity:1}85%{opacity:1}100%{transform:translateY(150px);opacity:0}}
+.fx{animation:fadeUp .28s ease-out both}
+.sheet{animation:sheetUp .28s cubic-bezier(.2,.8,.2,1) both}
+.scrim{animation:scrimIn .24s ease-out both}
+.hbar{transform-origin:left;animation:barIn .6s cubic-bezier(.2,.8,.2,1) .15s both}
+@property --k{syntax:'<integer>';inherits:false;initial-value:0}
+@property --h{syntax:'<integer>';inherits:false;initial-value:0}
+@property --t{syntax:'<integer>';inherits:false;initial-value:0}
+@property --n{syntax:'<integer>';inherits:false;initial-value:0}
+.c4::before{counter-reset:k var(--k) h var(--h) t var(--t);content:counter(k) "\00a0" counter(h) counter(t,decimal-leading-zero)}
+.c1::before{counter-reset:n var(--n);content:counter(n)}
+@keyframes fadeA{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes fadeB{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes ringA{from{stroke-dasharray:0 201}}
+@keyframes ringB{from{stroke-dasharray:0 201}}
+@keyframes barA{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes barB{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes cntA{from{--k:0;--h:0;--t:0;--n:0}}
+@keyframes cntB{from{--k:0;--h:0;--t:0;--n:0}}
+@keyframes popIn{from{opacity:0;transform:translateY(-8px) scale(.97)}to{opacity:1;transform:none}}
+@keyframes calRA{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
+@keyframes calRB{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
+@keyframes calLA{from{opacity:0;transform:translateX(-18px)}to{opacity:1;transform:none}}
+@keyframes calLB{from{opacity:0;transform:translateX(-18px)}to{opacity:1;transform:none}}
+@keyframes heartA{0%{transform:scale(1)}30%{transform:scale(1.35)}55%{transform:scale(.9)}100%{transform:scale(1)}}
+@keyframes heartB{0%{transform:scale(1)}30%{transform:scale(1.35)}55%{transform:scale(.9)}100%{transform:scale(1)}}
+@keyframes heartOff{0%{transform:scale(1)}40%{transform:scale(.82)}100%{transform:scale(1)}}
+@keyframes burstA{0%{transform:scale(.6);opacity:.55}100%{transform:scale(1.9);opacity:0}}
+@keyframes burstB{0%{transform:scale(.6);opacity:.55}100%{transform:scale(1.9);opacity:0}}
+.hb{transition:background-color .2s ease,box-shadow .2s ease}
+@keyframes numUpA{from{transform:translateY(9px);opacity:.15}to{transform:none;opacity:1}}
+@keyframes numUpB{from{transform:translateY(9px);opacity:.15}to{transform:none;opacity:1}}
+@keyframes numDnA{from{transform:translateY(-9px);opacity:.15}to{transform:none;opacity:1}}
+@keyframes numDnB{from{transform:translateY(-9px);opacity:.15}to{transform:none;opacity:1}}
+@keyframes panA{from{transform:translateY(7px);opacity:0}to{transform:none;opacity:1}}
+@keyframes panB{from{transform:translateY(7px);opacity:0}to{transform:none;opacity:1}}
+@keyframes scanB{0%{transform:translateY(0);opacity:0}15%{opacity:1}85%{opacity:1}100%{transform:translateY(118px);opacity:0}}
+@keyframes camIn{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:none}}
+@keyframes navIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes cardIn{from{opacity:0;transform:translateY(26px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes floatA{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(22px,-26px) scale(1.07)}}
+@keyframes floatB{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(-26px,20px) scale(1.05)}}
+@keyframes ringPulse{0%{box-shadow:0 0 0 0 rgba(29,185,84,.28)}70%{box-shadow:0 0 0 16px rgba(29,185,84,0)}100%{box-shadow:0 0 0 0 rgba(29,185,84,0)}}
+@keyframes shimmer{0%,62%{transform:translateX(-120%) skewX(-18deg)}100%{transform:translateX(320%) skewX(-18deg)}}
+@keyframes logoIn{from{opacity:0;transform:scale(.7) rotate(-12deg)}to{opacity:1;transform:none}}
+.lf{transition:border-color .2s ease,box-shadow .2s ease,transform .2s ease,background-color .2s ease}
+.lf:focus-within{border-color:#1db954 !important;box-shadow:0 0 0 4px rgba(29,185,84,.14),0 10px 24px -14px rgba(29,185,84,.5) !important;transform:translateY(-1px);background:#FFFFFF !important}
+.lf:focus-within .lic{color:#1db954 !important}
+.cta{transition:transform .15s ease,box-shadow .25s ease}
+.cta:hover{box-shadow:0 22px 38px -14px rgba(23,163,73,.7) !important}
+.cta:active{transform:scale(.98)}
+.cta .arr{transition:transform .25s cubic-bezier(.2,.8,.2,1)}
+.lnk{transition:opacity .15s ease}
+.lnk:active{opacity:.6}

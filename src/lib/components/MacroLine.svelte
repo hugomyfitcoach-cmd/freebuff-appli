@@ -20,7 +20,7 @@
 	import { MACRO_RING_CIRCUMFERENCE, macroRingDashOffset, type MacroLineState } from '$lib/macros';
 
 	/** NB : le prop ne peut PAS s'appeler `state` (collision avec le rune $state). */
-	let { data, animate = true }: { data: MacroLineState; animate?: boolean } = $props();
+	let { data, animate = true, featured = false }: { data: MacroLineState; animate?: boolean; featured?: boolean } = $props();
 
 	/* Armé à l'hydratation (une seule fois, jamais rejoué ensuite) — même
 	   pattern que Sparkline (.spark-draw). La classe ajoute une animation
@@ -33,19 +33,19 @@
 
 {#if data.kind === 'loading'}
 	<!-- Squelette discret : même structure que la ligne finale (label, ring, valeurs), aucun saut de layout. -->
-	<div class="mt-3 border-t border-line pt-2.5" aria-hidden="true">
+	<div class="{featured ? 'mt-4 border-t border-line pt-4' : 'mt-3 border-t border-line pt-2.5'}" aria-hidden="true">
 		<div class="grid grid-cols-3 gap-1.5 sm:gap-2">
 			{#each Array(3) as _, i (i)}
 				<div class="flex min-w-0 flex-col items-center">
 					<div class="h-2.5 w-12 animate-pulse rounded bg-line/60"></div>
-					<div class="mt-1.5 h-[34px] w-[34px] animate-pulse rounded-full bg-line/80"></div>
+					<div class="mt-1.5 {featured ? 'h-[60px] w-[60px]' : 'h-[34px] w-[34px]'} animate-pulse rounded-full bg-line/80"></div>
 					<div class="mt-1.5 h-2.5 w-16 animate-pulse rounded bg-line/40"></div>
 				</div>
 			{/each}
 		</div>
 	</div>
 {:else if data.kind === 'ready'}
-	<div class="mt-3 border-t border-line pt-2.5">
+	<div class="{featured ? 'mt-4 border-t border-line pt-4' : 'mt-3 border-t border-line pt-2.5'}">
 		<div class="grid grid-cols-3 gap-1.5 sm:gap-2">
 			{#each data.rings as ring (ring.key)}
 				{@const over = ring.goal !== null && ring.eaten > ring.goal}
@@ -54,12 +54,12 @@
 					aria-label="{ring.label} : {ring.eaten} grammes consommés{ring.goal !== null ? ` sur ${ring.goal} grammes` : ''}"
 				>
 					<!-- Libellé EN ENTIER (whitespace-nowrap : jamais de GL… / PR… / LI…). -->
-					<p class="whitespace-nowrap text-[10px] font-bold leading-none" style:color={ring.color}>
+					<p class="whitespace-nowrap font-bold leading-none {featured ? 'text-[13px]' : 'text-[10px]'}" style:color={ring.color}>
 						{ring.label}{#if over}<span aria-hidden="true"> ↑</span>{/if}
 					</p>
 					<!-- Mini-ring (rayon 10, viewBox 24) : arc borné à 100 %, % au centre. -->
-					<div class="relative mt-1.5 h-[34px] w-[34px] shrink-0">
-						<svg viewBox="0 0 24 24" class="h-[34px] w-[34px] -rotate-90">
+					<div class="relative mt-2 {featured ? 'h-[60px] w-[60px]' : 'h-[34px] w-[34px]'} shrink-0">
+						<svg viewBox="0 0 24 24" class="{featured ? 'h-[60px] w-[60px]' : 'h-[34px] w-[34px]'} -rotate-90">
 							<circle cx="12" cy="12" r="10" fill="none" stroke="#eef0ec" stroke-width="2.5" />
 							{#if ring.percent > 0}
 								<circle
@@ -76,12 +76,12 @@
 								/>
 							{/if}
 						</svg>
-						<span class="absolute inset-0 grid place-items-center text-[9px] font-bold leading-none tabular-nums" style:color={ring.color}>
+						<span class="absolute inset-0 grid place-items-center font-bold leading-none tabular-nums {featured ? 'text-[13px]' : 'text-[9px]'}" style:color={ring.color}>
 							{Math.round(ring.percent)}%
 						</span>
 					</div>
 					<!-- Valeurs : consommé en gras + objectif — complètes, jamais tronquées. -->
-					<p class="mt-1.5 whitespace-nowrap text-[10px] leading-none text-ink">
+					<p class="mt-1.5 whitespace-nowrap leading-none text-ink {featured ? 'text-[12px]' : 'text-[10px]'}">
 						<strong class="font-bold tabular-nums">{ring.eaten} g</strong>
 						{#if ring.goal !== null}
 							<span class="text-mist"> / {ring.goal} g</span>

@@ -1,0 +1,7 @@
+/* Styles propres à l'écran « Food-Detail » (portée .s-food-detail). Les keyframes et classes communes sont dans styles/dc-base.css. */
+.s-food-detail button{font-family:inherit;cursor:pointer}
+.s-food-detail a{text-decoration:none;color:inherit}
+.s-food-detail input,.s-food-detail textarea,.s-food-detail select{font-family:inherit}
+.s-food-detail .press{transition:transform .15s ease,box-shadow .2s ease,background-color .2s ease,border-color .2s ease}
+.s-food-detail .press:active{transform:scale(.97)}
+.s-food-detail .area{animation:areaIn .6s ease-out .45s both}

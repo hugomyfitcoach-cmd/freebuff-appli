@@ -133,13 +133,14 @@
 </svelte:head>	<div class="mx-auto w-full max-w-xl pb-28">
 	<BackToHome label="Mon cycle" />
 
-	<div class="flex items-center gap-3">
-		<div class="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-brand-light">
-			<Icon name="flower2" size={22} class="text-brand" />
+	<div class="mt-2 flex items-center gap-3">
+		<div class="grid h-[60px] w-[60px] shrink-0 place-items-center rounded-2xl bg-brand-light">
+			<!-- Même icône que la carte « Cycle » de l'Accueil (SVG inline identique) -->
+			<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true" class="text-brand"><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"></circle><path d="M12 9.5C10 7.5 10 4.5 12 3c2 1.5 2 4.5 0 6.5ZM14.5 12c2-2 5-2 6.5 0-1.5 2-4.5 2-6.5 0ZM12 14.5c2 2 2 5 0 6.5-2-1.5-2-4.5 0-6.5ZM9.5 12c-2 2-5 2-6.5 0 1.5-2 4.5-2 6.5 0Z"></path></svg>
 		</div>
 		<div>
-			<h1 class="font-display text-2xl font-semibold tracking-tight text-ink">Mon cycle</h1>
-			<p class="text-sm text-mist">Où tu en es, selon ta configuration.</p>
+			<h1 class="text-ink page-title">Mon cycle</h1>
+			<p class="mt-1.5 text-[15px] text-mist">Où tu en es, selon ta configuration.</p>
 		</div>
 	</div>
 
@@ -152,7 +153,7 @@
 	{:else if cycle.kind === 'empty'}
 		<section class="mt-5 rounded-3xl border border-line bg-card p-6 text-center shadow-sm">
 			<div class="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-brand-light">
-				<Icon name="flower2" size={26} class="text-brand" />
+				<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true" class="text-brand"><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"></circle><path d="M12 9.5C10 7.5 10 4.5 12 3c2 1.5 2 4.5 0 6.5ZM14.5 12c2-2 5-2 6.5 0-1.5 2-4.5 2-6.5 0ZM12 14.5c2 2 2 5 0 6.5-2-1.5-2-4.5 0-6.5ZM9.5 12c-2 2-5 2-6.5 0 1.5-2 4.5-2 6.5 0Z"></path></svg>
 			</div>
 			<p class="font-display text-lg font-semibold text-ink">Cycle non configuré</p>
 			<p class="mx-auto mt-1 max-w-xs text-sm text-mist">Renseigne ta situation pour suivre ton cycle ici.</p>
@@ -167,7 +168,7 @@
 		<section class="mt-5 rounded-3xl border border-line bg-card p-5 shadow-sm">
 			<div class="flex items-center gap-2">
 				<span class="grid h-10 w-10 place-items-center rounded-full bg-brand-light">
-					<Icon name="flower2" size={18} class="text-brand" />
+					<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true" class="text-brand"><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"></circle><path d="M12 9.5C10 7.5 10 4.5 12 3c2 1.5 2 4.5 0 6.5ZM14.5 12c2-2 5-2 6.5 0-1.5 2-4.5 2-6.5 0ZM12 14.5c2 2 2 5 0 6.5-2-1.5-2-4.5 0-6.5ZM9.5 12c-2 2-5 2-6.5 0 1.5-2 4.5-2 6.5 0Z"></path></svg>
 				</span>
 				<p class="font-display text-lg font-semibold text-ink">
 					{cycle.kind === 'hormonal' ? 'Suivi adapté à ta contraception' : 'Règles irrégulières'}
@@ -192,8 +193,8 @@
 				<span class="text-[11px] font-semibold text-mist">Cycle de {cycle.cycleLength} jours</span>
 			</div>
 
-			<h2 class="mt-3 font-display text-2xl font-semibold tracking-tight text-ink">{cycle.label}</h2>
-			<p class="mt-1 text-sm leading-relaxed text-ink/85">{cycle.blurb}</p>
+			<h2 class="mt-3 font-display text-[32px] font-extrabold leading-none tracking-tight text-ink">{cycle.label}</h2>
+			<p class="mt-2 text-[15px] leading-relaxed text-ink/85">{cycle.blurb}</p>
 
 			<!-- Courbe ORIGINALE du fichier HTML (dégradé œstrogène → progestérone) -->
 			<div class="mt-4 rounded-2xl bg-soft px-2 pb-1 pt-3">
@@ -252,12 +253,12 @@
 			{#if content}
 				<div class="mt-4 flex flex-col gap-2">
 					{#each content.dims as d (d.t)}
-						<div class="rounded-xl border border-line bg-soft px-3.5 py-2.5">
+						<div class="rounded-2xl border border-line bg-white px-4 py-3 shadow-[0_1px_2px_rgba(15,21,18,0.03)]">
 							<div class="flex items-center justify-between gap-2">
-								<span class="text-[13px] font-bold text-ink">{d.t}</span>
-								<span class={`rounded-full px-2 py-0.5 text-[10px] font-bold ${dimClass(d.s)}`}>{dimLabel(d.s)}</span>
+								<span class="text-[15px] font-bold text-ink">{d.t}</span>
+								<span class={`rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wide ${dimClass(d.s)}`}>{dimLabel(d.s)}</span>
 							</div>
-							<p class="mt-0.5 text-xs leading-relaxed text-ink/80">{d.x}</p>
+							<p class="mt-1 text-[13px] leading-relaxed text-ink/80">{d.x}</p>
 						</div>
 					{/each}
 				</div>

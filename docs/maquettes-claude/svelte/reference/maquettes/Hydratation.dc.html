@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Mon hydratation</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Lato',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button{font-family:inherit;cursor:pointer}
+a{text-decoration:none;color:inherit}
+input,textarea,select{font-family:inherit}
+.press{transition:transform .15s ease,box-shadow .2s ease,background-color .2s ease,border-color .2s ease}
+.press:active{transform:scale(.97)}
+.fld:focus-within{border-color:#1db954 !important;box-shadow:0 0 0 4px rgba(29,185,84,.14) !important}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes screenIn{from{opacity:0}to{opacity:1}}
+@keyframes sheetUp{from{transform:translateY(60px);opacity:0}to{transform:none;opacity:1}}
+@keyframes scrimIn{from{opacity:0}to{opacity:1}}
+@keyframes drawIn{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+@keyframes areaIn{from{opacity:0}to{opacity:1}}
+@keyframes barIn{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes popA{0%{transform:scale(.92)}60%{transform:scale(1.06)}100%{transform:scale(1)}}
+@keyframes barUp{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+@keyframes ringIn{from{stroke-dasharray:0 1000}}
+@keyframes scan{0%{transform:translateY(0);opacity:0}15%{opacity:1}85%{opacity:1}100%{transform:translateY(150px);opacity:0}}
+.screen{animation:screenIn .24s ease-out both}
+.fx{animation:fadeUp .28s ease-out both}
+.sheet{animation:sheetUp .28s cubic-bezier(.2,.8,.2,1) both}
+.scrim{animation:scrimIn .24s ease-out both}
+.draw{stroke-dasharray:1;stroke-dashoffset:0;animation:drawIn .9s cubic-bezier(.3,.7,.2,1) .15s both}
+.area{animation:areaIn .6s ease-out .45s both}
+.hbar{transform-origin:left;animation:barIn .6s cubic-bezier(.2,.8,.2,1) .15s both}
+.vbar{transform-origin:bottom;animation:barUp .6s cubic-bezier(.2,.8,.2,1) .15s both}
+@media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
+
+</style>
+</helmet>
+<div class="screen" style="width:390px;height:844px;box-sizing:border-box;background:#FFFFFF;display:flex;flex-direction:column;position:relative;overflow:hidden;color:#0F1512;font-family:'Lato',system-ui,sans-serif"><div style="padding:52px 20px 0;display:flex;align-items:center;justify-content:space-between;position:relative;z-index:5;flex:none"><a class="press" href="Home.dc.html" style="height:44px;box-sizing:border-box;padding:0 18px 0 10px;border-radius:22px;border:1px solid #E9EDEA;background:#FFFFFF;box-shadow:0 1px 2px rgba(15,21,18,.04),0 8px 20px -8px rgba(15,21,18,.14);display:flex;align-items:center;gap:4px;font-size:14px;font-weight:700;color:#0d7c36"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>Accueil</a><div style="display:flex;align-items:center;gap:10px"><button class="press" aria-label="Actualiser" style="width:44px;height:44px;padding:0;border-radius:22px;border:1px solid #E9EDEA;background:#FFFFFF;box-shadow:0 1px 2px rgba(15,21,18,.04),0 8px 20px -8px rgba(15,21,18,.14);display:flex;align-items:center;justify-content:center;color:#0F1512"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.5-4.2L4 9"></path><path d="M4 4v5h5"></path><path d="M4 13a8 8 0 0 0 14.5 4.2L20 15"></path><path d="M20 20v-5h-5"></path></svg></button><button class="press" aria-label="Profil" style="width:44px;height:44px;padding:0;border-radius:22px;border:2px solid #FFFFFF;background:#e8fef0;box-shadow:0 0 0 1px rgba(29,185,84,.3),0 8px 20px -8px rgba(15,21,18,.18);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;color:#0d7c36">HG</button></div></div><div style="flex:1;min-height:0;overflow-y:auto;padding:18px 20px 170px">
+<div class="fx" style="animation-delay:0ms;display:flex;align-items:center;gap:14px;margin-top:18px"><span style="width:52px;height:52px;border-radius:18px;background:#e8fef0;color:#1db954;display:flex;align-items:center;justify-content:center;flex:none"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5c3.2 4 6 7 6 10.5a6 6 0 0 1-12 0c0-3.500 2.800-6.500 6-10.500Z"></path></svg></span><div style="min-width:0"><h1 style="margin:0;font-size:27px;font-weight:900;letter-spacing:-0.03em;line-height:1.1">Mon hydratation</h1><div style="margin-top:4px;font-size:14px;line-height:1.4;color:#66716B">Ajoute ce que tu bois, suis ton objectif du jour et ta régularité sur 7 jours.</div></div></div>
+
+<div class="fx" style="animation-delay:60ms;margin-top:16px;padding:16px;border-radius:24px;border:1px solid #EEF1EF;background:#FFFFFF;box-shadow:0 1px 2px rgba(15,21,18,.04),0 14px 32px -16px rgba(15,21,18,.18)">
+<div style="display:flex;align-items:center;justify-content:space-between"><div style="display:flex;align-items:center;gap:8px;font-size:15.5px;font-weight:900"><span style="color:#1db954"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5c3.2 4 6 7 6 10.5a6 6 0 0 1-12 0c0-3.500 2.800-6.500 6-10.500Z"></path></svg></span>Aujourd'hui</div><button class="press" onClick="{{toggleGoal}}" aria-expanded="{{goalEdit}}" style="height:34px;box-sizing:border-box;padding:0 12px;border-radius:17px;border:1.5px solid #E3E8E5;background:#FFFFFF;color:#66716B;font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9a2.800 2.800 0 0 0-4-4L4 16Z"></path><path d="M13.500 6.500l4 4"></path></svg>Objectif</button></div>
+<div style="margin-top:16px;display:flex;align-items:center;gap:18px">
+<div style="position:relative;width:112px;height:112px;flex:none"><svg width="112" height="112" viewBox="0 0 112 112" aria-hidden="true"><circle cx="56" cy="56" r="48" fill="none" stroke="#eef0ec" stroke-width="10"></circle><circle cx="56" cy="56" r="48" fill="none" stroke="#1db954" stroke-width="10" stroke-linecap="round" stroke-dasharray="{{ring}}" transform="rotate(-90 56 56)" style="transition:stroke-dasharray .5s cubic-bezier(.2,.8,.2,1);animation:ringIn .8s cubic-bezier(.2,.8,.2,1) .1s both"></circle></svg><span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:900;letter-spacing:-0.02em;animation:{{pop}}">{{pct}}</span></div>
+<div style="flex:1;min-width:0"><div style="font-size:36px;font-weight:900;letter-spacing:-0.03em;line-height:1;animation:{{pop}};transform-origin:left center">{{total}} <span style="font-size:15px;font-weight:700;color:#66716B;letter-spacing:0">ml</span></div><div style="margin-top:6px;font-size:14px;color:#66716B">sur {{goal}} ml</div><span style="display:inline-block;margin-top:10px;padding:5px 11px;border-radius:14px;font-size:12.5px;font-weight:900;background:{{stBg}};color:{{stColor}}">{{status}}</span></div></div>
+<sc-if value="{{goalEdit}}" hint-placeholder-val="{{ false }}"><div class="fx" style="margin-top:16px;padding-top:14px;border-top:1px solid #EEF1EF"><span style="font-size:11px;font-weight:900;letter-spacing:.1em;color:#7B857F">OBJECTIF QUOTIDIEN</span><div style="margin-top:10px;display:flex;gap:10px"><label class="fld" style="flex:1;min-width:0;height:56px;box-sizing:border-box;padding:0 16px;border-radius:18px;border:1.5px solid #E3E8E5;background:#F6F8F6;display:flex;align-items:center;gap:8px"><input type="text" inputmode="numeric" value="{{goalDraft}}" onChange="{{setGoalDraft}}" placeholder="Ex. 2500" aria-label="Objectif quotidien en millilitres" style="width:100%;border:0;outline:0;background:transparent;font-size:22px;font-weight:900;color:#0F1512"><span style="font-size:14px;font-weight:700;color:#66716B">ml</span></label><button class="press" onClick="{{saveGoal}}" style="flex:none;width:112px;height:56px;border-radius:18px;border:0;background:#111A15;color:#FFFFFF;font-size:14px;font-weight:700;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;opacity:{{goalOk}};transition:opacity .2s ease"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg> Enregistrer</button></div><div style="margin-top:10px;font-size:13px;line-height:1.4;color:#7B857F">Entre une valeur entre 500 et 6 000 ml.</div></div></sc-if>
+</div>
+
+<div class="fx" style="animation-delay:100ms;margin-top:14px;padding:16px;border-radius:24px;border:1px solid #EEF1EF;background:#FFFFFF;box-shadow:0 1px 2px rgba(15,21,18,.04),0 14px 32px -16px rgba(15,21,18,.18)">
+<div style="display:flex;align-items:center;gap:8px;font-size:15.5px;font-weight:900"><span style="color:#1db954"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v8M8 12h8"></path></svg></span>Ajouter de l'eau</div>
+<div style="margin-top:12px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px"><sc-for list="{{quick}}" as="q" hint-placeholder-count="3"><button class="press" onClick="{{q.add}}" aria-label="Ajouter {{q.ml}} millilitres" style="height:72px;border-radius:18px;border:0;background:#e8fef0;color:#0d7c36;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px"><span style="font-size:22px;font-weight:900;letter-spacing:-0.02em;line-height:1">+{{q.ml}}</span><span style="font-size:12px;font-weight:700;color:#66716B">ml</span></button></sc-for></div>
+<div style="margin-top:12px;display:flex;gap:10px"><label class="fld" style="flex:1;min-width:0;height:56px;box-sizing:border-box;padding:0 16px;border-radius:18px;border:1.5px solid #E3E8E5;background:#F6F8F6;display:flex;align-items:center;gap:8px"><input type="text" inputmode="numeric" value="{{custom}}" onChange="{{setCustom}}" placeholder="Ex. 330" aria-label="Quantité personnalisée en millilitres" style="width:100%;border:0;outline:0;background:transparent;font-size:22px;font-weight:900;color:#0F1512"><span style="font-size:14px;font-weight:700;color:#66716B">ml</span></label><button class="press" onClick="{{addCustom}}" style="flex:none;width:112px;height:56px;border-radius:18px;border:0;background:#111A15;color:#FFFFFF;font-size:14px;font-weight:700;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;opacity:{{customOk}};transition:opacity .2s ease"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg> Ajouter</button></div>
+<sc-if value="{{canUndo}}" hint-placeholder-val="{{ true }}"><button class="press" onClick="{{undo}}" style="margin-top:10px;padding:6px 2px;border:0;background:transparent;color:#66716B;font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"></path><path d="M4 9h10a6 6 0 0 1 0 12h-3"></path></svg>Annuler le dernier ajout ({{lastLabel}})</button></sc-if>
+</div>
+
+<div class="fx" style="animation-delay:140ms;margin-top:14px;padding:16px 16px 8px;border-radius:24px;border:1px solid #EEF1EF;background:#FFFFFF;box-shadow:0 1px 2px rgba(15,21,18,.04),0 14px 32px -16px rgba(15,21,18,.18)"><div style="display:flex;align-items:baseline;justify-content:space-between"><span style="font-size:11px;font-weight:900;letter-spacing:.1em;color:#7B857F">7 DERNIERS JOURS</span><span style="font-size:12px;font-weight:700;color:#66716B">Objectif : {{goal}} ml / jour</span></div><div style="position:relative;margin-top:10px"><div style="position:absolute;left:0;right:0;bottom:calc({{goalBottom}} + 24px);border-top:2px dashed rgba(29,185,84,.3);pointer-events:none;transition:bottom .4s ease"></div><span style="position:absolute;right:0;bottom:calc({{goalBottom}} + 14px);font-size:11px;font-weight:900;color:#0d7c36;background:#e8fef0;padding:3px 9px;border-radius:12px;transition:bottom .4s ease">{{goal}}</span><div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px"><sc-for list="{{cols}}" as="c" hint-placeholder-count="7"><div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:6px"><div style="height:150px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;width:100%"><div style="width:26px;height:{{c.h}};border-radius:13px;background:{{c.bg}};transform-origin:bottom;transition:height .4s ease,background-color .3s ease;animation:barUp .5s cubic-bezier(.2,.8,.2,1) .1s both"></div></div><span style="font-size:12.5px;font-weight:{{c.lw}};color:{{c.lc}}">{{c.l}}</span></div></sc-for></div></div><div style="margin-top:4px;padding:10px 0 8px;border-top:1px solid #EEF1EF;display:flex;align-items:center;gap:14px;font-size:12.5px;color:#66716B"><span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:5px;background:#1db954"></span>Objectif atteint</span><span style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:5px;background:#111A15"></span>Sous l'objectif</span></div></div>
+
+<div class="fx" style="animation-delay:180ms;margin-top:14px;padding:16px 16px 8px;border-radius:24px;border:1px solid #EEF1EF;background:#FFFFFF;box-shadow:0 1px 2px rgba(15,21,18,.04),0 14px 32px -16px rgba(15,21,18,.18)"><span style="font-size:11px;font-weight:900;letter-spacing:.1em;color:#7B857F">HISTORIQUE PAR JOUR</span><div style="margin-top:6px"><sc-for list="{{items}}" as="r" hint-placeholder-count="8"><div><sc-if value="{{r.isDay}}" hint-placeholder-val="{{ true }}"><button class="press" onClick="{{r.toggle}}" aria-expanded="{{r.exp}}" style="width:100%;padding:12px 0;border:0;border-top:{{r.border}};background:transparent;text-align:left;display:block;color:#0F1512"><span style="display:flex;align-items:center;justify-content:space-between;gap:10px"><span style="min-width:0"><span style="display:block;font-size:15px;font-weight:900">{{r.name}}</span><span style="display:block;margin-top:2px;font-size:13px;color:#66716B">{{r.sub}}</span></span><span style="display:flex;align-items:center;gap:8px;flex:none"><span style="text-align:right"><span style="display:block;font-size:15.5px;font-weight:900;color:{{r.tc}}">{{r.total}} ml</span><span style="display:block;margin-top:2px;font-size:12px;font-weight:700;color:#66716B">{{r.pct}}</span></span><span style="color:#9AA39E;display:flex;transform:rotate({{r.rot}});transition:transform .2s ease"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"></path></svg></span></span></span><span style="display:block;margin-top:10px;height:6px;border-radius:3px;background:#eef0ec;overflow:hidden"><span style="display:block;height:6px;border-radius:3px;background:#1db954;width:{{r.w}};transition:width .4s ease"></span></span></button></sc-if><sc-if value="{{r.isEntry}}" hint-placeholder-val="{{ false }}"><div class="fx" style="animation-duration:.2s;display:flex;align-items:center;justify-content:space-between;padding:7px 4px 7px 14px;margin-left:2px;border-left:2px solid #e8fef0"><span style="font-size:13.5px;color:#66716B">{{r.time}}</span><span style="font-size:14px;font-weight:700">+{{r.ml}} ml</span></div></sc-if></div></sc-for></div></div>
+
+</div><div style="position:absolute;left:0;right:0;bottom:0;height:150px;background:linear-gradient(to bottom,rgba(255,255,255,0),#FFFFFF 66%);pointer-events:none"></div><nav aria-label="Navigation principale" style="position:absolute;left:20px;right:20px;bottom:28px;height:68px;box-sizing:border-box;padding:6px;border-radius:34px;background:#FFFFFF;border:1px solid #EEF1EF;box-shadow:0 18px 40px -14px rgba(15,21,18,.28),0 2px 6px rgba(15,21,18,.06);display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px"><a class="press" href="Home.dc.html" style="border-radius:28px;color:#66716B;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;font-weight:700"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1Z"></path></svg>Accueil</a><a class="press" href="Journal.dc.html" style="border-radius:28px;color:#66716B;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;font-weight:700"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3.5" width="13" height="17" rx="2"></rect><path d="M9 8h6M9 12h6M9 16h3"></path></svg>Journal</a><a class="press" href="Progress.dc.html" style="border-radius:28px;color:#66716B;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;font-weight:700"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"></path><path d="M15 7h6v6"></path></svg>Progression</a></nav></div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    const e = (a) => a.map((x) => ({ t: x[0], ml: x[1] }));
+    this.state = {
+      goal: 2500, goalEdit: false, goalDraft: '2500', custom: '', open: 6, pulse: false,
+      days: [
+        e([['08:00',500],['10:30',250],['12:45',500],['15:30',250],['18:00',500],['20:15',100]]),
+        e([['07:45',500],['10:00',250],['12:30',500],['14:15',500],['16:40',250],['18:50',500],['21:00',150]]),
+        e([['08:30',250],['11:00',500],['13:40',250],['16:20',500],['19:10',300]]),
+        e([['08:10',500],['10:45',500],['13:00',250],['15:20',500],['17:30',250],['19:45',500]]),
+        e([['09:15',250],['11:30',500],['14:50',250],['17:10',500]]),
+        e([['07:40',500],['09:50',250],['12:10',500],['14:30',500],['16:00',250],['18:20',500],['20:30',250]]),
+        e([['08:05',250],['10:30',500],['13:15',250],['14:40',250]])
+      ]
+    };
+  }
+  fmt(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '\u00a0'); }
+  add(ml) {
+    ml = parseInt(ml, 10) || 0;
+    if (ml <= 0 || ml > 5000) return;
+    const d = new Date();
+    const t = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    const days = this.state.days.slice();
+    days[6] = days[6].concat([{ t: t, ml: ml }]);
+    this.setState({ days: days, custom: '', open: 6, pulse: true });
+    setTimeout(() => this.setState({ pulse: false }), 340);
+  }
+  renderVals() {
+    const s = this.state, f = (n) => this.fmt(n);
+    const names = ['Mercredi 7 oct.', 'Jeudi 8 oct.', 'Vendredi 9 oct.', 'Samedi 10 oct.', 'Dimanche 11 oct.', 'Lundi 12 oct.', "Aujourd'hui · 13 oct."];
+    const L = ['M', 'J', 'V', 'S', 'D', 'L', 'M'];
+    const goal = s.goal;
+    const tot = s.days.map((a) => a.reduce((x, y) => x + y.ml, 0));
+    const today = tot[6];
+    const pct = Math.round(today / goal * 100);
+    const C = 301.6, H = 150;
+    const rem = Math.max(goal - today, 0);
+    const items = [];
+    for (let i = 6; i >= 0; i--) {
+      const p = Math.round(tot[i] / goal * 100);
+      const n = s.days[i].length;
+      items.push({
+        isDay: true, isEntry: false, name: names[i], sub: n + (n > 1 ? ' prises' : ' prise'),
+        total: f(tot[i]), pct: p + ' %', w: Math.min(p, 100) + '%', tc: tot[i] >= goal ? '#0d7c36' : '#0F1512',
+        exp: s.open === i, rot: s.open === i ? '90deg' : '0deg', border: i === 6 ? 'none' : '1px solid #EEF1EF',
+        toggle: () => this.setState({ open: this.state.open === i ? -1 : i })
+      });
+      if (s.open === i) s.days[i].slice().reverse().forEach((x) => items.push({ isDay: false, isEntry: true, time: x.t, ml: f(x.ml) }));
+    }
+    const last = s.days[6][s.days[6].length - 1];
+    const gd = parseInt(s.goalDraft, 10) || 0;
+    return {
+      goal: f(goal), goalEdit: s.goalEdit, goalDraft: s.goalDraft,
+      toggleGoal: () => this.setState({ goalEdit: !this.state.goalEdit, goalDraft: String(this.state.goal) }),
+      setGoalDraft: (e) => this.setState({ goalDraft: e.target.value.replace(/\D/g, '').slice(0, 4) }),
+      saveGoal: () => { const v = parseInt(this.state.goalDraft, 10) || 0; if (v >= 500 && v <= 6000) this.setState({ goal: v, goalEdit: false }); },
+      goalOk: gd >= 500 && gd <= 6000 ? 1 : 0.45,
+      total: f(today), pct: pct + ' %', ring: (Math.min(today / goal, 1) * C).toFixed(1) + ' ' + C,
+      pop: s.pulse ? 'popA .3s ease-out' : 'none',
+      status: today >= goal ? 'Objectif atteint' : 'Il reste ' + f(rem) + ' ml',
+      stBg: today >= goal ? '#1db954' : '#e8fef0', stColor: today >= goal ? '#FFFFFF' : '#0d7c36',
+      quick: [150, 250, 500].map((ml) => ({ ml: ml, add: () => this.add(ml) })),
+      custom: s.custom, setCustom: (e) => this.setState({ custom: e.target.value.replace(/\D/g, '').slice(0, 4) }),
+      addCustom: () => this.add(this.state.custom), customOk: (parseInt(s.custom, 10) || 0) > 0 ? 1 : 0.45,
+      canUndo: s.days[6].length > 0, lastLabel: last ? '+' + f(last.ml) + ' ml' : '',
+      undo: () => { const d = this.state.days.slice(); d[6] = d[6].slice(0, -1); this.setState({ days: d }); },
+      goalBottom: Math.round(H * 0.8) + 'px',
+      cols: tot.map((v, i) => ({ l: L[i], h: Math.min(Math.round(v / goal * H * 0.8), H) + 'px', bg: v >= goal ? '#1db954' : '#111A15', lc: i === 6 ? '#0d7c36' : '#0F1512', lw: i === 6 ? 900 : 700 })),
+      items: items
+    };
+  }
+}
+</script>
+</body>
+</html>

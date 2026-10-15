@@ -1,0 +1,6 @@
+/* Styles propres à l'écran « Progress » (portée .s-progress). Les keyframes et classes communes sont dans styles/dc-base.css. */
+.s-progress button{font-family:inherit;cursor:pointer}
+.s-progress a{text-decoration:none;color:inherit}
+.s-progress .press{transition:transform .15s ease,box-shadow .2s ease}
+.s-progress .press:active{transform:scale(.97)}
+.s-progress .area{animation:areaIn .6s ease-out .5s both}

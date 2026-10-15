@@ -20,6 +20,7 @@
 	import { labelFor } from '../../lib/labels.js';
 	import { ONBOARDING_SECTIONS, readableAnswer } from '../../lib/onboarding.js';
 	import { avgLast7Completed } from '$lib/averages';
+	import { aggregateByDate, avgWindow, parisTodayISO, summarize, windowDaysCompleted } from '$lib/hydrationVision';
 	import { createFoodSearch } from '$lib/foodSearch.svelte';
 	import CountUp from '$lib/components/CountUp.svelte';
 	import CoachIdentity from '$lib/components/CoachIdentity.svelte';
@@ -1179,6 +1180,31 @@
 	    d'aujourd'hui jamais incluse (partielle). Repli : bloc semaines. */
 	const sport7 = $derived((view?.sport7 ?? null) as { activities: number; durationMin: number; kcal: number; metMinutes: number; manualCount: number; trainingCount: number } | null);
 	const sportCard = $derived(sport7 ?? sport360);
+	/* ── Hydratation (Vision 360) — mêmes enregistrements que l'écran cliente ──
+	   hydrationEntries agrégées par jour ; les fenêtres 7/30 jours couvrent les
+	   JOURNÉES TERMINÉES (J-N → J-1) — le jour en cours n'y entre jamais,
+	   comme pas / poids / calories. Un jour sans saisie ≠ 0 ml. */
+	type HydrationView = { goalMl: number; days: { date: string; ml: number }[] } | null;
+	const hydrationView = $derived((data.hydrationView ?? null) as HydrationView);
+	const hydrationGoal = $derived(hydrationView?.goalMl ?? null);
+	const hydrationToday = $derived.by(() => {
+		if (!hydrationView) return null;
+		const today = parisTodayISO();
+		return hydrationView.days.find((d) => d.date === today)?.ml ?? null;
+	});
+	const hydrationPct = $derived(hydrationToday !== null && hydrationGoal ? Math.min(Math.round((hydrationToday / hydrationGoal) * 100), 999) : null);
+	/** Agrégats 7/30 jours terminés : moyenne des jours renseignés + suivi. */
+	const hydrationStats = $derived.by(() => {
+		if (!hydrationView) return null;
+		const today = parisTodayISO();
+		const byDate = aggregateByDate(hydrationView.days);
+		const statN = (n: number) => {
+			const wins = summarize(windowDaysCompleted(today, n), byDate, hydrationView.goalMl);
+			return { avg: avgWindow(wins), trackedDays: wins.filter((d) => !d.noData).length };
+		};
+		return { w7: statN(7), w30: statN(30) };
+	});
+
 	/** Dates des deux pesées comparées (Vision 360 Poids). */
 	const weightLast = $derived((cockpit?.weight?.last ?? null) as { date: string; weightKg: number } | null);
 	const weightPrevLast = $derived((cockpit?.weight?.prevLast ?? null) as { date: string; weightKg: number } | null);
@@ -2351,6 +2377,45 @@
 						<p class="mt-1 text-sm italic text-mist">Aucune activité cette semaine</p>
 					{/if}
 				</div>
+
+				<!-- HYDRATATION — mêmes enregistrements que l'écran cliente
+			     (hydrationEntries). Total du jour local de la cliente (Europe/Paris),
+			     % de l'objectif, et évolution sur les JOURNÉES TERMINÉES 7/30 j :
+			     le jour en cours n'entre jamais dans une moyenne, un jour sans
+			     saisie ne compte jamais comme 0 ml. Non bloquant : module absent →
+			     encart masqué. -->
+				{#if hydrationView}
+					<div class="kpi-crm" style="--kpi-accent: var(--accent); --kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep)">
+						<div class="flex items-center justify-between gap-2">
+							<div class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-mist"><span class="kpi-tile" style="width:1.75rem;height:1.75rem"><Icon name="droplet" size={14} /></span> Hydratation</div>
+							{#if hydrationPct !== null}
+								<span class="rounded-full bg-soft px-2 py-0.5 text-[10px] font-bold {hydrationToday! >= hydrationGoal! ? 'text-brand-dark' : 'text-ink'}">{hydrationPct} % du jour</span>
+							{/if}
+						</div>
+						{#if hydrationToday !== null && hydrationGoal !== null}
+							<div class="mt-1 flex flex-wrap items-baseline gap-x-2">
+								<span class="kpi-num-crm text-[1.65rem] text-ink">{hydrationToday.toLocaleString('fr-FR')}<span class="ml-1 text-sm font-bold text-mist">/ {hydrationGoal.toLocaleString('fr-FR')} ml</span></span>
+							</div>
+							<p class="mt-0.5 text-[11px] text-mist">
+								{#if hydrationToday >= hydrationGoal}Objectif du jour atteint{:else}Il reste {(hydrationGoal - hydrationToday).toLocaleString('fr-FR')} ml aujourd'hui{/if}
+							</p>
+						{:else}
+							<p class="mt-1 text-sm italic text-mist">Aucune saisie aujourd'hui</p>
+						{/if}
+						{#if hydrationStats && (hydrationStats.w7.avg !== null || hydrationStats.w30.avg !== null)}
+							<div class="mt-2 border-t border-line/60 pt-2">
+								<div class="flex items-baseline justify-between gap-2 text-[11px] text-mist">
+									<span>Moyenne 7 j terminés</span>
+									<span class="font-semibold text-ink">{hydrationStats.w7.avg !== null ? `{hydrationStats.w7.avg.toLocaleString('fr-FR')} ml` : '—'} · {hydrationStats.w7.trackedDays}/7 jour(s)</span>
+								</div>
+								<div class="mt-0.5 flex items-baseline justify-between gap-2 text-[11px] text-mist">
+									<span>Moyenne 30 j terminés</span>
+									<span class="font-semibold text-ink">{hydrationStats.w30.avg !== null ? `{hydrationStats.w30.avg.toLocaleString('fr-FR')} ml` : '—'} · {hydrationStats.w30.trackedDays}/30 jour(s)</span>
+								</div>
+							</div>
+						{/if}
+					</div>
+				{/if}
 				</div>
 
 				<!-- Ajout rapide depuis l'Aperçu : même endpoint que « Poids & mesures »,
@@ -3017,7 +3082,7 @@
 										<span class="text-[10px] text-mist">Ciqual – ANSES</span>
 									</div>
 									<div class="space-y-1">
-										{#each foodSearch.state.ciqual as hit (hit._id)}
+										{#each (foodSearch.state.ciqualExpanded ? foodSearch.state.ciqual : foodSearch.state.ciqual.slice(0, 3)) as hit (hit._id)}
 											<button
 												onclick={() => addFood(hit)}
 												class="flex w-full items-center gap-3 rounded-xl border border-brand/30 bg-brand-light/40 px-3 py-2 text-left transition hover:border-brand"
@@ -3031,6 +3096,14 @@
 											</button>
 										{/each}
 									</div>
+									{#if foodSearch.state.ciqual.length > 3}
+										<button
+											type="button"
+											class="w-full rounded-full py-2 text-xs font-semibold text-brand transition hover:bg-brand-light"
+											onclick={() => foodSearch.toggleCiqualExpanded()}
+											aria-expanded={foodSearch.state.ciqualExpanded}
+										>{foodSearch.state.ciqualExpanded ? 'Voir moins' : `Voir plus (${foodSearch.state.ciqual.length - 3})`}</button>
+									{/if}
 								{/if}
 								<!-- 2. PRODUITS : Open Food Facts (moteur classé PWA, ranking
 								     identique côté cliente ; la liste reste affichée pendant
@@ -3479,6 +3552,7 @@
 						><Icon name="arrowLeft" size={14} class="shrink-0" /> Tous les bilans</a>
 						<span class="text-[11px] text-mist">Bilans de {fullName(selected.user)} — semaine après semaine</span>
 					</div>
+
 					{#if checkins.length === 0}
 						<div class="rounded-2xl border border-dashed border-line bg-card px-6 py-10 text-center">
 							<p class="grid place-items-center"><Icon name="calendarDays" size={30} class="text-mist" /></p>

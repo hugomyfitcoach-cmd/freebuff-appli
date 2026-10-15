@@ -50,15 +50,60 @@
 	const xAt = $derived((t: number) => PAD_X + ((t - tMin) / tSpan) * (width - PAD_X * 2));
 	const yAt = $derived((v: number) => height - PAD_Y - ((v - vMin) / vSpan) * (height - PAD_Y * 2));
 
-	const line = $derived.by(() =>
-		pts
-			.map((p, i) => {
-				const x = xAt(Date.parse(p.date + 'T12:00:00'));
-				const y = yAt(p.value);
-				return `${i === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
-			})
-			.join(' ')
+	const coords = $derived.by(() =>
+		pts.map((p) => ({
+			x: xAt(Date.parse(p.date + 'T12:00:00')),
+			y: yAt(p.value),
+		}))
 	);
+
+	function monotoneSpline(c: { x: number; y: number }[]): string {
+		if (!c.length) return '';
+		if (c.length === 1) return `M ${c[0].x.toFixed(1)} ${c[0].y.toFixed(1)}`;
+		if (c.length === 2) return `M ${c[0].x.toFixed(1)} ${c[0].y.toFixed(1)} L ${c[1].x.toFixed(1)} ${c[1].y.toFixed(1)}`;
+		const n = c.length;
+		const dx: number[] = [];
+		const dy: number[] = [];
+		const m: number[] = [];
+		for (let i = 0; i < n - 1; i++) {
+			dx.push(Math.max(c[i + 1].x - c[i].x, 1e-6));
+			dy.push(c[i + 1].y - c[i].y);
+			m.push(dy[i] / dx[i]);
+		}
+		const t: number[] = [m[0]];
+		for (let i = 1; i < n - 1; i++) {
+			if (m[i - 1] * m[i] <= 0) t.push(0);
+			else t.push((m[i - 1] + m[i]) / 2);
+		}
+		t.push(m[n - 2]);
+		for (let i = 0; i < n - 1; i++) {
+			if (Math.abs(m[i]) < 1e-6) {
+				t[i] = 0;
+				t[i + 1] = 0;
+			} else {
+				const a = t[i] / m[i];
+				const b = t[i + 1] / m[i];
+				const s = a * a + b * b;
+				if (s > 9) {
+					const tau = 3 / Math.sqrt(s);
+					t[i] = tau * a * m[i];
+					t[i + 1] = tau * b * m[i];
+				}
+			}
+		}
+		let d = `M ${c[0].x.toFixed(1)} ${c[0].y.toFixed(1)}`;
+		for (let i = 0; i < n - 1; i++) {
+			const h = dx[i] / 3;
+			const cp1x = c[i].x + h;
+			const cp1y = c[i].y + t[i] * h;
+			const cp2x = c[i + 1].x - h;
+			const cp2y = c[i + 1].y - t[i + 1] * h;
+			d += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${c[i + 1].x.toFixed(1)} ${c[i + 1].y.toFixed(1)}`;
+		}
+		return d;
+	}
+
+	const line = $derived.by(() => monotoneSpline(coords));
 	const area = $derived.by(() => {
 		if (!pts.length) return '';
 		const baseY = height - PAD_Y;
@@ -108,16 +153,16 @@
 			<path d={area} fill={`url(#spark-grad-${id})`} />
 		{/if}
 		{#if hasTrend && line}
-			<path d={line} fill="none" stroke={color} stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+			<path d={line} fill="none" stroke={color} stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
 		{/if}
 		{#if last}
 			<circle
 				cx={xAt(Date.parse(last.date + 'T12:00:00'))}
 				cy={yAt(last.value)}
-				r="2.5"
+				r="4"
 				fill={color}
 				stroke="#ffffff"
-				stroke-width="1.2"
+				stroke-width="2"
 			/>
 		{/if}
 	</svg>

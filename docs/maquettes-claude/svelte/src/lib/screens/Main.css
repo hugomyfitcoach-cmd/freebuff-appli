@@ -1,0 +1,6 @@
+/* Styles propres à l'écran « Main » (portée .s-main). Les keyframes et classes communes sont dans styles/dc-base.css. */
+.s-main button{font-family:inherit;cursor:pointer}
+.s-main a{text-decoration:none;color:inherit}
+.s-main input{font-family:inherit}
+.s-main .press{transition:transform .15s ease,box-shadow .2s ease,background-color .2s ease}
+.s-main .press:active{transform:scale(.97)}

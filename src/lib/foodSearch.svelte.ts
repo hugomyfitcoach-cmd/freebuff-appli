@@ -76,6 +76,8 @@ export type FoodSearchState = {
 	products: SearchFood[];
 	/** Fiches de référence Ciqual — bloc séparé, TOUJOURS au-dessus des produits. */
 	ciqual: SearchFood[];
+	/** « Voir plus » Ciqual : 3 fiches par défaut, jusqu'à 13 à la demande (BFF borné). */
+	ciqualExpanded: boolean;
 	/** Reste-t-il des produits au-delà de la tranche affichée ? */
 	hasMore: boolean;
 	/** Décalage serveur de la prochaine tranche. */
@@ -96,6 +98,8 @@ export type FoodSearchController = {
 	clear(): void;
 	/** Page suivante de produits OFF (scroll infini, +25 classés). */
 	loadMore(): void;
+	/** « Voir plus / Voir moins » du bloc Ciqual (3 par défaut, 13 max côté BFF). */
+	toggleCiqualExpanded(): void;
 	/** L'utilisateur a fait défiler : plus besoin de l'indication. */
 	hideScrollHint(): void;
 };
@@ -125,6 +129,7 @@ export function createFoodSearch(): FoodSearchController {
 		error: '',
 		products: [],
 		ciqual: [],
+		ciqualExpanded: false,
 		hasMore: false,
 		nextOffset: 0,
 		loadingMore: false,
@@ -145,6 +150,7 @@ export function createFoodSearch(): FoodSearchController {
 	function resetResults() {
 		state.products = [];
 		state.ciqual = [];
+		state.ciqualExpanded = false;
 		state.hasMore = false;
 		state.nextOffset = 0;
 		state.showScrollHint = false;
@@ -176,7 +182,7 @@ export function createFoodSearch(): FoodSearchController {
 			});
 		// Échec Ciqual silencieux : pas de grosse section vide, les produits
 		// OFF restent affichés (règle PWA).
-		const ciq = fetch(`/api/foods/ciqual?q=${encodeURIComponent(q)}`)
+		const ciq = fetch(`/api/foods/ciqual?q=${encodeURIComponent(q)}&limit=13`)
 			.then(async (r) => {
 				const j = await r.json();
 				return j.error ? [] : (j as CiqualRaw[]).map(ciqualToFood);
@@ -189,9 +195,10 @@ export function createFoodSearch(): FoodSearchController {
 			// Contrat PWA : l'erreur est affichée, résultats vidés — sauf si une
 			// recherche plus récente a déjà pris la main (anti-course).
 			if (req === seq) {
-				state.error = e instanceof Error ? e.message : String(e);
-				state.products = [];
-				state.ciqual = [];
+			state.error = e instanceof Error ? e.message : String(e);
+			state.products = [];
+			state.ciqual = [];
+			state.ciqualExpanded = false;
 				state.hasMore = false;
 				state.nextOffset = 0;
 				state.showScrollHint = false;
@@ -279,5 +286,9 @@ export function createFoodSearch(): FoodSearchController {
 		state.showScrollHint = false;
 	}
 
-	return { state, setQuery, runNow, clear, loadMore, hideScrollHint };
+	function toggleCiqualExpanded() {
+		state.ciqualExpanded = !state.ciqualExpanded;
+	}
+
+	return { state, setQuery, runNow, clear, loadMore, hideScrollHint, toggleCiqualExpanded };
 }

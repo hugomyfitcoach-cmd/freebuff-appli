@@ -9,6 +9,7 @@
 		"dev:convex": "convex dev",
 		"build": "node scripts/build-preview.mjs && vite build",
 		"deploy": "node scripts/deploy.mjs",
+		"ux": "node scripts/ux-mission.mjs",
 		"setup:coach": "node scripts/setup-coach.mjs",
 		"import:exercises": "node scripts/import-exercises.mjs",
 		"exercises": "node scripts/exercises.mjs",

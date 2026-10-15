@@ -172,60 +172,63 @@
 	const fmt = (n: number) => n.toLocaleString('fr-FR');
 </script>
 
-<svelte:head><title>Mes pas — G-Flux</title></svelte:head>	<div class="mx-auto w-full max-w-xl pb-28">
+<svelte:head><title>Mes pas — G-Flux</title></svelte:head>
+<div class="mx-auto w-full max-w-xl pb-28">
 	<BackToHome label="Mes pas" />
 
-	<div class="flex items-center gap-3">
-		<div class="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-brand-light"><Icon name="footprints" size={22} class="text-brand" /></div>
+	<div class="flex items-center gap-3.5">
+		<div class="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[18px] bg-brand-light"><Icon name="footprints" size={26} class="text-brand" /></div>
 		<div class="min-w-0 flex-1">
-			<h1 class="font-display text-2xl font-semibold tracking-tight text-ink">Mes pas</h1>
-			<p class="text-sm text-mist">7 derniers jours terminés — aujourd'hui jamais compté dans la moyenne, les jours sans saisie ne comptent pas comme zéro.</p>
+			<h1 class="text-[#0F1512] page-title">Mes pas</h1>
+			<p class="mt-1 text-[14px] leading-[1.4] text-[#66716B]">7 derniers jours terminés — aujourd'hui jamais compté dans la moyenne, les jours sans saisie ne comptent pas comme zéro.</p>
 		</div>
 	</div>
 
 	{#if editing}
 		<!-- Mode édition : tous les jours de la fenêtre, y compris rétroactifs -->
-		<section bind:this={weekEditEl} class="mt-5 rounded-3xl border border-line bg-card p-4 shadow-sm">
-			<div class="flex items-center justify-between gap-2">
-				<h2 class="text-[11px] font-bold uppercase tracking-widest text-mist">Modifier les 7 jours</h2>
-				<span class="text-[11px] text-mist">1 valeur par jour</span>
+		<section bind:this={weekEditEl} class="mt-4 rounded-[24px] border border-[#EEF1EF] bg-white p-4 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_14px_32px_-16px_rgba(15,21,18,0.18)]">
+			<div class="flex items-baseline justify-between gap-2">
+				<h2 class="text-[11px] font-black uppercase tracking-[0.1em] text-[#7B857F]">Modifier les 7 jours</h2>
+				<span class="text-[12.5px] text-[#66716B]">1 valeur par jour</span>
 			</div>
-			<div class="mt-1 flex flex-col divide-y divide-line/60">
+			<div class="mt-1.5 flex flex-col divide-y divide-[#EEF1EF]">
 				{#each windowDays as d (d.date)}
 					{@const lbl = dayLabel(d.date)}
-					<div class="flex items-center gap-2 py-2">
-						<span class="w-12 shrink-0 text-[13px] font-semibold text-ink">{lbl.day}</span>
-						<span class="w-[4.5rem] shrink-0 text-xs text-mist">{lbl.dateLabel}{d.date === todayISO ? ' · auj.' : ''}</span>
-						<input
-							type="number"
-							inputmode="numeric"
-							min="0"
-							max="150000"
-							placeholder={d.count !== null ? String(d.count) : 'Ajouter'}
-							bind:value={edits[d.date]}
-							class="w-full min-w-0 flex-1 rounded-xl border-2 border-line bg-soft px-3 py-2 text-sm font-semibold tabular-nums text-ink outline-none transition focus:border-brand"
-						/>
+					<div class="flex items-center gap-2.5 py-2">
+						<span class="w-[38px] shrink-0 text-[15px] font-black text-[#0F1512]">{lbl.day}</span>
+						<span class="w-[56px] shrink-0 text-[13.5px] text-[#66716B]">{lbl.dateLabel}{d.date === todayISO ? ' · auj.' : ''}</span>
+						<label class="fld flex h-[48px] min-w-0 flex-1 items-center rounded-[14px] border-[1.5px] border-[#E3E8E5] bg-[#F6F8F6] px-3.5">
+							<input
+								type="number"
+								inputmode="numeric"
+								min="0"
+								max="150000"
+								placeholder={d.count !== null ? String(d.count) : 'Ajouter'}
+								bind:value={edits[d.date]}
+								class="w-full min-w-0 border-0 bg-transparent text-[16px] font-bold tabular-nums text-[#0F1512] outline-none"
+							/>
+						</label>
 					</div>
 				{/each}
 			</div>
 			{#if editsError}
 				<p class="mt-2 text-xs font-semibold text-danger">{editsError}</p>
 			{/if}
-			<div class="mt-3 flex gap-2">
+			<div class="mt-3 flex gap-2.5">
 				<button
 					type="button"
 					onclick={saveEdits}
 					disabled={editsSaving}
-					class="flex-1 rounded-xl bg-brand px-4 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
+					class="tap h-[48px] flex-1 rounded-[24px] bg-brand px-4 text-[16px] font-bold text-white shadow-[0_14px_26px_-12px_rgba(23,163,73,0.65)] transition hover:bg-brand-dark disabled:opacity-60"
 				>{editsSaving ? 'Enregistrement…' : 'Enregistrer'}</button>
 				<button
 					type="button"
 					onclick={() => (editing = false)}
 					disabled={editsSaving}
-					class="rounded-xl border-2 border-line px-4 py-2.5 text-sm font-semibold text-mist transition hover:text-ink"
+					class="tap h-[48px] rounded-[24px] border-[1.5px] border-[#E3E8E5] bg-white px-6 text-[16px] font-bold text-[#66716B] transition hover:text-[#0F1512]"
 				>Annuler</button>
 			</div>
-			<p class="mt-2 text-[11px] leading-snug text-mist">Un champ vide ne change rien : une journée sans saisie n'est jamais comptée comme 0 pas.</p>
+			<p class="mt-2.5 text-[13px] leading-[1.4] text-[#7B857F]">Un champ vide ne change rien : une journée sans saisie n'est jamais comptée comme 0 pas.</p>
 		</section>
 	{/if}
 
@@ -233,35 +236,37 @@
 	     discret, pré-rempli) avec UN seul CTA « Enregistrer ». Fin des signaux
 	     multiples — la valeur du jour reste modifiable ICI uniquement (jamais
 	     depuis les barres de la semaine). -->
-	<section class="mt-5 rounded-3xl border border-line bg-card p-4 shadow-sm">
-		<p class="flex items-center gap-1.5 text-sm font-bold text-ink">
-			<Icon name="calendarDays" size={16} class="shrink-0 text-brand" />
+	<section class="mt-4 rounded-[24px] border border-[#EEF1EF] bg-white p-4 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_14px_32px_-16px_rgba(15,21,18,0.18)]">
+		<p class="flex items-center gap-2 text-[15.5px] font-black text-[#0F1512]">
+			<Icon name="calendarDays" size={20} class="shrink-0 text-brand" />
 			Aujourd'hui
 		</p>
-		<div class="mt-2.5 flex items-center gap-2">
+		<div class="mt-3 flex items-center gap-2.5">
 			<label class="sr-only" for="steps-today">Pas d'aujourd'hui — complète ou modifie cette valeur</label>
-			<input
-				id="steps-today"
-				type="number"
-				inputmode="numeric"
-				min="0"
-				max="150000"
-				placeholder={todayCount !== null ? String(todayCount) : 'Ex. 8742'}
-				bind:value={stepsValue}
-				oninput={() => {
-					savedMsg = false;
-					clearTimeout(savedTimer);
-				}}
-				aria-describedby={todayCount !== null ? 'steps-today-hint' : undefined}
-				class="w-full min-w-0 flex-1 rounded-2xl border-2 border-line bg-soft px-4 py-3.5 text-xl font-bold tabular-nums text-ink outline-none transition focus:border-brand"
-			/>
+			<div class="fld flex h-[48px] min-w-0 flex-1 items-center rounded-[14px] border-[1.5px] border-[#E3E8E5] bg-[#F6F8F6] px-3.5">
+				<input
+					id="steps-today"
+					type="number"
+					inputmode="numeric"
+					min="0"
+					max="150000"
+					placeholder={todayCount !== null ? String(todayCount) : 'Ex. 8742'}
+					bind:value={stepsValue}
+					oninput={() => {
+						savedMsg = false;
+						clearTimeout(savedTimer);
+					}}
+					aria-describedby={todayCount !== null ? 'steps-today-hint' : undefined}
+					class="w-full min-w-0 border-0 bg-transparent text-[20px] font-black tabular-nums text-[#0F1512] outline-none"
+				/>
+			</div>
 			<button
 				type="button"
 				onclick={saveSteps}
 				disabled={stepsSaving}
-				class="shrink-0 rounded-2xl bg-ink px-5 py-3.5 text-sm font-bold text-white transition hover:bg-brand disabled:opacity-60"
+				class="tap flex h-[48px] w-[104px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-[14px] bg-[#111A15] text-[14px] font-bold text-white transition hover:bg-brand disabled:opacity-60"
 			>
-				<Icon name="check" size={14} class="mr-1 shrink-0" />
+				<Icon name="check" size={16} strokeWidth={2.4} class="shrink-0" />
 				{stepsSaving ? '…' : 'Enregistrer'}
 			</button>
 		</div>
@@ -270,15 +275,15 @@
 			     terminés) n'intègre pas encore aujourd'hui — c'est voulu. -->
 			<div class="mt-2.5 flex items-start gap-2 rounded-xl bg-brand-light/60 px-3 py-2.5" role="status">
 				<Icon name="circleCheck" size={15} class="mt-0.5 shrink-0 text-brand-dark" />
-				<p class="min-w-0 text-xs leading-relaxed text-ink">
+				<p class="min-w-0 text-xs leading-relaxed text-[#0F1512]">
 					<span class="block font-bold text-brand-dark">C'est noté !</span>
 					Tes pas du jour sont bien enregistrés. Ils apparaîtront <span class="font-semibold">demain</span> dans la moyenne des 7 derniers jours.
 				</p>
 			</div>
 		{:else if todayCount !== null}
-			<p id="steps-today-hint" class="mt-1.5 text-[11px] text-mist">Déjà {fmt(todayCount)} pas aujourd'hui — change la valeur ci-dessus si besoin.</p>
+			<p id="steps-today-hint" class="mt-2.5 text-[13px] leading-[1.4] text-[#7B857F]">Déjà {fmt(todayCount)} pas aujourd'hui — change la valeur ci-dessus si besoin.</p>
 		{:else}
-			<p class="mt-1.5 text-[11px] text-mist">Renseigne le compteur de ton téléphone ou de ta montre, à la fin de la journée.</p>
+			<p class="mt-2.5 text-[13px] leading-[1.4] text-[#7B857F]">Renseigne le compteur de ton téléphone ou de ta montre, à la fin de la journée.</p>
 		{/if}
 		{#if stepsError}
 			<p class="mt-1.5 text-xs font-semibold text-danger">{stepsError}</p>
@@ -286,50 +291,50 @@
 	</section>
 
 	<!-- Graphique 7 derniers jours -->
-	<section class="mt-4 rounded-3xl border border-line bg-card p-4 shadow-sm">
-		<div class="flex items-center justify-between gap-2">
-			<h2 class="text-[11px] font-bold uppercase tracking-widest text-mist">7 derniers jours</h2>
+	<section class="mt-3.5 rounded-[24px] border border-[#EEF1EF] bg-white px-4 pb-2.5 pt-4 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_14px_32px_-16px_rgba(15,21,18,0.18)]">
+		<div class="flex items-baseline justify-between gap-2">
+			<h2 class="text-[11px] font-black uppercase tracking-[0.1em] text-[#7B857F]">7 derniers jours</h2>
 			{#if goal !== null}
-				<span class="text-[11px] font-semibold text-mist">Objectif : {fmt(goal)} pas / jour</span>
+				<span class="text-[12px] font-bold text-[#66716B]">Objectif : {fmt(goal)} pas / jour</span>
 			{/if}
 		</div>
 
 		{#if tracked.length === 0}
 			<div class="flex flex-col items-center gap-2 px-4 py-10 text-center">
-				<span class="grid h-12 w-12 place-items-center rounded-full bg-soft"><Icon name="footprints" size={22} class="text-mist" /></span>
-				<p class="font-display text-lg font-semibold text-ink">Pas assez de données</p>
-				<p class="text-sm text-mist">0 / 7 jours renseignés — ajoute tes pas d'aujourd'hui ci-dessus pour voir tes statistiques apparaître.</p>
+				<span class="grid h-12 w-12 place-items-center rounded-full bg-[#F6F8F6]"><Icon name="footprints" size={22} class="text-[#66716B]" /></span>
+				<p class="font-display text-lg font-black text-[#0F1512]">Pas assez de données</p>
+				<p class="text-sm text-[#66716B]">0 / 7 jours renseignés — ajoute tes pas d'aujourd'hui ci-dessus pour voir tes statistiques apparaître.</p>
 			</div>
 		{:else}
-			<div class="mt-3">
-				<StepsBars days={windowDays} goal={goal} height={160} />
+			<div class="mt-2.5">
+				<StepsBars days={windowDays} goal={goal} height={150} />
 			</div>
 
-			<!-- Statistiques -->
-			<div class="mt-4 divide-y divide-line/70 border-t border-line">
-				<div class="flex items-baseline justify-between gap-3 py-2.5">
-					<span class="text-sm text-mist">Total</span>
-					<span class="font-display text-xl font-bold tabular-nums tracking-tight text-ink">{fmt(total)} <span class="text-xs font-semibold text-mist">pas</span></span>
+			<!-- Statistiques (proportions Steps.svelte) -->
+			<div class="mt-1.5 divide-y divide-[#EEF1EF]">
+				<div class="flex items-baseline justify-between gap-3 py-3.5">
+					<span class="text-[15.5px] text-[#66716B]">Total</span>
+					<span class="font-display text-[24px] font-black tabular-nums tracking-[-0.02em] text-[#0F1512]">{fmt(total)} <span class="text-[13px] font-normal text-[#66716B]">pas</span></span>
 				</div>
-				<div class="flex items-baseline justify-between gap-3 py-2.5">
-					<span class="text-sm text-mist">Moyenne / jour <span class="text-[10px] font-semibold text-mist/70">(7 j terminés)</span></span>
-					<span class="font-display text-xl font-bold tabular-nums tracking-tight text-ink">{avg !== null ? fmt(avg) : '—'} <span class="text-xs font-semibold text-mist">pas</span></span>
+				<div class="flex items-baseline justify-between gap-3 py-3.5">
+					<span class="text-[15.5px] text-[#66716B]">Moyenne / jour <span class="text-[12px] text-[#66716B]">(7 j terminés)</span></span>
+					<span class="font-display text-[24px] font-black tabular-nums tracking-[-0.02em] text-[#0F1512]">{avg !== null ? fmt(avg) : '—'} <span class="text-[13px] font-normal text-[#66716B]">pas</span></span>
 				</div>
-				<div class="flex items-baseline justify-between gap-3 py-2.5">
-					<span class="text-sm text-mist">Meilleur jour</span>
+				<div class="flex items-baseline justify-between gap-3 py-3.5">
+					<span class="text-[15.5px] text-[#66716B]">Meilleur jour</span>
 					<span class="text-right">
-						<span class="font-display text-xl font-bold tabular-nums tracking-tight text-ink">{best ? fmt(best.count) : '—'}</span>
-						{#if best}<span class="ml-1 text-xs text-mist">{bestLabel(best.date)}</span>{/if}
+						<span class="font-display text-[24px] font-black tabular-nums tracking-[-0.02em] text-[#0F1512]">{best ? fmt(best.count) : '—'}</span>
+						{#if best}<span class="ml-1 text-[13px] text-[#66716B]">{bestLabel(best.date)}</span>{/if}
 					</span>
 				</div>
-				<div class="flex items-baseline justify-between gap-3 py-2.5">
-					<span class="text-sm text-mist">Suivi</span>
-					<span class="text-sm font-semibold tabular-nums text-ink">{tracked.length} / 7 jours renseignés</span>
+				<div class="flex items-baseline justify-between gap-3 py-3.5">
+					<span class="text-[15.5px] text-[#66716B]">Suivi</span>
+					<span class="text-[15.5px] font-black tabular-nums text-[#0F1512]">{tracked.length} / 7 jours renseignés</span>
 				</div>
 				{#if goal !== null}
-					<div class="flex items-baseline justify-between gap-3 py-2.5">
-						<span class="text-sm text-mist">Objectif</span>
-						<span class="text-sm font-semibold tabular-nums text-ink">{fmt(goal)} pas / jour</span>
+					<div class="flex items-baseline justify-between gap-3 py-3.5">
+						<span class="text-[15.5px] text-[#66716B]">Objectif</span>
+						<span class="text-[15.5px] font-black tabular-nums text-[#0F1512]">{fmt(goal)} pas / jour</span>
 					</div>
 				{/if}
 			</div>
@@ -342,22 +347,22 @@
 		<button
 			type="button"
 			onclick={() => startEditing(true)}
-			class="tap mt-4 flex w-full items-center justify-between gap-2 rounded-2xl bg-brand-light/70 px-4 py-3 text-left transition hover:bg-brand-light active:scale-[0.99]"
+			class="tap mb-1.5 mt-2 flex min-h-[64px] w-full items-center justify-between gap-3 rounded-[18px] bg-[#e8fef0] px-3.5 py-3 text-left transition hover:bg-brand-light/80 active:scale-[0.99]"
 		>
-			<span class="flex min-w-0 items-center gap-2.5">
-				<Icon name="pencil" size={16} class="shrink-0 text-brand-dark" />
+			<span class="flex min-w-0 items-center gap-3">
+				<Icon name="fileText" size={22} class="shrink-0 text-brand" />
 				<span class="min-w-0">
-					<span class="block text-sm font-bold text-ink">Mettre à jour mes pas de la semaine</span>
-					<span class="block text-xs text-mist">Modifier plusieurs jours en une seule fois</span>
+					<span class="block text-[15px] font-black text-[#0F1512]">Mettre à jour mes pas de la semaine</span>
+					<span class="mt-0.5 block text-[13px] text-[#66716B]">Modifier plusieurs jours en une seule fois</span>
 				</span>
 			</span>
-			<Icon name="chevronRight" size={16} class="shrink-0 text-mist" />
+			<Icon name="chevronRight" size={18} class="shrink-0 text-[#66716B]" />
 		</button>
 		{/if}
 	</section>
 
-	<p class="mt-3 flex items-start gap-1.5 px-1 text-xs leading-relaxed text-mist">
-		<Icon name="lightbulb" size={13} class="mt-0.5 shrink-0" />
+	<p class="mt-3.5 flex items-start gap-2.5 px-1.5 text-[13.5px] leading-[1.45] text-[#66716B]">
+		<Icon name="lightbulb" size={19} class="mt-0.5 shrink-0 text-[#9AA39E]" />
 		<span>La moyenne est calculée sur les jours réellement renseignés : une journée sans saisie n'est jamais comptée comme 0 pas.</span>
 	</p>
 </div>

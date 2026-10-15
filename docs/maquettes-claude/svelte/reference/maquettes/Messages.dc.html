@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Messages</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Lato',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button{font-family:inherit;cursor:pointer}
+a{text-decoration:none;color:inherit}
+input,textarea,select{font-family:inherit}
+.press{transition:transform .15s ease,box-shadow .2s ease,background-color .2s ease,border-color .2s ease}
+.press:active{transform:scale(.97)}
+.fld:focus-within{border-color:#1db954 !important;box-shadow:0 0 0 4px rgba(29,185,84,.14) !important}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes screenIn{from{opacity:0}to{opacity:1}}
+@keyframes sheetUp{from{transform:translateY(60px);opacity:0}to{transform:none;opacity:1}}
+@keyframes scrimIn{from{opacity:0}to{opacity:1}}
+@keyframes drawIn{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+@keyframes areaIn{from{opacity:0}to{opacity:1}}
+@keyframes barIn{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes barUp{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+@keyframes ringIn{from{stroke-dasharray:0 1000}}
+@keyframes scan{0%{transform:translateY(0);opacity:0}15%{opacity:1}85%{opacity:1}100%{transform:translateY(150px);opacity:0}}
+.screen{animation:screenIn .24s ease-out both}
+.fx{animation:fadeUp .28s ease-out both}
+.sheet{animation:sheetUp .28s cubic-bezier(.2,.8,.2,1) both}
+.scrim{animation:scrimIn .24s ease-out both}
+.draw{stroke-dasharray:1;stroke-dashoffset:0;animation:drawIn .9s cubic-bezier(.3,.7,.2,1) .15s both}
+.area{animation:areaIn .6s ease-out .45s both}
+.hbar{transform-origin:left;animation:barIn .6s cubic-bezier(.2,.8,.2,1) .15s both}
+.vbar{transform-origin:bottom;animation:barUp .6s cubic-bezier(.2,.8,.2,1) .15s both}
+@media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
+
+</style>
+</helmet>
+<div class="screen" style="width:390px;height:844px;box-sizing:border-box;background:#FFFFFF;display:flex;flex-direction:column;position:relative;overflow:hidden;color:#0F1512;font-family:'Lato',system-ui,sans-serif"><div style="padding:52px 20px 0;display:flex;align-items:center;justify-content:space-between;position:relative;z-index:5;flex:none"><a class="press" href="Home.dc.html" style="height:44px;box-sizing:border-box;padding:0 18px 0 10px;border-radius:22px;border:1px solid #E9EDEA;background:#FFFFFF;box-shadow:0 1px 2px rgba(15,21,18,.04),0 8px 20px -8px rgba(15,21,18,.14);display:flex;align-items:center;gap:4px;font-size:14px;font-weight:700;color:#0d7c36"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>Accueil</a><div style="display:flex;align-items:center;gap:10px"><button class="press" aria-label="Actualiser" style="width:44px;height:44px;padding:0;border-radius:22px;border:1px solid #E9EDEA;background:#FFFFFF;box-shadow:0 1px 2px rgba(15,21,18,.04),0 8px 20px -8px rgba(15,21,18,.14);display:flex;align-items:center;justify-content:center;color:#0F1512"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.5-4.2L4 9"></path><path d="M4 4v5h5"></path><path d="M4 13a8 8 0 0 0 14.5 4.2L20 15"></path><path d="M20 20v-5h-5"></path></svg></button><button class="press" aria-label="Profil" style="width:44px;height:44px;padding:0;border-radius:22px;border:2px solid #FFFFFF;background:#e8fef0;box-shadow:0 0 0 1px rgba(29,185,84,.3),0 8px 20px -8px rgba(15,21,18,.18);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;color:#0d7c36">HG</button></div></div><div style="flex:1;min-height:0;overflow-y:auto;padding:18px 20px 170px"><div><div class="fx" style="animation-delay:0ms;display:flex;align-items:center;gap:14px;margin-top:18px"><div style="flex:1;min-width:0;display:flex;align-items:center;gap:14px"><span style="width:52px;height:52px;border-radius:18px;background:#e8fef0;color:#1db954;display:flex;align-items:center;justify-content:center;flex:none"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4c4.4 0 8 3 8 7s-3.6 7-8 7c-1 0-2-.15-2.9-.45L5 19l1-3.4C4.7 14.4 4 12.8 4 11c0-4 3.6-7 8-7Z"></path></svg></span><div style="min-width:0"><h1 style="margin:0;font-size:28px;font-weight:900;letter-spacing:-0.03em;line-height:1.1">Messages</h1><div style="margin-top:4px;font-size:14px;line-height:1.4;color:#66716B">Les messages de ton coach, texte et audio, conservés ici.</div></div></div></div></div><div style="margin-top:18px"><div class="fx" style="animation-delay:80ms;margin-bottom:12px;border-radius:24px;border:1px solid #EEF1EF;background:#FFFFFF;box-shadow:0 1px 2px rgba(15,21,18,.04),0 14px 32px -16px rgba(15,21,18,.18);overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #EEF1EF"><div style="font-size:15px;font-weight:900;letter-spacing:-0.01em">Mercredi 30 septembre <span style="font-weight:700;font-size:12.5px;color:#7B857F">· 20:15</span></div><span style="display:flex;align-items:center;gap:4px;height:26px;padding:0 10px;border-radius:13px;background:#e8fef0;color:#0d7c36;font-size:11px;font-weight:900;letter-spacing:.06em"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg> LU</span></div><div style="padding:14px 16px 16px;font-size:15px;line-height:1.5;color:#1E2723">Nouvelle mise à jour G-FLUX 🚀<br>Le Journal est plus fluide et visuel, et surtout vous pouvez maintenant importer une recette avec l'IA ✨<br>Faites simplement une capture d'écran d'une recette (Marmiton, livre, Instagram…), importez-la dans Journal → Repas, et G-FLUX détecte les ingrédients, quantités, calories et macros. Vous vérifiez, puis en 2 clics la recette est enregistrée 🙌</div></div><div class="fx" style="animation-delay:130ms;margin-bottom:12px;border-radius:24px;border:1px solid #EEF1EF;background:#FFFFFF;box-shadow:0 1px 2px rgba(15,21,18,.04),0 14px 32px -16px rgba(15,21,18,.18);overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #EEF1EF"><div style="font-size:15px;font-weight:900;letter-spacing:-0.01em">Mercredi 23 septembre <span style="font-weight:700;font-size:12.5px;color:#7B857F">· 21:31</span></div><span style="display:flex;align-items:center;gap:4px;height:26px;padding:0 10px;border-radius:13px;background:#e8fef0;color:#0d7c36;font-size:11px;font-weight:900;letter-spacing:.06em"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg> LU</span></div><div style="padding:14px 16px 16px;font-size:15px;line-height:1.5;color:#1E2723">🚀 Mise à jour G-FLUX<br><br>• Scanner : zoom + lampe<br>• Repas analysés par IA, ajout en 1 clic</div></div></div></div><div style="position:absolute;left:0;right:0;bottom:0;height:150px;background:linear-gradient(to bottom,rgba(255,255,255,0),#FFFFFF 66%);pointer-events:none"></div><nav aria-label="Navigation principale" style="position:absolute;left:20px;right:20px;bottom:28px;height:68px;box-sizing:border-box;padding:6px;border-radius:34px;background:#FFFFFF;border:1px solid #EEF1EF;box-shadow:0 18px 40px -14px rgba(15,21,18,.28),0 2px 6px rgba(15,21,18,.06);display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px"><a class="press" href="Home.dc.html" style="border-radius:28px;color:#66716B;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;font-weight:700"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1Z"></path></svg>Accueil</a><a class="press" href="Journal.dc.html" style="border-radius:28px;color:#66716B;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;font-weight:700"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3.5" width="13" height="17" rx="2"></rect><path d="M9 8h6M9 12h6M9 16h3"></path></svg>Journal</a><a class="press" href="Progress.dc.html" style="border-radius:28px;color:#66716B;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12px;font-weight:700"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"></path><path d="M15 7h6v6"></path></svg>Progression</a></nav></div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

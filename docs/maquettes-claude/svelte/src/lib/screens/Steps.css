@@ -1,0 +1,7 @@
+/* Styles propres à l'écran « Steps » (portée .s-steps). Les keyframes et classes communes sont dans styles/dc-base.css. */
+.s-steps button{font-family:inherit;cursor:pointer}
+.s-steps a{text-decoration:none;color:inherit}
+.s-steps input,.s-steps textarea,.s-steps select{font-family:inherit}
+.s-steps .press{transition:transform .15s ease,box-shadow .2s ease,background-color .2s ease,border-color .2s ease}
+.s-steps .press:active{transform:scale(.97)}
+.s-steps .area{animation:areaIn .6s ease-out .45s both}

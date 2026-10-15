@@ -40,10 +40,14 @@ function readEnvFileVars() {
 
 const fileVars = readEnvFileVars();
 const deployKey = process.env.CONVEX_DEPLOY_KEY ?? fileVars.CONVEX_DEPLOY_KEY ?? '';
-/** En preview, `convex deploy` injecte l'URL du backend preview AVANT le build. */
+/** En preview, `convex deploy` injecte dans le processus --cmd l'URL réelle du backend (hostname généré, indépendant de --preview-name). */
 const publicConvexUrl = process.env.PUBLIC_CONVEX_URL ?? fileVars.PUBLIC_CONVEX_URL ?? '';
 
 if (isPreview) {
+	if (context !== 'deploy-preview' || process.env.PULL_REQUEST !== 'true') {
+		console.error('⛔ Build Preview refusé : seules les vraies Deploy Previews de PR sont autorisées.');
+		process.exit(1);
+	}
 	if (!deployKey.startsWith('preview:')) {
 		console.error(
 			`⛔ Build PREVIEW refusé : CONVEX_DEPLOY_KEY n'est pas une Preview Deploy Key (préfixe attendu "preview:"). ` +
@@ -62,6 +66,12 @@ if (isPreview) {
 		);
 		process.exit(1);
 	}
+	const reviewId = process.env.REVIEW_ID ?? '';
+	const expectedPreviewName = `barcode-lookup-pr-${reviewId}`;
+	if (!/^[1-9][0-9]{0,8}$/.test(reviewId)) {
+		console.error('⛔ Build PREVIEW refusé : REVIEW_ID Netlify absent ou invalide.');
+		process.exit(1);
+	}
 	if (!publicConvexUrl) {
 		console.error(
 			`⛔ Build PREVIEW refusé : PUBLIC_CONVEX_URL absente. Le build doit être lancé par ` +
@@ -70,8 +80,28 @@ if (isPreview) {
 		);
 		process.exit(1);
 	}
+	let parsedPreviewUrl;
+	try {
+		parsedPreviewUrl = new URL(publicConvexUrl);
+	} catch {
+		parsedPreviewUrl = null;
+	}
+	if (
+		!parsedPreviewUrl ||
+		parsedPreviewUrl.protocol !== 'https:' ||
+		!parsedPreviewUrl.hostname.endsWith('.convex.cloud') ||
+		parsedPreviewUrl.username ||
+		parsedPreviewUrl.password ||
+		parsedPreviewUrl.port ||
+		parsedPreviewUrl.pathname !== '/' ||
+		parsedPreviewUrl.search ||
+		parsedPreviewUrl.hash
+	) {
+		console.error(`⛔ Build PREVIEW refusé : PUBLIC_CONVEX_URL n'est pas une URL HTTPS de déploiement Convex valide.`);
+		process.exit(1);
+	}
 	console.log(`✅ Preview : PUBLIC_CONVEX_URL=${publicConvexUrl} (Convex Preview, pas ${PROD_DEPLOYMENT}).`);
-}if (context === 'production') {
+} else if (context === 'production') {
 	// L'URL réelle du déploiement production porte un sous-domaine RÉGION
 	// (calm-jaguar-475.eu-west-1.convex.cloud) — forme documentée dans
 	// .env.example. On accepte le nom de déploiement + un hôte *.convex.cloud,
