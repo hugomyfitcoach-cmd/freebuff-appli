@@ -836,3 +836,40 @@ body:has(.gflux-app-client) {
 		font-size: 36px;
 	}
 }
+
+/* ── Pictogramme Calories (Accueil) : indicateur d'activité ───────────────
+   Seul le point central reçoit un halo (::after) qui s'élargit puis s'efface,
+   toutes les 3 s. Le point et le carré ne bougent pas. Transform + opacity
+   uniquement (GPU, sans relayout). Désactivé sous prefers-reduced-motion. */
+@keyframes kcal-halo {
+	0% {
+		transform: scale(1);
+		opacity: 0.5;
+		animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
+	}
+	60%,
+	100% {
+		transform: scale(3.4);
+		opacity: 0;
+	}
+}
+.gflux-kcal-pulse {
+	position: relative;
+}
+.gflux-kcal-pulse::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	background: var(--color-brand);
+	opacity: 0;
+	pointer-events: none;
+	will-change: transform, opacity;
+	animation: kcal-halo 3s infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+	.gflux-kcal-pulse::after {
+		animation: none;
+		display: none;
+	}
+}

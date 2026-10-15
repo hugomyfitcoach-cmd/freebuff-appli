@@ -1112,7 +1112,7 @@
 			>
 				<div class="flex items-center justify-between gap-2">
 					<span class="flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-mist">
-						<span class="grid h-[34px] w-[34px] place-items-center rounded-xl bg-brand-light"><span aria-hidden="true" class="h-1.5 w-1.5 rounded-full bg-brand"></span></span>
+						<span class="grid h-[34px] w-[34px] place-items-center rounded-xl bg-brand-light"><span aria-hidden="true" class="gflux-kcal-pulse h-1.5 w-1.5 rounded-full bg-brand"></span></span>
 						Calories
 					</span>
 					<span class="shrink-0 rounded-xl bg-brand-light px-3 py-1.5 text-xs font-bold text-brand-deep">Objectif {fmt(dash.tracking.kcalGoal)}</span>
