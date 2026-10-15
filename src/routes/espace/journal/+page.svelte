@@ -4174,8 +4174,8 @@ import { optimizeImageFile } from '$lib/media';
 
 			{#if logMode !== 'barcode' && fullEditorOpen}
 				<!-- En-tête d'écran autonome (Claude) : pilule Retour + libellé « AJOUTER UN ALIMENT ». -->
-				<div class="flex shrink-0 items-center justify-between bg-white px-5 pb-2 pt-[max(env(safe-area-inset-top),12px)]">
-					<button type="button" class="inline-flex h-[44px] items-center gap-1 rounded-[22px] border border-[#E9EDEA] bg-white pl-2.5 pr-[18px] text-[14px] font-bold text-[#0d7c36] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_8px_20px_-8px_rgba(15,21,18,0.14)]" aria-label={searchTab === 'repas' ? 'Retour aux repas' : 'Retour à mes aliments'} onclick={searchTab === 'repas' ? closeMealEditor : closeCustomEditor}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>{searchTab === 'repas' ? 'Repas' : 'Mes aliments'}</button>
+				<div class="flex shrink-0 items-center justify-between bg-white px-5 pb-2 pt-[max(env(safe-area-inset-top),8px)]">
+					<button type="button" class="inline-flex h-[44px] items-center gap-1 rounded-[22px] border border-[#E9EDEA] bg-white pl-2 pr-3.5 text-[14px] font-bold text-[#0d7c36] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_8px_20px_-8px_rgba(15,21,18,0.14)]" aria-label={searchTab === 'repas' ? 'Retour aux repas' : 'Retour à mes aliments'} onclick={searchTab === 'repas' ? closeMealEditor : closeCustomEditor}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>{searchTab === 'repas' ? 'Repas' : 'Mes aliments'}</button>
 					<span class="text-[12px] font-bold uppercase tracking-[0.08em] text-mist">Ajouter un aliment</span>
 				</div>
 			{/if}
@@ -4225,7 +4225,7 @@ import { optimizeImageFile } from '$lib/media';
 					{#if searchTab === 'repas' && mealEditor}
 						<!-- ═══════ Éditeur de repas ═══════ -->
 						<div>
-							<h2 class="mb-3 text-[30px] font-black leading-[1.1] tracking-[-0.03em] text-ink">{mealEditingId ? 'Modifier le repas' : 'Nouveau repas'}</h2>
+							<h2 class="mt-4 mb-3 text-[30px] font-black leading-[1.1] tracking-[-0.03em] text-ink">{mealEditingId ? 'Modifier le repas' : 'Nouveau repas'}</h2>
 
 							<input
 								type="text"
@@ -4358,7 +4358,7 @@ import { optimizeImageFile } from '$lib/media';
 						<!-- ═══════ Créés par moi : aliments personnels ═══════ -->
 						{#if searchTab === 'crees' && customEditor}
 				<div bind:this={customFormEl} onfocusin={(e) => focusScroll(e.currentTarget, e.target)} onfocusout={blurScroll}>
-							<h2 class="mb-3 text-[30px] font-black leading-[1.1] tracking-[-0.03em] text-ink">{cfEditingId ? 'Modifier l\'aliment' : 'Nouvel aliment'}</h2>
+							<h2 class="mt-4 mb-3 text-[30px] font-black leading-[1.1] tracking-[-0.03em] text-ink">{cfEditingId ? 'Modifier l\'aliment' : 'Nouvel aliment'}</h2>
 							<p class="mb-3 text-xs text-mist">{cfEditingId ? 'Mets à jour les valeurs pour 100 g : les prochains ajouts au journal utiliseront les nouvelles valeurs.' : 'Reçois-tu un plat avec une étiquette nutritionnelle ? Saisis les valeurs pour 100 g : l\'aliment sera ajouté à ta base.'}</p>
 
 							<!-- PHOTO (OPTIONNELLE) : caméra OU galerie → compression + preview
