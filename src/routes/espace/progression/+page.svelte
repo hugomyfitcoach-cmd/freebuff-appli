@@ -85,6 +85,8 @@
 		// Lien direct depuis le dashboard : « Ajouter mes mensurations »
 		// ouvre directement la feuille de saisie des mensurations.
 		const params = new URLSearchParams(window.location.search);
+		// Lien « Voir mon historique » de la saisie rapide : détail Poids directement.
+		if (params.get('detail') === 'weightKg') openDetail('weightKg');
 		if (params.get('action') === 'mensurations') {
 			openLog('mensurations');
 			/* Lien direct « Ajouter mes mensurations » : au retour automatique

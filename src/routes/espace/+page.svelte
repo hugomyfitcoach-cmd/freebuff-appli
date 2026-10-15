@@ -84,6 +84,8 @@
 	import AudioPlayer from '$lib/components/AudioPlayer.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Sparkline from '$lib/components/Sparkline.svelte';
+	import WeightQuickSheet from '$lib/components/WeightQuickSheet.svelte';
+	import { applyWeightLocally } from '$lib/weightLog';
 	import PerformanceWeekCard from '$lib/components/PerformanceWeekCard.svelte';
 	import CountUp from '$lib/components/CountUp.svelte';
 	import MacroLine from '$lib/components/MacroLine.svelte';
@@ -506,16 +508,40 @@
 	const optimisticFresh = $derived(
 		optimisticMetrics !== null && nowTick - optimisticMetrics.savedAt < SHARED_TTL_MS
 	);
+	/* Saisie rapide du poids (feuille de l'Accueil) : la pesée enregistrée s'affiche
+	   immédiatement, avant la revalidation serveur ; elle est levée ensuite. */
+	let weightOverride = $state<{ kg: number; date: string } | null>(null);
+	let weightSheetOpen = $state(false);
 	const lastWeightKgShown = $derived(
-		optimisticFresh && optimisticMetrics
-			? (optimisticMetrics.measurements.filter((m) => m.weightKg !== undefined).at(-1)?.weightKg ?? dash?.progression.lastWeightKg ?? null)
-			: (dash?.progression.lastWeightKg ?? null)
+		weightOverride
+			? weightOverride.kg
+			: optimisticFresh && optimisticMetrics
+				? (optimisticMetrics.measurements.filter((m) => m.weightKg !== undefined).at(-1)?.weightKg ?? dash?.progression.lastWeightKg ?? null)
+				: (dash?.progression.lastWeightKg ?? null)
 	);
 	const lastWeightDateShown = $derived(
-		optimisticFresh && optimisticMetrics
-			? (optimisticMetrics.measurements.filter((m) => m.weightKg !== undefined).at(-1)?.date ?? dash?.progression.lastWeightDate ?? null)
-			: (dash?.progression.lastWeightDate ?? null)
+		weightOverride
+			? weightOverride.date
+			: optimisticFresh && optimisticMetrics
+				? (optimisticMetrics.measurements.filter((m) => m.weightKg !== undefined).at(-1)?.date ?? dash?.progression.lastWeightDate ?? null)
+				: (dash?.progression.lastWeightDate ?? null)
 	);
+	function openWeightSheet() {
+		weightSheetOpen = true;
+	}
+	/** Après enregistrement : carte Poids + « Ma progression » à jour sur l'heure,
+	 *  puis revalidation serveur (source de vérité). */
+	async function onWeightSaved(kg: number, date: string) {
+		weightOverride = { kg, date };
+		if (applyWeightLocally(kg, date)) optimisticMetrics = getSharedMetrics() ?? null;
+		try {
+			await invalidateAll();
+			weightOverride = null;
+			optimisticMetrics = null;
+		} catch {
+			// Revalidation en échec : on garde l'affichage optimiste (la pesée est bien enregistrée).
+		}
+	}
 	const weightTrendShown = $derived(
 		optimisticFresh && optimisticMetrics
 			? optimisticMetrics.measurements
@@ -1184,10 +1210,12 @@
 		</div>
 
 		<div class="mt-3 grid grid-cols-2 gap-3">
-			<!-- POIDS -->
-			<a
-				href="/espace/progression"
-				class="tap tap-shadow group rounded-3xl border border-line bg-card p-4 shadow-sm hover:border-brand/50"
+			<!-- POIDS : saisie rapide dans une feuille (sans changer de page) -->
+			<button
+				type="button"
+				onclick={openWeightSheet}
+				aria-haspopup="dialog"
+				class="tap tap-shadow group rounded-3xl border border-line bg-card p-4 text-left shadow-sm hover:border-brand/50"
 			>
 				<div class="flex items-center justify-between gap-1">
 					<span class="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-mist"><Icon name="scale" size={14} class="shrink-0 text-brand" /> Poids</span>
@@ -1206,12 +1234,10 @@
 									<Icon name="circleCheck" size={12} class="shrink-0" /> Pesées 3/3
 								</span>
 							{:else}
-								<span class="shrink-0 text-[11px] font-semibold tabular-nums text-mist">Pesées {peseesCount}/3</span>
-							{/if}
-						{/if}
+								<span class="shrink-0 text-[11px] font-semibold tabular-nums text-mist">Pesées {peseesCount}/3</span>							{/if}
+					{/if}
 				</div>
-			</a>
-
+			</button>
 			<!-- CYCLE -->
 			<button
 				type="button"
@@ -1287,6 +1313,16 @@
 		{/if}
 	</section>
 {/if}
+
+<!-- Feuille de saisie rapide du poids (carte Poids) -->
+<WeightQuickSheet
+	open={weightSheetOpen}
+	date={currentLocalDay()}
+	lastKg={lastWeightKgShown}
+	lastDate={lastWeightDateShown}
+	onClose={() => (weightSheetOpen = false)}
+	onSaved={onWeightSaved}
+/>
 
 <!-- ═══════════ Ma progression ═══════════ -->
 <!-- NB : class commence par « group » immédiatement après href (ancre e2e-sport-ui). -->
