@@ -2855,7 +2855,7 @@ import { optimizeImageFile } from '$lib/media';
 				} else {
 					// Hors bêta : comportement historique (message + recherche par nom).
 					barcodeStatus = 'notfound';
-					barcodeError = `Aucun produit trouvé pour le code ${code}. Cherche-le par nom, ou crée-le dans « Créés par moi ».`;
+					barcodeError = `Aucun produit trouvé pour le code ${code}. Cherche-le par nom, ou crée-le dans « Mes aliments ».`;
 				}
 		} catch (e) {
 			barcodeStatus = 'error';
@@ -4184,7 +4184,7 @@ import { optimizeImageFile } from '$lib/media';
 			{#if logMode !== 'barcode' && fullEditorOpen}
 				<!-- En-tête d'écran autonome (Claude) : pilule Retour + libellé « AJOUTER UN ALIMENT ». -->
 				<div class="flex shrink-0 items-center justify-between bg-white px-5 pb-2 pt-[max(env(safe-area-inset-top),8px)]">
-					<button type="button" class="inline-flex h-[44px] items-center gap-1 rounded-[22px] border border-[#E9EDEA] bg-white pl-2 pr-3.5 text-[14px] font-bold text-[#0d7c36] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_8px_20px_-8px_rgba(15,21,18,0.14)]" aria-label={searchTab === 'repas' ? 'Retour aux repas' : 'Retour à mes aliments'} onclick={searchTab === 'repas' ? closeMealEditor : closeCustomEditor}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>{searchTab === 'repas' ? 'Repas' : 'Mes aliments'}</button>
+					<button type="button" class="inline-flex h-[44px] items-center gap-1 rounded-[22px] border border-[#E9EDEA] bg-white pl-2 pr-3.5 text-[14px] font-bold text-[#0d7c36] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_8px_20px_-8px_rgba(15,21,18,0.14)]" aria-label={searchTab === 'repas' ? 'Retour à mes recettes' : 'Retour à mes aliments'} onclick={searchTab === 'repas' ? closeMealEditor : closeCustomEditor}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>{searchTab === 'repas' ? 'Mes recettes' : 'Mes aliments'}</button>
 					<span class="text-[12px] font-bold uppercase tracking-[0.08em] text-mist">Ajouter un aliment</span>
 				</div>
 			{/if}
@@ -4222,8 +4222,8 @@ import { optimizeImageFile } from '$lib/media';
 						     d'aliment en cours — les sous-vues ne « captent » plus l'onglet
 						     (le contenu est conditionné à searchTab D'ABORD, jamais à
 						     mealEditor/customEditor seuls). La saisie en cours passe en
-						     brouillon (reprise au retour, cf. draft). -->									<button type="button" class="h-7 shrink-0 rounded-full px-3 text-[12.5px] font-bold transition active:scale-95 {searchTab === 'repas' ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#3A4540]'}" onclick={() => switchTab('repas')}>Repas</button>
-									<button type="button" class="h-7 shrink-0 rounded-full px-3 text-[12.5px] font-bold transition active:scale-95 {searchTab === 'crees' ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#3A4540]'}" onclick={() => switchTab('crees')}>Créés par moi</button>
+						     brouillon (reprise au retour, cf. draft). -->									<button type="button" class="h-7 shrink-0 rounded-full px-3 text-[12.5px] font-bold transition active:scale-95 {searchTab === 'repas' ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#3A4540]'}" onclick={() => switchTab('repas')}>Mes recettes</button>
+									<button type="button" class="h-7 shrink-0 rounded-full px-3 text-[12.5px] font-bold transition active:scale-95 {searchTab === 'crees' ? 'bg-brand text-white shadow-[0_8px_18px_-8px_rgba(23,163,73,0.55)]' : 'bg-[#F3F6F4] text-[#3A4540]'}" onclick={() => switchTab('crees')}>Mes aliments</button>
 					</div>
 				</div>
 				{/if}
@@ -4234,12 +4234,12 @@ import { optimizeImageFile } from '$lib/media';
 					{#if searchTab === 'repas' && mealEditor}
 						<!-- ═══════ Éditeur de repas ═══════ -->
 						<div>
-							<h2 class="mt-4 mb-3 text-[30px] font-black leading-[1.1] tracking-[-0.03em] text-ink">{mealEditingId ? 'Modifier le repas' : 'Nouveau repas'}</h2>
+							<h2 class="mt-4 mb-3 text-[30px] font-black leading-[1.1] tracking-[-0.03em] text-ink">{mealEditingId ? 'Modifier la recette' : 'Nouvelle recette'}</h2>
 
 							<input
 								type="text"
 								class="w-full rounded-xl border-2 border-line bg-cream px-3 py-2.5 text-sm font-semibold text-ink outline-none focus:border-brand"
-								placeholder="Nom du repas (ex. Hachis parmentier)"
+								placeholder="Nom de la recette (ex. Hachis parmentier)"
 								bind:value={mealName}
 							/>
 							<input
@@ -4314,7 +4314,7 @@ import { optimizeImageFile } from '$lib/media';
 							{/if}
 
 							<button type="button" class="mt-4 w-full rounded-full bg-brand py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={mealSaving || mealItems.length === 0 || mealName.trim().length < 2} onclick={saveMeal}>
-								{mealSaving ? 'Enregistrement…' : mealEditingId ? 'Enregistrer les modifications' : 'Enregistrer le repas'}
+								{mealSaving ? 'Enregistrement…' : mealEditingId ? 'Enregistrer les modifications' : 'Enregistrer la recette'}
 							</button>
 						</div>
 					{:else if searchTab === 'repas'}
@@ -4322,13 +4322,13 @@ import { optimizeImageFile } from '$lib/media';
 						<button type="button" class="mb-3 flex w-full items-center gap-3.5 rounded-2xl border px-3.5 py-2.5 text-left transition active:scale-[0.98] {searchTab === 'repas' ? 'bg-brand-light border-brand/30 text-brand' : 'border border-[rgba(29,185,84,0.3)] bg-[#e8fef0] text-[#0d7c36]'}" onclick={openMealEditor}>
 							<!-- Icône REPAS COMPLET (bol fumant) ≠ fiche produit de « Créer un aliment » -->
 							<span class="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-full bg-brand text-white"><Icon name="soup" size={17} /></span>
-							<span class="text-[15px] font-bold">Ajouter un nouveau repas</span>
+							<span class="text-[15px] font-bold">Créer une recette</span>
 						</button>
 						{#if mealsError}
 							<p class="rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{mealsError}</p>
 						{:else if meals.length === 0}
 							<div class="py-10 text-center">													<div class="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-brand-light"><Icon name="utensils" size={26} class="text-brand" /></div>
-								<p class="text-sm font-semibold text-ink">Aucun repas pour l'instant</p>
+								<p class="text-sm font-semibold text-ink">Aucune recette pour l'instant</p>
 								<p class="mx-auto mt-1 max-w-xs text-xs text-mist">Crée tes recettes (ingrédients + quantités) : les macros de chaque portion se calculent toutes seules.</p>
 							</div>
 						{:else}
@@ -4361,7 +4361,7 @@ import { optimizeImageFile } from '$lib/media';
 									</li>
 								{/each}
 							</ul>
-							<p class="mt-3 text-center text-xs text-mist">Touche un repas pour ajouter une portion au journal.</p>
+							<p class="mt-3 text-center text-xs text-mist">Touche une recette pour ajouter une portion au journal.</p>
 						{/if}
 					{:else if searchTab === 'crees'}
 						<!-- ═══════ Créés par moi : aliments personnels ═══════ -->
@@ -4622,7 +4622,7 @@ import { optimizeImageFile } from '$lib/media';
 							<div class="py-10 text-center">
 								<div class="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-brand-light"><Icon name="search" size={22} class="text-brand" /></div>
 								<p class="text-sm font-semibold text-ink">Recherche un produit</p>
-								<p class="mx-auto mt-1 max-w-xs text-xs text-mist">Base G-Flux (780 000 aliments), code-barres, ou « Créés par moi » pour un plat avec étiquette.</p>
+								<p class="mx-auto mt-1 max-w-xs text-xs text-mist">Base G-Flux (780 000 aliments), code-barres, ou « Mes aliments » pour un plat avec étiquette.</p>
 							</div>
 						{/if}
 					{:else if results.length === 0 && ciqualResults.length === 0}
@@ -4927,7 +4927,7 @@ import { optimizeImageFile } from '$lib/media';
 				<button type="button" class="mt-4 w-full rounded-full bg-brand py-3.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={recipeComps.some((c) => c.qtyUncertain)} onclick={applyRecipeToMeal}>
 					{recipeComps.some((c) => c.qtyUncertain) ? 'Complète les quantités manquantes' : 'Utiliser cette recette'}
 				</button>
-				<p class="mt-2 text-center text-[11px] text-mist">Les ingrédients remplissent le repas en cours — rien n'est enregistré avant « Enregistrer le repas ».</p>
+				<p class="mt-2 text-center text-[11px] text-mist">Les ingrédients remplissent le repas en cours — rien n'est enregistré avant « Enregistrer la recette ».</p>
 			{/if}
 		</div>
 	</div>
@@ -5206,7 +5206,7 @@ import { optimizeImageFile } from '$lib/media';
 					</div>
 				</div>
 			{:else}
-				<p class="mb-3 rounded-xl bg-line/40 px-3 py-2 text-xs text-mist">Un produit absent de la base ? Scan, photo d'étiquette (préremplissage IA) ou saisie libre : l'aliment rejoint « Créés par moi ».</p>
+				<p class="mb-3 rounded-xl bg-line/40 px-3 py-2 text-xs text-mist">Un produit absent de la base ? Scan, photo d'étiquette (préremplissage IA) ou saisie libre : l'aliment rejoint « Mes aliments ».</p>
 			{/if}
 
 			<div class="flex flex-col gap-2">
@@ -5300,7 +5300,7 @@ import { optimizeImageFile } from '$lib/media';
 		initialQtyGrams={ingEdit.qty}			mode={mealPickedFood ? 'add' : 'edit'}
 			source={(mealPickedFood ?? ingEdit?.food)?.ciqual ? 'ciqual' : undefined}
 		saving={false}
-		saveLabel={mealPickedFood ? 'Ajouter au repas' : undefined}
+		saveLabel={mealPickedFood ? 'Ajouter à la recette' : undefined}
 		onSave={saveIngredientQty2}
 		onDelete={mealPickedFood
 			? () => { ingEdit = null; mealPickedFood = null; }
@@ -5350,7 +5350,7 @@ import { optimizeImageFile } from '$lib/media';
 							<button type="button" class="mt-2 w-full rounded-full bg-danger py-2 text-xs font-bold text-white transition hover:opacity-90" onclick={() => runMealSearch(mealSearchQ.trim())}>Réessayer</button>
 						</div>
 					{:else if mealSearchQ.trim().length < 2}
-						<p class="py-10 text-center text-sm text-mist">Recherche un produit — base G-Flux (780 000 aliments) et tes aliments « Créés par moi ».</p>
+						<p class="py-10 text-center text-sm text-mist">Recherche un produit — base G-Flux (780 000 aliments) et ceux de « Mes aliments ».</p>
 					{:else if mealResults.length === 0 && mealCiqualResults.length === 0}
 						<p class="py-10 text-center text-sm text-mist">Aucun résultat pour « {mealSearchQ.trim()} ».</p>
 					{:else}
