@@ -201,23 +201,23 @@
     padding: 7px 12px;
   }
 .guide-root .hero-left h1{
-    margin-top: 14px;
-    font-size: 38px;
+    margin-top: 12px;
+    font-size: 34px;
     font-weight: 900;
     letter-spacing: -0.035em;
     line-height: 1.05;
   }
 .guide-root .hero-left p{
-    margin-top: 12px;
+    margin-top: 10px;
     font-size: 15px;
     line-height: 1.55;
     color: var(--gray);
   }
 
 .guide-root .hero-stats{
-    margin-top: 22px;
-    padding: 18px 6px;
-    border-radius: 24px;
+    margin-top: 18px;
+    padding: 14px 6px;
+    border-radius: 22px;
     border: 1px solid var(--line);
     background: var(--bg2);
     box-shadow: 0 1px 2px rgba(15,21,18,.04), 0 16px 36px -18px rgba(15,21,18,.2);
@@ -231,7 +231,7 @@
   }
 .guide-root .hstat:first-child{ border-left: none; }
 .guide-root .hstat-num{
-    font-size: 30px;
+    font-size: 26px;
     font-weight: 900;
     letter-spacing: -0.03em;
     color: var(--green-deep);
@@ -246,13 +246,14 @@
   }
 
 /* ── Onglets pilule ──────────────────────────────────────────────── */
+/* Calé sous l'en-tête de l'app (hauteur réelle publiée par AppShell), jamais par-dessus. */
 .guide-root .nav-tabs{
     position: sticky;
-    top: 0;
+    top: var(--app-header-h, 0px);
     z-index: 140;
     max-width: 560px;
     margin: 0 auto;
-    padding: 14px 20px;
+    padding: 12px 20px;
     display: flex;
     gap: 8px;
     overflow-x: auto;
@@ -262,33 +263,33 @@
 
 .guide-root .tab{
     flex: none;
-    height: 46px;
-    padding: 0 10px 0 18px;
-    border-radius: 23px;
+    height: 40px;
+    padding: 0 8px 0 16px;
+    border-radius: 20px;
     border: 1px solid var(--border);
     background: var(--bg2);
     color: #3a4540;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 900;
-    letter-spacing: .06em;
+    letter-spacing: .05em;
     text-transform: uppercase;
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     white-space: nowrap;
     transition: transform .15s ease;
   }
 .guide-root .tab:active{ transform: scale(.97); }
 
 .guide-root .tab-count{
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 900;
     letter-spacing: 0;
     text-transform: none;
     color: var(--green-deep);
     background: var(--mint);
-    border-radius: 12px;
-    padding: 4px 9px;
+    border-radius: 10px;
+    padding: 3px 8px;
   }
 .guide-root .tab.active{
     border: 0;
@@ -306,17 +307,17 @@
     max-width: 560px;
     margin: 0 auto;
     width: 100%;
-    padding: 0 20px 80px;
+    padding: 0 20px 120px;
   }
 .guide-root .section{ display: none; }
-.guide-root .section.active{ display: block; padding-top: 12px; animation: fadeUp .25s ease; }
+.guide-root .section.active{ display: block; padding-top: 16px; animation: fadeUp .25s ease; }
 
 .guide-root .section-title{
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding-bottom: 14px;
-    font-size: 12px;
+    gap: 10px;
+    padding-bottom: 12px;
+    font-size: 11px;
     font-weight: 900;
     letter-spacing: .12em;
     text-transform: uppercase;
@@ -335,11 +336,11 @@
 .guide-root .dessert-grid{
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 12px;
   }
 
 .guide-root .recipe-card{
-    border-radius: 28px;
+    border-radius: 22px;
     border: 1px solid var(--mint-bd);
     background: var(--bg2);
     box-shadow: 0 1px 2px rgba(15,21,18,.04), 0 18px 40px -18px rgba(15,21,18,.2);
@@ -351,40 +352,40 @@
     align-items: flex-start;
     justify-content: space-between;
     gap: 12px;
-    padding: 20px 16px 20px 20px;
+    padding: 16px 14px 16px 16px;
     cursor: pointer;
     user-select: none;
   }
 
 .guide-root .card-index{
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 900;
     letter-spacing: .16em;
     color: var(--green-deep);
   }
 .guide-root .card-name{
-    margin-top: 8px;
-    font-size: 23px;
+    margin-top: 6px;
+    font-size: 19px;
     font-weight: 900;
-    letter-spacing: -0.025em;
-    line-height: 1.2;
+    letter-spacing: -0.02em;
+    line-height: 1.25;
   }
 .guide-root .card-macros{
-    margin-top: 16px;
+    margin-top: 12px;
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
   }
 .guide-root .macro-pill{
-    border-radius: 14px;
-    padding: 8px 13px;
-    font-size: 14px;
+    border-radius: 12px;
+    padding: 6px 10px;
+    font-size: 13px;
     color: var(--gray);
     background: var(--chip);
     border: 1px solid var(--border2);
   }
 .guide-root .macro-pill .val{ color: var(--white); font-weight: 900; }
-.guide-root .macro-pill .lbl{ font-weight: 400; }
+.guide-root .macro-pill .lbl{ font-weight: 400; margin-left: 4px; }
 .guide-root .macro-pill.kcal,
 .guide-root .macro-pill.prot{
     background: var(--mint);
@@ -395,9 +396,9 @@
 
 .guide-root .chevron{
     flex: none;
-    width: 36px;
-    height: 36px;
-    border-radius: 18px;
+    width: 32px;
+    height: 32px;
+    border-radius: 16px;
     background: var(--mint);
     color: var(--green);
     font-size: 0;
@@ -421,7 +422,7 @@
 .guide-root .card-detail{ display: none; }
 .guide-root .recipe-card.open .card-detail{
     display: block;
-    padding: 20px;
+    padding: 16px 16px 18px;
     border-top: 1px solid var(--border2);
     background: var(--bg3);
   }
@@ -430,20 +431,22 @@
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    border-radius: 14px;
+    border-radius: 12px;
     background: var(--mint);
     border: 1px solid var(--mint-bd);
-    padding: 9px 14px;
-    font-size: 15px;
+    padding: 6px 12px;
+    font-size: 14px;
     font-weight: 700;
     color: var(--green-deep);
   }
 
-.guide-root .detail-section{ margin-bottom: 26px; }
+.guide-root .time-badge + .detail-section,
+.guide-root .gflux-add-btn + .detail-section{ margin-top: 20px; }
+.guide-root .detail-section{ margin-bottom: 22px; }
 .guide-root .detail-section:last-child{ margin-bottom: 0; }
 .guide-root .detail-label{
-    margin-bottom: 12px;
-    font-size: 12px;
+    margin-bottom: 10px;
+    font-size: 11px;
     font-weight: 900;
     letter-spacing: .12em;
     text-transform: uppercase;
@@ -453,15 +456,15 @@
 .guide-root .ingredients-list{
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
   }
 .guide-root .ingredient-row{
     display: flex;
     align-items: center;
     gap: 12px;
-    min-height: 50px;
-    padding: 0 16px;
-    border-radius: 15px;
+    min-height: 44px;
+    padding: 0 14px;
+    border-radius: 14px;
     border: 1px solid var(--border);
     background: var(--bg2);
     box-shadow: 0 8px 18px -14px rgba(15,21,18,.2);
@@ -473,39 +476,39 @@
     background: var(--green);
     flex: none;
   }
-.guide-root .ingredient-name{ flex: 1; font-size: 16px; color: var(--white); }
-.guide-root .ingredient-qty{ font-size: 15px; font-weight: 900; color: var(--green-deep); }
+.guide-root .ingredient-name{ flex: 1; font-size: 15px; color: var(--white); }
+.guide-root .ingredient-qty{ font-size: 14px; font-weight: 900; color: var(--green-deep); }
 
-.guide-root .steps-list{ display: flex; flex-direction: column; gap: 16px; }
-.guide-root .step-row{ display: flex; align-items: flex-start; gap: 14px; }
+.guide-root .steps-list{ display: flex; flex-direction: column; gap: 14px; }
+.guide-root .step-row{ display: flex; align-items: flex-start; gap: 12px; }
 .guide-root .step-num{
-    width: 34px;
-    height: 34px;
-    border-radius: 17px;
+    width: 28px;
+    height: 28px;
+    border-radius: 14px;
     background: var(--mint);
     border: 1.5px solid var(--mint-bd);
     color: var(--green-deep);
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 900;
     display: flex;
     align-items: center;
     justify-content: center;
     flex: none;
   }
-.guide-root .step-text{ padding-top: 5px; font-size: 16px; line-height: 1.5; color: var(--white); }
+.guide-root .step-text{ padding-top: 3px; font-size: 15px; line-height: 1.45; color: var(--white); }
 
 /* ── Ajouter une recette à « Mes repas » ─────────────────────────── */
 .guide-root .gflux-add-btn{
     display: block;
     width: 100%;
-    margin: 14px 0 0;
-    height: 54px;
-    padding: 0 14px;
-    border-radius: 18px;
-    border: 1.5px solid var(--green);
+    margin: 12px 0 0;
+    height: 42px;
+    padding: 0 12px;
+    border-radius: 14px;
+    border: 2px solid var(--green);
     background: var(--mint);
     color: var(--green-deep);
-    font-size: 16px;
+    font-size: 14px;
     font-weight: 700;
     transition: background .2s ease, color .2s ease, opacity .2s ease, transform .15s ease;
   }

@@ -10,6 +10,7 @@
 	import { forceAppUpdate, onUpdateState, startCompatWatch } from '../swUpdate';
 	import { registerServiceWorker } from '../push';
 	import { onCoachState, onNotificationCounts, refreshNotificationsNow, startNotificationPolling } from '../notificationPoll';
+	import { COACH_WHATSAPP_URL } from '../contact';
 
 	type Role = 'client' | 'coach';
 	type SessionUser = { prenom: string; email: string; role: Role };
@@ -346,6 +347,19 @@
 		return target === link.href || target.startsWith(link.href + '/');
 	}
 
+	/* Hauteur réelle de l'en-tête sticky, publiée en variable CSS : les barres
+	   sticky des pages (ex. onglets Recettes) se calent SOUS lui, jamais par-dessus. */
+	let headerEl = $state<HTMLElement | undefined>();
+	$effect(() => {
+		const el = headerEl;
+		if (!el || typeof ResizeObserver === 'undefined') return;
+		const apply = () => document.documentElement.style.setProperty('--app-header-h', `${el.offsetHeight}px`);
+		apply();
+		const ro = new ResizeObserver(apply);
+		ro.observe(el);
+		return () => ro.disconnect();
+	});
+
 	/** Onglets permanents de la barre mobile en bas (cliente).
 	 *  Bilans & retours restent accessibles depuis l'Accueil quand ils sont pertinents. */
 	const primaryLinks = $derived(
@@ -531,7 +545,7 @@
 		<!-- Barre mobile : logo (Accueil) + pilule Retour (écrans secondaires) + Rafraîchir + menu utilisateur.
 		     Le Journal (vue plein écran) n'affiche AUCUN header global. -->
 		{#if !journalFullScreen}
-		<header class="sticky top-0 z-40 border-b border-line backdrop-blur md:hidden bg-white/95 {role === 'client' && path === '/espace' ? 'gflux-home-header' : ''}">
+		<header bind:this={headerEl} class="sticky top-0 z-40 border-b border-line backdrop-blur md:hidden bg-white/95 {role === 'client' && path === '/espace' ? 'gflux-home-header' : ''}">
 			<div class="flex items-center justify-between gap-2 px-5 py-2.5">
 				{#if showBrand}
 					<a href={role === 'coach' ? '/admin' : '/espace'} class="flex items-center py-0.5" aria-label="Accueil G-FLUX">
@@ -559,6 +573,20 @@
 					</a>
 				{/if}
 				<div class="ml-auto flex items-center -mr-1 gap-1.5">
+					{#if role === 'client' && path === '/espace'}
+						<!-- Accueil : conversation WhatsApp directe avec le coach (App Link, repli web). -->
+						<a
+							href={COACH_WHATSAPP_URL}
+							rel="noopener"
+							class="tap grid h-11 w-11 place-items-center rounded-full transition active:scale-95"
+							aria-label="Écrire au coach sur WhatsApp"
+							title="Écrire au coach sur WhatsApp"
+						>
+							<span class="grid h-[34px] w-[34px] place-items-center rounded-full border border-[rgba(29,185,84,0.3)] bg-[#e8fef0] text-[#1db954] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_6px_14px_-8px_rgba(15,21,18,0.14)]">
+								<Icon name="messageCircle" size={17} />
+							</span>
+						</a>
+					{/if}
 					{#if role === 'client'}
 						<button
 							type="button"
