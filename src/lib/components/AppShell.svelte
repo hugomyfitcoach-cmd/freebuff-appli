@@ -583,7 +583,7 @@
 							title="Écrire au coach sur WhatsApp"
 						>
 							<span class="grid h-[34px] w-[34px] place-items-center rounded-full border border-[rgba(29,185,84,0.3)] bg-[#e8fef0] text-[#1db954] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_6px_14px_-8px_rgba(15,21,18,0.14)]">
-								<Icon name="messageCircle" size={17} />
+								<img src="/icons/whatsapp.png" alt="" width="17" height="17" class="h-[17px] w-[17px] object-contain" aria-hidden="true" />
 							</span>
 						</a>
 					{/if}

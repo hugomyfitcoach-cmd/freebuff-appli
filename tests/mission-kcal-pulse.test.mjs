@@ -19,7 +19,12 @@ test('Calories : seul le point central porte la classe de pulsation', () => {
 	const end = home.indexOf('Objectif {fmt(dash.tracking.kcalGoal)}', start);
 	const block = home.slice(start, end);
 	assert.match(block, /<span class="grid h-\[34px\] w-\[34px\] place-items-center rounded-xl bg-brand-light"><span aria-hidden="true" class="gflux-kcal-pulse h-1\.5 w-1\.5 rounded-full bg-brand"><\/span><\/span>/);
-	assert.equal(home.split('gflux-kcal-pulse').length - 1, 1, 'une seule occurrence dans l’Accueil');
+	// Demande : même halo sur les points Pas et Hydratation (point seul, jamais la carte ni l’icône).
+	const dotCount = home.split('gflux-kcal-pulse').length - 1;
+	assert.equal(dotCount, 3, 'trois points : Calories, Pas, Hydratation');
+	for (const label of ['Pas', 'Hydratation']) {
+		assert.match(home, new RegExp(`<span aria-hidden="true" class="gflux-kcal-pulse h-1\\.5 w-1\\.5 shrink-0 rounded-full bg-brand"><\\/span>\\s*<span class="text-\\[11px\\][^"]*">${label}<\\/span>`), `point animé sur ${label}`);
+	}
 });
 
 test('Calories : halo ::after en boucle 3 s, transform/opacity uniquement', () => {

@@ -1141,6 +1141,7 @@
 					<div class="flex min-w-0 flex-1 flex-col justify-between">
 						<div class="flex items-center gap-2">
 							<span class="grid h-[34px] w-[34px] place-items-center rounded-xl bg-brand-light text-brand"><Icon name="footprints" size={19} /></span>
+							<span aria-hidden="true" class="gflux-kcal-pulse h-1.5 w-1.5 shrink-0 rounded-full bg-brand"></span>
 							<span class="text-[11px] font-black uppercase tracking-widest text-mist">Pas</span>
 						</div>
 						<p class="mt-2 font-display text-4xl font-black leading-none tracking-tight text-ink tabular-nums">
@@ -1192,6 +1193,7 @@
 						<div class="flex min-w-0 flex-1 flex-col justify-between">
 							<div class="flex items-center gap-2">
 								<Icon name="droplet" size={18} class="shrink-0 text-brand" />
+								<span aria-hidden="true" class="gflux-kcal-pulse h-1.5 w-1.5 shrink-0 rounded-full bg-brand"></span>
 								<span class="text-[11px] font-black uppercase tracking-widest text-mist">Hydratation</span>
 							</div>
 							<p class="mt-2 whitespace-nowrap font-display text-4xl font-black leading-none tracking-tight text-ink tabular-nums">

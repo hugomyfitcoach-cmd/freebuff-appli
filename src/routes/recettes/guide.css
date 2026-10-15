@@ -408,15 +408,6 @@
     justify-content: center;
     transition: transform .2s ease, background .2s ease;
   }
-.guide-root .chevron::before{
-    content: "";
-    width: 11px;
-    height: 11px;
-    border-right: 2.6px solid currentColor;
-    border-bottom: 2.6px solid currentColor;
-    transform: rotate(45deg) translate(-2px, -2px);
-    border-color: currentColor;
-  }
 .guide-root .recipe-card.open .chevron{ transform: rotate(180deg); }
 
 .guide-root .card-detail{ display: none; }
