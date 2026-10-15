@@ -263,7 +263,7 @@
     </section>
   {:else}
     <!-- Aujourd'hui : anneau de progression + total + objectif éditable -->
-    <section class="mt-5 rounded-3xl border border-line bg-card p-5 shadow-sm">
+    <section class="mt-4 rounded-3xl border border-line bg-card p-4 shadow-sm">
       <div class="flex items-center justify-between gap-2">
         <p class="flex items-center gap-1.5 text-sm font-bold text-ink">
           <Icon name="droplet" size={17} class="shrink-0 text-brand" />
@@ -280,12 +280,12 @@
         </button>
       </div>
 
-      <div class="mt-4 flex items-center gap-5">
-        <!-- Anneau (r=48, stroke 10) — fidèle à la maquette -->
-        <div class="relative h-[112px] w-[112px] shrink-0">
+      <div class="mt-3.5 flex items-center gap-4">
+        <!-- Anneau (r=48, stroke 10) — fidèle à la maquette, proportions réduites -->
+        <div class="relative h-[100px] w-[100px] shrink-0">
           <svg
-            width="112"
-            height="112"
+            width="100"
+            height="100"
             viewBox="0 0 112 112"
             aria-hidden="true"
           >
@@ -350,7 +350,7 @@
           </p>
           <div class="mt-2.5 flex gap-2.5">
             <label
-              class="flex h-14 min-w-0 flex-1 items-center gap-2 rounded-2xl border-2 border-line bg-soft px-4"
+              class="flex h-[48px] min-w-0 flex-1 items-center gap-2 rounded-2xl border-2 border-line bg-soft px-3.5"
             >
               <span class="sr-only">Objectif quotidien en millilitres</span>
               <input
@@ -366,7 +366,7 @@
               type="button"
               onclick={saveGoal}
               disabled={!goalOk || saving}
-              class="flex h-14 shrink-0 items-center justify-center gap-1.5 rounded-2xl bg-ink px-5 text-sm font-bold text-white transition hover:bg-brand disabled:opacity-50"
+              class="flex h-[48px] shrink-0 items-center justify-center gap-1.5 rounded-2xl bg-ink px-4 text-sm font-bold text-white transition hover:bg-brand disabled:opacity-50"
             >
               <Icon name="check" size={15} class="shrink-0" />
               Enregistrer
@@ -380,7 +380,7 @@
     </section>
 
     <!-- Ajouter de l'eau : raccourcis + quantité libre + annulation -->
-    <section class="mt-4 rounded-3xl border border-line bg-card p-5 shadow-sm">
+    <section class="mt-3.5 rounded-3xl border border-line bg-card p-4 shadow-sm">
       <p class="flex items-center gap-1.5 text-sm font-bold text-ink">
         <Icon name="plus" size={17} class="shrink-0 text-brand" />
         Ajouter de l'eau
@@ -391,7 +391,7 @@
             type="button"
             onclick={() => addWater(q)}
             disabled={saving}
-            class="tap flex h-[72px] flex-col items-center justify-center gap-0.5 rounded-2xl bg-brand-light text-brand-deep transition hover:bg-brand-light/80 active:scale-[0.97] disabled:opacity-50"
+            class="tap flex h-[56px] flex-col items-center justify-center gap-0.5 rounded-2xl bg-brand-light text-brand-deep transition hover:bg-brand-light/80 active:scale-[0.97] disabled:opacity-50"
           >
             <span
               class="font-display text-[22px] font-black leading-none tracking-tight"
@@ -403,7 +403,7 @@
       </div>
       <div class="mt-3 flex gap-2.5">
         <label
-          class="flex h-14 min-w-0 flex-1 items-center gap-2 rounded-2xl border-2 border-line bg-soft px-4"
+          class="flex h-[48px] min-w-0 flex-1 items-center gap-2 rounded-2xl border-2 border-line bg-soft px-3.5"
         >
           <span class="sr-only">Quantité personnalisée en millilitres</span>
           <input
@@ -419,7 +419,7 @@
           type="button"
           onclick={() => addWater(Number(custom) || 0)}
           disabled={saving || !(Number(custom) >= 1)}
-          class="flex h-14 shrink-0 items-center justify-center gap-1.5 rounded-2xl bg-ink px-5 text-sm font-bold text-white transition hover:bg-brand disabled:opacity-50"
+          class="flex h-[48px] shrink-0 items-center justify-center gap-1.5 rounded-2xl bg-ink px-4 text-sm font-bold text-white transition hover:bg-brand disabled:opacity-50"
         >
           <Icon name="plus" size={15} class="shrink-0" />
           Ajouter
@@ -443,7 +443,7 @@
 
     <!-- 7 derniers jours (glissants, aujourd'hui inclus) — ligne d'objectif -->
     <section
-      class="mt-4 rounded-3xl border border-line bg-card p-5 pb-2 shadow-sm"
+      class="mt-3.5 rounded-3xl border border-line bg-card p-4 pb-2 shadow-sm"
     >
       <div class="flex items-baseline justify-between gap-2">
         <h2 class="text-[11px] font-black uppercase tracking-widest text-mist">
@@ -474,7 +474,7 @@
                 : 4}
             <div class="flex flex-col items-center justify-end gap-1.5">
               <div
-                class="flex h-[150px] w-full flex-col items-center justify-end"
+                class="flex h-[132px] w-full flex-col items-center justify-end"
               >
                 <div
                   class={`w-[26px] rounded-full transition-all duration-400 ${d.total !== null && goal !== null && d.total >= goal ? "bg-brand" : d.total !== null ? "bg-ink" : "bg-line"}`}
@@ -506,7 +506,7 @@
 
     <!-- Historique par jour (du plus récent au plus ancien), détail par prise -->
     <section
-      class="mt-4 rounded-3xl border border-line bg-card p-5 pb-3 shadow-sm"
+      class="mt-3.5 rounded-3xl border border-line bg-card p-4 pb-2.5 shadow-sm"
     >
       <h2 class="text-[11px] font-black uppercase tracking-widest text-mist">
         Historique par jour

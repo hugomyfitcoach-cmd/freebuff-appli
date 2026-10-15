@@ -219,13 +219,13 @@
 					type="button"
 					onclick={saveEdits}
 					disabled={editsSaving}
-					class="tap h-[56px] flex-1 rounded-[28px] bg-brand px-4 text-[16px] font-bold text-white shadow-[0_14px_26px_-12px_rgba(23,163,73,0.65)] transition hover:bg-brand-dark disabled:opacity-60"
+					class="tap h-[48px] flex-1 rounded-[24px] bg-brand px-4 text-[16px] font-bold text-white shadow-[0_14px_26px_-12px_rgba(23,163,73,0.65)] transition hover:bg-brand-dark disabled:opacity-60"
 				>{editsSaving ? 'Enregistrement…' : 'Enregistrer'}</button>
 				<button
 					type="button"
 					onclick={() => (editing = false)}
 					disabled={editsSaving}
-					class="tap h-[56px] rounded-[28px] border-[1.5px] border-[#E3E8E5] bg-white px-6 text-[16px] font-bold text-[#66716B] transition hover:text-[#0F1512]"
+					class="tap h-[48px] rounded-[24px] border-[1.5px] border-[#E3E8E5] bg-white px-6 text-[16px] font-bold text-[#66716B] transition hover:text-[#0F1512]"
 				>Annuler</button>
 			</div>
 			<p class="mt-2.5 text-[13px] leading-[1.4] text-[#7B857F]">Un champ vide ne change rien : une journée sans saisie n'est jamais comptée comme 0 pas.</p>
@@ -243,7 +243,7 @@
 		</p>
 		<div class="mt-3 flex items-center gap-2.5">
 			<label class="sr-only" for="steps-today">Pas d'aujourd'hui — complète ou modifie cette valeur</label>
-			<div class="fld flex h-[56px] min-w-0 flex-1 items-center rounded-[18px] border-[1.5px] border-[#E3E8E5] bg-[#F6F8F6] px-4">
+			<div class="fld flex h-[48px] min-w-0 flex-1 items-center rounded-[14px] border-[1.5px] border-[#E3E8E5] bg-[#F6F8F6] px-3.5">
 				<input
 					id="steps-today"
 					type="number"
@@ -257,14 +257,14 @@
 						clearTimeout(savedTimer);
 					}}
 					aria-describedby={todayCount !== null ? 'steps-today-hint' : undefined}
-					class="w-full min-w-0 border-0 bg-transparent text-[22px] font-black tabular-nums text-[#0F1512] outline-none"
+					class="w-full min-w-0 border-0 bg-transparent text-[20px] font-black tabular-nums text-[#0F1512] outline-none"
 				/>
 			</div>
 			<button
 				type="button"
 				onclick={saveSteps}
 				disabled={stepsSaving}
-				class="tap flex h-[56px] w-[112px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-[18px] bg-[#111A15] text-[14px] font-bold text-white transition hover:bg-brand disabled:opacity-60"
+				class="tap flex h-[48px] w-[104px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-[14px] bg-[#111A15] text-[14px] font-bold text-white transition hover:bg-brand disabled:opacity-60"
 			>
 				<Icon name="check" size={16} strokeWidth={2.4} class="shrink-0" />
 				{stepsSaving ? '…' : 'Enregistrer'}
