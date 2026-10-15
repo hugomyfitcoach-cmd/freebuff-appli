@@ -480,10 +480,12 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 					     (Le gabarit « kcal sous le titre » est supprimé : l'écart vs
 					     la maquette était visible sur iPhone. Les tests de compaction
 					     sont mis à jour en conséquence.) -->
-					<h2 class="flex min-w-0 items-baseline gap-2 whitespace-nowrap">
+					<h2 class="flex min-w-0 items-center gap-2 whitespace-nowrap">
 						<span aria-hidden="true" class="grid h-[28px] w-[28px] shrink-0 self-center place-items-center rounded-[9px] bg-brand-light text-brand"><Icon name={meal.icon} size={17} /></span>
+						<span class="flex min-w-0 items-baseline gap-2">
 						<span class="text-[17px] font-black leading-[1.1] tracking-[-0.02em] text-ink">{meal.label}</span>
 						<span class="self-baseline whitespace-nowrap text-[12.5px] font-bold text-brand-deep tabular-nums">{#if mealKcal(meal.id) > 0 || plannedKcal === 0}{fmt(mealKcal(meal.id))} kcal · {mealPct(meal.id)} %{#if plannedKcal > 0}<span class="font-normal text-mist">· {fmt(plannedKcal)} prévues</span>{/if}{:else}<span class="inline-block font-normal text-mist">{fmt(plannedKcal)} kcal prévues</span>{/if}</span>
+						</span>
 					</h2>
 				</div>
 				<div class="flex shrink-0 items-center gap-1.5">
@@ -501,18 +503,18 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 						<div class="flex shrink-0 items-center">						{#if onPhoto}
 							<button
 								type="button"
-								class="grid h-11 w-10 place-items-center text-brand transition active:scale-90"
+								class="grid h-11 w-11 place-items-center text-brand transition active:scale-90"
 								aria-label={`Photographier le ${meal.label}`}
 								title="Photographier mon repas"
 								onclick={() => onPhoto(meal.id)}
-							><span class="grid h-[38px] w-[38px] rounded-[19px] place-items-center bg-brand-light text-brand"><Icon name="camera" size={18} /></span></button>
+							><span class="grid h-[38px] w-[38px] rounded-[19px] place-items-center bg-brand-light text-brand"><Icon name="camera" size={17} /></span></button>
 							{/if}
 							<button
 								type="button"
 								class="grid h-11 w-11 place-items-center text-brand transition active:scale-90"
 								aria-label={`Ajouter au ${meal.label}`}
 								onclick={() => onAdd(meal.id)}
-							><span class="grid h-[38px] w-[38px] rounded-[19px] place-items-center bg-brand-light text-brand"><Icon name="plus" size={19} strokeWidth={2.2} /></span></button>
+							><span class="grid h-[38px] w-[38px] rounded-[19px] place-items-center bg-brand-light text-brand"><Icon name="plus" size={17} strokeWidth={2.2} /></span></button>
 						</div>
 					{/if}
 				</div>

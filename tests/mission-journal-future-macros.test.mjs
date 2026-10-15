@@ -175,8 +175,9 @@ test('Compaction phase 2 : en-têtes de repas MAQUETTE CLAUDE (baseline unique)'
 	// Libellés métier intacts : « x kcal · y % » et « prévues ».
 	assert.ok(journalDay.includes(' kcal · '), 'libellé kcal · % intact');
 	assert.ok(journalDay.includes('kcal prévues'), 'libellé prévues intact');
-	// …et boutons caméra / + intacts (h-11 w-10 / h-11 w-11).
-	assert.ok(journalDay.includes('h-11 w-10 place-items-center text-brand'), 'bouton caméra intact');
+	// …et boutons caméra / + alignés sur la même boîte 44 px (h-11 w-11) :
+	// même espacement et même axe pour les quatre repas.
+	assert.ok(journalDay.includes('h-11 w-11 place-items-center text-brand transition active:scale-90'), 'bouton caméra 44 px');
 	assert.ok(journalDay.includes('h-11 w-11 place-items-center text-brand'), 'bouton + intact');
 });
 
