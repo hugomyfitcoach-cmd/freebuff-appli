@@ -104,6 +104,7 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 		onQty,
 		onRemove,
 		onCalCardMount,
+		onMacroCardsMount,
 		onTipDismiss,
 	}: {
 		day: Day;
@@ -129,6 +130,7 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 		onQty?: (e: Entry, qty: number) => void;
 		onRemove?: (e: Entry) => void;
 		onCalCardMount?: (el: HTMLElement | undefined) => void;
+		onMacroCardsMount?: (el: HTMLElement | undefined) => void;
 		onTipDismiss?: () => void;
 	} = $props();
 
@@ -242,10 +244,16 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 	}
 
 	let calCardEl: HTMLElement | undefined;
+	let macroCardsEl: HTMLElement | undefined;
 	// Expose l'élément « carte calories » au parent (barre sticky côté client).
 	$effect(() => {
 		onCalCardMount?.(calCardEl);
 		return () => onCalCardMount?.(undefined);
+	});
+	// Expose les cartes macros : la barre sticky ne s'affiche qu'une fois celles-ci sorties de l'écran.
+	$effect(() => {
+		onMacroCardsMount?.(macroCardsEl);
+		return () => onMacroCardsMount?.(undefined);
 	});
 
 	/* ————— Totaux & calculs — CONSOMMÉ UNIQUEMENT (single source of truth) ————— */
@@ -421,7 +429,7 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
      CONSOMMÉ / OBJECTIF — sauf jour FUTUR : macros PRÉVUES (plannedTotals,
      même source que les kcal prévues) en rendu atténué (gris + désaturé),
      jamais interprétées comme consommées (aucune écriture, aucun comptage). -->
-<section class="grid grid-cols-3 {compact ? 'mb-3.5 gap-2' : 'mb-2.5 gap-2'}">
+<section bind:this={macroCardsEl} class="grid grid-cols-3 {compact ? 'mb-3.5 gap-2' : 'mb-2.5 gap-2'}">
 	{#each rings as ring (ring.label)}
 		{@const pct = macroPct(ring.eaten, ring.goal)}
 		{@const ringFill = Math.min(100, pct)}
@@ -500,21 +508,21 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 						</button>
 					{/if}
 					{#if onAdd}
-						<div class="flex shrink-0 items-center">						{#if onPhoto}
+						<div class="flex shrink-0 items-center self-center">						{#if onPhoto}
 							<button
 								type="button"
 								class="grid h-11 w-11 place-items-center text-brand transition active:scale-90"
 								aria-label={`Photographier le ${meal.label}`}
 								title="Photographier mon repas"
 								onclick={() => onPhoto(meal.id)}
-							><span class="grid h-[38px] w-[38px] rounded-[19px] place-items-center bg-brand-light text-brand"><Icon name="camera" size={17} /></span></button>
+							><span class="grid h-[30px] w-[30px] rounded-[15px] place-items-center bg-brand-light text-brand"><Icon name="camera" size={15} /></span></button>
 							{/if}
 							<button
 								type="button"
 								class="grid h-11 w-11 place-items-center text-brand transition active:scale-90"
 								aria-label={`Ajouter au ${meal.label}`}
 								onclick={() => onAdd(meal.id)}
-							><span class="grid h-[38px] w-[38px] rounded-[19px] place-items-center bg-brand-light text-brand"><Icon name="plus" size={17} strokeWidth={2.2} /></span></button>
+							><span class="grid h-[30px] w-[30px] rounded-[15px] place-items-center bg-brand-light text-brand"><Icon name="plus" size={15} strokeWidth={2.2} /></span></button>
 						</div>
 					{/if}
 				</div>

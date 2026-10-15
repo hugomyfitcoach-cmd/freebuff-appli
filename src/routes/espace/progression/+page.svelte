@@ -732,25 +732,25 @@
 		{/if}
 
 		<!-- Carte taille (maquette Progress.svelte : radius 26, ombre Claude, bouton pilule) -->
-		<section class="mt-5 rounded-[26px] border border-[#EEF1EF] bg-white px-5 py-[18px] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_16px_36px_-18px_rgba(15,21,18,0.2)]">
+		<section class="mt-4 rounded-[22px] border border-[#EEF1EF] bg-white px-4 py-3 shadow-[0_1px_2px_rgba(15,21,18,0.04),0_12px_26px_-18px_rgba(15,21,18,0.2)]">
 			<div class="flex items-center justify-between gap-3">
-				<div class="flex min-w-0 items-center gap-3.5">
-					<div class="grid h-[48px] w-[48px] shrink-0 place-items-center rounded-[16px] bg-brand-light text-brand"><Icon name="ruler" size={24} /></div>
+				<div class="flex min-w-0 items-center gap-3">
+					<div class="grid h-[40px] w-[40px] shrink-0 place-items-center rounded-[13px] bg-brand-light text-brand"><Icon name="ruler" size={20} /></div>
 					<div class="min-w-0">
-						<p class="text-[12px] font-black uppercase tracking-[0.12em] text-[#66716B]">Taille</p>
-						<p class="mt-0.5 flex items-baseline gap-[5px]">
+						<p class="text-[11px] font-black uppercase tracking-[0.12em] text-[#66716B]">Taille</p>
+						<p class="mt-0.5 flex items-baseline gap-1">
 							{#if heightCm !== null}
-								<span class="font-display text-[32px] font-black leading-[1.1] tracking-[-0.03em] tabular-nums text-[#0F1512]">{fmt(heightCm)}</span>
-								<span class="text-[16px] font-bold text-[#66716B]">cm</span>
+								<span class="font-display text-[26px] font-black leading-[1.1] tracking-[-0.03em] tabular-nums text-[#0F1512]">{fmt(heightCm)}</span>
+								<span class="text-[14px] font-bold text-[#66716B]">cm</span>
 							{:else}
 								<span class="font-display text-xl font-bold text-[#0F1512]">Non renseignée</span>
 							{/if}
 						</p>
 					</div>
 				</div>
-				<button type="button" class="tap shrink-0 h-[44px] rounded-[22px] border border-[#DDE3DF] bg-white px-5 text-[15px] font-bold text-[#0F1512] transition hover:border-brand" onclick={openHeight}>{heightCm !== null ? 'Modifier' : 'Ajouter'}</button>
+				<button type="button" class="tap shrink-0 h-[36px] rounded-[18px] border border-[#DDE3DF] bg-white px-4 text-[14px] font-bold text-[#0F1512] transition hover:border-brand" onclick={openHeight}>{heightCm !== null ? 'Modifier' : 'Ajouter'}</button>
 			</div>
-			<p class="mt-3 text-[13px] leading-[1.45] text-[#66716B]">La taille est renseignée une seule fois — elle reste associée à ton profil.</p>
+			<p class="mt-2 text-[12px] leading-[1.45] text-[#66716B]">La taille est renseignée une seule fois — elle reste associée à ton profil.</p>
 		</section>
 
 		<!-- Cartes métriques (maquette Progress.svelte : radius 28, ombre Claude, courbe interactive 132px + dates d0/d1) -->

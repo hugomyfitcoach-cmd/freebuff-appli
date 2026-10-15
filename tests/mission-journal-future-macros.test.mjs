@@ -68,7 +68,7 @@ test('Journal futur : modale détail macro entièrement au gris « prévu » (co
 	const modal = journalPage.slice(modalStart, journalPage.indexOf('{:else}', modalStart));
 	assert.match(modal, /stroke=\{macroMetaTint\}/, 'arc de la modale gris en futur');
 	assert.match(modal, /style:color=\{macroMetaTint\}/, '% + totaux grisés en futur');
-	assert.match(modal, /isFuture \? `color:\$\{PLANNED_GRAY\}` : `color:\$\{macroMeta\.color\}`/, 'icône grisée en futur');
+	assert.match(modal, /style:background=\{isFuture \? PLANNED_GRAY : macroMeta\.color\}/, 'pastille grisée en futur (remplace le pictogramme)');
 	assert.ok(modal.includes('macroMetaTint'), 'détail par aliment (g par item) via la même teinte');
 });
 

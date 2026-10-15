@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, tick, untrack } from 'svelte';
-	import { fly } from 'svelte/transition';
+	import { fade, fly } from 'svelte/transition';
 	import { beforeNavigate } from '$app/navigation';
 	import { startBarcodeScanner, CameraPermissionError, normalizeProductCode, type BarcodeScannerHandle, type TorchHandle } from '$lib/barcodeScanner';
 	import { compressImage, detectBarcodeInDataUrl } from '$lib/labelBarcode';
@@ -776,6 +776,7 @@ import { optimizeImageFile } from '$lib/media';
 	/* ————— Mini-barre sticky (HUD nutritionnel) ————— */
 	let stickyBar = $state(false);
 	let calCardEl: HTMLElement | undefined;
+	let macroCardsEl: HTMLElement | undefined;
 	let pageWrap: HTMLElement | undefined;
 	/** Position/portée de la mini-barre : calée sur le conteneur du Journal. */
 	let barStyle = $state({ left: 0, width: 0 });
@@ -3736,13 +3737,14 @@ import { optimizeImageFile } from '$lib/media';
 		}
 	}
 
-	/* Mini-barre sticky : dès que la carte nutritionnelle (rendue par JournalDay)
-	   sort du viewport, on affiche le HUD compact ; il disparaît au retour en haut. */
+	/* Mini-barre sticky : elle n'apparaît que lorsque les cartes macros (rendues par
+	   JournalDay) sont COMPLÈTEMENT sorties par le haut de l'écran, et disparaît dès
+	   qu'une part d'entre elles redevient visible (remontée). */
 	$effect(() => {
-		const el = calCardEl;
+		const el = macroCardsEl;
 		if (!el || typeof IntersectionObserver === 'undefined') return;
 		const io = new IntersectionObserver((entries) => {
-			for (const e of entries) stickyBar = !e.isIntersecting;
+			for (const e of entries) stickyBar = !e.isIntersecting && e.boundingClientRect.bottom <= 0;
 		}, { threshold: 0 });
 		io.observe(el);
 		return () => io.disconnect();
@@ -3813,7 +3815,12 @@ import { optimizeImageFile } from '$lib/media';
 						</p>
 						<p class="mt-1.5 text-[13px] font-semibold tabular-nums" style:color={macroMetaTint}>{fmtG(macroEaten)}/{fmtG(macroGoal)} g {isFuture ? 'prévus' : 'consommés'}</p>
 					</div>
-					<Icon name={macroMeta.icon} size={26} class="shrink-0" style={isFuture ? `color:${PLANNED_GRAY}` : `color:${macroMeta.color}`} />
+					<!-- Pastille colorée (remplace le pictogramme décoratif, cf. références Claude) -->
+					<span
+						aria-hidden="true"
+						class="h-3 w-3 shrink-0 self-start rounded-full"
+						style:background={isFuture ? PLANNED_GRAY : macroMeta.color}
+					></span>
 				</div>
 			</section>
 
@@ -3983,6 +3990,7 @@ import { optimizeImageFile } from '$lib/media';
 			selIds={selIds}
 			onToggleSel={toggleSel}
 			onCalCardMount={(el) => (calCardEl = el)}
+			onMacroCardsMount={(el) => (macroCardsEl = el)}
 			onTipDismiss={() => (tipDismissed = true)}
 			onPhoto={aiFlags.mealPhotoAi ? (meal) => openMealPhoto(meal as 'petit-dej' | 'dejeuner' | 'diner' | 'collation') : undefined}
 			/>
@@ -4074,7 +4082,8 @@ import { optimizeImageFile } from '$lib/media';
 
 {#if stickyBar && !logOpen && !macroDetail}
 	<div
-		class="pointer-events-none fixed z-30 transition-opacity duration-200"
+		transition:fade={{ duration: 160 }}
+		class="pointer-events-none fixed z-30"
 		style:top="{barTop}px"
 		style:left="{barStyle.left}px"
 		style:width="{barStyle.width}px"

@@ -4,7 +4,7 @@
    affecter le reste de l'application (cf. guide /recettes).
    ───────────────────────────────────────────────────────────────────── */
 .tools-root {
-	--bg: #f7f5f0;            /* cream */
+	--bg: #ffffff;            /* fond blanc (référence Claude) */
 	--surface: #ffffff;       /* cartes */
 	--surface2: #f1efe7;      /* champs / surfaces internes */
 	--border: #e5e3dc;
@@ -26,7 +26,7 @@
 	font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
 	min-height: 100vh;
 	padding-bottom: 90px;
-	background: var(--bg);
+	background: #ffffff;
 }
 
 .tools-root .wrap {
@@ -36,11 +36,12 @@
 }
 
 .tools-root header {
-	padding: 12px 0 18px;
+	padding: 8px 0 4px;
 }
 
+/* Lien Accueil de page : desktop uniquement (sur mobile, la pilule du header la remplace) */
 .tools-root .tools-back {
-	display: inline-flex;
+	display: none;
 	align-items: center;
 	gap: 6px;
 	font-size: 13px;
@@ -50,6 +51,11 @@
 	margin: 16px 0 0 -10px;
 	border-radius: 12px;
 	transition: color 0.15s ease, background 0.15s ease;
+}
+@media (min-width: 768px) {
+	.tools-root .tools-back {
+		display: inline-flex;
+	}
 }
 
 .tools-root .tools-back:hover {
@@ -66,11 +72,11 @@
 }
 .tools-root h1 {
 	font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
-	font-size: 22px;
-	font-weight: 700;
-	line-height: 1.2;
+	font-size: 32px;
+	font-weight: 800;
+	line-height: 1.1;
 	color: var(--text);
-	letter-spacing: -0.01em;
+	letter-spacing: -0.02em;
 }
 .tools-root h1 em {
 	font-style: normal;
@@ -78,38 +84,35 @@
 }
 .tools-root .sub {
 	color: var(--muted);
-	font-size: 14px;
-	margin-top: 8px;
+	font-size: 15px;
+	margin-top: 10px;
 	line-height: 1.5;
 }
 
-/* Tabs */
+/* Tabs : pilules indépendantes, sans conteneur commun (référence Claude) */
 .tools-root .tabs {
-	display: grid;
-	grid-template-columns: repeat(2, 1fr);
-	gap: 6px;
-	margin: 22px 0 20px;
-	background: var(--surface);
-	border: 1px solid var(--border);
-	border-radius: 12px;
-	padding: 5px;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin: 18px 0 16px;
 }
 .tools-root .tab {
-	flex: 1;
+	flex: 0 0 auto;
 	border: none;
-	background: transparent;
-	color: var(--muted);
+	background: #f2f3f0;
+	color: #3f3e39;
 	font-family: inherit;
-	font-size: 13px;
-	font-weight: 600;
-	padding: 11px 4px;
-	border-radius: 9px;
+	font-size: 14px;
+	font-weight: 700;
+	padding: 10px 16px;
+	border-radius: 999px;
 	cursor: pointer;
 	transition: background 0.15s, color 0.15s;
 }
 .tools-root .tab.active {
 	background: var(--green);
-	color: var(--bg);
+	color: #ffffff;
+	box-shadow: 0 6px 16px -8px rgba(29, 185, 84, 0.7);
 }
 .tools-root .tab.tab-highlight {
 	animation: toolsTabGlow 2.4s ease-in-out infinite;
@@ -136,20 +139,22 @@
 /* Cartes */
 .tools-root .card {
 	background: var(--surface);
-	border: 1px solid var(--border);
-	border-radius: var(--radius);
+	border: 1px solid #ecebe6;
+	border-radius: 24px;
 	padding: 20px;
 	margin-bottom: 14px;
+	box-shadow: 0 1px 2px rgba(15, 21, 18, 0.03);
 }
 .tools-root .card h2 {
-	font-size: 16px;
-	font-weight: 700;
-	margin-bottom: 4px;
+	font-size: 19px;
+	font-weight: 800;
+	line-height: 1.25;
+	margin-bottom: 6px;
 	color: var(--text);
 }
 .tools-root .card .hint {
 	color: var(--muted);
-	font-size: 13px;
+	font-size: 14px;
 	line-height: 1.5;
 	margin-bottom: 16px;
 }
@@ -259,12 +264,12 @@
 
 .tools-root .note {
 	display: flex;
-	gap: 10px;
-	background: var(--amber-soft);
-	border: 1px solid var(--amber-border);
-	border-radius: 12px;
-	padding: 13px 14px;
-	font-size: 13px;
+	gap: 12px;
+	background: #fff5ea;
+	border: 1px solid #f3d3ab;
+	border-radius: 22px;
+	padding: 16px 18px;
+	font-size: 14px;
 	line-height: 1.5;
 	color: var(--text);
 	margin-bottom: 14px;

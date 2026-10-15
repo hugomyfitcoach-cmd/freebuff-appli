@@ -9,9 +9,9 @@
 
 <a
 	href="/espace"
-	class="tap mb-3 hidden h-[44px] items-center gap-1 self-start rounded-[22px] border border-[#E9EDEA] bg-white pl-2.5 pr-[18px] text-[14px] font-bold text-[#0d7c36] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_8px_20px_-8px_rgba(15,21,18,0.14)] md:inline-flex"
+	class="tap mb-3 hidden h-[34px] items-center gap-0.5 self-start rounded-[17px] border border-[#E9EDEA] bg-white pl-2 pr-3 text-[13px] font-bold text-[#0d7c36] shadow-[0_1px_2px_rgba(15,21,18,0.04),0_6px_14px_-8px_rgba(15,21,18,0.14)] md:inline-flex"
 	aria-label="Retour à l’accueil G-FLUX — {label}"
 >
-	<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>
+	<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>
 	<span>Accueil</span>
 </a>
