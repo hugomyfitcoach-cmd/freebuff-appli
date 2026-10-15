@@ -4419,19 +4419,19 @@ import { optimizeImageFile } from '$lib/media';
 
 							<div class="mt-3 grid grid-cols-2 gap-2">
 								<label class="rounded-xl border-2 px-3 py-2 {cfReview.has('kcal') ? 'border-warn bg-warn-light/40' : 'border-line bg-cream'}">
-									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist">Calories / 100 g{#if cfReview.has('kcal')}<span class="ml-1 normal-case text-warn">· à vérifier</span>{/if}</span>
+									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist"><span aria-hidden="true" class="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-brand align-middle"></span>Calories / 100 g{#if cfReview.has('kcal')}<span class="ml-1 normal-case text-warn">· à vérifier</span>{/if}</span>
 									<input type="text" inputmode="decimal" class="mt-1 w-full bg-transparent text-sm font-bold text-ink outline-none" placeholder="Ex. 120" bind:value={cfKcal} />
 								</label>
 								<label class="rounded-xl border-2 border-line bg-cream px-3 py-2">
-									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist">Glucides / 100 g</span>
+									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist"><span aria-hidden="true" class="mr-1.5 inline-block h-1.5 w-1.5 rounded-full align-middle" style="background:#ec4899"></span>Glucides / 100 g</span>
 									<input type="text" inputmode="decimal" class="mt-1 w-full bg-transparent text-sm font-bold text-ink outline-none" placeholder="Ex. 15" bind:value={cfCarbs} />
 								</label>
 								<label class="rounded-xl border-2 border-line bg-cream px-3 py-2">
-									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist">Protéines / 100 g</span>
+									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist"><span aria-hidden="true" class="mr-1.5 inline-block h-1.5 w-1.5 rounded-full align-middle" style="background:#3b82f6"></span>Protéines / 100 g</span>
 									<input type="text" inputmode="decimal" class="mt-1 w-full bg-transparent text-sm font-bold text-ink outline-none" placeholder="Ex. 10" bind:value={cfProtein} />
 								</label>
 								<label class="rounded-xl border-2 border-line bg-cream px-3 py-2">
-									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist">Lipides / 100 g</span>
+									<span class="block text-[11px] font-bold uppercase tracking-wide text-mist"><span aria-hidden="true" class="mr-1.5 inline-block h-1.5 w-1.5 rounded-full align-middle" style="background:#f97316"></span>Lipides / 100 g</span>
 									<input type="text" inputmode="decimal" class="mt-1 w-full bg-transparent text-sm font-bold text-ink outline-none" placeholder="Ex. 4" bind:value={cfFat} />
 								</label>
 								<label class="rounded-xl border-2 border-line bg-cream px-3 py-2">
