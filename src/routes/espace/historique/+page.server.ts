@@ -9,6 +9,8 @@ export const load: PageServerLoad = async (event) => {
 	const checkins = await convex.query(api.checkins.myCheckins, { sessionToken: token });
 	// Médias publiés des retours (audios + pièces jointes), groupés par bilan.
 	const published = await convex.query(api.media.myPublished, { sessionToken: token }).catch(() => null);
+	// Identité du coach (photo CRM) pour l'avatar des retours. Non bloquant.
+	const coach = await convex.query(api.dashboard.myCoachProfile, { sessionToken: token }).catch(() => null);
 	// La cliente a réellement ouvert la page qui affiche les retours :
 	// chaque retour publié et non encore consulté passe en « lu ».
 	// Le badge « Bilans » et la carte « Retours de mon coach » disparaissent alors.
@@ -34,5 +36,6 @@ export const load: PageServerLoad = async (event) => {
 	return {
 		checkins: safe as typeof checkins,
 		media: (published?.byCheckin ?? {}) as Record<string, unknown[]>,
+		coach,
 	};
 };

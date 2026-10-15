@@ -78,6 +78,9 @@
 
 	import { beforeNavigate, goto, invalidateAll } from '$app/navigation';
 	import { onMount } from 'svelte';
+	import { fade } from 'svelte/transition';
+	import { refreshNotificationsNow } from '$lib/notificationPoll';
+	import CoachAvatar from '$lib/components/CoachAvatar.svelte';
 	import { appWarm, clearSharedMetricsStale, firstVisit, getSharedMetrics, isFresh, noteSync, restoreScroll, saveScroll, type MetricsShared } from '$lib/navMemory';
 	import { currentLocalDay } from '$lib/currentDay.svelte';
 	import { getGreeting } from '$lib/greetings';
@@ -124,7 +127,11 @@
 		msgReadBusy = true;
 		try {
 			const r = await fetch('/api/media/message-read', { method: 'POST' });
-			if (r.ok) await invalidateAll();
+			if (r.ok) {
+				// Badge de la barre de navigation : recalcul immédiat (sans attendre le prochain poll).
+				refreshNotificationsNow();
+				await invalidateAll();
+			}
 		} catch {
 			/* silencieux : l'utilisatrice peut réessayer */
 		} finally {
@@ -135,6 +142,8 @@
 	let { data } = $props();
 	const user = $derived(data.user);
 	const dash = $derived<Dashboard | null>(data.dashboard ?? null);
+	/** Identité du coach (prénom + photo CRM) : avatar du message du jour. */
+	const coachProfile = $derived((data.coach ?? null) as { prenom: string; profilePhotoUrl: string | null } | null);
 
 	/* ── MODE AUTONOMIE (post-coaching) — repli sûr : absent = coaching ──
 	   Outils et données 100 % conservés ; seules les sollicitations du coaching
@@ -944,20 +953,13 @@
 		     et reste consultable dans la section Messages. -->
 		{#if dash?.coachMessage && !dash.coachMessage.read}
 			{@const msg = dash.coachMessage}
-			<div class="rounded-3xl border border-brand bg-brand-light px-5 py-4 ring-1 ring-brand/30">
-				<div class="flex items-start justify-between gap-2">
+			<div out:fade={{ duration: 220 }} class="rounded-3xl border border-brand bg-brand-light px-5 py-4 ring-1 ring-brand/30">
+				<div class="flex items-center gap-3">
+					<CoachAvatar url={coachProfile?.profilePhotoUrl ?? null} name={coachProfile?.prenom ?? 'Coach'} size={36} />
 					<p class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-brand-dark">
-						Message de ton coach
+						Ton coach
 						<span class="badge-in rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Nouveau</span>
 					</p>
-					<button
-						type="button"
-						onclick={markMsgRead}
-						disabled={msgReadBusy}
-						class="tap inline-flex shrink-0 items-center gap-1 rounded-full border-2 border-brand/30 bg-white px-3 py-1 text-xs font-bold text-brand-dark hover:border-brand disabled:opacity-60"
-					>
-						<Icon name="check" size={14} class="shrink-0" /> Vu
-					</button>
 				</div>
 				{#if msg.text}
 					<p class="mt-1.5 text-[15px] leading-relaxed text-ink">{msg.text}</p>
@@ -969,7 +971,15 @@
 						<AudioPlayer src={a.url} durationMs={a.durationMs} onFirstPlay={() => listen(a.mediaId)} />
 					</div>
 				{/if}
-				<p class="mt-2 text-[11px] text-mist">Une fois lu, ce message reste dans <a href="/espace/messages" class="font-semibold text-brand-dark">Messages</a>.</p>
+				<button
+					type="button"
+					onclick={markMsgRead}
+					disabled={msgReadBusy}
+					class="tap mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
+				>
+					<Icon name="check" size={16} strokeWidth={2.5} /> J'ai lu
+				</button>
+				<p class="mt-2 text-center text-[11px] text-mist">Une fois lu, ce message reste dans <a href="/espace/messages" class="font-semibold text-brand-dark">Messages</a>.</p>
 			</div>
 		{/if}
 

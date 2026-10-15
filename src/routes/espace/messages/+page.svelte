@@ -4,9 +4,29 @@
 	import BackToHome from '$lib/components/BackToHome.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { fmtMs } from '$lib/media';
-	import { onNotificationCounts } from '$lib/notificationPoll';
+	import { onNotificationCounts, refreshNotificationsNow } from '$lib/notificationPoll';
+	import CoachAvatar from '$lib/components/CoachAvatar.svelte';
 
 	let { data } = $props();
+	const coachProfile = $derived((data.coach ?? null) as { prenom: string; profilePhotoUrl: string | null } | null);
+
+	/* « J'ai lu » : geste explicite, jamais déclenché par l'affichage de la page. */
+	let readBusy = $state(false);
+	async function markRead() {
+		if (readBusy) return;
+		readBusy = true;
+		try {
+			const r = await fetch('/api/media/message-read', { method: 'POST' });
+			if (r.ok) {
+				refreshNotificationsNow();
+				await invalidateAll();
+			}
+		} catch {
+			/* silencieux : l'utilisatrice peut réessayer */
+		} finally {
+			readBusy = false;
+		}
+	}
 
 	/* Mécanisme central de propagation : un message publié pendant que la
 	   cliente est déjà ici (compteur « message » qui monte) revalide la liste
@@ -83,9 +103,12 @@
 					: 'border-line'}"
 			>
 				<div class="flex items-center justify-between gap-2 border-b border-line px-5 py-3.5">
-					<div class="flex items-center gap-2">
-						<p class="text-sm font-bold text-ink">{dayLabel(msg.publishedDay)}</p>
-						<span class="text-[11px] text-mist">· {timeLabel(msg.publishedAt)}</span>
+					<div class="flex min-w-0 items-center gap-2.5">
+						<CoachAvatar url={coachProfile?.profilePhotoUrl ?? null} name={coachProfile?.prenom ?? 'Coach'} size={30} />
+						<div class="min-w-0">
+							<p class="text-[11px] font-bold uppercase tracking-wide text-mist">Ton coach</p>
+							<p class="text-sm font-bold text-ink">{dayLabel(msg.publishedDay)} <span class="text-[11px] font-normal text-mist">· {timeLabel(msg.publishedAt)}</span></p>
+						</div>
 					</div>
 					{#if isUnread}
 						<span class="rounded-full bg-warn px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Non lu</span>
@@ -103,6 +126,16 @@
 							<p class="mb-1.5 inline-flex items-center gap-1.5 text-xs font-bold text-ink"><Icon name="mic" size={13} /> Message audio · {fmtMs(msg.audio.durationMs)}</p>
 							<AudioPlayer src={msg.audio.url} durationMs={msg.audio.durationMs} onFirstPlay={() => listen(msg.audio?.mediaId ?? '')} />
 						</div>
+					{/if}
+					{#if isUnread}
+						<button
+							type="button"
+							onclick={markRead}
+							disabled={readBusy}
+							class="tap mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
+						>
+							<Icon name="check" size={16} strokeWidth={2.5} /> J'ai lu
+						</button>
 					{/if}
 				</div>
 			</article>

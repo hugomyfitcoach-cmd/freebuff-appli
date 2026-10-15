@@ -54,7 +54,7 @@
 {:else}
 	<div class="space-y-4">
 		{#each checkins as checkin (checkin._id)}
-			<RecapBilan {checkin} media={(media[checkin._id] ?? []) as never} />
+			<RecapBilan {checkin} media={(media[checkin._id] ?? []) as never} coach={data.coach} />
 		{/each}
 	</div>
 {/if}
