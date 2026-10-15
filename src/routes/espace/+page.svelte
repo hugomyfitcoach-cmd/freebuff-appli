@@ -1183,7 +1183,7 @@
 					onclick={openHydrationSheet}
 					aria-haspopup="dialog"
 					aria-label="Ajouter de l'eau"
-					class="tap absolute right-3 top-3 z-10 grid h-8 w-8 place-items-center rounded-full bg-brand-light text-brand-dark transition hover:bg-brand hover:text-white"
+					class="tap absolute bottom-[60px] left-[calc(50%+28px)] z-10 grid h-8 w-8 place-items-center rounded-full bg-brand-light text-brand-dark transition hover:bg-brand hover:text-white"
 				>
 					<Icon name="plus" size={16} strokeWidth={2.5} />
 				</button>
