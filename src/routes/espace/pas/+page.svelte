@@ -179,7 +179,7 @@
 	<div class="flex items-center gap-3.5">
 		<div class="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[18px] bg-brand-light"><Icon name="footprints" size={26} class="text-brand" /></div>
 		<div class="min-w-0 flex-1">
-			<h1 class="font-display text-[27px] font-bold leading-[1.1] tracking-[-0.03em] text-[#0F1512]">Mes pas</h1>
+			<h1 class="text-[#0F1512] page-title">Mes pas</h1>
 			<p class="mt-1 text-[14px] leading-[1.4] text-[#66716B]">7 derniers jours terminés — aujourd'hui jamais compté dans la moyenne, les jours sans saisie ne comptent pas comme zéro.</p>
 		</div>
 	</div>

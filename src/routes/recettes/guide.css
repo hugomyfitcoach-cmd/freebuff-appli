@@ -67,7 +67,7 @@
 
 .guide-root .home-title{
     margin-top: 24px;
-    font-size: 34px;
+    font-size: 31px;
     font-weight: 900;
     letter-spacing: -0.03em;
     line-height: 1.05
@@ -700,7 +700,7 @@
 
 /* ── Largeurs d'écran généreuses : mêmes cartes, centrées ────────── */
 @media (min-width: 720px){
-    .guide-root .home-title{ font-size: 40px; }
+    .guide-root .home-title{ font-size: 36px; }
     .guide-root .hero-left h1{ font-size: 44px; }
   }
 @media (prefers-reduced-motion: reduce){

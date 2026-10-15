@@ -817,3 +817,22 @@ body:has(.gflux-app-client) {
 		transition-duration: 0.01ms !important;
 	}
 }
+
+/* Titre principal de page (référence : « Nutrition & recettes ») : Lato 900,
+   interlettrage et interligne identiques partout. Taille : 3 px de moins sur
+   mobile, 4 px de moins à partir de 720 px. Les titres longs passent à la
+   ligne (équilibrés) sans déborder. */
+.page-title {
+	font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
+	font-size: 31px;
+	font-weight: 900;
+	letter-spacing: -0.03em;
+	line-height: 1.05;
+	text-wrap: balance;
+	overflow-wrap: break-word;
+}
+@media (min-width: 720px) {
+	.page-title {
+		font-size: 36px;
+	}
+}

@@ -139,7 +139,7 @@
 			<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true" class="text-brand"><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"></circle><path d="M12 9.5C10 7.5 10 4.5 12 3c2 1.5 2 4.5 0 6.5ZM14.5 12c2-2 5-2 6.5 0-1.5 2-4.5 2-6.5 0ZM12 14.5c2 2 2 5 0 6.5-2-1.5-2-4.5 0-6.5ZM9.5 12c-2 2-5 2-6.5 0 1.5-2 4.5-2 6.5 0Z"></path></svg>
 		</div>
 		<div>
-			<h1 class="font-display text-[32px] font-bold leading-none tracking-tight text-ink">Mon cycle</h1>
+			<h1 class="text-ink page-title">Mon cycle</h1>
 			<p class="mt-1.5 text-[15px] text-mist">Où tu en es, selon ta configuration.</p>
 		</div>
 	</div>

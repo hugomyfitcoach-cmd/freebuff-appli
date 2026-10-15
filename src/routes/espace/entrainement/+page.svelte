@@ -244,7 +244,7 @@
 	<div class="mx-auto w-full max-w-md pb-6 pt-1">
 		<BackToHome label="Entraînement" />
 		<header class="mb-4">
-			<h1 class="flex items-center gap-2 font-display text-2xl font-bold text-ink">
+			<h1 class="flex items-center gap-2 text-ink page-title">
 				<Icon name="dumbbell" size={22} class="text-brand" /> Entraînement
 			</h1>
 			<p class="mt-0.5 text-sm text-mist">Ta séance, tu la fais, c'est noté.</p>
