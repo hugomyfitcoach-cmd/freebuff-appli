@@ -1223,18 +1223,17 @@
 				</div>
 				<p class="mt-2 font-display text-4xl font-black leading-none tracking-tight text-ink tabular-nums">						{#if lastWeightKgShown !== null}{#key lastWeightKgShown}<CountUp value={lastWeightKgShown} format={fmtKg} duration={450} minFrom={0.985} distanceCap={4} />{/key} <span class="text-[16px] font-bold text-mist">kg</span>{:else}—{/if}
 				</p>
-				<div class="mt-1.5 flex items-center justify-between gap-2">
-					<p class="min-w-0 truncate text-xs text-mist">
-						{#if weightDelta !== null}<span class="inline-flex shrink-0 items-center rounded-full bg-brand-light px-2.5 py-1 text-[12px] font-bold text-brand-deep">{weightDeltaLabel(weightDelta)}</span>{:else}Ta progression ici{/if}
-					</p>
+				<!-- Badges : insécables et adaptatifs — le second passe à la ligne plutôt que d'être tronqué -->
+				<div class="mt-1.5 flex flex-wrap items-center gap-1.5">
+					{#if weightDelta !== null}<span class="inline-flex max-w-full items-center whitespace-nowrap rounded-full bg-brand-light px-2.5 py-1 text-[12px] font-bold leading-none text-brand-deep">{weightDeltaLabel(weightDelta)}</span>{:else}<p class="min-w-0 text-xs text-mist">Ta progression ici</p>{/if}
 					{#if !autonomy}
 
 							{#if peseesDone}
-								<span class="inline-flex shrink-0 items-center gap-1 rounded-full bg-brand-light px-2 py-0.5 text-[11px] font-bold text-brand-dark">
+								<span class="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-brand-light px-2 py-1 text-[11px] font-bold leading-none text-brand-dark">
 									<Icon name="circleCheck" size={12} class="shrink-0" /> Pesées 3/3
 								</span>
 							{:else}
-								<span class="shrink-0 text-[11px] font-semibold tabular-nums text-mist">Pesées {peseesCount}/3</span>							{/if}
+								<span class="inline-flex items-center whitespace-nowrap rounded-full bg-soft px-2 py-1 text-[11px] font-semibold leading-none tabular-nums text-mist">Pesées {peseesCount}/3</span>							{/if}
 					{/if}
 				</div>
 			</button>
