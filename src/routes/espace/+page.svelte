@@ -85,6 +85,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import Sparkline from '$lib/components/Sparkline.svelte';
 	import WeightQuickSheet from '$lib/components/WeightQuickSheet.svelte';
+	import HydrationQuickSheet from '$lib/components/HydrationQuickSheet.svelte';
 	import { applyWeightLocally } from '$lib/weightLog';
 	import PerformanceWeekCard from '$lib/components/PerformanceWeekCard.svelte';
 	import CountUp from '$lib/components/CountUp.svelte';
@@ -512,6 +513,14 @@
 	   immédiatement, avant la revalidation serveur ; elle est levée ensuite. */
 	let weightOverride = $state<{ kg: number; date: string } | null>(null);
 	let weightSheetOpen = $state(false);
+	let hydrationSheetOpen = $state(false);
+	function openHydrationSheet() {
+		hydrationSheetOpen = true;
+	}
+	/** Après une prise d'eau : la carte Hydratation (total, %, anneau) est revalidée. */
+	async function onHydrationSaved() {
+		await invalidateAll();
+	}
 	const lastWeightKgShown = $derived(
 		weightOverride
 			? weightOverride.kg
@@ -1167,10 +1176,18 @@
 			     Masquée tant que le module backend n'est pas disponible (loader
 			     null) : l'Accueil ne casse jamais, la carte apparaît seule. -->
 			{#if hydrationHistory}
-				<a
-					href="/espace/hydratation"
-					class="gflux-home-hydration tap tap-shadow group order-3 block rounded-3xl border border-line bg-card p-[18px] shadow-sm hover:border-brand/50"
+			<div class="gflux-home-hydration group relative order-3 rounded-3xl border border-line bg-card shadow-sm hover:border-brand/50">
+				<!-- Bouton + : frère du lien, jamais de navigation vers « Mon hydratation » -->
+				<button
+					type="button"
+					onclick={openHydrationSheet}
+					aria-haspopup="dialog"
+					aria-label="Ajouter de l'eau"
+					class="tap absolute right-3 top-3 z-10 grid h-8 w-8 place-items-center rounded-full bg-brand-light text-brand-dark transition hover:bg-brand hover:text-white"
 				>
+					<Icon name="plus" size={16} strokeWidth={2.5} />
+				</button>
+				<a href="/espace/hydratation" class="tap tap-shadow block rounded-3xl p-[18px]">
 					<div class="flex min-h-[104px] items-stretch gap-3.5">
 						<div class="flex min-w-0 flex-1 flex-col justify-between">
 							<div class="flex items-center gap-2">
@@ -1206,6 +1223,7 @@
 						</div>
 					</div>
 				</a>
+			</div>
 			{/if}
 		</div>
 
@@ -1321,6 +1339,14 @@
 	lastDate={lastWeightDateShown}
 	onClose={() => (weightSheetOpen = false)}
 	onSaved={onWeightSaved}
+/>
+
+<!-- Feuille d'ajout rapide d'eau (carte Hydratation) -->
+<HydrationQuickSheet
+	open={hydrationSheetOpen}
+	date={currentLocalDay()}
+	onClose={() => (hydrationSheetOpen = false)}
+	onSaved={onHydrationSaved}
 />
 
 <!-- ═══════════ Ma progression ═══════════ -->
