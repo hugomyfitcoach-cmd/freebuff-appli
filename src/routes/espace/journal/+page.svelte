@@ -2586,41 +2586,14 @@ import { optimizeImageFile } from '$lib/media';
 
 	/* ————— Feuille de portion (repas) ————— */
 	let qtyMealSel = $state<Meal | null>(null);
-	let qtyPortion = $state(100);
-	/** Nombre de portions (recette G-FLUX) — 1 = 100 g dans le moteur existant. */
-	let qtyPortions = $state(1);
 	let portionSaving = $state(false);
 	let portionError = $state('');
 
 	function openPortion(meal: Meal) {
 		qtyMealSel = meal;
-		qtyPortion = 100;
-		qtyPortions = 1;
 		portionError = '';
 	}
-	/** Recette G-FLUX : on raisonne en nombre de portions (1 portion = 100). */
-	const isRecipeMeal = $derived(qtyMealSel?.sourceType === 'gflux_recipe');
-	const portionRatio = $derived(
-		qtyMealSel ? (isRecipeMeal ? qtyPortions : qtyPortion / qtyMealSel.totalWeight) : 0
-	);
-	const portionKcal = $derived(qtyMealSel ? Math.round(qtyMealSel.kcal * portionRatio) : 0);
-	const portionMacros = $derived(
-		qtyMealSel
-			? {
-					carbs: Math.round(qtyMealSel.carbs * portionRatio * 10) / 10,
-					protein: Math.round(qtyMealSel.protein * portionRatio * 10) / 10,
-					fat: Math.round(qtyMealSel.fat * portionRatio * 10) / 10,
-				}
-			: null
-	);
-	function setPortion(g: number) {
-		qtyPortion = Math.min(5000, Math.max(1, g));
-	}
-	function setPortions(n: number) {
-		qtyPortions = Math.min(10, Math.max(0.5, Math.round(n * 2) / 2));
-	}
-	const PORTION_CHIPS = [0.5, 1, 1.5, 2, 3];
-	async function confirmAddPortion() {
+	async function confirmAddPortion(portionGrams: number, selectedMeal: string) {
 		if (!qtyMealSel) return;
 		portionSaving = true;
 		portionError = '';
@@ -2630,9 +2603,9 @@ import { optimizeImageFile } from '$lib/media';
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					date,
-					meal: qtyMeal,
-					portionGrams: isRecipeMeal ? qtyPortions * 100 : qtyPortion,
-					portions: isRecipeMeal ? qtyPortions : undefined,
+					meal: selectedMeal,
+					portionGrams,
+					portions: qtyMealSel.sourceType === 'gflux_recipe' ? portionGrams / 100 : undefined,
 				}),
 			});
 			const j = await r.json();
@@ -5694,85 +5667,36 @@ import { optimizeImageFile } from '$lib/media';
 	/>
 {/if}
 
-<!-- ═══════════ Feuille portion (repas) ═══════════ -->
+<!-- ═══════════ Fiche recette plein écran — mêmes contrôles que « Mes aliments » ═══════════ -->
 {#if qtyMealSel}
-	<div role="presentation" class="fixed inset-0 z-[60] flex items-end justify-center bg-ink/40 backdrop-blur-sm sm:items-center sm:p-6" onclick={(e) => { if (e.target === e.currentTarget && !portionSaving) qtyMealSel = null; }} onkeydown={(e) => { if (e.key === 'Escape' && !portionSaving) qtyMealSel = null; }}>
-		<div class="w-full max-w-lg rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
-			<div class="flex items-center gap-3">							{#if qtyMealSel.ingredients[0]?.imageUrl}
-								<FoodImg src={qtyMealSel.ingredients[0].thumbUrl} fallbackSrc={qtyMealSel.ingredients[0].imageUrl} alt="" class="h-14 w-14 rounded-xl" eager />
-							{:else}
-								<div class="grid h-14 w-14 place-items-center rounded-xl bg-brand-light"><Icon name="soup" size={26} class="text-brand" /></div>
-							{/if}
-				<div class="min-w-0 flex-1">
-					<p class="truncate font-semibold text-ink">{qtyMealSel.name}</p>
-					{#if isRecipeMeal}
-						<p class="text-xs text-mist">{fmt(qtyMealSel.kcal)} kcal · 1 portion</p>
-					{:else}
-						<p class="text-xs text-mist">{fmt(qtyMealSel.kcal)} kcal pour le plat ({fmt(qtyMealSel.totalWeight)} g)</p>
-					{/if}
-				</div>
-			</div>
-
-			{#if isRecipeMeal}
-				<div class="mt-4 flex items-center justify-between gap-3">
-					<button type="button" class="grid h-12 w-12 place-items-center rounded-xl border-2 border-line text-xl font-bold text-ink active:border-brand" aria-label="Moins" onclick={() => setPortions(qtyPortions - 0.5)}>−</button>
-					<div class="flex-1 text-center">
-						<span class="text-4xl font-bold text-ink">{String(qtyPortions).replace('.', ',')}</span>
-						<span class="ml-1 text-sm text-mist">{qtyPortions === 1 ? 'portion' : 'portions'}</span>
-					</div>
-					<button type="button" class="grid h-12 w-12 place-items-center rounded-xl border-2 border-line text-xl font-bold text-ink active:border-brand" aria-label="Plus" onclick={() => setPortions(qtyPortions + 0.5)}>+</button>
-				</div>
-				<div class="mt-3 flex flex-wrap gap-2">
-					{#each PORTION_CHIPS as p (p)}
-						<button type="button" class="rounded-full border-2 border-line px-3 py-1.5 text-xs font-semibold text-ink {qtyPortions === p ? '!border-brand !text-brand' : ''}" onclick={() => setPortions(p)}>{String(p).replace('.', ',')} {p === 1 ? 'portion' : 'portions'}</button>
-					{/each}
-				</div>
-				<p class="mt-2 text-center text-[11px] text-mist">{String(qtyPortions).replace('.', ',')} × {fmt(qtyMealSel.kcal)} kcal</p>
-			{:else}
-				<div class="mt-4 flex items-center justify-between gap-3">
-					<button type="button" class="grid h-12 w-12 place-items-center rounded-xl border-2 border-line text-xl font-bold text-ink active:border-brand" aria-label="Moins" onclick={() => setPortion(qtyPortion - 10)}>−</button>
-					<div class="flex-1 text-center">
-						<span class="text-4xl font-bold text-ink">{fmt(qtyPortion)}</span>
-						<span class="ml-1 text-sm text-mist">g</span>
-					</div>
-					<button type="button" class="grid h-12 w-12 place-items-center rounded-xl border-2 border-line text-xl font-bold text-ink active:border-brand" aria-label="Plus" onclick={() => setPortion(qtyPortion + 10)}>+</button>
-				</div>
-				<div class="mt-3 flex flex-wrap gap-2">
-					{#each [50, 100, 150, 200, 300] as g (g)}
-						<button type="button" class="rounded-full border-2 border-line px-3 py-1.5 text-xs font-semibold text-ink {qtyPortion === g ? '!border-brand !text-brand' : ''}" onclick={() => setPortion(g)}>{g} g</button>
-					{/each}
-				</div>
-			{/if}
-
-			<!-- Code couleur du Journal : kcal vert · glucides rose ·
-			     protéines bleu · lipides orange, séparateurs gris. -->
-			<p class="mt-3 flex flex-wrap items-baseline justify-center gap-x-1 text-center text-sm">
-				<strong class="text-lg font-bold text-brand">{fmt(portionKcal)} kcal</strong>
-				<span class="text-mist">·</span>
-				<span class="font-bold tabular-nums" style:color="#ec4899">{fmt(portionMacros?.carbs ?? 0)} g glucides</span>
-				<span class="text-mist">·</span>
-				<span class="font-bold tabular-nums" style:color="#3b82f6">{fmt(portionMacros?.protein ?? 0)} g protéines</span>
-				<span class="text-mist">·</span>
-				<span class="font-bold tabular-nums" style:color="#f97316">{fmt(portionMacros?.fat ?? 0)} g lipides</span>
-			</p>
-
-			<div class="mt-3 grid grid-cols-4 gap-1.5">				{#each MEAL_DEFS as meal (meal.id)}
-					<button type="button" class="flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-semibold transition {qtyMeal === meal.id ? 'bg-brand text-white' : 'bg-line/50 text-mist'}" onclick={() => (qtyMeal = meal.id)}>
-						<Icon name={meal.icon} size={16} class="shrink-0" />
-						{meal.label.split(' ')[0]}
-					</button>
-				{/each}
-			</div>
-
-			{#if portionError}
-				<p class="mt-3 rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{portionError}</p>
-			{/if}
-
-			<button type="button" class="mt-4 w-full rounded-full bg-brand py-3.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60" disabled={portionSaving} onclick={confirmAddPortion}>
-				{portionSaving ? 'Ajout…' : 'Ajouter cette portion au journal'}
-			</button>
-		</div>
-	</div>
+	{@const recipeWeight = Math.max(1, qtyMealSel.totalWeight)}
+	{@const recipeQtyFood = {
+		name: qtyMealSel.name,
+		brand: undefined,
+		kcal100: (qtyMealSel.kcal / recipeWeight) * 100,
+		carbs100: (qtyMealSel.carbs / recipeWeight) * 100,
+		protein100: (qtyMealSel.protein / recipeWeight) * 100,
+		fat100: (qtyMealSel.fat / recipeWeight) * 100,
+	}}
+	<QuantitySheet
+		food={recipeQtyFood}
+		mealDefs={MEAL_DEFS}
+		sheetTop={mobile ? vvTop : 0}
+		sheetHeight={mobile ? vvH : undefined}
+		initialQtyGrams={100}
+		gramShortcuts={[50, 100, 150, 200, 300]}
+		subtitle={qtyMealSel.sourceType === 'gflux_recipe'
+			? `${fmt(qtyMealSel.kcal)} kcal pour le plat (${fmt(qtyMealSel.totalWeight)} g) · 1 portion = 100 g`
+			: `${fmt(qtyMealSel.kcal)} kcal pour le plat (${fmt(qtyMealSel.totalWeight)} g)`}
+		initialMeal={qtyMeal}
+		saveLabel="Ajouter cette portion au journal"
+		saving={portionSaving}
+		error={portionError}
+		onSave={(g, meal) => {
+			void confirmAddPortion(g, meal);
+		}}
+		onClose={() => { if (!portionSaving) qtyMealSel = null; }}
+	/>
 {/if}
 
 <!-- ═══════════ Feuille quantité (aliment) — édition ═══════════ -->

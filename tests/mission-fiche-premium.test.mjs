@@ -41,7 +41,7 @@ const plansPage = read('src/routes/admin/plans/+page.svelte');
 
 test('Une seule source de vérité : QuantitySheet reste LA fiche de tous les points d\u2019entrée', () => {
 	const uses = (journalPage.match(/<QuantitySheet/g) || []).length;
-	assert.equal(uses, 4, '4 usages dans le journal : ajout, édition entrée, item planifié, ingrédient de repas');
+	assert.equal(uses, 5, '5 usages dans le journal : aliment, recette, édition entrée, item planifié, ingrédient de repas');
 	assert.ok(plansPage.includes('<QuantitySheet'), 'plans coach : même composant partagé (appel inchangé)');
 	// Aucune fiche parallèle : le CTA « Ajouter au journal » n'existe QUE dans le composant.
 	assert.ok(sheet.includes('Ajouter au journal'), 'CTA par défaut du composant');
@@ -50,7 +50,7 @@ test('Une seule source de vérité : QuantitySheet reste LA fiche de tous les po
 
 test('API du composant inchangée : zéro modification requise côté appelants (journal + plans)', () => {
 	for (const prop of [
-		'mealDefs', 'initialQtyGrams', 'initialMeal', 'mode', 'saving', 'saveLabel', 'source',
+		'mealDefs', 'initialQtyGrams', 'gramShortcuts', 'initialMeal', 'mode', 'saving', 'saveLabel', 'source',
 		'showFav', 'favActive', 'favFoodId', 'onToggleFav', 'sheetTop', 'sheetHeight',
 		'onSave', 'onEat', 'onReplace', 'onUnEat', 'onDelete', 'onClose',
 	]) {
@@ -169,10 +169,24 @@ test('Mode focus quantité : clavier ouvert → identité+quantité+macros visib
 
 /* ─── 6. Logique métier INTACTE ─── */
 
+test('Fiche recette du Journal : raccourcis complets et conversion plat → 100 g → portions enregistrées', () => {
+	assert.ok(journalPage.includes('gramShortcuts={[50, 100, 150, 200, 300]}'), 'fiche recette : raccourcis 50, 100, 150, 200 et 300 g');
+	assert.ok(journalPage.includes('const recipeWeight = Math.max(1, qtyMealSel.totalWeight)'), 'les repas utilisent leur poids total comme base nutritionnelle');
+	assert.ok(journalPage.includes('(qtyMealSel.kcal / recipeWeight) * 100'), 'calories normalisées à 100 g pour le moteur partagé');
+	assert.ok(journalPage.includes('portionGrams,') && journalPage.includes('portions: qtyMealSel.sourceType === \'gflux_recipe\' ? portionGrams / 100 : undefined'), 'l’API reçoit le poids saisi et son équivalent en portions recette');
+	assert.ok(journalPage.includes('date,') && journalPage.includes('meal: selectedMeal,'), 'l’ajout conserve la date affichée et le repas choisi dans la fiche');
+	assert.ok(journalPage.includes('void confirmAddPortion(g, meal)'), 'l’identité de recette et la quantité validée arrivent au même enregistrement');
+	assert.ok(!/\b(qtyPortionText|setPortionText|portionRatio|portionKcal|portionMacros|portionQtyValid|setPortion)\b/.test(journalPage), 'les anciennes variables/calculs de la fiche remplacée sont retirés');
+});
+
 test('Logique métier INTACTE : quantités, portions, repères, modes et actions', () => {
+	assert.ok(sheet.includes('gramShortcuts?: readonly number[]'), 'raccourcis grammes configurables sans changer le défaut des autres fiches');
+	assert.ok(sheet.includes('{#each gramShortcuts as g (g)}'), 'raccourcis configurés affichés en mode grammes');
+	assert.ok(sheet.includes('gramShortcuts = [50, 100, 150, 200]'), 'raccourcis grammes par défaut préservés pour les fiches alimentaires classiques');
+	assert.ok(journalPage.includes('gramShortcuts={[50, 100, 150, 200, 300]}'), 'la fiche recette peut proposer le raccourci 300 g');
 	assert.ok(sheet.includes("'g' | 'portion' | 'repere'"), 'trois unités de saisie');
 	assert.ok(sheet.includes('Repères G-FLUX'), 'onglet repères conservé');
-	assert.ok(sheet.includes('[50, 100, 150, 200]'), 'raccourcis grammes');
+	assert.ok(sheet.includes('gramShortcuts = [50, 100, 150, 200]'), 'raccourcis grammes classiques');
 	assert.ok(sheet.includes('[0.5, 1, 1.5, 2]'), 'raccourcis portions');
 	assert.ok(sheet.includes('gramsNum <= 5000'), 'borne haute 5000 g conservée');
 	assert.ok(sheet.includes('Math.round((gramsNum ?? 0) * 100) / 100'), 'arrondi 2 décimales conservé');
