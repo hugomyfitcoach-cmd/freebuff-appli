@@ -178,14 +178,23 @@
 <div class="progress-wrap"><div class="progress-bar" style:width="{progress}%"></div></div>
 <div class="progress-pct">{progress > 0 ? `${progress}%` : ''}</div>
 
-<div class="container">
-	<div class="form-header">
-		<img src="/logo-header.png" alt="G-Flux" class="logo-img" />
-	</div>
+<div class="container" class:closed-container={!formOpen}>
+	{#if formOpen}
+		<div class="form-header">
+			<img src="/logo-header.png" alt="G-Flux" class="logo-img" />
+		</div>
+	{/if}
 
-	<!-- Jamais d'impasse : retour Accueil quand le formulaire est fermé ou déjà envoyé,
-	     et sortie discrète pendant les étapes du formulaire -->
-	{#if !formOpen || merci}
+	<!-- Jamais d'impasse : le bilan fermé revient à « Mes bilans » ; les autres
+	     états conservent leur navigation existante. -->
+	{#if !formOpen}
+		<div class="closed-page-back">
+			<a href="/espace/historique" aria-label="Retour à Mes bilans">
+				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>
+				<span>Mes bilans</span>
+			</a>
+		</div>
+	{:else if merci}
 		<div class="closed-page-back"><BackToHome label="Bilans" /></div>
 	{:else}
 		<div class="form-exit">
@@ -691,6 +700,9 @@
 		max-width: 540px;
 		margin: 0 auto;
 		padding: 56px 20px 80px;
+	}
+	.closed-container {
+		padding-top: max(56px, calc(env(safe-area-inset-top, 0px) + 12px));
 	}
 
 	.form-header {
@@ -1210,6 +1222,21 @@
 
 	.closed-page-back {
 		margin-bottom: 6px;
+	}
+	.closed-page-back a {
+		display: inline-flex;
+		min-height: 34px;
+		align-items: center;
+		gap: 2px;
+		border: 1px solid #e9edea;
+		border-radius: 17px;
+		background: #fff;
+		padding: 0 12px 0 8px;
+		color: #0d7c36;
+		font-size: 13px;
+		font-weight: 700;
+		text-decoration: none;
+		box-shadow: 0 1px 2px rgba(15, 21, 18, 0.04), 0 6px 14px -8px rgba(15, 21, 18, 0.14);
 	}
 	.form-exit {
 		margin-bottom: 6px;
