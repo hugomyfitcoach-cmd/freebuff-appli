@@ -21,6 +21,7 @@
 	import { ONBOARDING_SECTIONS, readableAnswer } from '../../lib/onboarding.js';
 	import { avgLast7Completed } from '$lib/averages';
 	import { aggregateByDate, avgWindow, parisTodayISO, summarize, windowDaysCompleted } from '$lib/hydrationVision';
+	import { foodAverages } from '$lib/vision360';
 	import { createFoodSearch } from '$lib/foodSearch.svelte';
 	import CountUp from '$lib/components/CountUp.svelte';
 	import CoachIdentity from '$lib/components/CoachIdentity.svelte';
@@ -1045,6 +1046,23 @@
 		quickMsg = '';
 	}
 
+	/**
+	 * Navigation des cartes « Poids actuel » / « Mensurations » de l'Aperçu
+	 * vers l'onglet « Poids & mesures » : le CLIC CARTE ouvre la section
+	 * concernée (Poids = vue détaillée de la métrique ; Mensurations = grille
+	 * des trois tours, ancrée sur le premier). Le petit « + » ouvre
+	 * UNIQUEMENT le formulaire de saisie rapide existant — son clic est stoppé
+	 * (stopPropagation) et ne se propage jamais à la carte.
+	 */
+	async function openCorpsSection(target: 'poids' | 'mensurations') {
+		section = 'corps';
+		corpsDetail = target === 'poids' ? { kind: 'metric', key: 'weightKg' } : null;
+		await tick();
+		document
+			.getElementById(target === 'poids' ? 'bm-form-weightKg' : 'bm-card-waistCm')
+			?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+	}
+
 	/** Même convention de saisie que « Poids & mesures » : virgule française
 	   acceptée ; champ vide → undefined (non envoyé, ancienne valeur conservée). */
 	function parseQuick(raw: string | number): number | undefined {
@@ -1175,11 +1193,16 @@
 		const served = cockpit?.protein;
 		const goal = served?.goal ?? view?.goals?.protein ?? 90;
 		if (served) return { avg: served.avg, goal, trackedDays: served.trackedDays, partialExcluded: served.partialExcluded ?? 0 };
-		const week = (view?.week ?? []) as { protein: number; count: number }[];
-		const tracked = week.filter((d) => d.count > 0);
-		if (tracked.length === 0) return { avg: null, goal, trackedDays: 0, partialExcluded: 0 };
-		const sum = tracked.reduce((s, d) => s + d.protein, 0);
-		return { avg: Math.round(sum / tracked.length), goal, trackedDays: tracked.length, partialExcluded: 0 };
+		// Repli (cachet serveur ancien / aucun bilan) : MÊME garde-fou que le
+		// serveur — foodAverages sur la fenêtre servie (J-7 → J-1) : calories
+		// et protéines partagent EXACTEMENT les mêmes jours exploitables, et
+		// une journée absente ou partielle n'est jamais comptée comme 0 g.
+		const week = (view?.week ?? []) as { date: string; kcal: number; protein: number; count: number }[];
+		const totals = new Map<string, { kcal: number | null; protein: number | null }>(
+			week.map((d) => [d.date, { kcal: d.count > 0 ? d.kcal : null, protein: d.count > 0 ? d.protein : null }])
+		);
+		const f = foodAverages(totals, week.map((d) => d.date), goalKcal);
+		return { avg: f.proteinAvg, goal, trackedDays: f.breakdown.exploitableDays, partialExcluded: f.breakdown.partialDays };
 	});
 	/** Dépense sportive LIVE : 7 journées complètes (J-7 → J-1) — activité
 	    d'aujourd'hui jamais incluse (partielle). Repli : bloc semaines. */
@@ -2268,16 +2291,31 @@
 				     (liseré coloré + tuile icône + chiffre Lato 900 ; données et actions
 				     strictement identiques : mêmes boutons quick-sheet, mêmes valeurs). -->
 				<div class="m-in-crm grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" style="--m-i: 1">
-					<button
-						type="button"
-						onclick={() => openQuickSheet('weight')}
+					<div
+						role="button"
+						tabindex="0"
+						onclick={() => openCorpsSection('poids')}
+						onkeydown={(e) => {
+							if (e.key === 'Enter' || e.key === ' ') {
+								e.preventDefault();
+								openCorpsSection('poids');
+							}
+						}}
 						class="kpi-crm card-crm-hover group cursor-pointer text-left active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-brand"
 						style="--kpi-accent: var(--accent); --kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep)"
-						aria-label="Ajouter une prise de poids"
+						aria-label="Ouvrir la section Poids de l'onglet Poids & mesures"
 					>
 						<div class="flex items-center justify-between gap-1 text-[11px] font-bold uppercase tracking-wider text-mist">
 							<span class="flex items-center gap-2"><span class="kpi-tile" style="width:1.75rem;height:1.75rem"><Icon name="scale" size={14} /></span> Poids actuel</span>
-							<span class="grid h-5 w-5 place-items-center rounded-full border border-line text-mist transition group-hover:border-brand group-hover:text-brand"><Icon name="plus" size={11} /></span>
+							<button
+								type="button"
+								aria-label="Ajouter une prise de poids"
+								onclick={(e) => {
+									e.stopPropagation();
+									openQuickSheet('weight');
+								}}
+								class="grid h-5 w-5 place-items-center rounded-full border border-line text-mist transition group-hover:border-brand group-hover:text-brand"
+							><Icon name="plus" size={11} /></button>
 						</div>
 						<div class="mt-1 flex items-baseline gap-2">
 							<span class="kpi-num-crm text-[1.65rem] text-ink">{latestAny.weightKg != null ? `${String(latestAny.weightKg.value).replace('.', ',')} kg` : '—'}</span>
@@ -2286,17 +2324,32 @@
 							{/if}
 						</div>
 						<div class="mt-1 text-[11px] text-mist">{latestAny.weightKg != null ? `dernière prise ${fmtDateShort(latestAny.weightKg.date)}` : 'aucune prise'}</div>
-					</button>
-					<button
-						type="button"
-						onclick={() => openQuickSheet('mensurations')}
+					</div>
+					<div
+						role="button"
+						tabindex="0"
+						onclick={() => openCorpsSection('mensurations')}
+						onkeydown={(e) => {
+							if (e.key === 'Enter' || e.key === ' ') {
+								e.preventDefault();
+								openCorpsSection('mensurations');
+							}
+						}}
 						class="kpi-crm card-crm-hover group cursor-pointer text-left active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-brand"
 						style="--kpi-accent: var(--orange); --kpi-tile-bg: var(--warn-light); --kpi-tile-fg: var(--orange)"
-						aria-label="Ajouter des mensurations"
+						aria-label="Ouvrir la section Mensurations de l'onglet Poids & mesures"
 					>
 						<div class="flex items-center justify-between gap-1 text-[11px] font-bold uppercase tracking-wider text-mist">
 							<span class="flex items-center gap-2"><span class="kpi-tile" style="width:1.75rem;height:1.75rem"><Icon name="ruler" size={14} /></span> Mensurations</span>
-							<span class="grid h-5 w-5 place-items-center rounded-full border border-line text-mist transition group-hover:border-brand group-hover:text-brand"><Icon name="plus" size={11} /></span>
+							<button
+								type="button"
+								aria-label="Ajouter des mensurations"
+								onclick={(e) => {
+									e.stopPropagation();
+									openQuickSheet('mensurations');
+								}}
+								class="grid h-5 w-5 place-items-center rounded-full border border-line text-mist transition group-hover:border-brand group-hover:text-brand"
+							><Icon name="plus" size={11} /></button>
 						</div>
 						<div class="mt-1 grid grid-cols-3 gap-2 text-center">
 							<div>
@@ -2313,7 +2366,7 @@
 							</div>
 						</div>
 						<div class="mt-1 text-[11px] text-mist">en cm {mensDate ? `· ${fmtDateShort(mensDate)}` : '· aucune prise'}</div>
-					</button>
+					</div>
 					<div class="kpi-crm" style="--kpi-accent: var(--warn); --kpi-tile-bg: var(--warn-light); --kpi-tile-fg: var(--warn)">
 						<div class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-mist"><span class="kpi-tile" style="width:1.75rem;height:1.75rem"><Icon name="flame" size={14} /></span> Calories / jour</div>
 						<div class="mt-1 flex items-baseline gap-2">
@@ -2381,6 +2434,24 @@
 					{:else}
 						<p class="mt-1 text-sm italic text-mist">Aucune activité cette semaine</p>
 					{/if}
+				</div>
+
+				<!-- PROTÉINES / JOUR — moyenne GLISSANTE des protéines réellement
+			     consommées sur les 7 dernières journées civiles terminées
+			     (J-7 → J-1, Europe/Paris), recalculée à chaque consultation —
+			     jamais figée sur le dernier bilan hebdomadaire. MÊME garde-fou
+			     que les moyennes caloriques du CRM (foodAverages) : une journée
+			     exclue de la moyenne calorique l'est aussi des protéines,
+			     dénominateur = jours exploitables, les journées absentes ou
+			     partielles ne comptent jamais comme 0 g, aliments planifiés
+			     exclus (journal consommé uniquement). -->
+				<div class="kpi-crm" style="--kpi-accent: #3b82f6; --kpi-tile-bg: #e8f0fe; --kpi-tile-fg: #1a73e8">
+					<div class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-mist"><span class="kpi-tile" style="width:1.75rem;height:1.75rem"><Icon name="beef" size={14} /></span> Protéines / jour</div>
+					<div class="mt-1 flex items-baseline gap-2">
+						<span class="kpi-num-crm text-[1.65rem] text-ink">{proteinCard.avg !== null ? `${fmtVal(proteinCard.avg)} g` : '—'}</span>
+						<span class="text-sm font-bold text-mist">objectif {fmtVal(proteinCard.goal)} g</span>
+					</div>
+					<div class="mt-1 text-[11px] text-mist">{proteinCard.trackedDays}/7 jours exploitables</div>
 				</div>
 
 				<!-- HYDRATATION — mêmes enregistrements que l'écran cliente
@@ -3400,6 +3471,7 @@
 								{@const rows = bmSeries(meta.key)}
 								<button
 									type="button"
+									id={`bm-card-${meta.key}`}
 									onclick={() => (corpsDetail = { kind: 'metric', key: meta.key })}
 									class="rounded-xl border border-line bg-card p-3 text-left transition hover:border-brand"
 								>
