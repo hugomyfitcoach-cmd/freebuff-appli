@@ -19,6 +19,7 @@
 		interactive = true,
 		showGridLabels = false,
 		showEndpoints = false,
+		showDateLabels = false,
 		activeIdx = $bindable<number | null>(null),
 	}: {
 		points: Point[];
@@ -29,6 +30,7 @@
 		interactive?: boolean;
 		showGridLabels?: boolean;
 		showEndpoints?: boolean;
+		showDateLabels?: boolean;
 		activeIdx?: number | null;
 	} = $props();
 
@@ -49,7 +51,7 @@
 
 	const PAD_X = $derived(showGridLabels ? 12 : 8);
 	const PAD_TOP = $derived(showGridLabels ? 30 : height <= 64 ? 8 : 20);
-	const PAD_BOTTOM = $derived(showGridLabels ? 24 : height <= 64 ? 8 : 20);
+	const PAD_BOTTOM = $derived(showDateLabels ? 34 : showGridLabels ? 24 : height <= 64 ? 8 : 20);
 
 	const xAt = $derived((t: number) => PAD_X + ((t - tMin) / tSpan) * (width - PAD_X * 2));
 	const yAt = $derived(
@@ -121,6 +123,22 @@
 			year: 'numeric',
 		});
 	}
+	function fmtShortDate(iso: string): string {
+		return new Date(iso + 'T12:00:00').toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
+	}
+	const dateLabelIndices = $derived.by(() => {
+		if (!showDateLabels || xyPts.length < 2) return new Set<number>();
+		const minGap = 72;
+		const indices = [0];
+		for (let i = 1; i < xyPts.length - 1; i++) {
+			if (xyPts[i].x - xyPts[indices[indices.length - 1]].x >= minGap && width - xyPts[i].x >= minGap / 2) {
+				indices.push(i);
+			}
+		}
+		if (width - xyPts[indices[indices.length - 1]].x < minGap && indices.length > 1) indices.pop();
+		indices.push(xyPts.length - 1);
+		return new Set(indices);
+	});
 	function fmtNum(v: number): string {
 		const rounded = Math.round(v * 10) / 10;
 		return String(rounded).replace('.', ',');
@@ -212,6 +230,13 @@
 				{#if showGridLabels}
 					<text x={width - 2} y={y2} dy="-5" text-anchor="end" font-size="10.5" font-weight="700" fill="#9AA39E">{fmtNum(vMin)}</text>
 				{/if}
+			{/if}
+			{#if showDateLabels}
+				{#each pts as p, i (p.date)}
+					{#if dateLabelIndices.has(i)}
+						<text x={xyPts[i].x} y={height - 4} text-anchor={i === 0 ? 'start' : i === pts.length - 1 ? 'end' : 'middle'} font-size="10.5" fill="#7B857F">{fmtShortDate(p.date)}</text>
+					{/if}
+				{/each}
 			{/if}
 
 			{#if hasTrend && area}

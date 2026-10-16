@@ -391,9 +391,7 @@
 
 	const weightPoints = $derived.by(() => {
 		if (!view || (view.weightTrend ?? []).length < 1) return null;
-		const pts = view.weightTrend as { date: string; weightKg: number }[];
-		const W = 700, H = 170, top = 14, bottom = 26;
-		const innerH = H - top - bottom;
+		const pts = [...view.weightTrend].sort((a, b) => a.date.localeCompare(b.date)) as { date: string; weightKg: number }[];
 		let min = Infinity, max = -Infinity;
 		for (const p of pts) {
 			if (p.weightKg < min) min = p.weightKg;
@@ -402,15 +400,22 @@
 		const span = Math.max(max - min, 2);
 		min = min - span * 0.25;
 		max = max + span * 0.25;
-		const n = pts.length;
-		const coords = pts.map((p, i) => {
-			const x = n === 1 ? W / 2 : (i / (n - 1)) * (W - 60) + 30;
-			const y = top + innerH - ((p.weightKg - min) / (max - min)) * innerH;
-			return { x, y, date: p.date, weightKg: p.weightKg };
-		});
-		return { coords, min: Math.round(min * 10) / 10, max: Math.round(max * 10) / 10 };
+		return {
+			points: pts.map((p) => ({ date: p.date, value: p.weightKg })),
+			min: Math.round(min * 10) / 10,
+			max: Math.round(max * 10) / 10,
+		};
 	});
-
+	let weightTrendWidth = $state(900);
+	let weightTrendHost = $state<HTMLDivElement>();
+	$effect(() => {
+		if (!weightTrendHost || typeof ResizeObserver === 'undefined') return;
+		const observer = new ResizeObserver(([entry]) => {
+			weightTrendWidth = Math.max(240, Math.floor(entry.contentRect.width));
+		});
+		observer.observe(weightTrendHost);
+		return () => observer.disconnect();
+	});
 	const isOnline = (ts: number | null) => !!ts && Date.now() - ts < 5 * 60 * 1000;
 
 	/* ── Refonte UX/UI premium (north star : docs/refonte-preview) ─────────
@@ -2546,36 +2551,27 @@
 					</div>
 				</section>
 
-				{#if weightPoints && weightPoints.coords.length > 0}
+				{#if weightPoints && weightPoints.points.length > 0}
 					<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
 						<div class="flex flex-wrap items-center justify-between gap-2">
 							<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="chartLine" size={17} class="shrink-0 text-brand" /> Tendance du poids</h3>
-							<span class="text-[11px] text-mist">{weightPoints.coords.length} prise(s) · {String(weightPoints.min).replace('.', ',')} → {String(weightPoints.max).replace('.', ',')} kg</span>
+							<span class="text-[11px] text-mist">{weightPoints.points.length} prise(s) · {String(weightPoints.min).replace('.', ',')} → {String(weightPoints.max).replace('.', ',')} kg</span>
 						</div>
-						<div class="mt-3 overflow-x-auto">
-							<svg viewBox="0 0 700 180" class="h-auto w-full min-w-[520px]" role="img" aria-label="Courbe du poids">
-								<defs>
-									<linearGradient id="wgrad" x1="0" y1="0" x2="0" y2="1">
-										<stop offset="0%" stop-color="#1db954" stop-opacity="0.25" />
-										<stop offset="100%" stop-color="#1db954" stop-opacity="0" />
-									</linearGradient>
-								</defs>
-								{#if weightPoints.coords.length > 1}
-									<polygon
-										points={`${weightPoints.coords.map((p) => `${p.x},${p.y}`).join(' ')} ${weightPoints.coords[weightPoints.coords.length - 1].x},168 ${weightPoints.coords[0].x},168`}
-										fill="url(#wgrad)"
-										class="chart-fade"
+						<div class="mt-3 min-w-0" bind:this={weightTrendHost}>
+							{#if weightPoints.points.length >= 2}
+								<MetricTrend
+									points={weightPoints.points}
+									color="#1db954"
+									unit="kg"
+									height={230}
+									width={Math.max(240, weightTrendWidth)}
+									interactive={true}
+									showGridLabels={true}
+									showDateLabels={true}
 									/>
-									<polyline points={weightPoints.coords.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#1db954" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="chart-line" />
-								{/if}
-								{#each weightPoints.coords as p}
-									<circle cx={p.x} cy={p.y} r="5" fill="#1db954" stroke="#fff" stroke-width="2" class="chart-dot">
-										<title>{fmtDateShort(p.date)} : {String(p.weightKg).replace('.', ',')} kg</title>
-									</circle>
-									<text x={p.x} y={p.y - 11} text-anchor="middle" font-size="11.5" font-weight="600" fill="#111110">{String(p.weightKg).replace('.', ',')}</text>
-									<text x={p.x} y="176" text-anchor="middle" font-size="10.5" fill="#999990">{fmtDateShort(p.date)}</text>
-								{/each}
-							</svg>
+							{:else}
+								<p class="py-10 text-center text-sm text-mist">Une seule pesée — la tendance apparaîtra après une prochaine mesure.</p>
+							{/if}
 						</div>
 					</div>
 				{/if}
@@ -3942,41 +3938,6 @@
 		}
 		to {
 			transform: scaleY(1);
-			opacity: 1;
-		}
-	}
-	.chart-line {
-		stroke-dasharray: 1400;
-		stroke-dashoffset: 1400;
-		animation: lineDraw 1.2s ease forwards;
-	}
-	@keyframes lineDraw {
-		to {
-			stroke-dashoffset: 0;
-		}
-	}
-	.chart-fade {
-		opacity: 0;
-		animation: fadeIn 0.9s 0.5s ease forwards;
-	}
-	.chart-dot {
-		opacity: 0;
-		animation: dotPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) 0.9s forwards;
-	}
-	@keyframes dotPop {
-		from {
-			opacity: 0;
-			transform: scale(0);
-			transform-box: fill-box;
-			transform-origin: center;
-		}
-		to {
-			opacity: 1;
-			transform: scale(1);
-		}
-	}
-	@keyframes fadeIn {
-		to {
 			opacity: 1;
 		}
 	}
