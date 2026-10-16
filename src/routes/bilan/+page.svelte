@@ -189,7 +189,7 @@
 	     états conservent leur navigation existante. -->
 	{#if !formOpen}
 		<div class="closed-page-back">
-			<a href="/espace/historique" aria-label="Retour à Mes bilans">
+			<a href="/espace/historique" class="closed-bilan-back-link" aria-label="Retour à Mes bilans">
 				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1db954" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg>
 				<span>Mes bilans</span>
 			</a>
@@ -1223,7 +1223,7 @@
 	.closed-page-back {
 		margin-bottom: 6px;
 	}
-	.closed-page-back a {
+	.closed-bilan-back-link {
 		display: inline-flex;
 		min-height: 34px;
 		align-items: center;

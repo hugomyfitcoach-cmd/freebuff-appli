@@ -9,12 +9,14 @@ const bilan = readFileSync(join(root, 'src/routes/bilan/+page.svelte'), 'utf8');
 const history = readFileSync(join(root, 'src/routes/espace/historique/+page.svelte'), 'utf8');
 
 test('écran bilan fermé : retour direct vers Mes bilans et logo d’en-tête absent uniquement dans cet état', () => {
-  assert.match(bilan, /\{#if !formOpen\}[\s\S]*?<a href="\/espace\/historique" aria-label="Retour à Mes bilans">[\s\S]*?<span>Mes bilans<\/span>[\s\S]*?\{\/if\}/);
+  assert.match(bilan, /\{#if !formOpen\}[\s\S]*?<a href="\/espace\/historique" class="closed-bilan-back-link" aria-label="Retour à Mes bilans">[\s\S]*?<span>Mes bilans<\/span>[\s\S]*?\{\/if\}/);
   assert.match(bilan, /\{#if formOpen\}\s*<div class="form-header">[\s\S]*?logo-header\.png/);
   assert.match(bilan, /<h2>Bilan fermé<\/h2>/);
   assert.match(bilan, /Le formulaire est fermé jusqu'à vendredi\./);
   assert.match(bilan, /Rendez-vous vendredi pour ton prochain bilan\./);
   assert.match(bilan, /\.closed-container\s*\{\s*padding-top: max\(56px, calc\(env\(safe-area-inset-top, 0px\) \+ 12px\)\);/);
+  assert.match(bilan, /\.closed-bilan-back-link\s*\{[\s\S]*?border-radius: 17px;[\s\S]*?\}/);
+  assert.match(bilan, /\{:else if merci\}\s*<div class="closed-page-back"><BackToHome label="Bilans" \/><\/div>/);
 });
 
 test('la route cible est la page existante « Mes bilans »', () => {
