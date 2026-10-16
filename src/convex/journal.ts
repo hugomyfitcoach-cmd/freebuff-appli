@@ -1,6 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
-import { addDaysISO, getSessionUser, localTodayISO } from "./helpers";
+import { addDaysISO, dateISOInTimeZone, getSessionUser, localTodayISO } from "./helpers";
 import { kcalGoalForDate, withCurrentGoal } from "../lib/goalHistory";
 import { FOOD_SEARCH_CANDIDATES, rankFoods } from "./foodRanking";
 import { applyKcalGuard, guardedKcal100, kcalNeedsRecalc } from "../lib/nutritionGuard";
@@ -1214,8 +1214,7 @@ export const addEntry = mutation({
 
 /** Jour ISO local du serveur (sert uniquement de frontière « futur → planifié »). */
 function localTodayOfTs(): string {
-	const d = new Date();
-	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+	return dateISOInTimeZone(Date.now(), "Europe/Paris");
 }
 
 /** Écart en jours entiers entre deux dates ISO (a → b). */

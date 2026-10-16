@@ -4,6 +4,7 @@ import { convex } from "$lib/server/convex";
 import { api } from "../../../convex/_generated/api.js";
 import { SESSION_COOKIE, requireRole } from "$lib/server/session";
 import { errMsg } from "$lib/errors.js";
+import { addDaysISO, dateISOInTimeZone } from "../../../convex/helpers.js";
 
 /**
  * HYDRATATION — BFF cliente : lecture (historique + objectif) et écriture
@@ -17,9 +18,7 @@ import { errMsg } from "$lib/errors.js";
 
 /** Date locale "yyyy-mm-dd" — la même convention que /api/steps. */
 function localTodayISO(offsetDays = 0): string {
-  const d = new Date();
-  d.setDate(d.getDate() + offsetDays);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return addDaysISO(dateISOInTimeZone(Date.now(), "Europe/Paris"), offsetDays);
 }
 
 export const GET: RequestHandler = async (event) => {

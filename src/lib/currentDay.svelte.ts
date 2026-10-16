@@ -1,23 +1,24 @@
 /**
- * Source centrale de la DATE LOCALE COURANTE (PWA cliente).
+ * Source centrale de la date courante G-FLUX (Europe/Paris, PWA cliente).
  *
- * - `currentLocalDay()` renvoie la date locale de la cliente au format
- *   YYYY-MM-DD (jamais minuit UTC : on suit le fuseau du téléphone).
+ * - `currentLocalDay()` renvoie la date du calendrier Europe/Paris au format
+ *   YYYY-MM-DD (jamais minuit UTC ; le fuseau IANA gère été/hiver).
  * - Changement de journée géré SANS dépendre d'un simple timer :
- *   - timer jusqu'au prochain minuit local (si l'app reste ouverte) ;
+ *   - timer jusqu'au prochain minuit Europe/Paris (si l'app reste ouverte) ;
  *   - re-vérification à chaque reprise (visibilitychange / focus / pageshow)
  *     car les timers sont tués en veille / arrière-plan ;
  *   - quand la date change, un événement `gflux:day-changed` est émis pour
- *     que les pages réagissent (Journal, Accueil, Cycle).
+ *     que les pages réagissent (Journal, Pas, Hydratation, Accueil, Cycle).
  *
  * Lecture réactive : lire `currentLocalDay()` dans un $derived / un $effect
  * re-évalue automatiquement au changement de jour.
  */
 
-let day = $state(localDay());
+import { nextParisMidnightUtcMs, parisTodayISO } from '$lib/vision360';
+let day = $state(parisTodayISO());
 
 function localDay(d: Date = new Date()): string {
-	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+	return parisTodayISO(d.getTime());
 }
 
 /** Date locale courante (réactive). */
@@ -25,11 +26,9 @@ export function currentLocalDay(): string {
 	return day;
 }
 
-/** Délai (ms) jusqu'au prochain minuit local. */
+/** Délai jusqu'au prochain minuit Europe/Paris (23 ou 25 h lors du DST). */
 function nextMidnightDelay(): number {
-	const now = new Date();
-	const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
-	return Math.max(1000, next.getTime() - now.getTime());
+	return Math.max(1000, nextParisMidnightUtcMs() - Date.now());
 }
 
 let timer: ReturnType<typeof setTimeout> | undefined;
