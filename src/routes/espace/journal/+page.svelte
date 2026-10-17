@@ -112,7 +112,9 @@ import { optimizeImageFile } from '$lib/media';
 		fiber100?: number;
 		/** Sel /100 g (aliments personnels, information d'étiquette). */
 		salt100?: number;
-	};	type Meal = {
+	};
+
+	type Meal = {
 		_id: string;
 		name: string;
 		description?: string;
@@ -120,8 +122,9 @@ import { optimizeImageFile } from '$lib/media';
 		kcal: number;
 		carbs: number;
 		protein: number;
-		fat: number;	ingredients: {
-						foodId?: string;
+		fat: number;
+		ingredients: {
+			foodId?: string;
 			customFoodId?: string;
 			/** Fiche de RÉFÉRENCE Ciqual (ANSES) — libellé officiel exact. */
 			ciqualLabel?: string;
@@ -290,9 +293,9 @@ import { optimizeImageFile } from '$lib/media';
 			if (j.error) throw new Error(j.error);
 			day = j;
 		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
+			if (date === d) error = e instanceof Error ? e.message : String(e);
 		} finally {
-			loadingDay = false;
+			if (date === d) loadingDay = false;
 		}
 	}
 
