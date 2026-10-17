@@ -7,6 +7,36 @@
 	function retry() {
 		location.reload();
 	}
+
+	/* JAMAIS de message technique (message d'exception, statut HTTP, stack…) :
+	   un texte français adapté au cas, compréhensible par la cliente. */
+	const MESSAGES = {
+		offline: 'Pas de connexion internet. Vérifie ton réseau puis réessaie.',
+		unavailable: 'Le service est momentanément indisponible. Réessaie dans quelques instants.',
+		generic: 'Une erreur est survenue. Réessaie dans quelques instants.'
+	} as const;
+
+	/* navigator n'existe pas côté serveur : l'état « hors ligne » est évalué
+	   au montage (et suit les bascules réseau en direct), sans casser
+	   l'hydratation (même premier rendu serveur/client). */
+	let offline = $state(false);
+	$effect(() => {
+		const sync = () => {
+			offline = !navigator.onLine;
+		};
+		sync();
+		window.addEventListener('online', sync);
+		window.addEventListener('offline', sync);
+		return () => {
+			window.removeEventListener('online', sync);
+			window.removeEventListener('offline', sync);
+		};
+	});
+
+	/* Cas < hors ligne > < service indisponible (503) > < autre >. */
+	const message = $derived(
+		offline ? MESSAGES.offline : page.status === 503 ? MESSAGES.unavailable : MESSAGES.generic
+	);
 </script>
 
 <svelte:head><title>Oups — G-Flux</title></svelte:head>
@@ -17,7 +47,7 @@
 		Impossible de charger cette page
 	</h1>
 	<p class="text-[14px] leading-relaxed text-mist">
-		{page.error?.message ?? 'Une erreur est survenue. Vérifie ta connexion puis réessaie.'}
+		{message}
 	</p>
 	<button
 		type="button"

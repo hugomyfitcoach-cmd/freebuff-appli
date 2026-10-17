@@ -217,7 +217,7 @@ const ERROR_PAGE_HTML = `<!doctype html>
 	<div class="wrap">
 		<p class="brand">G-Flux</p>
 		<h1>Impossible de charger cette page</h1>
-		<p>Une erreur est survenue. Vérifie ta connexion puis réessaie.</p>
+		<p>Pas de connexion internet. Vérifie ton réseau puis réessaie.</p>
 		<button type="button" onclick="location.reload()">Réessayer</button>
 	</div>
 </body>
