@@ -45,7 +45,21 @@ function fetchBounded(request: Request, ms = FETCH_TIMEOUT_MS): Promise<Response
 	]);
 }
 
-const ASSETS = [...build, ...files];
+/** Polices auto-hébergées (Lato, static/fonts/) : DOIVENT être dans le
+ *  précache — sinon, hors ligne (mode avion iPhone), l'app retombe sur la
+ *  police système. Elles sont déjà couvertes via `files` (contenu de
+ *  static/) ; cette liste explicite rend le précache vérifiable et robuste
+ *  à un futur changement de stratégie. */
+const FONTS = [
+	'/fonts/lato-400-latin.woff2',
+	'/fonts/lato-400-latin-ext.woff2',
+	'/fonts/lato-700-latin.woff2',
+	'/fonts/lato-700-latin-ext.woff2',
+	'/fonts/lato-900-latin.woff2',
+	'/fonts/lato-900-latin-ext.woff2'
+];
+
+const ASSETS = [...build, ...files, ...FONTS.filter((f) => !files.includes(f))];
 
 /** Hôtes d'images alimentaires (miniatures OFF utilisées en repli miroir). */
 const IMG_HOSTS = ['images.openfoodfacts.org', 'static.openfoodfacts.org', 'world.openfoodfacts.org'];
@@ -185,6 +199,11 @@ const ERROR_PAGE_HTML = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Oups — G-Flux</title>
 <style>
+	/* Lato auto-hébergée : servie par le SW depuis le précache, donc la page
+	   d'erreur garde la typographie de l'app même hors ligne. */
+	@font-face { font-family: 'Lato'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/lato-400-latin.woff2') format('woff2'); }
+	@font-face { font-family: 'Lato'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/lato-700-latin.woff2') format('woff2'); }
+	@font-face { font-family: 'Lato'; font-style: normal; font-weight: 900; font-display: swap; src: url('/fonts/lato-900-latin.woff2') format('woff2'); }
 	body { margin: 0; min-height: 100dvh; display: flex; align-items: center; justify-content: center; background: #ffffff; color: #0F1512; font-family: 'Lato', system-ui, sans-serif; }
 	.wrap { width: 100%; max-width: 28rem; padding: 1.5rem; text-align: center; display: flex; flex-direction: column; gap: 1rem; align-items: center; }
 	.brand { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #66716B; }
