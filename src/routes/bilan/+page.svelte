@@ -9,7 +9,7 @@
 	// ── Session & état d'affichage ────────────────────────────────────
 	const user = $derived(data?.user ?? null);
 	const merci = $derived(data?.merci ?? null);
-	/** MODE AUTONOMIE : le CTA « Réserver mon créneau dans l'agenda » est masqué
+	/** MODE AUTONOMIE : le CTA « Choisir mon créneau » est masqué
 	 *  (accès Rendez-vous coupé côté cliente) ; retour en Coaching = réapparaît. */
 	const allowRendezVous = $derived((data?.user?.coachingMode ?? 'coaching') !== 'autonomy');
 	const formOpen = $state(isFormOpen());
@@ -162,14 +162,26 @@
 				document.body.appendChild(dot);
 				const tx = (Math.random() - 0.5) * 200;
 				const ty = -(80 + Math.random() * 120);
-				dot.animate(
-					[
-						{ transform: 'translate(0,0) scale(0)', opacity: 1 },
-						{ transform: `translate(${tx}px,${ty}px) scale(1)`, opacity: 0 }
-					],
-					{ duration: 800 + Math.random() * 400, easing: 'ease-out', fill: 'forwards' }
-				);
-				window.setTimeout(() => dot.remove(), 1200);
+				// Filet de sécurité posé AVANT l'animation : au pire, le point
+				// disparaît à cette échéance — jamais de carré résiduel.
+				const safety = window.setTimeout(() => dot.remove(), 1200);
+				try {
+					const anim = dot.animate(
+						[
+							{ transform: 'translate(0,0) scale(0)', opacity: 1 },
+							{ transform: `translate(${tx}px,${ty}px) scale(1)`, opacity: 0 }
+						],
+						{ duration: 800 + Math.random() * 400, easing: 'ease-out', fill: 'forwards' }
+					);
+					// Retrait À LA FIN DE L'ANIMATION : les points ne survivent pas
+					// à la fin des confettis (bug iPhone : carrés colorés résiduels).
+					anim.onfinish = () => {
+						window.clearTimeout(safety);
+						dot.remove();
+					};
+				} catch {
+					/* moteur sans Web Animations : le filet de sécurité retire le point */
+				}
 			}, i * 40);
 		}
 	}
@@ -228,6 +240,9 @@
 						Si je vois quelque chose à corriger ou ajuster, je t'indiquerai directement quoi modifier.
 					</span>
 				</div>
+				<a href="/espace" class="btn-cta" data-sveltekit-replacestate>
+					<Icon name="home" size={17} class="btn-cta-icon" /> Retour à l'accueil
+				</a>
 			</div>
 		{:else if merci === 'ecrit'}
 				<div class="thank-you">
@@ -247,6 +262,9 @@
 							Il restera ensuite disponible dans « Mes bilans », dans l'historique de tes retours.
 						</span>
 					</div>
+					<a href="/espace" class="btn-cta" data-sveltekit-replacestate>
+						<Icon name="home" size={17} class="btn-cta-icon" /> Retour à l'accueil
+					</a>
 				</div>
 			{:else}
 				<div class="thank-you">
@@ -258,13 +276,18 @@
 						</div>
 					</div>
 					<h2>Merci {user.prenom} !</h2>
-					<p>Tu as demandé un rendez-vous. Choisis directement ton créneau dans l'agenda.</p>
+					<p>Tu as demandé un rendez-vous.{#if allowRendezVous} Choisis directement ton créneau dans l'agenda.{/if}</p>
 					<div class="info-msg"><Icon name="phone" size={17} class="info-msg-icon" /> <span>Ta demande d'appel est bien reçue : on échangera sur les points que tu as indiqués.</span></div>
 					{#if allowRendezVous}
-						<a href="/espace/rendez-vous" class="btn-cta">
-							<Icon name="calendarCheck" size={17} class="btn-cta-icon" /> Réserver mon créneau dans l'agenda
+						<a href="/espace/rendez-vous" class="btn-cta" data-sveltekit-replacestate>
+							<Icon name="calendarCheck" size={17} class="btn-cta-icon" /> Choisir mon créneau
 						</a>
 						<p class="ty-hint">Tu recevras une confirmation dès que ton rendez-vous est réservé.</p>
+						<a href="/espace" class="ty-home-link" data-sveltekit-replacestate>Retour à l'accueil</a>
+					{:else}
+						<a href="/espace" class="btn-cta" data-sveltekit-replacestate>
+							<Icon name="home" size={17} class="btn-cta-icon" /> Retour à l'accueil
+						</a>
 					{/if}
 				</div>
 			{/if}
@@ -1139,7 +1162,8 @@
 		animation-fill-mode: both;
 	}
 	.thank-you h2 {
-		font-family: 'Oswald', sans-serif;
+		/* Lato comme le reste de l'app — la police du titre doit être chargée. */
+		font-family: 'Lato', ui-sans-serif, system-ui, sans-serif;
 		font-size: 26px;
 		font-weight: 700;
 		margin-bottom: 12px;
@@ -1210,8 +1234,26 @@
 		color: var(--muted);
 		animation: fadeUp 0.4s 0.5s ease both;
 	}
+	/* Lien secondaire « Retour à l'accueil » sous le bouton de réservation. */
+	.ty-home-link {
+		display: inline-flex;
+		align-items: center;
+		margin-top: 14px;
+		font-size: 13px;
+		font-weight: 700;
+		color: var(--muted);
+		text-decoration: none;
+		animation: fadeUp 0.4s 0.55s ease both;
+	}
+	.ty-home-link:hover {
+		color: var(--accent-dark);
+		text-decoration: underline;
+	}
 
-	.confetti-dot {
+	/* Points créés en JS hors de l'arbre Svelte : le sélecteur doit être
+	   global pour s'appliquer (sinon → flux statique en bas à gauche, en
+	   petits CARRÉS colorés au lieu de confettis ronds). */
+	:global(.confetti-dot) {
 		position: fixed;
 		width: 8px;
 		height: 8px;
