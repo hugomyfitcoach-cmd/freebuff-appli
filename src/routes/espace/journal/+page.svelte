@@ -3723,10 +3723,21 @@ import { optimizeImageFile } from '$lib/media';
 		return () => io.disconnect();
 	});
 
-	/* Verrouille le scroll du fond quand un panneau plein écran est ouvert. */
+	/* Verrouille le scroll du fond quand un panneau plein écran est ouvert.
+	   Au déverrouillage (ou démontage de la page), on restaure overflow='' et
+	   on réconcilie le layout viewport iOS pour que la barre fixe du bas reste
+	   ancrée au bas de l'écran. */
 	$effect(() => {
-		const locked = logOpen || !!qtyFood || !!editEntry || !!qtyMealSel || calOpen || dupOpen || mealCreateOpen;
+		const locked = logOpen || !!qtyFood || !!editEntry || !!qtyMealSel || calOpen || dupOpen || mealCreateOpen || mealPhotoOpen;
 		document.body.style.overflow = locked ? 'hidden' : '';
+		if (!locked && typeof window !== 'undefined') {
+			window.requestAnimationFrame(() => {
+				window.scrollTo(window.scrollX, window.scrollY);
+			});
+		}
+		return () => {
+			document.body.style.overflow = '';
+		};
 	});
 </script>
 
@@ -4089,10 +4100,10 @@ import { optimizeImageFile } from '$lib/media';
 {/if}
 
 <!-- Bouton flottant + (au-dessus de la barre flottante, avec respiration) -->
-{#if !macroDetail}
+{#if !macroDetail && !logOpen && !qtyFood && !editEntry && !qtyMealSel && !mealPhotoOpen && !keyboardOpen}
 <button
 	type="button"
-	class="fixed bottom-[calc(6.75rem+env(safe-area-inset-bottom))] right-4 z-40 grid h-[62px] w-[62px] place-items-center rounded-full bg-brand text-white shadow-[0_18px_32px_-10px_rgba(23,163,73,.7)] transition hover:scale-105 hover:bg-brand-dark active:scale-95 md:bottom-6 md:right-6 md:h-16 md:w-16"
+	class="fixed bottom-[calc(6.75rem+env(safe-area-inset-bottom))] right-4 z-40 grid h-[62px] w-[62px] place-items-center rounded-full bg-brand text-white shadow-[0_18px_32px_-10px_rgba(23,163,73,.7)] transition hover:scale-105 hover:bg-brand-dark active:scale-95 [transform:translate3d(0,0,0)] md:bottom-6 md:right-6 md:h-16 md:w-16"
 	aria-label="Ajouter un aliment"
 	onclick={() => openLog()}
 ><Icon name="plus" size={28} strokeWidth={2.4} /></button>
