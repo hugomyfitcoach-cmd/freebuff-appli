@@ -417,6 +417,21 @@
 		observer.observe(weightTrendHost);
 		return () => observer.disconnect();
 	});
+	/* Vue détaillée « Poids & mesures » (poids, mensurations, taille, masse
+	   grasse) : même mesure de largeur réelle que la carte « Tendance du poids ».
+	   MetricTrend dessine dans un viewBox en pixels — sans la largeur RENDUE du
+	   graphique, la courbe reste centrée au milieu et le survol ne retombe plus
+	   sur les points tracés (l'info-bulle ne suit plus le point le plus proche). */
+	let corpsChartWidth = $state(900);
+	let corpsChartHost = $state<HTMLDivElement>();
+	$effect(() => {
+		if (!corpsChartHost || typeof ResizeObserver === 'undefined') return;
+		const observer = new ResizeObserver(([entry]) => {
+			corpsChartWidth = Math.max(240, Math.floor(entry.contentRect.width));
+		});
+		observer.observe(corpsChartHost);
+		return () => observer.disconnect();
+	});
 	const isOnline = (ts: number | null) => !!ts && Date.now() - ts < 5 * 60 * 1000;
 
 	/* ── Refonte UX/UI premium (north star : docs/refonte-preview) ─────────
@@ -3360,8 +3375,8 @@
 												<div class="text-[11px] font-medium text-mist">{fmtSigned(delta)} {meta.unit} depuis le démarrage</div>
 											{/if}
 										</div>
-										<div class="mt-2 rounded-lg bg-line/40 px-3 py-2">
-											<MetricTrend points={rows} color={meta.color} unit={meta.unit} height={110} />
+										<div class="mt-2 rounded-lg bg-line/40 px-3 py-2" bind:this={corpsChartHost}>
+											<MetricTrend points={rows} color={meta.color} unit={meta.unit} height={110} width={Math.max(240, corpsChartWidth)} />
 										</div>
 									{/if}
 									<div class="mt-2 flex flex-wrap items-center gap-2">
@@ -3410,8 +3425,8 @@
 											<div class="text-[11px] font-medium text-mist">{fmtSigned(hDelta)} cm depuis le démarrage</div>
 										{/if}
 									</div>
-									<div class="mt-2 rounded-lg bg-line/40 px-3 py-2">
-										<MetricTrend points={heightSeries} color="#a855f7" unit="cm" height={110} />
+									<div class="mt-2 rounded-lg bg-line/40 px-3 py-2" bind:this={corpsChartHost}>
+										<MetricTrend points={heightSeries} color="#a855f7" unit="cm" height={110} width={Math.max(240, corpsChartWidth)} />
 									</div>
 								{/if}
 								<div class="mt-2 flex flex-wrap items-center gap-2">
@@ -3448,8 +3463,8 @@
 											<div class="text-[11px] font-medium text-mist">{bfDelta <= 0 ? '↓' : '↑'} {String(Math.abs(bfDelta)).replace('.', ',')} % depuis le démarrage</div>
 										{/if}
 									</div>
-									<div class="mt-2 rounded-lg bg-line/40 px-3 py-2">
-										<MetricTrend points={bfPoints} color="#a855f7" unit="%" height={110} />
+									<div class="mt-2 rounded-lg bg-line/40 px-3 py-2" bind:this={corpsChartHost}>
+										<MetricTrend points={bfPoints} color="#a855f7" unit="%" height={110} width={Math.max(240, corpsChartWidth)} />
 									</div>
 									<ul class="mt-2 divide-y divide-line/60">
 										{#each [...bfPoints].reverse() as r (r.date)}
