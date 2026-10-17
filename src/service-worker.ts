@@ -18,6 +18,29 @@ const IMG_CACHE = 'gflux-img-v1';
 /** Plafond d'entrées du cache d'images (les plus anciennes sont retirées). */
 const IMG_CACHE_MAX = 600;
 
+/** Limite de patience réseau des requêtes interceptées (ms). */
+const FETCH_TIMEOUT_MS = 5000;
+
+/**
+ * `fetch` PLAFONNÉ : sur iOS, une socket bloquée (reprise d'arrière-plan,
+ * réseau coupé puis rétabli, flux HTTP/2 coincé) peut laisser une requête
+ * pendre PLUSIEURS MINUTES — exactement l'écran blanc de 4-5 min au
+ * lancement de la PWA et les navigations figées. Au-delà du délai, la
+ * requête est considérée perdue et le repli prévu s'exécute.
+ *
+ * NB : pas d'`AbortController` ici — passer un `init` à fetch() recréerait
+ * la Request, ce qui est interdit pour les requêtes `navigate` sur certains
+ * moteurs. Une simple course contre la montre est compatible partout.
+ */
+function fetchBounded(request: Request, ms = FETCH_TIMEOUT_MS): Promise<Response> {
+	return Promise.race([
+		fetch(request),
+		new Promise<Response>((_, reject) => {
+			setTimeout(() => reject(new Error('Réseau sans réponse')), ms);
+		}),
+	]);
+}
+
 const ASSETS = [...build, ...files];
 
 /** Hôtes d'images alimentaires (miniatures OFF utilisées en repli miroir). */
@@ -56,7 +79,7 @@ self.addEventListener('activate', (event) => {
 	event.waitUntil(
 		caches
 			.keys()
-			.then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+			.then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== IMG_CACHE).map((k) => caches.delete(k))))
 			.then(() => self.clients.claim())
 	);
 });
@@ -141,7 +164,7 @@ self.addEventListener('fetch', (event) => {
 	if (event.request.url.includes('/api/')) return;
 	if (event.request.mode === 'navigate') {
 		event.respondWith(
-			fetch(event.request)
+			fetchBounded(event.request)
 				.then((res) => {
 					// HTML frais obtenu : on rafraîchit l'entrée de repli hors-ligne.
 					// Sans ça, l'HTML caché ne servait qu'en cas d'échec réseau et
@@ -153,20 +176,29 @@ self.addEventListener('fetch', (event) => {
 					}
 					return res;
 				})
+				// Réseau absent, lent ou bloqué : on sert la copie de repli
+				// (rafraîchie à chaque navigation réussie) — jamais de blanc
+				// durable ; '/' est le dernier filet (shell de l'app).
 				.catch(() => caches.match(event.request).then((r) => r || caches.match('/')))
+				.then((r) => r ?? Response.error())
 		);
 		return;
 	}
 	event.respondWith(
 		caches.match(event.request).then((cached) => {
 			if (cached) return cached;
-			return fetch(event.request).then((res) => {
-				if (res.ok && ASSETS.includes(url.pathname)) {
-					const clone = res.clone();
-					caches.open(CACHE).then((c) => c.put(event.request, clone));
-				}
-				return res;
-			});
+			return fetchBounded(event.request)
+				.then((res) => {
+					if (res.ok && ASSETS.includes(url.pathname)) {
+						const clone = res.clone();
+						caches.open(CACHE).then((c) => c.put(event.request, clone));
+					}
+					return res;
+				})
+				// Réseau lent/coupé : échec rapide et propre — la page garde ses
+				// replis (API client / état d'erreur « Réessayer ») au lieu
+				// d'attendre une réponse qui ne viendra jamais.
+				.catch(() => Response.error());
 		})
 	);
 });
