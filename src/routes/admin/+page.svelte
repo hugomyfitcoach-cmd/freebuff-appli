@@ -2482,11 +2482,11 @@
 							<div class="mt-2 border-t border-line/60 pt-2">
 								<div class="flex items-baseline justify-between gap-2 text-[11px] text-mist">
 									<span>Moyenne 7 j terminés</span>
-									<span class="font-semibold text-ink">{hydrationStats.w7.avg !== null ? `{hydrationStats.w7.avg.toLocaleString('fr-FR')} ml` : '—'} · {hydrationStats.w7.trackedDays}/7 jour(s)</span>
+									<span class="font-semibold text-ink">{hydrationStats.w7.avg !== null ? `${hydrationStats.w7.avg.toLocaleString('fr-FR')} ml` : '—'} · {hydrationStats.w7.trackedDays}/7 jour(s)</span>
 								</div>
 								<div class="mt-0.5 flex items-baseline justify-between gap-2 text-[11px] text-mist">
 									<span>Moyenne 30 j terminés</span>
-									<span class="font-semibold text-ink">{hydrationStats.w30.avg !== null ? `{hydrationStats.w30.avg.toLocaleString('fr-FR')} ml` : '—'} · {hydrationStats.w30.trackedDays}/30 jour(s)</span>
+									<span class="font-semibold text-ink">{hydrationStats.w30.avg !== null ? `${hydrationStats.w30.avg.toLocaleString('fr-FR')} ml` : '—'} · {hydrationStats.w30.trackedDays}/30 jour(s)</span>
 								</div>
 							</div>
 						{/if}
