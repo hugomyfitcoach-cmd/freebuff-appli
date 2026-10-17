@@ -7,6 +7,8 @@
 import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { ConvexError } from "convex/values";
+import { dateISOInTimeZone } from "../lib/vision360";
+export { dateISOInTimeZone } from "../lib/vision360";
 
 /** Durée de vie d'une session (30 jours). */
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -260,12 +262,9 @@ export function wallTimeToUtcMs(dateISO: string, hhmm: string, timeZone = "Europ
 	return guess;
 }
 
-/** Date du jour au format "yyyy-mm-dd" (fuseau du serveur). */
+/** Date du jour au format "yyyy-mm-dd" (fuseau métier Europe/Paris). */
 export function localTodayISO(now: Date = new Date()): string {
-	const y = now.getFullYear();
-	const m = String(now.getMonth() + 1).padStart(2, "0");
-	const d = String(now.getDate()).padStart(2, "0");
-	return `${y}-${m}-${d}`;
+	return dateISOInTimeZone(now.getTime(), "Europe/Paris");
 }
 
 /** Ajoute n jours à une date ISO (arithmétique UTC, insensible à l'heure d'été). */

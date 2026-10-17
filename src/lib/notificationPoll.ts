@@ -11,8 +11,8 @@
  *   (toute augmentation = nouvelle notification → badge + revalidation).
  *
  * Rythme :
- * - 5 s au PREMIER PLAN (app visible) — le badge est donc vif sans multiplier
- *   inutilement les requêtes ;
+ * - 30 s au PREMIER PLAN (app visible) — filet périodique espacé pour limiter
+ *   la consommation serveur (Netlify), la vivacité venant des checks immédiats ;
  * - IMMÉDIAT au retour de focus / visibilité / pageshow (bfcache iOS) ;
  * - ARRIÈRE-PLAN : aucune requête (le système gèle les timers et le check au
  *   réveil rattrape) ;
@@ -65,8 +65,11 @@ let lastClientCheckAt = 0;
 /** Derniers événements vus (anti-rejeu des deltas déjà traités). */
 let seenEventKeys = new Set<string>();
 
-/** Intervalle du filet périodique quand l'app est visible (premier plan). */
-const POLL_MS = 5_000;
+/** Intervalle du filet périodique quand l'app est visible (premier plan).
+ *  30 s (et non 5 s) : le polling est le premier poste de requêtes serveur —
+ *  la fraîcheur perçue vient des checks immédiats (focus / visibilité /
+ *  pageshow / après navigation), pas de ce filet. */
+const POLL_MS = 30_000;
 /** Garde anti-tempête : visibilitychange + focus + pageshow se chevauchent. */
 const MIN_INTERVAL_MS = 3_000;
 

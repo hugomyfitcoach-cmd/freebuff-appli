@@ -32,6 +32,8 @@
 		food,
 		mealDefs,
 		initialQtyGrams,
+		gramShortcuts = [50, 100, 150, 200],
+		subtitle = '',
 		initialMeal = 'dejeuner',
 		mode = 'add',
 		saving = false,
@@ -78,6 +80,8 @@
 		};
 		mealDefs: readonly MealDef[];
 		initialQtyGrams: number;
+		gramShortcuts?: readonly number[];
+		subtitle?: string;
 		initialMeal?: string;
 		/** add = ajout au journal · edit = entrée consommée · planned = item planifié (gris). */
 		mode?: 'add' | 'edit' | 'planned';
@@ -383,6 +387,7 @@
 					<p class="mt-0.5 text-[13px] leading-snug text-mist">
 						{#if hasBrand}<span class="font-semibold text-ink/80">{food.brand}</span> · {/if}{fmtQty(food.kcal100)} kcal pour 100 g{#if hasServing} · 1 portion = {fmtQty(servingQty)} g{/if}{#if repere && unitMode === 'repere'} · 1 {unitWord(1, repere)} ≈ {fmtQty(repere.grams)} {repere.unit}{/if}
 					</p>
+					{#if subtitle}<p class="mt-1 text-[12px] leading-snug text-mist">{subtitle}</p>{/if}
 					<div class="mt-2 flex flex-wrap items-center gap-1.5">
 					{#if source === 'ciqual'}
 						<span class="inline-flex items-center gap-1 rounded-full bg-brand-light px-2.5 py-1 text-[10px] font-bold text-brand">Référence Ciqual – ANSES</span>
@@ -533,7 +538,7 @@
 							{/each}
 						{/if}
 					{:else}
-						{#each [50, 100, 150, 200] as g (g)}
+						{#each gramShortcuts as g (g)}
 							<button
 								type="button"
 								class="rounded-full border-2 border-line px-3.5 py-2 text-xs font-semibold text-ink {gramsNum === g ? '!border-brand !text-brand' : ''}"

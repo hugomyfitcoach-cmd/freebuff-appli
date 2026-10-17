@@ -1,6 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
-import { getSessionUser } from "./helpers";
+import { dateISOInTimeZone, getSessionUser } from "./helpers";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 
@@ -98,11 +98,11 @@ export const myHistory = query({
       .withIndex("by_user", (q) => q.eq("userId", user._id))
       .order("desc")
       .collect();
-    // Bornes de la fenêtre WALL-CLOCK serveur : prises du jour incluses,
-    // rien de futuriste. Le filtre optionnel `dates` de l'écran (historique
-    // paginé) s'applique par-dessus la fenêtre 30 jours par sécurité.
-    const notFuture = (r: { date: string }) =>
-      r.date <= new Date().toISOString().slice(0, 10);
+    // Europe/Paris est la référence métier commune au Journal et à l'Hydratation.
+    // Le filtre optionnel `dates` de l'écran (historique paginé) s'applique
+    // en plus de la borne « pas de donnée future ».
+    const today = dateISOInTimeZone(Date.now(), "Europe/Paris");
+    const notFuture = (r: { date: string }) => r.date <= today;
     const filtered = (
       dates ? allRaw.filter((r) => dates.includes(r.date)) : allRaw
     ).filter(notFuture);

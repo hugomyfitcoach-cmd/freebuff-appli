@@ -435,6 +435,21 @@
 	const peseesDone = $derived(peseesCount >= 3);
 	const peseesLabel = $derived(dash ? `${peseesCount} / 3${peseesDone ? ' ✓' : ''}` : '');
 
+	/* ————— Tableau de bord indisponible (dash === null) —————
+	   JAMAIS de valeur à zéro affichée : la zone « Aujourd'hui » devient un
+	   état « Données momentanément indisponibles » avec un bouton « Réessayer »
+	   qui relance les loaders (invalidateAll) sans recharger la page entière. */
+	let dashRetrying = $state(false);
+	async function retryDash() {
+		if (dashRetrying) return;
+		dashRetrying = true;
+		try {
+			await invalidateAll();
+		} finally {
+			dashRetrying = false;
+		}
+	}
+
 	/* ————— Pas du jour (la carte ouvre la vue statistiques « Mes pas ») ————— */
 	/** Le dashboard serveur est calculé pour le jour serveur (`data.today`).
 	 *  Tant qu'il ne correspond pas à la date locale de la cliente (minuit,
@@ -1256,7 +1271,7 @@
 				<!-- Badges : insécables et adaptatifs — le second passe à la ligne plutôt que d'être tronqué -->
 				<div class="mt-1.5 flex flex-wrap items-center gap-1.5">
 					{#if weightDelta !== null}<span class="inline-flex max-w-full items-center whitespace-nowrap rounded-full bg-brand-light px-2.5 py-1 text-[12px] font-bold leading-none text-brand-deep">{weightDeltaLabel(weightDelta)}</span>{:else}<p class="min-w-0 text-xs text-mist">Ta progression ici</p>{/if}
-					{#if !autonomy}
+					{#if dash && !autonomy}
 
 							{#if peseesDone}
 								<span class="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-brand-light px-2 py-1 text-[11px] font-bold leading-none text-brand-dark">
@@ -1341,6 +1356,30 @@
 			</div>
 		{/if}
 	</section>
+{:else}
+	<!-- ═══════════ Tableau de bord indisponible : JAMAIS de zéro affiché ═══════════
+	     (dash === null : réseau dégradé / Convex injoignable) — état sobre dans
+	     le style de l'app + « Réessayer » qui relance le chargement. -->
+	<section aria-label="Aujourd'hui" class="m-in mt-5" style="--m-i: 4">
+		<div class="flex items-center justify-between px-1">
+			<h2 class="text-[11px] font-black uppercase tracking-widest text-mist">Aujourd'hui</h2>
+			<span class="text-[11px] text-mist">{todayLabel}</span>
+		</div>
+		<div class="mt-3 rounded-3xl border border-line bg-card p-5 shadow-sm">
+			<p class="font-display text-base font-semibold text-ink">Données momentanément indisponibles</p>
+			<p class="mt-1 text-sm leading-relaxed text-mist">
+				Impossible de charger tes données du jour pour le moment. Rien n'est perdu — réessaie dans un instant.
+			</p>
+			<button
+				type="button"
+				onclick={retryDash}
+				disabled={dashRetrying}
+				class="tap mt-4 inline-flex items-center gap-1.5 rounded-xl bg-brand px-5 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
+			>
+				<Icon name="rotateCcw" size={15} /> {dashRetrying ? 'Actualisation…' : 'Réessayer'}
+			</button>
+		</div>
+	</section>
 {/if}
 
 <!-- Feuille de saisie rapide du poids (carte Poids) -->
@@ -1375,7 +1414,7 @@
 			</p>
 			{#if weightDelta !== null}
 				<p class="mt-1.5 text-xs font-semibold {weightDelta <= 0.05 ? 'text-brand-dark' : 'text-mist'}">{weightDeltaLabel(weightDelta)} · dernière pesée {fmtShortDate(lastWeightDateShown)}</p>
-			{:else if !autonomy}
+			{:else if dash && !autonomy}
 				<p class="mt-1.5 text-xs text-mist">Pesées cette semaine : <strong class="font-bold text-ink">{peseesLabel}</strong></p>
 			{/if}
 		</div>

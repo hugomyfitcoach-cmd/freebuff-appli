@@ -67,7 +67,14 @@ export async function recordEvent(
 		| "rdv_replanifie"
 		| "onboarding_termine",
 	description: string,
-	opts?: { checkinId?: Id<"checkins">; appointmentId?: Id<"appointments">; weekStart?: string }
+	opts?: {
+		checkinId?: Id<"checkins">;
+		appointmentId?: Id<"appointments">;
+		weekStart?: string;
+		/** « nouveau_poids » : poids de la nouvelle pesée + pesée précédente (kg). */
+		poids?: string;
+		poidsPrecedent?: string;
+	}
 ): Promise<void> {
 	await ctx.db.insert("coachNotifications", {
 		userId,
@@ -77,6 +84,8 @@ export async function recordEvent(
 		...(opts?.checkinId ? { checkinId: opts.checkinId } : {}),
 		...(opts?.appointmentId ? { appointmentId: opts.appointmentId } : {}),
 		...(opts?.weekStart ? { weekStart: opts.weekStart } : {}),
+		...(opts?.poids ? { poids: opts.poids } : {}),
+		...(opts?.poidsPrecedent ? { poidsPrecedent: opts.poidsPrecedent } : {}),
 	});
 	// Signal temps réel : toute nouvelle notification fait avancer le compteur
 	// meta que le poller CRM relit toutes les 5 s (badge live sans refresh).
@@ -174,6 +183,10 @@ export const list = query({
 				read: r.read,
 				createdAt: r._creationTime,
 				weekStart: r.weekStart ?? null,
+				// Tendance « nouveau poids » : valeurs enregistrées à l'événement
+				// (pesée précédente = la pesée chronologiquement antérieure).
+				poids: r.poids ?? null,
+				poidsPrecedent: r.poidsPrecedent ?? null,
 			});
 		}
 		return out;

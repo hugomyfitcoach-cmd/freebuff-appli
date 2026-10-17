@@ -195,13 +195,17 @@
 	/* ── Bilans manquants DE LA SEMAINE SÉLECTIONNÉE ───────────────────
 	   Chaque onglet de semaine a son propre état : le compteur et la liste
 	   ne comptent que les bilans absents de CETTE semaine (calculés côté
-	   serveur, bilansBoard.missingByWeek). Un intervalle de 30 s revalide
+	   serveur, bilansBoard.missingByWeek). Un intervalle de 90 s revalide
 	   la page — la liste suit les soumissions en direct, sans recharger
-	   manuellement. ── */
+	   manuellement ; la revalidation saute l'arrière-plan (document.hidden)
+	   puisqu'elle ne serait de toute façon pas visible. ── */
 	let missingTimer: ReturnType<typeof setInterval> | null = null;
 
 	onMount(() => {
-		missingTimer = setInterval(() => void invalidateAll(), 30000);
+		missingTimer = setInterval(() => {
+			if (document.hidden) return; // arrière-plan : rien à afficher, on rattrape au retour via la navigation
+			void invalidateAll();
+		}, 90000);
 		return () => {
 			if (missingTimer) clearInterval(missingTimer);
 		};
@@ -338,7 +342,7 @@
 					{/each}
 				</div>
 			{/if}
-			<p class="mt-2 text-[10.5px] italic text-mist"><Icon name="refreshCw" size={10} class="inline" /> actualisé toutes les 30 s</p>
+			<p class="mt-2 text-[10.5px] italic text-mist"><Icon name="refreshCw" size={10} class="inline" /> actualisé toutes les 90 s</p>
 		</section>
 	</div>
 

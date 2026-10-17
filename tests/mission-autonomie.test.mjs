@@ -64,7 +64,9 @@ test('DASHBOARD CLIENTE : expose coachingMode + pushOptInAllowed (règle serveur
 
 test('FRONT CLIENTE : outils conservés — seuls les sollicitations pesées x/3 disparaissent', () => {
 	assert.ok(espacePage.includes("const autonomy = $derived((dash?.coachingMode ?? 'coaching') === 'autonomy');"), 'dérivé front avec fallback');
-	const gates = (espacePage.match(/\{#if !autonomy\}|\{:else if !autonomy\}/g) || []).length;
+	// Les 2 gates pesées sont aussi conditionnés à `dash` (jamais de « 0/3 »
+	// quand le dashboard est indisponible) — la condition autonomie reste.
+	const gates = (espacePage.match(/\{#if (?:dash && )?!autonomy\}|\{:else if (?:dash && )?!autonomy\}/g) || []).length;
 	assert.ok(gates === 3, `3 gates UI (badge pesées, ligne progression, recap) — trouvé ${gates}`);
 	assert.ok(espacePage.includes("coachingMode?: 'coaching' | 'autonomy';"), 'type Dashboard étendu');
 	assert.ok(espacePage.includes('pushOptInAllowed?: boolean;'), 'type pushOptInAllowed');
