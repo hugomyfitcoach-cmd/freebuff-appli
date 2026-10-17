@@ -6,6 +6,7 @@ import { FOOD_SEARCH_CANDIDATES, rankFoods } from "./foodRanking";
 import { applyKcalGuard, guardedKcal100, kcalNeedsRecalc } from "../lib/nutritionGuard";
 import { resolveCoachPlanForDate } from "./mealPlans";
 import { attachThumbs, attachThumbsForFoodIds } from "./foodImages";
+import { tagFoodImgUrl } from "../lib/foodImgTag";
 import { ciqualFoodSource } from "./ciqualSource";
 import { resolveCiqualLabel } from "./ciqual";
 import { foodFrequencyKey, rankFrequentFoods, type FreqEntry } from "../lib/foodFrequency";
@@ -344,7 +345,7 @@ async function toCustomHit(ctx: Pick<QueryCtx, "db" | "storage">, f: Doc<"custom
 		// PHOTO de la cliente (posée à la création de SA fiche, storage Convex,
 		// URL signée) — JAMAIS une image OFF : un aliment personnel sans photo
 		// n'en a pas (fallback G-FLUX habituel côté FoodImg).
-		photoUrl: f.photoStorageId ? ((await ctx.storage.getUrl(f.photoStorageId)) ?? undefined) : undefined,
+		photoUrl: f.photoStorageId ? (tagFoodImgUrl(await ctx.storage.getUrl(f.photoStorageId)) ?? undefined) : undefined,
 	};
 }
 
@@ -850,7 +851,8 @@ export const getDay = query({
 		const customPhotoByFoodId = new Map<string, string>();
 		for (const f of customRows) {
 			if (!f?.photoStorageId) continue;
-			const url = await ctx.storage.getUrl(f.photoStorageId);
+			// Vignette ALIMENTAIRE : URL marquée pour le cache du service worker.
+			const url = tagFoodImgUrl(await ctx.storage.getUrl(f.photoStorageId));
 			if (url) customPhotoByFoodId.set(f._id, url);
 		}
 		const withCustomPhoto = <T extends { customFoodId?: Id<"customFoods">; imageUrl?: string }>(rows: T[]): T[] =>
@@ -1121,7 +1123,7 @@ export const addEntry = mutation({
 			// PHOTO de l'aliment personnel : snapshot de l'URL signée dans
 			// l'entrée (même mécanique qu'imageUrl OFF) — le Journal affiche la
 			// photo comme pour n'importe quel aliment.
-			imageUrl = food.photoStorageId ? ((await ctx.storage.getUrl(food.photoStorageId)) ?? undefined) : undefined;
+			imageUrl = food.photoStorageId ? (tagFoodImgUrl(await ctx.storage.getUrl(food.photoStorageId)) ?? undefined) : undefined;
 			kcal100 = food.kcal100;
 			carbs100 = food.carbs100;
 			protein100 = food.protein100;
@@ -1358,7 +1360,7 @@ export const eatPlanned = mutation({
 		// validation — sans jamais la retirer d'une entrée qui l'avait déjà.
 		if (p.customFoodId && !p.imageUrl) {
 			const cf = await ctx.db.get(p.customFoodId);
-			const url = cf?.photoStorageId ? await ctx.storage.getUrl(cf.photoStorageId) : null;
+			const url = cf?.photoStorageId ? (tagFoodImgUrl(await ctx.storage.getUrl(cf.photoStorageId)) ?? null) : null;
 			if (url) await ctx.db.patch(entryId, { imageUrl: url });
 		}
 		await ctx.db.delete(plannedId);
@@ -1487,7 +1489,7 @@ export const replacePlanned = mutation({
 			name = food.name;
 			brand = food.brand;
 			// Photo de l'aliment personnel (cf. addEntry) : suit le snapshot.
-			imageUrl = food.photoStorageId ? ((await ctx.storage.getUrl(food.photoStorageId)) ?? undefined) : undefined;
+			imageUrl = food.photoStorageId ? (tagFoodImgUrl(await ctx.storage.getUrl(food.photoStorageId)) ?? undefined) : undefined;
 			kcal100 = food.kcal100;
 			carbs100 = food.carbs100;
 			protein100 = food.protein100;

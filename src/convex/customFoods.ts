@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { getSessionUser } from "./helpers";
 import { applyKcalGuard } from "../lib/nutritionGuard";
+import { tagFoodImgUrl } from "../lib/foodImgTag";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 
@@ -49,7 +50,8 @@ async function photoUrlsForOwner(
 	const out = new Map<string, string>();
 	for (const f of rows) {
 		if (!f?.photoStorageId) continue;
-		const url = await ctx.storage.getUrl(f.photoStorageId);
+		// Vignette ALIMENTAIRE : URL marquée pour le cache du service worker.
+		const url = tagFoodImgUrl(await ctx.storage.getUrl(f.photoStorageId));
 		if (url) out.set(f._id, url);
 	}
 	return out;
@@ -406,7 +408,7 @@ export const byBarcodeGlobal = query({
 				fat100: own.fat100,
 				servingQty: own.servingQty,
 				// Rescan d'un produit créé par la cliente : sa photo suit la fiche.
-				photoUrl: own.photoStorageId ? ((await ctx.storage.getUrl(own.photoStorageId)) ?? undefined) : undefined,
+				photoUrl: own.photoStorageId ? (tagFoodImgUrl(await ctx.storage.getUrl(own.photoStorageId)) ?? undefined) : undefined,
 			};
 		}
 		return null;

@@ -1,5 +1,6 @@
 /// <reference types="@sveltejs/kit" />
 import { build, files, version } from '$service-worker';
+import { isConvexStorageUrl, isFoodImgTagged } from './lib/foodImgTag';
 
 /**
  * Service worker G-Flux : notifications push Web + cache de l'application.
@@ -13,7 +14,10 @@ const CACHE = `gflux-${version}`;
 /** Cache dédié aux vignettes alimentaires — STABLE entre les builds : une
  *  image déjà vue reste servie instantanément après un déploiement. Contient
  *  les copies miroir G-FLUX (storage Convex) et les miniatures OFF utilisées
- *  en repli. SWR : lecture instantanée + rafraîchissement en arrière-plan. */
+ *  en repli. SWR : lecture instantanée + rafraîchissement en arrière-plan.
+ *  CONFIDENTIALITÉ : uniquement des vignettes ALIMENTAIRES — les photos de
+ *  progression et de profil (même forme d'URL /api/storage/) sont exclues
+ *  par le marqueur gflux-food (voir lib/foodImgTag.ts). */
 const IMG_CACHE = 'gflux-img-v1';
 /** Plafond d'entrées du cache d'images (les plus anciennes sont retirées). */
 const IMG_CACHE_MAX = 600;
@@ -46,15 +50,18 @@ const ASSETS = [...build, ...files];
 /** Hôtes d'images alimentaires (miniatures OFF utilisées en repli miroir). */
 const IMG_HOSTS = ['images.openfoodfacts.org', 'static.openfoodfacts.org', 'world.openfoodfacts.org'];
 const IMG_RE = /\.(png|jpe?g|webp|avif|gif)(\?.*)?$/i;
-/** Copie miroir G-FLUX : storage Convex (URL stable /api/storage/<id>). */
-const CONVEX_HOST_RE = /\.convex\.(cloud|site)$/i;
-
 function isFoodImage(url: URL): boolean {
 	return IMG_HOSTS.includes(url.hostname) && IMG_RE.test(url.pathname);
 }
 
+/**
+ * Copie miroir G-FLUX : storage Convex (URL stable /api/storage/<id>) —
+ * UNIQUEMENT si l'URL porte le marqueur « vignette alimentaire » (gflux-food).
+ * Les photos de progression et de profil ont exactement la même forme d'URL :
+ * sans marqueur, elles ne sont ni interceptées ni mises en cache.
+ */
 function isMirrorImage(url: URL): boolean {
-	return CONVEX_HOST_RE.test(url.hostname) && url.pathname.startsWith('/api/storage/');
+	return isConvexStorageUrl(url) && isFoodImgTagged(url);
 }
 
 /** Plafonne le cache d'images (supprime les entrées les plus anciennes). */
@@ -80,9 +87,27 @@ self.addEventListener('activate', (event) => {
 		caches
 			.keys()
 			.then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== IMG_CACHE).map((k) => caches.delete(k))))
+			.then(() => purgePrivateImages())
 			.then(() => self.clients.claim())
 	);
 });
+
+/**
+ * Purge de confidentialité à l'activation : les anciens builds mettaient TOUT
+ * le storage Convex en cache, y compris les photos de progression et de profil
+ * (même forme d'URL /api/storage/ que les vignettes alimentaires). Toute
+ * entrée de stockage NON marquée « alimentaire » est retirée ; les vignettes
+ * OFF et les vignettes marquées restent (SWR inchangé).
+ */
+async function purgePrivateImages(): Promise<void> {
+	const cache = await caches.open(IMG_CACHE);
+	for (const req of await cache.keys()) {
+		const url = new URL(req.url);
+		if (isConvexStorageUrl(url) && !isFoodImgTagged(url)) {
+			await cache.delete(req).catch(() => {});
+		}
+	}
+}
 
 /* ── Activation immédiate d'une nouvelle version ──
  * Le client (lib/swUpdate.ts : forceAppUpdate) envoie SKIP_WAITING au worker
@@ -133,6 +158,59 @@ self.addEventListener('notificationclick', (event) => {
 	);
 });
 
+/* ── Repli HTML hors-ligne : le build courant, sinon page d'erreur ── */
+
+/**
+ * L'HTML de repli correspond-il au build de CE service worker ?
+ * L'empreinte `app-build` (meta du root layout) vaut `version` ici — les deux
+ * sont le même hash de build SvelteKit (kit.version.name). Une page d'un
+ * autre build n'est JAMAIS servie depuis le cache.
+ */
+async function htmlMatchesBuild(res: Response): Promise<boolean> {
+	try {
+		const html = await res.text();
+		const m = html.match(/<meta\s+name="app-build"\s+content="([^"]*)"/);
+		return !!m && m[1] === version;
+	} catch {
+		return false;
+	}
+}
+
+/** Page d'erreur hors-ligne — jumelle de src/routes/+error.svelte : message
+ *  clair + « Réessayer » (jamais un écran blanc, jamais un shell périmé). */
+const ERROR_PAGE_HTML = `<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Oups — G-Flux</title>
+<style>
+	body { margin: 0; min-height: 100dvh; display: flex; align-items: center; justify-content: center; background: #ffffff; color: #0F1512; font-family: 'Lato', system-ui, sans-serif; }
+	.wrap { width: 100%; max-width: 28rem; padding: 1.5rem; text-align: center; display: flex; flex-direction: column; gap: 1rem; align-items: center; }
+	.brand { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #66716B; }
+	h1 { margin: 0; font-size: 22px; font-weight: 900; line-height: 1.2; letter-spacing: -0.02em; }
+	p { margin: 0; font-size: 14px; line-height: 1.6; color: #66716B; }
+	button { border: 0; border-radius: 9999px; background: #1DB954; color: #ffffff; padding: 0.75rem 1.75rem; font-size: 15px; font-weight: 700; cursor: pointer; }
+	button:active { transform: scale(0.97); }
+</style>
+</head>
+<body>
+	<div class="wrap">
+		<p class="brand">G-Flux</p>
+		<h1>Impossible de charger cette page</h1>
+		<p>Une erreur est survenue. Vérifie ta connexion puis réessaie.</p>
+		<button type="button" onclick="location.reload()">Réessayer</button>
+	</div>
+</body>
+</html>`;
+
+function appErrorResponse(): Response {
+	return new Response(ERROR_PAGE_HTML, {
+		status: 503,
+		headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
+	});
+}
+
 /* ── Vignettes alimentaires (miroir G-FLUX + repli OFF) : stale-while-
       revalidate — instantané depuis le cache puis mise à jour en arrière-
       plan ; ne casse jamais une nouvelle image, survit aux builds. ── */
@@ -176,11 +254,19 @@ self.addEventListener('fetch', (event) => {
 					}
 					return res;
 				})
-				// Réseau absent, lent ou bloqué : on sert la copie de repli
-				// (rafraîchie à chaque navigation réussie) — jamais de blanc
-				// durable ; '/' est le dernier filet (shell de l'app).
-				.catch(() => caches.match(event.request).then((r) => r || caches.match('/')))
-				.then((r) => r ?? Response.error())
+				// Réseau absent, lent ou bloqué : la copie de repli (rafraîchie à
+				// chaque navigation réussie ; '/' est le dernier filet) n'est servie
+				// QUE si son HTML correspond au build de CE worker — jamais un
+				// shell périmé. Sinon : page d'erreur propre avec « Réessayer ».
+				.catch(async () => {
+					try {
+						const cached = (await caches.match(event.request)) || (await caches.match('/'));
+						if (cached && (await htmlMatchesBuild(cached.clone()))) return cached;
+					} catch {
+						/* cache illisible : page d'erreur propre */
+					}
+					return appErrorResponse();
+				})
 		);
 		return;
 	}
