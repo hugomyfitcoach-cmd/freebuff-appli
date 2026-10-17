@@ -1,6 +1,7 @@
 import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { getSessionUser } from "./helpers";
+import { recordClientEvent } from "./notifications";
 import type { Doc } from "./_generated/dataModel";
 
 /**
@@ -218,6 +219,14 @@ export const updateResource = mutation({
 		// Geste « je partage » = transition privé → partagé (seul cas qui crée
 		// une nouvelle information chez la cliente).
 		const justShared = visibility === "shared" && row.visibility === "private";
+		const justUnshared = visibility === "private" && row.visibility === "shared";
+		// Mécanisme central de propagation : badge Drive ET Accueil sur le même
+		// signal — partage comme retrait (poller /api/live → onLiveEvent).
+		if (justShared) {
+			await recordClientEvent(ctx, row.userId, "resource_shared", row.title);
+		} else if (justUnshared) {
+			await recordClientEvent(ctx, row.userId, "resource_unshared", row.title);
+		}
 		// userId est retourné au BFF : c'est la destinataire du push d'alerte
 		// (envoyé APRÈS le commit réussi de la mutation — jamais avant).
 		return { ok: true, justShared, title: row.title, userId: row.userId };
@@ -245,8 +254,14 @@ export const deleteResource = mutation({
 		await requireCoach(ctx, sessionToken);
 		const row = await ctx.db.get(resourceId);
 		if (!row) return { ok: true };
+		const wasShared = row.visibility === "shared";
 		await deleteResourceStorage(ctx, row);
 		await ctx.db.delete(resourceId);
+		// Contenu partagé supprimé : le non-lu Drive et l'Accueil suivent sur le
+		// même signal (jamais de badge qui survit à la suppression).
+		if (wasShared) {
+			await recordClientEvent(ctx, row.userId, "resource_unshared", row.title);
+		}
 		return { ok: true };
 	},
 });

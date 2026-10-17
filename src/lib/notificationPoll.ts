@@ -73,6 +73,12 @@ const POLL_MS = 30_000;
 /** Garde anti-tempête : visibilitychange + focus + pageshow se chevauchent. */
 const MIN_INTERVAL_MS = 3_000;
 
+/**
+ * Dernier état des notifications liées à une heure (fenêtre du bilan, rappel
+ * 12 h) — exposées par /api/live. null tant que le premier fetch n'a pas abouti.
+ */
+let timedState: { bilanDue: boolean; reminder: boolean } | null = null;
+
 /** Derniers compteurs cliente connus (null tant que le premier fetch n'a pas abouti). */
 export function currentNotificationCounts(): NotificationCounts | null {
 	return clientCounts;
@@ -180,6 +186,19 @@ async function fetchOnce(): Promise<void> {
 				emitLiveEvent({ kind: String(ev.kind), label: ev.label ?? null, createdAt: Number(ev.createdAt) });
 			}
 			if (seenEventKeys.size > 200) seenEventKeys = new Set([...seenEventKeys].slice(-100));
+			/* Notifications liées à une heure (types 1 & 5) : état exposé par
+			   /api/live. À la transition false → true (et au premier état vrai,
+			   pour rattraper un Accueil préchargé périmé), un événement porteur
+			   rafraîchit la carte — badge et carte sur le même signal. */
+			const timed = { bilanDue: Boolean(j.bilanDue), reminder: Boolean(j.reminder) };
+			const prevTimed = timedState;
+			timedState = timed;
+			if (!prevTimed?.bilanDue && timed.bilanDue) {
+				emitLiveEvent({ kind: 'bilan_due', label: null, createdAt: Date.now() });
+			}
+			if (!prevTimed?.reminder && timed.reminder) {
+				emitLiveEvent({ kind: 'appointment_reminder', label: null, createdAt: Date.now() });
+			}
 		} else if (j.role === 'coach') {
 			const badge = Number(j.notifications ?? 0);
 			const version = j.journalVersion == null ? knownJournalVersion : Number(j.journalVersion);

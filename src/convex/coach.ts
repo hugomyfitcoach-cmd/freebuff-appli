@@ -18,7 +18,7 @@ import {
 } from "./helpers";
 import { DEFAULT_GOALS } from "./journal";
 import { bodyFatSeries, logHeightRow } from "./metrics";
-import { resolveInactivity } from "./notifications";
+import { recordClientEvent, resolveInactivity } from "./notifications";
 import { accessStateForUser } from "./billing";
 import { deleteAllForUser, setCheckinMediaVisibility } from "./media";
 import { deleteIntakeForUser } from "./onboarding";
@@ -322,6 +322,14 @@ export const setFeedback = mutation({
 		// Les fichiers du retour (audio + pièces jointes) suivent la visibilité :
 		// publiés avec le retour, remis en brouillon quand on retire la publication.
 		await setCheckinMediaVisibility(ctx, checkinId, status === "retour_envoye");
+		// Mécanisme central de propagation : le badge ET la carte « retour » de
+		// l'Accueil se mettent à jour sur le même signal — publication comme
+		// retrait (poller /api/live → onLiveEvent → Accueil rafraîchi).
+		if (status === "retour_envoye") {
+			await recordClientEvent(ctx, checkin.userId, "feedback_published", checkin.weekLabel);
+		} else if (checkin.status === "retour_envoye") {
+			await recordClientEvent(ctx, checkin.userId, "feedback_withdrawn", checkin.weekLabel);
+		}
 		return { ok: true, status };
 	},
 });

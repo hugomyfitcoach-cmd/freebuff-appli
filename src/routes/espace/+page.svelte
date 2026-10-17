@@ -73,7 +73,7 @@
 			startAtMs: number;
 			bookingSource: 'coach' | 'client' | null;
 		} | null;
-		badges: { bilans: number; retours?: number; message?: number; progression: number; reminder?: number };
+		badges: { bilans: number; retours?: number; message?: number; progression: number; reminder?: number; drive?: number };
 	};
 
 	import { beforeNavigate, goto, invalidateAll } from '$app/navigation';
@@ -281,7 +281,7 @@
 		// autres raccourcis est inchangé. Conditions et badges existants conservés.
 		...(autonomy ? [] : [{ href: '/espace/rendez-vous', label: 'Rendez-vous', icon: 'calendarCheck', badge: 0 }]),
 		{ href: '/recettes', label: 'Recettes', icon: 'chefHat', badge: 0 },
-		{ href: '/espace/ressources', label: 'Drive', icon: 'cloud', badge: 0 },
+		{ href: '/espace/ressources', label: 'Drive', icon: 'cloud', badge: dash?.badges.drive ?? 0 },
 		{ href: '/espace/historique', label: 'Bilans', icon: 'clipboardCheck', badge: dash?.badges.bilans ?? 0 },
 		{ href: '/espace/entrainement', label: 'Entraînement', icon: 'dumbbell', badge: 0 },
 		{ href: '/espace/messages', label: 'Messages', icon: 'messageCircle', badge: dash?.badges.message ?? 0 },
@@ -859,9 +859,23 @@
 		/* Mécanisme central de propagation : un événement porteur (ex. plan de
 		   repas assigné par le coach) revalide l'Accueil — les propositions du
 		   plan apparaissent sans aucune action de la cliente (polling /api/live). */
+		/* Types de notifications cliente rafraîchissant l'Accueil sur le même
+		   signal que le badge de la barre du bas : chaque événement dédié
+		   (recordClientEvent côté coach, transition horaire côté poller). */
+		const HOME_EVENT_KINDS = new Set([
+			'plan_assigned',
+			'coach_message',
+			'coach_message_removed',
+			'feedback_published',
+			'feedback_withdrawn',
+			'resource_shared',
+			'resource_unshared',
+			'bilan_due',
+			'appointment_reminder',
+		]);
 		const onLiveEvent = (e: Event) => {
 			const kind = (e as CustomEvent<{ kind?: string }>).detail?.kind;
-			if (kind === 'plan_assigned') void invalidateAll().catch(() => {});
+			if (kind && HOME_EVENT_KINDS.has(kind)) void invalidateAll().catch(() => {});
 		};
 		document.addEventListener('gflux:live-event', onLiveEvent);
 		const y = restoreScroll(ROUTE);

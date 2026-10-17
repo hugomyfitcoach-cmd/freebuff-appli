@@ -9,9 +9,10 @@ import { errMsg } from '$lib/errors.js';
  * Signal UNIFIÉ du mécanisme central de propagation (cliente ET coach).
  *
  * Un seul endpoint pour tout le système de notifications :
- * - cliente → compteurs { retours, message, drive, total } + delta
- *   d'événements { kind, label } depuis `since` (ex. plan assigné → les pages
- *   concernées sont revalidées automatiquement) ;
+ * - cliente → compteurs { retours, message, drive, total } + états liés à une
+ *   heure { bilanDue, reminder } (transition false → true → Accueil rafraîchi)
+ *   + delta d'événements { kind, label } depuis `since` (ex. plan assigné →
+ *   les pages concernées sont revalidées automatiquement) ;
  * - coach   → badge CRM { notifications } + version du journal
  *   (toute augmentation = nouvelle notification → badge + revalidation).
  *
@@ -43,6 +44,8 @@ export const GET: RequestHandler = async (event) => {
 					message: counts.message,
 					drive: counts.drive,
 					total: counts.total,
+					bilanDue: counts.bilanDue,
+					reminder: counts.reminder,
 					events,
 				},
 				{ headers: { 'cache-control': 'no-store' } }
