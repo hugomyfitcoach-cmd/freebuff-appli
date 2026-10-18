@@ -5,11 +5,13 @@
 	import Icon from './Icon.svelte';
 	import type { CoachMediaItem } from '../media.js';
 
-	let { checkin, clientName, clientId, media = [] } = $props<{
+	let { checkin, clientName, clientId, media = [], draftEnabled = false } = $props<{
 		checkin: Doc<'checkins'>;
 		clientName: string;
 		clientId: string;
 		media?: CoachMediaItem[];
+		/** Bouton « Préparer un brouillon » — masqué si AI_COACH_DRAFT_DISABLED. */
+		draftEnabled?: boolean;
 	}>();
 
 	const lines = $derived(answerLines(checkin));
@@ -40,6 +42,48 @@
 	const draft = $derived(!published && (checkin.feedback ?? '').trim().length > 0);
 
 	let copyFlash = $state(false);
+
+	/* ── Brouillon assisté (M1) — le texte reste dans le champ, modifiable. ──
+	   La génération est LECTURE SEULE côté serveur : seuls les boutons
+	   « Sauvegarder le brouillon » / « Publier le retour » écrivent le retour.
+	   En cas d'erreur, `feedback` n'est jamais touché : le texte déjà saisi
+	   reste intact. */
+	let feedback = $state(checkin.feedback ?? '');
+	let draftLoading = $state(false);
+	let draftGenerated = $state(false);
+	let draftError = $state('');
+
+	async function generateDraft() {
+		if (draftLoading) return;
+		// Un texte déjà présent (saisi ou brouillon précédent) ne disparaît pas
+		// sans accord explicite.
+		if (feedback.trim()) {
+			const replace = window.confirm(
+				'Remplacer le texte actuel par un brouillon ? Ton texte actuel sera remplacé dans le champ.'
+			);
+			if (!replace) return;
+		}
+		draftLoading = true;
+		draftError = '';
+		try {
+			const res = await fetch('/api/coach/draft', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ checkinId: checkin._id }),
+			});
+			const data = (await res.json().catch(() => ({}))) as { text?: unknown; error?: unknown };
+			if (!res.ok || typeof data.text !== 'string' || !data.text.trim()) {
+				throw new Error('draft-failed');
+			}
+			// Seul point qui remplace le texte — uniquement après un succès.
+			feedback = data.text.trim();
+			draftGenerated = true;
+		} catch {
+			draftError = "Le brouillon n'a pas pu être préparé. Ton texte actuel est conservé.";
+		} finally {
+			draftLoading = false;
+		}
+	}
 
 	async function copyRecap() {
 		try {
@@ -94,13 +138,35 @@
 		<input type="hidden" name="checkinId" value={checkin._id} />
 		<input type="hidden" name="clientId" value={clientId} />
 		<div class="mb-2 flex flex-wrap items-center justify-between gap-2">
-			<span class="text-sm font-semibold text-ink">Ton retour (visible par la cliente dans son historique)</span>
+			<div class="flex flex-wrap items-center gap-2">
+				<span class="text-sm font-semibold text-ink">Ton retour (visible par la cliente dans son historique)</span>
+				{#if draftGenerated}
+					<span class="inline-flex items-center gap-1 rounded-full bg-brand-light px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-brand-dark">
+						<Icon name="sparkles" size={11} /> Brouillon IA — à relire
+					</span>
+				{/if}
+			</div>
+			{#if draftEnabled}
+				<button
+					type="button"
+					onclick={generateDraft}
+					disabled={draftLoading}
+					class="inline-flex items-center gap-1.5 rounded-lg border-2 border-brand/40 bg-brand-light/60 px-3 py-1.5 text-xs font-bold text-brand-dark transition hover:border-brand disabled:cursor-wait disabled:opacity-60"
+				>
+					<Icon name="sparkles" size={13} />
+					{draftLoading ? 'Préparation…' : draftGenerated ? 'Régénérer' : 'Préparer un brouillon'}
+				</button>
+			{/if}
 		</div>
+		{#if draftError}
+			<p class="mb-2 rounded-lg border border-warn/40 bg-warn-light/60 px-3 py-1.5 text-xs font-semibold text-warn">{draftError}</p>
+		{/if}
 		<textarea
 			name="feedback"
+			bind:value={feedback}
 			placeholder="Rédige ici ton retour pour cette semaine — la cliente ne le verra qu'après publication…"
 			class="min-h-24 w-full rounded-xl border-2 border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/15"
-		>{checkin.feedback ?? ''}</textarea>
+		></textarea>
 		<!-- Retour audio + pièces jointes : en brouillon tant que le retour n'est pas publié -->
 		<div class="mt-3 rounded-xl border border-dashed border-line bg-white/40 p-3">
 			<p class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-mist"><Icon name="mic" size={12} /> Retour audio & <Icon name="paperclip" size={12} /> pièces jointes (optionnels)</p>

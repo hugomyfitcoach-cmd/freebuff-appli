@@ -122,3 +122,12 @@ M0–M2 rendent le brouillon utilisable ; M3 apporte le style ; M4–M5 sécuris
 - `src/convex/coachDraftPrompt.ts` : module pur, sources injectées, chiffres pré-formatés, longueur paramétrée, interdiction de calculer/inventer.
 - Fichiers provisoires : guide de style, `methode-gflux.md`, 3 retours fictifs.
 - Tests dorés : 3 bilans fictifs (progrès, stagnation, alerte fatigue) → prompts figés. Aucune interface, aucun appel IA, aucune écriture Convex.
+
+## 11. État M1 (livré)
+
+- `src/convex/ai/provider.ts` : fonction unique `generateText({ feature, system, prompt, maxTokens })`. Fournisseur et modèle par fonctionnalité via `AI_PROVIDER_COACH_DRAFT` / `AI_MODEL_COACH_DRAFT`. Seul `fake` est implémenté : texte déterministe (prénom, semaine), court délai simulé, coût 0, aucune requête réseau. `openai` et `anthropic` refusent explicitement tant que M2/M4 ne les implémentent pas (jamais de repli silencieux sur `fake`).
+- `src/convex/coachDraft.ts` : action `generate` (session coach re-vérifiée, `loadContext` → `buildCoachDraftPrompt` → `generateText`, retourne le texte seul) et query `status` (kill switch pour l'interface). Aucune écriture, aucun événement, push ni badge ; `coach.setFeedback` reste la seule écriture du retour.
+- `src/routes/api/coach/draft/+server.ts` : route BFF `POST /api/coach/draft`, `requireRole coach`, timeout 40 s, erreurs sobres et génériques, refus si le kill switch est actif.
+- `BilanCard.svelte` : bouton « Préparer un brouillon » (confirmation si le champ contient déjà du texte), « Préparation… » pendant l'appel, injection modifiable avec badge « Brouillon IA — à relire », « Régénérer », texte conservé en cas d'erreur. Les boutons de sauvegarde/publication existants restent les seuls à écrire.
+- Arrêt d'urgence : `AI_COACH_DRAFT_DISABLED` (1/true/yes/on) lu côté Convex — le bouton disparaît et la route refuse l'appel, sans redéploiement.
+- Le fichier d'exemples sélectionnés par Hugo rejoint le prompt en M3 ; M1 utilise l'historique de la même cliente déjà fourni par `loadContext`.

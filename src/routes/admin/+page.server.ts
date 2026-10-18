@@ -90,6 +90,12 @@ import { api } from '../../convex/_generated/api.js';	import { SESSION_COOKIE, r
 		.catch(() => null);
 	// État de connexion Google Calendar du coach (email + scopes — jamais de token).
 	const google = await convex.query(api.googleCalendar.status, { sessionToken: token }).catch(() => null);
+	// BROUILLON ASSISTÉ (M1) — état du kill switch AI_COACH_DRAFT_DISABLED, lu
+	// côté Convex (source unique, même valeur que l'action). Non bloquant :
+	// backend ancien ou erreur réseau → bouton masqué, jamais d'erreur de page.
+	const coachDraftStatus = await convex
+		.query(api.coachDraft.status, { sessionToken: token })
+		.catch(() => null);
 	const googleBanner =
 		event.url.searchParams.get('google') === 'ok'
 			? 'google-ok'
@@ -112,6 +118,7 @@ import { api } from '../../convex/_generated/api.js';	import { SESSION_COOKIE, r
 		globalMessage,
 		google,
 		googleBanner,
+		coachDraftEnabled: coachDraftStatus?.enabled === true,
 		form: null as null | { action: string; error?: string; ok?: string },
 	};
 };

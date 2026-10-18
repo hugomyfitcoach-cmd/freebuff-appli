@@ -153,15 +153,22 @@ test('redactFeedback retire e-mail, téléphone et nom de famille, même accentu
 /* ═══════════════ 4) CÂBLAGE DU CONTEXTE (static analysis) ═══════════════ */
 
 const contextSource = readFileSync(join(root, 'src/convex/coachDraft.ts'), 'utf8');
+// Depuis M1, le même module porte l'action de génération : les garanties de
+// LECTURE SEULE et d'absence d'appel IA sont vérifiées sur le bloc
+// `loadContext` uniquement (le bloc M1 est couvert par mission-coach-draft-m1).
+const loadContextSource = contextSource.slice(
+	contextSource.indexOf('export const loadContext = internalQuery'),
+	contextSource.indexOf('/* ═══════════════════════════ M1')
+);
 
 test('coachDraft.loadContext est une query INTERNE, réservée au coach, en lecture seule', () => {
 	assert.ok(contextSource.includes('internalQuery({'), 'query interne');
 	assert.ok(contextSource.includes('user.role !== "coach"'), 'garde coach');
 	assert.ok(contextSource.includes('Accès réservé au coach'));
-	assert.ok(!contextSource.includes('.insert('), 'aucune écriture');
-	assert.ok(!contextSource.includes('.patch('), 'aucune écriture');
-	assert.ok(!contextSource.includes('.delete('), 'aucune écriture');
-	assert.ok(!contextSource.includes('generateText'), 'aucun appel IA');
+	assert.ok(!loadContextSource.includes('.insert('), 'aucune écriture');
+	assert.ok(!loadContextSource.includes('.patch('), 'aucune écriture');
+	assert.ok(!loadContextSource.includes('.delete('), 'aucune écriture');
+	assert.ok(!loadContextSource.includes('generateText'), 'aucun appel IA');
 });
 
 test('coachDraft.loadContext réutilise les fonctions pures de vision360', () => {

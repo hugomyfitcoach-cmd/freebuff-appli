@@ -3907,11 +3907,11 @@
 
 						<!-- Historique semaine par semaine (bilan + réponses + retour coach) -->
 						{#each checkins as checkin (checkin._id)}
-							<BilanCard checkin={checkin} clientName={fullName(selected.user)} clientId={selected.user._id} media={mediaFor(checkin._id)} />
+							<BilanCard checkin={checkin} clientName={fullName(selected.user)} clientId={selected.user._id} media={mediaFor(checkin._id)} draftEnabled={data.coachDraftEnabled} />
 						{/each}
 					{:else}
 						{#each checkins as checkin (checkin._id)}
-							<BilanCard checkin={checkin} clientName={fullName(selected.user)} clientId={selected.user._id} media={mediaFor(checkin._id)} />
+							<BilanCard checkin={checkin} clientName={fullName(selected.user)} clientId={selected.user._id} media={mediaFor(checkin._id)} draftEnabled={data.coachDraftEnabled} />
 						{/each}
 					{/if}
 				</div>				{:else if section === 'rdv'}

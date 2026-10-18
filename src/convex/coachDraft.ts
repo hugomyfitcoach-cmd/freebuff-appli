@@ -15,11 +15,21 @@
  * Accès : session coach obligatoire (vérifiée ici, pas seulement dans l'UI).
  * `internalQuery` n'est de toute façon pas exposée au navigateur ; la garde
  * reste nécessaire pour une future action/appel serveur.
+ *
+ * M1 ajoute `generate` (action publique réservée au coach) et `status`
+ * (query coach : état du kill switch pour l'interface). La génération
+ * n'écrit RIEN : elle lit le contexte, construit le prompt, appelle le
+ * fournisseur générique et renvoie le texte seul. Aucun événement cliente,
+ * aucun push, aucun badge — seuls `coach.setFeedback` écrivent un retour.
  */
-import { internalQuery } from "./_generated/server";
+import { action, internalQuery, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
+import { api, internal } from "./_generated/api";
+import { generateText, isAiFeatureDisabled } from "./ai/provider";
+import { COACH_DRAFT_STYLE_GUIDE } from "../lib/data/coachDraftStyleGuide";
+import { COACH_DRAFT_METHOD_REFERENCE } from "../lib/data/methodeGflux";
 import { addDaysISO, getSessionUser, localTodayISO } from "./helpers";
 import { DEFAULT_GOALS } from "./journal";
 import { kcalGoalForDate, withCurrentGoal, type GoalHistoryRow } from "../lib/goalHistory";
@@ -33,10 +43,22 @@ import {
 	weightVision,
 	type SportDayInput,
 } from "../lib/vision360";
-import type { CoachDraftContext, CoachDraftWeekStats } from "./coachDraftPrompt";
+import {
+	buildCoachDraftPrompt,
+	type CoachDraftContext,
+	type CoachDraftWeekStats,
+} from "./coachDraftPrompt";
 
 type CheckinRow = Doc<"checkins">;
 type UserRow = Doc<"users">;
+
+/**
+ * Consigne système du brouillon : rôle et cadre, indépendants des données.
+ * Le prompt (faits + consignes de rédaction) reste construit par le module
+ * pur `coachDraftPrompt`.
+ */
+const COACH_DRAFT_SYSTEM =
+	"Tu es Hugo, coach G-FLUX. Tu rédiges des retours de bilan hebdomadaires en français, au tutoiement, avec un ton chaleureux, direct et concret. Tu ne poses aucun diagnostic médical ou hormonal et tu ne promets aucun résultat.";
 
 async function requireCoach(
 	ctx: Pick<QueryCtx, "db">,
@@ -311,5 +333,93 @@ export const loadContext = internalQuery({
 			},
 			examples,
 		};
+	},
+});
+
+/* ═══════════════════════════ M1 — PLOMBERIE ═══════════════════════════ */
+
+/**
+ * ÉTAT du brouillon assisté pour l'interface coach : uniquement le kill
+ * switch. Une query (et non une variable côté client) pour que le bouton
+ * disparaisse dès que `AI_COACH_DRAFT_DISABLED` est actif, sans redéploiement
+ * du frontend. Réservée au coach, comme le reste du couloir.
+ */
+export const status = query({
+	args: { sessionToken: v.optional(v.string()) },
+	handler: async (ctx, { sessionToken }): Promise<{ enabled: boolean }> => {
+		await requireCoach(ctx, sessionToken);
+		return { enabled: !isAiFeatureDisabled("coach_draft") };
+	},
+});
+
+/**
+ * ACTION coachDraft.generate — réservée au coach, LECTURE SEULE.
+ *
+ * Chaîne : garde de session → `loadContext` (qui re-vérifie le coach, lit le
+ * bilan et calcule les faits) → `buildCoachDraftPrompt` (module pur) →
+ * `generateText` (fournisseur réglé par `AI_PROVIDER_COACH_DRAFT` /
+ * `AI_MODEL_COACH_DRAFT`, ici `fake`).
+ *
+ * Retourne le TEXTE SEUL. Aucune écriture (`checkins` intact), aucun
+ * événement, push ou badge côté cliente : ces effets n'existent que dans
+ * `coach.setFeedback`, appelé plus tard par les boutons existants du CRM.
+ */
+export const generate = action({
+	args: {
+		sessionToken: v.optional(v.string()),
+		checkinId: v.id("checkins"),
+	},
+	handler: async (ctx, { sessionToken, checkinId }): Promise<string> => {
+		// Arrêt d'urgence — vérifié DANS l'action (défense en profondeur : la
+		// route BFF le vérifie aussi, un appel direct ne doit rien produire).
+		if (isAiFeatureDisabled("coach_draft")) {
+			throw new ConvexError("La préparation de brouillon est momentanément désactivée.");
+		}
+
+		// Garde explicite dans l'action : ni la route ni l'interface ne sont un
+		// périmètre de confiance.
+		const session = (await ctx.runQuery(api.journal.checkSession, { sessionToken })) as {
+			_id: string;
+			role: "coach" | "client";
+		} | null;
+		if (!session) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
+		if (session.role !== "coach") throw new ConvexError("Accès réservé au coach.");
+
+		// loadContext vérifie de nouveau le coach et renvoie un contexte sans
+		// identifiant, e-mail ni nom de famille (prénom seul).
+		const context = (await ctx.runQuery(internal.coachDraft.loadContext, {
+			sessionToken,
+			checkinId,
+		})) as CoachDraftContext;
+
+		// Longueur : paramètre explicite, jamais codée en dur dans le prompt.
+		const rawTargetWords = Number(process.env.COACH_DRAFT_TARGET_WORDS ?? "");
+		const targetWords = Number.isFinite(rawTargetWords) && rawTargetWords > 0 ? rawTargetWords : undefined;
+
+		const prompt = buildCoachDraftPrompt({
+			context,
+			styleGuide: COACH_DRAFT_STYLE_GUIDE,
+			methodReference: COACH_DRAFT_METHOD_REFERENCE,
+			// Historique de la MÊME cliente, déjà nettoyé par loadContext. Le
+			// fichier d'exemples sélectionnés par Hugo rejoint le prompt en M3
+			// (mission « style et historique »), sans changer ce module.
+			examples: context.examples,
+			targetWords,
+		});
+
+		const { text } = await generateText({
+			feature: "coach_draft",
+			system: COACH_DRAFT_SYSTEM,
+			prompt,
+			maxTokens: 400,
+			// Repères factuels du fournisseur fictif (M1 uniquement). Un vrai
+			// fournisseur ne reçoit que le prompt.
+			fakeFacts: { prenom: context.prenom, weekLabel: context.weekLabel },
+		});
+
+		// Texte brut, prêt à être relu/modifié dans le textarea. Rien n'est
+		// persisté : sans clic sur « Sauvegarder » ou « Publier », il n'existe
+		// que dans le navigateur de Hugo.
+		return text;
 	},
 });
