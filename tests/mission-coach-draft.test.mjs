@@ -25,6 +25,7 @@ import {
 } from '../src/convex/coachDraftPrompt.ts';
 import { COACH_DRAFT_STYLE_GUIDE } from '../src/lib/data/coachDraftStyleGuide.ts';
 import { COACH_DRAFT_METHOD_REFERENCE } from '../src/lib/data/methodeGflux.ts';
+import { redactFeedback } from '../src/convex/coachDraft.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const fixturesDir = join(root, 'tests/fixtures/coach-draft');
@@ -140,7 +141,16 @@ test('Le paramètre de longueur est utilisé et borné', () => {
 	assert.ok(prompt.includes('environ 180 mots'), 'la longueur cible vient du paramètre');
 });
 
-/* ═══════════════ 3) CÂBLAGE DU CONTEXTE (static analysis) ═══════════════ */
+/* ═══════════════ 3) ANONYMISATION DES TEXTES ═══════════════ */
+
+test('redactFeedback retire e-mail, téléphone et nom de famille, même accentué', () => {
+	const user = { email: 'lea@example.test', nom: 'Élise' };
+	const out = redactFeedback('Léa Élise — lea@example.test — 06 12 34 56 78', user);
+	assert.equal(out, 'Léa [nom] — [e-mail] — [téléphone]');
+	assert.ok(out.includes('Léa'), 'le prénom seul reste autorisé');
+});
+
+/* ═══════════════ 4) CÂBLAGE DU CONTEXTE (static analysis) ═══════════════ */
 
 const contextSource = readFileSync(join(root, 'src/convex/coachDraft.ts'), 'utf8');
 

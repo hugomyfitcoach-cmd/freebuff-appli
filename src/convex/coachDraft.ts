@@ -57,7 +57,7 @@ function escapeRegExp(value: string): string {
  * téléphones, nom de famille et e-mail de la cliente concernée. Le prénom
  * reste autorisé (seule identité transmise).
  */
-function redactFeedback(text: string, user: UserRow): string {
+export function redactFeedback(text: string, user: Pick<UserRow, "email" | "nom">): string {
 	let out = text
 		.replace(/[^\s@]+@[^\s@]+\.[^\s@]+/gi, "[e-mail]")
 		.replace(/\b(?:\+?\d[\s.-]?){9,14}\d\b/g, "[téléphone]");
@@ -66,8 +66,9 @@ function redactFeedback(text: string, user: UserRow): string {
 	}
 	if (typeof user.nom === "string" && user.nom.trim().length > 0) {
 		// Nom de famille TOUJOURS retiré, même court : la seule identité qui
-		// reste dans le contexte est le prénom.
-		out = out.replace(new RegExp(`\\b${escapeRegExp(user.nom.trim())}\\b`, "gi"), "[nom]");
+		// reste dans le contexte est le prénom. Pas de `\b` (ASCII) : un nom
+		// accentué (« Élise ») ne serait pas reconnu comme un mot.
+		out = out.replace(new RegExp(escapeRegExp(user.nom.trim()), "gi"), "[nom]");
 	}
 	return out.trim();
 }
