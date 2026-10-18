@@ -172,47 +172,69 @@ test('Repère doré : 60 kg, 3 séances G-FLUX d’1 h → 594 kcal (3,3 kcal/kg
 	assert.equal(cal.sportSemaineKcal(seances), 594);
 });
 
-test('Repère doré : 60 kg, MG 26 %, 1 400 kcal → P 108 g · L 46,7 g · G 137 g (aucun signal)', () => {
+test('Repère doré : 60 kg, MG 26 %, 1 400 kcal → P 102 g · L 46,7 g · G 143 g (aucun signal)', () => {
 	const macros = cal.macrosJour({ kcal: 1400, poidsKg: 60, mgPct: 26 });
-	assert.equal(macros.proteinesG, 108); // 1,8 × 60
+	/* MM = 60 × (1 − 0,26) = 44,4 kg → 2,3 × 44,4 = 102,12 → 102 g */
+	assert.equal(macros.proteinesG, 102);
 	assert.equal(macros.lipidesG, 46.7); // 30 % de 1 400 = 420 kcal → /9 = 46,67
-	assert.equal(macros.glucidesG, 137); // (1 400 − 432 − 420,3)/4 = 136,9 → 137
+	assert.equal(macros.glucidesG, 143); // (1 400 − 408 − 420,3)/4 = 142,9 → 143
 	assert.equal(macros.glucidesSousSeuil, false);
 	assert.equal(macros.alerteGlucides, null);
-	assert.equal(macros.poidsReferenceKg, 60, 'MG 26 % ≤ 35 % : le poids courant sert de référence');
-	assert.equal(macros.poidsObjectifDeduit, false);
+	assert.equal(macros.masseMaigreKg, 44.4, 'les protéines sont indexées sur la masse maigre');
+	assert.equal(macros.proteinesParKgMasseMaigre, 2.3);
 });
 
 test('Repère doré : même profil à 1 100 kcal → signal glucides < 100 g', () => {
 	const macros = cal.macrosJour({ kcal: 1100, poidsKg: 60, mgPct: 26 });
-	assert.equal(macros.proteinesG, 108);
+	assert.equal(macros.proteinesG, 102);
 	assert.equal(macros.lipidesG, 36.7); // 30 % de 1 100 = 330 kcal → /9 = 36,67
-	assert.equal(macros.glucidesG, 84); // (1 100 − 432 − 330,3)/4 = 84,4 → 84
+	assert.equal(macros.glucidesG, 90); // (1 100 − 408 − 330,3)/4 = 90,4 → 90
 	assert.equal(macros.glucidesSousSeuil, true);
-	assert.ok(macros.alerteGlucides?.includes('84'), 'le signal cite les glucides estimés');
+	assert.ok(macros.alerteGlucides?.includes('90'), 'le signal cite les glucides estimés');
 });
 
-test('Macros : plancher de lipides 0,6 g/kg et glucides jamais négatifs', () => {
-	/* 80 kg : le plancher 0,6 × 80 = 48 g prime sur 30 % de 900 kcal (30 g) */
+test('Macros : plancher de lipides 0,6 g/kg de POIDS et glucides jamais négatifs', () => {
+	/* 80 kg MG 26 % → MM 59,2 kg → P = 2,3 × 59,2 = 136,16 → 136 g ;
+	   plancher lipides 0,6 × 80 = 48 g prime sur 30 % de 900 kcal (30 g). */
 	const macros = cal.macrosJour({ kcal: 900, poidsKg: 80, mgPct: 26 });
-	assert.equal(macros.proteinesG, 144); // 1,8 × 80
+	assert.equal(macros.proteinesG, 136);
 	assert.equal(macros.lipidesG, 48); // plancher, pas 30 %
 	assert.equal(macros.glucidesG, 0, 'reste négatif → 0 g, jamais affiché négatif');
 	assert.equal(macros.glucidesSousSeuil, true);
 });
 
-test('Macros : MG > 35 % → référence sur le poids objectif (fourni ou déduit)', () => {
-	/* Poids objectif fourni : 1,8 × 70 = 126 g, plancher lipides 0,6 × 70 = 42 g */
-	const fourni = cal.macrosJour({ kcal: 1900, poidsKg: 100, mgPct: 40, poidsObjectifKg: 70 });
-	assert.equal(fourni.proteinesG, 126);
-	assert.equal(fourni.poidsReferenceKg, 70);
-	assert.equal(fourni.poidsObjectifDeduit, false);
-	assert.equal(fourni.lipidesG, 63.3); // 30 % de 1 900 = 570 kcal → 63,33
-	/* Poids objectif déduit : MM 60 kg ramenée à 35 % de MG → 60/0,65 = 92,31 kg */
-	const deduit = cal.macrosJour({ kcal: 1900, poidsKg: 100, mgPct: 40 });
-	assert.equal(deduit.poidsReferenceKg, 92.31);
-	assert.equal(deduit.poidsObjectifDeduit, true);
-	assert.equal(deduit.proteinesG, 166); // 1,8 × 92,3077 = 166,15
+test('Macros : aucune exception « poids objectif » — MG 40 % reste indexée sur la masse maigre', () => {
+	/* 100 kg MG 40 % → MM 60 kg → 2,3 × 60 = 138 g (et non 1,8 × un poids cible). */
+	const macros = cal.macrosJour({ kcal: 1900, poidsKg: 100, mgPct: 40 });
+	assert.equal(macros.masseMaigreKg, 60);
+	assert.equal(macros.proteinesG, 138);
+	assert.equal(macros.lipidesG, 63.3); // 30 % de 1 900 = 570 kcal → 63,33
+	assert.equal(macros.proteinesParKgMasseMaigre, 2.3);
+	assert.equal('poidsObjectifDeduit' in macros, false, 'plus de bascule « poids objectif »');
+});
+
+test('Macros : ratio protéines réglable de 2 à 2,6 g/kg de masse maigre (bornes refusées)', () => {
+	/* MM 44,4 kg → 2 × 44,4 = 88,8 → 89 g · 2,6 × 44,4 = 115,44 → 115 g */
+	assert.equal(cal.macrosJour({ kcal: 1400, poidsKg: 60, mgPct: 26, proteinesParKgMasseMaigre: 2 }).proteinesG, 89);
+	const haut = cal.macrosJour({ kcal: 1400, poidsKg: 60, mgPct: 26, proteinesParKgMasseMaigre: 2.6 });
+	assert.equal(haut.proteinesG, 115);
+	assert.equal(haut.proteinesParKgMasseMaigre, 2.6);
+	refuse(
+		() => cal.macrosJour({ kcal: 1400, poidsKg: 60, mgPct: 26, proteinesParKgMasseMaigre: 1.9 }),
+		'ratio < 2'
+	);
+	refuse(
+		() => cal.macrosJour({ kcal: 1400, poidsKg: 60, mgPct: 26, proteinesParKgMasseMaigre: 2.7 }),
+		'ratio > 2,6'
+	);
+});
+
+test('Macros : mêmes protéines pour un homme et une femme de même masse maigre', () => {
+	/* 70 kg MG 20 % (MM 56) et 55 kg MG 9,09 % (MM 50) : la règle n'a pas de genre. */
+	const homme = cal.macrosJour({ kcal: 2200, poidsKg: 70, mgPct: 20 });
+	const femme = cal.macrosJour({ kcal: 2200, poidsKg: 55, mgPct: 9.09 });
+	assert.equal(homme.proteinesG, Math.round(2.3 * 56));
+	assert.equal(femme.proteinesG, Math.round(2.3 * 55 * (1 - 0.0909)));
 });
 
 /* ── 6 · Objectif de la semaine : déficit, avertissement, perte estimée ── */

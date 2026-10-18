@@ -56,6 +56,7 @@ export const POST: RequestHandler = async (event) => {
 			});
 			return json({ ok: true, _id: res._id });
 		}
+		const bpmMoyen = Number(body.bpmMoyen);
 		const res = await convex.mutation(api.sport.addActivity, {
 			sessionToken: token,
 			date: String(body.date),
@@ -63,6 +64,7 @@ export const POST: RequestHandler = async (event) => {
 			...(body.intensity !== undefined && body.intensity !== null
 				? { intensity: String(body.intensity) }
 				: {}),
+			...(Number.isFinite(bpmMoyen) && bpmMoyen > 0 ? { bpmMoyen } : {}),
 			durationMinutes: Number(body.durationMinutes),
 		} as never);
 		return json({ ok: true, _id: res._id });
@@ -82,6 +84,9 @@ export const PATCH: RequestHandler = async (event) => {
 			...(body.date ? { date: String(body.date) } : {}),
 			...(body.activityId ? { activityRef: String(body.activityId) } : {}),
 			...(body.intensity !== undefined ? { intensity: body.intensity ? String(body.intensity) : undefined } : {}),
+			...(body.bpmMoyen !== undefined && Number(body.bpmMoyen) > 0
+				? { bpmMoyen: Number(body.bpmMoyen) }
+				: {}),
 			...(body.durationMinutes !== undefined ? { durationMinutes: Number(body.durationMinutes) } : {}),
 		} as never);
 		return json({ ok: true });

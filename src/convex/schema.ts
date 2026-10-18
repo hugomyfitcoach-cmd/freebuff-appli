@@ -1437,11 +1437,16 @@ export default defineSchema({
 		/** Durée en minutes (clamp 1–600). */
 		durationMinutes: v.number(),
 		/** Choix de la saisie : zone cardio ("sous-130"…"plus-180"), intensité de
-		 *  musculation ("recreative"|"intensive"), "gflux", ou "legere"|"moderee"|
-		 *  "intense" pour les lignes v1. */
+		 *  musculation ("recreative"|"intensive"), intensité douce ("legere"|
+		 *  "moderee"|"elevee"), "gflux", ou "legere"|"moderee"|"intense" pour
+		 *  les lignes v1. */
 		intensity: v.optional(v.string()),
 		/** MET utilisé pour l'estimation (snapshot — jamais recalculé). */
 		metValue: v.number(),
+		/** FC moyenne RÉELLEMENT mesurée à la saisie (optionnelle) — snapshot.
+		 *  Quand elle existe, elle a choisi la zone cardio de la ligne, quelle que
+		 *  soit l'activité. */
+		bpmMoyen: v.optional(v.number()),
 		/** Coût horaire du barème G-FLUX kcal/kg/heure (v2) — absent des lignes v1. */
 		coutHoraireKcalKgH: v.optional(v.number()),
 		/** "gflux_table" | "compendium" — source du coefficient (traçabilité). */

@@ -84,6 +84,7 @@ const BORNES = {
 	supplement: { min: 0, max: 5, label: '0 à 5 de coefficient' },
 	masseMaigre: { min: 5, max: 300, label: '5 à 300 kg' },
 	bpm: { min: 30, max: 240, label: '30 à 240 BPM' },
+	proteinesMasseMaigre: { min: 2, max: 2.6, label: '2 à 2,6 g/kg de masse maigre' },
 	coutHoraire: { min: 1, max: 15, label: '1 à 15 kcal/kg/heure' },
 	budgetSemaine: { min: 0, max: 140_000, label: '0 à 140 000 kcal' },
 	deficitPct: { min: 0, max: 20, label: '0 à 20 % (0 = maintenance)' }
@@ -513,12 +514,17 @@ export function profilCalibrage(entree: EntreeProfil): ProfilCalibrage {
 /**
  * Coûts horaires fixes du barème G-FLUX (kcal par kg et par heure) :
  * musculation récréative 2,2 · musculation intensive 4,4 · séance du programme
- * G-FLUX 3,3. Le cardio dépend de la fréquence cardiaque : voir `BANDES_CARDIO`.
+ * G-FLUX 3,3 · activité douce 2,2 (légère/modérée) et 3,3 (élevée). Le cardio
+ * dépend de la fréquence cardiaque : voir `BANDES_CARDIO`.
  */
 export const COUT_SPORT = {
 	musculationRecreative: 2.2,
 	musculationIntensive: 4.4,
 	seanceGflux: 3.3,
+	/** Activité douce (yoga, Pilates, aquagym, étirements, mobilité). */
+	activiteDouce: 2.2,
+	/** Activité douce menée à intensité élevée. */
+	activiteDouceElevee: 3.3,
 	/** Plafond cardio, appliqué au-delà de 180 BPM. */
 	cardioPlafond: 8.8
 } as const;
@@ -567,6 +573,14 @@ export function zoneCardioParId(id: string): BandeCardio {
 /** Intensités de la musculation saisie à la main (récréative / intensive). */
 export const INTENSITES_MUSCULATION = ['recreative', 'intensive'] as const;
 
+/**
+ * Intensités des activités DOUCES (yoga, Pilates, aquagym, étirements,
+ * mobilité) : légère et modérée valent 2,2 kcal/kg/h, élevée 3,3. Ces
+ * activités ne passent PAS par les zones cardio.
+ */
+export const INTENSITES_DOUCES = ['legere', 'moderee', 'elevee'] as const;
+export type IntensiteDouce = (typeof INTENSITES_DOUCES)[number];
+
 /** Bande cardio d'une fréquence cardiaque (bornes vérifiées par l'appelant). */
 export function bandeCardio(bpm: number): BandeCardio {
 	const frequence = verifier(bpm, 'Fréquence cardiaque', BORNES.bpm);
@@ -579,23 +593,51 @@ export function bandeCardio(bpm: number): BandeCardio {
 
 /**
  * Une séance du barème : musculation (récréative par défaut), séance du
- * programme G-FLUX, ou cardio décrit par sa fréquence cardiaque. Pour le
- * cardio, `coefficientKcalKgH` permet de préciser le coût DANS la bande
- * (ex. 4,3 pour un cardio sous 130 BPM) ; hors bande, le refus est explicite.
+ * programme G-FLUX, activité douce, ou cardio décrit par sa fréquence
+ * cardiaque. Pour le cardio, `coefficientKcalKgH` permet de préciser le coût
+ * DANS la bande (ex. 4,3 pour un cardio sous 130 BPM) ; hors bande, le refus
+ * est explicite.
+ *
+ * `bpmMoyen` est une fréquence cardiaque MOYENNE réellement mesurée : quand
+ * elle est fournie, elle choisit la zone pour TOUTES les activités (la FC
+ * mesurée prime sur la catégorie et sur l'intensité ressentie).
  */
 export type EntreeCoutSportif =
-	| { sport: 'musculation'; intensite?: 'recreative' | 'intensive' }
-	| { sport: 'gflux' }
+	| { sport: 'musculation'; intensite?: 'recreative' | 'intensive'; bpmMoyen?: number }
+	| { sport: 'gflux'; bpmMoyen?: number }
+	| { sport: 'douce'; intensite?: IntensiteDouce; bpmMoyen?: number }
 	| { sport: 'cardio'; bpm: number; coefficientKcalKgH?: number };
 
 export type CoutSportif = {
 	/** Coût horaire retenu (kcal/kg/heure). */
 	coefficientKcalKgH: number;
-	/** Bande cardio utilisée (null pour musculation et séance G-FLUX). */
+	/** Bande cardio utilisée (null pour musculation, G-FLUX et activité douce). */
 	bande: BandeCardio | null;
 	/** Libellé lisible de la règle appliquée (traçabilité UI / coach). */
 	libelle: string;
 };
+
+/** Coût cardio d'une fréquence cardiaque (avec un coût précis facultatif). */
+function coutCardio(bpm: number, precis: number | undefined): CoutSportif {
+	const bande = bandeCardio(bpm);
+	if (precis === undefined || precis === null) {
+		return {
+			coefficientKcalKgH: bande.defaut,
+			bande,
+			libelle: `Cardio ${bande.libelle} (${bande.defaut} kcal/kg/h)`
+		};
+	}
+	verifier(precis, 'Coût horaire du cardio', {
+		min: bande.min,
+		max: bande.max,
+		label: `${bande.min} à ${bande.max} kcal/kg/heure (cardio ${bande.libelle})`
+	});
+	return {
+		coefficientKcalKgH: precis,
+		bande,
+		libelle: `Cardio ${bande.libelle} (${precis} kcal/kg/h précisé)`
+	};
+}
 
 /**
  * Coût horaire d'une séance selon le barème (kcal/kg/heure). Les valeurs par
@@ -603,6 +645,15 @@ export type CoutSportif = {
  * DANS la bande de la séance (aucune valeur inventée hors barème).
  */
 export function coutSportif(entree: EntreeCoutSportif): CoutSportif {
+	/* FC moyenne réellement mesurée : elle choisit la zone pour toutes les
+	   activités — la catégorie et l'intensité ressentie ne la remplacent pas. */
+	if (entree.sport !== 'cardio' && entree.bpmMoyen !== undefined && entree.bpmMoyen !== null) {
+		const cardio = coutCardio(entree.bpmMoyen, undefined);
+		return {
+			...cardio,
+			libelle: `Cardio ${cardio.bande?.libelle} (${cardio.coefficientKcalKgH} kcal/kg/h · FC moyenne ${entree.bpmMoyen} BPM)`
+		};
+	}
 	switch (entree.sport) {
 		case 'musculation': {
 			const intensite = entree.intensite ?? 'recreative';
@@ -630,31 +681,37 @@ export function coutSportif(entree: EntreeCoutSportif): CoutSportif {
 				bande: null,
 				libelle: 'Séance du programme G-FLUX (3,3 kcal/kg/h)'
 			};
-		case 'cardio': {
-			const bande = bandeCardio(entree.bpm);
-			const precis = entree.coefficientKcalKgH;
-			if (precis === undefined || precis === null) {
+		case 'douce': {
+			const intensite = entree.intensite ?? 'legere';
+			const libelles: Record<IntensiteDouce, string> = {
+				legere: 'légère',
+				moderee: 'modérée',
+				elevee: 'élevée'
+			};
+			if (intensite === INTENSITES_DOUCES[0] || intensite === INTENSITES_DOUCES[1]) {
 				return {
-					coefficientKcalKgH: bande.defaut,
-					bande,
-					libelle: `Cardio ${bande.libelle} (${bande.defaut} kcal/kg/h)`
+					coefficientKcalKgH: COUT_SPORT.activiteDouce,
+					bande: null,
+					libelle: `Activité douce — ${libelles[intensite]} (${COUT_SPORT.activiteDouce} kcal/kg/h)`
 				};
 			}
-			verifier(precis, 'Coût horaire du cardio', {
-				min: bande.min,
-				max: bande.max,
-				label: `${bande.min} à ${bande.max} kcal/kg/heure (cardio ${bande.libelle})`
-			});
-			return {
-				coefficientKcalKgH: precis,
-				bande,
-				libelle: `Cardio ${bande.libelle} (${precis} kcal/kg/h précisé)`
-			};
+			if (intensite === INTENSITES_DOUCES[2]) {
+				return {
+					coefficientKcalKgH: COUT_SPORT.activiteDouceElevee,
+					bande: null,
+					libelle: `Activité douce — ${libelles[intensite]} (${COUT_SPORT.activiteDouceElevee} kcal/kg/h)`
+				};
+			}
+			throw new CalibrageError(
+				`Intensité d'activité douce inconnue : « legere », « moderee » ou « elevee » attendu (reçu « ${String(intensite)} »).`
+			);
 		}
+		case 'cardio':
+			return coutCardio(entree.bpm, entree.coefficientKcalKgH);
 		default: {
 			const inconnu = entree as { sport?: unknown };
 			throw new CalibrageError(
-				`Sport inconnu : « musculation », « gflux » ou « cardio » attendu (reçu « ${String(inconnu.sport)} »).`
+				`Sport inconnu : « musculation », « gflux », « douce » ou « cardio » attendu (reçu « ${String(inconnu.sport)} »).`
 			);
 		}
 	}
@@ -677,9 +734,10 @@ export function depenseSeanceKcal(entree: {
 }
 
 /**
- * Dépense d'une séance décrite par son barème (musculation / G-FLUX / cardio) :
- * `coutSportif()` puis `depenseSeanceKcal()`. Repère : 1 h de musculation
- * récréative à 56,6 kg → 2,2 × 56,6 × 1 = 124,52 → 125 kcal.
+ * Dépense d'une séance décrite par son barème (musculation / G-FLUX /
+ * activité douce / cardio) : `coutSportif()` puis `depenseSeanceKcal()`.
+ * Repère : 1 h de musculation récréative à 56,6 kg → 2,2 × 56,6 × 1 = 124,52
+ * → 125 kcal.
  */
 export function depenseSportiveKcal(
 	entree: EntreeCoutSportif & { poidsKg: number; heures: number }
@@ -797,16 +855,20 @@ export function bilanObjectifSemaine(entree: {
 
 /* ───────────────── 10 · Macros du jour ───────────────── */
 
-/** Protéines : 1,8 g par kg de poids de référence. */
-export const PROTEINES_G_PAR_KG = 1.8;
+/**
+ * Protéines : 2,3 g par kg de MASSE MAIGRE (identique femmes et hommes) —
+ * 1,8 g/kg de poids total indexait les protéines sur la masse grasse.
+ */
+export const PROTEINES_G_PAR_KG_MM = 2.3;
+/** Réglage autorisé du ratio protéines (g par kg de masse maigre). */
+export const PROTEINES_G_PAR_KG_MM_MIN = 2;
+export const PROTEINES_G_PAR_KG_MM_MAX = 2.6;
 /** Lipides : 30 % des calories… */
 export const LIPIDES_PCT_KCAL = 30;
-/** …avec un minimum de 0,6 g par kg de poids de référence. */
+/** …avec un minimum de 0,6 g par kg de poids corporel. */
 export const LIPIDES_MIN_G_PAR_KG = 0.6;
 /** Seuil de signal sur les glucides (g/jour). */
 export const GLUCIDES_SIGNAL_G = 100;
-/** MG% au-delà duquel les protéines (et les lipides) se basent sur le POIDS OBJECTIF. */
-export const MG_PCT_POIDS_OBJECTIF = 35;
 export const KCAL_PAR_G_PROTEINES = 4;
 export const KCAL_PAR_G_GLUCIDES = 4;
 export const KCAL_PAR_G_LIPIDES = 9;
@@ -817,10 +879,10 @@ export type MacrosJour = {
 	proteinesG: number;
 	lipidesG: number;
 	glucidesG: number;
-	/** Poids de référence utilisé (poids objectif si MG% > 35 %). */
-	poidsReferenceKg: number;
-	/** Vrai quand le poids objectif a été DÉDUIT (masse maigre à 35 % de MG). */
-	poidsObjectifDeduit: boolean;
+	/** Masse maigre utilisée pour les protéines : poids × (1 − MG%/100). */
+	masseMaigreKg: number;
+	/** Ratio appliqué (g de protéines par kg de masse maigre), borné 2 à 2,6. */
+	proteinesParKgMasseMaigre: number;
 	/** Vrai si les glucides passent sous 100 g. */
 	glucidesSousSeuil: boolean;
 	/** Signal explicite (null si rien à signaler). */
@@ -829,48 +891,39 @@ export type MacrosJour = {
 
 /**
  * Macros du jour d'un objectif calorique :
- *  - protéines = 1,8 g/kg de poids (le POIDS OBJECTIF dès que MG% > 35, pour ne
- *    pas indexer les protéines sur la masse grasse excédentaire) ;
- *  - lipides = 30 % des calories, avec un plancher de 0,6 g/kg ;
+ *  - protéines = 2,3 g par kg de MASSE MAIGRE (poids × (1 − MG%/100)), même
+ *    règle pour les femmes et les hommes, réglable de 2 à 2,6 — AUCUNE
+ *    exception de « poids objectif » : la masse grasse n'est jamais comptée
+ *    comme du muscle, sans avoir à inventer un poids cible ;
+ *  - lipides = 30 % des calories, avec un plancher de 0,6 g/kg de poids ;
  *  - glucides = le reste, avec un signal explicite sous 100 g.
  *
- * Le poids objectif est fourni par l'appelant quand il existe ; sinon il est
- * DÉDUIT de la masse maigre ACTUELLE ramenée à 35 % de MG (MM/0,65) et signalé
- * par `poidsObjectifDeduit` — aucune donnée cliente n'est inventée.
- *
- * Repères : 60 kg, MG 26 %, 1 400 kcal → 108 g de protéines, 46,7 g de
- * lipides, 137 g de glucides ; le même profil à 1 100 kcal → 108 / 36,7 /
- * 84 g avec signal « glucides < 100 g ».
+ * Repères : 60 kg, MG 26 % (MM 44,4 kg), 1 400 kcal → 102 g de protéines,
+ * 46,7 g de lipides, 143 g de glucides ; le même profil à 1 100 kcal →
+ * 102 / 36,7 / 90 g avec signal « glucides < 100 g ».
  */
 export function macrosJour(entree: {
 	kcal: number;
 	poidsKg: number;
 	mgPct: number;
-	poidsObjectifKg?: number;
+	/** Réglage du ratio protéines (2 à 2,6 g/kg de masse maigre, défaut 2,3). */
+	proteinesParKgMasseMaigre?: number;
 }): MacrosJour {
 	const kcal = verifier(entree.kcal, 'Objectif calorique', BORNES.kcal);
 	const poids = verifier(entree.poidsKg, 'Poids', BORNES.poids);
 	const mgPct = verifier(entree.mgPct, 'Masse grasse', BORNES.mgPct);
+	const ratio = verifierOption(
+		entree.proteinesParKgMasseMaigre,
+		'Protéines par kg de masse maigre',
+		BORNES.proteinesMasseMaigre,
+		PROTEINES_G_PAR_KG_MM
+	);
 
-	let poidsReference = poids;
-	let poidsObjectifDeduit = false;
-	if (mgPct > MG_PCT_POIDS_OBJECTIF) {
-		if (entree.poidsObjectifKg !== undefined && entree.poidsObjectifKg !== null) {
-			poidsReference = verifier(entree.poidsObjectifKg, 'Poids objectif', BORNES.poids);
-		} else {
-			/* MM actuelle ramenée à 35 % de MG : le poids où la cliente atteint le
-			   seuil, à masse maigre constante — jamais un objectif inventé. */
-			poidsReference = verifier(
-				arrondi(masseMaigreBrute(poids, mgPct) / (1 - MG_PCT_POIDS_OBJECTIF / 100), 2),
-				'Poids objectif',
-				BORNES.poids
-			);
-			poidsObjectifDeduit = true;
-		}
-	}
-
-	const proteinesG = Math.round(PROTEINES_G_PAR_KG * poidsReference);
-	const lipidesPlancherG = LIPIDES_MIN_G_PAR_KG * poidsReference;
+	const masseMaigre = masseMaigreBrute(poids, mgPct);
+	const proteinesG = Math.round(ratio * masseMaigre);
+	/* Plancher de lipides sur le POIDS corporel (et non la masse maigre) :
+	   les lipides restent inchangés, seule la base des protéines change. */
+	const lipidesPlancherG = LIPIDES_MIN_G_PAR_KG * poids;
 	const lipidesG = arrondi(
 		Math.max(((LIPIDES_PCT_KCAL / 100) * kcal) / KCAL_PAR_G_LIPIDES, lipidesPlancherG),
 		1
@@ -887,8 +940,8 @@ export function macrosJour(entree: {
 		proteinesG,
 		lipidesG,
 		glucidesG,
-		poidsReferenceKg: arrondi(poidsReference, 2),
-		poidsObjectifDeduit,
+		masseMaigreKg: arrondi(masseMaigre, 2),
+		proteinesParKgMasseMaigre: ratio,
 		glucidesSousSeuil,
 		alerteGlucides: glucidesSousSeuil
 			? `Glucides estimés à ${glucidesG} g (< ${GLUCIDES_SIGNAL_G} g) : objectif calorique, volume d'entraînement ou sommeil à réinterroger avec la coach.`

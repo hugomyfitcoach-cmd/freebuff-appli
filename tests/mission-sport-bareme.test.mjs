@@ -26,10 +26,12 @@ test('Chaque activité relève d’un barème et propose les bons choix', () => 
 	assert.ok(sport.SPORT_CATALOG.length >= 20, 'catalogue complet');
 	const zones = cal.BANDES_CARDIO.map((z) => z.id);
 	for (const a of sport.SPORT_CATALOG) {
-		assert.ok(['musculation', 'cardio'].includes(a.bareme), `${a.id} : barème connu`);
+		assert.ok(['musculation', 'douce', 'cardio'].includes(a.bareme), `${a.id} : barème connu`);
 		const choix = sport.choixValides(a);
 		if (a.bareme === 'musculation') {
 			assert.deepEqual(choix, ['recreative', 'intensive'], `${a.id} : récréative / intensive`);
+		} else if (a.bareme === 'douce') {
+			assert.deepEqual(choix, ['legere', 'moderee', 'elevee'], `${a.id} : intensités douces`);
 		} else {
 			assert.deepEqual(choix, zones, `${a.id} : les 5 zones cardio`);
 		}
@@ -147,7 +149,7 @@ test('Repère doré : 3 séances G-FLUX d’1 h (60 kg) → 594 kcal à 3,3 kcal
 
 test('Sans pesée : aucune kcal inventée, MET-minutes conservées', () => {
 	const est = sport.estimateSportActivity({
-		activityId: 'yoga',
+		activityId: 'course-tapis',
 		intensity: 'sous-130',
 		durationMinutes: 60,
 		weightKg: null
@@ -156,7 +158,7 @@ test('Sans pesée : aucune kcal inventée, MET-minutes conservées', () => {
 	assert.equal(est.metMinutes, Math.round((3.8 / 1.05) * 60));
 	assert.equal(est.coutHoraireKcalKgH, 3.8);
 	assert.throws(
-		() => sport.estimateSportActivity({ activityId: 'yoga', durationMinutes: 60, weightKg: 60 }),
+		() => sport.estimateSportActivity({ activityId: 'course-tapis', durationMinutes: 60, weightKg: 60 }),
 		/requise/
 	);
 });

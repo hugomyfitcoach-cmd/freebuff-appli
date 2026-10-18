@@ -22,6 +22,7 @@ import {
 	SPORT_CATEGORIES,
 	SPORT_CATALOG_VERSION,
 	SPORT_CATALOG_VERSION_LEGACY,
+	SPORT_CHOIX_DOUCES,
 	SPORT_CHOIX_MUSCULATION,
 	SPORT_INTENSITY_LABELS,
 	SPORT_ZONES_CARDIO,
@@ -71,13 +72,16 @@ export async function lastKnownWeight(
 }
 
 /**
- * Valide {activityId, choix, durationMinutes} et calcule l'estimation au
- * barème v2. Le choix (zone cardio ou intensité de musculation) est
- * OBLIGATOIRE : aucune zone implicite n'est inventée à la place de la cliente.
+ * Valide {activityId, choix, bpmMoyen?, durationMinutes} et calcule
+ * l'estimation au barème v2. Le choix (zone cardio, intensité de musculation
+ * ou intensité douce) est OBLIGATOIRE — sauf si une FC moyenne réelle est
+ * saisie, qui choisit alors la zone pour toutes les activités : aucune zone
+ * implicite n'est inventée à la place de la cliente.
  */
 function buildEstimation(args: {
 	activityId: string;
 	intensity?: string;
+	bpmMoyen?: number;
 	durationMinutes: number;
 	weightKg: number | null;
 }) {
@@ -86,11 +90,14 @@ function buildEstimation(args: {
 	}
 	const entry = getSportEntry(args.activityId);
 	if (!entry) throw new ConvexError("Activité inconnue.");
-	if (args.intensity === undefined || args.intensity === null || args.intensity === "") {
-		throw new ConvexError("Zone ou intensité requise pour cette activité.");
-	}
-	if (!choixValides(entry).includes(args.intensity)) {
-		throw new ConvexError("Zone ou intensité invalide pour cette activité.");
+	const bpm = args.bpmMoyen !== undefined && args.bpmMoyen !== null ? args.bpmMoyen : undefined;
+	if (bpm === undefined) {
+		if (args.intensity === undefined || args.intensity === null || args.intensity === "") {
+			throw new ConvexError("Zone ou intensité requise pour cette activité.");
+		}
+		if (!choixValides(entry).includes(args.intensity)) {
+			throw new ConvexError("Zone ou intensité invalide pour cette activité.");
+		}
 	}
 	const minutes = clampSportDuration(args.durationMinutes);
 	return {
@@ -98,6 +105,7 @@ function buildEstimation(args: {
 		est: estimateSportActivity({
 			activityId: entry.id,
 			intensity: args.intensity,
+			...(bpm !== undefined ? { bpmMoyen: bpm } : {}),
 			durationMinutes: minutes,
 			weightKg: args.weightKg,
 		}),
@@ -150,6 +158,7 @@ export const myWeek = query({
 				name: r.activityNameSnapshot,
 				durationMinutes: r.durationMinutes,
 				intensity: r.intensity ?? null,
+				bpmMoyen: r.bpmMoyen ?? null,
 				estimatedCalories: r.estimatedCalories ?? null,
 				metMinutes: r.metMinutes,
 				source: r.source,
@@ -204,12 +213,14 @@ export const catalog = query({
 				id: a.id,
 				name: a.name,
 				category: a.category,
-				/** Barème de l'activité : "musculation" (récréative/intensive) ou "cardio" (zones). */
+				/** Barème : "musculation" (récréative/intensive), "douce" (intensité
+			 *  ressentie, hors zones) ou "cardio" (zones). */
 				bareme: a.bareme,
-				/** Choix acceptés (zones cardio ou intensités de musculation). */
+				/** Choix acceptés (zones cardio, intensités de musculation ou douces). */
 				choix: choixValides(a),
 			})),
 			choixMusculation: SPORT_CHOIX_MUSCULATION,
+			choixDouces: SPORT_CHOIX_DOUCES,
 			zonesCardio: SPORT_ZONES_CARDIO,
 			walking: {
 				message: WALKING_PEDAGOGY_MESSAGE,
@@ -228,15 +239,24 @@ export const addActivity = mutation({
 		sessionToken: v.optional(v.string()),
 		date: v.string(),
 		activityId: v.string(),
-		/** Intensité — obligatoire pour les activités à intensités. */
+		/** Intensité — obligatoire pour les activités à intensités (sauf FC moyenne). */
 		intensity: v.optional(v.string()),
+		/** FC moyenne réellement mesurée (optionnelle) — choisit la zone pour
+		 *  toutes les activités. */
+		bpmMoyen: v.optional(v.number()),
 		durationMinutes: v.number(),
 	},
-	handler: async (ctx, { sessionToken, date, activityId, intensity, durationMinutes }) => {
+	handler: async (ctx, { sessionToken, date, activityId, intensity, bpmMoyen, durationMinutes }) => {
 		const user = await requireClient(ctx, sessionToken);
 		if (!isValidISO(date)) throw new ConvexError("Date invalide.");
 		const weight = await lastKnownWeight(ctx, user._id);
-		const { minutes, est } = buildEstimation({ activityId, intensity, durationMinutes, weightKg: weight });
+		const { minutes, est } = buildEstimation({
+			activityId,
+			intensity,
+			bpmMoyen,
+			durationMinutes,
+			weightKg: weight,
+		});
 		const now = Date.now();
 		// NOUVELLE saisie → barème v2 (coût horaire stocké tel quel sur la ligne).
 		const id = await ctx.db.insert("sportActivities", {
@@ -247,6 +267,7 @@ export const addActivity = mutation({
 			durationMinutes: minutes,
 			intensity: est.intensity,
 			metValue: est.metValue,
+			...(est.bpmMoyen !== undefined ? { bpmMoyen: est.bpmMoyen } : {}),
 			...(est.coutHoraireKcalKgH !== undefined
 				? { coutHoraireKcalKgH: est.coutHoraireKcalKgH }
 				: {}),
@@ -287,6 +308,7 @@ export const duplicateActivity = mutation({
 			durationMinutes: row.durationMinutes,
 			...(row.intensity !== undefined ? { intensity: row.intensity } : {}),
 			metValue: row.metValue,
+			...(row.bpmMoyen !== undefined ? { bpmMoyen: row.bpmMoyen } : {}),
 			...(row.coutHoraireKcalKgH !== undefined
 				? { coutHoraireKcalKgH: row.coutHoraireKcalKgH }
 				: {}),
@@ -320,9 +342,10 @@ export const updateActivity = mutation({
 		date: v.optional(v.string()),
 		activityRef: v.optional(v.string()),
 		intensity: v.optional(v.string()),
+		bpmMoyen: v.optional(v.number()),
 		durationMinutes: v.optional(v.number()),
 	},
-	handler: async (ctx, { sessionToken, activityId, date, activityRef, intensity, durationMinutes }) => {
+	handler: async (ctx, { sessionToken, activityId, date, activityRef, intensity, bpmMoyen, durationMinutes }) => {
 		const user = await requireClient(ctx, sessionToken);
 		const row = await ctx.db.get(activityId);
 		if (!row || row.userId !== user._id) throw new ConvexError("Activité introuvable.");
@@ -345,7 +368,9 @@ export const updateActivity = mutation({
 		   (sport / zone / intensité) n'est pas explicitement changé, elle reste
 		   calculée par SON modèle — l'historique n'est jamais basculé. */
 		const legacy = row.coutHoraireKcalKgH === undefined;
-		const choixChange = entry.id !== row.activityId || newIntensity !== row.intensity;
+		const bpmChange = bpmMoyen !== undefined && bpmMoyen !== row.bpmMoyen;
+		const choixChange =
+			entry.id !== row.activityId || newIntensity !== row.intensity || bpmChange;
 		if (legacy && !choixChange) {
 			const minutes = clampSportDuration(newDuration);
 			const volume = depenseLegacyMet({
@@ -365,10 +390,31 @@ export const updateActivity = mutation({
 			return { ok: true, bareme: "v1" as const };
 		}
 
-		// Nouveau choix → barème v2 (ex. la cliente choisit une zone sur une ligne v1).
+		/* Ligne v2 dont le choix N'A PAS changé : son coût horaire enregistré
+		   reste la référence (seul le volume est recalculé). Une activité
+		   passée au barème doux ne réécrit donc jamais un historique cardio. */
+		if (!legacy && !choixChange) {
+			const minutes = clampSportDuration(newDuration);
+			const cout = row.coutHoraireKcalKgH as number;
+			const kcal =
+				weight != null && weight > 0
+					? Math.round(cout * weight * (minutes / 60))
+					: undefined;
+			await ctx.db.patch(activityId, {
+				...(date !== undefined && isValidISO(date) ? { date } : {}),
+				durationMinutes: minutes,
+				metMinutes: Math.round(row.metValue * minutes),
+				...(kcal !== undefined ? { estimatedCalories: kcal } : {}),
+				updatedAt: Date.now(),
+			} as never);
+			return { ok: true, bareme: "v2" as const };
+		}
+
+		// Nouveau choix (ou nouvelle FC) → barème v2 (ex. une zone choisie sur une ligne v1).
 		const { minutes, est } = buildEstimation({
 			activityId: entry.id,
 			intensity: newIntensity,
+			...(bpmMoyen !== undefined ? { bpmMoyen } : {}),
 			durationMinutes: newDuration,
 			weightKg: weight,
 		});
@@ -380,6 +426,7 @@ export const updateActivity = mutation({
 			durationMinutes: minutes,
 			intensity: est.intensity,
 			metValue: est.metValue,
+			...(est.bpmMoyen !== undefined ? { bpmMoyen: est.bpmMoyen } : {}),
 			...(est.coutHoraireKcalKgH !== undefined
 				? { coutHoraireKcalKgH: est.coutHoraireKcalKgH }
 				: {}),

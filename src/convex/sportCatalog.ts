@@ -6,9 +6,16 @@
  * (`../lib/calibrage`, le même que `$lib/calibrage`) — donc du BARÈME G-FLUX :
  *
  *   musculation récréative 2,2 kcal/kg/h · musculation intensive 4,4 ·
- *   séance du programme G-FLUX 3,3 · cardio par zone :
+ *   séance du programme G-FLUX 3,3 · activité douce 2,2 (légère et modérée)
+ *   et 3,3 (élevée) · cardio par zone :
  *   moins de 130 BPM 3,8 · 130–150 BPM 5,5 · 150–160 BPM 6,6 ·
  *   160–180 BPM 7,7 · plus de 180 BPM 8,8 (plafond).
+ *
+ * Les activités DOUCES (yoga, Pilates, aquagym, étirements, mobilité) ne
+ * passent PAS par les zones cardio : leur coût ne dépend pas de la FC mais de
+ * l'intensité ressentie. Les zones cardio restent réservées aux activités
+ * cardio et aux sports. Une FC moyenne RÉELLE saisie choisit en revanche la
+ * zone pour TOUTES les activités (`bpmMoyen`).
  *
  * Le choix de zone cardio (`sous-130` … `plus-180`) porte l'intensité
  * RESSENTIE équivalente, pour les activités sans cardiofréquencemètre.
@@ -31,11 +38,13 @@ import { ConvexError } from "convex/values";
 import {
 	BANDES_CARDIO,
 	COUT_SPORT,
+	INTENSITES_DOUCES,
 	INTENSITES_MUSCULATION,
 	ZONES_CARDIO_IDS,
 	coutSportif,
 	depenseSeanceKcal,
 	zoneCardioParId,
+	type IntensiteDouce,
 } from "../lib/calibrage";
 
 /** Version du catalogue — stockée sur chaque dépense (coefficientVersion). */
@@ -50,9 +59,11 @@ export type SportCoefficientSource = "gflux_table" | "compendium";
 /**
  * Barème appliqué à une activité :
  *  - `musculation` : choix récréative (2,2) / intensive (4,4) ;
+ *  - `douce` : intensité ressentie légère/modérée (2,2) ou élevée (3,3),
+ *    SANS zone cardio (yoga, Pilates, aquagym, étirements, mobilité) ;
  *  - `cardio` : choix de zone (`sous-130` … `plus-180`) ou intensité ressentie.
  */
-export type SportBareme = "musculation" | "cardio";
+export type SportBareme = "musculation" | "douce" | "cardio";
 
 export type SportCatalogEntry = {
 	/** Identifiant stable (slug) référencé par les dépenses. */
@@ -83,9 +94,10 @@ export const SPORT_CATEGORIES: { id: string; label: string }[] = [
  * comptées par les pas) et sans Randonnée (validé : exclue en V1, approche
  * conservatrice anti double comptage).
  *
- * Toutes les activités hors musculation relèvent du barème cardio (zones) :
- * ce sont des activités CARDIO ou MIXTES, dont le coût dépend de l'intensité
- * réellement tenue — pas d'une table par sport.
+ * Les activités CARDIO ou MIXTES relèvent du barème cardio (zones) : leur
+ * coût dépend de l'intensité réellement tenue — pas d'une table par sport.
+ * Les activités DOUCES (yoga, Pilates, aquagym, étirements, mobilité) ont
+ * leur propre barème (2,2 / 2,2 / 3,3), hors zones cardio.
  */
 export const SPORT_CATALOG: SportCatalogEntry[] = [
 	{ id: "musculation", name: "Musculation", category: "musculation", bareme: "musculation" },
@@ -105,10 +117,13 @@ export const SPORT_CATALOG: SportCatalogEntry[] = [
 	{ id: "escalier", name: "StairMaster / escalier", category: "cardio", bareme: "cardio" },
 	// ── Natation & eau ──
 	{ id: "natation", name: "Natation", category: "eau", bareme: "cardio" },
-	{ id: "aquagym", name: "Aquagym", category: "eau", bareme: "cardio" },
-	// ── Cours & douceurs ──
-	{ id: "pilates", name: "Pilates", category: "collectifs", bareme: "cardio" },
-	{ id: "yoga", name: "Yoga", category: "collectifs", bareme: "cardio" },
+	/* Aquagym : activité DOUCE — son coût ne suit pas les zones cardio. */
+	{ id: "aquagym", name: "Aquagym", category: "eau", bareme: "douce" },
+	// ── Cours & douceurs (yoga / Pilates / étirements / mobilité = douces) ──
+	{ id: "pilates", name: "Pilates", category: "collectifs", bareme: "douce" },
+	{ id: "yoga", name: "Yoga", category: "collectifs", bareme: "douce" },
+	{ id: "etirements", name: "Étirements", category: "collectifs", bareme: "douce" },
+	{ id: "mobilite", name: "Mobilité", category: "collectifs", bareme: "douce" },
 	{ id: "danse", name: "Danse", category: "collectifs", bareme: "cardio" },
 	// ── HIIT & circuits ──
 	{ id: "hiit", name: "HIIT", category: "hiit", bareme: "cardio" },
@@ -141,6 +156,13 @@ export const SPORT_CHOIX_MUSCULATION: { id: string; label: string; hint: string 
 	},
 ];
 
+/** Choix d'intensité des activités douces — coûts du barème affichés. */
+export const SPORT_CHOIX_DOUCES: { id: string; label: string; hint: string }[] = [
+	{ id: INTENSITES_DOUCES[0], label: "Légère", hint: `${COUT_SPORT.activiteDouce} kcal/kg/h` },
+	{ id: INTENSITES_DOUCES[1], label: "Modérée", hint: `${COUT_SPORT.activiteDouce} kcal/kg/h` },
+	{ id: INTENSITES_DOUCES[2], label: "Élevée", hint: `${COUT_SPORT.activiteDouceElevee} kcal/kg/h` },
+];
+
 /**
  * Zones cardio proposées à la saisie : libellé = intensité RESSENTIE, `hint` =
  * plage de fréquence cardiaque et coût horaire du barème (le mot MET n'est
@@ -171,6 +193,8 @@ export const SPORT_INTENSITY_LABELS: Record<string, string> = {
 	// v2 — musculation à la main
 	recreative: "Récréative",
 	intensive: "Intensive",
+	// v2 — activités douces
+	elevee: "Élevée",
 	// v2 — séances G-FLUX créées automatiquement
 	gflux: "Séance G-FLUX",
 	// v2 — zones cardio (intensité ressentie)
@@ -212,9 +236,9 @@ function requireSportEntry(activityId: string): SportCatalogEntry {
 
 /** Identifiants de choix acceptés pour une activité (zone ou intensité). */
 export function choixValides(entry: SportCatalogEntry): string[] {
-	return entry.bareme === "musculation"
-		? [...INTENSITES_MUSCULATION]
-		: [...ZONES_CARDIO_IDS];
+	if (entry.bareme === "musculation") return [...INTENSITES_MUSCULATION];
+	if (entry.bareme === "douce") return [...INTENSITES_DOUCES];
+	return [...ZONES_CARDIO_IDS];
 }
 
 /** MET signé pour les MET-minutes : MET = kcal/kg/h ÷ 1,05 (2 décimales). */
@@ -223,20 +247,43 @@ function metDeKcalKgH(coefficientKcalKgH: number): number {
 }
 
 export type CoutSportifResolu = {
+	/** Choix recopié sur la ligne (zone cardio ou intensité). */
+	intensity: string;
 	/** Coût horaire du barème (kcal/kg/heure). */
 	coefficientKcalKgH: number;
 	/** MET dérivé (MET-minutes du CRM). */
 	metValue: number;
 	/** Libellé lisible de la règle appliquée. */
 	libelle: string;
+	/** FC moyenne réellement saisie (absente si l'intensité a été choisie). */
+	bpmMoyen?: number;
 };
 
 /**
  * Coût horaire d'une activité + de son choix (barème G-FLUX, v2). Un choix
  * absent ou hors barème est REFUSÉ (jamais de zone implicite silencieuse).
+ *
+ * Si `bpmMoyen` (FC moyenne RÉELLEMENT mesurée) est fournie, elle choisit la
+ * zone pour TOUTES les activités — musculation, activité douce comme cardio —
+ * et le choix d'intensité n'est alors pas requis.
  */
-export function resolveSportCoefficient(activityId: string, choix?: string | null): CoutSportifResolu {
+export function resolveSportCoefficient(
+	activityId: string,
+	choix?: string | null,
+	bpmMoyen?: number | null
+): CoutSportifResolu {
 	const entry = requireSportEntry(activityId);
+	if (bpmMoyen !== undefined && bpmMoyen !== null) {
+		const cout = coutSportif({ sport: "cardio", bpm: bpmMoyen });
+		const zone = cout.bande;
+		return {
+			intensity: zone ? zone.id : "",
+			coefficientKcalKgH: cout.coefficientKcalKgH,
+			metValue: metDeKcalKgH(cout.coefficientKcalKgH),
+			libelle: cout.libelle,
+			bpmMoyen,
+		};
+	}
 	if (choix === undefined || choix === null || choix === "") {
 		throw new ConvexError("Zone ou intensité requise pour cette activité.");
 	}
@@ -249,6 +296,16 @@ export function resolveSportCoefficient(activityId: string, choix?: string | nul
 			intensite: choix === INTENSITES_MUSCULATION[1] ? "intensive" : "recreative",
 		});
 		return {
+			intensity: choix,
+			coefficientKcalKgH: cout.coefficientKcalKgH,
+			metValue: metDeKcalKgH(cout.coefficientKcalKgH),
+			libelle: cout.libelle,
+		};
+	}
+	if (entry.bareme === "douce") {
+		const cout = coutSportif({ sport: "douce", intensite: choix as IntensiteDouce });
+		return {
+			intensity: choix,
 			coefficientKcalKgH: cout.coefficientKcalKgH,
 			metValue: metDeKcalKgH(cout.coefficientKcalKgH),
 			libelle: cout.libelle,
@@ -256,6 +313,7 @@ export function resolveSportCoefficient(activityId: string, choix?: string | nul
 	}
 	const zone = zoneCardioParId(choix);
 	return {
+		intensity: zone.id,
 		coefficientKcalKgH: zone.defaut,
 		metValue: metDeKcalKgH(zone.defaut),
 		libelle: `Cardio ${zone.libelle} (${zone.intensite}) · ${zone.defaut} kcal/kg/h`,
@@ -276,6 +334,8 @@ export type SportEstimation = {
 	metValue: number;
 	/** Coût horaire du barème (kcal/kg/heure) — absent des lignes v1. */
 	coutHoraireKcalKgH?: number;
+	/** FC moyenne réellement mesurée — absente si l'intensité a été choisie. */
+	bpmMoyen?: number;
 	coefficientSource: SportCoefficientSource;
 	coefficientVersion: string;
 	/** kcal estimées — absentes si aucune pesée connue (jamais de poids inventé). */
@@ -301,17 +361,20 @@ function caloriesBareme(
 export function estimateSportActivity(args: {
 	activityId: string;
 	intensity?: string | null;
+	/** FC moyenne réellement mesurée : choisit la zone pour toutes les activités. */
+	bpmMoyen?: number | null;
 	durationMinutes: number;
 	weightKg?: number | null;
 }): SportEstimation {
 	const entry = requireSportEntry(args.activityId);
 	const minutes = clampSportDuration(args.durationMinutes);
-	const cout = resolveSportCoefficient(args.activityId, args.intensity);
+	const cout = resolveSportCoefficient(args.activityId, args.intensity, args.bpmMoyen);
 	const estimatedCalories = caloriesBareme(cout.coefficientKcalKgH, minutes, args.weightKg);
 	return {
 		activityId: entry.id,
 		activityNameSnapshot: entry.name,
-		intensity: String(args.intensity),
+		intensity: cout.intensity,
+		...(cout.bpmMoyen !== undefined ? { bpmMoyen: cout.bpmMoyen } : {}),
 		metValue: cout.metValue,
 		coutHoraireKcalKgH: cout.coefficientKcalKgH,
 		coefficientSource: "gflux_table",

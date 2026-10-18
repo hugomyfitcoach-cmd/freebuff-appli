@@ -141,8 +141,8 @@ const weekStart = mondayOf(isoOf(new Date()));
 	const r = await client.mutation(api.sport.addActivity, {
 		sessionToken: clientToken,
 		date: isoOf(new Date()),
-		activityId: 'aquagym', // cardio : zone obligatoire (ici < 130 BPM → 3,8 kcal/kg/h)
-		intensity: 'sous-130',
+		activityId: 'aquagym', // activité DOUCE : intensité ressentie (ici légère → 2,2 kcal/kg/h)
+		intensity: 'legere',
 		durationMinutes: 45,
 	});
 	if (!r._id) fail('ajout aquagym sans poids impossible');
@@ -150,8 +150,8 @@ const weekStart = mondayOf(isoOf(new Date()));
 	const a = w.activities.find((x) => x._id === r._id);
 	if (!a) fail('activité introuvable après ajout');
 	if (a.estimatedCalories !== null) fail(`kcal devraient être absentes sans poids (reçu ${a.estimatedCalories})`);
-	// MET dérivé du barème : 3,8 ÷ 1,05 = 3,62 → 3,62 × 45 = 162,9 → 163
-	if (a.metMinutes !== 163) fail(`metMinutes attendues 163 (3,62 × 45), reçu ${a.metMinutes}`);
+	// MET dérivé du barème doux : 2,2 ÷ 1,05 = 2,1 → 2,1 × 45 = 94,5 → 95
+	if (a.metMinutes !== 95) fail(`metMinutes attendues 95 (2,1 × 45), reçu ${a.metMinutes}`);
 	ok('cliente sans poids : ≈ kcal absent, MET-minutes conservées (jamais de poids inventé)');
 	var aquagymId = r._id;
 }
@@ -264,7 +264,7 @@ const weekStart = mondayOf(isoOf(new Date()));
 
 /* ── 13. Cascade : suppression cliente → dépenses purgées ── */
 {
-	await client.mutation(api.sport.addActivity, { sessionToken: clientToken, date: isoOf(new Date()), activityId: 'yoga', intensity: 'sous-130', durationMinutes: 60 });
+	await client.mutation(api.sport.addActivity, { sessionToken: clientToken, date: isoOf(new Date()), activityId: 'yoga', intensity: 'legere', durationMinutes: 60 });
 	await client.mutation(api.coach.removeClient, { sessionToken: coachToken, userId: e2eUserId });
 	e2eUserId = null; // déjà supprimée — évite un double remove dans cleanup
 	ok('cascade : fiche cliente supprimée → dépenses sportives purgées avec elle');
