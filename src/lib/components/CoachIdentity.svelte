@@ -3,9 +3,12 @@
 
 	/**
 	 * Identité coach (haut droit) : avatar / photo de profil + prénom (nom)
-	 * + email. 100 % frontend : la photo est recadrée en carré 128 px puis
-	 * persistée en localStorage (clé partagée avec le dashboard, « coach-avatar »)
-	 * — aucun backend, aucune écriture de données.
+	 * + email. La photo est persistée CÔTÉ SERVEUR via le BFF
+	 * `/api/profile/photo` (file storage Convex, `users.profilePhotoStorageId`) :
+	 * c'est la même donnée que `dashboard.myCoachProfile` expose aux clientes.
+	 * Elle survit donc à toute éviction des données de site du navigateur —
+	 * l'ancien dépôt localStorage (volatile, perdu tous les quelques jours)
+	 * n'est plus qu'une source de migration ponctuelle, jamais de vérité.
 	 */
 	let {
 		prenom,
@@ -14,20 +17,61 @@
 	}: { prenom: string; nom?: string; email?: string } = $props();
 
 	let avatar = $state<string | null>(null);
+	let uploadError = $state<string | null>(null);
+
+	/** Envoie un JPEG au BFF et renvoie l'URL signée servie par Convex. */
+	async function uploadPhoto(blob: Blob): Promise<string | null> {
+		const form = new FormData();
+		form.append('photo', blob, 'photo-profil.jpg');
+		const res = await fetch('/api/profile/photo', { method: 'POST', body: form });
+		const data = (await res.json().catch(() => null)) as { url?: string | null } | null;
+		return res.ok && data?.url ? data.url : null;
+	}
+
+	/**
+	 * Migration unique de l'ancienne photo locale (localStorage) : si le serveur
+	 * n'a pas encore de photo, la copie locale est envoyée une fois puis la clé
+	 * disparaît — jamais deux sources de vérité.
+	 */
+	async function migrateLegacyPhoto(): Promise<void> {
+		let legacy: string | null = null;
+		try {
+			legacy = localStorage.getItem('coach-avatar');
+			if (!legacy) return;
+			localStorage.removeItem('coach-avatar');
+		} catch {
+			/* navigation privée : rien à migrer */
+			return;
+		}
+		if (avatar || !legacy.startsWith('data:image/')) return;
+		try {
+			const blob = await (await fetch(legacy)).blob();
+			const url = await uploadPhoto(blob);
+			if (url) avatar = url;
+		} catch {
+			/* migration impossible : la photo sera repose manuellement */
+		}
+	}
 
 	$effect(() => {
-		// Restaure la photo persistée (client uniquement, après hydratation).
-		try {
-			avatar = localStorage.getItem('coach-avatar');
-		} catch {
-			/* navigation privée — aperçu de session seul */
-		}
+		// Charge la photo serveur (puis migre l'éventuelle copie locale).
+		(async () => {
+			try {
+				const res = await fetch('/api/profile/photo');
+				const data = (await res.json().catch(() => null)) as { url?: string | null } | null;
+				avatar = data?.url ?? null;
+			} catch {
+				avatar = null;
+			}
+			await migrateLegacyPhoto();
+		})();
 	});
 
 	function handlePick(e: Event) {
 		const input = e.currentTarget as HTMLInputElement;
 		const file = input.files?.[0];
 		if (!file) return;
+		uploadError = null;
 		const img = new Image();
 		img.onload = () => {
 			const c = document.createElement('canvas');
@@ -37,18 +81,28 @@
 			if (!ctx) return;
 			const side = Math.min(img.naturalWidth, img.naturalHeight);
 			ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, 128, 128);
-			const url = c.toDataURL('image/jpeg', 0.85);
-			try {
-				localStorage.setItem('coach-avatar', url);
-			} catch {
-				/* quota dépassé — l'aperçu reste actif pour la session */
-			}
-			avatar = url;
 			URL.revokeObjectURL(img.src);
+			c.toBlob(async (blob) => {
+				if (!blob) return;
+				const previous = avatar;
+				avatar = c.toDataURL('image/jpeg', 0.85); // aperçu immédiat
+				try {
+					const url = await uploadPhoto(blob);
+					if (url) {
+						avatar = url;
+					} else {
+						avatar = previous;
+						uploadError = "Échec de l'envoi de la photo. Réessaie dans un instant.";
+					}
+				} catch {
+					avatar = previous;
+					uploadError = "Échec de l'envoi de la photo. Réessaie dans un instant.";
+				}
+			}, 'image/jpeg', 0.85);
+			input.value = '';
 		};
 		img.onerror = () => URL.revokeObjectURL(img.src);
 		img.src = URL.createObjectURL(file);
-		input.value = '';
 	}
 
 	const displayName = $derived(nom ? `${prenom} ${nom}` : prenom);
@@ -58,7 +112,7 @@
 <div class="flex shrink-0 items-center gap-2.5 rounded-full border border-line bg-white py-1 pl-1 pr-3.5 shadow-sm">
 	<label
 		class="group relative block h-8 w-8 shrink-0 cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand"
-		title="Changer la photo de profil"
+		title={uploadError ?? 'Changer la photo de profil'}
 	>
 		<span class="sr-only">Changer la photo de profil</span>
 		{#if avatar}

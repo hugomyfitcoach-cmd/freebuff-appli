@@ -1,6 +1,6 @@
-import { redirect } from '@sveltejs/kit';
+import { error, redirect } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
-import { convex } from './convex';
+import { convex, withDeadline } from './convex';
 import { api } from '../../convex/_generated/api.js';
 
 export const SESSION_COOKIE = 'gflux_session';
@@ -64,9 +64,21 @@ type ResolveResult = {
 
 async function resolve(token: string | undefined): Promise<SessionUser | null> {
 	if (!token) return null;
-	const u = (await convex.query(api.users.resolveSession, {
-		sessionToken: token,
-	})) as ResolveResult;
+	let u: ResolveResult = null;
+	try {
+		u = (await withDeadline(
+			convex.query(api.users.resolveSession, {
+				sessionToken: token,
+			})
+		)) as ResolveResult;
+	} catch {
+		/* Session NON VÉRIFIABLE (réseau mobile instable, Convex injoignable,
+		   socket qui pend) : la session n'est NI confirmée NI niée. On ne
+		   déconnecte JAMAIS pour une panne réseau — le cookie reste intact et le
+		   poller continue — : on renvoie une erreur 503 récupérable (page
+		   « Réessayer ») au lieu de figer la navigation ou de déconnecter. */
+		throw error(503, 'Impossible de vérifier ta connexion pour le moment. Réessaie dans un instant.');
+	}
 	if (!u) return null;
 	return {
 		_id: u._id,

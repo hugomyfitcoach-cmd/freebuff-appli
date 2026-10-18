@@ -998,6 +998,10 @@ export default defineSchema({
 		checkinId: v.optional(v.id("checkins")),
 		/** Rendez-vous concerné (rdv_*) — lien direct vers la source. */
 		appointmentId: v.optional(v.id("appointments")),
+		/** Poids de la nouvelle pesée (kg, « nouveau_poids ») — tendance CRM. */
+		poids: v.optional(v.string()),
+		/** Pesée chronologiquement précédente (kg) — absente = première pesée. */
+		poidsPrecedent: v.optional(v.string()),
 		/** Semaine de référence ("yyyy-mm-dd", lundi) pour les événements bilan. */
 		weekStart: v.optional(v.string()),
 	})

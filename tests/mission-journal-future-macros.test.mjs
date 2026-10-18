@@ -169,7 +169,7 @@ test('Compaction phase 2 : en-têtes de repas MAQUETTE CLAUDE (baseline unique)'
 	// la MÊME baseline — jamais une deuxième ligne sous le titre (iPhone).
 	assert.ok(journalDay.includes('grid h-[28px] w-[28px] shrink-0 self-center place-items-center rounded-[9px] bg-brand-light text-brand'), 'badge repas 28px');
 	assert.ok(journalDay.includes('text-[17px] font-black leading-[1.1] tracking-[-0.02em] text-ink'), 'titre repas 17px/900');
-	assert.ok(journalDay.includes('whitespace-nowrap text-[12.5px] font-bold text-brand-deep tabular-nums'), 'métrique kcal · % sur la baseline du titre');
+	assert.ok(journalDay.includes('whitespace-normal text-[12.5px] font-bold text-brand-deep tabular-nums'), 'métrique kcal · % reste lisible et se replie sur petit écran');
 	// L'ancien gabarit « kcal sous le titre » (2e ligne) est bien supprimé.
 	assert.ok(!journalDay.includes('mt-0 leading-[1.35] text-[13px] font-semibold tabular-nums text-brand'), 'ancienne ligne kcal séparée supprimée');
 	// Libellés métier intacts : « x kcal · y % » et « prévues ».

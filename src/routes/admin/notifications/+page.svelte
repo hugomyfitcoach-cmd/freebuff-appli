@@ -1,7 +1,14 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
 	import Icon from '$lib/components/Icon.svelte';
-	import { fmtNotifDate, notifLabel, notifLink, type CoachNotifKind } from '$lib/notifications';
+	import {
+		fmtNotifDate,
+		notifLabel,
+		notifLink,
+		weightTrend,
+		weightTrendUi,
+		type CoachNotifKind
+	} from '$lib/notifications';
 
 	/**
 	 * Ligne du journal : `prenom` porte déjà « Prénom Nom » (la requête
@@ -16,6 +23,9 @@
 		description: string;
 		read: boolean;
 		createdAt: number;
+		/** « nouveau_poids » : poids de la nouvelle pesée + pesée précédente (kg). */
+		poids?: string | null;
+		poidsPrecedent?: string | null;
 	};
 
 	let { data } = $props();
@@ -30,15 +40,15 @@
 	 */
 	const DEMO_ROWS: Row[] = [
 		{ _id: 'demo-1', userId: 'demo', prenom: 'Pauline Debre', kind: 'bilan_envoye', description: 'Pauline a complété son bilan hebdomadaire.', read: false, createdAt: Date.now() - 12 * 60_000 },
-		{ _id: 'demo-2', userId: 'demo', prenom: 'Cristina Sobas', kind: 'nouveau_poids', description: 'Cristina a ajouté un nouveau poids : 62,3 kg (−0,8 kg).', read: false, createdAt: Date.now() - 3_600_000 },
+		{ _id: 'demo-2', userId: 'demo', prenom: 'Cristina Sobas', kind: 'nouveau_poids', description: 'Cristina a ajouté un nouveau poids : 62,3 kg (−0,8 kg).', read: false, createdAt: Date.now() - 3_600_000, poids: '62.3', poidsPrecedent: '63.1' },
 		{ _id: 'demo-3', userId: 'demo', prenom: 'Floriane Baud', kind: 'nouvelles_mesures', description: 'Floriane a ajouté ses mensurations du mois.', read: false, createdAt: Date.now() - 2 * 3_600_000 },
 		{ _id: 'demo-4', userId: 'demo', prenom: 'Marine Labarre', kind: 'rdv_pris', description: 'Marine souhaite planifier un appel de suivi.', read: false, createdAt: Date.now() - 3 * 3_600_000 },
 		{ _id: 'demo-5', userId: 'demo', prenom: 'Estelle Delamare', kind: 'bilan_envoye', description: 'Estelle a complété son bilan hebdomadaire.', read: false, createdAt: Date.now() - 5 * 3_600_000 },
-		{ _id: 'demo-6', userId: 'demo', prenom: 'Léa Fontaine', kind: 'nouveau_poids', description: 'Léa a ajouté un nouveau poids : 68,1 kg (+0,4 kg).', read: false, createdAt: Date.now() - 8 * 3_600_000 },
+		{ _id: 'demo-6', userId: 'demo', prenom: 'Léa Fontaine', kind: 'nouveau_poids', description: 'Léa a ajouté un nouveau poids : 68,1 kg (+0,4 kg).', read: false, createdAt: Date.now() - 8 * 3_600_000, poids: '68.1', poidsPrecedent: '67.7' },
 		{ _id: 'demo-7', userId: 'demo', prenom: 'Julie Marion', kind: 'nouvelles_mesures', description: 'Julie a ajouté ses mensurations.', read: true, createdAt: Date.now() - 26 * 3_600_000 },
 		{ _id: 'demo-8', userId: 'demo', prenom: 'Alice Berthier', kind: 'bilan_envoye', description: 'Alice a complété son bilan mensuel.', read: true, createdAt: Date.now() - 30 * 3_600_000 },
 		{ _id: 'demo-9', userId: 'demo', prenom: 'Sophie Bernard', kind: 'rdv_pris', description: 'Sophie a confirmé son rendez-vous du 25 sept. à 14h.', read: true, createdAt: Date.now() - 2 * 86_400_000 },
-		{ _id: 'demo-10', userId: 'demo', prenom: 'Manon Girard', kind: 'nouveau_poids', description: 'Manon a ajouté un nouveau poids : 59,4 kg.', read: true, createdAt: Date.now() - 3 * 86_400_000 },
+		{ _id: 'demo-10', userId: 'demo', prenom: 'Manon Girard', kind: 'nouveau_poids', description: 'Manon a ajouté un nouveau poids : 59,4 kg.', read: true, createdAt: Date.now() - 3 * 86_400_000, poids: '59.4' },
 		{ _id: 'demo-11', userId: 'demo', prenom: 'Clara Vasseur', kind: 'nouvelles_photos', description: 'Clara a déposé de nouvelles photos de suivi.', read: true, createdAt: Date.now() - 4 * 86_400_000 },
 	];
 	const isDemo = $derived(rows.length === 0);
@@ -85,6 +95,14 @@
 		inactivite: { icon: 'bellOff', tile: 'bg-warn-light text-warn' },
 	};
 	const uiStyle = (kind: CoachNotifKind) => UI_STYLE[kind] ?? { icon: 'bell', tile: 'bg-soft text-ink' };
+	/**
+	 * Pastille d'une LIGNE : « Nouveau poids » porte une tendance factuelle
+	 * (poids vs la pesée chronologiquement précédente enregistrée à
+	 * l'événement) — verte à la baisse, grise si stable, orange à la hausse,
+	 * neutre pour la première pesée. Les autres types gardent leur style.
+	 */
+	const rowStyle = (row: Row) =>
+		row.kind === 'nouveau_poids' ? weightTrendUi(weightTrend(row.poids, row.poidsPrecedent)) : uiStyle(row.kind);
 	const initial = (n: string): string => n.trim().charAt(0).toUpperCase() || '?';
 
 	let busy = $state(false);
@@ -223,7 +241,7 @@
 	{:else}
 		<ul class="divide-y divide-line/70">
 			{#each filteredToConsult as row (row._id)}
-				{@const st = uiStyle(row.kind)}
+				{@const st = rowStyle(row)}
 				{@const done = checked.has(row._id)}
 				<li class="crow-crm flex items-center gap-3 px-4 py-3 {done ? 'opacity-60' : ''}">
 					{#if isDemo}
@@ -299,7 +317,7 @@
 		</div>
 		<ul class="divide-y divide-line/70">
 			{#each filteredViewed as row (row._id)}
-				{@const st = uiStyle(row.kind)}
+				{@const st = rowStyle(row)}
 				<li class="crow-crm flex items-center gap-3 px-4 py-3 opacity-80">
 					{#if isDemo}
 						<span class="flex min-w-0 flex-1 items-center gap-3">

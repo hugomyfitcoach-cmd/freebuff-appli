@@ -6,6 +6,7 @@ import type { Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { getSessionUser } from "./helpers";
 import { offThumb100 } from "../lib/foodImage";
+import { tagFoodImgUrl } from "../lib/foodImgTag";
 
 /**
  * Miroir G-FLUX des miniatures alimentaires (table `foodImageCache`).
@@ -52,7 +53,9 @@ async function mirrorUrlMap(ctx: QueryCtx, offIds: string[]): Promise<Map<string
 			.withIndex("by_offId", (q) => q.eq("offId", offId))
 			.first();
 		if (row?.status === "ready" && row.storageId) {
-			const url = await ctx.storage.getUrl(row.storageId);
+			// Marqueur alimentaire : la seule URL de storage Convex cachable par le
+			// service worker (les photos privées ont la même forme d'URL).
+			const url = tagFoodImgUrl(await ctx.storage.getUrl(row.storageId));
 			if (url) out.set(offId, url);
 		}
 	}

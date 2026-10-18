@@ -2,7 +2,8 @@
   import { invalidateAll } from "$app/navigation";
   import BackToHome from "$lib/components/BackToHome.svelte";
   import Icon from "$lib/components/Icon.svelte";
-  import { parisTodayISO, shiftISO } from "$lib/vision360";
+  import { shiftISO } from "$lib/vision360";
+  import { currentLocalDay } from "$lib/currentDay.svelte";
 
   /** Encadrement objectif — même bornes que le module Convex (500–6000 ml,
     révalidées côté serveur de toute façon). */
@@ -20,7 +21,7 @@
   };
   const history = $derived(data.history as History | null);
 
-  const todayISO = $derived(parisTodayISO());
+  const todayISO = $derived(currentLocalDay());
   const fmt = (n: number) => n.toLocaleString("fr-FR");
 
   /* ————— Totaux par jour ————— */

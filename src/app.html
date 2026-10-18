@@ -19,7 +19,6 @@
 		<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png" />
 		<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
 		<link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
-		<link rel="preconnect" href="https://fonts.googleapis.com" />
 		<script>
 			// Empêche le pincement / double-tap de zoomer : comportement d'app native.
 			// user-scalable=no suffit en mode installé ; ce JS couvre aussi Safari normal.
@@ -42,13 +41,11 @@
 			// Respect natif de prefers-reduced-motion côté CSS.
 			document.documentElement.classList.add('motion-armed');
 		</script>
-		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-		<!-- Lato 400/700/800/900 — le CRM coach utilise 900 (titres, KPI),
-		     700 (boutons, labels, navigation) et 400 (texte courant). -->
-		<link
-			href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;800;900&display=swap"
-			rel="stylesheet"
-		/>
+		<!-- Lato 400/700/900 — auto-hébergée (static/fonts/, @font-face dans
+		     src/routes/layout.css, précache du service worker) : le CRM coach
+		     garde 900 (titres, KPI), 700 (boutons, labels, navigation) et 400
+		     (texte courant), y compris HORS LIGNE — plus aucune dépendance à
+		     fonts.googleapis.com / fonts.gstatic.com. -->
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">

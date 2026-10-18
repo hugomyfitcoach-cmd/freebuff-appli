@@ -4,6 +4,7 @@ import { getSessionUser, localTodayISO } from "./helpers";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { recordEvent } from "./notifications";
+import { previousWeighInKg } from "../lib/notifications";
 
 /**
  * Suivi corporel (progression) : poids, tour de cou, tour de taille et
@@ -171,12 +172,26 @@ function mesuresDescription(m: { neckCm?: number; waistCm?: number; hipCm?: numb
 async function recordCoachNotifs(
 	ctx: Pick<MutationCtx, "db">,
 	userId: Id<"users">,
+	date: string,
 	patch: { weightKg?: number; neckCm?: number; waistCm?: number; hipCm?: number }
 ): Promise<void> {
 	const { weightKg, ...mens } = patch;
 	const hasMens = mens.neckCm !== undefined || mens.waistCm !== undefined || mens.hipCm !== undefined;
 	if (weightKg !== undefined) {
-		await recordEvent(ctx, userId, "nouveau_poids", poidsDescription(weightKg));
+		// Tendance FACTUELLE : comparaison à la pesée chronologiquement
+		// PRÉCÉDENTE de la cliente (par dates effectives — une pesée
+		// rétrodatée reste à sa place ; jamais l'ordre d'affichage des
+		// notifications). Aucune pesée antérieure = première pesée → pas de
+		// poidsPrecedent (pictogramme neutre côté CRM).
+		const rows = await ctx.db.query("bodyMetrics").withIndex("by_user", (q) => q.eq("userId", userId)).collect();
+		const prev = previousWeighInKg(
+			rows.map((r) => ({ date: r.date, weightKg: r.weightKg ?? null })),
+			date
+		);
+		await recordEvent(ctx, userId, "nouveau_poids", poidsDescription(weightKg), {
+			poids: String(weightKg),
+			...(prev !== null ? { poidsPrecedent: String(prev) } : {}),
+		});
 	}
 	if (hasMens) {
 		await recordEvent(ctx, userId, "nouvelles_mesures", mesuresDescription(mens));
@@ -356,7 +371,7 @@ export const upsert = mutation({
 				createdAt: Date.now(),
 			});
 		}
-		await recordCoachNotifs(ctx, user._id, patch);
+		await recordCoachNotifs(ctx, user._id, date, patch);
 		return { ok: true };
 	},
 });
@@ -387,7 +402,7 @@ export const updateOne = mutation({
 		} else {
 			await ctx.db.insert("bodyMetrics", { userId: user._id, date, ...patch, createdAt: Date.now() });
 		}
-		await recordCoachNotifs(ctx, user._id, patch);
+		await recordCoachNotifs(ctx, user._id, date, patch);
 		return { ok: true };
 	},
 });

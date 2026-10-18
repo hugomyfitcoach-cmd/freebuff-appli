@@ -26,6 +26,8 @@
  * calories et protéines ne peuvent pas diverger.
  */
 
+import { wallTimeToUtcMs } from './wallTime';
+
 /* ───────────────────────── Fenêtre temporelle ───────────────────────── */
 
 export const VISION360_TIMEZONE = 'Europe/Paris';
@@ -43,10 +45,24 @@ const parisPartsFmt = new Intl.DateTimeFormat('en-CA', {
  * Date locale "yyyy-mm-dd" DANS LE FUSEAU DE RÉFÉRENCE pour l'instant
  * `ms` — la clé calendaire de la journée parisienne en cours.
  */
+export function dateISOInTimeZone(ms: number, timeZone = VISION360_TIMEZONE): string {
+	const parts = new Intl.DateTimeFormat('en-CA', {
+		timeZone,
+		year: 'numeric',
+		month: '2-digit',
+		day: '2-digit',
+	}).formatToParts(new Date(ms));
+	const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+	return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
 export function parisTodayISO(ms: number = Date.now()): string {
-	const parts = parisPartsFmt.formatToParts(new Date(ms));
-	const g = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
-	return `${g('year')}-${g('month')}-${g('day')}`;
+	return dateISOInTimeZone(ms);
+}
+
+/** Instant UTC du prochain minuit parisien, avec journées DST de 23/25 heures. */
+export function nextParisMidnightUtcMs(nowMs: number = Date.now()): number {
+	return wallTimeToUtcMs(shiftISO(parisTodayISO(nowMs), 1), '00:00', VISION360_TIMEZONE);
 }
 
 function assertISO(iso: string, label: string): void {

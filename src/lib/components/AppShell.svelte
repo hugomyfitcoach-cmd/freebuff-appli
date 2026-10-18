@@ -50,16 +50,41 @@
 
 	/* La navigation mobile cède la place au clavier sans modifier la page active. */
 	let keyboardOpen = $state(false);
-	function syncKeyboardOpen() {
-		const active = document.activeElement;
+	function isEditableElement(active: Element | null): boolean {
 		if (active instanceof HTMLInputElement) {
-			keyboardOpen =
+			return (
 				!active.disabled &&
 				!active.readOnly &&
-				!['button', 'submit', 'reset', 'checkbox', 'radio', 'file', 'image', 'hidden'].includes(active.type);
-			return;
+				!['button', 'submit', 'reset', 'checkbox', 'radio', 'file', 'image', 'hidden'].includes(active.type)
+			);
 		}
-		keyboardOpen = active instanceof HTMLTextAreaElement || active instanceof HTMLSelectElement || (active instanceof HTMLElement && active.isContentEditable);
+		return (
+			active instanceof HTMLTextAreaElement ||
+			active instanceof HTMLSelectElement ||
+			(active instanceof HTMLElement && active.isContentEditable)
+		);
+	}
+	function syncKeyboardOpen() {
+		const fieldFocused = isEditableElement(document.activeElement);
+		const vv = window.visualViewport;
+		/* Sur iOS/Android, lors de la fermeture d'une fiche ou recherche après
+		   validation, l'input est retiré du DOM avant la fin du repli du clavier
+		   (~250-300 ms où visualViewport.height est encore amputé). Tant que le
+		   viewport visible reste réduit de plus de 140 px, le clavier occupe
+		   encore le bas de l'écran : on attend sa fermeture complète avant de
+		   réafficher la barre fixe pour que WebKit ne l'ancre jamais au-dessus
+		   de l'ancien clavier. */
+		const vvShrunk = !!vv && window.innerHeight - vv.height > 140;
+		const next = fieldFocused || vvShrunk;
+		const wasOpen = keyboardOpen;
+		keyboardOpen = next;
+		if (wasOpen && !next) {
+			/* Le clavier vient de se refermer complètement : force WebKit iOS à
+			   réconcilier le layout viewport des éléments position:fixed (bottom:0). */
+			window.requestAnimationFrame(() => {
+				window.scrollTo(window.scrollX, window.scrollY);
+			});
+		}
 	}
 	$effect(() => {
 		if (typeof window === 'undefined') return;
@@ -742,7 +767,7 @@
 		{/if}
 
 		<!-- Espace pour la barre flottante mobile (cliente) — jamais de contenu masqué -->
-		{#if role === 'client' && !keyboardOpen}
+		{#if role === 'client'}
 			<div class="h-[calc(5.25rem+env(safe-area-inset-bottom))] shrink-0 md:hidden" aria-hidden="true"></div>
 		{/if}
 	</div>

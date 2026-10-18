@@ -59,11 +59,7 @@ export const POST: RequestHandler = async (event) => {
 						qtyGrams: Number(p.qtyGrams),
 					}))
 				: undefined,
-			// ⚠️ clientDate (date locale navigateur, fix « date future » la nuit)
-			// DÉSACTIVÉ tant que la mutation `addEntry` n'a pas été poussée sur
-			// Convex prod : l'ancien backend rejette les arguments inconnus.
-			// Réactiver après `npx convex push` :
-			// clientDate: /^\d{4}-\d{2}-\d{2}$/.test(String(body.clientDate ?? '')) ? String(body.clientDate) : undefined,
+			clientDate: typeof body.clientDate === 'string' ? body.clientDate : undefined,
 		});
 		return json(res);
 	} catch (e) {

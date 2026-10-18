@@ -413,7 +413,7 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 		{/if}
 	</div>
 	<div class="flex items-baseline justify-between gap-2 {compact ? 'mt-3 text-[13px]' : 'mt-3 text-[13px]'}">
-		<span class="font-bold tabular-nums {overMaintenance ? 'text-danger' : overGoal ? 'text-warn' : 'text-brand'}">
+		<span class="max-w-full min-w-0 break-words font-bold tabular-nums {overMaintenance ? 'text-danger' : overGoal ? 'text-warn' : 'text-brand'}">
 			{fmt(Math.round(totals.kcal))} kcal consommées{#if plannedKcalTotal > 0}<span class="font-normal text-mist"> · {fmt(plannedKcalTotal)} prévues</span>{/if}
 		</span>
 		<span class="text-right">
@@ -488,11 +488,11 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 					     (Le gabarit « kcal sous le titre » est supprimé : l'écart vs
 					     la maquette était visible sur iPhone. Les tests de compaction
 					     sont mis à jour en conséquence.) -->
-					<h2 class="flex min-w-0 items-center gap-2 whitespace-nowrap">
+					<h2 class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
 						<span aria-hidden="true" class="grid h-[28px] w-[28px] shrink-0 self-center place-items-center rounded-[9px] bg-brand-light text-brand"><Icon name={meal.icon} size={17} /></span>
-						<span class="flex min-w-0 items-baseline gap-2">
-						<span class="text-[17px] font-black leading-[1.1] tracking-[-0.02em] text-ink">{meal.label}</span>
-						<span class="self-baseline whitespace-nowrap text-[12.5px] font-bold text-brand-deep tabular-nums">{#if mealKcal(meal.id) > 0 || plannedKcal === 0}{fmt(mealKcal(meal.id))} kcal · {mealPct(meal.id)} %{#if plannedKcal > 0}<span class="font-normal text-mist">· {fmt(plannedKcal)} prévues</span>{/if}{:else}<span class="inline-block font-normal text-mist">{fmt(plannedKcal)} kcal prévues</span>{/if}</span>
+						<span class="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+						<span class="shrink-0 text-[17px] font-black leading-[1.1] tracking-[-0.02em] text-ink">{meal.label}</span>
+						<span class="max-w-full whitespace-normal text-[12.5px] font-bold text-brand-deep tabular-nums">{#if mealKcal(meal.id) > 0 || plannedKcal === 0}{fmt(mealKcal(meal.id))} kcal · {mealPct(meal.id)} %{#if plannedKcal > 0}<span class="font-normal text-mist">· {fmt(plannedKcal)} prévues</span>{/if}{:else}<span class="inline-block font-normal text-mist">{fmt(plannedKcal)} kcal prévues</span>{/if}</span>
 						</span>
 					</h2>
 				</div>

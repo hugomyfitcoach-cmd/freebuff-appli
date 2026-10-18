@@ -1,5 +1,5 @@
 import { requireClientAccess, requireRole, SESSION_COOKIE } from '$lib/server/session';
-import { convex } from '$lib/server/convex';
+import { convex, withDeadline } from '$lib/server/convex';
 import { api } from '../../convex/_generated/api.js';	/**
 	 * Routes accessibles pendant le HARD LOCK (décision produit : facturation =
 	 * re-souscription ; page de retour Stripe ; déconnexion via ?/logout). Tout
@@ -29,19 +29,22 @@ export const load = async (event) => {
 	// Trace la « dernière connexion » (utilisée pour le tri du CRM coach).
 	// Non bloquant : le dashboard (ligne suivante) est lancé en parallèle.
 	const token = event.cookies.get(SESSION_COOKIE);
-	const touchP = convex.mutation(api.users.touch, { sessionToken: token }).catch(() => {});
-	// État du dashboard (badges de navigation inclus), calculé une seule fois
-	// côté serveur — partagé par le layout (badges) et la page Accueil.
+	// Trace la « dernière connexion » (tri du CRM coach) — opération NON
+	// ESSENTIELLE : bornée pour ne jamais retarder l'affichage de la page si
+	// Convex est lent ou injoignable (repli silencieux).
+	const touchP = withDeadline(convex.mutation(api.users.touch, { sessionToken: token }), 2000).catch(() => {});
+	// État du dashboard (badges de navigation inclus) + photo de profil (avatar
+	// de l'en-tête) : deux lectures INDÉPENDANTES, lancées en parallèle et
+	// bornées — un réseau dégradé les dégrade en null (page utilisable, données
+	// rechargées par les API client) au lieu de figer la navigation.
 	const now = new Date();
 	const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-	const dashboard = await convex
-		.query(api.dashboard.getDashboard, { sessionToken: token, today, now: now.getTime() })
-		.catch(() => null);
-	// Photo de profil (avatar de l'en-tête) : URL signée lue côté serveur —
-	// SSR cohérent avec le menu profil, sans aller-retour navigateur au premier rendu.
-	const profilePhotoUrl = await convex
-		.query(api.users.getProfilePhotoUrl, { sessionToken: token })
-		.catch(() => null);
+	const [dashboard, profilePhotoUrl] = await Promise.all([
+		withDeadline(
+			convex.query(api.dashboard.getDashboard, { sessionToken: token, today, now: now.getTime() })
+		).catch(() => null),
+		withDeadline(convex.query(api.users.getProfilePhotoUrl, { sessionToken: token })).catch(() => null),
+	]);
 	await touchP;
 	// Onboarding installation PWA : après une PREMIÈRE connexion, la cliente
 	// est guidée vers l'installation (jamais en mode standalone — règle gérée

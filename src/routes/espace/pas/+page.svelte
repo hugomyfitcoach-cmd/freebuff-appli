@@ -6,6 +6,7 @@
 	import StepsBars from '$lib/components/StepsBars.svelte';
 	import { avgLast7Completed } from '$lib/averages';
 	import { parisTodayISO, shiftISO } from '$lib/vision360';
+	import { currentLocalDay } from '$lib/currentDay.svelte';
 
 	let { data } = $props();
 	const goal = $derived<number | null>(data.history.goal ?? null);
@@ -20,7 +21,11 @@
 	   parisTodayISO() (Europe/Paris) + le helper partagé — la journée en cours
 	   est incomplète et n'entre JAMAIS dans la moyenne ni le graphique.
 	   Exemple jeudi : du jeudi précédent au mercredi terminé. */
-	const todayISO = $derived(parisTodayISO());
+	const todayISO = $derived(currentLocalDay());
+	const serverTodayISO = $derived(parisTodayISO());
+	$effect(() => {
+		if (todayISO !== serverTodayISO) void invalidateAll();
+	});
 	const windowDays = $derived.by<{ date: string; count: number | null }[]>(() => {
 		const out: { date: string; count: number | null }[] = [];
 		for (let i = 7; i >= 1; i--) {

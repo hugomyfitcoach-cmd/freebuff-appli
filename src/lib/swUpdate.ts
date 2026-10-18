@@ -174,7 +174,7 @@ export function updateErrorMessage(e: unknown): string {
  *
  * MAINTENANT : à chaque ouverture, retour au premier plan
  * (visibilitychange), focus, pageshow (cache bfcache iOS/Android), et une
- * fois par minute au maximum si l'app reste ouverte, on interroge
+ * fois toutes les 5 minutes au maximum si l'app reste ouverte, on interroge
  * /api/app/version avec `cache: 'no-store'` et l'empreinte de build de la
  * page (en-tête `x-app-build`). Le serveur répond `buildOutdated` dès qu'un
  * nouveau frontend est déployé — sans dépendre du cycle SW — et
@@ -185,7 +185,9 @@ export function updateErrorMessage(e: unknown): string {
  *
  * Garde anti-doublon : un seul appel réseau à la fois (inflight partagé),
  * et jamais plus d'une fois par 60 s (les événements se chevauchent au
- * réveil de l'app : visibilitychange + focus + pageshow). Aucun risque de
+ * réveil de l'app : visibilitychange + focus + pageshow). Le filet
+ * périodique, lui, n'est plus que de 5 min — c'est lui qui dominait la
+ * consommation serveur. Aucun risque de
  * marteler le serveur, aucun risque de perdre une saisie : on ne touche
  * qu'à l'état du bandeau et au service worker, jamais au DOM ni aux
  * formulaires. */
@@ -196,8 +198,10 @@ let lastCheckAt = 0;
 /** Anti-doublon : visibilitychange + focus + pageshow se déclenchent
  *  ensemble au réveil — un seul appel réseau par minute suffit. */
 const MIN_CHECK_INTERVAL_MS = 60_000;
-/** Filet périodique si l'app reste ouverte des heures au premier plan. */
-const PERIODIC_CHECK_MS = 60_000;
+/** Filet périodique si l'app reste ouverte des heures au premier plan.
+ *  5 min (et non 60 s) : les checks immédiats (focus / visibilité / pageshow)
+ *  restent inchangés — seul le filet automatique est espacé. */
+const PERIODIC_CHECK_MS = 300_000;
 
 /** Vérifie le serveur : nouveau build déployé ? Contrat API périmé ? */
 async function checkCompatOnce(): Promise<void> {
@@ -250,7 +254,7 @@ function checkAppVersion(force = false): void {
 /**
  * Démarre la veille (idempotent — appelé au montage AppShell).
  * Déclencheurs : ouverture, visibilitychange (retour au premier plan),
- * focus, pageshow (bfcache), + filet périodique toutes les minutes.
+ * focus, pageshow (bfcache), + filet périodique toutes les 5 minutes.
  */
 export function startCompatWatch(): void {
 	if (compatWatchStarted || typeof window === 'undefined') return;

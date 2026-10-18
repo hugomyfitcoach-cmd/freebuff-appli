@@ -24,6 +24,13 @@ import {
 	stepsAverages,
 } from "../lib/vision360";
 import { kcalGoalForDate, withCurrentGoal } from "../lib/goalHistory";
+import {
+	coachMessageFresh,
+	coachMessageUnread,
+	driveUnreadCount,
+	isUnreadFeedback,
+} from "../lib/notificationFreshness";
+import { recordClientEvent } from "./notifications";
 
 /**
  * Dashboard « Accueil » de l'espace cliente.
@@ -70,6 +77,54 @@ function hasMensuration(m: Doc<"bodyMetrics">): boolean {
 	return m.waistCm != null || m.hipCm != null || m.neckCm != null;
 }
 
+/** Rappel 12 h (état DÉRIVÉ, §29/§31) — exposé tel quel par getDashboard. */
+type AppointmentReminder = {
+	appointmentId: string;
+	date: string;
+	time: string;
+	endTime: string;
+	kind: string;
+	startAtMs: number;
+	bookingSource: "coach" | "client" | null;
+};
+
+/**
+ * Rappel 12 h du prochain rendez-vous — RÈGLE UNIQUE partagée entre
+ * getDashboard (carte Accueil + badge) et notificationCounts (état /api/live) :
+ * le PLUS PROCHE rendez-vous futur confirmé (jamais un autre, jamais un RDV
+ * annulé ni passé) est seul testé, puis la fenêtre 12 h s'applique sur lui.
+ * Source de vérité : startAt + status du rendez-vous G-FLUX — aucun état de
+ * rappel stocké. Indépendant du push (§24).
+ */
+function appointmentReminderOf(
+	apptRows: Doc<"appointments">[],
+	ts: number,
+	autonomy: boolean
+): AppointmentReminder | null {
+	let nextStartMs = Number.POSITIVE_INFINITY;
+	let nextAppt: Doc<"appointments"> | null = null;
+	for (const a of apptRows) {
+		if (a.status !== "on_book") continue; // annulé → jamais de rappel (§28)
+		const startAtMs = wallTimeToUtcMs(a.date, a.time, "Europe/Paris");
+		if (!Number.isFinite(startAtMs)) continue;
+		if (startAtMs <= ts || startAtMs >= nextStartMs) continue;
+		nextStartMs = startAtMs;
+		nextAppt = a;
+	}
+	if (nextAppt && !autonomy && nextStartMs - ts <= 12 * 3600 * 1000) {
+		return {
+			appointmentId: nextAppt._id,
+			date: nextAppt.date,
+			time: nextAppt.time,
+			endTime: nextAppt.endTime,
+			kind: nextAppt.kind,
+			startAtMs: nextStartMs,
+			bookingSource: nextAppt.bookingSource ?? null,
+		};
+	}
+	return null;
+}
+
 /**
  * État complet du dashboard de la cliente connectée.
  * `today`/`now` sont passés par le loader SvelteKit (fuseau serveur) pour
@@ -101,14 +156,10 @@ export const getDashboard = query({
 		   LOCAL DE LA CLIENTE suivant la publication (jamais le minuit serveur/UTC).
 		   Replis compat : messages antérieurs au passage en horodatage = 24 h fixes,
 		   puis (pré-timestamp) = jour exact — jamais de message périmé qui ressortirait. */
-		const MSG_TTL_MS = 24 * 3600 * 1000;
 		const msgAt = user.coachMessageAt ?? null;
-		const msgExp = user.coachMessageExpiresAt ?? null;
-		const msgFresh = msgExp
-			? ts < msgExp
-			: msgAt
-				? ts - msgAt < MSG_TTL_MS
-				: user.coachMessageDate === day;
+		// Fraîcheur : RÈGLE UNIQUE partagée avec notificationCounts (badge
+		// /api/live) via lib/notificationFreshness — jamais deux définitions.
+		const msgFresh = coachMessageFresh(user, ts, day);
 		let coachMessage: {
 			date: string;
 			text: string | null;
@@ -228,9 +279,8 @@ export const getDashboard = query({
 		/* ── Retours coach publiés : chaque retour non consulté compte réellement
 		   (jamais un simple « 1 » codé en dur) ── */
 		const withReturn = checkins.filter((c) => c.status === "retour_envoye");
-		const unreadReturns = withReturn.filter(
-			(c) => c.feedbackReadAt == null || c.feedbackReadAt < (c.feedbackAt ?? c._creationTime)
-		);
+		// Non-lu : RÈGLE UNIQUE partagée avec notificationCounts.
+		const unreadReturns = withReturn.filter(isUnreadFeedback);
 		const unreadCount = unreadReturns.length;
 		const latestFeedback = (unreadReturns[0] ?? withReturn[0]) ?? null;
 
@@ -285,38 +335,8 @@ export const getDashboard = query({
 			.withIndex("by_client", (q) => q.eq("clientId", user._id))
 			.order("desc")
 			.take(100);
-		let appointmentReminder: {
-			appointmentId: string;
-			date: string;
-			time: string;
-			endTime: string;
-			kind: string;
-			startAtMs: number;
-			bookingSource: "coach" | "client" | null;
-		} | null = null;
-		// Le PLUS PROCHE rendez-vous futur confirmé (jamais un autre, jamais un
-		// RDV annulé ni passé), puis test de la fenêtre 12 h sur lui seul.
-		let nextStartMs = Number.POSITIVE_INFINITY;
-		let nextAppt: Doc<"appointments"> | null = null;
-		for (const a of apptRows) {
-			if (a.status !== "on_book") continue; // annulé → jamais de rappel (§28)
-			const startAtMs = wallTimeToUtcMs(a.date, a.time, "Europe/Paris");
-			if (!Number.isFinite(startAtMs)) continue;
-			if (startAtMs <= ts || startAtMs >= nextStartMs) continue;
-			nextStartMs = startAtMs;
-			nextAppt = a;
-		}
-		if (nextAppt && !autonomy && nextStartMs - ts <= 12 * 3600 * 1000) {
-			appointmentReminder = {
-				appointmentId: nextAppt._id,
-				date: nextAppt.date,
-				time: nextAppt.time,
-				endTime: nextAppt.endTime,
-				kind: nextAppt.kind,
-				startAtMs: nextStartMs,
-				bookingSource: nextAppt.bookingSource ?? null,
-			};
-		}
+		// RÈGLE UNIQUE : appointmentReminderOf, partagée avec notificationCounts.
+		const appointmentReminder = appointmentReminderOf(apptRows, ts, autonomy);
 
 		/* ── Drive non lu : contenus partagés depuis la dernière consultation ──
 		   de la section Ressources. La comparaison sharedAt > resourcesSeenAt
@@ -437,7 +457,7 @@ export const getDashboard = query({
 				// « retours » = uniquement les retours coach non consultés (page Mes bilans).
 				retours: unreadCount,
 				// « message » = message du coach du jour non encore marqué « Vu » par la cliente.
-				message: msgFresh && (msgAt ? (user.coachMessageReadAt ?? 0) < msgAt : false) ? 1 : 0,
+				message: coachMessageUnread(user, ts, day) ? 1 : 0,
 				// « progression » = échéances affichées (mensurations + photos) : les
 				// reports « Me le rappeler plus tard » (48 h) débranche aussi le badge.
 				progression: (measurementsDueShown ? 1 : 0) + (photosDueShown ? 1 : 0),
@@ -446,7 +466,7 @@ export const getDashboard = query({
 			reminder: appointmentReminder ? 1 : 0,
 			// « drive » = contenus du Dossier partagés depuis la dernière
 			// consultation de la section Ressources (sharedAt > resourcesSeenAt).
-			drive: sharedRows.filter((r) => (r.sharedAt ?? 0) > (user.resourcesSeenAt ?? 0)).length,
+			drive: driveUnreadCount(sharedRows, user.resourcesSeenAt),
 		},
 		};
 	},
@@ -471,38 +491,54 @@ export const notificationCounts = query({
 	handler: async (ctx, { sessionToken }) => {
 		const user = await requireClient(ctx, sessionToken);
 
-		// Retours de bilan publiés non lus (même règle que getDashboard).
+		const ts = Date.now();
+		const day = localTodayISO(new Date(ts));
+		const autonomy = (user.coachingMode ?? "coaching") === "autonomy";
+
+		// Retours de bilan publiés non lus — RÈGLES UNIQUES partagées avec
+		// getDashboard via lib/notificationFreshness (badge ↔ cartes cohérents).
 		const checkins = await ctx.db
 			.query("checkins")
 			.withIndex("by_user_week", (q) => q.eq("userId", user._id))
 			.collect();
-		const retours = checkins.filter(
-			(c) =>
-				c.status === "retour_envoye" &&
-				(c.feedbackReadAt == null || c.feedbackReadAt < (c.feedbackAt ?? c._creationTime))
-		).length;
+		const retours = checkins.filter(isUnreadFeedback).length;
 
 		// Message du coach du jour : non lu seulement si encore frais (éphémère).
-		const msgAt = user.coachMessageAt ?? null;
-		const msgFresh = user.coachMessageExpiresAt
-			? Date.now() < user.coachMessageExpiresAt
-			: msgAt
-				? Date.now() - msgAt < 24 * 3600 * 1000
-				: user.coachMessageDate === localTodayISO(new Date());
-		const message = msgFresh && msgAt ? ((user.coachMessageReadAt ?? 0) < msgAt ? 1 : 0) : 0;
+		const message = coachMessageUnread(user, ts, day) ? 1 : 0;
 
 		// Drive : contenus partagés après la dernière consultation de la section.
 		const shared = await ctx.db
 			.query("coachResources")
 			.withIndex("by_user", (q) => q.eq("userId", user._id))
 			.collect();
-		const drive = shared.filter(
-			(r) => r.visibility === "shared" && (r.sharedAt ?? 0) > (user.resourcesSeenAt ?? 0)
-		).length;
+		const drive = driveUnreadCount(shared, user.resourcesSeenAt);
 		// (sharedAt est optionnel : les contenus jamais partagés ou partagés
 		// avant la migration n'en ont pas — ils ne comptent jamais comme non-lus.)
 
-		return { retours, message, drive, total: retours + message + drive };
+		/* ── Notifications liées à une heure (types 1 & 5) : état exposé dans
+		   /api/live. Le poller rafraîchit l'Accueil à la transition false → true
+		   pour qu'elles apparaissent à l'heure prévue — même signal que le badge.
+		   Règles identiques à getDashboard (mêmes helpers partagés). */
+		const weekStart = mondayISOof(day);
+		const bilanDue =
+			!autonomy && isBilanWindowOpen(new Date(ts)) && !checkins.some((c) => c.weekStart === weekStart);
+		const apptRows = await ctx.db
+			.query("appointments")
+			.withIndex("by_client", (q) => q.eq("clientId", user._id))
+			.order("desc")
+			.take(100);
+		const reminder = appointmentReminderOf(apptRows, ts, autonomy) !== null;
+
+		return {
+			retours,
+			message,
+			drive,
+			total: retours + message + drive,
+			/** Fenêtre du bilan ouverte ET semaine non soumise (type 1). */
+			bilanDue,
+			/** Rappel 12 h actif avant un appel réservé (type 5). */
+			reminder,
+		};
 	},
 });
 
@@ -666,15 +702,22 @@ export const myCoachMessages = query({
  * Identité publique de la coach pour la cliente (prénom + photo de profil du
  * CRM). Lecture seule : aucune donnée de la coach n'est modifiée, et la photo
  * est celle déjà configurée dans son profil (même stockage que les clientes).
+ *
+ * Le coach RATTACHÉ à la cliente (compte créé par ce coach — `createdBy`)
+ * est prioritaire ; à défaut, le compte coach unique. Une seule source
+ * d'identité pour tous les écrans (avatar toujours le même).
  */
 export const myCoachProfile = query({
 	args: { sessionToken: v.optional(v.string()) },
 	handler: async (ctx, { sessionToken }) => {
-		await requireClient(ctx, sessionToken);
-		const coach = await ctx.db
-			.query("users")
-			.filter((q) => q.eq(q.field("role"), "coach"))
-			.first();
+		const me = await requireClient(ctx, sessionToken);
+		let coach = me.createdBy ? await ctx.db.get(me.createdBy) : null;
+		if (!coach || coach.role !== "coach") {
+			coach = await ctx.db
+				.query("users")
+				.filter((q) => q.eq(q.field("role"), "coach"))
+				.first();
+		}
 		if (!coach) return null;
 		const profilePhotoUrl = coach.profilePhotoStorageId
 			? ((await ctx.storage.getUrl(coach.profilePhotoStorageId)) ?? null)
@@ -735,6 +778,9 @@ export const setCoachMessage = mutation({
 				coachMessageReadAt: undefined,
 				coachMessageAudioId: undefined,
 			});
+			// Mécanisme central : badge ET carte « Ton coach » disparaissent sur le
+			// même signal (poller /api/live → onLiveEvent → Accueil rafraîchi).
+			await recordClientEvent(ctx, userId, "coach_message_removed");
 		} else {
 			// Minuit local de la cliente après cette publication (fuseau IANA stocké,
 			// Europe/Paris par défaut) — l'éphémère suit SON jour, pas un créneau fixe.
@@ -764,6 +810,9 @@ export const setCoachMessage = mutation({
 				publishedDay: today,
 				readAt: undefined,
 			});
+			// Mécanisme central : badge ET carte « Ton coach » apparaissent sur le
+			// même signal (poller /api/live → onLiveEvent → Accueil rafraîchi).
+			await recordClientEvent(ctx, userId, "coach_message", trimmed ? trimmed : "Message vocal");
 		}
 		return { ok: true, hasText: !!trimmed, hasAudio: !!newAudioId };
 	},
@@ -860,6 +909,9 @@ async function stampBroadcastToClient(
 		broadcastId: b._id,
 	};
 	await ctx.db.insert("coachMessages", log);
+	// Même signal que le message personnel : badge + carte « Ton coach »
+	// synchronisés (poller /api/live → onLiveEvent).
+	await recordClientEvent(ctx, u._id, "coach_message", b.text);
 	return true;
 }
 
@@ -972,6 +1024,8 @@ export const withdrawCoachBroadcast = mutation({
 					coachMessageReadAt: undefined,
 					coachMessageAudioId: undefined,
 				});
+				// Retrait groupé : badge + carte disparaissent sur le même signal.
+				await recordClientEvent(ctx, userId, "coach_message_removed");
 			}
 		}
 		const rows = await ctx.db

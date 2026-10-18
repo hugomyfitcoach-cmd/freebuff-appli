@@ -72,6 +72,62 @@ export function notifStyle(kind: CoachNotifKind): { icon: string; text: string; 
 	return STYLE_BY_KIND[kind] ?? { icon: 'bell', text: 'text-mist', bg: 'bg-line' };
 }
 
+/* ── Tendance des notifications « Nouveau poids » (module PUR) ──
+   La tendance compare la nouvelle pesée à la pesée chronologiquement
+   PRÉCÉDENTE de la cliente — par dates effectives, jamais par ordre
+   d'affichage des notifications. */
+
+export type WeightTrend = 'down' | 'flat' | 'up' | 'first';
+
+/** Parse une valeur kg (« 62,4 » / "62.4" / 62.4) — null si inexploitable. */
+const toKg = (v: string | number | null | undefined): number | null => {
+	if (v == null) return null;
+	const n = typeof v === 'number' ? v : parseFloat(String(v).replace(',', '.'));
+	return isFinite(n) ? n : null;
+};
+
+/**
+ * Tendance FACTUELLE : poids inférieur → 'down' (flèche verte), identique →
+ * 'flat' (flèche grise), supérieur → 'up' (flèche orange). Sans pesée
+ * précédente (première pesée / historique absent) → 'first' (neutre).
+ */
+export function weightTrend(
+	poids: string | number | null | undefined,
+	poidsPrecedent: string | number | null | undefined
+): WeightTrend {
+	const cur = toKg(poids);
+	const prev = toKg(poidsPrecedent);
+	if (cur === null || prev === null) return 'first';
+	if (cur < prev) return 'down';
+	if (cur > prev) return 'up';
+	return 'flat';
+}
+
+/** Pastille/icône de la tendance (mêmes jetons UI que les notifications). */
+export function weightTrendUi(trend: WeightTrend): { icon: string; tile: string } {
+	if (trend === 'down') return { icon: 'trendingDown', tile: 'bg-brand-light text-brand-deep' };
+	if (trend === 'up') return { icon: 'trendingUp', tile: 'bg-warn-light text-warn' };
+	if (trend === 'flat') return { icon: 'minus', tile: 'bg-soft text-mist' };
+	return { icon: 'scale', tile: 'bg-soft text-mist' };
+}
+
+/**
+ * Pesée chronologiquement PRÉCÉDENTE d'une date (strictement antérieure) :
+ * tri par DATE effective des pesées, jamais par ordre d'insertion — une
+ * pesée rétrodatée reste à sa place. Les lignes sans poids sont ignorées.
+ * Null = historique absent (première pesée).
+ */
+export function previousWeighInKg(
+	rows: { date: string; weightKg?: number | null }[],
+	date: string
+): number | null {
+	const sorted = rows
+		.filter((r) => r.weightKg != null && isFinite(r.weightKg) && r.date < date)
+		.sort((a, b) => a.date.localeCompare(b.date));
+	if (sorted.length === 0) return null;
+	return sorted[sorted.length - 1].weightKg as number;
+}
+
 /** « Aujourd'hui 14:32 » / « hier 09:05 » / « ven. 5 sept. 18:40 ». */
 export function fmtNotifDate(ts: number): string {
 	const d = new Date(ts);
