@@ -702,15 +702,22 @@ export const myCoachMessages = query({
  * Identité publique de la coach pour la cliente (prénom + photo de profil du
  * CRM). Lecture seule : aucune donnée de la coach n'est modifiée, et la photo
  * est celle déjà configurée dans son profil (même stockage que les clientes).
+ *
+ * Le coach RATTACHÉ à la cliente (compte créé par ce coach — `createdBy`)
+ * est prioritaire ; à défaut, le compte coach unique. Une seule source
+ * d'identité pour tous les écrans (avatar toujours le même).
  */
 export const myCoachProfile = query({
 	args: { sessionToken: v.optional(v.string()) },
 	handler: async (ctx, { sessionToken }) => {
-		await requireClient(ctx, sessionToken);
-		const coach = await ctx.db
-			.query("users")
-			.filter((q) => q.eq(q.field("role"), "coach"))
-			.first();
+		const me = await requireClient(ctx, sessionToken);
+		let coach = me.createdBy ? await ctx.db.get(me.createdBy) : null;
+		if (!coach || coach.role !== "coach") {
+			coach = await ctx.db
+				.query("users")
+				.filter((q) => q.eq(q.field("role"), "coach"))
+				.first();
+		}
 		if (!coach) return null;
 		const profilePhotoUrl = coach.profilePhotoStorageId
 			? ((await ctx.storage.getUrl(coach.profilePhotoStorageId)) ?? null)
