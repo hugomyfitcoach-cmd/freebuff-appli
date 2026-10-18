@@ -82,7 +82,11 @@ const BORNES = {
 	tourTaille: { min: 30, max: 250, label: '30 à 250 cm' },
 	hanches: { min: 30, max: 250, label: '30 à 250 cm' },
 	supplement: { min: 0, max: 5, label: '0 à 5 de coefficient' },
-	masseMaigre: { min: 5, max: 300, label: '5 à 300 kg' }
+	masseMaigre: { min: 5, max: 300, label: '5 à 300 kg' },
+	bpm: { min: 30, max: 240, label: '30 à 240 BPM' },
+	coutHoraire: { min: 1, max: 15, label: '1 à 15 kcal/kg/heure' },
+	budgetSemaine: { min: 0, max: 140_000, label: '0 à 140 000 kcal' },
+	deficitPct: { min: 0, max: 20, label: '0 à 20 % (0 = maintenance)' }
 } as const;
 
 type Bornes = { min: number; max: number; label: string };
@@ -501,5 +505,393 @@ export function profilCalibrage(entree: EntreeProfil): ProfilCalibrage {
 		seuilDisponibiliteBasKcal: seuils.bas,
 		vitesseMaxAlpertKgSemaine: vitesses.alpertKgSemaine,
 		vitesseMaxMacdonaldKgSemaine: vitesses.macdonaldKgSemaine
+	};
+}
+
+/* ───────────────── 8 · Dépense d'une séance sportive ───────────────── */
+
+/**
+ * Coûts horaires fixes du barème G-FLUX (kcal par kg et par heure) :
+ * musculation récréative 2,2 · musculation intensive 4,4 · séance du programme
+ * G-FLUX 3,3. Le cardio dépend de la fréquence cardiaque : voir `BANDES_CARDIO`.
+ */
+export const COUT_SPORT = {
+	musculationRecreative: 2.2,
+	musculationIntensive: 4.4,
+	seanceGflux: 3.3,
+	/** Plafond cardio, appliqué au-delà de 180 BPM. */
+	cardioPlafond: 8.8
+} as const;
+
+/**
+ * Bandes cardio du barème : la borne BASSE est incluse, la borne haute est
+ * exclue (`bpmMaxExcl`), sauf pour la dernière bande (au-delà de 180 BPM), qui
+ * plafonne à 8,8. `min`/`max` encadrent le coût horaire (kcal/kg/heure) et
+ * `defaut` est la valeur retenue quand aucun coût précis n'est fourni :
+ *  - moins de 130 BPM : 3,3 à 4,3 (défaut 3,8) ;
+ *  - 130 à moins de 150 BPM : 4,4 à 6,6 (défaut 5,5) ;
+ *  - 150 à moins de 160 BPM : 6,6 (valeur unique) ;
+ *  - 160 à 180 BPM inclus : 6,6 à 8,8 (défaut 7,7) ;
+ *  - au-delà de 180 BPM : plafond 8,8 (défaut 8,8).
+ *
+ * Chaque bande porte un `id` stable (saisie cliente : choix de zone) et
+ * l'intensité RESSENTIE équivalente (affichage sans cardiofréquencemètre).
+ */
+export const BANDES_CARDIO = [
+	{ id: 'sous-130', intensite: 'Légère', bpmMin: 0, bpmMaxExcl: 130, min: 3.3, max: 4.3, defaut: 3.8, libelle: 'moins de 130 BPM' },
+	{ id: '130-150', intensite: 'Modérée', bpmMin: 130, bpmMaxExcl: 150, min: 4.4, max: 6.6, defaut: 5.5, libelle: '130 à moins de 150 BPM' },
+	{ id: '150-160', intensite: 'Soutenue', bpmMin: 150, bpmMaxExcl: 160, min: 6.6, max: 6.6, defaut: 6.6, libelle: '150 à moins de 160 BPM' },
+	{ id: '160-180', intensite: 'Intense', bpmMin: 160, bpmMaxExcl: 181, min: 6.6, max: 8.8, defaut: 7.7, libelle: '160 à 180 BPM' },
+	{ id: 'plus-180', intensite: 'Très intense', bpmMin: 181, bpmMaxExcl: Number.POSITIVE_INFINITY, min: 6.6, max: 8.8, defaut: 8.8, libelle: 'plus de 180 BPM (plafond 8,8)' }
+] as const;
+
+export type BandeCardio = (typeof BANDES_CARDIO)[number];
+
+/** Identifiants des zones cardio (choix de zone en saisie cliente). */
+export const ZONES_CARDIO_IDS = BANDES_CARDIO.map((b) => b.id);
+
+/**
+ * Zone cardio par identifiant (`sous-130` … `plus-180`) — refus explicite d'un
+ * identifiant inconnu plutôt qu'une zone silencieusement choisie à la place.
+ */
+export function zoneCardioParId(id: string): BandeCardio {
+	const zone = BANDES_CARDIO.find((b) => b.id === id);
+	if (!zone) {
+		throw new CalibrageError(
+			`Zone cardio inconnue : ${ZONES_CARDIO_IDS.map((z) => `« ${z} »`).join(', ')} attendu (reçu « ${String(id)} »).`
+		);
+	}
+	return zone;
+}
+
+/** Intensités de la musculation saisie à la main (récréative / intensive). */
+export const INTENSITES_MUSCULATION = ['recreative', 'intensive'] as const;
+
+/** Bande cardio d'une fréquence cardiaque (bornes vérifiées par l'appelant). */
+export function bandeCardio(bpm: number): BandeCardio {
+	const frequence = verifier(bpm, 'Fréquence cardiaque', BORNES.bpm);
+	for (const bande of BANDES_CARDIO) {
+		if (frequence >= bande.bpmMin && frequence < bande.bpmMaxExcl) return bande;
+	}
+	/* Inatteignable : la dernière bande n'a pas de borne haute. */
+	throw new CalibrageError(`Fréquence cardiaque hors barème (reçu ${frequence} BPM).`);
+}
+
+/**
+ * Une séance du barème : musculation (récréative par défaut), séance du
+ * programme G-FLUX, ou cardio décrit par sa fréquence cardiaque. Pour le
+ * cardio, `coefficientKcalKgH` permet de préciser le coût DANS la bande
+ * (ex. 4,3 pour un cardio sous 130 BPM) ; hors bande, le refus est explicite.
+ */
+export type EntreeCoutSportif =
+	| { sport: 'musculation'; intensite?: 'recreative' | 'intensive' }
+	| { sport: 'gflux' }
+	| { sport: 'cardio'; bpm: number; coefficientKcalKgH?: number };
+
+export type CoutSportif = {
+	/** Coût horaire retenu (kcal/kg/heure). */
+	coefficientKcalKgH: number;
+	/** Bande cardio utilisée (null pour musculation et séance G-FLUX). */
+	bande: BandeCardio | null;
+	/** Libellé lisible de la règle appliquée (traçabilité UI / coach). */
+	libelle: string;
+};
+
+/**
+ * Coût horaire d'une séance selon le barème (kcal/kg/heure). Les valeurs par
+ * défaut sont celles du barème ; un coût précis n'est accepté que s'il tombe
+ * DANS la bande de la séance (aucune valeur inventée hors barème).
+ */
+export function coutSportif(entree: EntreeCoutSportif): CoutSportif {
+	switch (entree.sport) {
+		case 'musculation': {
+			const intensite = entree.intensite ?? 'recreative';
+			if (intensite === INTENSITES_MUSCULATION[0]) {
+				return {
+					coefficientKcalKgH: COUT_SPORT.musculationRecreative,
+					bande: null,
+					libelle: 'Musculation récréative (2,2 kcal/kg/h)'
+				};
+			}
+			if (intensite === INTENSITES_MUSCULATION[1]) {
+				return {
+					coefficientKcalKgH: COUT_SPORT.musculationIntensive,
+					bande: null,
+					libelle: 'Musculation intensive (4,4 kcal/kg/h)'
+				};
+			}
+			throw new CalibrageError(
+				`Intensité de musculation inconnue : « recreative » ou « intensive » attendu (reçu « ${String(intensite)} »).`
+			);
+		}
+		case 'gflux':
+			return {
+				coefficientKcalKgH: COUT_SPORT.seanceGflux,
+				bande: null,
+				libelle: 'Séance du programme G-FLUX (3,3 kcal/kg/h)'
+			};
+		case 'cardio': {
+			const bande = bandeCardio(entree.bpm);
+			const precis = entree.coefficientKcalKgH;
+			if (precis === undefined || precis === null) {
+				return {
+					coefficientKcalKgH: bande.defaut,
+					bande,
+					libelle: `Cardio ${bande.libelle} (${bande.defaut} kcal/kg/h)`
+				};
+			}
+			verifier(precis, 'Coût horaire du cardio', {
+				min: bande.min,
+				max: bande.max,
+				label: `${bande.min} à ${bande.max} kcal/kg/heure (cardio ${bande.libelle})`
+			});
+			return {
+				coefficientKcalKgH: precis,
+				bande,
+				libelle: `Cardio ${bande.libelle} (${precis} kcal/kg/h précisé)`
+			};
+		}
+		default: {
+			const inconnu = entree as { sport?: unknown };
+			throw new CalibrageError(
+				`Sport inconnu : « musculation », « gflux » ou « cardio » attendu (reçu « ${String(inconnu.sport)} »).`
+			);
+		}
+	}
+}
+
+/**
+ * Dépense d'une séance = coût horaire (kcal/kg/heure) × poids × heures,
+ * arrondie au kcal. Une durée nulle donne 0 kcal (séance non renseignée),
+ * jamais un refus : l'appelant peut simplement ne rien compter.
+ */
+export function depenseSeanceKcal(entree: {
+	coefficientKcalKgH: number;
+	poidsKg: number;
+	heures: number;
+}): number {
+	const coefficient = verifier(entree.coefficientKcalKgH, 'Coût horaire', BORNES.coutHoraire);
+	const poids = verifier(entree.poidsKg, 'Poids', BORNES.poids);
+	const heures = verifier(entree.heures, 'Durée', BORNES.heures);
+	return Math.round(coefficient * poids * heures);
+}
+
+/**
+ * Dépense d'une séance décrite par son barème (musculation / G-FLUX / cardio) :
+ * `coutSportif()` puis `depenseSeanceKcal()`. Repère : 1 h de musculation
+ * récréative à 56,6 kg → 2,2 × 56,6 × 1 = 124,52 → 125 kcal.
+ */
+export function depenseSportiveKcal(
+	entree: EntreeCoutSportif & { poidsKg: number; heures: number }
+): number {
+	return depenseSeanceKcal({
+		coefficientKcalKgH: coutSportif(entree).coefficientKcalKgH,
+		poidsKg: entree.poidsKg,
+		heures: entree.heures
+	});
+}
+
+/* ───────────────── 9 · Semaine sportive : sport, budget, objectif ───────────────── */
+
+/**
+ * Sport de la semaine = SOMME des dépenses des séances (kcal). Une liste vide
+ * vaut 0 (semaine sans sport) ; chaque dépense est vérifiée (bornes kcal),
+ * jamais une somme silencieusement faussée par une valeur aberrante.
+ */
+export function sportSemaineKcal(depensesKcal: number[]): number {
+	if (!Array.isArray(depensesKcal)) {
+		throw new CalibrageError('Sport de la semaine invalide : la liste des séances est attendue.');
+	}
+	let total = 0;
+	depensesKcal.forEach((depense, index) => {
+		total += verifier(depense, `Dépense de la séance ${index + 1}`, BORNES.kcal);
+	});
+	return arrondi(total, 2);
+}
+
+/**
+ * Budget de la semaine = 7 × maintenance sans exercice + sport de la semaine.
+ *
+ * La maintenance est celle `sans exercice` (`maintenanceKcal`), multipliée par
+ * les 7 jours de la semaine ; la dépense sportive réelle vient s'y AJOUTER,
+ * puisque l'exercice est compté à part du mode de vie. Arrondi à 2 décimales
+ * (la maintenance peut l'être : 1 500,36 → 10 502,52).
+ */
+export function budgetSemaineKcal(entree: {
+	maintenanceSansExercice: number;
+	sportSemaineKcal?: number;
+}): number {
+	const maintenance = verifier(
+		entree.maintenanceSansExercice,
+		'Maintenance sans exercice',
+		BORNES.kcal
+	);
+	const sport = verifierOption(entree.sportSemaineKcal, 'Sport de la semaine', BORNES.kcal, 0);
+	return arrondi(JOURS_SEMAINE * maintenance + sport, 2);
+}
+
+/**
+ * Objectif de la semaine = budget × (1 − déficit choisi), le déficit étant
+ * exprimé en POUR CENT du budget (défaut 0 : budget intégralement consommable,
+ * c'est-à-dire maintenance). Borné à 0–20 % ; au-delà de 15 % un avertissement
+ * explicite accompagne le résultat (`bilanObjectifSemaine`). Arrondi au kcal.
+ * Repère : budget 11 487 kcal et 20 % de déficit → 9 190 kcal.
+ */
+export function objectifSemaineKcal(entree: {
+	budgetSemaineKcal: number;
+	deficitPct?: number;
+}): number {
+	const budget = verifier(entree.budgetSemaineKcal, 'Budget de la semaine', BORNES.budgetSemaine);
+	const deficit = verifierOption(entree.deficitPct, 'Déficit choisi', BORNES.deficitPct, 0);
+	return Math.round(budget * (1 - deficit / 100));
+}
+
+/** Déficit hebdomadaire au-delà duquel un avertissement est délivré (%). */
+export const DEFICIT_PCT_AVERTISSEMENT = 15;
+
+export type BilanObjectifSemaine = {
+	/** Budget de la semaine (kcal) — 7 × maintenance sans exercice + sport. */
+	budgetSemaineKcal: number;
+	/** Déficit choisi (% du budget, 0 = maintenance). */
+	deficitPct: number;
+	/** Déficit de la semaine (kcal) = budget − objectif. */
+	deficitSemaineKcal: number;
+	/** Objectif de la semaine (kcal) — arrondi au kcal. */
+	objectifSemaineKcal: number;
+	/** Perte de graisse estimée (kg/semaine) = déficit semaine / 7 700. */
+	perteGraisseKg: number;
+	/** Avertissement au-delà de 15 % de déficit (null sinon). */
+	avertissement: string | null;
+};
+
+/**
+ * Bilan complet de l'objectif hebdomadaire : objectif kcal, déficit de la
+ * semaine, perte de graisse estimée ET avertissement au-delà de 15 % de
+ * déficit — le coach voit ainsi l'objectif et le rythme de perte induit.
+ *
+ * Le déficit affiché est la différence RÉELLE entre budget et objectif (les
+ * deux arrondis restent cohérents) ; la perte de graisse est arrondie à
+ * 2 décimales (repère : budget 12 327 kcal et 20 % → objectif 9 862 kcal,
+ * déficit 2 465 kcal, perte estimée 0,32 kg/semaine).
+ */
+export function bilanObjectifSemaine(entree: {
+	budgetSemaineKcal: number;
+	deficitPct?: number;
+}): BilanObjectifSemaine {
+	const budget = verifier(entree.budgetSemaineKcal, 'Budget de la semaine', BORNES.budgetSemaine);
+	const deficitPct = verifierOption(entree.deficitPct, 'Déficit choisi', BORNES.deficitPct, 0);
+	const objectif = objectifSemaineKcal({ budgetSemaineKcal: budget, deficitPct });
+	const deficitSemaine = arrondi(budget - objectif, 2);
+	return {
+		budgetSemaineKcal: budget,
+		deficitPct,
+		deficitSemaineKcal: deficitSemaine,
+		objectifSemaineKcal: objectif,
+		perteGraisseKg: arrondi(deficitSemaine / KCAL_PAR_KG_GRAISSE, 2),
+		avertissement:
+			deficitPct > DEFICIT_PCT_AVERTISSEMENT
+				? `Déficit choisi de ${deficitPct} % : au-delà de ${DEFICIT_PCT_AVERTISSEMENT} %, la perte de graisse estimée (${arrondi(deficitSemaine / KCAL_PAR_KG_GRAISSE, 2)} kg/semaine) dépasse le rythme conseillé — à valider avec la coach.`
+				: null
+	};
+}
+
+/* ───────────────── 10 · Macros du jour ───────────────── */
+
+/** Protéines : 1,8 g par kg de poids de référence. */
+export const PROTEINES_G_PAR_KG = 1.8;
+/** Lipides : 30 % des calories… */
+export const LIPIDES_PCT_KCAL = 30;
+/** …avec un minimum de 0,6 g par kg de poids de référence. */
+export const LIPIDES_MIN_G_PAR_KG = 0.6;
+/** Seuil de signal sur les glucides (g/jour). */
+export const GLUCIDES_SIGNAL_G = 100;
+/** MG% au-delà duquel les protéines (et les lipides) se basent sur le POIDS OBJECTIF. */
+export const MG_PCT_POIDS_OBJECTIF = 35;
+export const KCAL_PAR_G_PROTEINES = 4;
+export const KCAL_PAR_G_GLUCIDES = 4;
+export const KCAL_PAR_G_LIPIDES = 9;
+
+export type MacrosJour = {
+	/** Objectif calorique du jour (kcal) — entrée, recopiée pour l'agrégat. */
+	kcal: number;
+	proteinesG: number;
+	lipidesG: number;
+	glucidesG: number;
+	/** Poids de référence utilisé (poids objectif si MG% > 35 %). */
+	poidsReferenceKg: number;
+	/** Vrai quand le poids objectif a été DÉDUIT (masse maigre à 35 % de MG). */
+	poidsObjectifDeduit: boolean;
+	/** Vrai si les glucides passent sous 100 g. */
+	glucidesSousSeuil: boolean;
+	/** Signal explicite (null si rien à signaler). */
+	alerteGlucides: string | null;
+};
+
+/**
+ * Macros du jour d'un objectif calorique :
+ *  - protéines = 1,8 g/kg de poids (le POIDS OBJECTIF dès que MG% > 35, pour ne
+ *    pas indexer les protéines sur la masse grasse excédentaire) ;
+ *  - lipides = 30 % des calories, avec un plancher de 0,6 g/kg ;
+ *  - glucides = le reste, avec un signal explicite sous 100 g.
+ *
+ * Le poids objectif est fourni par l'appelant quand il existe ; sinon il est
+ * DÉDUIT de la masse maigre ACTUELLE ramenée à 35 % de MG (MM/0,65) et signalé
+ * par `poidsObjectifDeduit` — aucune donnée cliente n'est inventée.
+ *
+ * Repères : 60 kg, MG 26 %, 1 400 kcal → 108 g de protéines, 46,7 g de
+ * lipides, 137 g de glucides ; le même profil à 1 100 kcal → 108 / 36,7 /
+ * 84 g avec signal « glucides < 100 g ».
+ */
+export function macrosJour(entree: {
+	kcal: number;
+	poidsKg: number;
+	mgPct: number;
+	poidsObjectifKg?: number;
+}): MacrosJour {
+	const kcal = verifier(entree.kcal, 'Objectif calorique', BORNES.kcal);
+	const poids = verifier(entree.poidsKg, 'Poids', BORNES.poids);
+	const mgPct = verifier(entree.mgPct, 'Masse grasse', BORNES.mgPct);
+
+	let poidsReference = poids;
+	let poidsObjectifDeduit = false;
+	if (mgPct > MG_PCT_POIDS_OBJECTIF) {
+		if (entree.poidsObjectifKg !== undefined && entree.poidsObjectifKg !== null) {
+			poidsReference = verifier(entree.poidsObjectifKg, 'Poids objectif', BORNES.poids);
+		} else {
+			/* MM actuelle ramenée à 35 % de MG : le poids où la cliente atteint le
+			   seuil, à masse maigre constante — jamais un objectif inventé. */
+			poidsReference = verifier(
+				arrondi(masseMaigreBrute(poids, mgPct) / (1 - MG_PCT_POIDS_OBJECTIF / 100), 2),
+				'Poids objectif',
+				BORNES.poids
+			);
+			poidsObjectifDeduit = true;
+		}
+	}
+
+	const proteinesG = Math.round(PROTEINES_G_PAR_KG * poidsReference);
+	const lipidesPlancherG = LIPIDES_MIN_G_PAR_KG * poidsReference;
+	const lipidesG = arrondi(
+		Math.max(((LIPIDES_PCT_KCAL / 100) * kcal) / KCAL_PAR_G_LIPIDES, lipidesPlancherG),
+		1
+	);
+	/* Reste en kcal après protéines et lipides AFFICHÉS (cohérence des libellés) ;
+	   un reste négatif donne 0 g de glucides + signal, jamais un négatif affiché. */
+	const resteKcal =
+		kcal - proteinesG * KCAL_PAR_G_PROTEINES - lipidesG * KCAL_PAR_G_LIPIDES;
+	const glucidesG = Math.max(0, Math.round(resteKcal / KCAL_PAR_G_GLUCIDES));
+	const glucidesSousSeuil = glucidesG < GLUCIDES_SIGNAL_G;
+
+	return {
+		kcal,
+		proteinesG,
+		lipidesG,
+		glucidesG,
+		poidsReferenceKg: arrondi(poidsReference, 2),
+		poidsObjectifDeduit,
+		glucidesSousSeuil,
+		alerteGlucides: glucidesSousSeuil
+			? `Glucides estimés à ${glucidesG} g (< ${GLUCIDES_SIGNAL_G} g) : objectif calorique, volume d'entraînement ou sommeil à réinterroger avec la coach.`
+			: null
 	};
 }

@@ -1436,17 +1436,23 @@ export default defineSchema({
 		activityNameSnapshot: v.string(),
 		/** Durée en minutes (clamp 1–600). */
 		durationMinutes: v.number(),
-		/** "legere" | "moderee" | "intense" — absent pour les activités sans intensité. */
+		/** Choix de la saisie : zone cardio ("sous-130"…"plus-180"), intensité de
+		 *  musculation ("recreative"|"intensive"), "gflux", ou "legere"|"moderee"|
+		 *  "intense" pour les lignes v1. */
 		intensity: v.optional(v.string()),
 		/** MET utilisé pour l'estimation (snapshot — jamais recalculé). */
 		metValue: v.number(),
+		/** Coût horaire du barème G-FLUX kcal/kg/heure (v2) — absent des lignes v1. */
+		coutHoraireKcalKgH: v.optional(v.number()),
 		/** "gflux_table" | "compendium" — source du coefficient (traçabilité). */
 		coefficientSource: v.string(),
-		/** Version du catalogue au moment de l'enregistrement (ex. "1"). */
+		/** Version du catalogue au moment de l'enregistrement ("1" = MET du
+		 *  Compendium, "2" = barème G-FLUX kcal/kg/h). */
 		coefficientVersion: v.string(),
 		/** Poids (kg) au moment de l'enregistrement — historique gelé ; absent si aucune pesée connue. */
 		weightSnapshot: v.optional(v.number()),
-		/** Estimation kcal (MET × poids × durée/60) — absent si pas de poids connu. */
+		/** Estimation kcal (barème v2 : coût × poids × durée ; v1 : MET × poids × durée/60)
+		 *  — absent si pas de poids connu. */
 		estimatedCalories: v.optional(v.number()),
 		/** MET-minutes (MET × minutes) — suit le volume indépendamment du poids. */
 		metMinutes: v.number(),

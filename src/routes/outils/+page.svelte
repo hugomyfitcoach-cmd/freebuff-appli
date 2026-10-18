@@ -4,7 +4,6 @@
 	import { browser } from '$app/environment';
 	import Icon from '$lib/components/Icon.svelte';
 	import { errMsg } from '$lib/errors';
-	import { planifier, getCategorieFemmeMin25, getCategorieHommeMin15, type Cat } from '$lib/cyclage';
 
 	let { data } = $props();
 	/** Retour vers l'espace client uniquement pour la cliente (le CRM coach a sa sidebar). */
@@ -449,49 +448,12 @@
 				wkSteps = j.goals.stepGoal != null ? String(j.goals.stepGoal) : '';
 			}
 			weekStart = calToday ? mondayOf(calToday) : '';
-			prefillCyclage(j);
 			calLoading = false;
 			wkCompute();
 		} catch (e) {
 			calError = errMsg(e);
 			calLoading = false;
-			cyclageLoading = false;
 		}
-	}
-	/* Préremplissage du cyclage depuis les données réelles du suivi —
-	   aucune valeur inventée : ce qui manque est signalé comme manquant. */
-	function prefillCyclage(j: Partial<CalData>) {
-		cyclageLoading = false;
-		if (!j.scoped || !j.profile) {
-			/* Hors périmètre (coach sans cliente sélectionnée) : simulateur
-			   manuel — champs laissés vides, rien n'est inventé. */
-			cycSexeKnown = null;
-			cycPoidsKnown = null;
-			cycPctKnown = null;
-			cycApportKnown = null;
-			cycDateKnown = null;
-			return;
-		}
-		const p = j.profile;
-		/* Sexe : le seul indice fiable déjà présent dans G-FLUX est le suivi
-		   de cycle (exclusivement féminin). Sinon : champ laissé manuel, jamais
-		   déduit du prénom ou d'une supposition. */
-		if (j.cycle) {
-			sexe = 'femme';
-			cycSexeKnown = true;
-		} else {
-			cycSexeKnown = false;
-		}
-		poids = p.weightRefKg != null ? String(p.weightRefKg) : '';
-		cycPoidsKnown = p.weightRefKg != null;
-		pctGraisse = p.bodyFatRef != null ? String(Math.round(p.bodyFatRef * 10) / 10) : '';
-		cycPctKnown = p.bodyFatRef != null;
-		apport = j.goals && j.goals.goalsSet && j.goals.kcal ? String(j.goals.kcal) : '';
-		cycApportKnown = !!(j.goals && j.goals.goalsSet && j.goals.kcal);
-		dateDebut = p.startDate ?? '';
-		cycDateKnown = !!p.startDate;
-		/* Planification générée d'emblée si toutes les données sont déjà là. */
-		if (cyclageReady) generer();
 	}
 	function wkCompute() {
 		/* La semaine en cours lit les repères actuels ; une semaine passée
@@ -603,162 +565,6 @@
 		wkOutVisible = true;
 	}
 
-	/* ═══════════════════ PANEL 6 : CYCLAGE REFEED / DIET BREAK ═══════════════════ */
-	/* Prérempli depuis le profil réel (loadCalibrage → prefillCyclage) : sexe,
-	   poids et % de graisse de DÉPART (premier point de la série bodyFatSeries
-	   — même source de vérité que « Ma progression »), apport = objectif
-	   calorique du CRM, date de début = démarrage du coaching. Horizon FIXE :
-	   6 mois. Les champs restent éditables (simulation) mais rien n'est jamais
-	   écrit vers le suivi : l'outil n'est pas la source de vérité. */
-	let sexe = $state('femme');
-	let pctGraisse = $state('');
-	let poids = $state('');
-	let apport = $state('');
-	let methode = $state('alpert');
-	let dateDebut = $state('');
-	let cyclageLoading = $state(true);
-	let cyclageErr = $state('');
-	let cyclageVisible = $state(false);
-	/* Provenance de chaque donnée préremplie (null = pas encore chargé). */
-	let cycSexeKnown = $state<boolean | null>(null);
-	let cycPoidsKnown = $state<boolean | null>(null);
-	let cycPctKnown = $state<boolean | null>(null);
-	let cycApportKnown = $state<boolean | null>(null);
-	let cycDateKnown = $state<boolean | null>(null);
-	let outMasseMaigre = $state('—');
-	let outEA = $state('—');
-	let outCategorie = $state('—');
-	let outRefeedLine = $state('');
-	let outBreakLine = $state('');
-	let outOfGridWarn = $state(false);
-	let planTableHtml = $state('');
-	const showMethode = $derived(sexe === 'homme' && !isNaN(parseFloat(pctGraisse)) && parseFloat(pctGraisse) < 15);
-	/* Donnée manquante = réellement absente du profil de la cliente
-	   (null avant chargement — jamais signalée à tort). */
-	const cycSexeMissing = $derived(cycSexeKnown === false);
-	const cycPoidsMissing = $derived(cycPoidsKnown === false);
-	const cycPctMissing = $derived(cycPctKnown === false);
-	const cycApportMissing = $derived(cycApportKnown === false);
-	const cycDateMissing = $derived(cycDateKnown === false);
-	const dateDebutLabel = $derived(
-		dateDebut && /^\d{4}-\d{2}-\d{2}$/.test(dateDebut)
-			? new Date(dateDebut + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
-			: '—'
-	);
-	const cyclageReady = $derived(!!poids && !!pctGraisse && !!apport && !!dateDebut);
-
-	/* Grille reprise telle quelle de la formation « La science de la perte de graisse rapide » */
-	function getCategorie(sexeV: string, pct: number, ea: number, methodeV: string): Cat {
-		if (sexeV === 'femme') {
-			if (pct > 35) {
-				return {
-					label: 'Femme >35% graisse',
-					refeedPlanned: false,
-					refeedNote: '2-3 jours non planifiés si nécessaire',
-					breakWeeks: 10,
-					breakRangeLabel: '8-12 semaines',
-				};
-			}
-			if (pct >= 25) {
-				return {
-					label: 'Femme 25-35% graisse',
-					refeedPlanned: false,
-					refeedNote: '2-3 jours non planifiés si nécessaire',
-					breakWeeks: 8,
-					breakRangeLabel: '6-10 semaines',
-				};
-			}
-			return getCategorieFemmeMin25(ea);
-		} else {
-			if (pct > 25) {
-				return {
-					label: 'Homme >25% graisse',
-					refeedPlanned: false,
-					refeedNote: '2-3 jours non planifiés si nécessaire',
-					breakWeeks: 10,
-					breakRangeLabel: '8-12 semaines',
-				};
-			}
-			if (pct >= 15) {
-				return {
-					label: 'Homme 15-25% graisse',
-					refeedPlanned: false,
-					refeedNote: '2-3 jours non planifiés si nécessaire',
-					breakWeeks: 8,
-					breakRangeLabel: '6-10 semaines',
-				};
-			}
-		return getCategorieHommeMin15(methodeV);
-	}
-}
-
-	function fmtDate(d: Date) {
-		return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
-	}
-	function addDays(date: Date, n: number) {
-		const d = new Date(date);
-		d.setDate(d.getDate() + n);
-		return d;
-	}
-	/** Recalcul manuel (bouton) — la première génération part du préremplissage. */
-	function regenerer() {
-		cyclageVisible = false;
-		generer();
-	}
-	function generer() {
-		const sexeV = sexe;
-		const poidsV = parseFloat(poids);
-		const pct = parseFloat(pctGraisse);
-		const apportV = parseFloat(apport);
-		const methodeV = methode;
-		const dateDebutStr = dateDebut;
-
-		if (!poidsV || !pct || !apportV || !dateDebutStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateDebutStr)) {
-			cyclageErr = 'Donnée manquante pour générer la planification (poids de départ, % de graisse, apport calorique ou date de début).';
-			cyclageVisible = false;
-			return;
-		}
-		cyclageErr = '';
-
-		const masseMaigre = poidsV * (1 - pct / 100);
-		/* « Dépense totale de sport » retirée : EA = apport / masse maigre,
-		   exactement comme l'ancien défaut du champ (dépense = 0). */
-		const ea = apportV / masseMaigre;
-		const cat = getCategorie(sexeV, pct, ea, methodeV);
-
-		outMasseMaigre = masseMaigre.toFixed(1) + ' kg';
-		outEA = ea.toFixed(1) + ' kcal/kg MM';
-		outCategorie = cat.label;
-
-		if (cat.outOfGrid) {
-			outRefeedLine = '';
-			outOfGridWarn = true;
-		} else {
-			outRefeedLine = '<b>Refeed :</b> ' + (cat.refeedNote || '—');
-			outOfGridWarn = false;
-		}
-		outBreakLine = '<b>Diet break :</b> 7 jours toutes les ' + cat.breakWeeks + ' semaines (plage de référence : ' + cat.breakRangeLabel + ')';
-
-		const dateDebutObj = new Date(dateDebutStr + 'T00:00:00');
-
-		const blocks = planifier(cat);
-
-		planTableHtml = blocks
-			.map((b) => {
-				const start = addDays(dateDebutObj, b.startDay);
-				const end = addDays(dateDebutObj, b.endDay);
-				const label = b.phase === 'break' ? 'Diet break' : b.phase === 'refeed' ? 'Refeed' : 'Déficit';
-				const extraNote = b.phase === 'refeed' ? ' <span class="pill-note">non obligatoire</span>' : '';
-				const pillClass = b.phase === 'break' ? 'break' : b.phase === 'refeed' ? 'refeed' : 'deficit';
-				const nbJours = b.endDay - b.startDay + 1;
-				return `<tr><td>${nbJours} j</td><td>${fmtDate(start)}${nbJours > 1 ? ' → ' + fmtDate(end) : ''}</td>` +
-					`<td><span class="phase-pill ${pillClass}">${label}</span>${extraNote}</td></tr>`;
-			})
-			.join('');
-
-		cyclageVisible = true;
-	}
-
 	/* ————— Init : données réelles du suivi + historique local des repères ————— */
 	onMount(() => {
 		if (browser) {
@@ -790,7 +596,6 @@
 			<button type="button" class="tab" class:active={panel === 'p2'} onclick={() => setPanel('p2')}>Calories invisibles</button>
 			<button type="button" class="tab" class:active={panel === 'p3'} onclick={() => setPanel('p3')}>Mes protéines</button>
 			<button type="button" class="tab" class:active={panel === 'p4'} onclick={() => setPanel('p4')}>Ma semaine</button>
-			<button type="button" class="tab tab-highlight" class:active={panel === 'p6'} onclick={() => setPanel('p6')}>Cyclage</button>
 		</div>
 
 		<!-- ═══════ PANEL 1 : CRU / CUIT ═══════ -->
@@ -949,131 +754,6 @@
 				<div class="card">
 					<h2>3 · Comment moduler le reste de la semaine</h2>
 					{@html wkStatsHtml}
-				</div>
-			{/if}
-		</section>
-
-		<!-- ═══════ PANEL 6 : CYCLAGE REFEED / DIET BREAK ═══════ -->
-		<section class="panel" class:active={panel === 'p6'}>
-			<div class="card">
-				<h2>Planification refeed / diet break</h2>
-				<p class="hint">Basée sur la grille de cyclage calorique selon le % de graisse et la disponibilité énergétique — préremplie depuis le profil réel de la cliente.</p>
-
-				{#if cyclageLoading}
-					<p class="hint">Chargement des données…</p>
-				{:else}
-					<div class="row">
-						<div class="field">
-							<label for="sexe">Sexe</label>
-							<select id="sexe" bind:value={sexe}>
-								<option value="femme">Femme</option>
-								<option value="homme">Homme</option>
-							</select>
-							{#if cycSexeMissing}<p class="missnote">Sexe non renseigné dans le profil — à sélectionner manuellement.</p>{/if}
-						</div>
-						<div class="field">
-							<label for="dateDebut">Date de début du coaching</label>
-							<input id="dateDebut" type="date" bind:value={dateDebut} />
-							{#if cycDateMissing}<p class="missnote">Date de démarrage du coaching non renseignée — Hugo peut la définir dans la fiche CRM de la cliente.</p>{/if}
-						</div>
-					</div>
-
-					<div class="row">
-						<div class="field">
-							<label for="poids">Poids de départ (kg)</label>
-							<input id="poids" type="number" bind:value={poids} placeholder="—" step="0.1" />
-							{#if cycPoidsMissing}<p class="missnote">Aucune pesée enregistrée — Hugo peut ajouter les mensurations de départ dans le suivi de la cliente.</p>{/if}
-						</div>
-						<div class="field">
-							<label for="pctGraisse">% de graisse de départ</label>
-							<input id="pctGraisse" type="number" bind:value={pctGraisse} placeholder="—" step="0.1" />
-							{#if cycPctMissing}<p class="missnote">% de graisse de départ non calculable — mensurations de départ incomplètes (tour de cou / taille / fessiers attendus).</p>{/if}
-						</div>
-					</div>
-
-					<div class="row">
-						<div class="field">
-							<label for="apport">Apport calorique prévu (kcal/j)</label>
-							<input id="apport" type="number" bind:value={apport} placeholder="—" step="10" />
-							{#if cycApportMissing}<p class="missnote">Objectif calorique non défini — Hugo peut le renseigner dans le CRM (objectifs).</p>{/if}
-						</div>
-						<div class="field">
-							<label>Horizon de planification</label>
-							<div class="horizon">6 mois à partir du {dateDebutLabel}</div>
-						</div>
-					</div>
-
-					{#if showMethode}
-						<label for="methode">Méthode de calcul du déficit</label>
-						<select id="methode" bind:value={methode}>
-							<option value="alpert">Alpert</option>
-							<option value="macdonald">Macdonald</option>
-						</select>
-					{/if}
-
-					{#if cyclageErr && !cyclageVisible}
-						<div class="note"><Icon name="triangleAlert" size={16} class="note-ic ic-amber" /><div>{cyclageErr}</div></div>
-					{/if}
-
-					<button type="button" class="cta" onclick={regenerer}>Recalculer la planification</button>
-				{/if}
-			</div>
-
-			{#if cyclageVisible}
-				<div class="cyclage-result visible">
-					<div class="card">
-						<h2>Profil calculé</h2>
-						<div class="summary-grid">
-							<div class="summary-item">
-								<div class="summary-label">Masse maigre</div>
-								<div class="summary-value">{outMasseMaigre}</div>
-							</div>
-							<div class="summary-item">
-								<div class="summary-label">Disponibilité énergétique</div>
-								<div class="summary-value accent">{outEA}</div>
-							</div>
-						</div>
-						<div class="category-tag">{outCategorie}</div>
-						<p class="cadence-line">{@html outRefeedLine}</p>
-						<p class="cadence-line">{@html outBreakLine}</p>
-						{#if outOfGridWarn}
-							<div class="note" style="display:flex"><Icon name="triangleAlert" size={16} class="note-ic ic-amber" /><div>Disponibilité énergétique en dessous de 20 kcal/kg de masse maigre — hors de la grille de référence. Ne pas extrapoler une cadence automatique : à valider manuellement, cas par cas.</div></div>
-						{/if}
-					</div>
-
-					<div class="card">
-						<h2>Calendrier de planification</h2>
-						<table id="planTable">
-							<thead><tr><th>Période</th><th>Dates</th><th>Phase</th></tr></thead>
-							<tbody>{@html planTableHtml}</tbody>
-						</table>
-						<p class="cycle-principle">Grille de départ, pas une règle automatique — évaluez toujours la situation globale de la coachée avant d'appliquer.</p>
-					</div>
-
-					<div class="card">
-						<h2>Comment faire un diet break (7 jours)</h2>
-						<ul class="howto">
-							<li><b>Calories :</b> retour à ta maintenance calorique (le chiffre que Hugo t'a donné) — ce n'est pas un surplus.</li>
-							<li><b>Protéines :</b> inchangées, 1,6 à 2,2 g/kg de poids.</li>
-							<li><b>Lipides :</b> peuvent être un peu plus élevés que d'habitude, autour de 0,7 à 1 g/kg.</li>
-							<li><b>Glucides :</b> le reste des calories — c'est là que la hausse se fait principalement.</li>
-							<li><b>Ce que ça n'est pas :</b> une semaine "cheat" à volonté. Garde tes bonnes habitudes — protéines à chaque repas, légumes, structure globale des repas.</li>
-							<li><b>Tracking :</b> pas obligatoire de tout peser au gramme si tu es à l'aise — sauf si ton % de graisse est déjà bas, où mieux vaut continuer à suivre précisément.</li>
-							<li><b>À quoi ça sert :</b> souffler, rebooster ta motivation, et surtout t'entraîner à manger à ta maintenance — c'est la diète que tu utiliseras pour stabiliser ton poids plus tard, pas celle du déficit.</li>
-						</ul>
-					</div>
-
-					<div class="card">
-						<h2>Comment faire un refeed (2-3 jours)</h2>
-						<ul class="howto">
-							<li><b>Calories :</b> au moins ta maintenance calorique, léger surplus possible.</li>
-							<li><b>Protéines :</b> modérées, 1,6 à 2 g/kg.</li>
-							<li><b>Lipides :</b> au minimum — garde-les vraiment bas pendant ces jours-là.</li>
-							<li><b>Glucides :</b> l'essentiel de tes calories vient de là. Privilégie des sources faciles à digérer et pauvres en fibres/graisses : riz, pâtes, pain, pommes de terre. Pas plus de 100-120g de sucres simples sur la journée.</li>
-							<li><b>Ce que ça n'est pas :</b> un "cheat day". Reste structurée sur les repas, seule la quantité de glucides change vraiment.</li>
-							<li><b>À quoi ça sert :</b> relancer tes stocks de glycogène et calmer ta faim — pas faire une pause complète comme le diet break.</li>
-						</ul>
-					</div>
 				</div>
 			{/if}
 		</section>

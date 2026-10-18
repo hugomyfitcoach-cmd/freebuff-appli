@@ -21,20 +21,23 @@ import {
 	SPORT_CATALOG,
 	SPORT_CATEGORIES,
 	SPORT_CATALOG_VERSION,
+	SPORT_CATALOG_VERSION_LEGACY,
+	SPORT_CHOIX_MUSCULATION,
 	SPORT_INTENSITY_LABELS,
+	SPORT_ZONES_CARDIO,
 	WALKING_PEDAGOGY_MESSAGE,
 	isDailyWalkingBlocked,
 	WALKING_SUGGESTION_ID,
+	choixValides,
 	clampSportDuration,
+	depenseLegacyMet,
 	estimateSportActivity,
 	getSportEntry,
-	type SportIntensity,
 } from "./sportCatalog";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 
 const ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
-const INTENSITIES = ["legere", "moderee", "intense"];
 
 function isValidISO(s: string): boolean {
 	return ISO_RE.test(s);
@@ -67,7 +70,11 @@ export async function lastKnownWeight(
 	return last;
 }
 
-/** Valide {activityId, intensity, durationMinutes} et calcule l'estimation. */
+/**
+ * Valide {activityId, choix, durationMinutes} et calcule l'estimation au
+ * barème v2. Le choix (zone cardio ou intensité de musculation) est
+ * OBLIGATOIRE : aucune zone implicite n'est inventée à la place de la cliente.
+ */
 function buildEstimation(args: {
 	activityId: string;
 	intensity?: string;
@@ -79,17 +86,17 @@ function buildEstimation(args: {
 	}
 	const entry = getSportEntry(args.activityId);
 	if (!entry) throw new ConvexError("Activité inconnue.");
-	if (typeof entry.met !== "number") {
-		// Activité à intensités : l'intensité est OBLIGATOIRE (aucun MET implicite).
-		if (args.intensity === undefined || !INTENSITIES.includes(args.intensity)) {
-			throw new ConvexError("Intensité requise pour cette activité.");
-		}
+	if (args.intensity === undefined || args.intensity === null || args.intensity === "") {
+		throw new ConvexError("Zone ou intensité requise pour cette activité.");
+	}
+	if (!choixValides(entry).includes(args.intensity)) {
+		throw new ConvexError("Zone ou intensité invalide pour cette activité.");
 	}
 	const minutes = clampSportDuration(args.durationMinutes);
 	return {
 		minutes,
 		est: estimateSportActivity({
-			activityId: args.activityId,
+			activityId: entry.id,
 			intensity: args.intensity,
 			durationMinutes: minutes,
 			weightKg: args.weightKg,
@@ -147,6 +154,10 @@ export const myWeek = query({
 				metMinutes: r.metMinutes,
 				source: r.source,
 				trainingSessionId: r.trainingSessionId ?? null,
+				/** Barème de la ligne : "2" = G-FLUX kcal/kg/h, "1" = MET (historique). */
+				coefficientVersion: r.coefficientVersion,
+				/** Vrai pour une ligne ANTÉRIEURE au barème : son calcul est conservé. */
+				legacy: r.coefficientVersion === SPORT_CATALOG_VERSION_LEGACY,
 			})),
 			totals,
 		};
@@ -193,8 +204,13 @@ export const catalog = query({
 				id: a.id,
 				name: a.name,
 				category: a.category,
-				hasIntensity: typeof a.met !== "number",
+				/** Barème de l'activité : "musculation" (récréative/intensive) ou "cardio" (zones). */
+				bareme: a.bareme,
+				/** Choix acceptés (zones cardio ou intensités de musculation). */
+				choix: choixValides(a),
 			})),
+			choixMusculation: SPORT_CHOIX_MUSCULATION,
+			zonesCardio: SPORT_ZONES_CARDIO,
 			walking: {
 				message: WALKING_PEDAGOGY_MESSAGE,
 				suggestionId: WALKING_SUGGESTION_ID,
@@ -222,14 +238,18 @@ export const addActivity = mutation({
 		const weight = await lastKnownWeight(ctx, user._id);
 		const { minutes, est } = buildEstimation({ activityId, intensity, durationMinutes, weightKg: weight });
 		const now = Date.now();
+		// NOUVELLE saisie → barème v2 (coût horaire stocké tel quel sur la ligne).
 		const id = await ctx.db.insert("sportActivities", {
 			userId: user._id,
 			date,
 			activityId: est.activityId,
 			activityNameSnapshot: est.activityNameSnapshot,
 			durationMinutes: minutes,
-			intensity,
+			intensity: est.intensity,
 			metValue: est.metValue,
+			...(est.coutHoraireKcalKgH !== undefined
+				? { coutHoraireKcalKgH: est.coutHoraireKcalKgH }
+				: {}),
 			coefficientSource: est.coefficientSource,
 			coefficientVersion: est.coefficientVersion,
 			...(weight != null ? { weightSnapshot: weight, estimatedCalories: est.estimatedCalories } : {}),
@@ -267,6 +287,9 @@ export const duplicateActivity = mutation({
 			durationMinutes: row.durationMinutes,
 			...(row.intensity !== undefined ? { intensity: row.intensity } : {}),
 			metValue: row.metValue,
+			...(row.coutHoraireKcalKgH !== undefined
+				? { coutHoraireKcalKgH: row.coutHoraireKcalKgH }
+				: {}),
 			coefficientSource: row.coefficientSource,
 			coefficientVersion: row.coefficientVersion,
 			...(row.weightSnapshot !== undefined
@@ -314,12 +337,35 @@ export const updateActivity = mutation({
 		}
 		const entry = getSportEntry(newActivityRef);
 		if (!entry) throw new ConvexError("Activité inconnue.");
-		if (typeof entry.met !== "number" && !INTENSITIES.includes(newIntensity ?? "")) {
-			throw new ConvexError("Intensité requise pour cette activité.");
-		}
 
 		// Poids GELÉ : celui du snapshot d'origine (jamais une pesée plus récente).
 		const weight = row.weightSnapshot ?? null;
+
+		/* Ligne ANTÉRIEURE au barème (v1, MET du Compendium) : tant que le choix
+		   (sport / zone / intensité) n'est pas explicitement changé, elle reste
+		   calculée par SON modèle — l'historique n'est jamais basculé. */
+		const legacy = row.coutHoraireKcalKgH === undefined;
+		const choixChange = entry.id !== row.activityId || newIntensity !== row.intensity;
+		if (legacy && !choixChange) {
+			const minutes = clampSportDuration(newDuration);
+			const volume = depenseLegacyMet({
+				metValue: row.metValue,
+				durationMinutes: minutes,
+				weightKg: weight,
+			});
+			await ctx.db.patch(activityId, {
+				...(date !== undefined && isValidISO(date) ? { date } : {}),
+				durationMinutes: minutes,
+				metMinutes: volume.metMinutes,
+				...(volume.estimatedCalories !== undefined
+					? { estimatedCalories: volume.estimatedCalories }
+					: {}),
+				updatedAt: Date.now(),
+			} as never);
+			return { ok: true, bareme: "v1" as const };
+		}
+
+		// Nouveau choix → barème v2 (ex. la cliente choisit une zone sur une ligne v1).
 		const { minutes, est } = buildEstimation({
 			activityId: entry.id,
 			intensity: newIntensity,
@@ -332,15 +378,18 @@ export const updateActivity = mutation({
 			activityId: est.activityId,
 			activityNameSnapshot: est.activityNameSnapshot,
 			durationMinutes: minutes,
-			...(newIntensity !== undefined ? { intensity: newIntensity } : { intensity: undefined }),
+			intensity: est.intensity,
 			metValue: est.metValue,
+			...(est.coutHoraireKcalKgH !== undefined
+				? { coutHoraireKcalKgH: est.coutHoraireKcalKgH }
+				: {}),
 			coefficientSource: est.coefficientSource,
 			coefficientVersion: est.coefficientVersion,
 			metMinutes: est.metMinutes,
 			...(weight != null ? { estimatedCalories: est.estimatedCalories } : {}),
 			updatedAt: Date.now(),
 		} as never);
-		return { ok: true };
+		return { ok: true, bareme: "v2" as const };
 	},
 });
 
@@ -361,9 +410,7 @@ export const deleteActivity = mutation({
 
 /** Utilitaires exposés pour les tests et l'agrégat Vision 360. */
 export function intensityLabelOf(intensity?: string | null): string | null {
-	return intensity && INTENSITIES.includes(intensity)
-		? SPORT_INTENSITY_LABELS[intensity as SportIntensity]
-		: null;
+	return intensity ? (SPORT_INTENSITY_LABELS[intensity] ?? null) : null;
 }
 
 export type SportActivityDoc = Doc<"sportActivities">;
