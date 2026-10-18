@@ -20,7 +20,7 @@ async function safeJson<T>(res: Response): Promise<T | null> {
 
 /** Photo de profil actuelle : URL signée Convex (null si aucune). */
 export const GET: RequestHandler = async (event) => {
-	await requireRole(event, 'client', { next: '/espace' });
+	await requireRole(event, ['client', 'coach']);
 	const token = event.cookies.get(SESSION_COOKIE);
 	try {
 		const url = await convex.query(api.users.getProfilePhotoUrl, { sessionToken: token });
@@ -31,17 +31,18 @@ export const GET: RequestHandler = async (event) => {
 };
 
 /**
- * Pose (ou remplace) la photo de profil. Multipart, champ `photo`.
+ * Pose (ou remplace) la photo de profil — compte client OU coach (la photo du
+ * coach est celle que les clientes voient partout). Multipart, champ `photo`.
  *
- * La COMPRESSION/RECADRAGE se fait CÔTÉ CLIENT (AvatarCrop exporte un JPEG
- * carré ≤ 1024 px) : ici, AUCUN traitement canvas — `document`/`Image`
+ * La COMPRESSION/RECADRAGE se fait CÔTÉ CLIENT (AvatarCrop / CoachIdentity
+ * exportent un JPEG carré) : ici, AUCUN traitement canvas — `document`/`Image`
  * n'existent pas dans la fonction Netlify et provoquaient « image is not
  * defined ». Le serveur garde ses garde-fous (type image, 10 Mo max) puis
  * transmet le fichier au file storage Convex (URL générée côté serveur) et
  * référence users.profilePhotoStorageId. Renvoie `{ ok, url }`.
  */
 export const POST: RequestHandler = async (event) => {
-	await requireRole(event, 'client', { next: '/espace' });
+	const user = await requireRole(event, ['client', 'coach']);
 	const token = event.cookies.get(SESSION_COOKIE);
 	try {
 		const form = await event.request.formData();
@@ -50,7 +51,12 @@ export const POST: RequestHandler = async (event) => {
 		if (file.size > MAX_FILE_BYTES) return json({ error: 'Image trop lourde (10 Mo maximum).' }, { status: 400 });
 		if (!file.type.startsWith('image/')) return json({ error: 'Le fichier doit être une image.' }, { status: 400 });
 
-		const uploadUrl = await convex.mutation(api.photos.generateUploadUrl, { sessionToken: token });
+		// Le générateur d'URL d'upload est gardé par rôle : photos.generateUploadUrl
+		// (clientes) / media.generateUploadUrl (coach) — aucun élargissement de garde.
+		const uploadUrl =
+			user.role === 'coach'
+				? await convex.mutation(api.media.generateUploadUrl, { sessionToken: token })
+				: await convex.mutation(api.photos.generateUploadUrl, { sessionToken: token });
 		const bytes = new Uint8Array(await file.arrayBuffer());
 		const up = await fetch(uploadUrl, {
 			method: 'POST',
@@ -72,7 +78,7 @@ export const POST: RequestHandler = async (event) => {
 
 /** Retire la photo de profil (retour à l'avatar initiale). */
 export const DELETE: RequestHandler = async (event) => {
-	await requireRole(event, 'client', { next: '/espace' });
+	await requireRole(event, ['client', 'coach']);
 	const token = event.cookies.get(SESSION_COOKIE);
 	try {
 		await convex.mutation(api.users.clearProfilePhoto, { sessionToken: token });
