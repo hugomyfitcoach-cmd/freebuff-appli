@@ -417,6 +417,9 @@ export const actions: Actions = {
 		const clientId = String(form.get('clientId') ?? '');
 		const feedback = String(form.get('feedback') ?? '');
 		const status = String(form.get('status') ?? 'nouveau');
+		// Badge « Brouillon IA — à relire » : vrai tant que le texte n'a pas été
+		// modifié depuis la génération. Le serveur revalide la règle finale.
+		const aiDraft = form.get('aiDraft') === '1';
 		const token = event.cookies.get(SESSION_COOKIE);
 		try {
 			const isPublish = status === 'retour_envoye';
@@ -425,6 +428,7 @@ export const actions: Actions = {
 				checkinId: checkinId as never,
 				feedback,
 				status: isPublish ? 'retour_envoye' : 'nouveau',
+				aiDraft,
 			});
 			const ok = isPublish
 				? 'Retour publié — visible par la cliente dans « Mes bilans », badge actif jusqu’à sa lecture.'

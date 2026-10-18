@@ -241,9 +241,11 @@ test('BilanCard expose le cycle complet : préparer, préparer…, injecter, ré
 });
 
 test('Un texte existant n’est remplacé qu’après confirmation', () => {
-	assert.ok(cardSource.includes('window.confirm('));
+	// M1-bis : plus de confirm natif — modale G-FLUX réutilisable.
+	assert.ok(!cardSource.includes('window.confirm('), 'aucune confirmation native');
+	assert.ok(cardSource.includes("from './ConfirmDialog.svelte'"));
 	assert.ok(cardSource.includes('if (feedback.trim())'));
-	const confirmAt = cardSource.indexOf('window.confirm(');
+	const confirmAt = cardSource.indexOf('replaceOpen = true');
 	const fetchAt = cardSource.indexOf("fetch('/api/coach/draft'");
 	assert.ok(confirmAt >= 0 && fetchAt > confirmAt, 'confirmation avant tout appel');
 });

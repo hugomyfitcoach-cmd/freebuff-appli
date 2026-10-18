@@ -3,7 +3,9 @@
 	import type { Doc } from '../../convex/_generated/dataModel.js';
 	import CoachMedia from './CoachMedia.svelte';
 	import Icon from './Icon.svelte';
+	import ConfirmDialog from './ConfirmDialog.svelte';
 	import type { CoachMediaItem } from '../media.js';
+	import { aiDraftActive, aiDraftBadgeFromCheckin, aiDraftFormFlag } from '../coachDraftUi.js';
 
 	let { checkin, clientName, clientId, media = [], draftEnabled = false } = $props<{
 		checkin: Doc<'checkins'>;
@@ -50,19 +52,73 @@
 	   reste intact. */
 	let feedback = $state(checkin.feedback ?? '');
 	let draftLoading = $state(false);
-	let draftGenerated = $state(false);
 	let draftError = $state('');
+	// Confirmation G-FLUX (jamais `window.confirm`) : le texte existant reste
+	// intact tant que « Remplacer » n'a pas été cliqué.
+	let replaceOpen = $state(false);
+
+	/* Le badge est PERSISTÉ avec le brouillon (`checkins.feedbackAiDraft`), donc
+	   il survit à un rechargement. `aiDraftSource` garde le texte EXACT préparé
+	   par l'IA (serveur ou session courante) : toute modification du champ fait
+	   disparaître le badge immédiatement, sans attendre l'enregistrement. */
+	let aiDraftSource = $state<string | null>(
+		aiDraftBadgeFromCheckin(checkin) ? (checkin.feedback ?? '') : null
+	);
+	// Dès la PREMIÈRE frappe, le badge est éteint pour de bon (revenir au texte
+	// d'origine via un « annuler » ne le rallume pas).
+	let aiDraftTouched = $state(false);
+	const aiDraftBadge = $derived(!published && aiDraftActive(aiDraftSource, feedback, aiDraftTouched));
+	const aiDraftFlag = $derived(aiDraftFormFlag(aiDraftSource, feedback, published, aiDraftTouched));
+
+	// Champ auto-extensible : hauteur mesurée sur le contenu entre 96 et 320 px,
+	// puis défilement interne. La mesure et l'application se font dans la même
+	// tâche → aucun saut de mise en page visible à la frappe (desktop et mobile).
+	const FEEDBACK_MIN_PX = 96;
+	const FEEDBACK_MAX_PX = 320;
+	let feedbackEl = $state<HTMLTextAreaElement | null>(null);
+
+	function fitFeedback() {
+		const el = feedbackEl;
+		if (!el) return;
+		el.style.height = 'auto';
+		const next = Math.max(FEEDBACK_MIN_PX, Math.min(el.scrollHeight, FEEDBACK_MAX_PX));
+		el.style.height = `${next}px`;
+		el.style.overflowY = el.scrollHeight > FEEDBACK_MAX_PX ? 'auto' : 'hidden';
+	}
+
+	// Réagit aux frappes ET aux changements programmatiques (injection d'un
+	// brouillon, restauration après erreur) ; `resize` couvre la rotation et
+	// l'apparition du clavier virtuel sur iOS/Android.
+	$effect(() => {
+		const text = feedback;
+		if (aiDraftSource !== null && text !== aiDraftSource) aiDraftTouched = true;
+		feedbackEl;
+		fitFeedback();
+	});
+
+	function requestDraft() {
+		if (draftLoading) return;
+		// Un texte déjà présent (saisi ou brouillon précédent) ne disparaît pas
+		// sans accord explicite — modale G-FLUX, pas de confirm natif.
+		if (feedback.trim()) {
+			replaceOpen = true;
+			return;
+		}
+		void generateDraft();
+	}
+
+	function cancelReplace() {
+		// Annuler ne touche JAMAIS au texte : on ferme, c'est tout.
+		replaceOpen = false;
+	}
+
+	function confirmReplace() {
+		replaceOpen = false;
+		void generateDraft();
+	}
 
 	async function generateDraft() {
 		if (draftLoading) return;
-		// Un texte déjà présent (saisi ou brouillon précédent) ne disparaît pas
-		// sans accord explicite.
-		if (feedback.trim()) {
-			const replace = window.confirm(
-				'Remplacer le texte actuel par un brouillon ? Ton texte actuel sera remplacé dans le champ.'
-			);
-			if (!replace) return;
-		}
 		draftLoading = true;
 		draftError = '';
 		try {
@@ -77,7 +133,10 @@
 			}
 			// Seul point qui remplace le texte — uniquement après un succès.
 			feedback = data.text.trim();
-			draftGenerated = true;
+			// Nouveau texte de référence : le badge reste tant qu'il n'est pas
+			// modifié, puis il sera persisté par « Sauvegarder le brouillon ».
+			aiDraftSource = feedback;
+			aiDraftTouched = false;
 		} catch {
 			draftError = "Le brouillon n'a pas pu être préparé. Ton texte actuel est conservé.";
 		} finally {
@@ -140,7 +199,7 @@
 		<div class="mb-2 flex flex-wrap items-center justify-between gap-2">
 			<div class="flex flex-wrap items-center gap-2">
 				<span class="text-sm font-semibold text-ink">Ton retour (visible par la cliente dans son historique)</span>
-				{#if draftGenerated}
+				{#if aiDraftBadge}
 					<span class="inline-flex items-center gap-1 rounded-full bg-brand-light px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-brand-dark">
 						<Icon name="sparkles" size={11} /> Brouillon IA — à relire
 					</span>
@@ -149,12 +208,12 @@
 			{#if draftEnabled}
 				<button
 					type="button"
-					onclick={generateDraft}
+					onclick={requestDraft}
 					disabled={draftLoading}
 					class="inline-flex items-center gap-1.5 rounded-lg border-2 border-brand/40 bg-brand-light/60 px-3 py-1.5 text-xs font-bold text-brand-dark transition hover:border-brand disabled:cursor-wait disabled:opacity-60"
 				>
 					<Icon name="sparkles" size={13} />
-					{draftLoading ? 'Préparation…' : draftGenerated ? 'Régénérer' : 'Préparer un brouillon'}
+					{draftLoading ? 'Préparation…' : aiDraftSource !== null ? 'Régénérer' : 'Préparer un brouillon'}
 				</button>
 			{/if}
 		</div>
@@ -162,11 +221,15 @@
 			<p class="mb-2 rounded-lg border border-warn/40 bg-warn-light/60 px-3 py-1.5 text-xs font-semibold text-warn">{draftError}</p>
 		{/if}
 		<textarea
+			bind:this={feedbackEl}
 			name="feedback"
 			bind:value={feedback}
+			oninput={fitFeedback}
+			rows="3"
 			placeholder="Rédige ici ton retour pour cette semaine — la cliente ne le verra qu'après publication…"
-			class="min-h-24 w-full rounded-xl border-2 border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/15"
+			class="min-h-24 max-h-[320px] w-full resize-none overflow-hidden rounded-xl border-2 border-line bg-white px-3 py-2 text-sm leading-relaxed text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/15"
 		></textarea>
+		<input type="hidden" name="aiDraft" value={aiDraftFlag ? '1' : '0'} />
 		<!-- Retour audio + pièces jointes : en brouillon tant que le retour n'est pas publié -->
 		<div class="mt-3 rounded-xl border border-dashed border-line bg-white/40 p-3">
 			<p class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-mist"><Icon name="mic" size={12} /> Retour audio & <Icon name="paperclip" size={12} /> pièces jointes (optionnels)</p>
@@ -202,4 +265,14 @@
 			badge jusqu'à ce qu'elle l'ait réellement ouvert.
 		</p>
 	</form>
+
+	<ConfirmDialog
+		open={replaceOpen}
+		title="Remplacer le texte actuel ?"
+		message="Le brouillon préparé par l'IA remplacera le texte présent dans le champ. Ton texte actuel ne sera pas conservé."
+		confirmLabel="Remplacer"
+		cancelLabel="Annuler"
+		onCancel={cancelReplace}
+		onConfirm={confirmReplace}
+	/>
 </article>

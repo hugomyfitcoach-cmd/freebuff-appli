@@ -36,6 +36,7 @@ import {
 	exploitabilityThresholdKcal,
 } from "../lib/vision360";
 import { kcalGoalForDate, hasChangeWithin, withCurrentGoal } from "../lib/goalHistory";
+import { nextFeedbackAiDraft } from "../lib/coachDraftUi";
 
 /**
  * CRM réservé au coach. Chaque fonction vérifie le rôle « coach » depuis
@@ -294,8 +295,15 @@ export const setFeedback = mutation({
 		checkinId: v.id("checkins"),
 		feedback: v.string(),
 		status: checkinStatus,
+		/**
+		 * Le texte enregistré est encore EXACTEMENT le brouillon préparé par
+		 * l'IA (envoyé par le CRM au moment du clic). La décision finale reste
+		 * serveur : `nextFeedbackAiDraft` ne persiste jamais ce drapeau sur un
+		 * retour publié ni sur un texte vide.
+		 */
+		aiDraft: v.optional(v.boolean()),
 	},
-	handler: async (ctx, { sessionToken, checkinId, feedback, status }) => {
+	handler: async (ctx, { sessionToken, checkinId, feedback, status, aiDraft }) => {
 		await requireCoach(ctx, sessionToken);
 		const checkin = await ctx.db.get(checkinId);
 		if (!checkin) throw new ConvexError("Bilan introuvable.");
@@ -305,7 +313,16 @@ export const setFeedback = mutation({
 			status: "nouveau" | "retour_envoye";
 			feedbackAt?: number;
 			feedbackReadAt?: number;
+			feedbackAiDraft?: boolean;
 		} = { status };
+		// Badge « Brouillon IA — à relire » : conservé avec le brouillon tant
+		// que le texte n'a pas été modifié ; retiré à la publication. Le champ
+		// est optionnel (undefined) → aucun impact sur les bilans existants.
+		patch.feedbackAiDraft = nextFeedbackAiDraft({
+			status,
+			feedback,
+			aiDraft: aiDraft === true,
+		});
 		if (trimmed) patch.feedback = trimmed;
 		if (status === "retour_envoye") {
 			patch.feedbackAt = Date.now();

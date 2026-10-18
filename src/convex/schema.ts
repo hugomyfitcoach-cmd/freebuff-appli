@@ -254,6 +254,13 @@ export default defineSchema({
 		feedbackAt: v.optional(v.number()),
 		/** Horodatage de lecture du retour par la cliente — une publication relance l'état « non lu ». */
 		feedbackReadAt: v.optional(v.number()),
+		/**
+		 * Brouillon préparé par l'IA et PAS ENCORE modifié par le coach.
+		 * Optionnel et additif : les bilans existants restent valides (aucune
+		 * migration). Information de travail du CRM — jamais renvoyée à la
+		 * cliente (voir checkins.myCheckins / lib/coachDraftUi).
+		 */
+		feedbackAiDraft: v.optional(v.boolean()),
 	})
 		.index("by_user_week", ["userId", "weekStart"])
 		.index("by_weekStart", ["weekStart"]),
