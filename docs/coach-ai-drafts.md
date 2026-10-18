@@ -4,6 +4,14 @@
 
 **Promesse** : pour chaque bilan hebdo, un bouton **« Préparer un brouillon »** remplit le champ de retour avec une proposition dans le style de Hugo. Il relit, modifie, puis **enregistre en brouillon ou publie lui-même**. Aucun envoi automatique, aucun effet côté cliente avant publication.
 
+## 0. Décisions de conception (validées pour M0)
+
+1. **Exemples de style — Preview et Production** : uniquement **un fichier de retours sélectionnés et anonymisés par Hugo**, plus **l'historique de la même cliente**. Aucun corpus global issu des autres clientes, dans aucun environnement. L'environnement ne change que le mode de chargement, jamais la règle de sélection.
+2. **Trois sources dans le prompt** : (a) le guide de style, (b) le référentiel de méthode (`methode-gflux.md`, fourni par Hugo — fichier provisoire de démonstration en attendant), (c) les exemples (fichier sélectionné + historique de la même cliente).
+3. **Fournisseur générique** : un seul module, réutilisable par d'autres fonctionnalités IA (analyse de repas, analyses à la demande M6). Fournisseur et modèle réglables **par fonctionnalité** (`AI_PROVIDER_COACH_DRAFT`, `AI_MODEL_COACH_DRAFT`). Le module vit côté Convex (`src/convex/ai/provider.ts`), importable par une action Convex, et lit `process.env` — **jamais `$env` SvelteKit**.
+4. **Longueur du brouillon** : paramètre explicite (`COACH_DRAFT_TARGET_WORDS`, défaut 150 mots). La valeur sera calée plus tard sur les vrais retours de Hugo ; elle ne doit pas être codée en dur dans le prompt.
+5. **Mission M6** : analyses à la demande depuis la fiche cliente (« Analyser sa semaine », « Points de blocage actuels »), même moteur, lecture seule, sans chat libre.
+
 ## 1. Données disponibles par bilan
 
 | Donnée | Source existante | Usage |
@@ -41,26 +49,28 @@ La PR #16 est **non fusionnée** (fermée sans merge lors de la dernière vérif
 BilanCard.svelte ──POST /api/coach/draft──► route BFF (requireRole coach)
                                                 ▼
                                 action Convex coachDraft.generate
-                                  ├─ loadContext (auth + données + stats)
+                                  ├─ coachDraft.loadContext (auth + données + stats)
                                   ├─ coachDraftPrompt.ts (prompt pur, testable)
-                                  ├─ coachDraftProvider.ts (SEUL fournisseur)
+                                  ├─ ai/provider.ts (SEUL fournisseur générique)
                                   └─ aiLog.record (usage, sans données perso)
                                                 │ texte brut
                           textarea (relu/modifié) → coach.setFeedback
 ```
 
-- **Un seul fichier à changer pour switcher de fournisseur** : `src/lib/server/coachDraftProvider.ts`, exposant `generateDraft(input): Promise<{ text, usage }>` et lisant `COACH_DRAFT_PROVIDER=openai|anthropic` + `COACH_DRAFT_MODEL`. Deux fonctions `fetch` dans ce fichier, sans SDK ; aucune autre couche ne connaît le fournisseur.
-- **Prompt** (`src/convex/coachDraftPrompt.ts`, module pur) : (1) guide de style versionné, (2) 2–5 retours passés, (3) faits de la semaine en lignes `libellé : valeur` **déjà formatées par le code**, (4) consigne : français, tutoiement, 120–180 mots, pas de diagnostic ni de promesse, ne rien inventer. Les chiffres sont des faits vérifiés ; le prompt interdit tout calcul. Sortie texte brut, 1 appel, `max_tokens` ≈ 400.
-- **Sélection** : même cliente (2), puis corpus global filtré par `categorie_retour`/`adherence` (2), tri déterministe par proximité puis récence. Pas d'embeddings.
+- **Fournisseur générique unique** : `src/convex/ai/provider.ts`, exposant `generateText({ feature, system, prompt, maxTokens }): Promise<{ text, usage }>`. Une seule implémentation `fetch` (OpenAI/Anthropic), sans SDK. La fonctionnalité choisit son couple via `AI_PROVIDER_<FEATURE>` / `AI_MODEL_<FEATURE>` — pour le coach : `AI_PROVIDER_COACH_DRAFT`, `AI_MODEL_COACH_DRAFT`. Aucune autre couche ne connaît le fournisseur. Le module est côté Convex et lit `process.env` (jamais `$env` SvelteKit).
+- **Prompt** (`src/convex/coachDraftPrompt.ts`, module pur) : (1) guide de style, (2) référentiel de méthode, (3) exemples (fichier sélectionné + historique de la même cliente), (4) faits de la semaine en lignes `libellé : valeur` **déjà formatées par le code**, (5) consignes : français, tutoiement, longueur paramétrée, pas de diagnostic ni de promesse, **interdiction de calculer et d'inventer**. Les chiffres sont des faits vérifiés ; le prompt ne contient aucune formule. Sortie texte brut, 1 appel, `max_tokens` ≈ 400.
+- **Longueur** : `COACH_DRAFT_TARGET_WORDS` (défaut 150), passé au prompt builder. Calibration ultérieure sur les retours réels de Hugo, sans changement de code.
+- **Sélection des exemples** : (a) fichier de retours sélectionnés/anonymisés par Hugo (commun Preview/Production) ; (b) **2 derniers retours publiés de la même cliente** (`status === "retour_envoye"`), lus par `coachDraft.loadContext`. Pas de corpus global, pas d'embeddings.
 
 ## 5. Exemples de style : Preview et Production
 
-| Environnement | Source | Détail |
-|---|---|---|
-| Preview | **Fichier fourni par Hugo**, retours anonymisés | `src/lib/data/coach-feedback-examples.json`, importé (bundlé) — aucun accès base. `COACH_DRAFT_EXAMPLES_SOURCE=file` |
-| Production | **Recherche dans l'historique** | Query interne sur les `checkins` publiés + nettoyage des prénoms. `COACH_DRAFT_EXAMPLES_SOURCE=history` |
+| Source | Détail | Preview | Production |
+|---|---|---|---|
+| **Fichier de retours sélectionnés** | `src/lib/data/coach-feedback-examples.json` — retours anonymisés par Hugo, aucune donnée réelle | Oui | Oui |
+| **Historique de la même cliente** | 2 derniers retours publiés, chargés par `coachDraft.loadContext` | Oui | Oui |
+| Corpus global (autres clientes) | **Interdit** | Non | Non |
 
-Un seul module `coachDraftExamples.ts` expose les deux sources ; l'environnement ne change ni le prompt ni l'UI.
+Un seul module `coachDraftExamples.ts` expose ces deux sources ; l'environnement ne change ni la sélection, ni le prompt, ni l'UI.
 
 ## 6. Confidentialité
 
@@ -99,8 +109,16 @@ Avec 50 % de régénérations, majorer de 50 % (gpt-4o-mini ≈ **0,18 $/mois**)
 | M0 | Contexte et prompt | `coachDraft.loadContext` (stats de la semaine ciblée) + `coachDraftPrompt` + tests dorés | Non |
 | M1 | Plomberie | Provider `fake`, route BFF, bouton, textarea | Non |
 | M2 | OpenAI Preview | Vrai appel, exemples fichier, quota, kill switch, aucune persistance | Oui |
-| M3 | Style et historique | Sélection même cliente + global, anonymisation, régénération, journal d'usage | Oui |
+| M3 | Style et historique | Fichier sélectionné + 2 derniers retours de la même cliente, anonymisation, régénération, journal d'usage | Oui |
 | M4 | Qualité | Anthropic, comparaison sur 20 bilans relus par Hugo, calibration du guide | Oui |
 | M5 | Production | Revue privacy/coûts, activation progressive, monitoring | Oui |
+| M6 | Analyses à la demande | Depuis la fiche cliente : **« Analyser sa semaine »**, **« Points de blocage actuels »**. Même moteur de contexte + prompt, **lecture seule**, aucun chat libre, aucune écriture. | Oui (v1.1) |
 
-M0–M2 rendent le brouillon utilisable ; M3 apporte le style ; M4–M5 sécurisent la production.
+M0–M2 rendent le brouillon utilisable ; M3 apporte le style ; M4–M5 sécurisent la production ; M6 étend le même moteur à des analyses ponctuelles, sans conversation.
+
+## 10. État M0 (livré)
+
+- `src/convex/coachDraft.ts` : query interne `loadContext` (coach uniquement) — réponses, semaine, statistiques de la semaine du bilan et de la semaine précédente via `src/lib/vision360.ts`, 2 derniers retours publiés de la même cliente. Résultat sans identifiant, e-mail ni nom de famille : **prénom seul**.
+- `src/convex/coachDraftPrompt.ts` : module pur, sources injectées, chiffres pré-formatés, longueur paramétrée, interdiction de calculer/inventer.
+- Fichiers provisoires : guide de style, `methode-gflux.md`, 3 retours fictifs.
+- Tests dorés : 3 bilans fictifs (progrès, stagnation, alerte fatigue) → prompts figés. Aucune interface, aucun appel IA, aucune écriture Convex.
