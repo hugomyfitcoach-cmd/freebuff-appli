@@ -9,8 +9,9 @@
  * Garde-fous testés :
  *  - fond opaque plein viewport, le contenu suit le visualViewport
  *    (clavier iOS/Android) ; desktop = panneau centré arrondi inchangé ;
- *  - densité RÉAHONNABLE : hero adaptatif, paddings respirés — jamais de
- *    sur-compaction : quantité, macros, repas et CTA ne sont jamais sacrifiés ;
+ *  - densité : la fiche tient SANS scroll sur un écran de 390×844 — bloc
+ *    pictogramme compact sans photo, espacements resserrés, cibles tactiles
+ *    ≥ 44 px ; quantité, macros, repas et CTA ne sont jamais sacrifiés ;
  *  - hero image adaptatif (confortable → réduit sur petit écran), contain,
  *    placeholder G-FLUX ; vignettes cover inchangées ;
  *  - footer d'actions : FRÈRE flex de la zone scrollable (espace réservé,
@@ -81,16 +82,19 @@ test('Fiche plein écran : fond opaque plein viewport — le Journal n\u2019est 
 	assert.ok(sheet.includes('aria-label="Fermer"'), 'fermeture explicite en haut de fiche');
 });
 
-test('Densité : plus de sur-compaction — quantité, macros, repas et CTA toujours accessibles', () => {
-	// Fin de la course aux pixels (59c5120) : les paddings/gaps respirent
-	// de nouveau ; sur très petit écran, un léger scroll interne est
-	// acceptable mais RIEN n'est jamais masqué.
+test('Densité : la fiche tient sur un écran de 390×844 — espacements resserrés, cibles ≥ 44 px', () => {
+	// Contrat « fiche sur un écran » : les marges verticales sont resserrées
+	// et le bloc pictogramme SANS photo est compact — la fiche d'édition
+	// (Supprimer / Enregistrer / Remettre en planifié) tient entière sur un
+	// écran de 390×844. Aucun bloc de contenu supprimé, aucune cible tactile
+	// sous 44 px ; sur très petit écran, un léger scroll interne reste le
+	// filet de secours et RIEN n'est jamais masqué.
 	assert.ok(sheet.includes('min-h-0 flex-1 overflow-y-auto'), 'scroll interne de secours (très petits écrans)');
-	assert.ok(sheet.includes("qtyFocused ? 'pt-14' : 'pt-4'"), 'bloc identité respiré (fin du compactage) + espacé sous la croix en mode focus');
-	assert.ok(sheet.includes('mt-3.5 flex items-stretch justify-around'), 'onglets unités respirés (onglets soulignés Claude)');
-	assert.ok(sheet.includes('mt-3 flex items-center justify-between'), 'quantité centrale avec vraie marge');
-	assert.ok(sheet.includes('rounded-full border-2 border-line px-3.5 py-2'), 'raccourcis 50/100/150/200 g touchables (44 px)');
-	assert.ok(sheet.includes('mt-3.5 px-5 pb-3'), 'bloc macros respiré');
+	assert.ok(sheet.includes("qtyFocused ? 'pt-[calc(max(env(safe-area-inset-top),12px)+44px)]' : 'pt-3'"), 'identité resserrée + dégagement sous les contrôles flottants en mode focus');
+	assert.ok(sheet.includes('mt-2.5 flex items-stretch justify-around'), 'onglets unités resserrés (onglets soulignés Claude)');
+	assert.ok(sheet.includes('mt-2.5 flex items-center justify-between'), 'quantité centrale : marge resserrée, zone de saisie intacte');
+	assert.ok(sheet.includes('rounded-full border-2 border-line px-3.5 py-2 min-h-11'), 'raccourcis 50/100/150/200 g : cible tactile 44 px (min-h-11)');
+	assert.ok(sheet.includes('mt-2.5 px-5 pb-2'), 'bloc macros resserré');
 	assert.ok(sheet.includes('grid grid-cols-4 gap-2'), 'macros et repas espacés (fin des gap-1.5 serrés)');
 	assert.ok(sheet.includes('px-2 py-2.5 text-[12px]'), 'boutons repas confortables (fin du py-1.5 text-[11px])');
 	assert.ok(sheet.includes('grid h-11 w-11 place-items-center'), 'boutons − / + 44 px (cible tactile)');
@@ -103,13 +107,15 @@ test('Densité : plus de sur-compaction — quantité, macros, repas et CTA touj
 test('Fiche FIXE : croix toujours visible, aucun scroll parasite, vignettes intactes', () => {
 	// Croix + favori HORS de la zone scrollable : aucun mini-scroll résiduel
 	// (après validation de la quantité) ne peut plus les faire disparaître.
-	assert.ok(sheet.includes('absolute right-3 top-3 z-10 flex items-center gap-2'), 'contrôles flottants hors de la zone scrollable');
+	assert.ok(sheet.includes('absolute right-3 top-[max(env(safe-area-inset-top),12px)] z-10 flex items-center gap-2'), 'contrôles flottants hors de la zone scrollable (décalés de la safe area haute)');
 	const scrollerStart = sheet.indexOf('bind:this={scrollerEl}');
 	assert.ok(scrollerStart > sheet.indexOf('aria-label="Fermer"'), 'croix déclarée AVANT la zone scrollable (hors flux)');
 	// Re-ancrage en haut à chaque transition du mode focus (fin du décalage). 
 	assert.ok(sheet.includes('scrollerEl.scrollTop = 0'), 're-ancrage scrollTop = 0 au retour de fiche complète');
-	// Hero resserré : la fiche tient SANS scroll sur téléphone standard.
-	assert.ok(sheet.includes('h-[min(24dvh,180px)] sm:h-[180px]'), 'hero adaptatif calibré (fiche fixe sans scroll)');
+	// Hero photo resserré + pictogramme compact : la fiche tient SANS scroll
+	// sur téléphone standard (390×844).
+	assert.ok(sheet.includes('h-[min(24dvh,180px)] sm:h-[180px]'), 'hero photo adaptatif calibré (fiche fixe sans scroll)');
+	assert.ok(sheet.includes('h-[88px] place-items-center sm:h-[180px]'), 'bloc pictogramme COMPACT sans photo (88 px : la fiche tient sur un écran)');
 	assert.ok(!sheet.includes('h-[min(28dvh,220px)]'), 'ancien hero trop haut supprimé');
 });
 
@@ -149,13 +155,14 @@ test('Macros : 4 cartes au code couleur du Journal', () => {
 
 /* ─── 6 bis. Mode focus quantité ─── */
 
-test('Mode focus quantité : clavier ouvert → identité+quantité+macros visibles, reste masqué', () => {
-	// Pendant la saisie (quantité centrale focalisée) : hero, badges secondaires,
-	// choix du repas et footer d'actions disparaissent ; il reste au-dessus du
-	// clavier : nom, onglets Grammes/Portions/Repères, quantité − / +,
-	// raccourcis 50/100/150/200 g et cartes macros.
+test('Mode focus quantité : clavier ouvert → identité+quantité+macros visibles, actions toujours là', () => {
+	// Pendant la saisie (quantité centrale focalisée) : hero et choix du repas
+	// disparaissent ; il reste au-dessus du clavier : nom, onglets
+	// Grammes/Portions/Repères, quantité − / +, raccourcis 50/100/150/200 g,
+	// cartes macros ET le footer d'actions (jamais coupé, même clavier ouvert).
 	assert.ok(sheet.includes('qtyFocused'), 'état de focus quantité présent');
-	assert.ok(sheet.includes('{#if !qtyFocused}'), 'hero, choix du repas et footer conditionnés au mode focus');
+	assert.ok(sheet.includes('{#if !qtyFocused}'), 'hero et choix du repas conditionnés au mode focus');
+	assert.equal((sheet.match(/\{#if !qtyFocused\}/g) || []).length, 2, 'seuls hero et choix du repas sont masqués en focus — le footer reste visible');
 	// Done / ✓ / Enter valident la SAISIE (blur), jamais l'aliment :
 	assert.ok(sheet.includes('onkeydown={qtyKeydown}'), 'Enter = valider la saisie (blur, aucune sauvegarde)');
 	assert.ok(sheet.includes('enterkeyhint="done"'), 'touche Done/✓ native (iOS + Android)');

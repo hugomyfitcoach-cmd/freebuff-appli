@@ -17,14 +17,19 @@
 	       page suit le visualViewport (top/height en px réels) ;
 	     · desktop : le même contenu en panneau centré arrondi (max-w-lg) ;
 	     · hero image adaptatif en haut (jamais étiré — object-contain),
-	       boutons fermer + favori en surimpression ;
+	       boutons fermer + favori en surimpression ; SANS photo, le bloc
+	       pictogramme devient une bande COMPACTE (88 px) : la fiche entière
+	       (en-tête, quantité, raccourcis, macros, repas, actions) tient SANS
+	       scroll sur un écran de 390×844 ;
 	     · nom complet SANS troncature (break-words), marque, source
 	       (Ciqual / Estimation IA / aliment personnalisé) en badges ;
 	     · macros en 4 cartes (code couleur Journal) ;
 	     · footer d'actions = FRÈRE flex de la zone scrollable : espace
 	       RÉSERVÉ (jamais recouvert), opaque, safe area iOS. La quantité, les
-	       macros, le repas et le CTA ne sont JAMAIS sacrifiés : densité
-	       raisonnable + scroll interne de secours sur très petits écrans. */
+	       macros, le repas et le CTA ne sont JAMAIS sacrifiés : espacements
+	       resserrés (fiche complète sans scroll sur un écran de 390×844) +
+	       scroll interne de secours sur très petits écrans et clavier ouvert —
+	       le footer d'actions reste alors visible en bas. */
 
 	type MealDef = { id: string; label: string; icon: string };
 
@@ -254,9 +259,10 @@
 	}
 
 	/* MODE FOCUS QUANTITÉ : pendant la saisie au clavier (quantité centrale
-	   focalisée), on masque hero, choix du repas et footer d'actions — il
-	   reste au-dessus du clavier : identité, onglets, quantité − / +,
-	   raccourcis et cartes macros. Done / ✓ / Enter (ou tap ailleurs) fait
+	   focalisée), on masque hero et choix du repas — il reste au-dessus du
+	   clavier : identité, onglets, quantité − / +, raccourcis, cartes macros
+	   ET le footer d'actions (toujours visible : un défilement est toléré au
+	   clavier, les boutons ne sont jamais coupés). Done / ✓ / Enter (ou tap ailleurs) fait
 	   perdre le focus → retour automatique à la fiche complète. La valeur
 	   saisie reste l'état local (bind:value) : JAMAIS de sauvegarde
 	   automatique, l'enregistrement reste un geste explicite (CTA). Le blur
@@ -325,7 +331,7 @@
 		<!-- ─── Contrôles flottants : HORS de la zone scrollable ───
 	     Croix (et favori) toujours visibles — aucun mini-scroll résiduel ne
 	     peut les faire disparaître ; visibles aussi pendant le mode focus. -->
-		<div class="absolute right-3 top-3 z-10 flex items-center gap-2">
+		<div class="absolute right-3 top-[max(env(safe-area-inset-top),12px)] z-10 flex items-center gap-2">
 			{#if showFav && favFoodId}
 				<!-- Favori = cœur ENTIÈREMENT REMPLI en vert (fill), même logique qu'avant. -->
 				<button
@@ -355,28 +361,30 @@
 	     du clavier ; Done / ✓ / Enter ou tap ailleurs restaure la fiche. -->
 			{#if !qtyFocused}
 		<!-- ─── Hero : image adaptative de l'aliment (référence UX Food) ───
-		     Hauteur dynamique : confortable sur écran standard, réduite sur
-		     petit écran (plafond 24dvh / 180 px — calibré pour que la fiche
-		     tienne SANS scroll sur téléphone standard). object-contain via
+		     AVEC photo : hauteur dynamique confortable (plafond 24dvh / 180 px).
+		     SANS photo : le bloc pictogramme se réduit à une bande COMPACTE
+		     (88 px) — c'est le principal gisement de hauteur : la fiche entière
+		     tient sans scroll sur un écran de 390×844. object-contain via
 		     FoodImg : JAMAIS d'étirement ni de recadrage ; fond cream si
 		     l'image est plus petite que la zone ; placeholder G-FLUX. -->
 			<div class="relative shrink-0 bg-cream">
-				<div class="h-[min(24dvh,180px)] sm:h-[180px]">
-					{#if heroSrc}
+				{#if heroSrc}
+					<div class="h-[min(24dvh,180px)] sm:h-[180px]">
 						<FoodImg src={heroSrc} fallbackSrc={food.thumbUrl} alt={food.name} class="h-full w-full" fit="contain" eager />
-					{:else}
-						<!-- Placeholder G-FLUX : grande tuile neutre, jamais d'icône cassée. -->
-						<div class="grid h-full w-full place-items-center">
-							<div class="grid h-20 w-20 place-items-center rounded-3xl bg-brand-light">
-								<Icon name="utensils" size={34} class="text-brand" />
-							</div>
-						</div>					{/if}
-				</div>
+					</div>
+				{:else}
+					<!-- Placeholder G-FLUX compact : tuile neutre, jamais d'icône cassée. -->
+					<div class="grid h-[88px] place-items-center sm:h-[180px]">
+						<div class="grid h-14 w-14 place-items-center rounded-2xl bg-brand-light sm:h-20 sm:w-20 sm:rounded-3xl">
+							<Icon name="utensils" size={34} class="text-brand" />
+						</div>
+					</div>
+				{/if}
 			</div>
 			{/if}
 
 			<!-- ─── Identité : nom complet (JAMAIS tronqué) + marque + référence ─── -->
-			<div class="px-5 {qtyFocused ? 'pt-14' : 'pt-4'}">
+			<div class="px-5 {qtyFocused ? 'pt-[calc(max(env(safe-area-inset-top),12px)+44px)]' : 'pt-3'}">
 				<h2 class="break-words text-[22px] font-black leading-[1.2] tracking-[-0.02em] text-ink">{food.name}</h2>
 				{#if qtyFocused}
 					<!-- Mode focus : le nom reste visible au-dessus du clavier, la ligne
@@ -387,8 +395,8 @@
 					<p class="mt-0.5 text-[13px] leading-snug text-mist">
 						{#if hasBrand}<span class="font-semibold text-ink/80">{food.brand}</span> · {/if}{fmtQty(food.kcal100)} kcal pour 100 g{#if hasServing} · 1 portion = {fmtQty(servingQty)} g{/if}{#if repere && unitMode === 'repere'} · 1 {unitWord(1, repere)} ≈ {fmtQty(repere.grams)} {repere.unit}{/if}
 					</p>
-					{#if subtitle}<p class="mt-1 text-[12px] leading-snug text-mist">{subtitle}</p>{/if}
-					<div class="mt-2 flex flex-wrap items-center gap-1.5">
+					{#if subtitle}<p class="mt-0.5 text-[12px] leading-snug text-mist">{subtitle}</p>{/if}
+					<div class="mt-1.5 flex flex-wrap items-center gap-1.5">
 					{#if source === 'ciqual'}
 						<span class="inline-flex items-center gap-1 rounded-full bg-brand-light px-2.5 py-1 text-[10px] font-bold text-brand">Référence Ciqual – ANSES</span>
 					{/if}
@@ -410,7 +418,7 @@
 			<div class="px-5">
 				<!-- Bascule Grammes / Portions (si portion OFF fiable) / Repères G-FLUX
 			     (si un repère usuel correspond) — onglets dynamiques. -->
-				{#if tabCount > 1}						<div class="mt-3.5 flex items-stretch justify-around border-b border-[#E9EDEA] text-[14px] font-bold">
+				{#if tabCount > 1}						<div class="mt-2.5 flex items-stretch justify-around border-b border-[#E9EDEA] text-[14px] font-bold">
 						<button
 							type="button"
 							class="relative h-11 flex-1 px-2 transition {unitMode === 'g' ? 'text-[#1db954] after:absolute after:-bottom-px after:left-1/2 after:h-[3px] after:w-11 after:-translate-x-1/2 after:rounded after:bg-[#1db954]' : 'text-mist hover:text-ink'}"
@@ -434,7 +442,7 @@
 				{/if}
 
 				<!-- Quantité centrale directement éditable -->
-				<div class="mt-3 flex items-center justify-between gap-3" data-qty-zone>
+				<div class="mt-2.5 flex items-center justify-between gap-3" data-qty-zone>
 					<button
 						type="button"
 						class="grid h-11 w-11 place-items-center rounded-xl border-2 border-line text-xl font-bold text-ink active:border-brand"
@@ -496,12 +504,12 @@
 
 				<!-- Équivalence portions / repères → grammes (+ mention indicative) -->
 				{#if unitMode === 'portion' && valid}
-					<p class="mt-2.5 text-center text-xs text-mist">
+					<p class="mt-2 text-center text-xs text-mist">
 						{fmtQty(servingsNum ?? 0)} portion{(servingsNum ?? 0) > 1 ? 's' : ''} × {fmtQty(servingQty)} g =
 						<strong class="font-bold text-ink">{fmtQty(gramsNum ?? 0)} g</strong>
 					</p>
 				{:else if unitMode === 'repere' && repere && valid}
-					<p class="mt-2.5 text-center text-xs text-mist">
+					<p class="mt-2 text-center text-xs text-mist">
 						{fmtQty(repsNum ?? 0)} {unitWord(repsNum ?? 1, repere)} × {fmtQty(repere.grams)} {repere.unit} =
 						<strong class="font-bold text-ink">{fmtQty(gramsNum ?? 0)} {repere.unit}</strong>
 						<span class="mt-0.5 block text-[10px]">Valeur indicative</span>
@@ -509,12 +517,12 @@
 				{/if}
 
 				<!-- Raccourcis rapides -->
-				<div class="mt-3 flex flex-wrap justify-center gap-2" data-qty-zone>
+				<div class="mt-2 flex flex-wrap justify-center gap-2" data-qty-zone>
 					{#if unitMode === 'portion'}
 						{#each [0.5, 1, 1.5, 2] as p (p)}
 							<button
 								type="button"
-								class="rounded-full border-2 border-line px-3.5 py-2 text-xs font-semibold text-ink {servingsNum === p ? '!border-brand !text-brand' : ''}"
+								class="rounded-full border-2 border-line px-3.5 py-2 min-h-11 text-xs font-semibold text-ink {servingsNum === p ? '!border-brand !text-brand' : ''}"
 								onclick={() => setServings(p)}
 							>{fmtQty(p)} portion{p > 1 ? 's' : ''}</button>
 						{/each}
@@ -524,7 +532,7 @@
 							{#each repereList as r, i (r.label)}
 								<button
 									type="button"
-									class="rounded-full px-3.5 py-2 text-xs font-bold transition {i === repereIdx ? 'bg-brand text-white shadow-sm' : 'border-2 border-line text-ink hover:border-brand hover:text-brand'}"
+									class="rounded-full px-3.5 py-2 min-h-11 text-xs font-bold transition {i === repereIdx ? 'bg-brand text-white shadow-sm' : 'border-2 border-line text-ink hover:border-brand hover:text-brand'}"
 									onclick={() => selectRepere(i)}
 								>{r.label}</button>
 							{/each}
@@ -532,7 +540,7 @@
 							{#each [1, 2, 3, 4] as p (p)}
 								<button
 									type="button"
-									class="rounded-full border-2 border-line px-3.5 py-2 text-xs font-semibold text-ink {repsNum === p ? '!border-brand !text-brand' : ''}"
+									class="rounded-full border-2 border-line px-3.5 py-2 min-h-11 text-xs font-semibold text-ink {repsNum === p ? '!border-brand !text-brand' : ''}"
 									onclick={() => setReperes(p)}
 								>{fmtQty(p)} {unitWord(p, repere)}</button>
 							{/each}
@@ -541,7 +549,7 @@
 						{#each gramShortcuts as g (g)}
 							<button
 								type="button"
-								class="rounded-full border-2 border-line px-3.5 py-2 text-xs font-semibold text-ink {gramsNum === g ? '!border-brand !text-brand' : ''}"
+								class="rounded-full border-2 border-line px-3.5 py-2 min-h-11 text-xs font-semibold text-ink {gramsNum === g ? '!border-brand !text-brand' : ''}"
 								onclick={() => setGrams(g)}
 							>{g} g</button>
 						{/each}
@@ -551,24 +559,24 @@
 
 				<!-- ─── Macros en 4 cartes (code couleur du Journal) ───
 			     vert kcal · rose glucides · bleu protéines · orange lipides. -->
-			<div class="mt-3.5 px-5 pb-3">
+			<div class="mt-2.5 px-5 pb-2">
 				<div class="grid grid-cols-4 overflow-hidden rounded-[20px] border border-[#EEF1EF] bg-white shadow-[0_1px_2px_rgba(15,21,18,0.04),0_12px_26px_-16px_rgba(15,21,18,0.18)]">
-					<div class="border-l border-[#EEF1EF] px-1 py-3 text-center first:border-l-0">
+					<div class="border-l border-[#EEF1EF] px-1 py-2.5 text-center first:border-l-0">
 						<p class="text-[10px] font-bold uppercase tracking-wide text-brand">Calories</p>
 						<p class="mt-0.5 text-[17px] font-bold leading-none text-brand tabular-nums">{valid ? fmtQty(kcal) : '—'}</p>
 						<p class="text-[9px] font-semibold text-mist">kcal</p>
 					</div>
-					<div class="border-l border-[#EEF1EF] px-1 py-3 text-center first:border-l-0">
+					<div class="border-l border-[#EEF1EF] px-1 py-2.5 text-center first:border-l-0">
 						<p class="text-[10px] font-bold uppercase tracking-wide" style:color="#ec4899">Glucides</p>
 						<p class="mt-0.5 text-[17px] font-bold leading-none tabular-nums" style:color="#ec4899">{valid ? fmtQty(carbs) : '—'}</p>
 						<p class="text-[9px] font-semibold text-mist">g</p>
 					</div>
-					<div class="border-l border-[#EEF1EF] px-1 py-3 text-center first:border-l-0">
+					<div class="border-l border-[#EEF1EF] px-1 py-2.5 text-center first:border-l-0">
 						<p class="text-[10px] font-bold uppercase tracking-wide" style:color="#3b82f6">Protéines</p>
 						<p class="mt-0.5 text-[17px] font-bold leading-none tabular-nums" style:color="#3b82f6">{valid ? fmtQty(protein) : '—'}</p>
 						<p class="text-[9px] font-semibold text-mist">g</p>
 					</div>
-					<div class="border-l border-[#EEF1EF] px-1 py-3 text-center first:border-l-0">
+					<div class="border-l border-[#EEF1EF] px-1 py-2.5 text-center first:border-l-0">
 						<p class="text-[10px] font-bold uppercase tracking-wide" style:color="#f97316">Lipides</p>
 						<p class="mt-0.5 text-[17px] font-bold leading-none tabular-nums" style:color="#f97316">{valid ? fmtQty(fat) : '—'}</p>
 						<p class="text-[9px] font-semibold text-mist">g</p>
@@ -577,7 +585,7 @@
 
 				{#if !qtyFocused}
 				<!-- Choix du repas (masqué en mode focus quantité) -->
-				<div class="mt-3 grid grid-cols-4 gap-2">
+				<div class="mt-2 grid grid-cols-4 gap-2">
 					{#each mealDefs as m (m.id)}
 						<button
 							type="button"
@@ -593,14 +601,14 @@
 			</div>
 		</div>
 
-		{#if !qtyFocused}
-
 		<!-- ─── Footer d'actions : barre SOLIDE intégrée à la fiche ───
 	     FRÈRE flex de la zone scrollable : espace réservé, fond blanc opaque +
 	     séparateur — jamais de contenu visible derrière (l'ancien sticky +
 	     dégradé transparent laissait passer les boutons repas sous
-	     Supprimer/Enregistrer). Safe area iOS en bas. -->
-		<div class="shrink-0 border-t border-line bg-white px-5 pb-[max(env(safe-area-inset-bottom),12px)] pt-3">
+	     Supprimer/Enregistrer). Safe area iOS en bas. TOUJOURS visible — même
+	     clavier ouvert (mode focus) et petits écrans : les boutons d'action ne
+	     sont jamais coupés, seul le contenu au-dessus peut défiler. -->
+		<div class="shrink-0 border-t border-line bg-white px-5 pb-[max(env(safe-area-inset-bottom),12px)] pt-2.5">
 			{#if error}
 				<p class="mb-3 rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{error}</p>
 			{/if}
@@ -618,7 +626,7 @@
 						{saving ? 'Enregistrement…' : 'Enregistrer la quantité'}
 					</button>
 				</div>
-				<div class="mt-2 flex gap-2">
+				<div class="mt-1.5 flex gap-2">
 					{#if onEat}
 						<!-- « Mangé » : uniquement le jour même — on ne mange jamais demain. -->
 						<button
@@ -660,7 +668,7 @@
 					{/if}
 					<button
 						type="button"
-						class="flex-[2] rounded-full bg-brand px-3 py-3.5 text-[15px] font-bold text-white shadow-lg shadow-brand/30 transition hover:bg-brand-dark disabled:opacity-60"
+						class="flex-[2] rounded-full bg-brand px-3 py-3 text-[15px] font-bold text-white shadow-lg shadow-brand/30 transition hover:bg-brand-dark disabled:opacity-60"
 						disabled={saving || !valid}
 						onclick={save}
 					>
@@ -672,13 +680,12 @@
 		     kcal/macros des totaux (recalcul parfaitement réversible). -->
 					<button
 						type="button"
-						class="mt-2 w-full rounded-full border-2 border-line px-3 py-2.5 text-sm font-bold text-mist transition hover:border-brand hover:text-brand"
+						class="mt-1.5 w-full rounded-full border-2 border-line px-3 py-2.5 min-h-11 text-sm font-bold text-mist transition hover:border-brand hover:text-brand"
 						disabled={saving}
 						onclick={onUnEat}
 					>↩︎ Remettre en planifié</button>
 				{/if}
 			{/if}
 		</div>
-		{/if}
 	</div>
 </div>
