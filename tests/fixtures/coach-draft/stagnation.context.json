@@ -1,0 +1,108 @@
+{
+	"prenom": "Nadia",
+	"weekStart": "2026-09-07",
+	"weekLabel": "S37 - 07 sept. 2026",
+	"answers": {
+		"motivation": 3,
+		"adherence": "partiel",
+		"deficit_annule": "peut-etre",
+		"faim": "oui",
+		"hydratation": "variable",
+		"digestion": "ok",
+		"pas": "5000-8000",
+		"cycle": "sais-pas",
+		"evolution": "stable",
+		"mensurations": "non",
+		"photos": "non",
+		"besoin_retour": "ecrit",
+		"categorie_retour": ["alimentation", "motivation"],
+		"point_retour": "Semaine chargée, plusieurs dîners pris à l'extérieur.",
+		"victoire": "J'ai tenu mes repas du midi malgré le planning."
+	},
+	"goals": { "kcal": 1500, "protein": 105, "stepGoal": 8000 },
+	"stats": {
+		"week": {
+			"start": "2026-09-07",
+			"end": "2026-09-13",
+			"days": [
+				"2026-09-07",
+				"2026-09-08",
+				"2026-09-09",
+				"2026-09-10",
+				"2026-09-11",
+				"2026-09-12",
+				"2026-09-13"
+			],
+			"food": {
+				"kcalAvg": 1490,
+				"proteinAvg": 92,
+				"goalKcal": 1500,
+				"goalProtein": 105,
+				"thresholdKcal": 900,
+				"exploitableDays": 4,
+				"partialDays": 2,
+				"absentDays": 1
+			},
+			"weight": {
+				"avg": 68.4,
+				"count": 2,
+				"last": { "date": "2026-09-13", "weightKg": 68.5 },
+				"prevLast": { "date": "2026-09-06", "weightKg": 68.5 },
+				"delta": 0
+			},
+			"steps": { "avg": 7200, "goal": 8000, "trackedDays": 5 },
+			"sport": { "activities": 1, "durationMin": 45, "kcal": 250, "metMinutes": 300 }
+		},
+		"previousWeek": {
+			"start": "2026-08-31",
+			"end": "2026-09-06",
+			"days": [
+				"2026-08-31",
+				"2026-09-01",
+				"2026-09-02",
+				"2026-09-03",
+				"2026-09-04",
+				"2026-09-05",
+				"2026-09-06"
+			],
+			"food": {
+				"kcalAvg": 1480,
+				"proteinAvg": 90,
+				"goalKcal": 1500,
+				"goalProtein": 105,
+				"thresholdKcal": 900,
+				"exploitableDays": 4,
+				"partialDays": 1,
+				"absentDays": 2
+			},
+			"weight": {
+				"avg": 68.4,
+				"count": 2,
+				"last": { "date": "2026-09-06", "weightKg": 68.5 },
+				"prevLast": null,
+				"delta": null
+			},
+			"steps": { "avg": 7600, "goal": 8000, "trackedDays": 5 },
+			"sport": { "activities": 1, "durationMin": 50, "kcal": 280, "metMinutes": 300 }
+		},
+		"deltas": {
+			"kcalAvg": 10,
+			"proteinAvg": 2,
+			"weightAvg": 0,
+			"stepsAvg": -400,
+			"sportDurationMin": -5,
+			"sportKcal": -30
+		},
+		"mensurations": null
+	},
+	"examples": [
+		{
+			"weekLabel": "S35 - 24 août 2026",
+			"text": "Le point positif, c'est que tu as repris le petit-déjeuner et que tes déjeuners sont à nouveau structurés. On part de là. Le soir reste le moment où tout se relâche, et ce n'est pas un manque de volonté : c'est souvent le moment où tu as le moins d'énergie. On va préparer une option simple à l'avance pour ces soirs-là, et on ne touche à rien d'autre."
+		},
+		{
+			"weekLabel": "S36 - 31 août 2026",
+			"text": "On a parlé du soir et tu as testé l'assiette protéine-légumes-féculents deux fois cette semaine. C'est déjà une réussite, même si ce n'était pas parfait. Les pas sont un peu bas, mais avec ta reprise de travail, c'est compréhensible. Pour la semaine prochaine, on garde cette assiette le soir et on ajoute une marche de dix minutes après le dîner, sans objectif de performance."
+		}
+	]
+}
