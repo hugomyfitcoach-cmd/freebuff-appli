@@ -26,6 +26,24 @@
 	import CountUp from '$lib/components/CountUp.svelte';
 	import CoachIdentity from '$lib/components/CoachIdentity.svelte';
 	import { coachIdentity, type CoachUserLike } from '$lib/coachIdentity';
+	import ConfirmDialog from '../../lib/components/ConfirmDialog.svelte';
+	import { CalibrageError } from '$lib/calibrage';
+	import {
+		DEFICIT_PCT_DEFAUT,
+		DISPONIBILITE_NIVEAUX,
+		PROTEINES_PAR_KG_MM_DEFAUT,
+		resultatsFiche,
+		type EntreesFicheCalibrage,
+		type ResultatsFicheCalibrage
+	} from '$lib/calibrageFiche';
+	import {
+		SPORT_CATALOG,
+		SPORT_CATEGORIES,
+		SPORT_CHOIX_DOUCES,
+		SPORT_CHOIX_MUSCULATION,
+		SPORT_ZONES_CARDIO,
+		getSportEntry
+	} from '../../convex/sportCatalog';
 
 	let { data, form } = $props();
 	/* « vivant » uniquement côté navigateur : la date/heure du hero est locale
@@ -1407,10 +1425,9 @@
 	}
 
 	/* ── Sections du tiroir 360° ───────────────────────────────── */
-	let section = $state('apercu');
-
-	const sectionTabs = $derived([
+	let section = $state('apercu');		const sectionTabs = $derived([
 		{ id: 'apercu', label: 'Vision 360' },
+		{ id: 'calibrage', label: 'Calibrage' },
 		{ id: 'journal', label: 'Journal' },
 		{ id: 'plan', label: 'Plan de repas' },
 		{ id: 'entrainement', label: 'Entraînement' },
@@ -1463,6 +1480,215 @@
 		await goto(qs ? `/admin?${qs}` : '/admin', { noScroll: true });
 		await tick();
 		if (Math.abs(window.scrollY - dashScrollY) > 1) window.scrollTo(0, dashScrollY);
+	}
+
+	/* ═══ Onglet Calibrage (coach) — calculs UNIQUEMENT via $lib/calibrage ═══
+	   La vue modèle `$lib/calibrageFiche` orchestre le module pur : cette page
+	   ne saisit que des entrées et affiche `resultatsFiche` — AUCUNE formule
+	   n'est recopiée ici. Rien n'est jamais appliqué automatiquement : seul
+	   « Appliquer à la fiche » écrit (objectifs + historique + instantané),
+	   après confirmation obligatoire. Côté coach : aucune vue cliente. */
+	type CalibragePrefill = {
+		today: string;
+		poids: {
+			valeur: number | null;
+			source: 'moyenne7j' | 'derniere' | null;
+			nbPesees: number;
+			date: string | null;
+		};
+		masseGrasse: { valeur: number | null; source: 'usNavy' | null; date: string | null };
+		pasMoyen: { valeur: number | null; jours: number };
+		sportOnboarding: {
+			sport: string | number | null;
+			sportsDetail: string | number | null;
+			sportFrequency: string | number | null;
+		};
+		goals: {
+			kcal: number;
+			carbs: number;
+			protein: number;
+			fat: number;
+			maintenanceKcal: number | null;
+			stepGoal: number | null;
+			goalsSet: boolean;
+		};
+		dernierCalibrage: { date: string; effectiveFrom: string; createdAt: number } | null;
+	};
+	let calibragePre = $state<CalibragePrefill | null>(null);
+	let calibrageInputs = $state<EntreesFicheCalibrage>({
+		poidsKg: 0,
+		mgPct: 26,
+		pasMoyen: 0,
+		heuresTravail: 0,
+		ajustementTravail: 0,
+		adaptationPct: 0,
+		deficitPct: DEFICIT_PCT_DEFAUT,
+		proteinesParKgMasseMaigre: PROTEINES_PAR_KG_MM_DEFAUT,
+		seances: [],
+		apportsSemaine: [null, null, null, null, null, null, null]
+	});
+	let calibrageBusy = $state(false);
+	let calibrageError = $state('');
+	/** Résultats = sortie du module ($lib/calibrageFiche) — jamais recalculés ici. */
+	const calResults = $derived.by((): { results: ResultatsFicheCalibrage | null; error: string | null } => {
+		try {
+			return { results: resultatsFiche(calibrageInputs), error: null };
+		} catch (e) {
+			return {
+				results: null,
+				error: e instanceof CalibrageError || e instanceof Error ? e.message : 'Calibrage invalide.'
+			};
+		}
+	});
+	const calR = $derived(calResults.results);
+
+	const JOURS_COURTS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'] as const;
+	const JOURS_LONGS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'] as const;
+	/** Boutons rapides « activité au travail » (hors champ libre 0–12 h). */
+	const TRAVAIL_RAPIDE = [
+		{ label: 'Bureau, 0 h', heures: 0 },
+		{ label: '2 h', heures: 2 },
+		{ label: '6 h', heures: 6 },
+		{ label: '10 h et plus', heures: 10 }
+	] as const;
+
+	/** Pré-remplissage : poids (moyenne 7 j, sinon dernière pesée), masse grasse
+	 *  (dernière estimation US Navy, sinon saisie), pas sur 14 j, aide « sport »
+	 *  du formulaire de démarrage (affichée telle quelle, jamais convertie). */
+	async function loadCalibrage() {
+		if (!selectedId) return;
+		calibrageBusy = true;
+		calibrageError = '';
+		applyInitialise = false;
+		applyMsg = '';
+		try {
+			const r = await fetch(`/api/coach/calibrage?userId=${encodeURIComponent(selectedId)}`);
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			calibragePre = j as CalibragePrefill;
+			calibrageInputs = {
+				poidsKg: j.poids?.valeur ?? 0,
+				mgPct: j.masseGrasse?.valeur ?? 26,
+				pasMoyen: j.pasMoyen?.valeur ?? 0,
+				heuresTravail: 0,
+				ajustementTravail: 0,
+				adaptationPct: 0,
+				deficitPct: DEFICIT_PCT_DEFAUT,
+				proteinesParKgMasseMaigre: PROTEINES_PAR_KG_MM_DEFAUT,
+				seances: [],
+				apportsSemaine: [null, null, null, null, null, null, null]
+			};
+		} catch (e) {
+			calibrageError = e instanceof Error ? e.message : 'Chargement du calibrage impossible.';
+		} finally {
+			calibrageBusy = false;
+		}
+	}
+	$effect(() => {
+		const id = selectedId;
+		if (!id) return;
+		untrack(() => loadCalibrage());
+	});
+
+	/* ── Profil sportif habituel (catalogue + intensité/zone) ── */
+	function choixPourActivite(activiteId: string) {
+		const entry = getSportEntry(activiteId);
+		if (!entry) return [] as { id: string; label: string }[];
+		if (entry.bareme === 'musculation')
+			return SPORT_CHOIX_MUSCULATION.map((o) => ({ id: o.id, label: `${o.label} · ${o.hint}` }));
+		if (entry.bareme === 'douce')
+			return SPORT_CHOIX_DOUCES.map((o) => ({ id: o.id, label: `${o.label} · ${o.hint}` }));
+		return SPORT_ZONES_CARDIO.map((o) => ({ id: o.id, label: `${o.label} · ${o.hint}` }));
+	}
+	function ajouterSeance() {
+		calibrageInputs.seances = [
+			...calibrageInputs.seances,
+			{ activiteId: 'musculation', seancesParSemaine: 2, dureeMinutes: 60, choix: 'recreative' }
+		];
+	}
+	function majSeance(index: number, patch: Partial<EntreesFicheCalibrage['seances'][number]>) {
+		calibrageInputs.seances = calibrageInputs.seances.map((s, i) =>
+			i === index
+				? {
+						...s,
+						...patch,
+						/* Changement d'activité → choix réinitialisé sur sa barème (jamais
+						   un choix silencieusement invalide). */
+						choix:
+							patch.activiteId && patch.activiteId !== s.activiteId
+								? (choixPourActivite(patch.activiteId)[0]?.id ?? s.choix)
+								: (patch.choix ?? s.choix)
+					}
+				: s
+		);
+	}
+	function retirerSeance(index: number) {
+		calibrageInputs.seances = calibrageInputs.seances.filter((_, i) => i !== index);
+	}
+
+	/* ── Semaine type : un apport par jour (journées hautes et basses) ── */
+	function semaineVersObjectif() {
+		calibrageInputs.apportsSemaine = [null, null, null, null, null, null, null];
+	}
+
+	/* ── « Appliquer à la fiche » : objectif + macros + date d'effet, puis
+	   confirmation OBLIGATOIRE (ConfirmDialog) — l'annulation n'écrit rien. ── */
+	let applyInitialise = $state(false);
+	let applyKcal = $state(0);
+	let applyCarbs = $state(0);
+	let applyProtein = $state(0);
+	let applyFat = $state(0);
+	let applyMaintenance = $state('');
+	let applyDate = $state('');
+	let applyBusy = $state(false);
+	let applyError = $state('');
+	let applyMsg = $state('');
+	let calConfirmOpen = $state(false);
+	let calPresentation = $state(false);
+	$effect(() => {
+		const r = calR;
+		if (!r || applyInitialise) return;
+		untrack(() => {
+			/* Proposition initiale = valeurs calculées — la coach peut tout ajuster
+			   avant d'appliquer (l'objectif proposé n'est JAMAIS écrit seul). */
+			applyKcal = r.objectifJournalierKcal;
+			applyCarbs = r.macros.glucidesG;
+			applyProtein = r.macros.proteinesG;
+			applyFat = r.macros.lipidesG;
+			applyMaintenance = String(Math.round(r.maintenanceKcal));
+			applyDate = calibragePre?.today ?? '';
+			applyInitialise = true;
+		});
+	});
+	async function appliquerCalibrage() {
+		if (!selectedId || !calR || applyBusy) return;
+		applyBusy = true;
+		applyError = '';
+		try {
+			const r = await fetch('/api/coach/calibrage', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					userId: selectedId,
+					entrees: calibrageInputs,
+					kcal: applyKcal,
+					carbs: applyCarbs,
+					protein: applyProtein,
+					fat: applyFat,
+					maintenanceKcal:
+						String(applyMaintenance ?? '').trim() === '' ? undefined : Number(applyMaintenance),
+					effectiveFrom: applyDate
+				})
+			});
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			calConfirmOpen = false;
+			applyMsg = `Objectifs appliqués à la fiche — effectifs le ${fmtISO(applyDate)}. Instantané du calibrage enregistré.`;
+		} catch (e) {
+			applyError = e instanceof Error ? e.message : "Application impossible — rien n'a été écrit.";
+		} finally {
+			applyBusy = false;
+		}
 	}
 
 	/* Onglet Plan de repas : chargé à l'ouverture du tiroir (changement de cliente). */
@@ -3914,7 +4140,391 @@
 							<BilanCard checkin={checkin} clientName={fullName(selected.user)} clientId={selected.user._id} media={mediaFor(checkin._id)} />
 						{/each}
 					{/if}
-				</div>				{:else if section === 'rdv'}
+				</div>
+
+			{:else if section === 'calibrage'}
+				{#if calPresentation}
+					<!-- MODE PRÉSENTATION : vue épurée, lisible en partage d'écran —
+					     ni champs techniques, ni saisies, ni actions d'écriture. -->
+					<div class="rounded-2xl border-2 border-brand/30 bg-gradient-to-b from-card to-brand-light/20 px-6 py-6 shadow-sm">
+						<div class="flex flex-wrap items-center justify-between gap-3">
+							<div>
+								<h3 class="font-display text-xl font-bold text-ink">Calibrage — {selected.user.prenom}</h3>
+								<p class="mt-0.5 text-xs text-mist">Semaine type · données de référence du suivi</p>
+							</div>
+							<button
+								type="button"
+								onclick={() => (calPresentation = false)}
+								class="rounded-full border-2 border-line bg-white px-4 py-2 text-sm font-bold text-ink transition hover:border-brand"
+							>Quitter le mode présentation</button>
+						</div>
+						{#if calR}
+							<div class="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+								{#each [
+									{ label: 'Objectif journalier', value: `${calR.objectifJournalierKcal.toLocaleString('fr-FR')} kcal` },
+									{ label: 'Maintenance', value: `${Math.round(calR.maintenanceKcal).toLocaleString('fr-FR')} kcal` },
+									{ label: 'Perte estimée', value: `${String(calR.perteGraisseKg).replace('.', ',')} kg/sem` },
+									{ label: 'Coefficient', value: String(calR.coefficient).replace('.', ',') }
+								] as kpi (kpi.label)}
+									<div class="rounded-2xl bg-white/80 px-4 py-3 text-center">
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">{kpi.label}</div>
+										<div class="mt-1 font-display text-2xl font-bold text-ink">{kpi.value}</div>
+									</div>
+								{/each}
+							</div>
+							<p class="mt-4 text-center text-sm font-semibold text-ink">
+								Macros : {calR.macros.proteinesG} g de protéines · {calR.macros.lipidesG} g de lipides · {calR.macros.glucidesG} g de glucides
+							</p>
+							<div class="mt-4 grid grid-cols-7 gap-2">
+								{#each calR.semaine.apportsKcal as apport, i (i)}
+									<div class="rounded-xl bg-white/80 px-1 py-2.5 text-center">
+										<div class="text-[10px] font-bold uppercase text-mist">{JOURS_COURTS[i]}</div>
+										<div class="mt-1 text-sm font-bold text-ink">{apport.toLocaleString('fr-FR')}</div>
+										<span class="mt-1.5 mx-auto block h-2 w-2 rounded-full {DISPONIBILITE_NIVEAUX[calR.semaine.niveauxDisponibilite[i]].pastille}" title={DISPONIBILITE_NIVEAUX[calR.semaine.niveauxDisponibilite[i]].label}></span>
+									</div>
+								{/each}
+							</div>
+							<p class="mt-3 text-center text-xs text-mist">
+								Déficit total de la semaine : {Math.round(-calR.semaine.deficitSemaineKcal).toLocaleString('fr-FR')} kcal · graisse estimée {String(Math.abs(calR.semaine.graisseKg)).replace('.', ',')} kg
+							</p>
+						{:else}
+							<p class="mt-6 text-center text-sm text-mist">Renseigne le poids et la masse grasse pour afficher le calibrage.</p>
+						{/if}
+					</div>
+				{:else}
+				<div class="space-y-5">
+					{#if calibrageBusy}
+						<p class="py-8 text-center text-sm text-mist">Chargement du calibrage…</p>
+					{:else if calibrageError}
+						<p class="rounded-xl border border-danger/40 bg-danger-light px-4 py-3 text-sm font-semibold text-danger">{calibrageError}</p>
+					{:else}
+						{#if applyMsg}
+							<p class="rounded-xl border border-brand/40 bg-brand-light px-4 py-3 text-sm font-semibold text-ink">{applyMsg}</p>
+						{/if}
+
+						<!-- RÉSULTATS : sortie du module $lib/calibrage — jamais recalculés ici -->
+						<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
+							<div class="flex flex-wrap items-center justify-between gap-3">
+								<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="gauge" size={17} class="shrink-0 text-brand" /> Résultats du calibrage</h3>
+								<button
+									type="button"
+									onclick={() => (calPresentation = true)}
+									class="rounded-full border-2 border-brand/40 bg-brand-light px-3.5 py-1.5 text-[12px] font-bold text-brand-dark transition hover:border-brand"
+								><span class="inline-flex items-center gap-1.5"><Icon name="eye" size={13} /> Mode présentation</span></button>
+							</div>
+							{#if calR}
+								<div class="mt-3 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Coefficient total</div>
+										<div class="mt-0.5 font-display text-xl font-bold text-ink">{String(calR.coefficient).replace('.', ',')}</div>
+										<p class="mt-0.5 text-[11px] text-mist">pas {String(calR.coefficientPas).replace('.', ',')} + travail {String(calR.supplementTravail).replace('.', ',')}</p>
+									</div>
+									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Métabolisme de base</div>
+										<div class="mt-0.5 font-display text-xl font-bold text-ink">{calR.metabolismeBaseKcal.toLocaleString('fr-FR')} <span class="text-xs font-semibold text-mist">kcal</span></div>
+										<p class="mt-0.5 text-[11px] text-mist">MM {String(calR.masseMaigreKg).replace('.', ',')} kg · MG {String(calR.masseGrasseKg).replace('.', ',')} kg</p>
+									</div>
+									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Maintenance (sans exercice)</div>
+										<div class="mt-0.5 font-display text-xl font-bold text-ink">{Math.round(calR.maintenanceKcal).toLocaleString('fr-FR')} <span class="text-xs font-semibold text-mist">kcal</span></div>
+									</div>
+									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Sport de la semaine</div>
+										<div class="mt-0.5 font-display text-xl font-bold text-ink">{calR.sportSemaineKcal.toLocaleString('fr-FR')} <span class="text-xs font-semibold text-mist">kcal</span></div>
+									</div>
+									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Budget de la semaine</div>
+										<div class="mt-0.5 font-display text-xl font-bold text-ink">{Math.round(calR.budgetSemaineKcal).toLocaleString('fr-FR')} <span class="text-xs font-semibold text-mist">kcal</span></div>
+										<p class="mt-0.5 text-[11px] text-mist">objectif {calR.objectifSemaineKcal.toLocaleString('fr-FR')} kcal/sem</p>
+									</div>
+									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Objectif journalier moyen</div>
+										<div class="mt-0.5 font-display text-xl font-bold text-brand-dark">{calR.objectifJournalierKcal.toLocaleString('fr-FR')} <span class="text-xs font-semibold text-mist">kcal</span></div>
+									</div>
+									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Perte de graisse estimée</div>
+										<div class="mt-0.5 font-display text-xl font-bold text-ink">{String(calR.perteGraisseKg).replace('.', ',')} <span class="text-xs font-semibold text-mist">kg/semaine</span></div>
+										<p class="mt-0.5 text-[11px] text-mist">plafonds Alpert {String(calR.vitesseMaxAlpertKgSemaine).replace('.', ',')} · Macdonald {String(calR.vitesseMaxMacdonaldKgSemaine).replace('.', ',')} kg/sem</p>
+									</div>
+									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Disponibilité en énergie</div>
+										<div class="mt-0.5 font-display text-xl font-bold {DISPONIBILITE_NIVEAUX[calR.niveauDisponibilite].couleur}">{String(calR.disponibiliteKcal).replace('.', ',')} <span class="text-xs font-semibold text-mist">kcal/kg de MM</span></div>
+										<p class="mt-0.5 text-[11px] text-mist">seuils {calR.seuilsDisponibiliteKcal.haut} et {calR.seuilsDisponibiliteKcal.bas} kcal · {DISPONIBILITE_NIVEAUX[calR.niveauDisponibilite].label}</p>
+									</div>
+									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Macros du jour type</div>
+										<div class="mt-0.5 text-sm font-bold text-ink">P {calR.macros.proteinesG} g · L {calR.macros.lipidesG} g · G {calR.macros.glucidesG} g</div>
+										{#if calR.macros.alerteGlucides}<p class="mt-1 text-[11px] font-semibold text-warn">{calR.macros.alerteGlucides}</p>{/if}
+									</div>
+								</div>
+								{#if calR.avertissementDeficit || calR.alertePlafonds}
+									<div class="mt-3 space-y-2">
+										{#if calR.avertissementDeficit}<p class="flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.avertissementDeficit}</p>{/if}
+										{#if calR.alertePlafonds}<p class="flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.alertePlafonds}</p>{/if}
+									</div>
+								{/if}
+							{:else}
+								<p class="mt-3 text-sm text-mist">{calResults.error ?? 'Renseigne le poids et la masse grasse pour afficher les résultats.'}</p>
+							{/if}
+						</div>
+
+						<!-- ENTRÉES : pré-remplies, toutes modifiables -->
+						<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
+							<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="settings" size={17} class="shrink-0 text-brand" /> Entrées</h3>
+							<div class="mt-3 grid gap-3 sm:grid-cols-2">
+								<label class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Poids (kg)</span>
+									<input type="number" inputmode="decimal" min="20" max="400" step="0.1" bind:value={calibrageInputs.poidsKg} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+									{#if calibragePre?.poids.source}
+										<span class="mt-1 block text-[11px] text-mist">{calibragePre.poids.source === 'moyenne7j' ? `Moyenne de ${calibragePre.poids.nbPesees} pesée(s) sur 7 jours` : 'Dernière pesée'}{calibragePre.poids.date ? ` · ${fmtISO(calibragePre.poids.date)}` : ''}</span>
+									{/if}
+								</label>
+								<label class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Taux de masse grasse (%)</span>
+									<input type="number" inputmode="decimal" min="5" max="60" step="0.1" bind:value={calibrageInputs.mgPct} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+									{#if calibragePre?.masseGrasse.source}
+										<span class="mt-1 block text-[11px] text-mist">Dernière estimation US Navy{calibragePre.masseGrasse.date ? ` · ${fmtISO(calibragePre.masseGrasse.date)}` : ''}</span>
+									{/if}
+								</label>
+								<label class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Moyenne de pas sur 14 jours</span>
+									<input type="number" inputmode="numeric" min="0" max="100000" step="100" bind:value={calibrageInputs.pasMoyen} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+									{#if calibragePre?.pasMoyen.jours}
+										<span class="mt-1 block text-[11px] text-mist">{calibragePre.pasMoyen.jours} jour(s) renseigné(s) sur 14</span>
+									{/if}
+								</label>
+								<label class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Adaptation métabolique (%)</span>
+									<input type="number" inputmode="decimal" min="0" max="60" step="0.5" bind:value={calibrageInputs.adaptationPct} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+								</label>
+							</div>
+
+							<!-- Activité au travail : boutons rapides + champ libre 0–12 h -->
+							<div class="mt-3 rounded-xl border-2 border-dashed border-line bg-cream/40 px-3.5 py-3">
+								<div class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-mist"><Icon name="footprints" size={12} class="shrink-0" /> Activité au travail (mouvement constant)</div>
+								<div class="mt-2 flex flex-wrap gap-1.5">
+									{#each TRAVAIL_RAPIDE as q (q.label)}
+										<button
+											type="button"
+											onclick={() => (calibrageInputs.heuresTravail = q.heures)}
+											class="rounded-full border-2 px-3 py-1.5 text-[12px] font-bold transition {calibrageInputs.heuresTravail === q.heures ? 'border-brand bg-brand text-white' : 'border-line bg-white text-ink hover:border-brand/50'}"
+										>{q.label}</button>
+									{/each}
+									<label class="inline-flex items-center gap-1.5 rounded-full border-2 border-line bg-white px-3 py-1.5 text-[12px] font-semibold text-ink">
+										<input type="number" inputmode="decimal" min="0" max="12" step="0.5" bind:value={calibrageInputs.heuresTravail} class="w-14 border-0 bg-transparent p-0 text-right text-[12px] font-bold outline-none" />
+										<span>h/jour</span>
+									</label>
+								</div>
+								<div class="mt-2.5 grid gap-2 sm:grid-cols-2">
+									<label class="block">
+										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Ajustement du coach (0 à +0,05)</span>
+										<input type="number" inputmode="decimal" min="0" max="0.05" step="0.01" bind:value={calibrageInputs.ajustementTravail} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+									</label>
+									<div class="rounded-lg bg-white px-3 py-2">
+										<span class="block text-[10px] font-bold uppercase tracking-wider text-mist">Supplément travail</span>
+										<span class="mt-0.5 block text-sm font-bold text-ink">{calR ? String(calR.supplementTravail).replace('.', ',') : '—'} <span class="text-[11px] font-semibold text-mist">= 0,05 + 0,05 × h, plafonné à 0,6</span></span>
+									</div>
+								</div>
+							</div>
+
+							<div class="mt-3 grid gap-3 sm:grid-cols-3">
+								<label class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Déficit choisi (% du budget)</span>
+									<input type="number" inputmode="decimal" min="0" max="20" step="1" bind:value={calibrageInputs.deficitPct} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+								</label>
+								<label class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Protéines (g/kg de masse maigre)</span>
+									<input type="number" inputmode="decimal" min="2" max="2.6" step="0.1" bind:value={calibrageInputs.proteinesParKgMasseMaigre} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+								</label>
+								<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
+									<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Réponse « sport » du démarrage</div>
+									{#if calibragePre && (calibragePre.sportOnboarding.sport !== null || calibragePre.sportOnboarding.sportsDetail !== null)}
+										<p class="mt-1 text-[12px] leading-relaxed text-ink">
+											{readableAnswer('sport', calibragePre.sportOnboarding.sport)}
+											{#if calibragePre.sportOnboarding.sportsDetail} — {calibragePre.sportOnboarding.sportsDetail}{/if}
+											{#if calibragePre.sportOnboarding.sportFrequency} · {readableAnswer('sportFrequency', calibragePre.sportOnboarding.sportFrequency)}{/if}
+										</p>
+										<p class="mt-1 text-[10px] italic text-mist">Aide à la lecture — réponse d'onboarding affichée telle quelle, non convertie.</p>
+									{:else}
+										<p class="mt-1 text-[12px] italic text-mist">Aucune réponse « sport » au formulaire de démarrage.</p>
+									{/if}
+								</div>
+							</div>
+						</div>
+
+						<!-- PROFIL SPORTIF HABITUEL : liste de séances (catalogue + intensité) -->
+						<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
+							<div class="flex flex-wrap items-center justify-between gap-2">
+								<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="dumbbell" size={17} class="shrink-0 text-brand" /> Profil sportif habituel</h3>
+								<button type="button" onclick={ajouterSeance} class="rounded-full bg-brand px-3.5 py-1.5 text-[12px] font-bold text-white transition hover:bg-brand-dark"><span class="inline-flex items-center gap-1.5"><Icon name="plus" size={13} /> Ajouter une séance</span></button>
+							</div>
+							{#if calibrageInputs.seances.length === 0}
+								<p class="mt-2 text-xs text-mist">Aucune séance habituelle — le sport de la semaine reste à 0 kcal.</p>
+							{:else}
+								<div class="mt-3 space-y-2">
+									{#each calibrageInputs.seances as seance, i (i)}
+										<div class="rounded-xl border border-line bg-white px-3 py-2.5">
+											<div class="flex flex-wrap items-end gap-2">
+												<label class="block">
+													<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Activité</span>
+													<select
+														value={seance.activiteId}
+														onchange={(e) => majSeance(i, { activiteId: (e.currentTarget as HTMLSelectElement).value })}
+														class="w-52 rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand"
+													>
+														{#each SPORT_CATEGORIES as cat (cat.id)}
+															<optgroup label={cat.label}>
+																{#each SPORT_CATALOG.filter((a) => a.category === cat.id) as act (act.id)}
+																	<option value={act.id} selected={act.id === seance.activiteId}>{act.name}</option>
+																{/each}
+															</optgroup>
+														{/each}
+													</select>
+												</label>
+												<label class="block">
+													<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Intensité / zone</span>
+													<select
+														value={seance.choix}
+														onchange={(e) => majSeance(i, { choix: (e.currentTarget as HTMLSelectElement).value })}
+														class="w-52 rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand"
+													>
+														{#each choixPourActivite(seance.activiteId) as c (c.id)}
+															<option value={c.id} selected={c.id === seance.choix}>{c.label}</option>
+														{/each}
+													</select>
+												</label>
+												<label class="block">
+													<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Séances/sem</span>
+													<input type="number" inputmode="numeric" min="0" max="14" step="1" value={seance.seancesParSemaine} oninput={(e) => majSeance(i, { seancesParSemaine: Number((e.currentTarget as HTMLInputElement).value) })} class="w-20 rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
+												</label>
+												<label class="block">
+													<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Durée (min)</span>
+													<input type="number" inputmode="numeric" min="0" max="600" step="5" value={seance.dureeMinutes} oninput={(e) => majSeance(i, { dureeMinutes: Number((e.currentTarget as HTMLInputElement).value) })} class="w-24 rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
+												</label>
+												<button type="button" onclick={() => retirerSeance(i)} class="ml-auto grid h-9 w-9 place-items-center rounded-lg border border-line text-mist transition hover:border-danger hover:text-danger" aria-label="Retirer la séance"><Icon name="x" size={14} /></button>
+											</div>
+											{#if calR}
+												{@const sCalc = calR.seances[i]}
+												{#if sCalc}
+													<p class="mt-1.5 text-[11px] text-mist">{sCalc.nom} · {sCalc.libelleChoix} · {String(sCalc.coefficientKcalKgH).replace('.', ',')} kcal/kg/h → <strong class="text-ink">{sCalc.depenseSeanceKcal} kcal/séance</strong> · <strong class="text-ink">{sCalc.depenseSemaineKcal} kcal/sem</strong></p>
+												{/if}
+											{/if}
+										</div>
+									{/each}
+								</div>
+							{/if}
+						</div>
+
+						<!-- SEMAINE TYPE : un apport par jour, couleurs de disponibilité -->
+						<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
+							<div class="flex flex-wrap items-center justify-between gap-2">
+								<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="calendarDays" size={17} class="shrink-0 text-brand" /> Semaine type</h3>
+								<button type="button" onclick={semaineVersObjectif} class="rounded-full border-2 border-line px-3.5 py-1.5 text-[12px] font-bold text-ink transition hover:border-brand">Tous à l'objectif</button>
+							</div>
+							<div class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+								{#each JOURS_LONGS as jour, i (jour)}
+									<div class="rounded-xl border border-line bg-white px-2.5 py-2 text-center">
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">{jour}</div>
+										<input
+											type="number"
+											inputmode="numeric"
+											min="0"
+											max="20000"
+											step="10"
+											placeholder={calR ? String(calR.objectifJournalierKcal) : '—'}
+											value={calibrageInputs.apportsSemaine[i] ?? ''}
+											oninput={(e) => {
+												const raw = (e.currentTarget as HTMLInputElement).value;
+												const next = [...calibrageInputs.apportsSemaine];
+												next[i] = raw === '' ? null : Number(raw);
+												calibrageInputs.apportsSemaine = next;
+											}}
+											class="mt-1 w-full rounded-lg border-2 border-line px-1.5 py-1.5 text-center text-sm font-semibold outline-none focus:border-brand"
+										/>
+										{#if calR}
+											<div class="mt-1.5 flex items-center justify-center gap-1.5">
+												<span class="h-2 w-2 shrink-0 rounded-full {DISPONIBILITE_NIVEAUX[calR.semaine.niveauxDisponibilite[i]].pastille}"></span>
+												<span class="text-[10px] font-bold {DISPONIBILITE_NIVEAUX[calR.semaine.niveauxDisponibilite[i]].couleur}">{String(calR.semaine.disponibilitesKcal[i]).replace('.', ',')}</span>
+											</div>
+										{/if}
+									</div>
+								{/each}
+							</div>
+							{#if calR}
+								<p class="mt-2 text-[11px] text-mist">
+									Disponibilité en énergie de chaque jour (kcal/kg de masse maigre) — seuils 30 et 24 kcal/kg, soit {calR.seuilsDisponibiliteKcal.haut} et {calR.seuilsDisponibiliteKcal.bas} kcal · exercice réparti : {Math.round(calR.semaine.exerciceKcal)} kcal/jour.
+								</p>
+								<p class="mt-1 text-sm font-semibold text-ink">
+									Déficit total de la semaine : {Math.round(-calR.semaine.deficitSemaineKcal).toLocaleString('fr-FR')} kcal · graisse estimée {String(Math.abs(calR.semaine.graisseKg)).replace('.', ',')} kg
+								</p>
+							{/if}
+						</div>
+
+						<!-- APPLIQUER À LA FICHE : rien n'est jamais appliqué automatiquement -->
+						<div class="rounded-2xl border-2 border-brand/30 bg-brand-light/30 px-5 py-4 shadow-sm">
+							<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="check" size={17} class="shrink-0 text-brand" /> Appliquer à la fiche</h3>
+							<p class="mt-1 text-xs leading-relaxed text-mist">
+								Les valeurs calculées ne sont JAMAIS appliquées automatiquement. Vérifie et ajuste ci-dessous, choisis la date d'effet, puis confirme — l'écriture passe par le chemin existant des objectifs (l'historique préserve les journées passées) et un instantané du calibrage est enregistré. La saisie manuelle des objectifs reste disponible et inchangée.
+							</p>
+							<div class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+								<label class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Objectif journalier (kcal)</span>
+									<input type="number" inputmode="numeric" min="800" max="6000" step="10" bind:value={applyKcal} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+								</label>
+								<label class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Maintenance (kcal)</span>
+									<input type="number" inputmode="numeric" min="800" max="10000" step="10" bind:value={applyMaintenance} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+								</label>
+								<label class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Date d'effet</span>
+									<input type="date" bind:value={applyDate} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+								</label>
+								<label class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Glucides (g)</span>
+									<input type="number" inputmode="numeric" min="0" max="1000" step="1" bind:value={applyCarbs} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+								</label>
+								<label class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Protéines (g)</span>
+									<input type="number" inputmode="numeric" min="0" max="400" step="1" bind:value={applyProtein} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+								</label>
+								<label class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Lipides (g)</span>
+									<input type="number" inputmode="numeric" min="0" max="300" step="1" bind:value={applyFat} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+								</label>
+							</div>
+							{#if applyError}
+								<p class="mt-3 rounded-xl border border-danger/40 bg-danger-light px-3.5 py-2.5 text-[12px] font-semibold text-danger">{applyError}</p>
+							{/if}
+							<button
+								type="button"
+								onclick={() => { applyError = ''; applyMsg = ''; calConfirmOpen = true; }}
+								disabled={!calR}
+								class="mt-4 w-full rounded-full bg-brand px-3 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
+							>Appliquer à la fiche</button>
+						</div>
+					{/if}
+				</div>
+
+				<!-- Confirmation obligatoire (ConfirmDialog) — l'annulation n'écrit rien -->
+				<ConfirmDialog
+					open={calConfirmOpen}
+					title={`Appliquer à la fiche de ${selected.user.prenom} ?`}
+					message={`Objectif de ${applyKcal} kcal/jour à partir du ${fmtISO(applyDate)} — les journées passées gardent leur objectif d'alors.`}
+					confirmLabel="Appliquer"
+					busy={applyBusy}
+					onconfirm={appliquerCalibrage}
+					oncancel={() => { calConfirmOpen = false; applyError = ''; }}
+				>
+					<ul class="space-y-1 text-xs text-mist">
+						<li>Maintenance : <strong class="text-ink">{applyMaintenance || '—'} kcal</strong></li>
+						<li>Macros : <strong class="text-ink">G {applyCarbs} g · P {applyProtein} g · L {applyFat} g</strong></li>
+						<li>Instantané du calibrage (entrées, résultats, version des formules) enregistré dans la fiche.</li>
+					</ul>
+					{#if applyError}
+						<p class="mt-2 rounded-lg bg-danger-light px-3 py-2 text-xs font-semibold text-danger">{applyError}</p>
+					{/if}					</ConfirmDialog>
+				{/if}
+				{:else if section === 'rdv'}
 				<!-- Rendez-vous (Vision 360) : UNIQUEMENT les RDV de cette cliente.
 				     Affichage simple : un RDV futur ? → carte + actions. Sinon →
 				     réservation. (La vue globale reste /admin/rendez-vous.) -->

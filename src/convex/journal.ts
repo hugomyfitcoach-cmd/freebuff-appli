@@ -632,15 +632,20 @@ export const freqFoods = query({
    réécrit plus jamais les journées passées. Lecture : dernier effectiveFrom
    ≤ date (module pur lib/goalHistory.ts partagé avec Vision 360). */
 
-async function loadGoalHistory(ctx: Pick<QueryCtx, "db">, userId: Id<"users">) {
+export async function loadGoalHistory(ctx: Pick<QueryCtx, "db">, userId: Id<"users">) {
 	return ctx.db
 		.query("clientGoalHistory")
 		.withIndex("by_user_from", (q) => q.eq("userId", userId))
 		.collect();
 }
 
-/** Écrit (replace) la ligne d'historique d'effet AUJOURD'HUI — idempotent. */
-async function upsertGoalHistoryToday(
+/**
+ * Écrit (replace) la ligne d'historique d'effet AUJOURD'HUI — idempotent.
+ * Partagée avec « Appliquer à la fiche » (onglet Calibrage, `calibrage.ts`) :
+ * le chemin d'écriture des objectifs reste UNIQUE (clientGoals +
+ * clientGoalHistory), y compris quand la coach choisit une date d'effet.
+ */
+export async function upsertGoalHistoryToday(
 	ctx: MutationCtx,
 	userId: Id<"users">,
 	kcal: number,
@@ -729,38 +734,10 @@ export const setClientGoals = mutation({
 		// leur objectif d'alors : plus jamais de réécriture rétroactive.
 		if (!existing || existing.kcal !== kcal) {
 			await upsertGoalHistoryToday(ctx, userId, kcal, coach._id, localTodayISO());
-			// BASELINE LEGACY (1re modification d'une cliente d'avant l'historisation) :
-			// l'ANCIEN objectif connu (existing.kcal) est la seule valeur dont on est
-			// certain pour le passé — sans cette ligne, les dates antérieures tombaient
-			// sur le repli « objectif courant » et hier se retrouvait réécrit avec le
-			// NOUVEL objectif. Ancre = date de CRÉATION de la ligne clientGoals
-			// (meilleure approximation non inventée : première trace horodatée de cet
-			// objectif). Jamais d'écriture si l'historique couvre déjà plus ancien,
-			// et aucune fausse date historique précise n'est fabriquée.
-			if (existing) {
-				const history = await loadGoalHistory(ctx, userId);
-				const earliestFrom = history.reduce<string | null>(
-					(min, h) => (min === null || h.effectiveFrom < min ? h.effectiveFrom : min),
-					null
-				);
-				const baselineFrom = localTodayISO(new Date(existing._creationTime));
-				if (earliestFrom === null || baselineFrom < earliestFrom) {
-					const sameDay = await ctx.db
-						.query("clientGoalHistory")
-						.withIndex("by_user_from", (q) => q.eq("userId", userId).eq("effectiveFrom", baselineFrom))
-						.collect();
-					if (!sameDay.some((row) => row.kcal === existing.kcal)) {
-						for (const row of sameDay) await ctx.db.delete(row._id);
-						await ctx.db.insert("clientGoalHistory", {
-							userId,
-							kcal: existing.kcal,
-							effectiveFrom: baselineFrom,
-							createdBy: coach._id,
-							createdAt: Date.now(),
-						});
-					}
-				}
-			}
+			// BASELINE LEGACY : l'ANCIEN objectif est historisé à la date de création
+			// de clientGoals — voir baselineLegacyGoalHistory ci-dessous (même
+			// fonction utilisée par « Appliquer à la fiche », onglet Calibrage).
+			await baselineLegacyGoalHistory(ctx, userId, existing, coach._id);
 		}
 
 		if (existing) {
@@ -776,6 +753,49 @@ export const setClientGoals = mutation({
 		return { ok: true };
 	},
 });
+
+/* ── BASELINE LEGACY (1re modification d'une cliente d'avant l'historisation) :
+   l'ANCIEN objectif connu (existing.kcal) est la seule valeur dont on est
+   certain pour le passé — sans cette ligne, les dates antérieures tombaient
+   sur le repli « objectif courant » et hier se retrouvait réécrit avec le
+   NOUVEL objectif. Ancre = date de CRÉATION de la ligne clientGoals
+   (meilleure approximation non inventée : première trace horodatée de cet
+   objectif). Jamais d'écriture si l'historique couvre déjà plus ancien,
+   et aucune fausse date historique précise n'est fabriquée.
+
+   Chemin d'écriture UNIQUE des objectifs : partagée par setClientGoals et par
+   « Appliquer à la fiche » (onglet Calibrage, `calibrage.ts`). */
+export async function baselineLegacyGoalHistory(
+	ctx: Pick<MutationCtx, "db">,
+	userId: Id<"users">,
+	existing: Doc<"clientGoals"> | null,
+	coachId: Id<"users">
+): Promise<void> {
+	if (existing) {
+		const history = await loadGoalHistory(ctx, userId);
+		const earliestFrom = history.reduce<string | null>(
+			(min, h) => (min === null || h.effectiveFrom < min ? h.effectiveFrom : min),
+			null
+		);
+		const baselineFrom = localTodayISO(new Date(existing._creationTime));
+		if (earliestFrom === null || baselineFrom < earliestFrom) {
+			const sameDay = await ctx.db
+				.query("clientGoalHistory")
+				.withIndex("by_user_from", (q) => q.eq("userId", userId).eq("effectiveFrom", baselineFrom))
+				.collect();
+			if (!sameDay.some((row) => row.kcal === existing.kcal)) {
+				for (const row of sameDay) await ctx.db.delete(row._id);
+				await ctx.db.insert("clientGoalHistory", {
+					userId,
+					kcal: existing.kcal,
+					effectiveFrom: baselineFrom,
+					createdBy: coachId,
+					createdAt: Date.now(),
+				});
+			}
+		}
+	}
+}
 
 /** Objectifs d'un client — réservé à la coach (CRM). */
 export const getClientGoals = query({

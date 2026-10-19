@@ -38,6 +38,13 @@ export const KCAL_PAR_KG_GRAISSE = 7700;
 /** Jours d'une semaine de bilan. */
 export const JOURS_SEMAINE = 7;
 
+/**
+ * Version des formules du module — stockée dans chaque instantané de calibrage
+ * (table `calibrageSnapshots`) pour savoir, plus tard, avec quelles formules
+ * un résultat a été produit. À incrémenter à TOUT changement de formule.
+ */
+export const VERSION_FORMULES_CALIBRAGE = '1';
+
 /** Coefficient NEAT par pas quotidien : 1 + pas × 0,000025. */
 export const COEFF_PAS = 0.000025;
 
@@ -67,6 +74,18 @@ export const COEFF_MB_MASSE_GRASSE = 4.5;
 export const DIVISEUR_ALPERT = 20;
 export const DIVISEUR_MACDONALD = 15;
 
+/**
+ * Supplément « activité au travail » : `0,05 + 0,05 × heures de mouvement
+ * constant au travail`, plafonné à 0,6 — auquel s'ajoute l'ajustement manuel
+ * du coach (0 à +0,05), appliqué APRÈS le plafond (le plafond protège la part
+ * calculée ; l'ajustement reste borné à 0,05).
+ */
+export const SUPPLEMENT_TRAVAIL_BASE = 0.05;
+export const SUPPLEMENT_TRAVAIL_PAR_HEURE = 0.05;
+export const SUPPLEMENT_TRAVAIL_PLAFOND = 0.6;
+/** Ajustement manuel du coach ajouté au supplément travail (0 à +0,05). */
+export const AJUSTEMENT_TRAVAIL_MAX = 0.05;
+
 /** Bornes de la fréquence cardiaque (BPM) — saisie API et Convex. */
 export const BPM_MIN = 40;
 export const BPM_MAX = 240;
@@ -90,6 +109,8 @@ const BORNES = {
 	bpm: { min: BPM_MIN, max: BPM_MAX, label: '40 à 240 BPM' },
 	proteinesMasseMaigre: { min: 2, max: 2.6, label: '2 à 2,6 g/kg de masse maigre' },
 	coutHoraire: { min: 1, max: 15, label: '1 à 15 kcal/kg/heure' },
+	heuresTravail: { min: 0, max: 12, label: '0 à 12 h' },
+	ajustementTravail: { min: 0, max: 0.05, label: '0 à 0,05' },
 	budgetSemaine: { min: 0, max: 140_000, label: '0 à 140 000 kcal' },
 	deficitPct: { min: 0, max: 20, label: '0 à 20 % (0 = maintenance)' }
 } as const;
@@ -176,6 +197,56 @@ export function coefficientNeat(entree: EntreeNeat = {}): number {
 		COEFF_MODE_VIE.deboutEnRemuant * heuresDeboutEnRemuant;
 
 	return arrondi(1 + pas * COEFF_PAS + modeDeVie + supplement, 6);
+}
+
+/* ───────────── 1 bis · Supplément « activité au travail » et coefficient total ───────────── */
+
+/**
+ * Supplément « activité au travail » (points de coefficient) :
+ * `min(0,05 + 0,05 × heures, 0,6) + ajustement du coach (0 à +0,05)`.
+ *
+ * Les heures sont celles passées chaque jour EN MOUVEMENT CONSTANT au travail
+ * (champ libre borné 0 à 12 h) ; l'ajustement manuel du coach est un filet de
+ * ±0,05 points posé APRÈS le plafond de 0,6.
+ *
+ * Repères (ajustement 0) : 0 h → 0,05 · 2 h → 0,15 · 6 h → 0,35 ·
+ * 10 h → 0,55 · 12 h → 0,6 (12 h calculerait 0,65 : le plafond ramène à 0,6).
+ * Avec l'ajustement maximal, 12 h → 0,65.
+ */
+export function supplementTravail(entree: {
+	heures: number;
+	ajustementCoach?: number;
+}): number {
+	const heures = verifier(entree.heures, 'Heures de mouvement au travail', BORNES.heuresTravail);
+	const ajustement = verifierOption(
+		entree.ajustementCoach,
+		'Ajustement du coach',
+		BORNES.ajustementTravail,
+		0
+	);
+	const calcule = SUPPLEMENT_TRAVAIL_BASE + SUPPLEMENT_TRAVAIL_PAR_HEURE * heures;
+	const plafonne = Math.min(calcule, SUPPLEMENT_TRAVAIL_PLAFOND);
+	return arrondi(plafonne + ajustement, 6);
+}
+
+/**
+ * Coefficient total du calibrage = coefficient des pas + supplément travail.
+ *
+ * Le coefficient des pas est celui de `coefficientNeat` (1 + pas × 0,000025,
+ * sans mode de vie) ; le supplément travail (`supplementTravail`) s'y AJOUTE —
+ * les deux se cumulent, jamais recalculés ailleurs.
+ */
+export function coefficientTotal(entree: {
+	pas?: number;
+	heuresTravail?: number;
+	ajustementTravail?: number;
+}): number {
+	const coefficientPas = coefficientNeat({ pas: entree.pas });
+	const supplement = supplementTravail({
+		heures: entree.heuresTravail ?? 0,
+		ajustementCoach: entree.ajustementTravail
+	});
+	return arrondi(coefficientPas + supplement, 6);
 }
 
 /* ───────────────────── 2 · Composition corporelle et métabolisme ───────────────────── */

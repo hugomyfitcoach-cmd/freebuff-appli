@@ -415,6 +415,37 @@ export default defineSchema({
 		.index("by_user", ["userId"])
 		.index("by_user_from", ["userId", "effectiveFrom"]),
 
+	/**
+	 * INSTANTANÉS DE CALIBRAGE — une ligne par « Appliquer à la fiche » de
+	 * l'onglet Calibrage (CRM). Jamais d'écrasement : chaque application fige
+	 * les ENTRÉES du calibrage (poids, MG%, pas, travail, adaptation, profil
+	 * sportif, semaine type) et les RÉSULTATS produits par le module
+	 * `lib/calibrage.ts`, avec la version des formules, la date et l'auteur.
+	 *
+	 * Ajout rétrocompatible : table nouvelle, aucun champ existant touché.
+	 * L'objectif appliqué lui-même vit dans clientGoals + clientGoalHistory
+	 * (chemin existant, garde-fou du journal sur les jours passés conservé).
+	 */
+	calibrageSnapshots: defineTable({
+		/** Cliente concernée par le calibrage. */
+		userId: v.id("users"),
+		/** Entrées du calibrage (objet figé — l'UI et le module lisent les mêmes clés). */
+		inputs: v.record(v.string(), v.any()),
+		/** Résultats calculés par le module + valeurs réellement appliquées. */
+		results: v.record(v.string(), v.any()),
+		/** Version des formules du module calibrage.ts (traçabilité des recalculs). */
+		formulaVersion: v.string(),
+		/** Date d'effet "yyyy-mm-dd" de l'objectif appliqué. */
+		effectiveFrom: v.string(),
+		/** Date de l'instantané "yyyy-mm-dd" (Europe/Paris). */
+		date: v.string(),
+		/** Coach à l'origine de l'application (traçabilité). */
+		createdBy: v.id("users"),
+		createdAt: v.number(),
+	})
+		.index("by_user", ["userId"])
+		.index("by_user_date", ["userId", "date"]),
+
 	/** Pas quotidiens saisis par la cliente — une seule valeur par jour. */
 	dailySteps: defineTable({
 		userId: v.id("users"),
