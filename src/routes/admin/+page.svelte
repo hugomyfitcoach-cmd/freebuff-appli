@@ -1578,6 +1578,61 @@
 		{ label: '10 h et plus', heures: 10 }
 	] as const;
 
+	/* ── Historique des objectifs (LECTURE SEULE) : changements d'objectifs du
+	   plus récent au plus ancien — sources `calibrageSnapshots` (origine
+	   « Calibrage » + détail figé) et `clientGoalHistory` (« Saisie manuelle »),
+	   via la requête serveur `calibrage.historique` (réservée à la coach de la
+	   cliente). Jamais d'écriture ici. ── */
+	type CalHistoDetail = {
+		poidsKg: number | null;
+		mgPct: number | null;
+		pasMoyen: number | null;
+		heuresTravail: number | null;
+		ajustementTravail: number | null;
+		adaptationPct: number | null;
+		deficitPct: number | null;
+		sportSemaineKcal: number | null;
+		coefficient: number | null;
+		metabolismeBaseKcal: number | null;
+		maintenanceKcal: number | null;
+		maintenanceFiletKcal: number | null;
+		objectifJournalierKcal: number | null;
+		budgetSemaineKcal: number | null;
+		deficitSemaineKcal: number | null;
+		perteGraisseKg: number | null;
+	};
+	type CalHistoLigne = {
+		id: string;
+		effectiveFrom: string;
+		createdAt: number;
+		kcal: number;
+		maintenanceKcal: number | null;
+		macros: { glucidesG: number; proteinesG: number; lipidesG: number } | null;
+		origine: 'calibrage' | 'manuelle';
+		detail: CalHistoDetail | null;
+	};
+	/** Affichage par défaut : les 5 dernières lignes, « Voir tout » pour le reste. */
+	const CAL_HISTO_LIGNES = 5;
+	let calHisto = $state<CalHistoLigne[] | null>(null);
+	let calHistoErr = $state('');
+	let histoTout = $state(false);
+	let histoDetail = $state<string | null>(null);
+	async function loadHistorique() {
+		if (!selectedId) return;
+		histoTout = false;
+		histoDetail = null;
+		calHistoErr = '';
+		try {
+			const r = await fetch(`/api/coach/calibrage/historique?userId=${encodeURIComponent(selectedId)}`);
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			calHisto = Array.isArray(j) ? (j as CalHistoLigne[]) : [];
+		} catch (e) {
+			calHisto = [];
+			calHistoErr = e instanceof Error ? e.message : "Chargement de l'historique impossible.";
+		}
+	}
+
 	/** Pré-remplissage : poids (moyenne 7 j, sinon dernière pesée), masse grasse
 	 *  (dernière estimation US Navy, sinon saisie), pas sur 14 j, aide « sport »
 	 *  du formulaire de démarrage (affichée telle quelle, jamais convertie). */
@@ -1609,6 +1664,8 @@
 		} finally {
 			calibrageBusy = false;
 		}
+		/* Historique des objectifs : requête dédiée, même ouverture de fiche. */
+		await loadHistorique();
 	}
 	$effect(() => {
 		const id = selectedId;
@@ -1808,6 +1865,8 @@
 			/* Rechargement des données de la fiche (clientGoals relu côté serveur) :
 			   la Vision 360, le cockpit et le journal repartent des nouvelles valeurs. */
 			await invalidateAll();
+			/* L'historique reflète IMMÉDIATEMENT la nouvelle ligne d'objectif. */
+			await loadHistorique();
 		} catch (e) {
 			applyError = e instanceof Error ? e.message : "Application impossible — rien n'a été écrit.";
 		} finally {
@@ -4380,19 +4439,21 @@
 									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
 										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Macros du jour type</div>
 										<div class="mt-0.5 text-sm font-bold text-ink">P {calR.macros.proteinesG} g · L {calR.macros.lipidesG} g · G {calR.macros.glucidesG} g</div>
-										{#if calR.macros.alerteGlucides}<p class="mt-1 text-[11px] font-semibold text-warn">{calR.macros.alerteGlucides}</p>{/if}
+										<!-- Sous-ligne RÉSERVÉE (stabilité de la saisie) : hauteur minimale permanente. -->
+										<div class="mt-1 min-h-[16px]">{#if calR.macros.alerteGlucides}<p class="text-[11px] font-semibold text-warn">{calR.macros.alerteGlucides}</p>{/if}</div>
 									</div>
 								</div>
-								{#if calR.avertissementDeficit || calR.alertePlafonds || calR.avertissementDisponibilite}
-									<div class="mt-3 space-y-2">
-										{#if calR.avertissementDeficit}<p class="flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.avertissementDeficit}</p>{/if}
-										{#if calR.alertePlafonds}<p class="flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.alertePlafonds}</p>{/if}
-										{#if calR.avertissementDisponibilite}<p class="flex items-start gap-2 rounded-xl border px-3.5 py-2.5 text-[12px] font-semibold {calR.avertissementDisponibilite.niveau === 'alerte' ? 'border-danger/40 bg-danger-light text-danger' : 'border-warn/40 bg-warn-light text-warn'}"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.avertissementDisponibilite.message}</p>{/if}
-									</div>
-								{/if}
-							{:else}
+								{:else}
 								<p class="mt-3 text-sm text-mist">{calResults.error ?? 'Renseigne le poids et la masse grasse pour afficher les résultats.'}</p>
 							{/if}
+							<!-- ZONE D'AVERTISSEMENTS RÉSERVÉE (stabilité de la saisie) : toujours
+							     rendue (hauteur minimale), avec ou sans avertissement — les messages
+							     s'y affichent sans insérer ni retirer d'espace, la page ne saute plus. -->
+							<div class="mt-3 min-h-[124px] space-y-2">
+								{#if calR && calR.avertissementDeficit}<p class="flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.avertissementDeficit}</p>{/if}
+								{#if calR && calR.alertePlafonds}<p class="flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.alertePlafonds}</p>{/if}
+								{#if calR && calR.avertissementDisponibilite}<p class="flex items-start gap-2 rounded-xl border px-3.5 py-2.5 text-[12px] font-semibold {calR.avertissementDisponibilite.niveau === 'alerte' ? 'border-danger/40 bg-danger-light text-danger' : 'border-warn/40 bg-warn-light text-warn'}"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.avertissementDisponibilite.message}</p>{/if}
+							</div>
 						</div>
 
 						<!-- ENTRÉES : pré-remplies, toutes modifiables -->
@@ -4423,18 +4484,20 @@
 								<div class="block">
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Adaptation (% du métabolisme de base)</span>
 									<input type="number" inputmode="decimal" min="0" max="20" step="0.5" bind:value={calibrageInputs.adaptationPct} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
-									{#if calR && calR.adaptationEffetKcal > 0}
-										<span class="mt-1 block text-[11px] font-semibold text-warn">−{decimalFr(calR.adaptationEffetKcal)} kcal/jour</span>
-									{/if}
+									<!-- Sous-ligne RÉSERVÉE (stabilité de la saisie) : hauteur minimale permanente. -->
+									<span class="mt-1 block min-h-[15px] text-[11px] font-semibold text-warn">{#if calR && calR.adaptationEffetKcal > 0}−{decimalFr(calR.adaptationEffetKcal)} kcal/jour{/if}</span>
 									<p class="mt-1 text-[11px] leading-snug text-mist">{ADAPTATION_AIDE}</p>
 									<ul class="mt-1 space-y-0.5 text-[11px] text-mist">
 										{#each ADAPTATION_REPERES as repere (repere.pct)}
 											<li><strong class="text-ink">{repere.pct} %</strong> : {repere.texte}</li>
 										{/each}
 									</ul>
-									{#if calR?.avertissementAdaptation}
-										<p class="mt-1.5 flex items-start gap-1.5 rounded-lg border border-warn/40 bg-warn-light px-2.5 py-2 text-[11px] font-semibold text-warn"><Icon name="triangleAlert" size={12} class="mt-0.5 shrink-0" /> {calR.avertissementAdaptation}</p>
-									{/if}
+									<!-- Avertissement d'adaptation : zone RÉSERVÉE (stabilité de la saisie), hauteur minimale permanente. -->
+									<div class="mt-1.5 min-h-[34px]">
+										{#if calR?.avertissementAdaptation}
+											<p class="flex items-start gap-1.5 rounded-lg border border-warn/40 bg-warn-light px-2.5 py-2 text-[11px] font-semibold text-warn"><Icon name="triangleAlert" size={12} class="mt-0.5 shrink-0" /> {calR.avertissementAdaptation}</p>
+										{/if}
+									</div>
 								</div>
 							</div>
 
@@ -4635,15 +4698,19 @@
 									<input type="number" inputmode="numeric" min="0" max="300" step="1" bind:value={applyFat} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
 								</label>
 							</div>
-							{#if applyResultatsChanges}
-								<p class="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="shrink-0" /> Les résultats ont changé — tes champs modifiés sont conservés.
-									<button
-										type="button"
-										onclick={reprendreValeursCalculees}
-										class="rounded-full border-2 border-warn/40 bg-white px-3 py-1 text-[11px] font-bold text-warn transition hover:border-warn"
-									>Reprendre les valeurs calculées</button>
-								</p>
-							{/if}
+							<!-- Bandeau RÉSERVÉ (stabilité de la saisie) : espace permanent, le bandeau
+							     « Les résultats ont changé » s'y affiche sans décaler la page. -->
+							<div class="mt-3 min-h-[42px]">
+								{#if applyResultatsChanges}
+									<p class="flex flex-wrap items-center gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="shrink-0" /> Les résultats ont changé — tes champs modifiés sont conservés.
+										<button
+											type="button"
+											onclick={reprendreValeursCalculees}
+											class="rounded-full border-2 border-warn/40 bg-white px-3 py-1 text-[11px] font-bold text-warn transition hover:border-warn"
+										>Reprendre les valeurs calculées</button>
+									</p>
+								{/if}
+							</div>
 							{#if applyError}
 								<p class="mt-3 rounded-xl border border-danger/40 bg-danger-light px-3.5 py-2.5 text-[12px] font-semibold text-danger">{applyError}</p>
 							{/if}
@@ -4653,6 +4720,77 @@
 								disabled={!calR}
 								class="mt-4 w-full rounded-full bg-brand px-3 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
 							>Appliquer à la fiche</button>
+						</div>
+
+						<!-- HISTORIQUE DES OBJECTIFS : lecture seule — changements d'objectifs
+						     (calibrage + saisie manuelle), du plus récent au plus ancien. -->
+						<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
+							<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="clock" size={17} class="shrink-0 text-brand" /> Historique des objectifs</h3>
+							{#if calHisto === null}
+								<p class="mt-2 text-sm text-mist">Chargement de l'historique…</p>
+							{:else if calHistoErr}
+								<p class="mt-2 text-sm font-semibold text-danger">{calHistoErr}</p>
+							{:else if calHisto.length === 0}
+								<p class="mt-2 text-sm italic text-mist">Aucun calibrage appliqué pour l'instant.</p>
+							{:else}
+								<div class="mt-2 divide-y divide-line/60">
+									{#each calHisto.slice(0, histoTout ? calHisto.length : CAL_HISTO_LIGNES) as ligne (ligne.id)}
+										<div class="py-2">
+											{#if ligne.origine === 'calibrage'}
+												<button
+													type="button"
+													class="flex w-full flex-wrap items-center justify-between gap-2 text-left"
+													aria-expanded={histoDetail === ligne.id}
+													onclick={() => (histoDetail = histoDetail === ligne.id ? null : ligne.id)}
+												>
+													<span class="flex flex-wrap items-center gap-2 text-sm">
+														<strong class="tabular-nums">{fmtISO(ligne.effectiveFrom)}</strong>
+														<span class="font-semibold text-ink">{ligne.kcal.toLocaleString('fr-FR')} kcal/jour</span>
+														<span class="text-xs text-mist">Maintenance {ligne.maintenanceKcal !== null ? `${ligne.maintenanceKcal.toLocaleString('fr-FR')} kcal` : '—'}</span>
+														<span class="text-xs text-mist">{ligne.macros ? `G ${ligne.macros.glucidesG} g · P ${ligne.macros.proteinesG} g · L ${ligne.macros.lipidesG} g` : 'Macros —'}</span>
+													</span>
+													<span class="flex items-center gap-1.5">
+														<span class="rounded-full bg-brand-light px-2 py-0.5 text-[10px] font-bold text-brand-dark">Calibrage</span>
+														<Icon name={histoDetail === ligne.id ? 'chevronUp' : 'chevronDown'} size={14} class="text-mist" />
+													</span>
+												</button>
+											{:else}
+												<div class="flex w-full flex-wrap items-center justify-between gap-2">
+													<span class="flex flex-wrap items-center gap-2 text-sm">
+														<strong class="tabular-nums">{fmtISO(ligne.effectiveFrom)}</strong>
+														<span class="font-semibold text-ink">{ligne.kcal.toLocaleString('fr-FR')} kcal/jour</span>
+														<span class="text-xs text-mist">Maintenance — · Macros —</span>
+													</span>
+													<span class="rounded-full bg-line px-2 py-0.5 text-[10px] font-bold text-mist">Saisie manuelle</span>
+												</div>
+											{/if}
+											{#if histoDetail === ligne.id && ligne.detail}
+												{@const d = ligne.detail}
+												<div class="mt-2 rounded-xl border border-line bg-white px-3 py-2.5 text-[11px]">
+													<div class="grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-3 lg:grid-cols-4">
+														<span class="text-mist">Poids : <strong class="text-ink">{d.poidsKg !== null ? `${decimalFr(d.poidsKg)} kg` : '—'}</strong></span>
+														<span class="text-mist">Masse grasse : <strong class="text-ink">{d.mgPct !== null ? `${decimalFr(d.mgPct)} %` : '—'}</strong></span>
+														<span class="text-mist">Pas : <strong class="text-ink">{d.pasMoyen !== null ? `${Math.round(d.pasMoyen).toLocaleString('fr-FR')}/jour` : '—'}</strong></span>
+														<span class="text-mist">Travail : <strong class="text-ink">{d.heuresTravail !== null ? `${decimalFr(d.heuresTravail)} h/jour` : '—'}</strong>{#if d.ajustementTravail} · ajust. {decimalFr(d.ajustementTravail)}{/if}</span>
+														<span class="text-mist">Adaptation : <strong class="text-ink">{d.adaptationPct !== null ? `${decimalFr(d.adaptationPct)} %` : '—'}</strong></span>
+														<span class="text-mist">Déficit : <strong class="text-ink">{d.deficitPct !== null ? `${decimalFr(d.deficitPct)} %` : '—'}</strong></span>
+														<span class="text-mist">Sport de la semaine : <strong class="text-ink">{d.sportSemaineKcal !== null ? `${Math.round(d.sportSemaineKcal).toLocaleString('fr-FR')} kcal` : '—'}</strong></span>
+													</div>
+													<p class="mt-2 text-mist">Résultats : coefficient <strong class="text-ink">{d.coefficient !== null ? decimalFr(d.coefficient) : '—'}</strong> · métabolisme de base <strong class="text-ink">{d.metabolismeBaseKcal !== null ? `${Math.round(d.metabolismeBaseKcal).toLocaleString('fr-FR')} kcal` : '—'}</strong> · maintenance totale <strong class="text-ink">{d.maintenanceFiletKcal !== null ? `${Math.round(d.maintenanceFiletKcal).toLocaleString('fr-FR')} kcal` : '—'}</strong> · objectif <strong class="text-ink">{d.objectifJournalierKcal !== null ? `${Math.round(d.objectifJournalierKcal).toLocaleString('fr-FR')} kcal/jour` : '—'}</strong></p>
+													<p class="mt-1 text-mist">Semaine : budget <strong class="text-ink">{d.budgetSemaineKcal !== null ? `${Math.round(d.budgetSemaineKcal).toLocaleString('fr-FR')} kcal` : '—'}</strong> · déficit <strong class="text-ink">{d.deficitSemaineKcal !== null ? `${Math.round(d.deficitSemaineKcal).toLocaleString('fr-FR')} kcal` : '—'}</strong> · perte estimée <strong class="text-ink">{d.perteGraisseKg !== null ? `${decimalFr(d.perteGraisseKg)} kg/sem` : '—'}</strong></p>
+												</div>
+											{/if}
+										</div>
+									{/each}
+								</div>
+								{#if calHisto.length > CAL_HISTO_LIGNES}
+									<button
+										type="button"
+										onclick={() => (histoTout = !histoTout)}
+										class="mt-2 rounded-full border-2 border-line px-3.5 py-1.5 text-[12px] font-bold text-ink transition hover:border-brand"
+									>{histoTout ? 'Réduire' : `Voir tout (${calHisto.length})`}</button>
+								{/if}
+							{/if}
 						</div>
 					{/if}
 				</div>

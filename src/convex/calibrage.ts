@@ -2,7 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { addDaysISO, getSessionUser, localTodayISO } from "./helpers";
 import { bodyFatSeries } from "./metrics";
-import { DEFAULT_GOALS, baselineLegacyGoalHistory, upsertGoalHistoryToday } from "./journal";
+import { DEFAULT_GOALS, baselineLegacyGoalHistory, loadGoalHistory, upsertGoalHistoryToday } from "./journal";
 import { CalibrageError, VERSION_FORMULES_CALIBRAGE } from "../lib/calibrage";
 import { resultatsFiche, type EntreesFicheCalibrage } from "../lib/calibrageFiche";
 import type { Doc } from "./_generated/dataModel";
@@ -239,6 +239,160 @@ export const apply = mutation({
 		});
 
 		return { ok: true, effectiveFrom };
+	},
+});
+
+/* ── HISTORIQUE DES OBJECTIFS (lecture seule) ──
+   Liste des changements d'objectifs, du plus récent au plus ancien, fondée
+   sur les DEUX sources existantes : l'historique daté `clientGoalHistory`
+   (une ligne par changement) et les instantanés `calibrageSnapshots` (origine
+   « Calibrage » + détail figé). Réutilise `loadGoalHistory` (journal) et la
+   même lecture `calibrageSnapshots.by_user` que `fiche`. AUCUNE écriture ici. */
+
+export type DetailInstantaneCalibrage = {
+	poidsKg: number | null;
+	mgPct: number | null;
+	pasMoyen: number | null;
+	heuresTravail: number | null;
+	ajustementTravail: number | null;
+	adaptationPct: number | null;
+	deficitPct: number | null;
+	sportSemaineKcal: number | null;
+	coefficient: number | null;
+	metabolismeBaseKcal: number | null;
+	maintenanceKcal: number | null;
+	maintenanceFiletKcal: number | null;
+	objectifJournalierKcal: number | null;
+	budgetSemaineKcal: number | null;
+	deficitSemaineKcal: number | null;
+	perteGraisseKg: number | null;
+};
+
+export type LigneHistoriqueObjectifs = {
+	id: string;
+	/** Date d'effet "yyyy-mm-dd". */
+	effectiveFrom: string;
+	createdAt: number;
+	/** Objectif calorique appliqué (kcal/jour). */
+	kcal: number;
+	/** Maintenance appliquée — null si non historisée (saisie manuelle). */
+	maintenanceKcal: number | null;
+	/** Macros du jour type en grammes — null si non historisées (saisie manuelle). */
+	macros: { glucidesG: number; proteinesG: number; lipidesG: number } | null;
+	origine: "calibrage" | "manuelle";
+	/** Détail de l'instantané — lignes « Calibrage » uniquement. */
+	detail: DetailInstantaneCalibrage | null;
+};
+
+function nombre(value: unknown): number | null {
+	return typeof value === "number" && isFinite(value) ? value : null;
+}
+
+function detailInstantane(snap: Doc<"calibrageSnapshots">): DetailInstantaneCalibrage {
+	const i = snap.inputs ?? {};
+	const r = snap.results ?? {};
+	return {
+		poidsKg: nombre(i.poidsKg),
+		mgPct: nombre(i.mgPct),
+		pasMoyen: nombre(i.pasMoyen),
+		heuresTravail: nombre(i.heuresTravail),
+		ajustementTravail: nombre(i.ajustementTravail),
+		adaptationPct: nombre(i.adaptationPct),
+		deficitPct: nombre(i.deficitPct),
+		sportSemaineKcal: nombre(r.sportSemaineKcal),
+		coefficient: nombre(r.coefficient),
+		metabolismeBaseKcal: nombre(r.metabolismeBaseKcal),
+		maintenanceKcal: nombre(r.maintenanceKcal),
+		maintenanceFiletKcal: nombre(r.maintenanceFiletKcal),
+		objectifJournalierKcal: nombre(r.objectifJournalierKcal),
+		budgetSemaineKcal: nombre(r.budgetSemaineKcal),
+		deficitSemaineKcal: nombre(r.deficitSemaineKcal),
+		perteGraisseKg: nombre(r.perteGraisseKg),
+	};
+}
+
+export const historique = query({
+	args: {
+		sessionToken: v.optional(v.string()),
+		userId: v.id("users"),
+	},
+	handler: async (ctx, { sessionToken, userId }): Promise<LigneHistoriqueObjectifs[]> => {
+		const coach = await getSessionUser(ctx, sessionToken);
+		if (!coach || coach.role !== "coach") {
+			throw new ConvexError("Réservé à la coach (CRM).");
+		}
+		const target = await ctx.db.get(userId);
+		if (!target || target.role !== "client") {
+			throw new ConvexError("Cliente introuvable.");
+		}
+		/* Seule la coach DE la cliente accède à son historique — autorisation
+		   vérifiée côté serveur, comme les autres requêtes du coach. */
+		if (target.createdBy && target.createdBy !== coach._id) {
+			throw new ConvexError("Accès réservé au coach de cette cliente.");
+		}
+
+		const [historyRows, snapshotRows] = await Promise.all([
+			loadGoalHistory(ctx, userId),
+			ctx.db.query("calibrageSnapshots").withIndex("by_user", (q) => q.eq("userId", userId)).collect(),
+		]);
+
+		/* Instantané par (date d'effet, objectif appliqué) — la DERNIÈRE
+		   application d'une même date fait foi (règle « la dernière gagne » de
+		   l'historique daté). */
+		const snapByKey = new Map<string, Doc<"calibrageSnapshots">>();
+		const snapsTries = [...snapshotRows].sort((a, b) => a.createdAt - b.createdAt);
+		for (const s of snapsTries) {
+			const appl = (s.results?.applique ?? {}) as Record<string, unknown>;
+			snapByKey.set(`${s.effectiveFrom}|${nombre(appl.kcal)}`, s);
+		}
+
+		const lignes: LigneHistoriqueObjectifs[] = [];
+		const snapsUtilises = new Set<string>();
+		for (const h of historyRows) {
+			const snap = snapByKey.get(`${h.effectiveFrom}|${h.kcal}`) ?? null;
+			if (snap) snapsUtilises.add(String(snap._id));
+			const appl = snap ? ((snap.results?.applique ?? {}) as Record<string, unknown>) : {};
+			lignes.push({
+				id: String(h._id),
+				effectiveFrom: h.effectiveFrom,
+				createdAt: h.createdAt,
+				kcal: h.kcal,
+				maintenanceKcal: snap ? nombre(appl.maintenanceKcal) : null,
+				macros: snap
+					? {
+							glucidesG: nombre(appl.carbs) ?? 0,
+							proteinesG: nombre(appl.protein) ?? 0,
+							lipidesG: nombre(appl.fat) ?? 0,
+						}
+					: null,
+				origine: snap ? "calibrage" : "manuelle",
+				detail: snap ? detailInstantane(snap) : null,
+			});
+		}
+		/* Instantanés sans ligne d'historique appariée (réapplication le même
+		   jour, ligne remplacée par une saisie manuelle) : tracés en lignes
+		   « Calibrage » — aucun changement d'objectif n'est perdu. */
+		for (const s of snapsTries) {
+			if (snapsUtilises.has(String(s._id))) continue;
+			const appl = (s.results?.applique ?? {}) as Record<string, unknown>;
+			lignes.push({
+				id: String(s._id),
+				effectiveFrom: s.effectiveFrom,
+				createdAt: s.createdAt,
+				kcal: nombre(appl.kcal) ?? 0,
+				maintenanceKcal: nombre(appl.maintenanceKcal),
+				macros: {
+					glucidesG: nombre(appl.carbs) ?? 0,
+					proteinesG: nombre(appl.protein) ?? 0,
+					lipidesG: nombre(appl.fat) ?? 0,
+				},
+				origine: "calibrage",
+				detail: detailInstantane(s),
+			});
+		}
+
+		lignes.sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom) || b.createdAt - a.createdAt);
+		return lignes;
 	},
 });
 
