@@ -4,7 +4,7 @@
  *
  * Règles vérifiées :
  *  - le catalogue se répartit en trois barèmes : musculation (récréative 2,2 /
- *    intensive 4,4), douce (légère 2,2 / modérée 2,2 / élevée 3,3) et cardio
+ *    modérée 3,3 / intensive 4,4), douce (légère 2,2 / modérée 2,2 / élevée 3,3) et cardio
  *    (zones 3,8 · 5,5 · 6,6 · 7,7 · plafond 8,8) ;
  *  - yoga, Pilates, aquagym, étirements et mobilité sont DOUX : aucune zone
  *    cardio ne leur est proposée ;
@@ -30,7 +30,7 @@ const CARDIO = {
 	'plus-180': 528 // 8,8 × 60
 };
 const DOUCE = { legere: 132, moderee: 132, elevee: 198 }; // 2,2 / 2,2 / 3,3 × 60
-const MUSCULATION = { recreative: 132, intensive: 264 }; // 2,2 / 4,4 × 60
+const MUSCULATION = { recreative: 132, moderee: 198, intensive: 264 }; // 2,2 / 3,3 / 4,4 × 60
 
 const REFERENCE = {
 	musculation: { bareme: 'musculation', kcal: MUSCULATION },

@@ -29,7 +29,7 @@ test('Chaque activité relève d’un barème et propose les bons choix', () => 
 		assert.ok(['musculation', 'douce', 'cardio'].includes(a.bareme), `${a.id} : barème connu`);
 		const choix = sport.choixValides(a);
 		if (a.bareme === 'musculation') {
-			assert.deepEqual(choix, ['recreative', 'intensive'], `${a.id} : récréative / intensive`);
+			assert.deepEqual(choix, ['recreative', 'moderee', 'intensive'], `${a.id} : récréative / modérée / intensive`);
 		} else if (a.bareme === 'douce') {
 			assert.deepEqual(choix, ['legere', 'moderee', 'elevee'], `${a.id} : intensités douces`);
 		} else {
@@ -71,9 +71,13 @@ test('Cardio : chaque zone rend le coût du barème (3,8 · 5,5 · 6,6 · 7,7 ·
 	for (const [zone, cout] of Object.entries(attendu)) {
 		assert.equal(sport.resolveSportCoefficient('course-tapis', zone).coefficientKcalKgH, cout, zone);
 	}
-	/* Les zones et leurs coûts viennent du calibrage, pas d'une table parallèle. */
+	/* Les zones et leurs coûts viennent du calibrage, pas d'une table parallèle
+	   (décimales françaises à l'affichage : 3,8 et non 3.8). */
 	for (const z of cal.BANDES_CARDIO) {
-		assert.equal(sport.SPORT_ZONES_CARDIO.find((x) => x.id === z.id)?.hint.includes(String(z.defaut)), true);
+		assert.equal(
+			sport.SPORT_ZONES_CARDIO.find((x) => x.id === z.id)?.hint.includes(String(z.defaut).replace('.', ',')),
+			true
+		);
 	}
 });
 

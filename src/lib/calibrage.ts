@@ -95,7 +95,7 @@ const BORNES = {
 	poids: { min: 20, max: 400, label: '20 à 400 kg' },
 	mgPct: { min: MG_PCT_MIN, max: MG_PCT_MAX, label: '5 à 60 %' },
 	coefficient: { min: 0.8, max: 3, label: '0,8 à 3' },
-	adaptation: { min: 0, max: 60, label: '0 à 60 %' },
+	adaptation: { min: 0, max: 20, label: '0 à 20 %' },
 	pas: { min: 0, max: 100_000, label: '0 à 100 000 pas' },
 	heures: { min: 0, max: 24, label: '0 à 24 h' },
 	kcal: { min: 0, max: 20_000, label: '0 à 20 000 kcal' },
@@ -121,6 +121,14 @@ type Bornes = { min: number; max: number; label: string };
 function arrondi(valeur: number, decimales: number): number {
 	const facteur = 10 ** decimales;
 	return Math.round(valeur * facteur) / facteur;
+}
+
+/**
+ * Décimales françaises pour l'AFFICHAGE uniquement (0,46 et non 0.46) —
+ * jamais utilisé dans un calcul, jamais de séparateur de milliers ajouté.
+ */
+export function decimalFr(valeur: number): string {
+	return String(valeur).replace('.', ',');
 }
 
 /** Contrôle d'une entrée numérique : finie, dans les bornes, sinon refus explicite. */
@@ -279,6 +287,35 @@ export function metabolismeBaseBrut(poidsKg: number, mgPct: number): number {
 /* ───────────────────── 3 · Maintenance et objectif ───────────────────── */
 
 /**
+ * Repères de l'adaptation métabolique (A, % du métabolisme de base) — affichés
+ * sous le champ de saisie pour guider la coach :
+ *  - 0 % : poids stable à son poids habituel, aucune restriction en cours ;
+ *  - 10 % : en déficit depuis 2 à 3 mois ou plus, ou perte déjà importante
+ *    (même stabilisée) ;
+ *  - 13 % : déficit prolongé ou masse grasse basse.
+ */
+export const ADAPTATION_REPERES: { pct: number; texte: string }[] = [
+	{ pct: 0, texte: 'poids stable à son poids habituel, aucune restriction en cours' },
+	{
+		pct: 10,
+		texte: 'en déficit depuis 2 à 3 mois ou plus, ou perte déjà importante (même stabilisée)'
+	},
+	{ pct: 13, texte: 'déficit prolongé ou masse grasse basse' }
+];
+
+/** Aide affichée sous le champ d'adaptation métabolique. */
+export const ADAPTATION_AIDE =
+	'Corrige la baisse de dépense que les pas ne mesurent pas. ' +
+	'Estimation de départ, corrigée ensuite par la tendance réelle du poids.';
+
+/** Seuil d'avertissement de l'adaptation métabolique (strictement au-delà). */
+export const ADAPTATION_PCT_AVERTISSEMENT = 13;
+
+/** Avertissement affiché au-delà de 13 % d'adaptation métabolique. */
+export const ADAPTATION_AVERTISSEMENT =
+	"Valeur exceptionnelle : vérifier qu'aucun facteur médical n'est en cause.";
+
+/**
  * Maintenance = `arrondi(C × MB) − MB × A/100` (kcal).
  *
  * L'arrondi porte sur `C × MB` AVANT la soustraction de l'adaptation
@@ -300,6 +337,25 @@ export function maintenanceKcal(entree: {
 	);
 	const mb = metabolismeBaseBrut(entree.poidsKg, entree.mgPct);
 	return arrondi(Math.round(coefficient * mb) - (mb * adaptation) / 100, 2);
+}
+
+/**
+ * Effet de l'adaptation métabolique (kcal/jour) = MB × A/100 — exactement la
+ * valeur retranchée de la maintenance par `maintenanceKcal` (le calcul de la
+ * maintenance ne change pas). Affichée « −X kcal/jour ».
+ */
+export function adaptationEffetKcal(entree: {
+	poidsKg: number;
+	mgPct: number;
+	adaptationPct?: number;
+}): number {
+	const adaptation = verifierOption(
+		entree.adaptationPct,
+		'Adaptation métabolique',
+		BORNES.adaptation,
+		0
+	);
+	return arrondi((metabolismeBaseBrut(entree.poidsKg, entree.mgPct) * adaptation) / 100, 2);
 }
 
 /**
@@ -588,12 +644,16 @@ export function profilCalibrage(entree: EntreeProfil): ProfilCalibrage {
 
 /**
  * Coûts horaires fixes du barème G-FLUX (kcal par kg et par heure) :
- * musculation récréative 2,2 · musculation intensive 4,4 · séance du programme
- * G-FLUX 3,3 · activité douce 2,2 (légère/modérée) et 3,3 (élevée). Le cardio
- * dépend de la fréquence cardiaque : voir `BANDES_CARDIO`.
+ * musculation récréative 2,2 · musculation modérée 3,3 · musculation intensive
+ * 4,4 · séance du programme G-FLUX 3,3 · activité douce 2,2 (légère/modérée)
+ * et 3,3 (élevée). Le cardio dépend de la fréquence cardiaque : voir
+ * `BANDES_CARDIO`. La musculation modérée est un AJOUT : aucune valeur
+ * existante n'est modifiée (2,2 et 4,4 inchangés, anciennes lignes compatibles).
  */
 export const COUT_SPORT = {
 	musculationRecreative: 2.2,
+	/** Musculation « Modérée » — ajoutée entre récréative et intensive. */
+	musculationModeree: 3.3,
 	musculationIntensive: 4.4,
 	seanceGflux: 3.3,
 	/** Activité douce (yoga, Pilates, aquagym, étirements, mobilité). */
@@ -647,8 +707,12 @@ export function zoneCardioParId(id: string): BandeCardio {
 	return zone;
 }
 
-/** Intensités de la musculation saisie à la main (récréative / intensive). */
-export const INTENSITES_MUSCULATION = ['recreative', 'intensive'] as const;
+/**
+ * Intensités de la musculation saisie à la main : récréative (2,2) ·
+ * modérée (3,3) · intensive (4,4). L'ordre est celui de l'affichage.
+ */
+export const INTENSITES_MUSCULATION = ['recreative', 'moderee', 'intensive'] as const;
+export type IntensiteMusculation = (typeof INTENSITES_MUSCULATION)[number];
 
 /**
  * Intensités des activités DOUCES (yoga, Pilates, aquagym, étirements,
@@ -685,7 +749,7 @@ export function bandeCardio(bpm: number): BandeCardio {
  * mesurée prime sur la catégorie et sur l'intensité ressentie).
  */
 export type EntreeCoutSportif =
-	| { sport: 'musculation'; intensite?: 'recreative' | 'intensive'; bpmMoyen?: number }
+	| { sport: 'musculation'; intensite?: IntensiteMusculation; bpmMoyen?: number }
 	| { sport: 'gflux'; bpmMoyen?: number }
 	| { sport: 'douce'; intensite?: IntensiteDouce; bpmMoyen?: number }
 	| { sport: 'cardio'; bpm: number; coefficientKcalKgH?: number };
@@ -748,13 +812,20 @@ export function coutSportif(entree: EntreeCoutSportif): CoutSportif {
 			}
 			if (intensite === INTENSITES_MUSCULATION[1]) {
 				return {
+					coefficientKcalKgH: COUT_SPORT.musculationModeree,
+					bande: null,
+					libelle: 'Musculation modérée (3,3 kcal/kg/h)'
+				};
+			}
+			if (intensite === INTENSITES_MUSCULATION[2]) {
+				return {
 					coefficientKcalKgH: COUT_SPORT.musculationIntensive,
 					bande: null,
 					libelle: 'Musculation intensive (4,4 kcal/kg/h)'
 				};
 			}
 			throw new CalibrageError(
-				`Intensité de musculation inconnue : « recreative » ou « intensive » attendu (reçu « ${String(intensite)} »).`
+				`Intensité de musculation inconnue : « recreative », « moderee » ou « intensive » attendu (reçu « ${String(intensite)} »).`
 			);
 		}
 		case 'gflux':
@@ -960,6 +1031,13 @@ export const KCAL_PAR_G_LIPIDES = 9;
 export type MacrosJour = {
 	/** Objectif calorique du jour (kcal) — entrée, recopiée pour l'agrégat. */
 	kcal: number;
+	/**
+	 * Objectif kcal RÉELLEMENT APPLIQUÉ = somme exacte 4G + 4P + 9L des macros
+	 * entières ci-dessous — la SEULE valeur envoyée à la fiche : identique dans
+	 * les résultats, les champs d'application, la confirmation, la Vision 360
+	 * et le journal (jamais d'écart dû à un demi-gramme).
+	 */
+	kcalApplique: number;
 	proteinesG: number;
 	lipidesG: number;
 	glucidesG: number;
@@ -982,9 +1060,14 @@ export type MacrosJour = {
  *  - lipides = 30 % des calories, avec un plancher de 0,6 g/kg de poids ;
  *  - glucides = le reste, avec un signal explicite sous 100 g.
  *
+ * Macros en GRAMMES ENTIERS (protéines et lipides arrondis, glucides = reste
+ * arrondi) ; l'objectif kcal appliqué = somme exacte 4G + 4P + 9L
+ * (`kcalApplique`), identique dans le calibrage, l'application, la Vision 360
+ * et le journal.
+ *
  * Repères : 60 kg, MG 26 % (MM 44,4 kg), 1 400 kcal → 102 g de protéines,
- * 46,7 g de lipides, 143 g de glucides ; le même profil à 1 100 kcal →
- * 102 / 36,7 / 90 g avec signal « glucides < 100 g ».
+ * 47 g de lipides, 142 g de glucides (1 399 kcal appliquées) ; le même profil
+ * à 1 100 kcal → 102 / 37 / 90 g avec signal « glucides < 100 g ».
  */
 export function macrosJour(entree: {
 	kcal: number;
@@ -1008,9 +1091,9 @@ export function macrosJour(entree: {
 	/* Plancher de lipides sur le POIDS corporel (et non la masse maigre) :
 	   les lipides restent inchangés, seule la base des protéines change. */
 	const lipidesPlancherG = LIPIDES_MIN_G_PAR_KG * poids;
-	const lipidesG = arrondi(
-		Math.max(((LIPIDES_PCT_KCAL / 100) * kcal) / KCAL_PAR_G_LIPIDES, lipidesPlancherG),
-		1
+	/* Lipides arrondis en grammes ENTIERS (plus de demi-grammes). */
+	const lipidesG = Math.round(
+		Math.max(((LIPIDES_PCT_KCAL / 100) * kcal) / KCAL_PAR_G_LIPIDES, lipidesPlancherG)
 	);
 	/* Reste en kcal après protéines et lipides AFFICHÉS (cohérence des libellés) ;
 	   un reste négatif donne 0 g de glucides + signal, jamais un négatif affiché. */
@@ -1021,6 +1104,8 @@ export function macrosJour(entree: {
 
 	return {
 		kcal,
+		kcalApplique:
+			glucidesG * KCAL_PAR_G_GLUCIDES + proteinesG * KCAL_PAR_G_PROTEINES + lipidesG * KCAL_PAR_G_LIPIDES,
 		proteinesG,
 		lipidesG,
 		glucidesG,

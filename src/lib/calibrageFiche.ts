@@ -13,17 +13,21 @@
  */
 
 import {
+	ADAPTATION_AVERTISSEMENT,
+	ADAPTATION_PCT_AVERTISSEMENT,
 	JOURS_SEMAINE,
 	PROTEINES_G_PAR_KG_MM,
 	SEUIL_DISPONIBILITE_BAS,
 	SEUIL_DISPONIBILITE_HAUT,
 	VERSION_FORMULES_CALIBRAGE,
+	adaptationEffetKcal,
 	bilanObjectifSemaine,
 	bilanSemaine,
 	budgetSemaineKcal,
 	CalibrageError,
 	coefficientNeat,
 	coefficientTotal,
+	decimalFr,
 	depenseSeanceKcal,
 	disponibiliteEnergieKcal,
 	macrosJour,
@@ -133,12 +137,17 @@ export type ResultatsFicheCalibrage = {
 	/** Maintenance SANS exercice (kcal) = arrondi(C × MB) − MB × A/100. */
 	maintenanceKcal: number;
 	/**
-	 * Filet de sécurité (kcal/jour) = budget de la semaine ÷ 7 — le sport
-	 * habituel est INCLUS. C'est la valeur pré-remplie du champ « Maintenance »
-	 * de « Appliquer à la fiche » (à ne pas confondre avec `maintenanceKcal`,
-	 * la maintenance SANS exercice affichée dans les résultats).
+	 * Maintenance TOTALE (kcal/jour, sport habituel inclus) = budget de la
+	 * semaine ÷ 7. C'est la valeur pré-remplie du champ « Maintenance » de
+	 * « Appliquer à la fiche » et de la carte « Maintenance totale ».
 	 */
 	maintenanceFiletKcal: number;
+	/**
+	 * Détail de la maintenance totale : part sans exercice (arrondie au kcal) et
+	 * part sport journalière — la SOMME des deux vaut exactement
+	 * `maintenanceFiletKcal` (« dont sans exercice X kcal · sport Y kcal/jour »).
+	 */
+	maintenanceDetailKcal: { sansExerciceKcal: number; sportJournalierKcal: number };
 	/** Sport de la semaine (kcal) = somme des dépenses des séances habituelles. */
 	sportSemaineKcal: number;
 	/** Budget de la semaine (kcal) = 7 × maintenance sans exercice + sport. */
@@ -149,7 +158,16 @@ export type ResultatsFicheCalibrage = {
 	deficitSemaineKcal: number;
 	/** Objectif de la semaine (kcal). */
 	objectifSemaineKcal: number;
-	/** Objectif journalier moyen (kcal) = objectif semaine ÷ 7. */
+	/**
+	 * Objectif journalier VISÉ (kcal) = objectif semaine ÷ 7 — base de calcul
+	 * des macros, avant arrondi aux grammes entiers.
+	 */
+	objectifCibleKcal: number;
+	/**
+	 * Objectif journalier APPLIQUÉ (kcal) = somme exacte 4G + 4P + 9L des macros
+	 * entières (`macros.kcalApplique`) — identique dans les résultats, les champs
+	 * d'application, la confirmation, la Vision 360 et le journal.
+	 */
 	objectifJournalierKcal: number;
 	/** Perte de graisse estimée (kg/semaine) = déficit semaine ÷ 7 700. */
 	perteGraisseKg: number;
@@ -164,6 +182,10 @@ export type ResultatsFicheCalibrage = {
 	alertePlafonds: string | null;
 	/** Avertissement NEUTRE au-delà de 15 % de déficit (null sinon). */
 	avertissementDeficit: string | null;
+	/** Effet de l'adaptation métabolique (kcal/jour) = MB × A/100 (affiché « −X kcal/jour »). */
+	adaptationEffetKcal: number;
+	/** Avertissement au-delà de 13 % d'adaptation (null sinon). */
+	avertissementAdaptation: string | null;
 	/** Vigilance (< 30 kcal/kg de MM) ou alerte (< 24) sur la disponibilité du jour type. */
 	avertissementDisponibilite: AvertissementDisponibilite | null;
 	/** Macros du jour type (protéines 2,3 g/kg de MM, réglable 2 à 2,6). */
@@ -322,14 +344,18 @@ export function resultatsFiche(entrees: EntreesFicheCalibrage): ResultatsFicheCa
 	});
 	const deficitPct = entrees.deficitPct ?? DEFICIT_PCT_DEFAUT;
 	const bilan = bilanObjectifSemaine({ budgetSemaineKcal: budget, deficitPct });
-	const objectifJournalierKcal = Math.round(bilan.objectifSemaineKcal / JOURS_SEMAINE);
-
+	/* Objectif visé = semaine ÷ 7 ; les macros ENTIÈRES en découlent, puis
+	   l'objectif APPLIQUÉ = somme exacte 4G + 4P + 9L (`macros.kcalApplique`) :
+	   la même valeur est affichée, appliquée, confirmée, résumée dans la
+	   Vision 360 et lue par le journal — jamais d'écart d'arrondi. */
+	const objectifCibleKcal = Math.round(bilan.objectifSemaineKcal / JOURS_SEMAINE);
 	const macros = macrosJour({
-		kcal: objectifJournalierKcal,
+		kcal: objectifCibleKcal,
 		poidsKg,
 		mgPct,
 		proteinesParKgMasseMaigre: entrees.proteinesParKgMasseMaigre
 	});
+	const objectifJournalierKcal = macros.kcalApplique;
 
 	/* Convention documentée de la semaine type : le sport habituel est réparti
 	   linéairement sur les 7 jours (aucun jour de séance n'est connu). La
@@ -365,9 +391,9 @@ export function resultatsFiche(entrees: EntreesFicheCalibrage): ResultatsFicheCa
 	const perte = bilan.perteGraisseKg;
 	const alertePlafonds =
 		perte > macdonald
-			? `Perte estimée de ${perte} kg/semaine : elle dépasse le rythme conseillé — plafond Alpert (${alpert} kg/semaine) et plafond Macdonald (${macdonald} kg/semaine) dépassés.`
+			? `Perte estimée de ${decimalFr(perte)} kg/semaine : elle dépasse le rythme conseillé — plafond Alpert (${decimalFr(alpert)} kg/semaine) et plafond Macdonald (${decimalFr(macdonald)} kg/semaine) dépassés.`
 			: perte > alpert
-				? `Perte estimée de ${perte} kg/semaine : elle dépasse le rythme conseillé — plafond Alpert (${alpert} kg/semaine) dépassé, plafond Macdonald (${macdonald} kg/semaine) non dépassé.`
+				? `Perte estimée de ${decimalFr(perte)} kg/semaine : elle dépasse le rythme conseillé — plafond Alpert (${decimalFr(alpert)} kg/semaine) dépassé, plafond Macdonald (${decimalFr(macdonald)} kg/semaine) non dépassé.`
 				: null;
 
 	/* Disponibilité en énergie du jour type : sous 30 kcal/kg de MM → vigilance,
@@ -385,6 +411,14 @@ export function resultatsFiche(entrees: EntreesFicheCalibrage): ResultatsFicheCa
 					}
 				: null;
 
+	/* Maintenance totale = budget ÷ 7 (sport habituel INCLUS) — même valeur que
+	   le champ « Maintenance » de « Appliquer à la fiche ». La carte l'affiche
+	   avec son détail « dont sans exercice X · sport Y » dont la somme vaut
+	   EXACTEMENT le total (arrondis cohérents). */
+	const maintenanceFiletKcal = Math.round(budget / JOURS_SEMAINE);
+	const sansExerciceKcal = Math.round(profil.maintenanceKcal);
+	const adaptationPct = entrees.adaptationPct ?? 0;
+
 	return {
 		versionFormules: VERSION_FORMULES_CALIBRAGE,
 		coefficientPas,
@@ -394,18 +428,26 @@ export function resultatsFiche(entrees: EntreesFicheCalibrage): ResultatsFicheCa
 		masseGrasseKg: profil.masseGrasseKg,
 		metabolismeBaseKcal: profil.metabolismeBaseKcal,
 		maintenanceKcal: profil.maintenanceKcal,
-		maintenanceFiletKcal: Math.round(budget / JOURS_SEMAINE),
+		maintenanceFiletKcal,
+		maintenanceDetailKcal: {
+			sansExerciceKcal,
+			sportJournalierKcal: maintenanceFiletKcal - sansExerciceKcal
+		},
 		sportSemaineKcal: sport,
 		budgetSemaineKcal: budget,
 		deficitPct: bilan.deficitPct,
 		deficitSemaineKcal: bilan.deficitSemaineKcal,
 		objectifSemaineKcal: bilan.objectifSemaineKcal,
+		objectifCibleKcal,
 		objectifJournalierKcal,
 		perteGraisseKg: bilan.perteGraisseKg,
 		vitesseMaxAlpertKgSemaine: alpert,
 		vitesseMaxMacdonaldKgSemaine: macdonald,
 		alertePlafonds,
 		avertissementDeficit: bilan.avertissement,
+		adaptationEffetKcal: adaptationEffetKcal({ poidsKg, mgPct, adaptationPct }),
+		avertissementAdaptation:
+			adaptationPct > ADAPTATION_PCT_AVERTISSEMENT ? ADAPTATION_AVERTISSEMENT : null,
 		avertissementDisponibilite,
 		macros,
 		exerciceJournalierKcal,

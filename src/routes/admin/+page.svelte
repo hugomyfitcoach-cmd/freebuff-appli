@@ -27,7 +27,7 @@
 	import CoachIdentity from '$lib/components/CoachIdentity.svelte';
 	import { coachIdentity, type CoachUserLike } from '$lib/coachIdentity';
 	import ConfirmDialog from '../../lib/components/ConfirmDialog.svelte';
-	import { CalibrageError } from '$lib/calibrage';
+	import { ADAPTATION_AIDE, ADAPTATION_REPERES, CalibrageError, decimalFr } from '$lib/calibrage';
 	import {
 		DEFICIT_PCT_DEFAUT,
 		DISPONIBILITE_NIVEAUX,
@@ -602,9 +602,12 @@
 			const fat = Math.round(((kcal * (pctFat || 0)) / 100) / 9);
 			return { kcal, carbs, protein, fat };
 		}
-		const carbs = Math.max(0, Math.round(gCarbs) || 0);
-		const protein = Math.max(0, Math.round(gProtein) || 0);
-		const fat = Math.max(0, Math.round(gFat) || 0);
+		/* Mode macros (g) : AUCUN arrondi — « Calories calculées » = somme exacte
+		   4G + 4P + 9L des grammes affichés, identique à l'objectif appliqué par le
+		   calibrage (tout arrondi recréerait un écart entre la carte et le reste). */
+		const carbs = Math.max(0, gCarbs || 0);
+		const protein = Math.max(0, gProtein || 0);
+		const fat = Math.max(0, gFat || 0);
 		return { kcal: 4 * carbs + 4 * protein + 9 * fat, carbs, protein, fat };
 	});
 	const pctSum = $derived((pctCarbs || 0) + (pctProtein || 0) + (pctFat || 0));
@@ -1676,6 +1679,17 @@
 	let refCarbs = $state(0);
 	let refProtein = $state(0);
 	let refFat = $state(0);
+	/** Dernier jeu de valeurs calculées vu par le suivi — détecte « Les résultats
+	 *  ont changé » (résultats bougés après une modification manuelle). */
+	let calcPrecedent: {
+		kcal: number;
+		maintenance: string;
+		carbs: number;
+		protein: number;
+		fat: number;
+	} | null = null;
+	/** Bandeau « Les résultats ont changé » + bouton de reprise des calculs. */
+	let applyResultatsChanges = $state(false);
 	$effect(() => {
 		const r = calR;
 		if (!r) return;
@@ -1704,10 +1718,54 @@
 				applyFat = r.macros.lipidesG;
 				refFat = applyFat;
 			}
+			/* « Les résultats ont changé » : les résultats ont bougé alors que la
+			   coach avait déjà modifié un champ → bandeau + bouton « Reprendre les
+			   valeurs calculées ». Ses valeurs modifiées ne sont JAMAIS perdues sans
+			   son action explicite. */
+			const calc = {
+				kcal: r.objectifJournalierKcal,
+				maintenance: String(Math.round(r.maintenanceFiletKcal)),
+				carbs: r.macros.glucidesG,
+				protein: r.macros.proteinesG,
+				fat: r.macros.lipidesG
+			};
+			const modifie =
+				applyKcal !== refKcal ||
+				applyMaintenance !== refMaintenance ||
+				applyCarbs !== refCarbs ||
+				applyProtein !== refProtein ||
+				applyFat !== refFat;
+			const change =
+				calcPrecedent !== null &&
+				(calcPrecedent.kcal !== calc.kcal ||
+					calcPrecedent.maintenance !== calc.maintenance ||
+					calcPrecedent.carbs !== calc.carbs ||
+					calcPrecedent.protein !== calc.protein ||
+					calcPrecedent.fat !== calc.fat);
+			if (change && modifie) applyResultatsChanges = true;
+			else if (!modifie) applyResultatsChanges = false;
+			calcPrecedent = calc;
 			if (!applyInitialise) applyDate = calibragePre?.today ?? applyDate;
 			applyInitialise = true;
 		});
 	});
+	/** « Reprendre les valeurs calculées » : tous les champs reprennent les résultats
+	 *  courants — les badges « modifié » et le bandeau disparaissent. */
+	function reprendreValeursCalculees() {
+		const r = calR;
+		if (!r) return;
+		applyKcal = r.objectifJournalierKcal;
+		refKcal = applyKcal;
+		applyMaintenance = String(Math.round(r.maintenanceFiletKcal));
+		refMaintenance = applyMaintenance;
+		applyCarbs = r.macros.glucidesG;
+		refCarbs = applyCarbs;
+		applyProtein = r.macros.proteinesG;
+		refProtein = applyProtein;
+		applyFat = r.macros.lipidesG;
+		refFat = applyFat;
+		applyResultatsChanges = false;
+	}
 	async function appliquerCalibrage() {
 		if (!selectedId || !calR || applyBusy) return;
 		applyBusy = true;
@@ -4291,8 +4349,9 @@
 										<p class="mt-0.5 text-[11px] text-mist">MM {String(calR.masseMaigreKg).replace('.', ',')} kg · MG {String(calR.masseGrasseKg).replace('.', ',')} kg</p>
 									</div>
 									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
-										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Maintenance (sans exercice)</div>
-										<div class="mt-0.5 font-display text-xl font-bold text-ink">{Math.round(calR.maintenanceKcal).toLocaleString('fr-FR')} <span class="text-xs font-semibold text-mist">kcal</span></div>
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Maintenance totale (sport habituel inclus)</div>
+										<div class="mt-0.5 font-display text-xl font-bold text-ink">{calR.maintenanceFiletKcal.toLocaleString('fr-FR')} <span class="text-xs font-semibold text-mist">kcal</span></div>
+										<p class="mt-0.5 text-[11px] text-mist">dont sans exercice {calR.maintenanceDetailKcal.sansExerciceKcal.toLocaleString('fr-FR')} kcal · sport {calR.maintenanceDetailKcal.sportJournalierKcal.toLocaleString('fr-FR')} kcal/jour</p>
 									</div>
 									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
 										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Sport de la semaine</div>
@@ -4306,6 +4365,7 @@
 									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
 										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Objectif journalier moyen</div>
 										<div class="mt-0.5 font-display text-xl font-bold text-brand-dark">{calR.objectifJournalierKcal.toLocaleString('fr-FR')} <span class="text-xs font-semibold text-mist">kcal</span></div>
+										<p class="mt-0.5 text-[11px] text-mist">somme exacte des macros 4G + 4P + 9L · objectif visé {calR.objectifCibleKcal.toLocaleString('fr-FR')} kcal</p>
 									</div>
 									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
 										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Perte de graisse estimée</div>
@@ -4360,10 +4420,22 @@
 										<span class="mt-1 block text-[11px] text-mist">{calibragePre.pasMoyen.jours} jour(s) renseigné(s) sur 14</span>
 									{/if}
 								</label>
-								<label class="block">
-									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Adaptation métabolique (%)</span>
-									<input type="number" inputmode="decimal" min="0" max="60" step="0.5" bind:value={calibrageInputs.adaptationPct} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
-								</label>
+								<div class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Adaptation (% du métabolisme de base)</span>
+									<input type="number" inputmode="decimal" min="0" max="20" step="0.5" bind:value={calibrageInputs.adaptationPct} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+									{#if calR && calR.adaptationEffetKcal > 0}
+										<span class="mt-1 block text-[11px] font-semibold text-warn">−{decimalFr(calR.adaptationEffetKcal)} kcal/jour</span>
+									{/if}
+									<p class="mt-1 text-[11px] leading-snug text-mist">{ADAPTATION_AIDE}</p>
+									<ul class="mt-1 space-y-0.5 text-[11px] text-mist">
+										{#each ADAPTATION_REPERES as repere (repere.pct)}
+											<li><strong class="text-ink">{repere.pct} %</strong> : {repere.texte}</li>
+										{/each}
+									</ul>
+									{#if calR?.avertissementAdaptation}
+										<p class="mt-1.5 flex items-start gap-1.5 rounded-lg border border-warn/40 bg-warn-light px-2.5 py-2 text-[11px] font-semibold text-warn"><Icon name="triangleAlert" size={12} class="mt-0.5 shrink-0" /> {calR.avertissementAdaptation}</p>
+									{/if}
+								</div>
 							</div>
 
 							<!-- Activité au travail : boutons rapides + champ libre 0–12 h -->
@@ -4540,7 +4612,11 @@
 								</label>
 								<label class="block">
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Maintenance (kcal){#if applyMaintenance !== refMaintenance}<span class="ml-1 rounded-full bg-warn-light px-1.5 py-0.5 text-[9px] font-bold normal-case text-warn">modifié</span>{/if}</span>
-									<input type="number" inputmode="numeric" min="800" max="10000" step="10" bind:value={applyMaintenance} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+									<!-- oninput (et non bind:value) : bind:value sur un input number
+									     coerce la valeur en NOMBRE (to_number), ce qui ferait diverger
+									     applyMaintenance (nombre) de refMaintenance (chaîne) → badge
+									     « modifié » bloqué et champ qui ne suit plus les résultats. -->
+									<input type="number" inputmode="numeric" min="800" max="10000" step="10" value={applyMaintenance} oninput={(e) => (applyMaintenance = (e.currentTarget as HTMLInputElement).value)} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
 								</label>
 								<label class="block">
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Date d'effet</span>
@@ -4559,6 +4635,15 @@
 									<input type="number" inputmode="numeric" min="0" max="300" step="1" bind:value={applyFat} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
 								</label>
 							</div>
+							{#if applyResultatsChanges}
+								<p class="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="shrink-0" /> Les résultats ont changé — tes champs modifiés sont conservés.
+									<button
+										type="button"
+										onclick={reprendreValeursCalculees}
+										class="rounded-full border-2 border-warn/40 bg-white px-3 py-1 text-[11px] font-bold text-warn transition hover:border-warn"
+									>Reprendre les valeurs calculées</button>
+								</p>
+							{/if}
 							{#if applyError}
 								<p class="mt-3 rounded-xl border border-danger/40 bg-danger-light px-3.5 py-2.5 text-[12px] font-semibold text-danger">{applyError}</p>
 							{/if}
@@ -4582,9 +4667,11 @@
 					onconfirm={appliquerCalibrage}
 					oncancel={() => { calConfirmOpen = false; applyError = ''; }}
 				>
-					<ul class="space-y-1 text-xs text-mist">
-						<li>Maintenance : <strong class="text-ink">{applyMaintenance || '—'} kcal</strong></li>
-						<li>Macros : <strong class="text-ink">G {applyCarbs} g · P {applyProtein} g · L {applyFat} g</strong></li>
+				<ul class="space-y-1 text-xs text-mist">
+					<!-- Valeurs EXACTEMENT envoyées (kcal, maintenance, macros) — décimales françaises. -->
+					<li>Objectif : <strong class="text-ink">{applyKcal} kcal/jour</strong></li>
+					<li>Maintenance : <strong class="text-ink">{applyMaintenance ? decimalFr(Number(applyMaintenance)) : '—'} kcal</strong></li>
+					<li>Macros : <strong class="text-ink">G {decimalFr(applyCarbs)} g · P {decimalFr(applyProtein)} g · L {decimalFr(applyFat)} g</strong></li>
 						<li>Instantané du calibrage (entrées, résultats, version des formules) enregistré dans la fiche.</li>
 					</ul>
 					{#if applyError}

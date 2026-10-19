@@ -45,9 +45,11 @@ import {
 	INTENSITES_MUSCULATION,
 	ZONES_CARDIO_IDS,
 	coutSportif,
+	decimalFr,
 	depenseSeanceKcal,
 	zoneCardioParId,
 	type IntensiteDouce,
+	type IntensiteMusculation,
 } from "../lib/calibrage";
 
 /**
@@ -88,7 +90,14 @@ export const SPORT_INTENSITIES_LEGACY = ["legere", "moderee", "intense"] as cons
  */
 export function intensiteLegacyVersV2(entry: SportCatalogEntry, valeur: string): string {
 	if (!(SPORT_INTENSITIES_LEGACY as readonly string[]).includes(valeur)) return valeur;
-	if (entry.bareme === "musculation") return valeur === "intense" ? "intensive" : "recreative";
+	if (entry.bareme === "musculation") {
+		/* « moderee » désigne désormais l'intensité v2 « Modérée » (3,3) — les
+		   anciennes LIGNES (v1) ne passent jamais ici (recalculées par
+		   `depenseLegacyMet` avec leur MET d'origine). */
+		if (valeur === "intense") return "intensive";
+		if (valeur === "moderee") return "moderee";
+		return "recreative";
+	}
 	if (entry.bareme === "douce") return valeur === "intense" ? "elevee" : valeur;
 	const zones: Record<string, string> = { legere: "sous-130", moderee: "130-150", intense: "160-180" };
 	return zones[valeur];
@@ -189,25 +198,36 @@ export const SPORT_CATALOG: SportCatalogEntry[] = [
 	{ id: "corde-a-sauter", name: "Corde à sauter", category: "autres", bareme: "cardio" },
 ];
 
-/** Choix de musculation (saisie manuelle) — coûts du barème affichés. */
+/**
+ * Choix de musculation (saisie manuelle) — coûts du barème affichés, dans
+ * l'ordre : Récréative 2,2 · Modérée 3,3 · Intensive 4,4. Source unique partagée
+ * par l'onglet Calibrage (CRM) et l'outil Dépense sportive (cliente) :
+ * « Modérée · 3,3 kcal/kg/h » est un AJOUT, les valeurs existantes sont
+ * inchangées (décimales françaises à l'affichage).
+ */
 export const SPORT_CHOIX_MUSCULATION: { id: string; label: string; hint: string }[] = [
 	{
 		id: INTENSITES_MUSCULATION[0],
 		label: "Récréative",
-		hint: `${COUT_SPORT.musculationRecreative} kcal/kg/h`,
+		hint: `${decimalFr(COUT_SPORT.musculationRecreative)} kcal/kg/h`,
 	},
 	{
 		id: INTENSITES_MUSCULATION[1],
+		label: "Modérée",
+		hint: `${decimalFr(COUT_SPORT.musculationModeree)} kcal/kg/h`,
+	},
+	{
+		id: INTENSITES_MUSCULATION[2],
 		label: "Intensive",
-		hint: `${COUT_SPORT.musculationIntensive} kcal/kg/h`,
+		hint: `${decimalFr(COUT_SPORT.musculationIntensive)} kcal/kg/h`,
 	},
 ];
 
 /** Choix d'intensité des activités douces — coûts du barème affichés. */
 export const SPORT_CHOIX_DOUCES: { id: string; label: string; hint: string }[] = [
-	{ id: INTENSITES_DOUCES[0], label: "Légère", hint: `${COUT_SPORT.activiteDouce} kcal/kg/h` },
-	{ id: INTENSITES_DOUCES[1], label: "Modérée", hint: `${COUT_SPORT.activiteDouce} kcal/kg/h` },
-	{ id: INTENSITES_DOUCES[2], label: "Élevée", hint: `${COUT_SPORT.activiteDouceElevee} kcal/kg/h` },
+	{ id: INTENSITES_DOUCES[0], label: "Légère", hint: `${decimalFr(COUT_SPORT.activiteDouce)} kcal/kg/h` },
+	{ id: INTENSITES_DOUCES[1], label: "Modérée", hint: `${decimalFr(COUT_SPORT.activiteDouce)} kcal/kg/h` },
+	{ id: INTENSITES_DOUCES[2], label: "Élevée", hint: `${decimalFr(COUT_SPORT.activiteDouceElevee)} kcal/kg/h` },
 ];
 
 /**
@@ -219,7 +239,7 @@ export const SPORT_ZONES_CARDIO: { id: string; label: string; hint: string }[] =
 	(z) => ({
 		id: z.id,
 		label: z.intensite,
-		hint: `${z.libelle} · ${z.defaut} kcal/kg/h`,
+		hint: `${z.libelle} · ${decimalFr(z.defaut)} kcal/kg/h`,
 	})
 );
 
@@ -348,7 +368,7 @@ function resolveSportCoefficientBrut(
 	if (entry.bareme === "musculation") {
 		const cout = coutSportif({
 			sport: "musculation",
-			intensite: choix === INTENSITES_MUSCULATION[1] ? "intensive" : "recreative",
+			intensite: choix as IntensiteMusculation,
 		});
 		return {
 			intensity: choix,

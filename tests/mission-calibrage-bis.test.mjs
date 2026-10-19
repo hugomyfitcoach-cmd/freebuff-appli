@@ -172,12 +172,12 @@ test('Repère doré : 60 kg, 3 séances G-FLUX d’1 h → 594 kcal (3,3 kcal/kg
 	assert.equal(cal.sportSemaineKcal(seances), 594);
 });
 
-test('Repère doré : 60 kg, MG 26 %, 1 400 kcal → P 102 g · L 46,7 g · G 143 g (aucun signal)', () => {
+test('Repère doré : 60 kg, MG 26 %, 1 400 kcal → P 102 g · L 47 g · G 142 g (aucun signal)', () => {
 	const macros = cal.macrosJour({ kcal: 1400, poidsKg: 60, mgPct: 26 });
 	/* MM = 60 × (1 − 0,26) = 44,4 kg → 2,3 × 44,4 = 102,12 → 102 g */
 	assert.equal(macros.proteinesG, 102);
-	assert.equal(macros.lipidesG, 46.7); // 30 % de 1 400 = 420 kcal → /9 = 46,67
-	assert.equal(macros.glucidesG, 143); // (1 400 − 408 − 420,3)/4 = 142,9 → 143
+	assert.equal(macros.lipidesG, 47); // 30 % de 1 400 = 420 kcal → /9 = 46,67 → 47 g (grammes entiers)
+	assert.equal(macros.glucidesG, 142); // (1 400 − 408 − 423)/4 = 142,25 → 142
 	assert.equal(macros.glucidesSousSeuil, false);
 	assert.equal(macros.alerteGlucides, null);
 	assert.equal(macros.masseMaigreKg, 44.4, 'les protéines sont indexées sur la masse maigre');
@@ -187,8 +187,8 @@ test('Repère doré : 60 kg, MG 26 %, 1 400 kcal → P 102 g · L 46,7 g · G 14
 test('Repère doré : même profil à 1 100 kcal → signal glucides < 100 g', () => {
 	const macros = cal.macrosJour({ kcal: 1100, poidsKg: 60, mgPct: 26 });
 	assert.equal(macros.proteinesG, 102);
-	assert.equal(macros.lipidesG, 36.7); // 30 % de 1 100 = 330 kcal → /9 = 36,67
-	assert.equal(macros.glucidesG, 90); // (1 100 − 408 − 330,3)/4 = 90,4 → 90
+	assert.equal(macros.lipidesG, 37); // 30 % de 1 100 = 330 kcal → /9 = 36,67 → 37 g (grammes entiers)
+	assert.equal(macros.glucidesG, 90); // (1 100 − 408 − 333)/4 = 89,75 → 90
 	assert.equal(macros.glucidesSousSeuil, true);
 	assert.ok(macros.alerteGlucides?.includes('90'), 'le signal cite les glucides estimés');
 });
@@ -208,7 +208,7 @@ test('Macros : aucune exception « poids objectif » — MG 40 % reste indexée 
 	const macros = cal.macrosJour({ kcal: 1900, poidsKg: 100, mgPct: 40 });
 	assert.equal(macros.masseMaigreKg, 60);
 	assert.equal(macros.proteinesG, 138);
-	assert.equal(macros.lipidesG, 63.3); // 30 % de 1 900 = 570 kcal → 63,33
+	assert.equal(macros.lipidesG, 63); // 30 % de 1 900 = 570 kcal → 63,33 → 63 g (grammes entiers)
 	assert.equal(macros.proteinesParKgMasseMaigre, 2.3);
 	assert.equal('poidsObjectifDeduit' in macros, false, 'plus de bascule « poids objectif »');
 });

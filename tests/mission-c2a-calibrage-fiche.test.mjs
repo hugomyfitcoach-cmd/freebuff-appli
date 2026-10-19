@@ -239,8 +239,9 @@ test("FICHE : sport, budget, objectif, déficit et macros = module (aucun calcul
 	assert.equal(r.objectifSemaineKcal, bilan.objectifSemaineKcal);
 	assert.equal(r.deficitSemaineKcal, bilan.deficitSemaineKcal);
 	assert.equal(r.perteGraisseKg, bilan.perteGraisseKg);
-	assert.equal(r.objectifJournalierKcal, Math.round(bilan.objectifSemaineKcal / 7));
-	const macros = cal.macrosJour({ kcal: r.objectifJournalierKcal, poidsKg: 60, mgPct: 26, proteinesParKgMasseMaigre: 2.3 });
+	assert.equal(r.objectifCibleKcal, Math.round(bilan.objectifSemaineKcal / 7), 'objectif visé = semaine ÷ 7');
+	assert.equal(r.objectifJournalierKcal, r.macros.kcalApplique, 'objectif appliqué = somme exacte 4G + 4P + 9L');
+	const macros = cal.macrosJour({ kcal: r.objectifCibleKcal, poidsKg: 60, mgPct: 26, proteinesParKgMasseMaigre: 2.3 });
 	assert.equal(r.macros.proteinesG, macros.proteinesG);
 	assert.equal(r.macros.lipidesG, macros.lipidesG);
 	assert.equal(r.macros.glucidesG, macros.glucidesG);
