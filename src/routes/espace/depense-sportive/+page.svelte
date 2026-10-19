@@ -148,6 +148,8 @@
 	let duplicatingId = $state<string | null>(null);
 	/** Choix d'origine de la ligne modifiée (jamais basculé tout seul). */
 	let editingOriginal = $state<{ activityId: string; intensity: string | null } | null>(null);
+	/** Ligne v1 en édition : jamais recalculée sans choix explicite. */
+	let editingLegacy = $state(false);
 	let formDate = $state('');
 	let formActivityId = $state('');
 	let formIntensity = $state<string | null>(null);
@@ -171,9 +173,9 @@
 					? (catalog?.zonesCardio ?? [])
 					: []
 	);
-	/** FC moyenne plausible (mêmes bornes que le barème : 30 à 240 BPM). */
+	/** FC moyenne plausible (mêmes bornes que le barème : 40 à 240 BPM). */
 	const bpmValide = $derived(
-		formBpm.trim() !== '' && Number(formBpm) >= 30 && Number(formBpm) <= 240
+		formBpm.trim() !== '' && Number(formBpm) >= 40 && Number(formBpm) <= 240
 	);
 	/** Choix stocké qui n'est plus proposé (ligne v1, ou activité passée au barème doux). */
 	const choixHorsBareme = $derived(
@@ -189,7 +191,15 @@
 	const choixValide = $derived(
 		bpmValide ||
 			(!!formIntensity && (formEntry?.choix.includes(formIntensity) ?? false)) ||
-			(saisieInchangee && choixHorsBareme)
+			saisieInchangee
+	);
+	/* Bascule de barème AVANT enregistrement : changer l'activité ou
+	   l'intensité d'une ligne v1 la fait passer au barème actuel — la ligne
+	   reste sinon intacte (son MET et ses kcal d'origine). */
+	const basculeBareme = $derived(
+		editingLegacy &&
+			!!editingOriginal &&
+			(formActivityId !== editingOriginal.activityId || formIntensity !== editingOriginal.intensity)
 	);
 
 	const filteredCatalog = $derived.by(() => {
@@ -213,6 +223,7 @@
 		editingId = null;
 		duplicatingId = null;
 		editingOriginal = null;
+		editingLegacy = false;
 		sheetStep = prefillActivityId ? 'details' : 'sport';
 		formActivityId = prefillActivityId ?? '';
 		formIntensity = prefillIntensity ?? null;
@@ -227,6 +238,7 @@
 		editingId = a._id;
 		duplicatingId = null;
 		editingOriginal = { activityId: a.activityId, intensity: a.intensity };
+		editingLegacy = a.legacy;
 		sheetStep = 'details';
 		formActivityId = a.activityId;
 		formIntensity = a.intensity;
@@ -615,7 +627,7 @@
 				<input
 					type="number"
 					inputmode="numeric"
-					min="30"
+					min="40"
 					max="240"
 					bind:value={formBpm}
 					placeholder="ex. 138 BPM"
@@ -661,6 +673,12 @@
 			{#if bpmValide}
 				<p class="mt-2 rounded-xl bg-cream/70 px-3 py-2 text-[11px] leading-snug text-ink">
 					La FC moyenne de {formBpm} BPM définit la zone : aucun choix d'intensité n'est nécessaire.
+				</p>
+			{/if}
+
+			{#if basculeBareme}
+				<p class="mt-2 rounded-xl bg-danger-light px-3 py-2 text-[11px] leading-snug text-ink">
+					En modifiant l'activité ou l'intensité, cette ligne d'origine sera recalculée avec le barème actuel : son MET et ses kcal seront mis à jour. Sans ce choix, elle reste telle quelle.
 				</p>
 			{/if}
 

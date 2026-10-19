@@ -4,6 +4,24 @@ import { convex } from '$lib/server/convex';
 import { api } from '../../../convex/_generated/api.js';
 import { SESSION_COOKIE, requireRole } from '$lib/server/session';
 import { errMsg } from '$lib/errors.js';
+import { BPM_MAX, BPM_MIN } from '$lib/calibrage';
+
+/**
+ * FC moyenne : bornes du barème (40 à 240 BPM), validées côté API — refus
+ * explicite avec un message lisible, jamais une valeur silencieusement écartée.
+ * Absente / vide → undefined (aucune FC transmise).
+ */
+function bpmMoyenOuErreur(body: Record<string, unknown>): number | undefined {
+	const brut = body.bpmMoyen;
+	if (brut === undefined || brut === null || brut === '') return undefined;
+	const bpm = Number(brut);
+	if (!Number.isFinite(bpm) || bpm < BPM_MIN || bpm > BPM_MAX) {
+		throw new Error(
+			`Fréquence cardiaque invalide : ${BPM_MIN} à ${BPM_MAX} BPM attendu (reçu ${String(brut)}).`
+		);
+	}
+	return bpm;
+}
 
 /**
  * Module Dépense sportive (cliente) — BFF.
@@ -56,7 +74,7 @@ export const POST: RequestHandler = async (event) => {
 			});
 			return json({ ok: true, _id: res._id });
 		}
-		const bpmMoyen = Number(body.bpmMoyen);
+		const bpmMoyen = bpmMoyenOuErreur(body);
 		const res = await convex.mutation(api.sport.addActivity, {
 			sessionToken: token,
 			date: String(body.date),
@@ -64,7 +82,7 @@ export const POST: RequestHandler = async (event) => {
 			...(body.intensity !== undefined && body.intensity !== null
 				? { intensity: String(body.intensity) }
 				: {}),
-			...(Number.isFinite(bpmMoyen) && bpmMoyen > 0 ? { bpmMoyen } : {}),
+			...(bpmMoyen !== undefined ? { bpmMoyen } : {}),
 			durationMinutes: Number(body.durationMinutes),
 		} as never);
 		return json({ ok: true, _id: res._id });
@@ -78,15 +96,14 @@ export const PATCH: RequestHandler = async (event) => {
 	const token = event.cookies.get(SESSION_COOKIE);
 	try {
 		const body = await event.request.json();
+		const bpmMoyen = bpmMoyenOuErreur(body);
 		await convex.mutation(api.sport.updateActivity, {
 			sessionToken: token,
 			activityId: String(body._id) as never,
 			...(body.date ? { date: String(body.date) } : {}),
 			...(body.activityId ? { activityRef: String(body.activityId) } : {}),
 			...(body.intensity !== undefined ? { intensity: body.intensity ? String(body.intensity) : undefined } : {}),
-			...(body.bpmMoyen !== undefined && Number(body.bpmMoyen) > 0
-				? { bpmMoyen: Number(body.bpmMoyen) }
-				: {}),
+			...(bpmMoyen !== undefined ? { bpmMoyen } : {}),
 			...(body.durationMinutes !== undefined ? { durationMinutes: Number(body.durationMinutes) } : {}),
 		} as never);
 		return json({ ok: true });

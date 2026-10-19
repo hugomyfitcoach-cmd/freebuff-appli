@@ -37,7 +37,10 @@
 import { ConvexError } from "convex/values";
 import {
 	BANDES_CARDIO,
+	BPM_MAX,
+	BPM_MIN,
 	COUT_SPORT,
+	CalibrageError,
 	INTENSITES_DOUCES,
 	INTENSITES_MUSCULATION,
 	ZONES_CARDIO_IDS,
@@ -46,6 +49,50 @@ import {
 	zoneCardioParId,
 	type IntensiteDouce,
 } from "../lib/calibrage";
+
+/**
+ * Les erreurs du module calibrage (bornes, valeurs hors barème) deviennent des
+ * `ConvexError` avec le message lisible d'origine : la cliente voit « Poids
+ * invalide : 20 à 400 kg attendu… », jamais « Server Error ».
+ */
+function enConvexError<T>(calcul: () => T): T {
+	try {
+		return calcul();
+	} catch (e) {
+		if (e instanceof CalibrageError) throw new ConvexError(e.message);
+		throw e;
+	}
+}
+
+/**
+ * FC moyenne : bornes du barème (40 à 240 BPM) — refus explicite et message
+ * clair, côté Convex comme côté API.
+ */
+export function verifieBpmMoyen(bpm: number): number {
+	if (typeof bpm !== "number" || !Number.isFinite(bpm) || bpm < BPM_MIN || bpm > BPM_MAX) {
+		throw new ConvexError(
+			`Fréquence cardiaque invalide : ${BPM_MIN} à ${BPM_MAX} BPM attendu (reçu ${String(bpm)}).`
+		);
+	}
+	return bpm;
+}
+
+/** Anciennes valeurs d'intensité (v1) envoyées par une PWA en cache. */
+export const SPORT_INTENSITIES_LEGACY = ["legere", "moderee", "intense"] as const;
+
+/**
+ * Compatibilité pendant le déploiement : une PWA en cache peut encore envoyer
+ * les anciennes valeurs d'intensité (« legere », « moderee », « intense »).
+ * Le serveur les CONVERTIT vers les choix v2 de l'activité — aucune cliente
+ * n'a d'erreur avant d'avoir rechargé l'application.
+ */
+export function intensiteLegacyVersV2(entry: SportCatalogEntry, valeur: string): string {
+	if (!(SPORT_INTENSITIES_LEGACY as readonly string[]).includes(valeur)) return valeur;
+	if (entry.bareme === "musculation") return valeur === "intense" ? "intensive" : "recreative";
+	if (entry.bareme === "douce") return valeur === "intense" ? "elevee" : valeur;
+	const zones: Record<string, string> = { legere: "sous-130", moderee: "130-150", intense: "160-180" };
+	return zones[valeur];
+}
 
 /** Version du catalogue — stockée sur chaque dépense (coefficientVersion). */
 export const SPORT_CATALOG_VERSION = "2";
@@ -272,6 +319,14 @@ export function resolveSportCoefficient(
 	choix?: string | null,
 	bpmMoyen?: number | null
 ): CoutSportifResolu {
+	return enConvexError(() => resolveSportCoefficientBrut(activityId, choix, bpmMoyen));
+}
+
+function resolveSportCoefficientBrut(
+	activityId: string,
+	choix?: string | null,
+	bpmMoyen?: number | null
+): CoutSportifResolu {
 	const entry = requireSportEntry(activityId);
 	if (bpmMoyen !== undefined && bpmMoyen !== null) {
 		const cout = coutSportif({ sport: "cardio", bpm: bpmMoyen });
@@ -350,7 +405,9 @@ function caloriesBareme(
 	weightKg?: number | null
 ): number | undefined {
 	if (weightKg == null || weightKg <= 0) return undefined;
-	return depenseSeanceKcal({ coefficientKcalKgH, poidsKg: weightKg, heures: minutes / 60 });
+	return enConvexError(() =>
+		depenseSeanceKcal({ coefficientKcalKgH, poidsKg: weightKg, heures: minutes / 60 })
+	);
 }
 
 /**
@@ -368,7 +425,13 @@ export function estimateSportActivity(args: {
 }): SportEstimation {
 	const entry = requireSportEntry(args.activityId);
 	const minutes = clampSportDuration(args.durationMinutes);
-	const cout = resolveSportCoefficient(args.activityId, args.intensity, args.bpmMoyen);
+	/* PWA en cache : les anciennes valeurs d'intensité (legere/moderee/intense)
+	   sont converties vers les choix v2 — jamais de refus au déploiement. */
+	const intensite =
+		args.intensity != null && args.intensity !== ""
+			? intensiteLegacyVersV2(entry, args.intensity)
+			: args.intensity;
+	const cout = resolveSportCoefficient(args.activityId, intensite, args.bpmMoyen);
 	const estimatedCalories = caloriesBareme(cout.coefficientKcalKgH, minutes, args.weightKg);
 	return {
 		activityId: entry.id,

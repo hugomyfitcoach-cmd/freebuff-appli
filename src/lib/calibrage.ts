@@ -67,6 +67,10 @@ export const COEFF_MB_MASSE_GRASSE = 4.5;
 export const DIVISEUR_ALPERT = 20;
 export const DIVISEUR_MACDONALD = 15;
 
+/** Bornes de la fréquence cardiaque (BPM) — saisie API et Convex. */
+export const BPM_MIN = 40;
+export const BPM_MAX = 240;
+
 /** Bornes plausibles (garde-fous de saisie) — messages d'erreur en clair. */
 const BORNES = {
 	poids: { min: 20, max: 400, label: '20 à 400 kg' },
@@ -83,7 +87,7 @@ const BORNES = {
 	hanches: { min: 30, max: 250, label: '30 à 250 cm' },
 	supplement: { min: 0, max: 5, label: '0 à 5 de coefficient' },
 	masseMaigre: { min: 5, max: 300, label: '5 à 300 kg' },
-	bpm: { min: 30, max: 240, label: '30 à 240 BPM' },
+	bpm: { min: BPM_MIN, max: BPM_MAX, label: '40 à 240 BPM' },
 	proteinesMasseMaigre: { min: 2, max: 2.6, label: '2 à 2,6 g/kg de masse maigre' },
 	coutHoraire: { min: 1, max: 15, label: '1 à 15 kcal/kg/heure' },
 	budgetSemaine: { min: 0, max: 140_000, label: '0 à 140 000 kcal' },
@@ -530,10 +534,12 @@ export const COUT_SPORT = {
 } as const;
 
 /**
- * Bandes cardio du barème : la borne BASSE est incluse, la borne haute est
- * exclue (`bpmMaxExcl`), sauf pour la dernière bande (au-delà de 180 BPM), qui
- * plafonne à 8,8. `min`/`max` encadrent le coût horaire (kcal/kg/heure) et
- * `defaut` est la valeur retenue quand aucun coût précis n'est fourni :
+ * Bandes cardio du barème : les bornes se REJOIGNENT sans trou ni recouvrement
+ * (zones continues) — la borne basse est incluse ; la borne haute est exclue,
+ * sauf la bande 160–180 qui est FERMÉE à 180 (180 BPM en fait partie) : tout
+ * ce qui est au-delà de 180 — y compris 180,5 — tombe sur le plafond 8,8.
+ * `min`/`max` encadrent le coût horaire (kcal/kg/heure) et `defaut` est la
+ * valeur retenue quand aucun coût précis n'est fourni :
  *  - moins de 130 BPM : 3,3 à 4,3 (défaut 3,8) ;
  *  - 130 à moins de 150 BPM : 4,4 à 6,6 (défaut 5,5) ;
  *  - 150 à moins de 160 BPM : 6,6 (valeur unique) ;
@@ -544,11 +550,11 @@ export const COUT_SPORT = {
  * l'intensité RESSENTIE équivalente (affichage sans cardiofréquencemètre).
  */
 export const BANDES_CARDIO = [
-	{ id: 'sous-130', intensite: 'Légère', bpmMin: 0, bpmMaxExcl: 130, min: 3.3, max: 4.3, defaut: 3.8, libelle: 'moins de 130 BPM' },
-	{ id: '130-150', intensite: 'Modérée', bpmMin: 130, bpmMaxExcl: 150, min: 4.4, max: 6.6, defaut: 5.5, libelle: '130 à moins de 150 BPM' },
-	{ id: '150-160', intensite: 'Soutenue', bpmMin: 150, bpmMaxExcl: 160, min: 6.6, max: 6.6, defaut: 6.6, libelle: '150 à moins de 160 BPM' },
-	{ id: '160-180', intensite: 'Intense', bpmMin: 160, bpmMaxExcl: 181, min: 6.6, max: 8.8, defaut: 7.7, libelle: '160 à 180 BPM' },
-	{ id: 'plus-180', intensite: 'Très intense', bpmMin: 181, bpmMaxExcl: Number.POSITIVE_INFINITY, min: 6.6, max: 8.8, defaut: 8.8, libelle: 'plus de 180 BPM (plafond 8,8)' }
+	{ id: 'sous-130', intensite: 'Légère', bpmMin: 0, bpmMax: 130, maxInclus: false, min: 3.3, max: 4.3, defaut: 3.8, libelle: 'moins de 130 BPM' },
+	{ id: '130-150', intensite: 'Modérée', bpmMin: 130, bpmMax: 150, maxInclus: false, min: 4.4, max: 6.6, defaut: 5.5, libelle: '130 à moins de 150 BPM' },
+	{ id: '150-160', intensite: 'Soutenue', bpmMin: 150, bpmMax: 160, maxInclus: false, min: 6.6, max: 6.6, defaut: 6.6, libelle: '150 à moins de 160 BPM' },
+	{ id: '160-180', intensite: 'Intense', bpmMin: 160, bpmMax: 180, maxInclus: true, min: 6.6, max: 8.8, defaut: 7.7, libelle: '160 à 180 BPM' },
+	{ id: 'plus-180', intensite: 'Très intense', bpmMin: 180, bpmMax: Number.POSITIVE_INFINITY, maxInclus: true, min: 6.6, max: 8.8, defaut: 8.8, libelle: 'plus de 180 BPM (plafond 8,8)' }
 ] as const;
 
 export type BandeCardio = (typeof BANDES_CARDIO)[number];
@@ -581,11 +587,16 @@ export const INTENSITES_MUSCULATION = ['recreative', 'intensive'] as const;
 export const INTENSITES_DOUCES = ['legere', 'moderee', 'elevee'] as const;
 export type IntensiteDouce = (typeof INTENSITES_DOUCES)[number];
 
-/** Bande cardio d'une fréquence cardiaque (bornes vérifiées par l'appelant). */
+/**
+ * Bande cardio d'une fréquence cardiaque (bornes vérifiées ici). Les bandes
+ * se suivent sans trou ni recouvrement : 180 BPM appartient à « 160 à 180 »
+ * (bande fermée) et 180,5 BPM est au-delà de 180 → plafond 8,8.
+ */
 export function bandeCardio(bpm: number): BandeCardio {
 	const frequence = verifier(bpm, 'Fréquence cardiaque', BORNES.bpm);
 	for (const bande of BANDES_CARDIO) {
-		if (frequence >= bande.bpmMin && frequence < bande.bpmMaxExcl) return bande;
+		if (frequence < bande.bpmMin) continue;
+		if (bande.maxInclus ? frequence <= bande.bpmMax : frequence < bande.bpmMax) return bande;
 	}
 	/* Inatteignable : la dernière bande n'a pas de borne haute. */
 	throw new CalibrageError(`Fréquence cardiaque hors barème (reçu ${frequence} BPM).`);

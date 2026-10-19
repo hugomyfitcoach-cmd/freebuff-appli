@@ -31,9 +31,10 @@ import {
 	WALKING_SUGGESTION_ID,
 	choixValides,
 	clampSportDuration,
-	depenseLegacyMet,
 	estimateSportActivity,
 	getSportEntry,
+	intensiteLegacyVersV2,
+	verifieBpmMoyen,
 } from "./sportCatalog";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
@@ -90,12 +91,16 @@ function buildEstimation(args: {
 	}
 	const entry = getSportEntry(args.activityId);
 	if (!entry) throw new ConvexError("Activité inconnue.");
-	const bpm = args.bpmMoyen !== undefined && args.bpmMoyen !== null ? args.bpmMoyen : undefined;
+	const bpm = args.bpmMoyen !== undefined && args.bpmMoyen !== null ? verifieBpmMoyen(args.bpmMoyen) : undefined;
+	/* PWA en cache : les anciennes valeurs (legere/moderee/intense) sont
+	   converties vers les choix v2 de l'activité — jamais de refus. */
+	const intensity =
+		args.intensity != null && args.intensity !== "" ? intensiteLegacyVersV2(entry, args.intensity) : args.intensity;
 	if (bpm === undefined) {
-		if (args.intensity === undefined || args.intensity === null || args.intensity === "") {
+		if (intensity === undefined || intensity === null || intensity === "") {
 			throw new ConvexError("Zone ou intensité requise pour cette activité.");
 		}
-		if (!choixValides(entry).includes(args.intensity)) {
+		if (!choixValides(entry).includes(intensity)) {
 			throw new ConvexError("Zone ou intensité invalide pour cette activité.");
 		}
 	}
@@ -104,7 +109,7 @@ function buildEstimation(args: {
 		minutes,
 		est: estimateSportActivity({
 			activityId: entry.id,
-			intensity: args.intensity,
+			intensity,
 			...(bpm !== undefined ? { bpmMoyen: bpm } : {}),
 			durationMinutes: minutes,
 			weightKg: args.weightKg,
@@ -330,8 +335,10 @@ export const duplicateActivity = mutation({
 
 /**
  * Modifie sport / date / durée / intensité d'une activité — le weightSnapshot
- * d'origine est CONSERVÉ (une nouvelle pesée ne réécrit jamais l'historique)
- * et les kcal/MET-minutes sont recalculés avec CE poids gelé.
+ * d'origine est CONSERVÉ (une nouvelle pesée ne réécrit jamais l'historique).
+ * Une ligne v1 n'est JAMAIS recalculée (son MET et ses kcal d'origine restent
+ * ceux enregistrés) ; elle bascule au barème v2 UNIQUEMENT si la cliente
+ * change explicitement l'activité ou l'intensité.
  * Les dépenses liées à une séance G-FLUX ne passent PAS ici (la durée d'une
  * séance se corrige depuis Entraînement, qui met à jour la dépense existante).
  */
@@ -363,28 +370,29 @@ export const updateActivity = mutation({
 
 		// Poids GELÉ : celui du snapshot d'origine (jamais une pesée plus récente).
 		const weight = row.weightSnapshot ?? null;
+		// FC moyenne : bornes du barème — refus explicite et lisible hors bornes.
+		if (bpmMoyen !== undefined) verifieBpmMoyen(bpmMoyen);
 
-		/* Ligne ANTÉRIEURE au barème (v1, MET du Compendium) : tant que le choix
-		   (sport / zone / intensité) n'est pas explicitement changé, elle reste
-		   calculée par SON modèle — l'historique n'est jamais basculé. */
+		/* La bascule de barème est EXPLICITE : seule la cliente qui change
+		   d'ACTIVITÉ ou d'INTENSITÉ fait passer la ligne au barème v2 — jamais un
+		   changement de durée, de date, ni de FC moyenne. */
+		const choixChange = entry.id !== row.activityId || newIntensity !== row.intensity;
+		/* FC moyenne effacée dès que la cliente repasse à une intensité manuelle
+		   (une intensité fournie sans FC la supprime) — même règle qu'à la création. */
+		const patchBpm =
+			bpmMoyen !== undefined ? { bpmMoyen } : intensity !== undefined ? { bpmMoyen: undefined } : {};
 		const legacy = row.coutHoraireKcalKgH === undefined;
-		const bpmChange = bpmMoyen !== undefined && bpmMoyen !== row.bpmMoyen;
-		const choixChange =
-			entry.id !== row.activityId || newIntensity !== row.intensity || bpmChange;
-		if (legacy && !choixChange) {
+
+		if (!choixChange && legacy) {
+			/* Ligne ANTÉRIEURE au barème (v1, MET du Compendium) : JAMAIS
+			   recalculée. date / durée s'éditent sans choisir de nouvelle intensité
+			   et la ligne garde son MET et ses kcal d'origine — seule une nouvelle
+			   activité ou une nouvelle intensité la fait basculer en v2. */
 			const minutes = clampSportDuration(newDuration);
-			const volume = depenseLegacyMet({
-				metValue: row.metValue,
-				durationMinutes: minutes,
-				weightKg: weight,
-			});
 			await ctx.db.patch(activityId, {
 				...(date !== undefined && isValidISO(date) ? { date } : {}),
 				durationMinutes: minutes,
-				metMinutes: volume.metMinutes,
-				...(volume.estimatedCalories !== undefined
-					? { estimatedCalories: volume.estimatedCalories }
-					: {}),
+				...patchBpm,
 				updatedAt: Date.now(),
 			} as never);
 			return { ok: true, bareme: "v1" as const };
@@ -393,7 +401,7 @@ export const updateActivity = mutation({
 		/* Ligne v2 dont le choix N'A PAS changé : son coût horaire enregistré
 		   reste la référence (seul le volume est recalculé). Une activité
 		   passée au barème doux ne réécrit donc jamais un historique cardio. */
-		if (!legacy && !choixChange) {
+		if (!choixChange) {
 			const minutes = clampSportDuration(newDuration);
 			const cout = row.coutHoraireKcalKgH as number;
 			const kcal =
@@ -405,16 +413,20 @@ export const updateActivity = mutation({
 				durationMinutes: minutes,
 				metMinutes: Math.round(row.metValue * minutes),
 				...(kcal !== undefined ? { estimatedCalories: kcal } : {}),
+				...patchBpm,
 				updatedAt: Date.now(),
 			} as never);
 			return { ok: true, bareme: "v2" as const };
 		}
 
-		// Nouveau choix (ou nouvelle FC) → barème v2 (ex. une zone choisie sur une ligne v1).
+		/* Nouveau choix explicite (activité ou intensité) → barème v2 (ex. une
+		   zone choisie sur une ligne v1), anciennes valeurs d'intensité incluses. */
+		const bpmChoisi =
+			bpmMoyen !== undefined ? bpmMoyen : intensity !== undefined ? undefined : row.bpmMoyen;
 		const { minutes, est } = buildEstimation({
 			activityId: entry.id,
 			intensity: newIntensity,
-			...(bpmMoyen !== undefined ? { bpmMoyen } : {}),
+			...(bpmChoisi !== undefined ? { bpmMoyen: bpmChoisi } : {}),
 			durationMinutes: newDuration,
 			weightKg: weight,
 		});
@@ -426,7 +438,7 @@ export const updateActivity = mutation({
 			durationMinutes: minutes,
 			intensity: est.intensity,
 			metValue: est.metValue,
-			...(est.bpmMoyen !== undefined ? { bpmMoyen: est.bpmMoyen } : {}),
+			bpmMoyen: est.bpmMoyen,
 			...(est.coutHoraireKcalKgH !== undefined
 				? { coutHoraireKcalKgH: est.coutHoraireKcalKgH }
 				: {}),
