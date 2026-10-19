@@ -106,6 +106,15 @@ export type EntreesFicheCalibrage = {
 /** Niveau de disponibilité en énergie face aux seuils 30 / 24 kcal/kg de MM. */
 export type NiveauDisponibilite = 'haute' | 'intermediaire' | 'basse';
 
+/**
+ * Avertissement de disponibilité en énergie : sous 30 kcal/kg de masse maigre
+ * → « vigilance » ; sous 24 → « alerte » (le plus haut seuil franchi l'emporte).
+ */
+export type AvertissementDisponibilite = {
+	niveau: 'vigilance' | 'alerte';
+	message: string;
+};
+
 export type ResultatsFicheCalibrage = {
 	/** Version des formules du module ayant produit ces résultats. */
 	versionFormules: string;
@@ -123,6 +132,13 @@ export type ResultatsFicheCalibrage = {
 	metabolismeBaseKcal: number;
 	/** Maintenance SANS exercice (kcal) = arrondi(C × MB) − MB × A/100. */
 	maintenanceKcal: number;
+	/**
+	 * Filet de sécurité (kcal/jour) = budget de la semaine ÷ 7 — le sport
+	 * habituel est INCLUS. C'est la valeur pré-remplie du champ « Maintenance »
+	 * de « Appliquer à la fiche » (à ne pas confondre avec `maintenanceKcal`,
+	 * la maintenance SANS exercice affichée dans les résultats).
+	 */
+	maintenanceFiletKcal: number;
 	/** Sport de la semaine (kcal) = somme des dépenses des séances habituelles. */
 	sportSemaineKcal: number;
 	/** Budget de la semaine (kcal) = 7 × maintenance sans exercice + sport. */
@@ -141,10 +157,15 @@ export type ResultatsFicheCalibrage = {
 	vitesseMaxAlpertKgSemaine: number;
 	/** Plafond Macdonald (kg/semaine) = MG ÷ 15. */
 	vitesseMaxMacdonaldKgSemaine: number;
-	/** Avertissement si la perte estimée dépasse les plafonds (null sinon). */
+	/**
+	 * Avertissement « dépasse le rythme conseillé » — UNIQUEMENT quand la perte
+	 * estimée dépasse le plafond Alpert ou Macdonald (null sinon).
+	 */
 	alertePlafonds: string | null;
-	/** Avertissement du module au-delà de 15 % de déficit (null sinon). */
+	/** Avertissement NEUTRE au-delà de 15 % de déficit (null sinon). */
 	avertissementDeficit: string | null;
+	/** Vigilance (< 30 kcal/kg de MM) ou alerte (< 24) sur la disponibilité du jour type. */
+	avertissementDisponibilite: AvertissementDisponibilite | null;
 	/** Macros du jour type (protéines 2,3 g/kg de MM, réglable 2 à 2,6). */
 	macros: MacrosJour;
 	/** Exercice journalier moyen (kcal) = sport semaine ÷ 7. */
@@ -337,15 +358,31 @@ export function resultatsFiche(entrees: EntreesFicheCalibrage): ResultatsFicheCa
 		masseMaigreKg: masseMaigre
 	});
 
-	/* Plafonds de vitesse de perte (Alpert < Macdonald). */
+	/* Plafonds de vitesse de perte (Alpert < Macdonald) — SEULS cas où le
+	   « rythme conseillé » est jugé (le déficit au-delà de 15 % reste neutre). */
 	const alpert = profil.vitesseMaxAlpertKgSemaine;
 	const macdonald = profil.vitesseMaxMacdonaldKgSemaine;
 	const perte = bilan.perteGraisseKg;
 	const alertePlafonds =
 		perte > macdonald
-			? `Perte estimée de ${perte} kg/semaine : elle dépasse les plafonds Alpert (${alpert} kg/semaine) et Macdonald (${macdonald} kg/semaine) — rythme à revoir avec la coach.`
+			? `Perte estimée de ${perte} kg/semaine : elle dépasse le rythme conseillé — plafond Alpert (${alpert} kg/semaine) et plafond Macdonald (${macdonald} kg/semaine) dépassés.`
 			: perte > alpert
-				? `Perte estimée de ${perte} kg/semaine : elle dépasse le plafond Alpert (${alpert} kg/semaine), sous le plafond Macdonald (${macdonald} kg/semaine).`
+				? `Perte estimée de ${perte} kg/semaine : elle dépasse le rythme conseillé — plafond Alpert (${alpert} kg/semaine) dépassé, plafond Macdonald (${macdonald} kg/semaine) non dépassé.`
+				: null;
+
+	/* Disponibilité en énergie du jour type : sous 30 kcal/kg de MM → vigilance,
+	   sous 24 → alerte (seuils du référentiel, le plus haut franchi l'emporte). */
+	const avertissementDisponibilite: AvertissementDisponibilite | null =
+		disponibiliteKcal < SEUIL_DISPONIBILITE_BAS
+			? {
+					niveau: 'alerte',
+					message: `Disponibilité en énergie sous ${SEUIL_DISPONIBILITE_BAS} kcal/kg de masse maigre : alerte.`
+				}
+			: disponibiliteKcal < SEUIL_DISPONIBILITE_HAUT
+				? {
+						niveau: 'vigilance',
+						message: `Disponibilité en énergie sous ${SEUIL_DISPONIBILITE_HAUT} kcal/kg de masse maigre : vigilance.`
+					}
 				: null;
 
 	return {
@@ -357,6 +394,7 @@ export function resultatsFiche(entrees: EntreesFicheCalibrage): ResultatsFicheCa
 		masseGrasseKg: profil.masseGrasseKg,
 		metabolismeBaseKcal: profil.metabolismeBaseKcal,
 		maintenanceKcal: profil.maintenanceKcal,
+		maintenanceFiletKcal: Math.round(budget / JOURS_SEMAINE),
 		sportSemaineKcal: sport,
 		budgetSemaineKcal: budget,
 		deficitPct: bilan.deficitPct,
@@ -368,6 +406,7 @@ export function resultatsFiche(entrees: EntreesFicheCalibrage): ResultatsFicheCa
 		vitesseMaxMacdonaldKgSemaine: macdonald,
 		alertePlafonds,
 		avertissementDeficit: bilan.avertissement,
+		avertissementDisponibilite,
 		macros,
 		exerciceJournalierKcal,
 		disponibiliteKcal,

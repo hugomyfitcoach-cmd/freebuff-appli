@@ -900,7 +900,9 @@ export type BilanObjectifSemaine = {
 	objectifSemaineKcal: number;
 	/** Perte de graisse estimée (kg/semaine) = déficit semaine / 7 700. */
 	perteGraisseKg: number;
-	/** Avertissement au-delà de 15 % de déficit (null sinon). */
+	/** Avertissement au-delà de 15 % de déficit (null sinon) — message NEUTRE :
+	 *  le rythme de perte n'est jamais jugé ici (il relève des plafonds
+	 *  Alpert / Macdonald, voir `alertePlafonds` dans `calibrageFiche`). */
 	avertissement: string | null;
 };
 
@@ -930,7 +932,7 @@ export function bilanObjectifSemaine(entree: {
 		perteGraisseKg: arrondi(deficitSemaine / KCAL_PAR_KG_GRAISSE, 2),
 		avertissement:
 			deficitPct > DEFICIT_PCT_AVERTISSEMENT
-				? `Déficit choisi de ${deficitPct} % : au-delà de ${DEFICIT_PCT_AVERTISSEMENT} %, la perte de graisse estimée (${arrondi(deficitSemaine / KCAL_PAR_KG_GRAISSE, 2)} kg/semaine) dépasse le rythme conseillé — à valider avec la coach.`
+				? `Déficit supérieur à la règle de 10 à 15 % : décision du coach.`
 				: null
 	};
 }

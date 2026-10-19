@@ -258,7 +258,15 @@ test('Bilan de la semaine : déficit en kcal, perte estimée et avertissement > 
 	assert.equal(fort.deficitSemaineKcal, 2465);
 	assert.equal(fort.perteGraisseKg, 0.32); // 2 465/7 700 = 0,3201
 	assert.ok(fort.avertissement?.includes('15'), 'l’avertissement cite le seuil de 15 %');
-	assert.ok(fort.avertissement?.includes('0.32'), 'l’avertissement cite la perte estimée');
+	/* Message NEUTRE (mission C2a-bis) : le rythme de perte n'est jamais jugé ici.
+	   « dépasse le rythme conseillé » n'apparaît QUE si la perte estimée franchit
+	   un plafond Alpert / Macdonald (`alertePlafonds` dans calibrageFiche). */
+	assert.equal(
+		fort.avertissement,
+		'Déficit supérieur à la règle de 10 à 15 % : décision du coach.',
+		'message neutre, sans jugement de rythme'
+	);
+	assert.ok(!fort.avertissement.includes('rythme conseillé'), 'jamais de rythme jugé dans l’avertissement déficit');
 
 	const maintenance = cal.bilanObjectifSemaine({ budgetSemaineKcal: 11487 });
 	assert.equal(maintenance.deficitSemaineKcal, 0);

@@ -621,6 +621,15 @@
 		return '';
 	});
 
+	/** Préférence de mode de saisie — mémorisée pour survivre au rechargement. */
+	const GOALS_MODE_KEY = 'coach-goals-mode';
+	function rememberGoalsMode(m: GoalsMode) {
+		try {
+			localStorage.setItem(GOALS_MODE_KEY, m);
+		} catch {
+			/* stockage indisponible : préférence simplement non mémorisée */
+		}
+	}
 	function switchGoalsMode(m: GoalsMode) {
 		if (m === goalsMode) return;
 		const { kcal, carbs, protein, fat } = goalsValues;
@@ -639,9 +648,23 @@
 			gCarbs = carbs;
 			gProtein = protein;
 			gFat = fat;
-		}
-		goalsMode = m;
+		}			goalsMode = m;
+		rememberGoalsMode(m);
 	}
+
+	/* Mode de saisie restauré après rechargement (une seule fois, après
+	   hydratation) — « Méthode macros (g) » reste active après une application
+	   de calibrage, même au rechargement complet de la fiche. */
+	$effect(() => {
+		untrack(() => {
+			try {
+				const saved = localStorage.getItem(GOALS_MODE_KEY);
+				if (saved === 'pct' || saved === 'grams') goalsMode = saved;
+			} catch {
+				/* stockage indisponible : mode par défaut */
+			}
+		});
+	});
 
 	/*
 	 * Initialise les champs depuis les objectifs enregistrés (grammes), UNIQUEMENT
@@ -1645,18 +1668,43 @@
 	let applyMsg = $state('');
 	let calConfirmOpen = $state(false);
 	let calPresentation = $state(false);
+	/* Références de pré-remplissage : un champ égal à sa référence n'a pas été
+	   modifié par la coach ; dès qu'il s'en écarte, il affiche « modifié » et
+	   n'est jamais ré-écrasé par un recalcul des résultats. */
+	let refKcal = $state(0);
+	let refMaintenance = $state('');
+	let refCarbs = $state(0);
+	let refProtein = $state(0);
+	let refFat = $state(0);
 	$effect(() => {
 		const r = calR;
-		if (!r || applyInitialise) return;
+		if (!r) return;
 		untrack(() => {
-			/* Proposition initiale = valeurs calculées — la coach peut tout ajuster
-			   avant d'appliquer (l'objectif proposé n'est JAMAIS écrit seul). */
-			applyKcal = r.objectifJournalierKcal;
-			applyCarbs = r.macros.glucidesG;
-			applyProtein = r.macros.proteinesG;
-			applyFat = r.macros.lipidesG;
-			applyMaintenance = String(Math.round(r.maintenanceKcal));
-			applyDate = calibragePre?.today ?? '';
+			/* Proposition = RÉSULTATS AFFICHÉS, exactement : objectif = objectif
+			   journalier moyen · maintenance = filet de sécurité (budget ÷ 7, sport
+			   habituel inclus) · macros = macros du jour type. La coach peut tout
+			   ajuster (« modifié ») avant d'appliquer — jamais d'écriture seule. */
+			if (!applyInitialise || applyKcal === refKcal) {
+				applyKcal = r.objectifJournalierKcal;
+				refKcal = applyKcal;
+			}
+			if (!applyInitialise || applyMaintenance === refMaintenance) {
+				applyMaintenance = String(Math.round(r.maintenanceFiletKcal));
+				refMaintenance = applyMaintenance;
+			}
+			if (!applyInitialise || applyCarbs === refCarbs) {
+				applyCarbs = r.macros.glucidesG;
+				refCarbs = applyCarbs;
+			}
+			if (!applyInitialise || applyProtein === refProtein) {
+				applyProtein = r.macros.proteinesG;
+				refProtein = applyProtein;
+			}
+			if (!applyInitialise || applyFat === refFat) {
+				applyFat = r.macros.lipidesG;
+				refFat = applyFat;
+			}
+			if (!applyInitialise) applyDate = calibragePre?.today ?? applyDate;
 			applyInitialise = true;
 		});
 	});
@@ -1684,6 +1732,24 @@
 			if (j.error) throw new Error(j.error);
 			calConfirmOpen = false;
 			applyMsg = `Objectifs appliqués à la fiche — effectifs le ${fmtISO(applyDate)}. Instantané du calibrage enregistré.`;
+			/* La fiche « Objectifs journaliers » reflète IMMÉDIATEMENT l'écriture :
+			   méthode macros (g), objectif, macros et filet de sécurité. Le mode est
+			   mémorisé pour rester actif après un rechargement complet. */
+			goalsMode = 'grams';
+			rememberGoalsMode('grams');
+			pctKcal = applyKcal;
+			if (applyKcal > 0) {
+				pctCarbs = Math.round(((applyCarbs * 4) / applyKcal) * 100);
+				pctProtein = Math.round(((applyProtein * 4) / applyKcal) * 100);
+				pctFat = Math.max(0, 100 - pctCarbs - pctProtein);
+			}
+			gCarbs = applyCarbs;
+			gProtein = applyProtein;
+			gFat = applyFat;
+			maintenanceKcal = String(applyMaintenance ?? '').trim();
+			/* Rechargement des données de la fiche (clientGoals relu côté serveur) :
+			   la Vision 360, le cockpit et le journal repartent des nouvelles valeurs. */
+			await invalidateAll();
 		} catch (e) {
 			applyError = e instanceof Error ? e.message : "Application impossible — rien n'a été écrit.";
 		} finally {
@@ -4235,7 +4301,7 @@
 									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
 										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Budget de la semaine</div>
 										<div class="mt-0.5 font-display text-xl font-bold text-ink">{Math.round(calR.budgetSemaineKcal).toLocaleString('fr-FR')} <span class="text-xs font-semibold text-mist">kcal</span></div>
-										<p class="mt-0.5 text-[11px] text-mist">objectif {calR.objectifSemaineKcal.toLocaleString('fr-FR')} kcal/sem</p>
+										<p class="mt-0.5 text-[11px] text-mist">objectif {calR.objectifSemaineKcal.toLocaleString('fr-FR')} kcal/sem · filet de sécurité {calR.maintenanceFiletKcal.toLocaleString('fr-FR')} kcal/jour</p>
 									</div>
 									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
 										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Objectif journalier moyen</div>
@@ -4257,10 +4323,11 @@
 										{#if calR.macros.alerteGlucides}<p class="mt-1 text-[11px] font-semibold text-warn">{calR.macros.alerteGlucides}</p>{/if}
 									</div>
 								</div>
-								{#if calR.avertissementDeficit || calR.alertePlafonds}
+								{#if calR.avertissementDeficit || calR.alertePlafonds || calR.avertissementDisponibilite}
 									<div class="mt-3 space-y-2">
 										{#if calR.avertissementDeficit}<p class="flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.avertissementDeficit}</p>{/if}
 										{#if calR.alertePlafonds}<p class="flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.alertePlafonds}</p>{/if}
+										{#if calR.avertissementDisponibilite}<p class="flex items-start gap-2 rounded-xl border px-3.5 py-2.5 text-[12px] font-semibold {calR.avertissementDisponibilite.niveau === 'alerte' ? 'border-danger/40 bg-danger-light text-danger' : 'border-warn/40 bg-warn-light text-warn'}"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.avertissementDisponibilite.message}</p>{/if}
 									</div>
 								{/if}
 							{:else}
@@ -4468,11 +4535,11 @@
 							</p>
 							<div class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
 								<label class="block">
-									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Objectif journalier (kcal)</span>
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Objectif journalier (kcal){#if applyKcal !== refKcal}<span class="ml-1 rounded-full bg-warn-light px-1.5 py-0.5 text-[9px] font-bold normal-case text-warn">modifié</span>{/if}</span>
 									<input type="number" inputmode="numeric" min="800" max="6000" step="10" bind:value={applyKcal} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
 								</label>
 								<label class="block">
-									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Maintenance (kcal)</span>
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Maintenance (kcal){#if applyMaintenance !== refMaintenance}<span class="ml-1 rounded-full bg-warn-light px-1.5 py-0.5 text-[9px] font-bold normal-case text-warn">modifié</span>{/if}</span>
 									<input type="number" inputmode="numeric" min="800" max="10000" step="10" bind:value={applyMaintenance} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
 								</label>
 								<label class="block">
@@ -4480,15 +4547,15 @@
 									<input type="date" bind:value={applyDate} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
 								</label>
 								<label class="block">
-									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Glucides (g)</span>
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Glucides (g){#if applyCarbs !== refCarbs}<span class="ml-1 rounded-full bg-warn-light px-1.5 py-0.5 text-[9px] font-bold normal-case text-warn">modifié</span>{/if}</span>
 									<input type="number" inputmode="numeric" min="0" max="1000" step="1" bind:value={applyCarbs} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
 								</label>
 								<label class="block">
-									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Protéines (g)</span>
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Protéines (g){#if applyProtein !== refProtein}<span class="ml-1 rounded-full bg-warn-light px-1.5 py-0.5 text-[9px] font-bold normal-case text-warn">modifié</span>{/if}</span>
 									<input type="number" inputmode="numeric" min="0" max="400" step="1" bind:value={applyProtein} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
 								</label>
 								<label class="block">
-									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Lipides (g)</span>
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Lipides (g){#if applyFat !== refFat}<span class="ml-1 rounded-full bg-warn-light px-1.5 py-0.5 text-[9px] font-bold normal-case text-warn">modifié</span>{/if}</span>
 									<input type="number" inputmode="numeric" min="0" max="300" step="1" bind:value={applyFat} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
 								</label>
 							</div>
@@ -4509,7 +4576,7 @@
 				<ConfirmDialog
 					open={calConfirmOpen}
 					title={`Appliquer à la fiche de ${selected.user.prenom} ?`}
-					message={`Objectif de ${applyKcal} kcal/jour à partir du ${fmtISO(applyDate)} — les journées passées gardent leur objectif d'alors.`}
+					message={`Objectif de ${applyKcal} kcal/jour à partir du ${fmtISO(applyDate)} — les journées passées gardent leur ancien objectif.`}
 					confirmLabel="Appliquer"
 					busy={applyBusy}
 					onconfirm={appliquerCalibrage}
