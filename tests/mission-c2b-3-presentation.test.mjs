@@ -18,7 +18,10 @@
  *     référence et 4G + 4P + 9L JAMAIS supérieur à 2 kcal (pas de cumul) ;
  *  4. Plus aucune occurrence genrée « article féminin + coach » ou
  *     « possessif ta + coach » dans le code de l'interface (src + tests +
- *     docs + scripts + README).
+ *     docs + scripts + README) ;
+ *  5. Formats d'affichage chiffrés verrouillés : entier sans unité côté
+ *     cliente en présentation, décimales FR (virgule) et unités explicites
+ *     partout ailleurs — jamais de décimale « à l'anglaise ».
  *
  * Exécution : npm test (node --test --experimental-strip-types)
  */
@@ -30,6 +33,7 @@ import { dirname, join } from 'node:path';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const presentation = await import(new URL('../src/lib/calibragePresentation.ts', import.meta.url).href);
+const calibrageFiche = await import(new URL('../src/lib/calibrageFiche.ts', import.meta.url).href);
 const goalMacros = await import(new URL('../src/lib/goalMacros.ts', import.meta.url).href);
 const calibrageLib = await import(new URL('../src/lib/calibrage.ts', import.meta.url).href);
 const { messagesPresentation, mentionAjusterAvantDePresenter, MENTION_AJUSTER_AVANT_DE_PRESENTER } =
@@ -252,6 +256,57 @@ test('RECALCUL : le CRM transmet bien la référence et la conserve', () => {
 	assert.ok(zoneRecalcul.includes('applyKcalReference'), 'la référence est passée au recalcul');
 	assert.ok(zoneRecalcul.includes('applyKcalReference = r.kcalReference;'), 'la référence renvoyée est conservée');
 	assert.ok(adminPage.includes('applyKcalReference = applyKcal;'), 'la référence suit les résultats et la reprise');
+});
+
+/* ═══ 5 · Formats d'affichage chiffrés — non-régression ═══ */
+
+/** Aucune décimale « à l'anglaise » dans un texte affiché (toujours virgule FR). */
+const DECIMALE_AU_POINT = /[0-9]+\.[0-9]/;
+
+test('FORMATS : messages de présentation — entier sans unité, jamais de décimale au point', () => {
+	for (const dispo of [30, 31.2, 33.7, 41.05]) {
+		const energie = messagesPresentation({ ...base, disponibiliteKcal: dispo }).energie ?? '';
+		assert.match(energie, /^Ton énergie disponible : \d+\./, `dispo ${dispo} : nombre entier`);
+		assert.ok(!DECIMALE_AU_POINT.test(energie), `dispo ${dispo} : pas de décimale au point`);
+		assert.ok(!energie.includes('kcal'), `dispo ${dispo} : aucune unité côté cliente`);
+	}
+	for (const message of [
+		messagesPresentation({ ...base, disponibiliteKcal: 26 }).energie,
+		messagesPresentation({ ...base, deficitPct: 20 }).rythme
+	]) {
+		assert.ok(message && !DECIMALE_AU_POINT.test(message), 'messages cliente sans décimale au point');
+	}
+});
+
+test('FORMATS : messages coach — décimales françaises et unités explicites', () => {
+	/* Profil provoquant une perte estimée au-dessus des plafonds (30 % de
+	   déficit sur une MG basse) : les messages produits citent des nombres. */
+	const r = calibrageFiche.resultatsFiche({
+		poidsKg: 80,
+		mgPct: 10,
+		pasMoyen: 6000,
+		heuresTravail: 4,
+		deficitPct: 30,
+		seances: [],
+		apportsSemaine: [null, null, null, null, null, null, null]
+	});
+	assert.ok(r.alertePlafonds, 'perte au-dessus des plafonds sur ce profil');
+	assert.match(r.alertePlafonds, /Perte estimée de \d+(,\d+)? kg\/semaine/, 'décimales FR');
+	assert.match(r.alertePlafonds, /plafond Alpert \(\d+(,\d+)? kg\/semaine\)/, 'unité explicite');
+	assert.ok(r.avertissementDeficit, 'déficit 30 % : avertissement coach');
+	const messages = [
+		r.alertePlafonds,
+		r.avertissementDeficit,
+		r.avertissementDeficitEleve,
+		r.macros.alerteGlucides,
+		r.avertissementDisponibilite?.message
+	].filter(Boolean);
+	for (const message of messages) {
+		assert.ok(!DECIMALE_AU_POINT.test(message), `décimale au point interdite : ${message}`);
+	}
+	/* Le mode normal affiche la disponibilité EXACTE avec son unité. */
+	assert.ok(Number.isFinite(r.disponibiliteKcal), 'valeur exacte disponible en mode normal');
+	assert.ok(adminPage.includes('kcal/kg de MM'), 'unité conservée en mode normal');
 });
 
 /* ═══ 4 · Formulations : plus aucune occurrence genrée « … + coach » ═══ */
