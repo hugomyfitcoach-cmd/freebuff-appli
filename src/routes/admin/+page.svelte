@@ -36,6 +36,7 @@
 		type EntreesFicheCalibrage,
 		type ResultatsFicheCalibrage
 	} from '$lib/calibrageFiche';
+	import { prefillProfilSportif } from '$lib/sportPrefill';
 	import {
 		SPORT_CATALOG,
 		SPORT_CATEGORIES,
@@ -1707,6 +1708,21 @@
 	}
 	function retirerSeance(index: number) {
 		calibrageInputs.seances = calibrageInputs.seances.filter((_, i) => i !== index);
+	}
+
+	/* ── « Pré-remplir depuis le démarrage » ──
+	   Diagnostic de format DANS le module pur $lib/sportPrefill : la réponse
+	   « sport » du formulaire de démarrage n'est pré-remplie QUE si elle est en
+	   choix structurés (activité résolue sur le catalogue par correspondance
+	   exacte). Texte libre → rien n'est interprété, la réponse reste affichée
+	   telle quelle à côté du profil (comportement actuel), aucun bouton.
+	   La proposition vit EN MÉMOIRE : rien n'est écrit sans « Appliquer à la
+	   fiche » (validation de la coach). */
+	const prefillDemarrage = $derived(calibragePre ? prefillProfilSportif(calibragePre.sportOnboarding) : null);
+	function prefillDepuisDemarrage() {
+		const p = prefillDemarrage;
+		if (!p || calibrageInputs.seances.length > 0) return;
+		calibrageInputs.seances = p;
 	}
 
 	/* ── Semaine type : un apport par jour (journées hautes et basses) ── */
@@ -4558,7 +4574,15 @@
 						<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
 							<div class="flex flex-wrap items-center justify-between gap-2">
 								<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="dumbbell" size={17} class="shrink-0 text-brand" /> Profil sportif habituel</h3>
-								<button type="button" onclick={ajouterSeance} class="rounded-full bg-brand px-3.5 py-1.5 text-[12px] font-bold text-white transition hover:bg-brand-dark"><span class="inline-flex items-center gap-1.5"><Icon name="plus" size={13} /> Ajouter une séance</span></button>
+								<div class="flex flex-wrap items-center gap-1.5">
+									<!-- Bouton visible SI ET SEULEMENT si la réponse « sport » du démarrage
+									     existe, est structurée (pré-remplissage sans interprétation) et que
+									     le profil est vide — jamais sur du texte libre. -->
+									{#if calibrageInputs.seances.length === 0 && prefillDemarrage}
+										<button type="button" onclick={prefillDepuisDemarrage} class="rounded-full border-2 border-brand/50 bg-white px-3.5 py-1.5 text-[12px] font-bold text-brand-dark transition hover:border-brand"><span class="inline-flex items-center gap-1.5"><Icon name="rocket" size={13} /> Pré-remplir depuis le démarrage</span></button>
+									{/if}
+									<button type="button" onclick={ajouterSeance} class="rounded-full bg-brand px-3.5 py-1.5 text-[12px] font-bold text-white transition hover:bg-brand-dark"><span class="inline-flex items-center gap-1.5"><Icon name="plus" size={13} /> Ajouter une séance</span></button>
+								</div>
 							</div>
 							{#if calibrageInputs.seances.length === 0}
 								<p class="mt-2 text-xs text-mist">Aucune séance habituelle — le sport de la semaine reste à 0 kcal.</p>

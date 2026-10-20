@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { addDaysISO, dateISOInTimeZone, getSessionUser, localTodayISO } from "./helpers";
 import { kcalGoalForDate, withCurrentGoal } from "../lib/goalHistory";
+import { sportHabituelObjectifEnVigueur, type InstantaneCalibrageVigueur } from "../lib/perf";
 import { FOOD_SEARCH_CANDIDATES, rankFoods } from "./foodRanking";
 import { applyKcalGuard, guardedKcal100, kcalNeedsRecalc } from "../lib/nutritionGuard";
 import { resolveCoachPlanForDate } from "./mealPlans";
@@ -966,13 +967,16 @@ export const getWeek = query({
 		if (!isValidDateISO(start)) throw new ConvexError("Date invalide.");
 		const end = addDaysISO(start, 7); // exclusif
 
-		const [entries, goalsRow, goalHistory] = await Promise.all([
+		const [entries, goalsRow, goalHistory, snapshotRows] = await Promise.all([
 			ctx.db
 				.query("diaryEntries")
 				.withIndex("by_user_date", (q) => q.eq("userId", user._id).gte("date", start).lt("date", end))
 				.collect(),
 			ctx.db.query("clientGoals").withIndex("by_userId", (q) => q.eq("userId", user._id)).first(),
 			loadGoalHistory(ctx, user._id),
+			// Instantanés de calibrage (LECTURE) : origine de l'objectif en vigueur
+			// pour la note « maintenance inclut déjà ton sport habituel ».
+			ctx.db.query("calibrageSnapshots").withIndex("by_user", (q) => q.eq("userId", user._id)).collect(),
 		]);
 
 		const byDay = new Map<string, { kcal: number; carbs: number; protein: number; fat: number }>();
@@ -1024,6 +1028,26 @@ export const getWeek = query({
 			/** Objectif calorique par date (Europe/Paris) — kcal pour today = goals.kcal. */
 			kcalGoalsByDate: Object.fromEntries(goalByDate),
 			goalsSet: !!goalsRow,
+			/* Sport habituel du calibrage à l'origine de l'objectif en VIGUEUR —
+			   null si l'objectif est manuel ou si ce sport vaut 0 (note masquée).
+			   Réutilise le dernier instantané `calibrageSnapshots` appliqué. */
+			sportHabituelKcal: sportHabituelObjectifEnVigueur(
+				goalHistory,
+				snapshotRows.map((s): InstantaneCalibrageVigueur => {
+					const appl = (s.results?.applique ?? {}) as Record<string, unknown>;
+					const snapSport = (s.results ?? {}) as Record<string, unknown>;
+					return {
+						effectiveFrom: s.effectiveFrom,
+						createdAt: s.createdAt,
+						kcalApplique: typeof appl.kcal === "number" && isFinite(appl.kcal) ? appl.kcal : null,
+						sportSemaineKcal:
+							typeof snapSport.sportSemaineKcal === "number" && isFinite(snapSport.sportSemaineKcal)
+								? snapSport.sportSemaineKcal
+								: null
+					};
+				}),
+				localTodayISO()
+			),
 			days,
 		};
 	},
