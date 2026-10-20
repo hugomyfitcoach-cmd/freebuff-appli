@@ -239,11 +239,14 @@ test('Macros : mêmes protéines pour un homme et une femme de même masse maigr
 
 /* ── 6 · Objectif de la semaine : déficit, avertissement, perte estimée ── */
 
-test('Objectif de la semaine : déficit borné 0–20 %, 0 = maintenance', () => {
+test('Objectif de la semaine : déficit borné 0–30 %, 0 = maintenance', () => {
+	/* Borne relevée à 30 % (mission C2b-2c : le déficit 21 à 30 % est désormais
+	   accepté, avec ses avertissements) — la formule reste inchangée. */
 	assert.equal(cal.objectifSemaineKcal({ budgetSemaineKcal: 11487, deficitPct: 0 }), 11487);
 	assert.equal(cal.objectifSemaineKcal({ budgetSemaineKcal: 11487, deficitPct: 15 }), 9764); // 9 763,95
 	assert.equal(cal.objectifSemaineKcal({ budgetSemaineKcal: 11487, deficitPct: 20 }), 9190);
-	refuse(() => cal.objectifSemaineKcal({ budgetSemaineKcal: 11487, deficitPct: 21 }), 'déficit > 20 %');
+	assert.equal(cal.objectifSemaineKcal({ budgetSemaineKcal: 11487, deficitPct: 30 }), 8041); // 11 487 × 0,7
+	refuse(() => cal.objectifSemaineKcal({ budgetSemaineKcal: 11487, deficitPct: 31 }), 'déficit > 30 %');
 });
 
 test('Bilan de la semaine : déficit en kcal, perte estimée et avertissement > 15 %', () => {

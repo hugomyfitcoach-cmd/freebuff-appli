@@ -388,8 +388,20 @@ test('STABILITÉ : bandeau « Les résultats ont changé » à espace réservé'
 	assert.ok(bandeau.includes('Reprendre les valeurs calculées'), 'bouton de reprise inchangé');
 	/* Les zones réservées sont bien dans la vue de saisie : chaque conteneur est
 	   rendu en permanence (aucun {#if} englobant immédiat). */
-	for (const zone of ['min-h-[124px]', 'min-h-[15px]', 'min-h-[34px]', 'min-h-[16px]', 'min-h-[42px]']) {
-		assert.equal((adminPage.match(new RegExp(zone.replace(/[[\]]/g, '\\$&'), 'g')) ?? []).length, 1, `zone ${zone} unique`);
+	/* Comptes EXACTS (mission C2b-2c : les 6 champs de saisie portent chacun
+	   une ligne de message réservée `min-h-[15px]`, en plus de la sous-ligne
+	   d'effet d'adaptation — 7 occurrences attendues, toutes rendues en
+	   permanence et strictement dans la vue de saisie). */
+	const zonesAttendues = {
+		'min-h-[124px]': 1,
+		'min-h-[15px]': 7,
+		'min-h-[34px]': 1,
+		'min-h-[16px]': 1,
+		'min-h-[42px]': 1
+	};
+	for (const [zone, attendu] of Object.entries(zonesAttendues)) {
+		const trouve = (adminPage.match(new RegExp(zone.replace(/[[\]]/g, '\\$&'), 'g')) ?? []).length;
+		assert.equal(trouve, attendu, `zone ${zone} : ${attendu} occurrence(s) attendue(s)`);
 	}
 });
 

@@ -43,6 +43,7 @@
 		recalculerObjectif,
 		type ChampSaisi
 	} from '$lib/goalMacros';
+	import { messagesChampsCalibrage, saisiesCalibrageValides } from '$lib/calibrageSaisie';
 	import {
 		SPORT_CATALOG,
 		SPORT_CATEGORIES,
@@ -1562,8 +1563,14 @@
 	});
 	let calibrageBusy = $state(false);
 	let calibrageError = $state('');
-	/** Résultats = sortie du module ($lib/calibrageFiche) — jamais recalculés ici. */
+	/** Messages SOUS les champs : valeur vide ou hors limites (module PUR
+	 *  $lib/calibrageSaisie, bornes partagées avec le module calibrage). */
+	const calErreursChamps = $derived(messagesChampsCalibrage(calibrageInputs));
+	/** Résultats = sortie du module ($lib/calibrageFiche) — jamais recalculés ici.
+	 *  Une saisie invalide n'empêche QUE le calcul : elle affiche son message
+	 *  sous son champ et ne vide jamais l'écran des résultats. */
 	const calResults = $derived.by((): { results: ResultatsFicheCalibrage | null; error: string | null } => {
+		if (!saisiesCalibrageValides(calibrageInputs)) return { results: null, error: null };
 		try {
 			return { results: resultatsFiche(calibrageInputs), error: null };
 		} catch (e) {
@@ -1573,7 +1580,15 @@
 			};
 		}
 	});
-	const calR = $derived(calResults.results);
+	/* DERNIERS résultats valides : affichés tant que la saisie courante est
+	   invalide (« les résultats restent affichés avec la dernière valeur
+	   valide ») — le calcul reprend dès que tout redevient valide. */
+	let calDerniersResultats = $state<ResultatsFicheCalibrage | null>(null);
+	$effect(() => {
+		const r = calResults.results;
+		if (r) calDerniersResultats = r;
+	});
+	const calR = $derived(calResults.results ?? calDerniersResultats);
 
 	const JOURS_COURTS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'] as const;
 	const JOURS_LONGS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'] as const;
@@ -4516,8 +4531,12 @@
 							     s'y affichent sans insérer ni retirer d'espace, la page ne saute plus. -->
 							<div class="mt-3 min-h-[124px] space-y-2">
 								{#if calR && calR.avertissementDeficit}<p class="flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.avertissementDeficit}</p>{/if}
+								{#if calR && calR.avertissementDeficitEleve}<p class="flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.avertissementDeficitEleve}</p>{/if}
 								{#if calR && calR.alertePlafonds}<p class="flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.alertePlafonds}</p>{/if}
 								{#if calR && calR.avertissementDisponibilite}<p class="flex items-start gap-2 rounded-xl border px-3.5 py-2.5 text-[12px] font-semibold {calR.avertissementDisponibilite.niveau === 'alerte' ? 'border-danger/40 bg-danger-light text-danger' : 'border-warn/40 bg-warn-light text-warn'}"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.avertissementDisponibilite.message}</p>{/if}
+								<!-- Erreur de calcul hors champs chiffrés (séances, semaine type…) :
+								     les résultats déjà affichés restent en place. -->
+								{#if calResults.error && calR}<p class="flex items-start gap-2 rounded-xl border border-danger/40 bg-danger-light px-3.5 py-2.5 text-[12px] font-semibold text-danger"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calResults.error}</p>{/if}
 							</div>
 						</div>
 
@@ -4528,6 +4547,7 @@
 								<label class="block">
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Poids (kg)</span>
 									<input type="number" inputmode="decimal" min="20" max="400" step="0.1" bind:value={calibrageInputs.poidsKg} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+									<p class="mt-1 min-h-[15px] text-[11px] font-semibold text-danger">{calErreursChamps.poidsKg ?? ''}</p>
 									{#if calibragePre?.poids.source}
 										<span class="mt-1 block text-[11px] text-mist">{calibragePre.poids.source === 'moyenne7j' ? `Moyenne de ${calibragePre.poids.nbPesees} pesée(s) sur 7 jours` : 'Dernière pesée'}{calibragePre.poids.date ? ` · ${fmtISO(calibragePre.poids.date)}` : ''}</span>
 									{/if}
@@ -4535,6 +4555,7 @@
 								<label class="block">
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Taux de masse grasse (%)</span>
 									<input type="number" inputmode="decimal" min="5" max="60" step="0.1" bind:value={calibrageInputs.mgPct} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+									<p class="mt-1 min-h-[15px] text-[11px] font-semibold text-danger">{calErreursChamps.mgPct ?? ''}</p>
 									{#if calibragePre?.masseGrasse.source}
 										<span class="mt-1 block text-[11px] text-mist">Dernière estimation US Navy{calibragePre.masseGrasse.date ? ` · ${fmtISO(calibragePre.masseGrasse.date)}` : ''}</span>
 									{/if}
@@ -4542,6 +4563,7 @@
 								<label class="block">
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Moyenne de pas sur 14 jours</span>
 									<input type="number" inputmode="numeric" min="0" max="100000" step="100" bind:value={calibrageInputs.pasMoyen} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+									<p class="mt-1 min-h-[15px] text-[11px] font-semibold text-danger">{calErreursChamps.pasMoyen ?? ''}</p>
 									{#if calibragePre?.pasMoyen.jours}
 										<span class="mt-1 block text-[11px] text-mist">{calibragePre.pasMoyen.jours} jour(s) renseigné(s) sur 14</span>
 									{/if}
@@ -4549,6 +4571,7 @@
 								<div class="block">
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Adaptation (% du métabolisme de base)</span>
 									<input type="number" inputmode="decimal" min="0" max="20" step="0.5" bind:value={calibrageInputs.adaptationPct} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+									<p class="mt-1 min-h-[15px] text-[11px] font-semibold text-danger">{calErreursChamps.adaptationPct ?? ''}</p>
 									<!-- Sous-ligne RÉSERVÉE (stabilité de la saisie) : hauteur minimale permanente. -->
 									<span class="mt-1 block min-h-[15px] text-[11px] font-semibold text-warn">{#if calR && calR.adaptationEffetKcal > 0}−{decimalFr(calR.adaptationEffetKcal)} kcal/jour{/if}</span>
 									<p class="mt-1 text-[11px] leading-snug text-mist">{ADAPTATION_AIDE}</p>
@@ -4597,11 +4620,13 @@
 							<div class="mt-3 grid gap-3 sm:grid-cols-3">
 								<label class="block">
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Déficit choisi (% du budget)</span>
-									<input type="number" inputmode="decimal" min="0" max="20" step="1" bind:value={calibrageInputs.deficitPct} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+									<input type="number" inputmode="decimal" min="0" max="30" step="1" bind:value={calibrageInputs.deficitPct} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+									<p class="mt-1 min-h-[15px] text-[11px] font-semibold text-danger">{calErreursChamps.deficitPct ?? ''}</p>
 								</label>
 								<label class="block">
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Protéines (g/kg de masse maigre)</span>
 									<input type="number" inputmode="decimal" min="2" max="2.6" step="0.1" bind:value={calibrageInputs.proteinesParKgMasseMaigre} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+									<p class="mt-1 min-h-[15px] text-[11px] font-semibold text-danger">{calErreursChamps.proteinesParKgMasseMaigre ?? ''}</p>
 								</label>
 								<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
 									<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Réponse « sport » du démarrage</div>

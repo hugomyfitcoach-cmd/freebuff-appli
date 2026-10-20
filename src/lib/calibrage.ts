@@ -90,8 +90,10 @@ export const AJUSTEMENT_TRAVAIL_MAX = 0.05;
 export const BPM_MIN = 40;
 export const BPM_MAX = 240;
 
-/** Bornes plausibles (garde-fous de saisie) — messages d'erreur en clair. */
-const BORNES = {
+/** Bornes plausibles (garde-fous de saisie) — messages d'erreur en clair.
+ *  Exportées : la validation par champ de l'onglet Calibrage (messages sous
+ *  les champs, `$lib/calibrageSaisie`) partage STRICTEMENT les mêmes bornes. */
+export const BORNES = {
 	poids: { min: 20, max: 400, label: '20 à 400 kg' },
 	mgPct: { min: MG_PCT_MIN, max: MG_PCT_MAX, label: '5 à 60 %' },
 	coefficient: { min: 0.8, max: 3, label: '0,8 à 3' },
@@ -112,7 +114,7 @@ const BORNES = {
 	heuresTravail: { min: 0, max: 12, label: '0 à 12 h' },
 	ajustementTravail: { min: 0, max: 0.05, label: '0 à 0,05' },
 	budgetSemaine: { min: 0, max: 140_000, label: '0 à 140 000 kcal' },
-	deficitPct: { min: 0, max: 20, label: '0 à 20 % (0 = maintenance)' }
+	deficitPct: { min: 0, max: 30, label: '0 à 30 % (0 = maintenance)' }
 } as const;
 
 type Bornes = { min: number; max: number; label: string };
@@ -944,7 +946,7 @@ export function budgetSemaineKcal(entree: {
 /**
  * Objectif de la semaine = budget × (1 − déficit choisi), le déficit étant
  * exprimé en POUR CENT du budget (défaut 0 : budget intégralement consommable,
- * c'est-à-dire maintenance). Borné à 0–20 % ; au-delà de 15 % un avertissement
+ * c'est-à-dire maintenance). Borné à 0–30 % ; au-delà de 15 % un avertissement
  * explicite accompagne le résultat (`bilanObjectifSemaine`). Arrondi au kcal.
  * Repère : budget 11 487 kcal et 20 % de déficit → 9 190 kcal.
  */
@@ -959,6 +961,8 @@ export function objectifSemaineKcal(entree: {
 
 /** Déficit hebdomadaire au-delà duquel un avertissement est délivré (%). */
 export const DEFICIT_PCT_AVERTISSEMENT = 15;
+/** Déficit hebdomadaire au-delà duquel l'attention du coach est requise (%). */
+export const DEFICIT_PCT_ATTENTION = 25;
 
 export type BilanObjectifSemaine = {
 	/** Budget de la semaine (kcal) — 7 × maintenance sans exercice + sport. */
@@ -975,6 +979,9 @@ export type BilanObjectifSemaine = {
 	 *  le rythme de perte n'est jamais jugé ici (il relève des plafonds
 	 *  Alpert / Macdonald, voir `alertePlafonds` dans `calibrageFiche`). */
 	avertissement: string | null;
+	/** Attention au-delà de 25 % de déficit (null sinon) — EN PLUS de
+	 *  `avertissement`, qui reste inchangé. */
+	avertissementDeficitEleve: string | null;
 };
 
 /**
@@ -1004,7 +1011,9 @@ export function bilanObjectifSemaine(entree: {
 		avertissement:
 			deficitPct > DEFICIT_PCT_AVERTISSEMENT
 				? `Déficit supérieur à la règle de 10 à 15 % : décision du coach.`
-				: null
+				: null,
+		avertissementDeficitEleve:
+			deficitPct > DEFICIT_PCT_ATTENTION ? `Déficit au-delà de 25 % à prendre en compte.` : null
 	};
 }
 

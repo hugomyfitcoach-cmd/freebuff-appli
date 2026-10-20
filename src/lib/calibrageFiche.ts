@@ -94,7 +94,7 @@ export type EntreesFicheCalibrage = {
 	ajustementTravail?: number;
 	/** A — adaptation métabolique (%), 0 par défaut. */
 	adaptationPct?: number;
-	/** Déficit choisi (% du budget), 12 par défaut, borné 0 à 20. */
+	/** Déficit choisi (% du budget), 12 par défaut, borné 0 à 30. */
 	deficitPct?: number;
 	/** Ratio protéines (g/kg de masse maigre), 2,3 par défaut, borné 2 à 2,6. */
 	proteinesParKgMasseMaigre?: number;
@@ -182,6 +182,9 @@ export type ResultatsFicheCalibrage = {
 	alertePlafonds: string | null;
 	/** Avertissement NEUTRE au-delà de 15 % de déficit (null sinon). */
 	avertissementDeficit: string | null;
+	/** Attention au-delà de 25 % de déficit (null sinon) — EN PLUS de l'avertissement
+	 *  au-delà de 15 %, qui reste inchangé. */
+	avertissementDeficitEleve: string | null;
 	/** Effet de l'adaptation métabolique (kcal/jour) = MB × A/100 (affiché « −X kcal/jour »). */
 	adaptationEffetKcal: number;
 	/** Avertissement au-delà de 13 % d'adaptation (null sinon). */
@@ -445,6 +448,7 @@ export function resultatsFiche(entrees: EntreesFicheCalibrage): ResultatsFicheCa
 		vitesseMaxMacdonaldKgSemaine: macdonald,
 		alertePlafonds,
 		avertissementDeficit: bilan.avertissement,
+		avertissementDeficitEleve: bilan.avertissementDeficitEleve,
 		adaptationEffetKcal: adaptationEffetKcal({ poidsKg, mgPct, adaptationPct }),
 		avertissementAdaptation:
 			adaptationPct > ADAPTATION_PCT_AVERTISSEMENT ? ADAPTATION_AVERTISSEMENT : null,
