@@ -6,7 +6,9 @@
  * « à prendre en compte ») sont écrites POUR LE COACH et peuvent l'inquiéter.
  * En mode présentation, la cliente ne voit que des messages d'accompagnement
  * neutres et rassurants :
- *  - disponibilité en énergie ≥ 30 kcal/kg de MM → repère chiffré positif ;
+ *  - disponibilité en énergie ≥ 30 kcal/kg de MM → repère chiffré positif,
+ *    en NOMBRE ENTIERSANS UNITÉ (« Ton énergie disponible : 31. ») — le mode
+ *    normal garde la valeur exacte avec son unité ;
  *  - disponibilité de 24 à 30 → « Zone à surveiller… » ;
  *  - déficit de 15 à 30 % → « Rythme soutenu… » ;
  *  - disponibilité sous 24, OU perte estimée au-dessus des plafonds
@@ -20,11 +22,7 @@
  * et par les tests node, exactement comme `$lib/calibrageFiche`.
  */
 
-import {
-	SEUIL_DISPONIBILITE_BAS,
-	SEUIL_DISPONIBILITE_HAUT,
-	decimalFr
-} from './calibrage';
+import { SEUIL_DISPONIBILITE_BAS, SEUIL_DISPONIBILITE_HAUT } from './calibrage';
 
 /** Mention affichée au COACH (mode normal) quand la fiche n'est pas présentable. */
 export const MENTION_AJUSTER_AVANT_DE_PRESENTER = 'À ajuster avant de présenter';
@@ -87,9 +85,11 @@ export function mentionAjusterAvantDePresenter(r: EntreesMessagesPresentation): 
 export function messagesPresentation(r: EntreesMessagesPresentation): MessagesPresentation {
 	if (mentionAjusterAvantDePresenter(r)) return { energie: null, rythme: null };
 
+	/* Entier SANS unité pour la cliente (« Ton énergie disponible : 31. ») :
+	   le nombre brut, lui, reste exact et affiché avec son unité en mode normal. */
 	const energie =
 		r.disponibiliteKcal >= SEUIL_DISPONIBILITE_HAUT
-			? `Ton énergie disponible : ${decimalFr(r.disponibiliteKcal)} kcal/kg de masse maigre. ` +
+			? `Ton énergie disponible : ${Math.round(r.disponibiliteKcal)}. ` +
 				`Au-dessus du seuil de sécurité de ${SEUIL_DISPONIBILITE_HAUT} : ton corps a de quoi bien fonctionner.`
 			: `Zone à surveiller : on suivra ton énergie et ta récupération chaque semaine.`;
 

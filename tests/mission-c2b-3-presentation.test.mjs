@@ -67,19 +67,27 @@ const base = {
 
 /* ═══ 1 · Messages du mode présentation — chaque cas, les deux modes ═══ */
 
-test('PRÉSENTATION : disponibilité ≥ 30 → repère chiffré rassurant', () => {
+test('PRÉSENTATION : disponibilité ≥ 30 → repère chiffré rassurant, entier sans unité', () => {
 	const m = messagesPresentation({ ...base, disponibiliteKcal: 31.2 });
 	assert.equal(
 		m.energie,
-		'Ton énergie disponible : 31,2 kcal/kg de masse maigre. Au-dessus du seuil de sécurité de 30 : ton corps a de quoi bien fonctionner.'
+		'Ton énergie disponible : 31. Au-dessus du seuil de sécurité de 30 : ton corps a de quoi bien fonctionner.'
 	);
 	assert.equal(m.rythme, null, 'déficit < 15 % : aucun message de rythme');
 	assert.equal(mentionAjusterAvantDePresenter({ ...base, disponibiliteKcal: 31.2 }), false);
+	/* Nombre ENTIERSANS unité pour la cliente (33,7 → 34, jamais « 33,7 kcal… »). */
+	const arrondi = messagesPresentation({ ...base, disponibiliteKcal: 33.7 }).energie ?? '';
+	assert.match(arrondi, /^Ton énergie disponible : 34\./, "valeur arrondie à l'entier le plus proche");
+	assert.ok(!arrondi.includes('kcal') && !arrondi.includes(','), 'aucune unité, aucune décimale');
 	/* Seuil exact : 30 est dans la zone haute. */
 	assert.match(
 		messagesPresentation({ ...base, disponibiliteKcal: 30 }).energie ?? '',
 		/Au-dessus du seuil de sécurité de 30/
 	);
+	/* MODE NORMAL : la valeur exacte avec son unité reste affichée (KPI). */
+	const ligneKpi = adminPage.split('\n').find((l) => l.includes('{String(calR.disponibiliteKcal)'));
+	assert.ok(ligneKpi, 'mode normal : valeur exacte affichée');
+	assert.ok(adminPage.includes('kcal/kg de MM'), 'mode normal : unité conservée');
 });
 
 test('PRÉSENTATION : disponibilité de 24 à 30 → « Zone à surveiller »', () => {
