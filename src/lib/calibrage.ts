@@ -290,7 +290,7 @@ export function metabolismeBaseBrut(poidsKg: number, mgPct: number): number {
 
 /**
  * Repères de l'adaptation métabolique (A, % du métabolisme de base) — affichés
- * sous le champ de saisie pour guider la coach :
+ * sous le champ de saisie pour guider le coach :
  *  - 0 % : poids stable à son poids habituel, aucune restriction en cours ;
  *  - 10 % : en déficit depuis 2 à 3 mois ou plus, ou perte déjà importante
  *    (même stabilisée) ;
@@ -1038,13 +1038,14 @@ export const KCAL_PAR_G_GLUCIDES = 4;
 export const KCAL_PAR_G_LIPIDES = 9;
 
 /**
- * Avertissement EXISTANT quand les glucides passent sous le seuil (100 g) —
- * message unique, partagé par les résultats du calibrage et le bloc
- * « Appliquer à la fiche » (null si rien à signaler).
+ * Information quand les glucides passent sous le seuil (100 g) — message
+ * unique, partagé par les résultats du calibrage et le bloc « Appliquer à la
+ * fiche » (null si rien à signaler). Formulation NEUTRE (information grise,
+ * pas une alerte) : masquée en mode présentation, jamais alarmante à l'écran.
  */
 export function alerteGlucidesPour(glucidesG: number): string | null {
 	return glucidesG < GLUCIDES_SIGNAL_G
-		? `Glucides estimés à ${glucidesG} g (< ${GLUCIDES_SIGNAL_G} g) : objectif calorique, volume d'entraînement ou sommeil à réinterroger avec la coach.`
+		? `Glucides sous ${GLUCIDES_SIGNAL_G} g : surveiller l'énergie à l'entraînement et la récupération.`
 		: null;
 }
 

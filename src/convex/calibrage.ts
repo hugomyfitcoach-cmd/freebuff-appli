@@ -55,7 +55,7 @@ export const fiche = query({
 	handler: async (ctx, { sessionToken, userId }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
 		if (!coach || coach.role !== "coach") {
-			throw new ConvexError("Réservé à la coach (CRM).");
+			throw new ConvexError("Réservé au coach (CRM).");
 		}
 		const target = await ctx.db.get(userId);
 		if (!target || target.role !== "client") {
@@ -150,20 +150,20 @@ export const apply = mutation({
 		userId: v.id("users"),
 		/** Entrées du calibrage figées dans l'instantané (recopiées telles quelles). */
 		entrees: v.record(v.string(), v.any()),
-		/** Objectif appliqué (la coach peut l'ajuster avant d'appliquer). */
+		/** Objectif appliqué (le coach peut l'ajuster avant d'appliquer). */
 		kcal: v.number(),
 		carbs: v.number(),
 		protein: v.number(),
 		fat: v.number(),
 		/** Maintenance appliquée (filet de sécurité) — optionnelle. */
 		maintenanceKcal: v.optional(v.number()),
-		/** Date d'effet "yyyy-mm-dd" choisie par la coach. */
+		/** Date d'effet "yyyy-mm-dd" choisie par le coach. */
 		effectiveFrom: v.string(),
 	},
 	handler: async (ctx, { sessionToken, userId, entrees, kcal, carbs, protein, fat, maintenanceKcal, effectiveFrom }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
 		if (!coach || coach.role !== "coach") {
-			throw new ConvexError("Seule la coach peut appliquer un calibrage.");
+			throw new ConvexError("Seul le coach peut appliquer un calibrage.");
 		}
 		const target = await ctx.db.get(userId);
 		if (!target || target.role !== "client") {
@@ -319,13 +319,13 @@ export const historique = query({
 	handler: async (ctx, { sessionToken, userId }): Promise<LigneHistoriqueObjectifs[]> => {
 		const coach = await getSessionUser(ctx, sessionToken);
 		if (!coach || coach.role !== "coach") {
-			throw new ConvexError("Réservé à la coach (CRM).");
+			throw new ConvexError("Réservé au coach (CRM).");
 		}
 		const target = await ctx.db.get(userId);
 		if (!target || target.role !== "client") {
 			throw new ConvexError("Cliente introuvable.");
 		}
-		/* Seule la coach DE la cliente accède à son historique — autorisation
+		/* Seul le coach DE la cliente accède à son historique — autorisation
 		   vérifiée côté serveur, comme les autres requêtes du coach. */
 		if (target.createdBy && target.createdBy !== coach._id) {
 			throw new ConvexError("Accès réservé au coach de cette cliente.");

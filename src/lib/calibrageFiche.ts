@@ -80,7 +80,7 @@ export type SeanceCalculee = {
 	depenseSemaineKcal: number;
 };
 
-/** Entrées de l'onglet (toutes modifiables par la coach, pré-remplies côté CRM). */
+/** Entrées de l'onglet (toutes modifiables par le coach, pré-remplies côté CRM). */
 export type EntreesFicheCalibrage = {
 	/** P — poids (kg) : moyenne des pesées sur 7 jours, sinon dernière pesée. */
 	poidsKg: number;

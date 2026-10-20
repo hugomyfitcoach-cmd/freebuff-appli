@@ -415,7 +415,7 @@ test('ACCÈS : une cliente est refusée par fiche (lecture du pré-remplissage)'
 	);
 });
 
-test('API : /api/coach/calibrage est réservé à la coach (requireRole coach, GET et POST)', () => {
+test('API : /api/coach/calibrage est réservé au coach (requireRole coach, GET et POST)', () => {
 	assert.ok(apiRoute.includes("await requireRole(event, 'coach')"), 'GET et POST passent par requireRole');
 	assert.equal((apiRoute.match(/requireRole\(event, 'coach'\)/g) ?? []).length, 2);
 	assert.ok(apiRoute.includes('api.calibrage.fiche') && apiRoute.includes('api.calibrage.apply'));

@@ -140,7 +140,7 @@ export function choixDefautPourActivite(activiteId: string): string | null {
  *  - réponse « sport = non » (aucune séance) ;
  *  - aucune activité résolue sur le catalogue (jamais devinée).
  * Sinon : une séance (activité, intensité du barème, séances/sem, durée).
- * La coach valide ensuite via « Appliquer à la fiche » — rien n'est écrit ici.
+ * Le coach valide ensuite via « Appliquer à la fiche » — rien n'est écrit ici.
  */
 export function prefillProfilSportif(rep: ReponseSportDemarrage): SeanceHabituelle[] | null {
 	const diag = diagnostiquerReponseSport(rep);

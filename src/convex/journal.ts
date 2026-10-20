@@ -21,7 +21,7 @@ import type { Id, Doc } from "./_generated/dataModel";
  * - `foods`       : base alimentaire locale (export Open Food Facts trié,
  *   France/Europe, ~780k produits) + compléments OFF en cache (valeurs /100 g).
  * - `diaryEntries`: aliments consommés (un jour, un repas).
- * - `clientGoals` : objectifs journaliers définis par la coach dans le CRM.
+ * - `clientGoals` : objectifs journaliers définis par le coach dans le CRM.
  *
  * La recherche (action `searchFoods`) vit dans `off.ts` : base locale d'abord
  * (index plein texte `by_name`), Open Food Facts en secours.
@@ -30,7 +30,7 @@ import type { Id, Doc } from "./_generated/dataModel";
 export const MEALS = ["petit-dej", "dejeuner", "diner", "collation"] as const;
 export type Meal = (typeof MEALS)[number];
 
-/** Objectifs par défaut tant que la coach n'a pas défini le plan (CRM). */
+/** Objectifs par défaut tant que le coach n'a pas défini le plan (CRM). */
 export const DEFAULT_GOALS = { kcal: 2000, carbs: 250, protein: 90, fat: 65 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -63,13 +63,13 @@ async function resolveCoachTarget(
 ): Promise<Doc<"users">> {
 	const coach = await getSessionUser(ctx, sessionToken);
 	if (!coach) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
-	if (coach.role !== "coach") throw new ConvexError("Réservé à la coach (CRM).");
+	if (coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
 	const target = await ctx.db.get(userId);
 	if (!target || target.role !== "client") throw new ConvexError("Client introuvable.");
 	return target;
 }
 
-/* Variantes coach (CRM) : la coach peut consulter et compléter le journal
+/* Variantes coach (CRM) : le coach peut consulter et compléter le journal
    d'un client, « en doublon » avec lui. */
 
 /** Jour complet d'un client donné (réservé coach). */
@@ -135,7 +135,7 @@ export const searchForCoach = query({
 	args: { sessionToken: v.optional(v.string()), query: v.string() },
 	handler: async (ctx, { sessionToken, query }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
-		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (CRM).");
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
 		const term = query.trim().toLowerCase();
 		if (term.length < 2) return [] as FoodHit[];
 		// Candidats élargis puis re-tri (foodRanking) : l'aliment brut (« tomate »,
@@ -644,7 +644,7 @@ export async function loadGoalHistory(ctx: Pick<QueryCtx, "db">, userId: Id<"use
  * Écrit (replace) la ligne d'historique d'effet AUJOURD'HUI — idempotent.
  * Partagée avec « Appliquer à la fiche » (onglet Calibrage, `calibrage.ts`) :
  * le chemin d'écriture des objectifs reste UNIQUE (clientGoals +
- * clientGoalHistory), y compris quand la coach choisit une date d'effet.
+ * clientGoalHistory), y compris quand le coach choisit une date d'effet.
  */
 export async function upsertGoalHistoryToday(
 	ctx: MutationCtx,
@@ -678,11 +678,11 @@ export const setClientGoals = mutation({
 		carbs: v.number(),
 		protein: v.number(),
 		fat: v.number(),
-		/** Maintenance calorique (filet de sécurité) — optionnelle, saisie manuelle par la coach. */
+		/** Maintenance calorique (filet de sécurité) — optionnelle, saisie manuelle par le coach. */
 		maintenanceKcal: v.optional(v.number()),
 		/** True pour effacer la maintenance enregistrée (champ vidé côté CRM). */
 		clearMaintenance: v.optional(v.boolean()),
-		/** Objectif quotidien de pas — optionnel, saisi manuellement par la coach (ex. 10 000). */
+		/** Objectif quotidien de pas — optionnel, saisi manuellement par le coach (ex. 10 000). */
 		stepGoal: v.optional(v.number()),
 		/** True pour retirer l'objectif de pas enregistré (champ vidé côté CRM). */
 		clearStepGoal: v.optional(v.boolean()),
@@ -690,7 +690,7 @@ export const setClientGoals = mutation({
 	handler: async (ctx, { sessionToken, userId, kcal, carbs, protein, fat, maintenanceKcal, clearMaintenance, stepGoal, clearStepGoal }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
 		if (!coach || coach.role !== "coach") {
-			throw new ConvexError("Seule la coach peut définir les objectifs.");
+			throw new ConvexError("Seul le coach peut définir les objectifs.");
 		}
 		const target = await ctx.db.get(userId);
 		if (!target || target.role !== "client") {
@@ -798,7 +798,7 @@ export async function baselineLegacyGoalHistory(
 	}
 }
 
-/** Objectifs d'un client — réservé à la coach (CRM). */
+/** Objectifs d'un client — réservé au coach (CRM). */
 export const getClientGoals = query({
 	args: {
 		sessionToken: v.optional(v.string()),
@@ -807,7 +807,7 @@ export const getClientGoals = query({
 	handler: async (ctx, { sessionToken, userId }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
 		if (!coach || coach.role !== "coach") {
-			throw new ConvexError("Réservé à la coach.");
+			throw new ConvexError("Réservé au coach.");
 		}
 		const row = await ctx.db
 			.query("clientGoals")

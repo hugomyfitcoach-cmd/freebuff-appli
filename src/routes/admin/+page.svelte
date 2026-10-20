@@ -36,6 +36,11 @@
 		type EntreesFicheCalibrage,
 		type ResultatsFicheCalibrage
 	} from '$lib/calibrageFiche';
+	import {
+		MENTION_AJUSTER_AVANT_DE_PRESENTER,
+		mentionAjusterAvantDePresenter,
+		messagesPresentation
+	} from '$lib/calibragePresentation';
 	import { prefillProfilSportif } from '$lib/sportPrefill';
 	import {
 		alerteGlucidesPour,
@@ -55,7 +60,7 @@
 
 	let { data, form } = $props();
 	/* « vivant » uniquement côté navigateur : la date/heure du hero est locale
-	   à la coach, jamais celle du serveur (SSR : ligne date absente). L'effet
+	   au coach, jamais celle du serveur (SSR : ligne date absente). L'effet
 	   ci-dessous bascule l'état après hydratation — le titre SSR neutre évite
 	   tout flash d'heure serveur et toute hydromismatch. */		let dashLive = $state(false);
 	$effect(() => {
@@ -464,7 +469,7 @@
 	   Hero dashboard : salutation « Bonjour {prenom} 👋 » + date longue du jour
 	   + sous-titre métier, selon le mockup validé. Côté serveur (SSR) : titre
 	   neutre « Tableau de bord — CRM coach » (aucune information d'heure, la
-	   date vivant côté navigateur pour suivre le fuseau de la coach) ; après
+	   date vivant côté navigateur pour suivre le fuseau du coach) ; après
 	   hydratation le titre devient « Bonjour Hugo 👋 » et la ligne date se
 	   révèle — stable pendant TOUTE la session (pas de re-rendu à la minute). */
 	const dashNow = $derived.by(() => {
@@ -549,7 +554,7 @@
 			});
 			if (out.length >= 3) break;
 		}
-		// 2) Inactivité 24 h : la coach voit d'un œil qui n'a pas ouvert l'app.
+		// 2) Inactivité 24 h : le coach voit d'un œil qui n'a pas ouvert l'app.
 		const inactive = clients.filter((c: { user: { lastSeenAt: number | null } }) => {
 			const ts = c.user.lastSeenAt;
 			return !ts || Date.now() - ts >= 24 * 3600 * 1000;
@@ -593,7 +598,7 @@
 			? view.goals.maintenanceKcal
 			: null
 	);
-	/** Objectif quotidien de pas — saisi manuellement par la coach, optionnel. */
+	/** Objectif quotidien de pas — saisi manuellement par le coach, optionnel. */
 	let stepGoal = $state('');
 	/** Objectif de pas déjà enregistré en base (le fallback DEFAULT_GOALS n'a pas le champ). */
 	const savedStepGoal = $derived(
@@ -680,7 +685,7 @@
 	/*
 	 * Initialise les champs depuis les objectifs enregistrés (grammes), UNIQUEMENT
 	 * quand on change de client : `untrack` évite que l'effet se relance à chaque
-	 * frappe (ce qui écraserait la saisie de la coach).
+	 * frappe (ce qui écraserait la saisie du coach).
 	 */
 	$effect(() => {
 		const id = selectedId;
@@ -700,7 +705,7 @@
 		if (kcal > 0) {
 			// Attention : ne JAMAIS relire pctCarbs/pctProtein ici — ils deviendraient
 			// des dépendances de l'effet et chaque frappe dans Glucides/Protéines
-			// relancerait l'initialisation, écrasant la saisie de la coach.
+			// relancerait l'initialisation, écrasant la saisie du coach.
 			const c = Math.round(((carbs * 4) / kcal) * 100);
 			const p = Math.round(((protein * 4) / kcal) * 100);
 			pctCarbs = c;
@@ -713,7 +718,7 @@
 		}
 	});
 
-	/* ── Journal alimentaire (la coach agit « en doublon ») ────── */
+	/* ── Journal alimentaire (le coach agit « en doublon ») ────── */
 	const MEALS = [
 		{ id: 'petit-dej', label: 'Petit-déjeuner' },
 		{ id: 'dejeuner', label: 'Déjeuner' },
@@ -777,7 +782,7 @@
 	let addQty = $state('100');
 
 	/*
-	 * Garde-fou anti-course : si la coach change la date plusieurs fois vite
+	 * Garde-fou anti-course : si le coach change la date plusieurs fois vite
 	 * (roue iOS / double-clic), seule la réponse de la DERNIÈRE date demandée
 	 * est appliquée — sinon un jour déjà quitté peut réapparaître.
 	 */
@@ -867,7 +872,7 @@
 		}
 	}
 
-	/* ── Mensurations / poids (la coach corrige) ─────────────────
+	/* ── Mensurations / poids (le coach corrige) ─────────────────
 	   Chaque métrique possède SON PROPRE historique : une prise n'écrit que
 	   SON champ sur la ligne de la date (upsert), une modification ne touche
 	   que la métrique ciblée (updateOne), une suppression ne retire que cette
@@ -1603,7 +1608,7 @@
 	/* ── Historique des objectifs (LECTURE SEULE) : changements d'objectifs du
 	   plus récent au plus ancien — sources `calibrageSnapshots` (origine
 	   « Calibrage » + détail figé) et `clientGoalHistory` (« Saisie manuelle »),
-	   via la requête serveur `calibrage.historique` (réservée à la coach de la
+	   via la requête serveur `calibrage.historique` (réservée au coach de la
 	   cliente). Jamais d'écriture ici. ── */
 	type CalHistoDetail = {
 		poidsKg: number | null;
@@ -1738,7 +1743,7 @@
 	   exacte). Texte libre → rien n'est interprété, la réponse reste affichée
 	   telle quelle à côté du profil (comportement actuel), aucun bouton.
 	   La proposition vit EN MÉMOIRE : rien n'est écrit sans « Appliquer à la
-	   fiche » (validation de la coach). */
+	   fiche » (validation du coach). */
 	const prefillDemarrage = $derived(calibragePre ? prefillProfilSportif(calibragePre.sportOnboarding) : null);
 	function prefillDepuisDemarrage() {
 		const p = prefillDemarrage;
@@ -1765,10 +1770,38 @@
 	let applyMsg = $state('');
 	let calConfirmOpen = $state(false);
 	let calPresentation = $state(false);
+	/* Messages du « Mode présentation » (module pur $lib/calibragePresentation) :
+	   côté CLIENTE uniquement, jamais en mode normal. Entrées communes avec la
+	   mention coach ci-dessous. */
+	const calPresentationEntrees = $derived(
+		calR
+			? {
+					disponibiliteKcal: calR.disponibiliteKcal,
+					deficitPct: calR.deficitPct,
+					perteGraisseKg: calR.perteGraisseKg,
+					vitesseMaxAlpertKgSemaine: calR.vitesseMaxAlpertKgSemaine
+				}
+			: null
+	);
+	const calMessagesPresentation = $derived(
+		calPresentationEntrees ? messagesPresentation(calPresentationEntrees) : { energie: null, rythme: null }
+	);
+	/* Mention coach du mode normal : disponibilité sous 24 kcal/kg de MM ou
+	   perte estimée au-dessus des plafonds → « À ajuster avant de présenter ». */
+	const calMentionAjuster = $derived(
+		!!calPresentationEntrees && mentionAjusterAvantDePresenter(calPresentationEntrees)
+	);
 	/* Références de pré-remplissage : un champ égal à sa référence n'a pas été
-	   modifié par la coach ; dès qu'il s'en écarte, il affiche « modifié » et
+	   modifié par le coach ; dès qu'il s'en écarte, il affiche « modifié » et
 	   n'est jamais ré-écrasé par un recalcul des résultats. */
 	let refKcal = $state(0);
+	/** Objectif kcal de RÉFÉRENCE du bloc « Appliquer à la fiche » : base du
+	 *  recalcul des glucides — (objectif − 4P − 9L) ÷ 4. Ne bouge QUE lors d'une
+	 *  saisie explicite de l'objectif (kcal ou glucides) ou quand les résultats
+	 *  calculés sont repris ; les ajustements de protéines/lipides ne le
+	 *  touchent jamais, pour que l'écart dû aux grammes entiers (±2 kcal max)
+	 *  reste toujours mesuré sur la MÊME référence et ne s'accumule jamais. */
+	let applyKcalReference = $state(0);
 	let refMaintenance = $state('');
 	let refCarbs = $state(0);
 	let refProtein = $state(0);
@@ -1790,11 +1823,12 @@
 		untrack(() => {
 			/* Proposition = RÉSULTATS AFFICHÉS, exactement : objectif = objectif
 			   journalier moyen · maintenance = filet de sécurité (budget ÷ 7, sport
-			   habituel inclus) · macros = macros du jour type. La coach peut tout
+			   habituel inclus) · macros = macros du jour type. Le coach peut tout
 			   ajuster (« modifié ») avant d'appliquer — jamais d'écriture seule. */
 			if (!applyInitialise || applyKcal === refKcal) {
 				applyKcal = r.objectifJournalierKcal;
 				refKcal = applyKcal;
+				applyKcalReference = applyKcal;
 			}
 			if (!applyInitialise || applyMaintenance === refMaintenance) {
 				applyMaintenance = String(Math.round(r.maintenanceFiletKcal));
@@ -1850,6 +1884,7 @@
 		if (!r) return;
 		applyKcal = r.objectifJournalierKcal;
 		refKcal = applyKcal;
+		applyKcalReference = applyKcal;
 		applyMaintenance = String(Math.round(r.maintenanceFiletKcal));
 		refMaintenance = applyMaintenance;
 		applyCarbs = r.macros.glucidesG;
@@ -1873,14 +1908,19 @@
 		const saisie =
 			champ === 'kcal' ? applyKcal : champ === 'glucides' ? applyCarbs : champ === 'proteines' ? applyProtein : applyFat;
 		if (typeof saisie !== 'number' || !Number.isFinite(saisie)) return; // champ vidé : on n'écrase rien
+		/* Les glucides sont recalculés depuis l'OBJECTIF KCAL DE RÉFÉRENCE —
+		   (objectif − 4P − 9L) ÷ 4 — et non depuis la valeur précédemment
+		   affichée : l'écart d'arrondi (±2 kcal max) ne s'accumule jamais. */
 		const r = recalculerObjectif(
 			{ kcal: applyKcal, glucidesG: applyCarbs, proteinesG: applyProtein, lipidesG: applyFat },
-			champ
+			champ,
+			applyKcalReference
 		);
 		applyKcal = r.valeurs.kcal;
 		applyCarbs = r.valeurs.glucidesG;
 		applyProtein = r.valeurs.proteinesG;
 		applyFat = r.valeurs.lipidesG;
+		applyKcalReference = r.kcalReference;
 	}
 	/** Avertissement existant : glucides affichés sous 100 g. */
 	const applyAlerteGlucides = $derived(alerteGlucidesPour(applyCarbs));
@@ -3523,7 +3563,7 @@
 					</div>
 				{/if}
 
-			<!-- ═══ Journal alimentaire : la coach agit en doublon ═══ -->
+			<!-- ═══ Journal alimentaire : le coach agit en doublon ═══ -->
 			{:else if section === 'journal'}
 				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
 					<div class="flex flex-wrap items-center justify-between gap-3">
@@ -4450,6 +4490,20 @@
 							<p class="mt-3 text-center text-xs text-mist">
 								Déficit total de la semaine : {Math.round(-calR.semaine.deficitSemaineKcal).toLocaleString('fr-FR')} kcal · graisse estimée {String(Math.abs(calR.semaine.graisseKg)).replace('.', ',')} kg
 							</p>
+							<!-- MESSAGES CLIENTE — neutres et rassurants (module pur). Jamais
+							     les mots alerte, risque, dépasse, exceptionnelle, ni Alpert/
+							     Macdonald. Disponibilité < 24 ou perte au-dessus des plafonds →
+							     aucun message ici (le coach ajuste, voir mode normal). -->
+							{#if calMessagesPresentation.energie || calMessagesPresentation.rythme}
+								<div class="mt-3 space-y-1.5">
+									{#if calMessagesPresentation.energie}
+										<p class="text-center text-sm leading-relaxed text-ink">{calMessagesPresentation.energie}</p>
+									{/if}
+									{#if calMessagesPresentation.rythme}
+										<p class="text-center text-sm leading-relaxed text-ink">{calMessagesPresentation.rythme}</p>
+									{/if}
+								</div>
+							{/if}
 						{:else}
 							<p class="mt-6 text-center text-sm text-mist">Renseigne le poids et la masse grasse pour afficher le calibrage.</p>
 						{/if}
@@ -4519,8 +4573,10 @@
 									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
 										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Macros du jour type</div>
 										<div class="mt-0.5 text-sm font-bold text-ink">P {calR.macros.proteinesG} g · L {calR.macros.lipidesG} g · G {calR.macros.glucidesG} g</div>
-										<!-- Sous-ligne RÉSERVÉE (stabilité de la saisie) : hauteur minimale permanente. -->
-										<div class="mt-1 min-h-[16px]">{#if calR.macros.alerteGlucides}<p class="text-[11px] font-semibold text-warn">{calR.macros.alerteGlucides}</p>{/if}</div>
+										<!-- Sous-ligne RÉSERVÉE (stabilité de la saisie) : hauteur minimale permanente.
+										     Information glucides < 100 g : discrète (gris neutre), jamais une alerte —
+										     masquée en mode présentation. -->
+										<div class="mt-1 min-h-[16px]">{#if calR.macros.alerteGlucides}<p class="text-[11px] text-mist">{calR.macros.alerteGlucides}</p>{/if}</div>
 									</div>
 								</div>
 								{:else}
@@ -4537,6 +4593,10 @@
 								<!-- Erreur de calcul hors champs chiffrés (séances, semaine type…) :
 								     les résultats déjà affichés restent en place. -->
 								{#if calResults.error && calR}<p class="flex items-start gap-2 rounded-xl border border-danger/40 bg-danger-light px-3.5 py-2.5 text-[12px] font-semibold text-danger"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calResults.error}</p>{/if}
+								<!-- Mention COACH (mode normal uniquement) : fiche non présentable en
+								     l'état (disponibilité < 24 ou perte au-dessus des plafonds) — côté
+								     cliente, aucun message ne s'affiche alors. -->
+								{#if calMentionAjuster}<p class="flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {MENTION_AJUSTER_AVANT_DE_PRESENTER}</p>{/if}
 							</div>
 						</div>
 
@@ -4796,10 +4856,11 @@
 									<input type="number" inputmode="numeric" min="0" max="300" step="1" bind:value={applyFat} onchange={() => recalculerApresSaisie('lipides')} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
 								</label>
 							</div>
-							<!-- Cohérence 4G + 4P + 9L : avertissement glucides < 100 g (message
-							     EXISTANT du calibrage) + blocage si les glucides calculés sont négatifs. -->
+							<!-- Cohérence 4G + 4P + 9L : information glucides < 100 g (message
+							     du calibrage, style DISCRET gris neutre — pas une alerte, masquée
+							     en mode présentation) + blocage si les glucides sont négatifs. -->
 							{#if applyAlerteGlucides}
-								<p class="mt-3 flex items-start gap-1.5 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[11px] font-semibold leading-snug text-warn"><Icon name="triangleAlert" size={13} class="mt-0.5 shrink-0" /> {applyAlerteGlucides}</p>
+								<p class="mt-3 flex items-start gap-1.5 rounded-xl border border-line bg-cream/40 px-3.5 py-2 text-[11px] leading-snug text-mist"><Icon name="info" size={13} class="mt-0.5 shrink-0" /> {applyAlerteGlucides}</p>
 							{/if}
 							{#if applyBlocageGlucides}
 								<p class="mt-2 flex items-start gap-1.5 rounded-xl border border-danger/40 bg-danger-light px-3.5 py-2.5 text-[12px] font-semibold leading-snug text-danger"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {applyBlocageGlucides}</p>

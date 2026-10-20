@@ -10,7 +10,7 @@
  *
  * Accès : tout passe par la session (jeton transmis par le BFF SvelteKit —
  * le navigateur n'appelle jamais Convex directement). Les lectures et
- * écritures sont réservées à la COACH : les clientes n'ont pas encore de
+ * écritures sont réservées au COACH : les clientes n'ont pas encore de
  * surface Entraînement (missions suivantes).
  */
 
@@ -96,7 +96,7 @@ type ImportedExercise = {
 	licenseNote?: string;
 };
 
-/** Exercice normalisé renvoyé à la coach (fiche complète). */
+/** Exercice normalisé renvoyé au coach (fiche complète). */
 export type ExerciseView = {
 	_id: string;
 	gfluxExerciseId: string;
@@ -214,7 +214,7 @@ export const libraryStats = query({
 	args: { sessionToken: v.optional(v.string()) },
 	handler: async (ctx, { sessionToken }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
-		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (CRM).");
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
 
 		const rows = await ctx.db.query("exercises").collect();
 		const visible = rows.filter((e) => e.active && !(e.hidden ?? false));
@@ -244,7 +244,7 @@ export const libraryStats = query({
  * Recherche + filtres de la bibliothèque (page de validation, pagination
  * offset simple). La recherche texte utilise le searchIndex `name_search` ;
  * les filtres exacts (groupe musculaire / équipement / source) s'appliquent
- * ensuite sur le même jeu. `includeHidden` laisse la coach voir ce qu'elle a
+ * ensuite sur le même jeu. `includeHidden` laisse le coach voir ce qu'il a
  * masqué (page de validation uniquement).
  */
 export const searchExercises = query({
@@ -264,7 +264,7 @@ export const searchExercises = query({
 		{ sessionToken, query, muscleGroup, equipment, bodyPart, source, includeHidden, offset = 0, limit = 24 }
 	) => {
 		const coach = await getSessionUser(ctx, sessionToken);
-		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (CRM).");
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
 		if (limit < 1 || limit > LIST_LIMIT) throw new ConvexError("Limite invalide.");
 
 		const term = (query ?? "").trim();
@@ -311,7 +311,7 @@ export const exerciseById = query({
 	args: { sessionToken: v.optional(v.string()), id: v.string() },
 	handler: async (ctx, { sessionToken, id }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
-		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (CRM).");
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
 		const e = id.startsWith("ex_")
 			? await ctx.db
 					.query("exercises")
@@ -323,8 +323,8 @@ export const exerciseById = query({
 });
 
 /**
- * Crée un exercice PERSONNALISÉ de la coach (sans source externe) — le cas
- * d'usage « plus tard, la coach crée ses propres exercices » est prévu dès
+ * Crée un exercice PERSONNALISÉ du coach (sans source externe) — le cas
+ * d'usage « plus tard, le coach crée ses propres exercices » est prévu dès
  * maintenant dans le modèle (system: false, source: "gflux").
  */
 export const createCustomExercise = mutation({
@@ -345,7 +345,7 @@ export const createCustomExercise = mutation({
 		{ sessionToken, name, muscleGroup, secondaryMuscles, bodyPart, equipment, category, instructions, mediaUrl, thumbnailUrl }
 	) => {
 		const coach = await getSessionUser(ctx, sessionToken);
-		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (CRM).");
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
 		const clean = name.trim().slice(0, 120);
 		if (clean.length < 2) throw new ConvexError("Le nom de l'exercice est trop court.");
 
@@ -378,7 +378,7 @@ export const setHidden = mutation({
 	args: { sessionToken: v.optional(v.string()), id: v.id("exercises"), hidden: v.boolean() },
 	handler: async (ctx, { sessionToken, id, hidden }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
-		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (CRM).");
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
 		const e = await ctx.db.get(id);
 		if (!e) throw new ConvexError("Exercice introuvable.");
 		await ctx.db.patch(id, { hidden, updatedAt: Date.now() });
@@ -397,7 +397,7 @@ export const hideBySource = mutation({
 	args: { sessionToken: v.optional(v.string()), source: v.string(), hidden: v.boolean() },
 	handler: async (ctx, { sessionToken, source, hidden }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
-		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (script d'import authentifié).");
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (script d'import authentifié).");
 		if (!source) throw new ConvexError("Source requise.");
 		const rows = await ctx.db.query("exercises").collect();
 		const targets = rows.filter((e) => e.source === source && (e.hidden ?? false) !== hidden);
@@ -422,7 +422,7 @@ export const listForMediaHosting = query({
 	},
 	handler: async (ctx, { sessionToken, source, limit = 100, cursor = 0 }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
-		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (script authentifié).");
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (script authentifié).");
 		const rows = await ctx.db.query("exercises").collect();
 		const mine = rows
 			.filter((e) => e.source === source)
@@ -447,7 +447,7 @@ export const generateMediaUploadUrl = mutation({
 	args: { sessionToken: v.optional(v.string()) },
 	handler: async (ctx, { sessionToken }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
-		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (script authentifié).");
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (script authentifié).");
 		return await ctx.storage.generateUploadUrl();
 	},
 });
@@ -471,7 +471,7 @@ export const attachMediaBatch = mutation({
 	},
 	handler: async (ctx, { sessionToken, items }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
-		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (script authentifié).");
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (script authentifié).");
 		if (items.length === 0 || items.length > IMPORT_BATCH_SIZE) {
 			throw new ConvexError(`Un lot doit contenir entre 1 et ${IMPORT_BATCH_SIZE} items.`);
 		}
@@ -510,7 +510,7 @@ export const attachMediaBatch = mutation({
  *
  * - Reconnaissance par (source, sourceExerciseId) via l'index `by_source_id`
  *   → jamais de doublon, un ré-import MET À JOUR au lieu de recréer ;
- * - Les champs portés par la coach (`hidden`, `name` renommé) sont PRÉSERVÉS :
+ * - Les champs portés par le coach (`hidden`, `name` renommé) sont PRÉSERVÉS :
  *   on met à jour `sourceName` mais on n'écrase jamais un nom déjà édité ;
  * - Aucune suppression : les exercices G-FLUX existants restent intacts,
  *   même s'ils disparaissent de la source ;
@@ -530,7 +530,7 @@ export const importBatch = mutation({
 	handler: async (ctx, { sessionToken, source, importBatch, licenseNote, items }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
 		if (!coach || coach.role !== "coach") {
-			throw new ConvexError("Réservé à la coach (script d'import authentifié).");
+			throw new ConvexError("Réservé au coach (script d'import authentifié).");
 		}
 		if (source === "gflux") throw new ConvexError("Source réservée aux exercices coach.");
 		if (items.length === 0 || items.length > IMPORT_BATCH_SIZE) {
@@ -672,7 +672,7 @@ export const	verifyGfluxOfficialSync = query({
 	},
 	handler: async (ctx, { sessionToken, items }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
-		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (script authentifié).");
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (script authentifié).");
 
 		const missing: string[] = [];
 		const outdated: string[] = [];
@@ -717,7 +717,7 @@ export const deactivateMissingGfluxOfficial = mutation({
 	},
 	handler: async (ctx, { sessionToken, keepSlugs }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
-		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (script authentifié).");
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (script authentifié).");
 		const keep = new Set(keepSlugs);
 		const rows = await ctx.db.query("exercises").collect();
 		const targets = rows.filter(
@@ -751,7 +751,7 @@ export const auditSourcePurge = query({
 	args: { sessionToken: v.optional(v.string()), source: v.string() },
 	handler: async (ctx, { sessionToken, source }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
-		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (script authentifié).");
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (script authentifié).");
 		if (!source || source === "gflux") throw new ConvexError("Source invalide pour une purge.");
 
 		const rows = await ctx.db.query("exercises").collect();
@@ -797,7 +797,7 @@ export const purgeSource = mutation({
 	},
 	handler: async (ctx, { sessionToken, source, dryRun }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
-		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (script authentifié).");
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (script authentifié).");
 		if (!source || source === "gflux") throw new ConvexError("La source \"gflux\" (exercices coach) ne peut pas être purgée.");
 
 		const rows = await ctx.db.query("exercises").collect();

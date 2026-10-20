@@ -4,7 +4,7 @@ import { api } from '../../../convex/_generated/api.js';
 import { SESSION_COOKIE, requireRole } from '$lib/server/session';
 
 /**
- * Page cliente « Ressources » : uniquement les entrées du Dossier que la coach
+ * Page cliente « Ressources » : uniquement les entrées du Dossier que le coach
  * a explicitement partagées (visibility = shared). Les notes / documents privés
  * du coach ne quittent jamais le serveur. Lecture seule : la cliente ne peut ni
  * modifier, ni supprimer, ni changer la visibilité.

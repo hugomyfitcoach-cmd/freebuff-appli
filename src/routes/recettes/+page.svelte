@@ -7,7 +7,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 
 	let { data } = $props();
-	/** Client connecté (les recettes sont aussi visibles par la coach, sans « Mes repas »). */
+	/** Client connecté (les recettes sont aussi visibles par le coach, sans « Mes repas »). */
 	const isClient = $derived(data.user.role === 'client');
 
 	/* ————— Ajouter une recette à « Mes repas » (journal) ————— */

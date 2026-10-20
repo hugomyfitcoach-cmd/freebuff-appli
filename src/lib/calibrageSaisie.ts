@@ -54,7 +54,7 @@ const REQUIS: Record<ChampCalibrage, string> = {
 	deficitPct: 'Déficit requis.'
 };
 
-/** Champs numériques saisis (les valeurs peuvent être vidées par la coach). */
+/** Champs numériques saisis (les valeurs peuvent être vidées par le coach). */
 export type SaisiesCalibrage = Partial<Record<ChampCalibrage, number | null | undefined>>;
 
 /**

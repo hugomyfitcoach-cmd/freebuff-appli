@@ -190,7 +190,14 @@ test('Repère doré : même profil à 1 100 kcal → signal glucides < 100 g', (
 	assert.equal(macros.lipidesG, 37); // 30 % de 1 100 = 330 kcal → /9 = 36,67 → 37 g (grammes entiers)
 	assert.equal(macros.glucidesG, 90); // (1 100 − 408 − 333)/4 = 89,75 → 90
 	assert.equal(macros.glucidesSousSeuil, true);
-	assert.ok(macros.alerteGlucides?.includes('90'), 'le signal cite les glucides estimés');
+	/* Information NEUTRE imposée par la mission C2b-3 (plus d'alerte, texte
+	   fixe qui ne cite plus la valeur — le seuil reste 100 g). */
+	assert.equal(
+		macros.alerteGlucides,
+		"Glucides sous 100 g : surveiller l'énergie à l'entraînement et la récupération.",
+		'information glucides < 100 g'
+	);
+	assert.ok(macros.alerteGlucides?.includes('100'), 'le seuil est cité');
 });
 
 test('Macros : plancher de lipides 0,6 g/kg de POIDS et glucides jamais négatifs', () => {

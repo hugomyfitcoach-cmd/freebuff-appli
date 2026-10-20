@@ -14,7 +14,7 @@ import type { Id } from '../../../../convex/_generated/dataModel.js';
  * POST : « Appliquer à la fiche » — objectif + macros + date d'effet, écrits
  *        par le chemin existant des objectifs (clientGoals + clientGoalHistory)
  *        avec un instantané du calibrage. Jamais d'application automatique :
- *        seul ce POST écrit, et uniquement après confirmation de la coach.
+ *        seul ce POST écrit, et uniquement après confirmation du coach.
  */
 export const GET: RequestHandler = async (event) => {
 	await requireRole(event, 'coach');

@@ -284,7 +284,7 @@ test('PRÉ-REMPLISSAGE : objectif = objectif journalier moyen · maintenance = b
 	assert.ok(adminPage.includes('applyFat = r.macros.lipidesG;'), 'lipides = macros du jour type');
 });
 
-test('PRÉ-REMPLISSAGE : un champ ajusté par la coach affiche « modifié » et n’est jamais ré-écrasé', () => {
+test('PRÉ-REMPLISSAGE : un champ ajusté par le coach affiche « modifié » et n’est jamais ré-écrasé', () => {
 	/* Badge « modifié » sur les cinq champs (objectif, maintenance, macros). */
 	const badges = adminPage.match(/normal-case text-warn\">modifié<\/span>/g) ?? [];
 	assert.equal(badges.length, 5, 'cinq badges « modifié », un par champ ajustable');

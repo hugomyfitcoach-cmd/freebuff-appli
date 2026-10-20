@@ -44,7 +44,7 @@ const sport = await import(new URL('../src/convex/sportCatalog.ts', import.meta.
 const adminPage = readFileSync(join(root, 'src/routes/admin/+page.svelte'), 'utf8');
 const depensePage = readFileSync(join(root, 'src/routes/espace/depense-sportive/+page.svelte'), 'utf8');
 
-/* ── Profils de référence (dont 60,6 kg, demandé par la coach) ── */
+/* ── Profils de référence (dont 60,6 kg, demandé par le coach) ── */
 
 const PROFILS = [
 	{

@@ -26,7 +26,7 @@ export const load: PageServerLoad = async (event) => {
 			.catch(() => {});
 	}
 	// Un brouillon (retour non publié) ne doit jamais quitter le serveur : on
-	// retire le texte tant que le statut n'est pas « retour_envoye ». La coach
+	// retire le texte tant que le statut n'est pas « retour_envoye ». Le coach
 	// peut donc rédiger librement sans que rien ne filtre côté cliente.
 	const safe = checkins.map((c) => {
 		if (c.status === 'retour_envoye') return c;

@@ -62,7 +62,7 @@ test('Emplacements recensés : avatar coach UNIQUEMENT via CoachAvatar', () => {
 test('Aucune initiale coach codée en dur hors du composant commun', () => {
 	// L'app cliente (espace) n'a AUCUN avatar coach parallèle : seul CoachAvatar
 	// décide photo / repli initiale. (CoachIdentity, en-tête du CRM, affiche la
-	// photo du coach elle-même — hors périmètre cliente.)
+	// photo du coach lui-même — hors périmètre cliente.)
 	let coachAvatarUsages = 0;
 	for (const f of svelteFiles('src/routes/espace')) {
 		const src = read(f);

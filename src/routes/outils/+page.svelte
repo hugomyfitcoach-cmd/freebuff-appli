@@ -298,7 +298,7 @@
 
 	/* Préremplissage automatique — données réelles du suivi (api.tools.calibrage,
 	   LECTURE SEULE : ces outils ne modifient jamais les objectifs cliente).
-	   - Repères (maintenance / objectif / pas) : valeurs définies par la coach ;
+	   - Repères (maintenance / objectif / pas) : valeurs définies par le coach ;
 	   - Kcal mangées & pas : Journal et pas réels de chaque journée — une
 	     journée sans donnée reste VIDE (jamais comptée comme 0) ;
 	   - Semaines passées : les repères du moment sont FIGÉS à la première

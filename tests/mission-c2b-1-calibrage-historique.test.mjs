@@ -122,7 +122,7 @@ function makeCtx() {
 
 const TOKEN = 'session-c2b-1';
 
-/** Cliente rattachée à la coach A + session de la coach A. */
+/** Cliente rattachée au coach A + session du coach A. */
 async function ctxAvecCoach() {
 	const ctx = makeCtx();
 	const coachId = await ctx.db.insert('users', { role: 'coach', disabled: false, name: 'Coach A' });
@@ -324,7 +324,7 @@ test('ACCÈS : une cliente est refusée — aucune donnée renvoyée', async () 
 	);
 });
 
-test('ACCÈS : un AUTRE coach est refusé — historique de la coach de la cliente seulement', async () => {
+test('ACCÈS : un AUTRE coach est refusé — historique du coach de la cliente seulement', async () => {
 	const { ctx, userId } = await ctxAvecCoach();
 	const autreCoach = await ctx.db.insert('users', { role: 'coach', disabled: false, name: 'Coach B' });
 	await ctx.db.insert('sessions', {
@@ -336,15 +336,15 @@ test('ACCÈS : un AUTRE coach est refusé — historique de la coach de la clien
 		() => calibConvex.historique._handler(ctx, { sessionToken: 'session-coach-b', userId }),
 		(e) => e instanceof ConvexError && /coach de cette cliente|réservé/i.test(e.message)
 	);
-	/* La coach de la cliente, elle, a bien accès. */
+	/* Le coach de la cliente, lui, a bien accès. */
 	const lignes = await calibConvex.historique._handler(ctx, { sessionToken: TOKEN, userId });
-	assert.deepEqual(lignes, [], 'la coach de la cliente lit l’historique');
+	assert.deepEqual(lignes, [], 'le coach de la cliente lit l’historique');
 });
 
 test('ACCÈS : autorisation vérifiée côté serveur (query + route API requireRole)', () => {
 	assert.ok(calibrageConvex.includes('target.createdBy !== coach._id'), 'contrôle du rattachement coach → cliente');
 	assert.ok(calibrageConvex.includes('Accès réservé au coach de cette cliente.'), 'refus explicite');
-	assert.ok(histoRoute.includes("await requireRole(event, 'coach')"), 'route API réservée à la coach');
+	assert.ok(histoRoute.includes("await requireRole(event, 'coach')"), 'route API réservée au coach');
 	assert.ok(histoRoute.includes('api.calibrage.historique'), 'la route réutilise la query serveur');
 	assert.ok(histoRoute.includes('sessionToken: token'), 'la session est vérifiée côté Convex');
 });

@@ -368,16 +368,16 @@ export default defineSchema({
 		.index("by_user", ["userId"])
 		.index("by_group", ["mealGroup"]),
 
-	/** Objectifs journaliers d'un client (définis par la coach dans le CRM). */
+	/** Objectifs journaliers d'un client (définis par le coach dans le CRM). */
 	clientGoals: defineTable({
 		userId: v.id("users"),
 		kcal: v.number(),
 		carbs: v.number(),
 		protein: v.number(),
 		fat: v.number(),
-		/** Maintenance calorique (filet de sécurité) — saisie manuelle par la coach, optionnelle. */
+		/** Maintenance calorique (filet de sécurité) — saisie manuelle par le coach, optionnelle. */
 		maintenanceKcal: v.optional(v.number()),
-		/** Objectif quotidien de pas — saisi manuellement par la coach, optionnel (ex. 10 000). */
+		/** Objectif quotidien de pas — saisi manuellement par le coach, optionnel (ex. 10 000). */
 		stepGoal: v.optional(v.number()),
 	}).index("by_userId", ["userId"]),
 
@@ -390,7 +390,7 @@ export default defineSchema({
 	 * Règle de lecture : pour une date D, l'objectif applicable = la ligne avec
 	 * la plus grande `effectiveFrom` ≤ D (une seule définition, partagée
 	 * Journal / Vision 360 / garde-fou 60 %). Clé d'unicité fonctionnelle :
-	 * (userId, effectiveFrom) — la ligne est REPLACÉE si la coach modifie
+	 * (userId, effectiveFrom) — la ligne est REPLACÉE si le coach modifie
 	 * plusieurs fois l'objectif le même jour (pas de valeurs concurrentes).
 	 *
 	 * RÉTROCOMPATIBILITÉ : `clientGoals.kcal` reste la source de vérité de
@@ -578,12 +578,12 @@ export default defineSchema({
 
 	/* ═══ Suivi corporel (progression) ═══ */
 
-	/* ═══ Photos de suivi (envoyées par le client, visibles par la coach) ═══ */
+	/* ═══ Photos de suivi (envoyées par le client, visibles par le coach) ═══ */
 
 	/**
 	 * Une série de photos de suivi envoyée par un client à un moment donné
 	 * (démarrage, mois 1…6). Les images sont stockées dans le file storage
-	 * Convex (jamais accessibles au client après envoi) ; la coach les voit
+	 * Convex (jamais accessibles au client après envoi) ; le coach les voit
 	 * dans le CRM. Chaque série est conservée définitivement.
 	 */
 	progressPhotos: defineTable({
@@ -627,7 +627,7 @@ export default defineSchema({
 	/* ═══ Médias coach → cliente (retours audio, pièces jointes, message audio) ═══ */
 
 	/**
-	 * Fichiers envoyés par la coach à une cliente. Les gros fichiers (audio,
+	 * Fichiers envoyés par le coach à une cliente. Les gros fichiers (audio,
 	 * images optimisées, PDF) vivent dans le file storage Convex — cette table
 	 * ne conserve que les métadonnées + le cycle de vie (brouillon → publié →
 	 * expiré). Un brouillon n'est jamais visible côté cliente.
@@ -785,7 +785,7 @@ export default defineSchema({
 	/* ═══ Plans de repas coach + planification (client & coach) ═══ */
 
 	/**
-	 * TEMPLATE de plan de repas créé par la coach (bibliothèque globale CRM).
+	 * TEMPLATE de plan de repas créé par le coach (bibliothèque globale CRM).
 	 * Un template est indépendant des clientes : le même plan peut être assigné
 	 * à plusieurs clientes sans copie par cliente. Une seule journée type —
 	 * la répétition est faite par l'assignation (dates + jours concernés).
@@ -830,7 +830,7 @@ export default defineSchema({
 	/**
 	 * Assignation d'un plan à une cliente : période + jours concernés.
 	 * Actif pour une date D ssi start ≤ D ≤ end ET weekday(D) ∈ weekdays ET
-	 * removedAt est vide (retrait par la coach). Retirer n'efface jamais les
+	 * removedAt est vide (retrait par le coach). Retirer n'efface jamais les
 	 * données passées : les overrides et consommations restent intacts.
 	 */
 	mealPlanAssignments: defineTable({
@@ -843,7 +843,7 @@ export default defineSchema({
 		endDate: v.string(),
 		/** Jours de semaine concernés : [1..7] = lundi..dimanche (tous par défaut). */
 		weekdays: v.optional(v.array(v.number())),
-		/** Retrait par la coach (ms) — l'historique consommé reste intact. */
+		/** Retrait par le coach (ms) — l'historique consommé reste intact. */
 		removedAt: v.optional(v.number()),
 		createdAt: v.number(),
 	})
@@ -919,7 +919,7 @@ export default defineSchema({
 	}).index("by_coach", ["coachId"]),
 
 	/**
-	 * Système de rendez-vous — disponibilités de la coach (créneaux par jour
+	 * Système de rendez-vous — disponibilités du coach (créneaux par jour
 	 * de semaine). Le module de gestion vit dans le système de rendez-vous ;
 	 * la déclaration ici préserve la table et ses données existantes.
 	 */
@@ -931,18 +931,18 @@ export default defineSchema({
 	}).index("by_coach", ["coachId"]),
 
 	/**
-	 * Système de rendez-vous — rendez-vous entre la coach et une cliente.
+	 * Système de rendez-vous — rendez-vous entre le coach et une cliente.
 	 * Statuts : `on_book` (confirmé, événement Google créé) / `client_request`
 	 * (statut historique conservé pour les anciennes données — plus créé) /
 	 * `cancelled` (annulé, historique conservé).
 	 * `bookedBy` + `bookingSource` portent l'origine : coach ou cliente.
 	 * L'origine n'est JAMAIS un droit : une cliente peut replanifier un RDV
-	 * créé par elle ou par la coach (`lastModifiedBy` trace le dernier geste).
+	 * créé par elle ou par le coach (`lastModifiedBy` trace le dernier geste).
 	 */
 	appointments: defineTable({
 		coachId: v.id("users"),
 		clientId: v.id("users"),
-		/** Date "yyyy-mm-dd" (fuseau de la coach, Europe/Paris). */
+		/** Date "yyyy-mm-dd" (fuseau du coach, Europe/Paris). */
 		date: v.string(),
 		/** Heure de début "HH:mm". */
 		time: v.string(),
@@ -951,9 +951,9 @@ export default defineSchema({
 		/** Type de rendez-vous ("Suivi" 15 min, "Démarrage" 60 min ; anciens types conservés). */
 		kind: v.string(),
 		/**
-		 * Lien de visio du rendez-vous (optionnel, éditable par la coach).
+		 * Lien de visio du rendez-vous (optionnel, éditable par le coach).
 		 * Prérempli côté CRM quand le type est « Démarrage » (Meet par défaut),
-		 * mais JAMAIS imposé : la coach peut le modifier ou le vider. Affiché
+		 * mais JAMAIS imposé : le coach peut le modifier ou le vider. Affiché
 		 * côté cliente comme bouton « Rejoindre la visio » quand présent.
 		 */
 		meetingUrl: v.optional(v.string()),
@@ -1047,7 +1047,7 @@ export default defineSchema({
 	 * concernée doit être rafraîchie automatiquement (ex. plan de repas assigné
 	 * → propositions du Journal). Le poller relit les lignes créées depuis son
 	 * dernier check (?since=) et invalide la donnée concernée — aucune action
-	 * de la coach ne dépend plus d'une navigation. Purge : 7 jours (tick CRM).
+	 * du coach ne dépend plus d'une navigation. Purge : 7 jours (tick CRM).
 	 */
 	clientEvents: defineTable({
 		/** Cliente destinataire. */
@@ -1111,7 +1111,7 @@ export default defineSchema({
 	 * Deux familles coexistent :
 	 *  - `system: true`  → bibliothèque système (imports + futur dataset
 	 *    commercial) — l'import met à jour, ne supprime JAMAIS ;
-	 *  - `system: false` → exercices créés par la coach (`coachId`), sans
+	 *  - `system: false` → exercices créés par le coach (`coachId`), sans
 	 *    aucune source externe (`source: "gflux"`), jamais touchés par un
 	 *    import.
 	 *
@@ -1132,7 +1132,7 @@ export default defineSchema({
 		/** Identifiant G-FLUX portatif ("ex_" + hex déterministe) — stable même
 		 *  si la source externe change, référencé par les futurs programmes. */
 		gfluxExerciseId: v.string(),
-		/** Nom d'affichage G-FLUX (éditable par la coach, survit aux imports). */
+		/** Nom d'affichage G-FLUX (éditable par le coach, survit aux imports). */
 		name: v.string(),
 		/** Nom original dans la source externe (traçabilité, si renommé). */
 		sourceName: v.optional(v.string()),
@@ -1190,7 +1190,7 @@ export default defineSchema({
 		licenseNote: v.optional(v.string()),
 		/** Actif (prêt à être proposé) — l'import ne le touche jamais. */
 		active: v.boolean(),
-		/** Masqué manuellement par la coach — préservé par les imports. */
+		/** Masqué manuellement par le coach — préservé par les imports. */
 		hidden: v.optional(v.boolean()),
 		/** Bibliothèque système (imports) vs exercice personnalisé coach. */
 		system: v.boolean(),
@@ -1211,7 +1211,7 @@ export default defineSchema({
 	/* ═══ Module Entraînement — programmes, séances, prescription ═══ */
 
 	/**
-	 * PROGRAMME d'entraînement créé par la coach (CRM). Indépendant des
+	 * PROGRAMME d'entraînement créé par le coach (CRM). Indépendant des
 	 * clientes (l'assignation sera une table séparée, mission future) —
 	 * un même programme réutilisable plusieurs fois, comme les plans de
 	 * repas. Objectif et niveau : vocabulaire fermé FR affiché tel quel.
@@ -1335,7 +1335,7 @@ export default defineSchema({
 		endDate: v.string(),
 		/** Jours de semaine des séances : [1..7] = lundi..dimanche. */
 		weekdays: v.array(v.number()),
-		/** Retrait par la coach (ms) — l'historique réalisé reste intact. */
+		/** Retrait par le coach (ms) — l'historique réalisé reste intact. */
 		removedAt: v.optional(v.number()),
 		createdAt: v.number(),
 	})

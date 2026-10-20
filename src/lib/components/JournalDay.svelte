@@ -183,7 +183,7 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 		closeQtyEdit();
 	}
 	/** − / + (comportement inchangé) : l'incrément part de la valeur validée
-	 *  à l'instant (blur) si la coach vient de saisir un montant, sinon de la
+	 *  à l'instant (blur) si le coach vient de saisir un montant, sinon de la
 	 *  valeur affichée — jamais d'une prop en retard sur le serveur. */
 	function bumpQty(e: Entry, delta: number) {
 		const base = qtyCommitted && qtyCommitted.id === e._id ? qtyCommitted.val : e.qtyGrams;

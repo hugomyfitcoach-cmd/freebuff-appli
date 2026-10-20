@@ -74,7 +74,7 @@ export function hasChangeWithin(history: GoalHistoryRow[], startISO: string, end
  * Fusionne l'objectif "actuel" dans l'historique de lecture : si la dernière
  * ligne d'historique ne couvre pas l'objectif courant (`clientGoals.kcal`),
  * l'objectif actuel s'applique à partir d'aujourd'hui (sans créer de ligne) —
- * couvre le cas où la coach a modifié les macros sans toucher aux kcal, ou un
+ * couvre le cas où le coach a modifié les macros sans toucher aux kcal, ou un
  * objectif posé avant la mise en place de l'historisation.
  */
 export function withCurrentGoal(
