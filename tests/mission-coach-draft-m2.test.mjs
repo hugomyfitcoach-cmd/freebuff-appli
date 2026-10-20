@@ -19,6 +19,7 @@ import { dirname, join } from 'node:path';
 
 import { loadContext, photoAiVision } from '../src/convex/coachDraft.ts';
 import { COACH_DRAFT_METHOD_REFERENCE } from '../src/convex/ai/methodeGflux.ts';
+import { renderMethodModule } from '../scripts/gen-methode-gflux.mjs';
 import { hashToken, addDaysISO, localTodayISO } from '../src/convex/helpers.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -456,6 +457,21 @@ test('La copie serveur de la méthode est identique octet à octet à docs/metho
 	const editorial = readFileSync(join(root, 'docs/methode-gflux.md'), 'utf8');
 	assert.equal(COACH_DRAFT_METHOD_REFERENCE, editorial);
 	assert.ok(editorial.includes('depuis 15 jours'), 'règle des 15 jours présente dans la méthode');
+});
+
+test('methodReference.ts est exactement ce que produit le générateur — le .md reste la seule source', () => {
+	const markdown = read('docs/methode-gflux.md');
+	const expected = renderMethodModule(markdown);
+	const module_ = read('src/convex/ai/methodeGflux.ts');
+	assert.equal(
+		module_,
+		expected,
+		'le module diverge du générateur : relancer scripts/gen-methode-gflux.mjs et n’éditer que le .md'
+	);
+	assert.ok(module_.includes('FICHIER GÉNÉRÉ, NE PAS ÉDITER'), 'en-tête de génération présent');
+	assert.ok(!markdown.includes('FICHIER GÉNÉRÉ'), 'le .md est la source, jamais un fichier généré');
+	const pkg = JSON.parse(read('package.json'));
+	assert.ok(pkg.scripts.build.includes('gen-methode-gflux'), 'le générateur tourne à chaque build');
 });
 
 test('La méthode ne voyage qu’avec les fonctions Convex — jamais dans le bundle navigateur', () => {

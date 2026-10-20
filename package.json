@@ -7,7 +7,7 @@
 		"dev": "convex dev --start \"npm run dev:web\"",
 		"dev:web": "vite dev",
 		"dev:convex": "convex dev",
-		"build": "node scripts/build-preview.mjs && vite build",
+		"build": "node scripts/gen-methode-gflux.mjs && node scripts/build-preview.mjs && vite build",
 		"deploy": "node scripts/deploy.mjs",
 		"ux": "node scripts/ux-mission.mjs",
 		"setup:coach": "node scripts/setup-coach.mjs",
