@@ -144,6 +144,32 @@
 		}
 	}
 
+	/* ── Vérification du contexte (M2) — COACH UNIQUEMENT, lecture seule. ──
+	   Le lien discret ouvre le contexte ASSEMBLÉ qui part dans le prompt
+	   (route BFF coach → query Convex coach + appartenance). Jamais côté
+	   cliente : la vue cliente n’appelle ni cette route ni cette query. */
+	let contextOpen = $state(false);
+	let contextLoading = $state(false);
+	let contextError = $state('');
+	let contextData = $state<unknown>(null);
+
+	async function toggleContext() {
+		contextOpen = !contextOpen;
+		if (!contextOpen || contextData !== null) return;
+		contextLoading = true;
+		contextError = '';
+		try {
+			const res = await fetch(`/api/coach/draft/context?checkinId=${encodeURIComponent(checkin._id)}`);
+			const data = (await res.json().catch(() => ({}))) as { context?: unknown };
+			if (!res.ok || !data.context) throw new Error('context-failed');
+			contextData = data.context;
+		} catch {
+			contextError = 'Les données du bilan n’ont pas pu être chargées.';
+		} finally {
+			contextLoading = false;
+		}
+	}
+
 	async function copyRecap() {
 		try {
 			await navigator.clipboard.writeText(recap);
@@ -220,6 +246,25 @@
 		{#if draftError}
 			<p class="mb-2 rounded-lg border border-warn/40 bg-warn-light/60 px-3 py-1.5 text-xs font-semibold text-warn">{draftError}</p>
 		{/if}
+		<!-- Lien discret de vérification (M2) — contexte assemblé pour l’assistant. -->
+		<div class="mb-2">
+			<button
+				type="button"
+				onclick={toggleContext}
+				class="text-[11px] font-medium text-mist underline decoration-dotted underline-offset-2 transition hover:text-ink"
+			>
+				{contextOpen ? 'Masquer les données envoyées à l’assistant' : 'Voir les données envoyées à l’assistant'}
+			</button>
+			{#if contextOpen}
+				{#if contextLoading}
+					<p class="mt-2 text-xs text-mist">Chargement des données…</p>
+				{:else if contextError}
+					<p class="mt-2 rounded-lg border border-warn/40 bg-warn-light/60 px-3 py-1.5 text-xs font-semibold text-warn">{contextError}</p>
+				{:else if contextData !== null}
+					<pre class="mt-2 max-h-72 overflow-auto rounded-xl border border-line bg-white px-3 py-2 text-[11px] leading-relaxed text-ink">{JSON.stringify(contextData, null, 2)}</pre>
+				{/if}
+			{/if}
+		</div>
 		<textarea
 			bind:this={feedbackEl}
 			name="feedback"

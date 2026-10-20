@@ -21,6 +21,16 @@
  * n'écrit RIEN : elle lit le contexte, construit le prompt, appelle le
  * fournisseur générique et renvoie le texte seul. Aucun événement cliente,
  * aucun push, aucun badge — seuls `coach.setFeedback` écrivent un retour.
+ *
+ * M2 complète le contexte : part des repas estimés par photo IA (marqueur
+ * « analyse:… » du journal), jours renseignés sur 7, phase du cycle si elle
+ * est renseignée, dernier appel et prochain rendez-vous (appointments) pour
+ * la règle « proposer un rendez-vous si aucun appel depuis 15 jours », et
+ * formule de la cliente (coaching ou autonomie). Le référentiel de méthode
+ * (`src/convex/ai/methodeGflux.ts`, copie serveur de docs/methode-gflux.md)
+ * n'entre que dans le prompt — jamais dans une réponse de query. M2 ajoute
+ * `contextPreview` (query coach, via loadContext) : le contexte assemblé du
+ * lien discret « Voir les données envoyées à l'assistant », réservé au CRM.
  */
 import { action, internalQuery, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
@@ -29,9 +39,10 @@ import type { QueryCtx } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { generateText, isAiFeatureDisabled } from "./ai/provider";
 import { COACH_DRAFT_STYLE_GUIDE } from "../lib/data/coachDraftStyleGuide";
-import { COACH_DRAFT_METHOD_REFERENCE } from "../lib/data/methodeGflux";
-import { addDaysISO, getSessionUser, localTodayISO } from "./helpers";
+import { COACH_DRAFT_METHOD_REFERENCE } from "./ai/methodeGflux";
+import { addDaysISO, daysBetweenISO, getSessionUser, localTodayISO } from "./helpers";
 import { DEFAULT_GOALS } from "./journal";
+import { cycleState } from "../lib/cycle";
 import { kcalGoalForDate, withCurrentGoal, type GoalHistoryRow } from "../lib/goalHistory";
 import {
 	exploitabilityThresholdKcal,
@@ -45,7 +56,10 @@ import {
 } from "../lib/vision360";
 import {
 	buildCoachDraftPrompt,
+	type CoachDraftAppointments,
 	type CoachDraftContext,
+	type CoachDraftCycle,
+	type CoachDraftPhotoAi,
 	type CoachDraftWeekStats,
 } from "./coachDraftPrompt";
 
@@ -132,6 +146,7 @@ function buildWeekStats(args: {
 	const weight = weightVision(args.weightRows, days);
 	const steps = stepsAverages(args.stepsRows, days);
 	const sport = sportVision(args.sportRows, days);
+	const photoAi = photoAiVision(args.entries, days);
 
 	return {
 		start,
@@ -146,6 +161,7 @@ function buildWeekStats(args: {
 			exploitableDays: food.breakdown.exploitableDays,
 			partialDays: food.breakdown.partialDays,
 			absentDays: food.breakdown.absentDays,
+			daysWithData: food.breakdown.daysWithData,
 		},
 		weight: {
 			avg: weight.avg,
@@ -165,6 +181,7 @@ function buildWeekStats(args: {
 			kcal: sport.kcal,
 			metMinutes: sport.metMinutes,
 		},
+		photoAi,
 	};
 }
 
@@ -172,6 +189,104 @@ function deltaOf(a: number | null, b: number | null, digits: number): number | n
 	if (a === null || b === null) return null;
 	const factor = 10 ** digits;
 	return Math.round((a - b) * factor) / factor;
+}
+
+/* ───────── Faits calculés : photo IA, cycle, rendez-vous (M2) ───────── */
+
+/** Marqueur journal d'un repas estimé par photo IA (une photo = un groupe). */
+const PHOTO_AI_GROUP_PREFIX = "analyse:";
+
+/** Heure locale "HH:mm" de l'instant courant dans le fuseau de l'app (Paris). */
+const PARIS_HHMM_FMT = new Intl.DateTimeFormat("en-GB", {
+	timeZone: "Europe/Paris",
+	hour: "2-digit",
+	minute: "2-digit",
+	hourCycle: "h23",
+});
+
+function parisHHMM(now: Date): string {
+	return PARIS_HHMM_FMT.format(now);
+}
+
+/**
+ * PART DES REPAS ESTIMÉS PAR PHOTO IA — 100 % calculée par le code.
+ *
+ * Le journal regroupe les composants d'une photo analysée sous une clé
+ * « analyse:… » (repas estimé par photo IA) ; les autres entrées sont des
+ * saisies manuelles, même ajoutées à un repas mixte.
+ *  - part principale : kcal des groupes « analyse:… » ÷ kcal totales de la
+ *    fenêtre, arrondie en % — null si le total est nul (« non disponible ») ;
+ *  - lisibilité : repas (date + repas) contenant au moins une analyse photo,
+ *    sur le nombre de repas renseignés.
+ */
+export function photoAiVision(entries: Doc<"diaryEntries">[], days: string[]): CoachDraftPhotoAi {
+	const daySet = new Set(days);
+	let aiKcal = 0;
+	let totalKcal = 0;
+	const mealsLogged = new Set<string>();
+	const mealsWithAi = new Set<string>();
+	for (const entry of entries) {
+		if (!daySet.has(entry.date)) continue;
+		totalKcal += entry.kcal;
+		const key = `${entry.date}|${entry.meal}`;
+		mealsLogged.add(key);
+		if (typeof entry.mealGroup === "string" && entry.mealGroup.startsWith(PHOTO_AI_GROUP_PREFIX)) {
+			aiKcal += entry.kcal;
+			mealsWithAi.add(key);
+		}
+	}
+	return {
+		kcalSharePct: totalKcal > 0 ? Math.round((aiKcal / totalKcal) * 100) : null,
+		aiKcal: Math.round(aiKcal),
+		totalKcal: Math.round(totalKcal),
+		mealsWithAi: mealsWithAi.size,
+		mealsLogged: mealsLogged.size,
+	};
+}
+
+/**
+ * DERNIER APPEL ET PROCHAIN RENDEZ-VOUS — pour la règle de la méthode §2
+ * (« proposer un rendez-vous si aucun appel depuis 15 jours et perte au
+ * ralenti »). Tous les rendez-vous non annulés sont des appels ; le nombre
+ * de jours écoulés est calculé ici pour que l'assistant n'ait jamais à
+ * comparer des dates ni à compter.
+ */
+export function appointmentFacts(
+	rows: { date: string; time: string; status: string }[],
+	todayISO: string,
+	nowHHMM: string
+): CoachDraftAppointments {
+	const startOf = (row: { date: string; time: string }) => `${row.date}T${row.time}`;
+	const nowStamp = `${todayISO}T${nowHHMM}`;
+	const booked = rows
+		.filter((row) => row.status !== "cancelled")
+		.slice()
+		.sort((a, b) => startOf(a).localeCompare(startOf(b)));
+	const past = booked.filter((row) => startOf(row) < nowStamp);
+	const upcoming = booked.filter((row) => startOf(row) >= nowStamp);
+	const last = past.length > 0 ? past[past.length - 1] : null;
+	const next = upcoming.length > 0 ? upcoming[0] : null;
+	return {
+		lastCallDate: last ? last.date : null,
+		daysSinceLastCall: last ? Math.max(0, daysBetweenISO(todayISO, last.date)) : null,
+		nextAppointmentDate: next ? next.date : null,
+	};
+}
+
+/**
+ * PHASE DU CYCLE — uniquement si la cliente a renseigné son suivi de cycle
+ * (`users.cycle`). La formule existante (`lib/cycle`) est réutilisée telle
+ * quelle : aucune phase n'est jamais inventée (hormonal / irrégulier =
+ * renseigné sans phase estimable).
+ */
+export function cycleFacts(cycle: UserRow["cycle"], nowMs: number): CoachDraftCycle | null {
+	if (!cycle) return null;
+	const state = cycleState(cycle, new Date(nowMs));
+	if (state.kind === "tracked") {
+		return { kind: "tracked", phaseLabel: state.label, cycleDay: state.cycleDay };
+	}
+	if (state.kind === "empty") return null;
+	return { kind: state.kind, phaseLabel: null, cycleDay: null };
 }
 
 /**
@@ -185,12 +300,18 @@ export const loadContext = internalQuery({
 		checkinId: v.id("checkins"),
 	},
 	handler: async (ctx, { sessionToken, checkinId }): Promise<CoachDraftContext> => {
-		await requireCoach(ctx, sessionToken);
+		const coach = await requireCoach(ctx, sessionToken);
 
 		const checkin: CheckinRow | null = await ctx.db.get(checkinId);
 		if (!checkin) throw new ConvexError("Bilan introuvable.");
 		const target = await ctx.db.get(checkin.userId);
 		if (!target || target.role !== "client") throw new ConvexError("Cliente introuvable.");
+		// APPARTENANCE : chaque coach n'accède qu'à SES clientes
+		// (`users.createdBy`, même contrat que les rendez-vous) — un autre
+		// coach est refusé même avec l'identifiant du bilan en main.
+		if (!target.createdBy || target.createdBy !== coach._id) {
+			throw new ConvexError("Accès refusé.");
+		}
 
 		// Fenêtres CALENDAIRES : semaine du bilan (lundi → dimanche) et les 7
 		// journées immédiatement précédentes. `last7CompletedDays(J)` renvoie
@@ -200,7 +321,8 @@ export const loadContext = internalQuery({
 		const weekEnd = weekDays[weekDays.length - 1];
 		const previousStart = previousDays[0];
 
-		const [goalsRow, goalHistory, entries, stepsRows, metrics, sportRows, allCheckins] = await Promise.all([
+		const [goalsRow, goalHistory, entries, stepsRows, metrics, sportRows, allCheckins, appointmentRows] =
+			await Promise.all([
 			ctx.db.query("clientGoals").withIndex("by_userId", (q) => q.eq("userId", target._id)).first(),
 			ctx.db
 				.query("clientGoalHistory")
@@ -234,7 +356,11 @@ export const loadContext = internalQuery({
 				.withIndex("by_user_week", (q) => q.eq("userId", target._id))
 				.order("desc")
 				.collect(),
-		]);
+			ctx.db
+				.query("appointments")
+				.withIndex("by_client", (q) => q.eq("clientId", target._id))
+				.collect(),
+			]);
 
 		const currentKcalGoal = goalsRow?.kcal ?? DEFAULT_GOALS.kcal;
 		const proteinGoal = goalsRow?.protein ?? DEFAULT_GOALS.protein;
@@ -308,6 +434,8 @@ export const loadContext = internalQuery({
 		if (answers.point_retour) answers.point_retour = redactFeedback(answers.point_retour, target);
 		if (answers.victoire) answers.victoire = redactFeedback(answers.victoire, target);
 
+		const now = new Date();
+
 		return {
 			prenom: target.prenom,
 			weekStart: checkin.weekStart,
@@ -318,6 +446,9 @@ export const loadContext = internalQuery({
 				protein: proteinGoal,
 				stepGoal,
 			},
+			formule: target.coachingMode === "autonomy" ? "autonomie" : "coaching",
+			cycle: cycleFacts(target.cycle, now.getTime()),
+			appointments: appointmentFacts(appointmentRows, localTodayISO(now), parisHHMM(now)),
 			stats: {
 				week,
 				previousWeek,
@@ -421,5 +552,31 @@ export const generate = action({
 		// persisté : sans clic sur « Sauvegarder » ou « Publier », il n'existe
 		// que dans le navigateur de Hugo.
 		return text;
+	},
+});
+
+/* ═══════════════════════ M2 — CONTEXTE VISIBLE CÔTÉ COACH ═══════════════════════ */
+
+/**
+ * CONTEXTE ASSEMBLÉ POUR VÉRIFICATION — query coach, LECTURE SEULE.
+ *
+ * Sert le lien discret « Voir les données envoyées à l'assistant » de la
+ * carte du bilan (CRM uniquement — la vue cliente n'appelle ni cette query
+ * ni la route BFF associée). Renvoie EXACTEMENT le contexte assemblé par
+ * `loadContext` : mêmes gardes (coach + appartenance), mêmes chiffres
+ * calculés par le code. Le coach peut vérifier ce qui part dans le prompt
+ * avant de lancer une génération.
+ *
+ * Le référentiel de méthode n'en fait pas partie : il reste côté serveur et
+ * n'est injecté que dans le prompt de `generate`.
+ */
+export const contextPreview = query({
+	args: {
+		sessionToken: v.optional(v.string()),
+		checkinId: v.id("checkins"),
+	},
+	handler: async (ctx, { sessionToken, checkinId }): Promise<CoachDraftContext> => {
+		// Même query interne, aucune duplication du calcul ni de la lecture.
+		return await ctx.runQuery(internal.coachDraft.loadContext, { sessionToken, checkinId });
 	},
 });

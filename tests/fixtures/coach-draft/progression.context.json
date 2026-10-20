@@ -19,6 +19,9 @@
 		"victoire": "Quatre séances terminées sans sauter le petit-déjeuner."
 	},
 	"goals": { "kcal": 1600, "protein": 110, "stepGoal": 10000 },
+	"formule": "coaching",
+	"cycle": { "kind": "tracked", "phaseLabel": "Phase folliculaire", "cycleDay": 12 },
+	"appointments": { "lastCallDate": "2026-09-30", "daysSinceLastCall": 15, "nextAppointmentDate": "2026-10-07" },
 	"stats": {
 		"week": {
 			"start": "2026-09-14",
@@ -40,7 +43,8 @@
 				"thresholdKcal": 960,
 				"exploitableDays": 6,
 				"partialDays": 1,
-				"absentDays": 0
+				"absentDays": 0,
+				"daysWithData": 7
 			},
 			"weight": {
 				"avg": 61.8,
@@ -50,7 +54,8 @@
 				"delta": -0.6
 			},
 			"steps": { "avg": 10400, "goal": 10000, "trackedDays": 7 },
-			"sport": { "activities": 4, "durationMin": 220, "kcal": 1350, "metMinutes": 1500 }
+			"sport": { "activities": 4, "durationMin": 220, "kcal": 1350, "metMinutes": 1500 },
+			"photoAi": { "kcalSharePct": 38, "aiKcal": 4190, "totalKcal": 11020, "mealsWithAi": 9, "mealsLogged": 24 }
 		},
 		"previousWeek": {
 			"start": "2026-09-07",
@@ -72,7 +77,8 @@
 				"thresholdKcal": 960,
 				"exploitableDays": 5,
 				"partialDays": 2,
-				"absentDays": 0
+				"absentDays": 0,
+				"daysWithData": 7
 			},
 			"weight": {
 				"avg": 62.3,
@@ -82,7 +88,8 @@
 				"delta": null
 			},
 			"steps": { "avg": 8700, "goal": 10000, "trackedDays": 6 },
-			"sport": { "activities": 2, "durationMin": 110, "kcal": 650, "metMinutes": 720 }
+			"sport": { "activities": 2, "durationMin": 110, "kcal": 650, "metMinutes": 720 },
+			"photoAi": { "kcalSharePct": 30, "aiKcal": 3200, "totalKcal": 10670, "mealsWithAi": 7, "mealsLogged": 23 }
 		},
 		"deltas": {
 			"kcalAvg": -130,

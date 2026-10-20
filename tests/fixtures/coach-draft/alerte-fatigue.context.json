@@ -20,6 +20,9 @@
 		"victoire": "Une marche de 20 minutes un soir."
 	},
 	"goals": { "kcal": 1700, "protein": 115, "stepGoal": 9000 },
+	"formule": "autonomie",
+	"cycle": { "kind": "hormonal", "phaseLabel": null, "cycleDay": null },
+	"appointments": { "lastCallDate": "2026-09-25", "daysSinceLastCall": 5, "nextAppointmentDate": "2026-10-12" },
 	"stats": {
 		"week": {
 			"start": "2026-09-14",
@@ -41,7 +44,8 @@
 				"thresholdKcal": 1020,
 				"exploitableDays": 3,
 				"partialDays": 2,
-				"absentDays": 2
+				"absentDays": 2,
+				"daysWithData": 5
 			},
 			"weight": {
 				"avg": 64.9,
@@ -51,7 +55,8 @@
 				"delta": 0.7
 			},
 			"steps": { "avg": 4200, "goal": 9000, "trackedDays": 3 },
-			"sport": { "activities": 5, "durationMin": 310, "kcal": 1900, "metMinutes": 2100 }
+			"sport": { "activities": 5, "durationMin": 310, "kcal": 1900, "metMinutes": 2100 },
+			"photoAi": { "kcalSharePct": null, "aiKcal": 0, "totalKcal": 0, "mealsWithAi": 0, "mealsLogged": 0 }
 		},
 		"previousWeek": {
 			"start": "2026-09-07",
@@ -73,7 +78,8 @@
 				"thresholdKcal": 1020,
 				"exploitableDays": 4,
 				"partialDays": 1,
-				"absentDays": 2
+				"absentDays": 2,
+				"daysWithData": 5
 			},
 			"weight": {
 				"avg": 64.5,
@@ -83,7 +89,8 @@
 				"delta": null
 			},
 			"steps": { "avg": 6800, "goal": 9000, "trackedDays": 5 },
-			"sport": { "activities": 2, "durationMin": 120, "kcal": 700, "metMinutes": 800 }
+			"sport": { "activities": 2, "durationMin": 120, "kcal": 700, "metMinutes": 800 },
+			"photoAi": { "kcalSharePct": 45, "aiKcal": 5100, "totalKcal": 11330, "mealsWithAi": 11, "mealsLogged": 24 }
 		},
 		"deltas": {
 			"kcalAvg": 50,

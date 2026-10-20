@@ -20,6 +20,9 @@
 		"victoire": "J'ai tenu mes repas du midi malgré le planning."
 	},
 	"goals": { "kcal": 1500, "protein": 105, "stepGoal": 8000 },
+	"formule": "coaching",
+	"cycle": null,
+	"appointments": { "lastCallDate": null, "daysSinceLastCall": null, "nextAppointmentDate": null },
 	"stats": {
 		"week": {
 			"start": "2026-09-07",
@@ -41,7 +44,8 @@
 				"thresholdKcal": 900,
 				"exploitableDays": 4,
 				"partialDays": 2,
-				"absentDays": 1
+				"absentDays": 1,
+				"daysWithData": 6
 			},
 			"weight": {
 				"avg": 68.4,
@@ -51,7 +55,8 @@
 				"delta": 0
 			},
 			"steps": { "avg": 7200, "goal": 8000, "trackedDays": 5 },
-			"sport": { "activities": 1, "durationMin": 45, "kcal": 250, "metMinutes": 300 }
+			"sport": { "activities": 1, "durationMin": 45, "kcal": 250, "metMinutes": 300 },
+			"photoAi": { "kcalSharePct": 62, "aiKcal": 7350, "totalKcal": 11850, "mealsWithAi": 15, "mealsLogged": 25 }
 		},
 		"previousWeek": {
 			"start": "2026-08-31",
@@ -73,7 +78,8 @@
 				"thresholdKcal": 900,
 				"exploitableDays": 4,
 				"partialDays": 1,
-				"absentDays": 2
+				"absentDays": 2,
+				"daysWithData": 5
 			},
 			"weight": {
 				"avg": 68.4,
@@ -83,7 +89,8 @@
 				"delta": null
 			},
 			"steps": { "avg": 7600, "goal": 8000, "trackedDays": 5 },
-			"sport": { "activities": 1, "durationMin": 50, "kcal": 280, "metMinutes": 300 }
+			"sport": { "activities": 1, "durationMin": 50, "kcal": 280, "metMinutes": 300 },
+			"photoAi": { "kcalSharePct": 58, "aiKcal": 6900, "totalKcal": 11900, "mealsWithAi": 14, "mealsLogged": 25 }
 		},
 		"deltas": {
 			"kcalAvg": 10,

@@ -12,7 +12,8 @@
  *
  * TROIS SOURCES, toujours injectées par l'appelant :
  *   1. guide de style (`COACH_DRAFT_STYLE_GUIDE` provisoire) ;
- *   2. référentiel de méthode (`methode-gflux.md` provisoire) ;
+ *   2. référentiel de méthode (`docs/methode-gflux.md`, fourni par Hugo,
+ *      copie serveur dans `src/convex/ai/methodeGflux.ts`) ;
  *   3. exemples (fichier sélectionné par Hugo + historique de la même cliente).
  */
 import type { MensurationCompare } from "../lib/vision360";
@@ -69,6 +70,8 @@ export type CoachDraftWeekStats = {
 		partialDays: number;
 		/** Jours sans aucune donnée (≠ journée partielle). */
 		absentDays: number;
+		/** Jours renseignés sur 7 (au moins une saisie = exploitables + partiels). */
+		daysWithData: number;
 	};
 	weight: {
 		avg: number | null;
@@ -89,6 +92,53 @@ export type CoachDraftWeekStats = {
 		kcal: number;
 		metMinutes: number;
 	};
+	/** Part des repas estimés par photo IA sur la fenêtre (marqueur « analyse:… »). */
+	photoAi: CoachDraftPhotoAi;
+};
+
+/**
+ * PART DES REPAS ESTIMÉS PAR PHOTO IA — marqueur déjà présent dans le journal
+ * (groupe d'entrées « analyse:… », une photo analysée = un repas estimé).
+ *
+ * Part principale : somme des kcal des entrées issues d'une analyse photo ÷
+ * total des kcal saisies sur la fenêtre, arrondie en % (null si le total est
+ * nul — « non disponible », jamais un 0 inventé). Les ajouts manuels d'un
+ * repas mixte comptent comme non-IA.
+ */
+export type CoachDraftPhotoAi = {
+	/** 0–100, entier — null = aucune calorie saisie (part non disponible). */
+	kcalSharePct: number | null;
+	/** kcal issues des analyses photo IA. */
+	aiKcal: number;
+	/** kcal totales saisies sur la fenêtre. */
+	totalKcal: number;
+	/** Repas (date + repas) contenant au moins une analyse photo. */
+	mealsWithAi: number;
+	/** Repas renseignés sur la fenêtre (date + repas avec au moins une entrée). */
+	mealsLogged: number;
+};
+
+/** Phase du cycle — uniquement si le suivi de cycle de la cliente est renseigné. */
+export type CoachDraftCycle = {
+	/** "tracked" = phase estimée ; "hormonal" / "nodate" = renseigné sans phase. */
+	kind: "tracked" | "hormonal" | "nodate";
+	phaseLabel: string | null;
+	/** Jour du cycle (calculé par le code) — null si aucune phase estimable. */
+	cycleDay: number | null;
+};
+
+/**
+ * RENDEZ-VOUS — faits bruts pour la règle de la méthode §2 « proposer un
+ * rendez-vous si aucun appel depuis 15 jours et perte au ralenti » (appliquée
+ * par l'assistant à partir de ces dates, jamais calculée par lui).
+ */
+export type CoachDraftAppointments = {
+	/** Date du dernier appel passé ("yyyy-mm-dd") — null si aucun. */
+	lastCallDate: string | null;
+	/** Jours écoulés depuis le dernier appel (calculés par le code). */
+	daysSinceLastCall: number | null;
+	/** Date du prochain rendez-vous réservé — null si aucun. */
+	nextAppointmentDate: string | null;
 };
 
 export type CoachDraftContext = {
@@ -102,6 +152,12 @@ export type CoachDraftContext = {
 		protein: number;
 		stepGoal: number | null;
 	};
+	/** Formule d'accompagnement de la cliente : "coaching" (défaut) ou "autonomie". */
+	formule: "coaching" | "autonomie";
+	/** Suivi de cycle — null si la cliente ne l'a pas renseigné. */
+	cycle: CoachDraftCycle | null;
+	/** Dernier appel et prochain rendez-vous réservé (appointments). */
+	appointments: CoachDraftAppointments;
 	stats: {
 		/** Semaine ciblée par le bilan (7 jours complets). */
 		week: CoachDraftWeekStats;
@@ -268,9 +324,22 @@ function formatFoodLines(stats: CoachDraftWeekStats, prefix: string): string[] {
 		? "moyenne indisponible (aucune journée exploitable)"
 		: `moyenne ${formatNumberTrimmed(food.proteinAvg, 1)} g`;
 	return [
-		`- ${prefix}Calories : ${calories} sur ${formatNumber(food.exploitableDays)} jour(s) exploitable(s) ; ${formatNumber(food.partialDays)} jour(s) partiel(s) exclu(s) ; ${formatNumber(food.absentDays)} jour(s) sans donnée ; objectif ${formatNumber(food.goalKcal)} kcal ; seuil ${formatNumber(food.thresholdKcal)} kcal`,
+		`- ${prefix}Calories : ${calories} sur ${formatNumber(food.exploitableDays)} jour(s) exploitable(s) ; ${formatNumber(food.partialDays)} jour(s) partiel(s) exclu(s) ; ${formatNumber(food.absentDays)} jour(s) sans donnée ; ${formatNumber(food.daysWithData)} jour(s) renseigné(s) sur 7 ; objectif ${formatNumber(food.goalKcal)} kcal ; seuil ${formatNumber(food.thresholdKcal)} kcal`,
 		`- ${prefix}Protéines : ${protein} sur les mêmes ${formatNumber(food.exploitableDays)} jour(s) exploitable(s) ; objectif ${formatNumber(food.goalProtein)} g`,
 	];
+}
+
+/** Part des repas estimés par photo IA — chiffres déjà calculés par le code. */
+function formatPhotoAiLine(photoAi: CoachDraftPhotoAi, prefix: string): string {
+	const share =
+		photoAi.kcalSharePct === null
+			? "part indisponible (aucune calorie saisie)"
+			: `${formatNumber(photoAi.kcalSharePct)} % des calories de la semaine`;
+	const meals =
+		photoAi.mealsLogged === 0
+			? "aucun repas renseigné"
+			: `${formatNumber(photoAi.mealsWithAi)} repas sur ${formatNumber(photoAi.mealsLogged)} repas renseignés`;
+	return `- ${prefix}Repas estimés par photo IA : ${share} ; ${meals}.`;
 }
 
 function formatWeightLine(stats: CoachDraftWeekStats, prefix: string, includeComparison: boolean): string {
@@ -322,6 +391,33 @@ function formatMensurations(mensurations: MensurationCompare | null): string[] {
 	return [
 		`- Mensurations : dernier relevé le ${formatDateFR(mensurations.date)} (${previous}) ; ${parts.length > 0 ? parts.join(" ; ") : "aucune mesure renseignée"}.`,
 	];
+}
+
+/** Suivi de cycle — uniquement s'il est renseigné (jamais de phase devinée). */
+function formatCycleLine(cycle: CoachDraftCycle | null): string {
+	if (cycle === null) return "- Suivi de cycle : non renseigné.";
+	if (cycle.kind === "tracked" && cycle.phaseLabel !== null) {
+		const day = cycle.cycleDay === null ? "" : `, jour ${formatNumber(cycle.cycleDay)} du cycle`;
+		return `- Suivi de cycle : ${cycle.phaseLabel} (estimation du suivi${day}).`;
+	}
+	return "- Suivi de cycle : renseigné, mais aucune phase estimable (contraception hormonale ou cycle irrégulier).";
+}
+
+/** Dernier appel et prochain rendez-vous — pour la règle des 15 jours (méthode §2). */
+function formatAppointmentsLine(appointments: CoachDraftAppointments): string {
+	const last =
+		appointments.lastCallDate === null
+			? "aucun appel enregistré"
+			: `dernier appel le ${formatDateFR(appointments.lastCallDate)}${
+					appointments.daysSinceLastCall === null
+						? ""
+						: ` (il y a ${formatNumber(appointments.daysSinceLastCall)} jour(s))`
+				}`;
+	const next =
+		appointments.nextAppointmentDate === null
+			? "aucun rendez-vous réservé"
+			: `prochain rendez-vous réservé le ${formatDateFR(appointments.nextAppointmentDate)}`;
+	return `- Appels et rendez-vous : ${last} ; ${next}.`;
 }
 
 function formatDeltas(deltas: CoachDraftContext["stats"]["deltas"]): string[] {
@@ -382,12 +478,14 @@ export function buildCoachDraftPrompt(input: CoachDraftPromptInput): string {
 		`Cliente : ${context.prenom} (prénom seul)`,
 		`Semaine : ${context.weekLabel} (du ${formatDateFR(week.start)} au ${formatDateFR(week.end)})`,
 		`Objectifs : ${formatNumber(context.goals.kcal)} kcal, ${formatNumber(context.goals.protein)} g de protéines, ${context.goals.stepGoal === null ? "pas : objectif non défini" : `${formatNumber(context.goals.stepGoal)} pas`}.`,
+		`Formule : ${context.formule === "autonomie" ? "autonomie" : "coaching"}.`,
 		"",
 		"Réponses du bilan :",
 		...formatAnswers(context.answers),
 		"",
 		`Statistiques — semaine du bilan (7 jours complets) : ${weekDaysLabel(week)}`,
 		...formatFoodLines(week, ""),
+		formatPhotoAiLine(week.photoAi, ""),
 		formatWeightLine(week, "", true),
 		formatStepsLine(week, ""),
 		formatSportLine(week, ""),
@@ -395,12 +493,17 @@ export function buildCoachDraftPrompt(input: CoachDraftPromptInput): string {
 		"",
 		`Statistiques — semaine précédente (pour les écarts) : ${weekDaysLabel(previousWeek)}`,
 		...formatFoodLines(previousWeek, ""),
+		formatPhotoAiLine(previousWeek.photoAi, ""),
 		formatWeightLine(previousWeek, "", false),
 		formatStepsLine(previousWeek, ""),
 		formatSportLine(previousWeek, ""),
 		"",
 		"Écarts calculés par le code (déjà formatés — ne pas les recalculer) :",
 		...formatDeltas(deltas),
+		"",
+		"Suivi de la cliente :",
+		formatCycleLine(context.cycle),
+		formatAppointmentsLine(context.appointments),
 		"",
 		"CONSIGNES DE RÉDACTION",
 		`- Écris en français, au tutoiement, avec un ton chaleureux, direct et concret. Longueur cible : environ ${formatNumber(targetWords)} mots (paramètre ajustable, ne pas dépasser de plus de 20 %).`,

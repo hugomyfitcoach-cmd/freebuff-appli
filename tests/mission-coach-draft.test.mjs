@@ -24,7 +24,7 @@ import {
 	DEFAULT_COACH_DRAFT_TARGET_WORDS,
 } from '../src/convex/coachDraftPrompt.ts';
 import { COACH_DRAFT_STYLE_GUIDE } from '../src/lib/data/coachDraftStyleGuide.ts';
-import { COACH_DRAFT_METHOD_REFERENCE } from '../src/lib/data/methodeGflux.ts';
+import { COACH_DRAFT_METHOD_REFERENCE } from '../src/convex/ai/methodeGflux.ts';
 import { redactFeedback } from '../src/convex/coachDraft.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -102,7 +102,14 @@ test('Le prompt interdit explicitement de calculer et d’inventer', () => {
 test('Le prompt ne contient aucun identifiant technique ni e-mail', () => {
 	for (const testCase of CASES) {
 		const prompt = buildFor(loadContext(testCase.file));
-		assert.ok(!/userId|checkinId|@|_id/i.test(prompt), `fuite d’identité dans ${testCase.name}`);
+		// Les deux sources STATIQUES (guide de style, référentiel de méthode)
+		// sont identiques pour toutes les clientes : la chasse aux identités
+		// porte sur les données injectées (faits + exemples) — le référentiel
+		// contient la signature d’@Hugo, voulue par son auteur.
+		const dataPart = prompt
+			.replace(COACH_DRAFT_STYLE_GUIDE.trim(), '')
+			.replace(COACH_DRAFT_METHOD_REFERENCE.trim(), '');
+		assert.ok(!/userId|checkinId|@|_id/i.test(dataPart), `fuite d’identité dans ${testCase.name}`);
 	}
 });
 

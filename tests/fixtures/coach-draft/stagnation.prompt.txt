@@ -31,25 +31,350 @@ SOURCES DE RÉFÉRENCE — trois sources, toutes obligatoires
 --- FIN DU GUIDE DE STYLE ---
 
 --- 2. RÉFÉRENTIEL DE MÉTHODE ---
-# Référentiel de méthode G-FLUX — version provisoire
+# Référentiel méthode G-Flux
 
-## Principes
-- La régularité prime sur la perfection : une semaine imparfaite mais tenue vaut mieux qu'une semaine parfaite abandonnée.
-- L'adhérence se lit sur la durée ; un écart ponctuel ne remet pas en cause le plan.
-- Les protéines et les pas sont les premiers repères de structure quotidienne.
-- Le sport est un levier de santé et de dépense, pas une compensation obligatoire des écarts alimentaires.
-- Le sommeil, la fatigue et le stress expliquent souvent mieux une baisse d'adhérence qu'un manque de volonté.
+Oct 18, 2026 · @Hugo
 
-## Lecture des signaux
-- Progrès : adhérence en hausse, pas et sport stables ou en hausse, poids qui baisse lentement, réponses positives.
-- Stagnation : adhérence partielle répétée, pas en baisse, poids stable, peu de sport. On cherche d'abord un obstacle concret (emploi du temps, repas pris à l'extérieur, envies du soir).
-- Alerte fatigue : motivation basse, hydratation insuffisante, digestion perturbée, faim marquée, sommeil court ou sport inhabituellement élevé. On réduit la pression, on sécurise les repas de base et on propose un point oral plutôt qu'un nouveau défi.
+Ce référentiel est la source unique de la méthode G-Flux dans l'application. Il sert à trois usages : l'assistant qui prépare les brouillons de retours de bilan (sections 1 à 10), l'outil de calibrage du coach et le recalcul en formule autonomie (section 11, calculs de référence). Il est tiré de la formation « La science de la perte de graisse rapide », mais seulement pour ce qui est compatible avec la méthode G-Flux.
 
-## Posture
-- Une seule priorité par retour : trop de consignes dilue l'action.
-- Toujours relier la consigne à une donnée de la semaine ou à un mot de la cliente.
-- Laisser la décision finale à la cliente ; proposer, ne pas imposer.
-- En cas de signal d'alerte, ne pas ajouter de restriction ni de défi. Proposer un échange et des repères simples.
+## Règle de priorité
+
+**La méthode G-Flux prime toujours sur la formation.** La formation vise une perte rapide (750 g à 1,5 kg par semaine) avec des déficits agressifs. G-Flux accompagne des femmes de 35 à 50 ans qui font déjà des efforts, par le calibrage et le pilotage, pas par la restriction.
+
+- Vitesse de perte visée : en règle générale 300 à 500 g par semaine, à adapter au profil.
+- Déficit visé : modéré, de 10 à 15 % de la maintenance, calibré sur 7 jours et non jour par jour. Hugo peut aller jusqu'à 20 %, et jusqu'à 30 % sur décision exceptionnelle, par exemple chez une cliente au NEAT très élevé (si la disponibilité en énergie et les plafonds de perte Alpert et Macdonald restent respectés : ce sont eux, pas le pourcentage, qui limitent), parce que le suivi alimentaire comporte souvent 10 à 15 %, parfois 20 % de marge d'erreur selon les profils. Le garde-fou n'est pas le métabolisme de base, mais la disponibilité en énergie et la vitesse maximale de perte (section 11), lues avec le taux de masse grasse et le niveau de sport de la cliente. Seul Hugo décide d'un apport bas.
+- Les chiffres (calories, pas, poids, moyennes) viennent toujours de l'application, jamais d'un calcul de l'assistant.
+- L'assistant prépare, Hugo décide : tout ajustement de calories ou d'objectif est proposé, jamais présenté comme acquis.
+
+## 1. Lire la balance
+
+Un poids isolé ne dit presque rien : l'assistant lit toujours la **tendance sur 7 jours** et la compare à la même phase du cycle le mois précédent.
+
+| Ce qui fait varier la balance sans changer la masse grasse | Effet typique | Lecture à donner |
+| --- | --- | --- |
+| Phase lutéale, règles | Hausse d'eau de plusieurs centaines de grammes à 2 kg | Comparer à la même phase du cycle précédent, pas à la semaine d'avant |
+| Repas libre riche en glucides ou en sel | Hausse le lendemain, retour en 48 à 72 h | Ne pas se peser le lendemain, ou ne pas en tenir compte |
+| Reprise de glucides après une période basse | 1 à 2 kg de glycogène et d'eau | Normal et attendu, ce n'est pas du gras |
+| Déficit long, stress, manque de sommeil | Rétention d'eau (cortisol), poids qui stagne puis chute d'un coup | Patience si l'adhérence est bonne ; envisager quelques jours à la maintenance |
+| Premières semaines de déficit | Perte plus rapide que prévu (eau, glycogène) | Ne pas promettre que ce rythme va durer |
+
+**Règle :** avant toute conclusion sur le poids, regarder aussi les mensurations. Un tour de taille qui baisse avec un poids stable est un progrès.
+
+## 2. Diagnostiquer une stagnation
+
+On parle de stagnation quand la tendance du poids **et** les mensurations ne bougent plus depuis au moins 2 à 3 semaines, en comparant les mêmes phases du cycle. L'assistant vérifie les causes **dans cet ordre**, de la plus fréquente à la plus rare :
+
+| Ordre | Signal dans les données | Lecture probable | Piste à proposer à Hugo |
+| --- | --- | --- | --- |
+| 1 | Jours non saisis, portions « à l'œil », huile non comptée | Apport sous-estimé | Fiabiliser la saisie sur 7 jours avant tout ajustement |
+| 2 | Semaine conforme, week-end très au-dessus | Le week-end efface le déficit | Lisser la semaine, structurer le repas libre |
+| 3 | Pas en baisse par rapport aux semaines précédentes | Baisse de l'activité spontanée (NEAT), fréquente en déficit | Remonter le nombre de pas avant de baisser les calories |
+| 4 | Phase lutéale, sommeil court, stress élevé dans le bilan | Rétention d'eau qui masque la perte | Attendre la phase suivante, pas d'ajustement |
+| 5 | Mensurations en baisse, poids stable, entraînement régulier | Recomposition corporelle | Valoriser le progrès, ne rien changer |
+| 6 | Adhérence et pas stables, déficit long (plusieurs mois) | Adaptation métabolique réelle (limitée, jusqu'à environ 20 % du métabolisme de base) | Proposer un refeed ou un diet break plutôt qu'une nouvelle baisse |
+
+**À ne jamais dire :** « ton métabolisme est bloqué » ou « mode famine ». Les adaptations existent, mais elles sont limitées et réversibles : elles disparaissent après un retour à la maintenance.
+
+**Proposer un rendez-vous.** Si aucun appel n'a eu lieu ni n'est réservé depuis 15 jours, et que la perte est au ralenti (tendance sur 2 semaines nettement sous la cible de 300 à 500 g par semaine, ou stagnation en cours de diagnostic), l'assistant propose de réserver un appel dans le planning de l'application. Une seule mention, en fin de retour. Ne concerne que les clientes en coaching.
+
+## 3. Repères nutrition
+
+Ces repères servent à commenter la semaine, pas à fixer les objectifs : les objectifs de chaque cliente sont ceux enregistrés dans l'application.
+
+| Sujet | Repère | Ce que l'assistant en fait |
+| --- | --- | --- |
+| Protéines | Objectif de la fiche, calculé à 2,3 g par kg de masse maigre (section 11) | Signaler une moyenne nettement sous l'objectif ; suggérer une source de protéines par repas |
+| Répartition des protéines | 3 à 6 prises par jour, environ 30 g par repas pour la satiété | Utile si la cliente décrit de la faim ou des fringales |
+| Glucides | Au moins 100 à 120 g par jour, plus les besoins de l'entraînement | Signaler une semaine très basse en glucides, surtout avec fatigue ou séances difficiles |
+| Lipides | Jamais sous 0,3 g/kg ; l'huile de cuisson compte (environ 50 kcal la cuillère à café) | Piste fréquente quand l'apport réel dépasse l'apport saisi |
+| Fibres | Au moins 15 g par tranche de 1 000 kcal ; légumes, fruits entiers, légumineuses, flocons d'avoine, pommes de terre, pain complet | Estimer l'apport de la semaine (beaucoup d'aliments Open Food Facts n'indiquent pas les fibres : l'assistant complète par estimation et le signale) ; signaler une semaine pauvre en fibres, surtout avec faim ou transit difficile |
+| Fruits et légumes | Au moins une portion par tranche de 500 kcal | Levier de satiété, de volume et de micronutriments |
+| Nombre de repas | Pas de différence sur la perte de poids entre 3 et 6 repas | Choisir ce qui aide la cliente à tenir |
+| Aliments ultra-transformés | Font manger davantage sans s'en rendre compte | Piste quand la faim augmente ou que les grignotages s'installent |
+
+**Activité spontanée (pas).** Le coefficient d'activité se calcule à partir des pas et du mode de vie (section 11). Une baisse des pas en cours de déficit est fréquente et suffit parfois à expliquer une stagnation.
+
+## 4. Signaux d'alerte
+
+Ces signaux passent avant toute logique de perte de gras. Dès que l'un d'eux apparaît dans un bilan, l'assistant le place **en tête du brouillon**, propose une pause et ne propose jamais de baisse de calories.
+
+| Signal relevé dans le bilan | Proposition à Hugo |
+| --- | --- |
+| Baisse de la libido, froid aux extrémités, perte de cheveux, cycle irrégulier ou absent (aménorrhée) ; Hugo pose ces questions directement à certains profils | Retour à la maintenance ; si les symptômes persistent après quelques semaines, orienter vers un médecin |
+| Grosse fatigue, sommeil très court, stress important (travail, famille) | 2 à 5 semaines à la maintenance avant de reprendre le déficit |
+| Apport très bas par rapport à l'activité (entraînements intenses avec peu de calories) | Remonter l'apport ; la disponibilité en énergie basse touche les hormones, surtout chez les femmes |
+| Obsession de la nourriture (notamment envies de sucre marquées), culpabilité, évitement des sorties, pensée « bon ou mauvais aliment » | Ralentir, alléger le suivi ; évoquer un accompagnement spécialisé si besoin |
+| Antécédent de trouble du comportement alimentaire mentionné | Prudence maximale, jamais de déficit marqué ; Hugo décide seul |
+| Blessure | Proposer un retour à la maintenance calorique pour mieux récupérer |
+
+L'assistant ne pose jamais de diagnostic médical. Il décrit ce que la cliente a écrit et suggère, si besoin, de consulter un professionnel de santé.
+
+## 5. Outils de pilotage
+
+Trois outils permettent de souffler sans perdre les progrès. L'assistant peut les suggérer, Hugo décide.
+
+| Outil | Durée | Contenu | Quand le proposer |
+| --- | --- | --- | --- |
+| Repas libre | 1 repas | Ne pas l'appeler « cheat meal » ; plutôt à l'extérieur, sans buffet à volonté ; les calories comptent même si on ne les compte pas | Chaque semaine, pour l'adhérence et le moral ; aucun effet métabolique |
+| Refeed | 2 à 3 jours | Au moins à la maintenance, surtout en glucides (riz, pâtes, pain, pommes de terre), lipides bas, protéines maintenues | Faim qui monte, humeur en baisse, pas en chute, fatigue à l'entraînement ; un seul jour ne suffit pas |
+| Diet break | 7 à 15 jours | Maintenance, protéines 1,6 à 2,2 g/kg, lipides 0,7 à 1 g/kg, glucides pour le reste ; garder les habitudes du déficit | Déficit long, vacances, besoin de pause mentale, ou quand un refeed ne suffit plus |
+
+**Fréquence selon le taux de masse grasse.** Plus le taux de masse grasse est bas, plus les adaptations arrivent tôt et plus les pauses doivent être fréquentes. Les femmes en ont généralement besoin plus souvent que les hommes.
+
+| Profil | Refeed | Diet break |
+| --- | --- | --- |
+| Femme, plus de 35 % de masse grasse | 2 à 3 jours, non planifiés, si nécessaire | 7 à 14 jours toutes les 8 à 12 semaines, pour construire des habitudes de maintenance |
+| Femme, 25 à 35 % | 2 à 3 jours, non planifiés, si nécessaire | 7 à 14 jours toutes les 6 à 10 semaines (habitudes de maintenance et bénéfices physiologiques) |
+| Femme, moins de 25 % | 2 à 3 jours tous les 14 à 21 jours si disponibilité en énergie > 30 ; tous les 7 à 14 jours si 24 à 30 ; tous les 5 à 7 jours si 20 à 24 kcal/kg de masse maigre | 7 à 14 jours toutes les 4 à 6 semaines |
+| Homme, plus de 25 % | 2 à 3 jours, non planifiés, si nécessaire | 7 à 14 jours toutes les 8 à 12 semaines |
+| Homme, 15 à 25 % | 2 à 3 jours, non planifiés, si nécessaire | 7 à 14 jours toutes les 6 à 10 semaines |
+| Homme, moins de 15 % | 2 à 3 jours tous les 14 à 21 jours (déficit Alpert) ou tous les 7 à 14 jours (déficit Macdonald) | 7 à 14 jours toutes les 6 à 8 semaines |
+
+Source : tableau « Suggestion refeed / diet break » de la formation (module 3), validé par Hugo. Ce sont des repères de départ : les signaux de la cliente (faim, humeur, pas, sommeil, séances, température au lever, phase lutéale) priment toujours sur le calendrier, et Hugo décide.
+
+**Le cycle menstruel.** Certaines femmes tolèrent mal le déficit en phase lutéale. Planifier la maintenance sur cette période est une option légitime, pas un échec.
+
+**La balance après ces outils.** Le poids monte souvent de quelques centaines de grammes à 1 ou 2 kg (glycogène et eau), puis redescend. L'assistant le précise pour éviter la panique.
+
+## 6. Satiété et astuces du quotidien
+
+Quand une cliente décrit de la faim, des fringales ou des week-ends difficiles, l'assistant pioche dans ces leviers, deux ou trois à la fois, jamais toute la liste.
+
+| Levier | Pourquoi ça marche | Exemple à proposer |
+| --- | --- | --- |
+| Protéines à chaque repas | Le nutriment le plus rassasiant | Une portion de protéines maigres par repas, environ 30 g |
+| Volume et fibres | Une densité calorique faible rassasie plus pour moins de calories | Légumes à volonté, fruits entiers plutôt qu'en jus ou en compote |
+| Moins d'aliments ultra-transformés | Ils font manger davantage sans s'en rendre compte | Garder les aliments transformés pour l'extérieur, pas dans les placards |
+| Graisses « invisibles » | L'huile, les sauces, les noix font vite monter les calories | Mesurer l'huile, cuisson vapeur ou au four |
+| Une « entrée » avant un repas non maîtrisé | Une pomme ou des crudités 15 minutes avant réduisent la quantité mangée ensuite | Avant un restaurant, un apéro, un repas de famille |
+| Boissons à zéro calorie | Les édulcorants n'augmentent ni la faim ni l'envie de sucre | Remplacer les boissons sucrées, sans en faire une règle |
+| Moins de repas, plus copieux | 3 à 4 vrais repas rassasient mieux que 6 petites collations | Si la cliente grignote toute la journée |
+| Fenêtre de repas plus courte | Allonger le jeûne de la nuit fait souvent manger moins, sans effort | Décaler le petit-déjeuner ou avancer le dîner, seulement si ça convient à la cliente |
+| Un plan B prêt à manger | Évite le « je n'avais rien, j'ai pris n'importe quoi » | Boîte de lentilles et maquereau, yaourt protéiné |
+| Identifier ses aliments déclencheurs | Certains aliments font perdre le contrôle | Ne pas les avoir à la maison plutôt que compter sur la volonté |
+
+**L'attitude à encourager :** ni « tout propre », ni « tout est permis tant que ça rentre dans les macros ». Une part plaisir chaque jour ou un repas libre par semaine fait partie du plan, ce n'est pas un écart.
+
+**Le jeûne intermittent** est un outil d'organisation, pas une méthode magique : il aide uniquement s'il fait manger moins sans souffrir. Ni détox, ni effet sur les hormones à promettre.
+
+## 7. Sommeil, activité et suivi des progrès
+
+**Sommeil.** À déficit égal, bien dormir fait perdre plus de gras et moins de muscle. Deux nuits courtes suffisent à augmenter nettement la faim et l'envie d'aliments transformés. Quand un bilan mentionne un mauvais sommeil, l'assistant le relie aux fringales de la semaine, sans culpabiliser, et le présente comme un levier à part entière (7 à 9 h visées).
+
+**Activité spontanée (NEAT).** C'est la dépense la plus facile à augmenter sans fatigue, et elle varie énormément d'une personne à l'autre. Idées simples : un objectif de pas quotidien, marcher pendant les appels, se garer plus loin, prendre les escaliers, marcher entre les séries.
+
+**Suivi des progrès.** La balance est utile, mais jamais seule.
+
+- Comparer des moyennes de semaine, pas des pesées isolées.
+- Comparer à la même phase du cycle.
+- Croiser avec les mensurations (taille, hanches, cou) et les photos (même lumière, même heure, même tenue).
+- Après plusieurs mois de déficit, le stress peut masquer la perte de gras sur la balance : les mensurations et les photos tranchent.
+
+L'assistant valorise toujours un progrès visible ailleurs que sur la balance (tour de taille, photos, force, énergie, vêtements).
+
+## 8. Entraînement
+
+En déficit, l'entraînement en résistance est ce qui garde le muscle : la balance descend, mais c'est lui qui décide si l'on perd du gras ou du muscle. Pour des femmes de 35 à 50 ans, il protège aussi la densité osseuse.
+
+**Musculation, les repères :**
+
+- Garder environ les deux tiers du volume habituel en début de déficit, sans baisser l'intensité (exemple : 15 séries de cuisses par semaine → 10). Ne jamais descendre sous le tiers. Après 35 ans, rester plutôt vers le haut de la fourchette : on perd plus vite le muscle avec un volume réduit.
+- Pour une débutante, 8 à 10 séries par muscle et par semaine suffisent.
+- Garder 1 à 2 répétitions en réserve : aller à l'échec fatigue beaucoup pour peu de bénéfice en déficit.
+- Continuer à progresser (charge ou répétitions) tant que c'est possible, et ne pas changer d'exercices chaque semaine pour avoir des repères.
+- Séries de 12 à 30 répétitions : moins de risque de blessure en déficit ; 6 à 10 répétitions si les glucides sont bas.
+- Prendre du muscle en déficit reste possible, surtout chez une débutante, mais lentement : ne pas promettre de « tonifier en 4 semaines ».
+
+**Cardio, les repères :**
+
+- Son rôle : augmenter la dépense sans gêner la récupération ; utile quand les pas sont bas, ou pour pouvoir manger un peu plus.
+- HIIT ou cardio doux : même perte de gras à dépense égale ; le HIIT fatigue davantage et peut nuire aux séances de musculation.
+- Cardio à jeun : aucun avantage sur la perte de gras à calories égales.
+- À surveiller : chez certaines femmes, le cardio augmente la faim ou fait baisser les pas le reste de la journée, et finit par annuler la dépense.
+
+**Lecture d'un bilan :** des séances qui deviennent très difficiles, une force qui baisse plusieurs semaines de suite ou une fatigue persistante sont des signaux pour proposer un refeed ou un diet break (section 5), pas pour ajouter du cardio.
+
+## 9. Consolidation
+
+La phase la plus difficile n'est pas la perte, c'est le maintien : l'organisme défend son ancien poids (faim plus forte, activité spontanée plus basse). Les retours de consolidation insistent donc sur les habitudes plus que sur les chiffres.
+
+**Estimer la nouvelle maintenance** (point de départ, à ajuster sur 2 à 4 semaines) :
+
+| Situation | Nouvelle maintenance |
+| --- | --- |
+| Peu d'adaptation | Ancienne maintenance − (moitié du % de poids perdu) |
+| Adaptation modérée | Ancienne maintenance − (% de poids perdu) |
+| Adaptation forte | Ancienne maintenance − (2 × % de poids perdu) |
+
+Exemple : 10 % de poids perdu avec adaptation modérée donne une maintenance 10 % sous l'ancienne. Ce calcul est fait par l'application ou par Hugo, jamais par l'assistant.
+
+**Repères de maintien :**
+
+- Définir un poids de forme avec une marge d'environ 3 % (60 kg : environ 1,8 kg de marge) ; au-delà, 1 à 2 semaines de léger déficit, puis retour à la maintenance.
+- Prévoir 1 à 2 kg de reprise liée au glycogène en revenant à la maintenance : ce n'est pas du gras.
+- Garder les habitudes du déficit : protéines au-dessus de 1,6 g/kg, fruits ou légumes à chaque repas, repas préparés, un plan B prêt à manger.
+- Garder un nombre de pas correct : c'est l'un des meilleurs prédicteurs du maintien.
+- Privilégier les aliments bruts à la maison, identifier ses aliments « déclencheurs ».
+- Continuer à suivre poids et pas, sans obsession, et ajuster tôt.
+- Se fixer de nouveaux objectifs (force, performance, composition corporelle).
+
+**Retour à la maintenance :** progressif (100 à 200 kcal de plus par semaine) pour les clientes qui ont peur de reprendre, direct pour celles qui ont besoin de souffler. Les deux se valent, le choix dépend de la cliente.
+
+## 10. Limites de l'assistant
+
+**L'assistant ne fait jamais :**
+
+- calculer lui-même des calories, des moyennes ou des tendances : il reprend les chiffres de l'application ;
+- proposer un déficit supérieur à 15 % (seul Hugo peut aller jusqu'à 20 %, ou 30 % à titre exceptionnel), un apport qui fait passer la disponibilité en énergie sous les seuils, un jeûne prolongé ou un régime très basses calories ;
+- poser un diagnostic médical ou commenter un traitement ;
+- employer un ton moqueur ou culpabilisant (« triche », « écart », « mauvais aliment ») ;
+- envoyer quoi que ce soit : il prépare un brouillon que Hugo relit.
+
+**Vocabulaire.** À employer : calibrage, pilotage, consolidation, filet de sécurité, flux énergétique, tendance, aucun coup perdu. À ne jamais employer : « triche », « écart », « mauvais aliment », « mode famine », « métabolisme bloqué ».
+
+**Ce qui est volontairement exclu de la formation :**
+
+| Élément de la formation | Pourquoi il est exclu |
+| --- | --- |
+| Objectif de 750 g à 1,5 kg de perte par semaine | Contraire au positionnement G-Flux (calibrage, pas de restriction agressive) |
+| Défense des régimes très basses calories et des apports autour de 1 200 kcal | Inadapté à des femmes de 35 à 50 ans qui s'entraînent |
+| Exemples de préparation bodybuilding et d'athlètes masculins | Hors de l'avatar |
+| Ton provocateur (« idiots », « zealots », mèmes) | Pas le ton de Hugo avec ses clientes |
+| Suppléments (caféine, agents thermogéniques, vitamines, minéraux) | L'assistant n'en recommande jamais ; Hugo décide au cas par cas |
+
+## 11. Calculs de référence G-Flux
+
+Ces formules sont celles du fichier de suivi G-Flux (Google Sheets) et de la mise à jour NEAT de la formation. Elles sont la **référence unique** pour le futur outil de recalcul de l'application (coefficient, pas, taux de masse grasse, apports). L'assistant ne les applique jamais lui-même : il reprend les résultats calculés par l'application (section 10).
+
+### Coefficient d'activité (NEAT)
+
+Le coefficient ne couvre que l'activité spontanée. La dépense liée à l'exercice s'ajoute à part, jour par jour. Les coefficients habituels surestiment la dépense : ce calcul est un point de départ, à ajuster après quelques semaines de déficit.
+
+| Pas par jour | Coefficient |
+| --- | --- |
+| 2 000 | 1,05 |
+| 4 000 | 1,10 |
+| 6 000 | 1,15 |
+| 8 000 | 1,20 |
+| 10 000 | 1,25 |
+| 12 000 | 1,30 |
+| 14 000 | 1,35 |
+
+Le tableau suit une règle linéaire exacte : **coefficient pas = 1 + pas × 0,000025** (+0,05 par tranche de 2 000 pas). Au-delà de 14 000 pas, on continue d'ajouter 0,05 par tranche de 2 000 pas. L'outil applique la même règle aux valeurs intermédiaires.
+
+**Méthode précise.** Coefficient des pas + somme des activités, par heure et par jour :
+
+| Activité | À ajouter par heure |
+| --- | --- |
+| Assise en remuant constamment | 0,026 |
+| Debout de manière statique | 0,0065 |
+| Debout en remuant constamment | 0,05 |
+
+Exemple : 10 000 pas, 5 h debout en piétinant et 5 h assise en remuant → 1,25 + (0,05 × 5) + (0,026 × 5) = **1,63**.
+
+**Méthode simple.** Coefficient des pas + coefficient du mode de vie :
+
+| Mode de vie | À ajouter |
+| --- | --- |
+| Sédentaire (travail de bureau) | 0,05 à 0,10 |
+| Légèrement actif (2 h en mouvement constant) | 0,15 à 0,20 |
+| Actif (6 h en mouvement constant) | 0,35 à 0,40 |
+| Très actif (10 h en mouvement constant) | 0,55 à 0,60 |
+
+Exemples : 6 000 pas et travail de bureau → 1,15 + 0,05 = **1,20** ; 10 000 pas et légèrement active → 1,25 + 0,20 = **1,45**.
+
+**Règle retenue pour l'application (activité au travail).** On demande le nombre d'heures par jour en mouvement constant au travail, et on applique : **supplément = 0,05 + 0,05 × heures**, plafonné à 0,6. Cette règle reprend exactement les valeurs basses (prudentes) du tableau : bureau 0 h → 0,05 ; 2 h → 0,15 ; 6 h → 0,35 ; 10 h → 0,55. Le coach peut ajouter de 0 à +0,05 pour une cliente très mobile. Coefficient total = coefficient des pas + supplément travail.
+
+### Formules du fichier de suivi
+
+Entrées : poids (P, kg), taux de masse grasse (%MG), coefficient d'activité (C), adaptation métabolique (A, en %), perte de graisse visée par semaine (L, kg), dépense d'exercice du jour (E, kcal), apport réel du jour (R, kcal). Exemple anonyme : 56,6 kg, 26 %, coefficient 1,40, A = 0.
+
+| Grandeur | Formule | Exemple |
+| --- | --- | --- |
+| Masse maigre (MM) | P × (1 − %MG / 100) | 41,9 kg |
+| Masse grasse (MG) | P × %MG / 100 | 14,7 kg |
+| Métabolisme de base estimé (MB) | MM × 26,4 + MG × 4,5 | 1 172 kcal |
+| Maintenance sans exercice | arrondi(C × MB) − MB × A / 100 | 1 641 kcal |
+| Objectif journalier sans exercice | arrondi(maintenance − L × 7 700 / 7) | 1 641 kcal si L = 0 |
+| Apport visé du jour | objectif + E | 2 641 kcal un jour à 1 000 kcal d'exercice |
+| Déficit du jour | R − (maintenance + E) | −341 kcal pour R = 1 300 |
+| Déficit de la semaine | somme des 7 déficits du jour | −3 387 kcal |
+| Graisse perdue estimée (semaine) | déficit de la semaine / 7 700 | −0,44 kg |
+| Disponibilité en énergie | (R − E) / MM | 31,0 kcal/kg MM |
+| Seuil de disponibilité 1 | MM × 30 | 1 257 kcal |
+| Seuil de disponibilité 2 | MM × 24 | 1 005 kcal |
+| Vitesse maximale de perte de gras (Alpert) | P × %MG / 20 / 100 | 0,74 kg par semaine |
+| Vitesse maximale de perte de gras (Macdonald) | P × %MG / 15 / 100 | 0,98 kg par semaine |
+| Semaines minimum de déficit | perte totale visée × 7 700 / (déficit par jour × 7) | 6,6 semaines pour 3 kg à 500 kcal |
+
+Bilan de la semaine : moyennes sur 7 jours de l'apport, du poids, des pas, de la température au lever et de la disponibilité en énergie ; somme des déficits et de la graisse perdue estimée ; dépense d'exercice moyenne = somme / 7. En fin de semaine, on ressaisit poids, coefficient, %MG et adaptation, et tout est recalculé.
+
+**La lecture se fait sur 7 jours.** Hugo calibre le déficit sur la semaine : dépense sportive totale de la semaine, déficit total sur 7 jours, graisse perdue estimée à la fin de la semaine. Des journées hautes et des journées basses sont normales tant que le total de la semaine est dans la cible et que chaque journée reste au-dessus des seuils de disponibilité. L'assistant ne présente donc jamais une journée haute comme un échec : il parle du bilan de la semaine.
+
+**Constante énergétique.** 7 700 kcal par kg de graisse (le fichier historique utilisait 8 250).
+
+### Répartition des macronutriments
+
+Règle validée par Hugo, dans cet ordre :
+
+1. **Protéines en grammes d'abord :** 2,3 g par kg de masse maigre, pour les femmes comme pour les hommes. Réglable par le coach de 2 à 2,6. Cette valeur correspond aux objectifs que Hugo fixait déjà dans ses fichiers de suivi (2,2 à 2,4 g/kg de masse maigre) et règle sans exception le cas des taux de masse grasse élevés.
+2. **Lipides :** 30 % des calories, sans descendre sous 0,6 g/kg de poids.
+3. **Glucides :** le reste. Si le reste tombe sous 100 g, l'outil le signale.
+
+Exemple : 60 kg, 26 % de masse grasse (44,4 kg de masse maigre), 1 400 kcal → protéines 102 g, lipides 46,7 g, glucides 143 g. En coaching, Hugo peut toujours remplacer l'objectif de protéines dans la fiche.
+
+### Dépense sportive de la semaine
+
+G-Flux ne noie pas le sport dans un coefficient d'activité global. Le total de la semaine se calcule en trois blocs : métabolisme de base (selon le taux de masse grasse), activité spontanée (pas et métier, via le coefficient), puis sport, calculé à part sur la semaine.
+
+**Source des données sportives.** La cliente renseigne un **profil sportif** : activités pratiquées, nombre de séances par semaine, durée et intensité. Si elle saisit ses séances dans l'application, on utilise ses saisies ; sinon, son profil déclaré sert de valeur par défaut. Beaucoup de clientes ne saisissent jamais leurs séances : sans ce profil, le sport serait compté à zéro.
+
+**Calcul d'une séance :** coût énergétique (kcal/kg/heure) × poids en kg × durée en heures, avec le tableau de la formation (module 2, adapté de Bouchard et al., 1983) :
+
+| Type d'activité | Coût moyen (kcal/kg/heure) | Valeur par défaut |
+| --- | --- | --- |
+| Musculation récréative | 2,2 | 2,2 |
+| Musculation intensive | 4,4 | 4,4 |
+| Cardio basse intensité (moins de 130 BPM) | 3,3 à 4,3 | 3,8 |
+| Cardio intensité moyenne (130 à 150 BPM) | 4,4 à 6,6 | 5,5 |
+| Zone de transition (150 à 160 BPM) | 6,6 | 6,6 |
+| Cardio haute intensité (160 à 180 BPM et plus) | 6,6 à 8,8 | 7,7 |
+
+**Séances du programme G-FLUX** (enregistrées automatiquement depuis l'onglet Entraînement) : 3,3 kcal/kg/heure, entre la musculation récréative et l'intensive (décision de Hugo). Pour une séance saisie à la main, trois intensités de musculation sont proposées : récréative (2,2), modérée (3,3, valeur intermédiaire retenue par Hugo, pas une mesure de la formation) et intensive (4,4).
+
+Les activités cardio et mixtes (course, vélo, natation, cours collectifs, sports collectifs, danse) se classent selon la **fréquence cardiaque moyenne de la séance**, lue sur la montre ; sans montre, selon l'intensité déclarée dans le profil sportif. Sans précision, on prend la valeur par défaut, au milieu de la fourchette. La zone de 150 à 160 BPM, absente du tableau de la formation, prend 6,6, la valeur où se rejoignent les zones moyenne et haute ; au-delà de 180 BPM, on plafonne à 8,8. **La dépense calculée par la montre n'est jamais utilisée** (jugée peu fiable par Hugo) : la montre ne sert qu'à lire la fréquence cardiaque. Ce sont des estimations : elles se recalent sur l'évolution réelle du poids et des mensurations.
+
+**Pas et séances : on dissocie, sans soustraction.** Tous les pas de la semaine, y compris ceux faits pendant une séance (course, CrossFit, randonnée), entrent dans la moyenne de pas et donc dans le coefficient NEAT. La séance est calculée à part avec le tableau. Exemple : une heure de CrossFit avec 4 000 pas dans la salle → les 4 000 pas vont dans la moyenne de la semaine, l'heure de CrossFit est comptée selon sa zone de fréquence cardiaque. Règle de Hugo : simple et constante ; le léger recouvrement est absorbé par les valeurs prudentes du tableau et par le recalage sur l'évolution réelle du poids.
+
+Exemple : 60 kg, 3 séances de musculation intensive d'1 h et 1 match de handball d'1 h 30 à intensité moyenne → (4,4 × 60 × 3) + (5,5 × 60 × 1,5) = 792 + 495 = **1 287 kcal par semaine**, soit environ 185 kcal par jour en moyenne.
+
+**Le budget de la semaine :**
+
+- Maintenance de la semaine = 7 × maintenance sans exercice + dépense sportive de la semaine.
+- Objectif de la semaine = maintenance de la semaine × (1 − 10 à 15 %).
+- La cliente répartit ce budget comme elle veut entre ses journées, tant que chaque journée reste au-dessus des seuils de disponibilité en énergie.
+
+**Adaptation métabolique.** Elle est saisie à la main, en % du métabolisme de base (de 0 à 20 %). Elle corrige la baisse de dépense que les pas ne mesurent pas (efficacité musculaire, petits mouvements, part du métabolisme de repos) : c'est une estimation de départ, corrigée ensuite par la tendance réelle du poids. Repères : 0 % si le poids est stable à son niveau habituel sans restriction en cours ; 10 % en déficit depuis 2 à 3 mois ou plus, ou après une perte déjà importante (même stabilisée) ; 13 % en cas de déficit prolongé ou de masse grasse basse ; au-delà, valeur exceptionnelle, vérifier qu'aucun facteur médical n'est en cause. Repère du fichier : une baisse de 1 °C de la température au lever correspond à environ 10 à 13 % d'adaptation.
+
+**Taux de masse grasse par mensurations** (formule de l'US Navy, en cm, stature saisie dans le suivi) :
+
+- Femme : 495 / (1,29579 − 0,35004 × log10(taille + hanches − cou) + 0,221 × log10(stature)) − 450
+- Homme : 495 / (1,0324 − 0,19077 × log10(taille − cou) + 0,15456 × log10(stature)) − 450
+
+Exemple : cou 31, taille 70, hanches 94, stature 161 → 25,9 %.
+
+### Règles pour le futur outil
+
+- Recoder les formules ci-dessus, ne pas recopier la structure du fichier : certaines références des semaines 10 à 12 et de l'onglet Graphiques pointent vers la mauvaise cellule.
+- Les garde-fous sont la **vitesse maximale de perte de gras** (plafond, jamais objectif) et la **disponibilité en énergie** au-dessus des seuils, lues avec le taux de masse grasse et le niveau de sport. La règle de priorité (300 à 500 g par semaine, déficit de 10 à 15 %) reste la cible.
+- Disponibilité en énergie sous 30 kcal/kg de masse maigre : vigilance ; sous 24 : signal d'alerte de la section 4.
+- Le tableau sert surtout à la semaine 1 du coaching et à chaque ajustement ; ses résultats sont reportés dans la fiche de la cliente du CRM.
+
+## 12. Points à valider par Hugo
+
+Tous les points ont été validés par Hugo le 19 octobre 2026 : déficit de 10 à 15 % (jusqu'à 20 %, 30 % à titre exceptionnel, ajouté le 20 octobre), ordre de diagnostic de la stagnation, signaux d'alerte, refeeds de 2 à 3 jours et diet breaks de 7 à 15 jours, fréquences selon le tableau de la formation, fibres à 15 g par tranche de 1 000 kcal, seuils de disponibilité en énergie, vocabulaire, accord de l'auteur de la formation pour G-FLUX et G-Flux Pro.
+
+Les nouveaux points à valider seront ajoutés ici.
 --- FIN DU RÉFÉRENTIEL DE MÉTHODE ---
 
 --- 3. EXEMPLES DE RETOURS (fichier sélectionné + historique de la même cliente) ---
@@ -74,6 +399,7 @@ FAITS DE LA SEMAINE (calculés et formatés par le code — ne rien recalculer)
 Cliente : Nadia (prénom seul)
 Semaine : S37 - 07 sept. 2026 (du 07/09/2026 au 13/09/2026)
 Objectifs : 1 500 kcal, 105 g de protéines, 8 000 pas.
+Formule : coaching.
 
 Réponses du bilan :
 - Motivation : 3/5
@@ -93,16 +419,18 @@ Réponses du bilan :
 - Victoire de la semaine : J'ai tenu mes repas du midi malgré le planning.
 
 Statistiques — semaine du bilan (7 jours complets) : 07/09/2026 → 13/09/2026
-- Calories : moyenne 1 490 kcal sur 4 jour(s) exploitable(s) ; 2 jour(s) partiel(s) exclu(s) ; 1 jour(s) sans donnée ; objectif 1 500 kcal ; seuil 900 kcal
+- Calories : moyenne 1 490 kcal sur 4 jour(s) exploitable(s) ; 2 jour(s) partiel(s) exclu(s) ; 1 jour(s) sans donnée ; 6 jour(s) renseigné(s) sur 7 ; objectif 1 500 kcal ; seuil 900 kcal
 - Protéines : moyenne 92 g sur les mêmes 4 jour(s) exploitable(s) ; objectif 105 g
+- Repas estimés par photo IA : 62 % des calories de la semaine ; 15 repas sur 25 repas renseignés.
 - Poids : moyenne 68,4 kg sur 2 pesée(s) ; dernière pesée 68,5 kg le 13/09/2026 ; pesée de référence précédente 68,5 kg le 06/09/2026 ; écart 0 kg.
 - Pas : moyenne 7 200 pas sur 5 jour(s) renseigné(s) ; objectif 8 000.
 - Sport : 1 activité(s), 45 min, 250 kcal estimées, 300 MET-min.
 - Mensurations : aucun relevé disponible.
 
 Statistiques — semaine précédente (pour les écarts) : 31/08/2026 → 06/09/2026
-- Calories : moyenne 1 480 kcal sur 4 jour(s) exploitable(s) ; 1 jour(s) partiel(s) exclu(s) ; 2 jour(s) sans donnée ; objectif 1 500 kcal ; seuil 900 kcal
+- Calories : moyenne 1 480 kcal sur 4 jour(s) exploitable(s) ; 1 jour(s) partiel(s) exclu(s) ; 2 jour(s) sans donnée ; 5 jour(s) renseigné(s) sur 7 ; objectif 1 500 kcal ; seuil 900 kcal
 - Protéines : moyenne 90 g sur les mêmes 4 jour(s) exploitable(s) ; objectif 105 g
+- Repas estimés par photo IA : 58 % des calories de la semaine ; 14 repas sur 25 repas renseignés.
 - Poids : moyenne 68,4 kg sur 2 pesée(s) ; dernière pesée 68,5 kg le 06/09/2026.
 - Pas : moyenne 7 600 pas sur 5 jour(s) renseigné(s) ; objectif 8 000.
 - Sport : 1 activité(s), 50 min, 280 kcal estimées, 300 MET-min.
@@ -114,6 +442,10 @@ Statistiques — semaine précédente (pour les écarts) : 31/08/2026 → 06/09/
 - Pas : -400 pas
 - Durée de sport : -5 min
 - Dépense sportive : -30 kcal
+
+Suivi de la cliente :
+- Suivi de cycle : non renseigné.
+- Appels et rendez-vous : aucun appel enregistré ; aucun rendez-vous réservé.
 
 CONSIGNES DE RÉDACTION
 - Écris en français, au tutoiement, avec un ton chaleureux, direct et concret. Longueur cible : environ 150 mots (paramètre ajustable, ne pas dépasser de plus de 20 %).
