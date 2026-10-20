@@ -1028,6 +1028,17 @@ export const KCAL_PAR_G_PROTEINES = 4;
 export const KCAL_PAR_G_GLUCIDES = 4;
 export const KCAL_PAR_G_LIPIDES = 9;
 
+/**
+ * Avertissement EXISTANT quand les glucides passent sous le seuil (100 g) —
+ * message unique, partagé par les résultats du calibrage et le bloc
+ * « Appliquer à la fiche » (null si rien à signaler).
+ */
+export function alerteGlucidesPour(glucidesG: number): string | null {
+	return glucidesG < GLUCIDES_SIGNAL_G
+		? `Glucides estimés à ${glucidesG} g (< ${GLUCIDES_SIGNAL_G} g) : objectif calorique, volume d'entraînement ou sommeil à réinterroger avec la coach.`
+		: null;
+}
+
 export type MacrosJour = {
 	/** Objectif calorique du jour (kcal) — entrée, recopiée pour l'agrégat. */
 	kcal: number;
@@ -1112,8 +1123,6 @@ export function macrosJour(entree: {
 		masseMaigreKg: arrondi(masseMaigre, 2),
 		proteinesParKgMasseMaigre: ratio,
 		glucidesSousSeuil,
-		alerteGlucides: glucidesSousSeuil
-			? `Glucides estimés à ${glucidesG} g (< ${GLUCIDES_SIGNAL_G} g) : objectif calorique, volume d'entraînement ou sommeil à réinterroger avec la coach.`
-			: null
+		alerteGlucides: alerteGlucidesPour(glucidesG)
 	};
 }

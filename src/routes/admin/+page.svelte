@@ -38,6 +38,12 @@
 	} from '$lib/calibrageFiche';
 	import { prefillProfilSportif } from '$lib/sportPrefill';
 	import {
+		alerteGlucidesPour,
+		messageBlocageGlucides,
+		recalculerObjectif,
+		type ChampSaisi
+	} from '$lib/goalMacros';
+	import {
 		SPORT_CATALOG,
 		SPORT_CATEGORIES,
 		SPORT_CHOIX_DOUCES,
@@ -1839,8 +1845,51 @@
 		refFat = applyFat;
 		applyResultatsChanges = false;
 	}
+	/* ── Cohérence « Appliquer à la fiche » : objectif = 4G + 4P + 9L ──
+	   Toute saisie validée (flou/Entrée) recalcule le champ déduit via
+	   $lib/goalMacros (PUR) : protéines ou lipides → glucides (objectif kcal
+	   inchangé, réaligné de ±2 kcal max pour rester en grammes entiers) ;
+	   glucides → objectif kcal ; objectif kcal → glucides. Sous 100 g de
+	   glucides → l'avertissement existant ; glucides calculés négatifs →
+	   application bloquée avec un message clair. Les badges « modifié »
+	   (comparaison aux références) et « Reprendre les valeurs calculées »
+	   restent inchangés. */
+	function recalculerApresSaisie(champ: ChampSaisi) {
+		const saisie =
+			champ === 'kcal' ? applyKcal : champ === 'glucides' ? applyCarbs : champ === 'proteines' ? applyProtein : applyFat;
+		if (typeof saisie !== 'number' || !Number.isFinite(saisie)) return; // champ vidé : on n'écrase rien
+		const r = recalculerObjectif(
+			{ kcal: applyKcal, glucidesG: applyCarbs, proteinesG: applyProtein, lipidesG: applyFat },
+			champ
+		);
+		applyKcal = r.valeurs.kcal;
+		applyCarbs = r.valeurs.glucidesG;
+		applyProtein = r.valeurs.proteinesG;
+		applyFat = r.valeurs.lipidesG;
+	}
+	/** Avertissement existant : glucides affichés sous 100 g. */
+	const applyAlerteGlucides = $derived(alerteGlucidesPour(applyCarbs));
+	/** Blocage : les glucides calculés sont négatifs. */
+	const applyBlocageGlucides = $derived(messageBlocageGlucides(applyCarbs));
+	/** « Appliquer à la fiche » : la confirmation ne s'ouvre jamais si les
+	 *  glucides calculés sont négatifs — message clair à la place. */
+	function demarrerApplication() {
+		applyError = '';
+		applyMsg = '';
+		if (applyBlocageGlucides) {
+			applyError = applyBlocageGlucides;
+			return;
+		}
+		calConfirmOpen = true;
+	}
 	async function appliquerCalibrage() {
 		if (!selectedId || !calR || applyBusy) return;
+		/* Filet de sécurité : jamais d'écriture avec des glucides négatifs. */
+		if (applyBlocageGlucides) {
+			applyError = applyBlocageGlucides;
+			calConfirmOpen = false;
+			return;
+		}
 		applyBusy = true;
 		applyError = '';
 		try {
@@ -4695,7 +4744,7 @@
 							<div class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
 								<label class="block">
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Objectif journalier (kcal){#if applyKcal !== refKcal}<span class="ml-1 rounded-full bg-warn-light px-1.5 py-0.5 text-[9px] font-bold normal-case text-warn">modifié</span>{/if}</span>
-									<input type="number" inputmode="numeric" min="800" max="6000" step="10" bind:value={applyKcal} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+									<input type="number" inputmode="numeric" min="800" max="6000" step="10" bind:value={applyKcal} onchange={() => recalculerApresSaisie('kcal')} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
 								</label>
 								<label class="block">
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Maintenance (kcal){#if applyMaintenance !== refMaintenance}<span class="ml-1 rounded-full bg-warn-light px-1.5 py-0.5 text-[9px] font-bold normal-case text-warn">modifié</span>{/if}</span>
@@ -4711,17 +4760,25 @@
 								</label>
 								<label class="block">
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Glucides (g){#if applyCarbs !== refCarbs}<span class="ml-1 rounded-full bg-warn-light px-1.5 py-0.5 text-[9px] font-bold normal-case text-warn">modifié</span>{/if}</span>
-									<input type="number" inputmode="numeric" min="0" max="1000" step="1" bind:value={applyCarbs} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+									<input type="number" inputmode="numeric" min="0" max="1000" step="1" bind:value={applyCarbs} onchange={() => recalculerApresSaisie('glucides')} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
 								</label>
 								<label class="block">
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Protéines (g){#if applyProtein !== refProtein}<span class="ml-1 rounded-full bg-warn-light px-1.5 py-0.5 text-[9px] font-bold normal-case text-warn">modifié</span>{/if}</span>
-									<input type="number" inputmode="numeric" min="0" max="400" step="1" bind:value={applyProtein} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+									<input type="number" inputmode="numeric" min="0" max="400" step="1" bind:value={applyProtein} onchange={() => recalculerApresSaisie('proteines')} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
 								</label>
 								<label class="block">
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Lipides (g){#if applyFat !== refFat}<span class="ml-1 rounded-full bg-warn-light px-1.5 py-0.5 text-[9px] font-bold normal-case text-warn">modifié</span>{/if}</span>
-									<input type="number" inputmode="numeric" min="0" max="300" step="1" bind:value={applyFat} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+									<input type="number" inputmode="numeric" min="0" max="300" step="1" bind:value={applyFat} onchange={() => recalculerApresSaisie('lipides')} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
 								</label>
 							</div>
+							<!-- Cohérence 4G + 4P + 9L : avertissement glucides < 100 g (message
+							     EXISTANT du calibrage) + blocage si les glucides calculés sont négatifs. -->
+							{#if applyAlerteGlucides}
+								<p class="mt-3 flex items-start gap-1.5 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[11px] font-semibold leading-snug text-warn"><Icon name="triangleAlert" size={13} class="mt-0.5 shrink-0" /> {applyAlerteGlucides}</p>
+							{/if}
+							{#if applyBlocageGlucides}
+								<p class="mt-2 flex items-start gap-1.5 rounded-xl border border-danger/40 bg-danger-light px-3.5 py-2.5 text-[12px] font-semibold leading-snug text-danger"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {applyBlocageGlucides}</p>
+							{/if}
 							<!-- Bandeau RÉSERVÉ (stabilité de la saisie) : espace permanent, le bandeau
 							     « Les résultats ont changé » s'y affiche sans décaler la page. -->
 							<div class="mt-3 min-h-[42px]">
@@ -4740,7 +4797,7 @@
 							{/if}
 							<button
 								type="button"
-								onclick={() => { applyError = ''; applyMsg = ''; calConfirmOpen = true; }}
+								onclick={demarrerApplication}
 								disabled={!calR}
 								class="mt-4 w-full rounded-full bg-brand px-3 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
 							>Appliquer à la fiche</button>
