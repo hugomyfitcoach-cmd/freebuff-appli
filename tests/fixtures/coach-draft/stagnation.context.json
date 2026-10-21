@@ -100,7 +100,13 @@
 			"sportDurationMin": -5,
 			"sportKcal": -30
 		},
-		"mensurations": null
+		"mensurations": null,
+		"weightTrend": {
+			"last": { "date": "2026-09-13", "weightKg": 68.5 },
+			"previous": { "date": "2026-09-10", "weightKg": 68.5 },
+			"gapKg": 0,
+			"prevCheckin": { "weekLabel": "S36 - 31 août 2026", "avgKg": 68.4, "count": 2 }
+		}
 	},
 	"examples": [
 		{

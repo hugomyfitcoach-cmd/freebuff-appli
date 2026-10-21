@@ -107,6 +107,12 @@
 			"hipCm": 97,
 			"neckCm": 31,
 			"deltas": { "waistCm": -1.5, "hipCm": -1, "neckCm": -0.5 }
+		},
+		"weightTrend": {
+			"last": { "date": "2026-09-20", "weightKg": 61.6 },
+			"previous": { "date": "2026-09-16", "weightKg": 61.9 },
+			"gapKg": -0.3,
+			"prevCheckin": { "weekLabel": "S37 - 07 septembre 2026", "avgKg": 62.3, "count": 2 }
 		}
 	},
 	"examples": [

@@ -131,3 +131,15 @@ M0–M2 rendent le brouillon utilisable ; M3 apporte le style ; M4–M5 sécuris
 - `BilanCard.svelte` : bouton « Préparer un brouillon » (confirmation si le champ contient déjà du texte), « Préparation… » pendant l'appel, injection modifiable avec badge « Brouillon IA — à relire », « Régénérer », texte conservé en cas d'erreur. Les boutons de sauvegarde/publication existants restent les seuls à écrire.
 - Arrêt d'urgence : `AI_COACH_DRAFT_DISABLED` (1/true/yes/on) lu côté Convex — le bouton disparaît et la route refuse l'appel, sans redéploiement.
 - Le fichier d'exemples sélectionnés par Hugo rejoint le prompt en M3 ; M1 utilise l'historique de la même cliente déjà fourni par `loadContext`.
+
+## 12. État M4-1 (livré) — règles de style du coach (retour de Hugo)
+
+- `docs/guide-style-retours.md` : section **« Règles prioritaires »** en tête du guide (4 à 6 phrases en 2 courts paragraphes, verdict dès la première phrase, chiffres arrondis, silence sur les jours non renseignés quand la tendance baisse ou les mensurations baissent, décision claire toujours, aucun « focus » imposé quand tout va bien, clôture courte « Passe un bon dimanche :) ») + **exemple de référence de Hugo au mot près**. Ces règles priment sur le reste du guide et sur les habitudes du corpus.
+- `src/lib/data/coachDraftStyleGuide.ts` : copie serveur régénérée par `scripts/gen-guide-style.mjs` — le .md reste la source unique.
+- `src/convex/coachDraftPrompt.ts` : **arrondis avant envoi** (kcal à la dizaine, protéines au gramme, poids à la centaine de grammes, pas à la centaine) ; le modèle n'a plus le droit de calculer ni d'arrondir. Consignes de rédaction alignées sur les règles prioritaires.
+- `src/convex/coachDraft.ts` : `weightTrendFacts` — **tendance de poids indépendante des fenêtres hebdomadaires** : écart entre les deux dernières pesées (toutes dates) et poids moyen du bilan précédent. Chaque absence reste `null` (« indisponible » au prompt), jamais un zéro inventé.
+- `src/lib/server/openai.ts` : **régularité** — température basse `COACH_DRAFT_TEMPERATURE = 0.3` transmise au fournisseur ; si le modèle refuse le réglage, réessai sans température (valeur par défaut, la plus proche acceptée), jamais de repli sur un autre modèle.
+- `BilanCard.svelte` : indicateur « Préparation du brouillon… » sur le bouton désactivé, `aria-busy`, couvrant tout l'appel (`finally`).
+- Tests : `tests/mission-coach-draft-m4-1.test.mjs` (12 tests, aucun réseau, aucune écriture Convex) ; tests dorés et `mission-coach-draft-m1` alignés.
+
+> Remarque : les états M2 et M3 (vrai appel OpenAI, fichier d'exemples, badge persisté, dernière date d'appel) ne sont pas encore consignés dans ce document.

@@ -236,10 +236,11 @@
 					type="button"
 					onclick={requestDraft}
 					disabled={draftLoading}
+					aria-busy={draftLoading}
 					class="inline-flex items-center gap-1.5 rounded-lg border-2 border-brand/40 bg-brand-light/60 px-3 py-1.5 text-xs font-bold text-brand-dark transition hover:border-brand disabled:cursor-wait disabled:opacity-60"
 				>
 					<Icon name="sparkles" size={13} />
-					{draftLoading ? 'Préparation…' : aiDraftSource !== null ? 'Régénérer' : 'Préparer un brouillon'}
+					{draftLoading ? 'Préparation du brouillon…' : aiDraftSource !== null ? 'Régénérer' : 'Préparer un brouillon'}
 				</button>
 			{/if}
 		</div>

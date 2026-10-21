@@ -62,6 +62,7 @@ import {
 	type CoachDraftCycle,
 	type CoachDraftPhotoAi,
 	type CoachDraftWeekStats,
+	type CoachDraftWeightTrend,
 } from "./coachDraftPrompt";
 
 type CheckinRow = Doc<"checkins">;
@@ -190,6 +191,43 @@ function deltaOf(a: number | null, b: number | null, digits: number): number | n
 	if (a === null || b === null) return null;
 	const factor = 10 ** digits;
 	return Math.round((a - b) * factor) / factor;
+}
+
+/**
+ * TENDANCE DE POIDS — calculée INDÉPENDAMMENT des fenêtres hebdomadaires :
+ *  - écart entre les deux dernières pesées enregistrées (toutes dates) : la
+ *    tendance reste lisible même quand la semaine précédente est peu
+ *    renseignée ;
+ *  - poids moyen de la semaine du bilan précédent, s'il existe.
+ * Aucun zéro inventé : chaque absence reste `null` (« indisponible » côté
+ * prompt). Fonction pure, testable sans base.
+ */
+export function weightTrendFacts(
+	weightRows: { date: string; weightKg: number }[],
+	prevCheckin: { weekLabel: string; weekStart: string } | null
+): CoachDraftWeightTrend {
+	// Tri défensif par DATE : « dernière pesée » = date la plus récente.
+	const sorted = [...weightRows].sort((a, b) => a.date.localeCompare(b.date));
+	const last = sorted.length > 0 ? sorted[sorted.length - 1] : null;
+	const previous = sorted.length > 1 ? sorted[sorted.length - 2] : null;
+	let prevFacts: CoachDraftWeightTrend["prevCheckin"] = null;
+	if (prevCheckin) {
+		// Semaine du bilan précédent (lundi → dimanche), même calcul que pour
+		// le bilan courant : moyenne des pesées réellement enregistrées.
+		const prevDays = last7CompletedDays(addDaysISO(prevCheckin.weekStart, 7));
+		const vision = weightVision(sorted, prevDays);
+		prevFacts = {
+			weekLabel: prevCheckin.weekLabel,
+			avgKg: vision.avg,
+			count: vision.count,
+		};
+	}
+	return {
+		last: last ? { date: last.date, weightKg: last.weightKg } : null,
+		previous: previous ? { date: previous.date, weightKg: previous.weightKg } : null,
+		gapKg: last && previous ? deltaOf(last.weightKg, previous.weightKg, 2) : null,
+		prevCheckin: prevFacts,
+	};
 }
 
 /* ───────── Faits calculés : photo IA, cycle, rendez-vous (M2) ───────── */
@@ -408,6 +446,11 @@ export const loadContext = internalQuery({
 			stepGoal,
 		});
 
+		// Bilan précédent (le plus récent avant celui-ci) : pour son poids
+		// moyen, même quand la semaine précédente du calendrier est vide.
+		const prevCheckinRow =
+			allCheckins.find((row) => row._id !== checkinId && row.weekStart < checkin.weekStart) ?? null;
+
 		// 2 derniers retours PUBLIÉS de la même cliente, du plus récent au plus
 		// ancien. Un brouillon (`nouveau`) n'est jamais un exemple de style.
 		const examples = allCheckins
@@ -462,6 +505,10 @@ export const loadContext = internalQuery({
 					sportKcal: week.sport.kcal - previousWeek.sport.kcal,
 				},
 				mensurations: mensurationsVision(metricsByDate),
+				weightTrend: weightTrendFacts(
+					weightRows,
+					prevCheckinRow ? { weekLabel: prevCheckinRow.weekLabel, weekStart: prevCheckinRow.weekStart } : null
+				),
 			},
 			examples,
 		};

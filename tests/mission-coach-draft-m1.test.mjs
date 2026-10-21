@@ -255,7 +255,7 @@ test('Le bouton n’apparaît que si le brouillon est autorisé (kill switch)', 
 
 test('BilanCard expose le cycle complet : préparer, préparer…, injecter, régénérer, badge', () => {
 	assert.ok(cardSource.includes('Préparer un brouillon'));
-	assert.ok(cardSource.includes('Préparation…'));
+	assert.ok(cardSource.includes('Préparation du brouillon…'), 'indicateur visible pendant la génération');
 	assert.ok(cardSource.includes('Régénérer'));
 	assert.ok(cardSource.includes('Brouillon IA — à relire'));
 	assert.ok(cardSource.includes("fetch('/api/coach/draft'"));

@@ -96,7 +96,7 @@ export type OpenAiMessage = {
 async function callOpenAiCore(
 	input: OpenAiMessage[],
 	maxOutputTokens: number,
-	options: { model?: string; json?: boolean } = {}
+	options: { model?: string; json?: boolean; temperature?: number } = {}
 ): Promise<{ text: string; json: unknown; usage: AiUsage }> {
 	const key = aiEnv().OPENAI_API_KEY;
 	if (!key) throw new OpenAiUnavailableError("Analyse IA non configurée sur le serveur.");
@@ -114,6 +114,9 @@ async function callOpenAiCore(
 			body: JSON.stringify({
 				model: m,
 				max_output_tokens: maxOutputTokens,
+				// Température transmise seulement si l'appelant la demande (brouillon
+				// coach) — les analyses JSON historiques gardent le réglage du modèle.
+				...(options.temperature === undefined ? {} : { temperature: options.temperature }),
 				...(options.json === false ? {} : { text: { format: { type: 'json_object' } } }),
 				input,
 			}),
@@ -206,26 +209,47 @@ async function callOpenAiText(
  *  - sortie TEXTE (pas de format JSON) : c'est le brouillon lui-même ;
  *  - consignes système en tête d'appel (`role: 'system'`), puis le prompt :
  *    le préfixe identique à chaque appel profite du cache de prompt ;
+ *  - température basse (`COACH_DRAFT_TEMPERATURE`) pour la régularité des
+ *    retours ; si le modèle refuse ce réglage, un second appel sans
+ *    température prend la valeur par défaut — la plus proche qu'il accepte ;
  *  - usages complets renvoyés : modèle, tokens lus/écrits, tokens mis en
  *    cache (`input_tokens_details.cached_tokens`), durée et coût estimé.
  */
+
+/** Température basse du brouillon : régularité des retours d'un appel à l'autre. */
+export const COACH_DRAFT_TEMPERATURE = 0.3;
+
+/** Un refus HTTP 400 qui cite explicitement le réglage de température. */
+function isTemperatureRejected(error: unknown): boolean {
+	return (
+		error instanceof OpenAiUnavailableError &&
+		/\bHTTP 400\b/.test(error.message) &&
+		/temperature/i.test(error.message)
+	);
+}
 export async function generateCoachDraftText(args: {
 	system: string;
 	prompt: string;
 	model: string;
 	maxOutputTokens: number;
+	temperature?: number;
 }): Promise<{ text: string; usage: AiUsage }> {
 	const model = args.model.trim();
 	if (!model) throw new OpenAiUnavailableError('Modèle IA non configuré sur le serveur.');
-	const { text, usage } = await callOpenAiCore(
-		[
-			{ role: 'system', content: [{ type: 'input_text', text: args.system }] },
-			{ role: 'user', content: [{ type: 'input_text', text: args.prompt }] },
-		],
-		args.maxOutputTokens,
-		{ model, json: false }
-	);
-	return { text, usage };
+	const messages: OpenAiMessage[] = [
+		{ role: 'system', content: [{ type: 'input_text', text: args.system }] },
+		{ role: 'user', content: [{ type: 'input_text', text: args.prompt }] },
+	];
+	const temperature = args.temperature ?? COACH_DRAFT_TEMPERATURE;
+	try {
+		return await callOpenAiCore(messages, args.maxOutputTokens, { model, json: false, temperature });
+	} catch (error) {
+		// Certains modèles refusent tout réglage de température : on réessaie
+		// sans le réglage, soit la valeur par défaut — la plus proche qu'ils
+		// acceptent. Jamais de repli sur un autre modèle ni sur un autre texte.
+		if (!isTemperatureRejected(error)) throw error;
+		return await callOpenAiCore(messages, args.maxOutputTokens, { model, json: false });
+	}
 }
 
 /* ─────────────── ÉTIQUETTE NUTRITIONNELLE ─────────────── */
