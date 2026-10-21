@@ -37,7 +37,7 @@ import { v, ConvexError } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { api, internal } from "./_generated/api";
-import { generateText, isAiFeatureDisabled } from "./ai/provider";
+import { generateText, isAiFeatureDisabled, resolveGenerationConfig } from "./ai/provider";
 import { COACH_DRAFT_STYLE_GUIDE } from "../lib/data/coachDraftStyleGuide";
 import { COACH_DRAFT_METHOD_REFERENCE } from "./ai/methodeGflux";
 import { addDaysISO, daysBetweenISO, getSessionUser, localTodayISO } from "./helpers";
@@ -56,6 +56,7 @@ import {
 } from "../lib/vision360";
 import {
 	buildCoachDraftPrompt,
+	restorePrenom,
 	type CoachDraftAppointments,
 	type CoachDraftContext,
 	type CoachDraftCycle,
@@ -538,15 +539,49 @@ export const generate = action({
 			targetWords,
 		});
 
-		const { text } = await generateText({
-			feature: "coach_draft",
-			system: COACH_DRAFT_SYSTEM,
-			prompt,
-			maxTokens: 400,
-			// Repères factuels du fournisseur fictif (M1 uniquement). Un vrai
-			// fournisseur ne reçoit que le prompt.
-			fakeFacts: { prenom: context.prenom, weekLabel: context.weekLabel },
-		});
+		const started = Date.now();
+		let result: Awaited<ReturnType<typeof generateText>>;
+		try {
+			result = await generateText({
+				feature: "coach_draft",
+				system: COACH_DRAFT_SYSTEM,
+				prompt,
+				maxTokens: 400,
+				// Repères factuels du fournisseur fictif uniquement (jamais transmis
+				// à un vrai fournisseur, qui ne reçoit que system + prompt).
+				fakeFacts: { prenom: context.prenom, weekLabel: context.weekLabel },
+			});
+		} catch (error) {
+			// Erreur ou délai dépassé : on trace la cause technique courte (jamais
+			// le prompt ni le contenu) puis on renvoie un message clair — le coach
+			// écrit à la main comme avant.
+			await ctx.runMutation(internal.aiLog.record as never, {
+				kind: "coach_draft",
+				model: resolveGenerationConfig("coach_draft").model || "non configuré",
+				durationMs: Date.now() - started,
+				status: "error",
+				failReason: (error instanceof Error ? error.message : String(error)).slice(0, 120),
+			} as never);
+			throw new ConvexError(
+				"Le brouillon n'a pas pu être préparé. Tu peux écrire ton retour à la main comme avant, ou réessayer dans un instant."
+			);
+		}
+
+		// SUIVI DES COÛTS — modèle, tokens lus/écrits/mis en cache et durée.
+		// JAMAIS le contenu : ni prompt, ni brouillon, ni donnée cliente.
+		await ctx.runMutation(internal.aiLog.record as never, {
+			kind: "coach_draft",
+			model: result.usage.model,
+			inputTokens: result.usage.inputTokens,
+			outputTokens: result.usage.outputTokens,
+			cachedInputTokens: result.usage.cachedInputTokens,
+			durationMs: result.usage.durationMs,
+			status: "ok",
+			estimatedCostUsd: result.usage.estimatedCostUsd,
+		} as never);
+
+		// Prénom réinséré côté serveur : l'appel ne contenait que {{prenom}}.
+		const text = restorePrenom(result.text, context.prenom);
 
 		// Texte brut, prêt à être relu/modifié dans le textarea. Rien n'est
 		// persisté : sans clic sur « Sauvegarder » ou « Publier », il n'existe

@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import {
+	COACH_DRAFT_MODEL_ENV,
 	FAKE_PROVIDER_DELAY_MS,
 	buildFakeDraftText,
 	generateText,
@@ -119,25 +120,42 @@ test('generateText (fake) simule un court délai et renvoie le texte seul + usag
 	}
 });
 
-test('Les fournisseurs openai et anthropic sont des emplacements vides (M2/M4)', async () => {
-	const saved = process.env.AI_PROVIDER_COACH_DRAFT;
+test('M3 : openai sans variable de modèle → factice ; anthropic et inconnu → refus explicite', async () => {
+	const savedProvider = process.env.AI_PROVIDER_COACH_DRAFT;
+	const savedModel = process.env[COACH_DRAFT_MODEL_ENV];
+	const savedFetch = globalThis.fetch;
+	globalThis.fetch = async () => {
+		throw new Error('aucun appel réseau attendu dans ce test');
+	};
 	try {
-		for (const provider of ['openai', 'anthropic']) {
-			process.env.AI_PROVIDER_COACH_DRAFT = provider;
-			await assert.rejects(
-				generateText({ feature: 'coach_draft', system: 's', prompt: 'p' }),
-				/pas encore disponible/,
-				`le fournisseur ${provider} ne doit pas être implémenté en M1`
-			);
-		}
+		// « openai » sans modèle explicite → fournisseur factice : la variable
+		// absente (ou vide) est traitée comme non configurée, aucun appel réel.
+		process.env.AI_PROVIDER_COACH_DRAFT = 'openai';
+		delete process.env[COACH_DRAFT_MODEL_ENV];
+		const absent = await generateText({ feature: 'coach_draft', system: 's', prompt: 'p' });
+		assert.equal(absent.usage.provider, 'fake', 'variable absente → fournisseur factice');
+		process.env[COACH_DRAFT_MODEL_ENV] = '   ';
+		const empty = await generateText({ feature: 'coach_draft', system: 's', prompt: 'p' });
+		assert.equal(empty.usage.provider, 'fake', 'variable vide traitée comme absente');
+
+		// anthropic reste un emplacement vide (M4) ; un fournisseur inconnu est refusé.
+		process.env.AI_PROVIDER_COACH_DRAFT = 'anthropic';
+		await assert.rejects(
+			generateText({ feature: 'coach_draft', system: 's', prompt: 'p' }),
+			/pas encore disponible/,
+			'anthropic ne doit pas être implémenté'
+		);
 		process.env.AI_PROVIDER_COACH_DRAFT = 'autre-chose';
 		await assert.rejects(
 			generateText({ feature: 'coach_draft', system: 's', prompt: 'p' }),
 			/non configuré/
 		);
 	} finally {
-		if (saved === undefined) delete process.env.AI_PROVIDER_COACH_DRAFT;
-		else process.env.AI_PROVIDER_COACH_DRAFT = saved;
+		globalThis.fetch = savedFetch;
+		if (savedProvider === undefined) delete process.env.AI_PROVIDER_COACH_DRAFT;
+		else process.env.AI_PROVIDER_COACH_DRAFT = savedProvider;
+		if (savedModel === undefined) delete process.env[COACH_DRAFT_MODEL_ENV];
+		else process.env[COACH_DRAFT_MODEL_ENV] = savedModel;
 	}
 });
 
@@ -159,10 +177,15 @@ test('coachDraft.generate enchaîne loadContext → prompt → fournisseur et re
 	assert.ok(actionSource.includes('isAiFeatureDisabled("coach_draft")'), 'arrêt d’urgence dans l’action');
 });
 
-test('La génération n’écrit RIEN dans checkins et ne déclenche aucun effet cliente', () => {
-	// Le module ne peut pas écrire : aucune mutation, aucun patch/insert/delete.
-	assert.ok(!/\b(?:internal)?[mM]utation\(/.test(actionSource), 'aucune mutation Convex');
-	assert.ok(!/runMutation|ctx\.db\.(?:insert|patch|delete)/.test(actionSource), 'aucune écriture');
+test('La génération n’écrit que la TRACE DE COÛTS — checkins intact, aucun effet cliente', () => {
+	// Seule écriture permise : la ligne technique de coûts (aiUsageLog), sans
+	// aucun contenu — sinon aucune mutation, aucun patch/insert/delete.
+	const mutations = [...actionSource.matchAll(/runMutation\(([^,]+)/g)].map((m) => m[1].trim());
+	assert.ok(mutations.length >= 1, 'au moins la trace de coûts');
+	for (const target of mutations) {
+		assert.equal(target, 'internal.aiLog.record as never', `écriture interdite : ${target}`);
+	}
+	assert.ok(!/ctx\.db\.(?:insert|patch|delete)/.test(actionSource), 'aucune écriture directe');
 	assert.ok(!/recordClientEvent|sendPush|notifications/.test(actionSource), 'aucun événement/push/badge');
 	assert.ok(
 		!/api\.coach\.setFeedback|coach\.setFeedback\s*\(/.test(actionSource),

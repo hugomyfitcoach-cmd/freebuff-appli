@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import {
+	anonymizePrenom,
 	buildCoachDraftPrompt,
 	normalizeCoachDraftTargetWords,
 	DEFAULT_COACH_DRAFT_TARGET_WORDS,
@@ -82,10 +83,10 @@ for (const testCase of CASES) {
 
 test('Le prompt contient les TROIS sources, dans l’ordre', () => {
 	const prompt = buildFor(loadContext('progression.context.json'));
-	const guide = prompt.indexOf('--- 1. GUIDE DE STYLE ---');
-	const methode = prompt.indexOf('--- 2. RÉFÉRENTIEL DE MÉTHODE ---');
+	const methode = prompt.indexOf('--- 1. RÉFÉRENTIEL DE MÉTHODE ---');
+	const guide = prompt.indexOf('--- 2. GUIDE DE STYLE ---');
 	const exemples = prompt.indexOf('--- 3. EXEMPLES DE RETOURS');
-	assert.ok(guide >= 0 && methode > guide && exemples > methode, 'guide → méthode → exemples');
+	assert.ok(methode >= 0 && guide > methode && exemples > guide, 'méthode → guide → exemples');
 	assert.ok(prompt.includes('GUIDE DE STYLE'));
 	assert.ok(prompt.includes(COACH_DRAFT_METHOD_REFERENCE.slice(0, 40)));
 });
@@ -118,7 +119,10 @@ test('L’historique de la même cliente est bien présent (2 exemples), jamais 
 	const prompt = buildFor(context);
 	for (const example of context.examples) {
 		assert.ok(prompt.includes(example.weekLabel), `semaine absente : ${example.weekLabel}`);
-		assert.ok(prompt.includes(example.text.slice(0, 40)), 'texte du retour de la même cliente absent');
+		assert.ok(
+			prompt.includes(anonymizePrenom(example.text.slice(0, 40), context.prenom)),
+			'texte du retour de la même cliente absent (prénom remplacé par {{prenom}} dans l’appel)'
+		);
 	}
 });
 

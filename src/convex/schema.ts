@@ -1471,18 +1471,21 @@ export default defineSchema({
 		.index("by_trainingSession", ["trainingSessionId"]),
 
 	/**
-	 * TRAÇABILITÉ IA — une ligne par appel à OpenAI réussi (étiquette ou repas).
-	 * JAMAIS de données personnelles : la photo n'est PAS stockée, seuls les
-	 * compteurs techniques (modèle, tokens, durée, coût estimé) permettent de
+	 * TRAÇABILITÉ IA — une ligne par appel à OpenAI réussi (étiquette, repas ou
+	 * brouillon de retour coach). JAMAIS de données personnelles : la photo, le
+	 * prompt et le brouillon ne sont PAS stockés, seuls les compteurs techniques
+	 * (modèle, tokens lus/écrits/mis en cache, durée, coût estimé) permettent de
 	 * suivre la consommation. Table bornée par nature (un appel = une ligne).
 	 */
 	aiUsageLog: defineTable({
-		/** "label" (étiquette nutritionnelle) | "meal" (photo de repas). */
-		kind: v.union(v.literal("label"), v.literal("meal")),
+		/** "label" (étiquette) | "meal" (photo de repas) | "coach_draft" (brouillon). */
+		kind: v.union(v.literal("label"), v.literal("meal"), v.literal("coach_draft")),
 		/** Modèle exact appelé (ex. "gpt-4o-mini"). */
 		model: v.string(),
 		inputTokens: v.optional(v.number()),
 		outputTokens: v.optional(v.number()),
+		/** Tokens d'entrée servis depuis le cache de prompt (input_tokens_details). */
+		cachedInputTokens: v.optional(v.number()),
 		/** Durée totale de l'appel (ms). */
 		durationMs: v.number(),
 		/** Statut : "ok" | "error" (timeout, JSON invalide, panne…). */

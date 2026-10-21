@@ -60,6 +60,8 @@ export type AiUsage = {
 	model: string;
 	inputTokens?: number;
 	outputTokens?: number;
+	/** Tokens d'entrée servis depuis le cache de prompt (input_tokens_details). */
+	cachedInputTokens?: number;
 	durationMs: number;
 	estimatedCostUsd?: number;
 };
@@ -78,15 +80,28 @@ function assertImageDataUrl(dataUrl: string): void {
 	}
 }
 
-/** Appel générique Responses API en mode JSON strict — entrée message(s) libre. */
+/** Message d'entrée Responses API — texte ou image, rôle utilisateur ou système. */
+export type OpenAiMessage = {
+	role: 'user' | 'system';
+	content: ({ type: 'input_text'; text: string } | { type: 'input_image'; image_url: string; detail: 'high' })[];
+};
+
+/**
+ * Appel générique Responses API — entrée message(s) libre.
+ *  - `options.json` (défaut true) : format JSON strict + parse de la sortie ;
+ *  - `options.model` : modèle fourni par l'appelant (jamais de nom en dur) —
+ *    défaut : modèle vision des analyses (OPENAI_MODEL, borné) ;
+ *  - la sortie TEXTE brute est toujours renvoyée (`text`), en plus du JSON.
+ */
 async function callOpenAiCore(
-	input: { role: 'user'; content: ({ type: 'input_text'; text: string } | { type: 'input_image'; image_url: string; detail: 'high' })[] }[],
-	maxOutputTokens: number
-): Promise<{ json: unknown; usage: AiUsage }> {
+	input: OpenAiMessage[],
+	maxOutputTokens: number,
+	options: { model?: string; json?: boolean } = {}
+): Promise<{ text: string; json: unknown; usage: AiUsage }> {
 	const key = aiEnv().OPENAI_API_KEY;
 	if (!key) throw new OpenAiUnavailableError("Analyse IA non configurée sur le serveur.");
 
-	const m = model();
+	const m = options.model ?? model();
 	const started = Date.now();
 	let res: Response;
 	try {
@@ -99,7 +114,7 @@ async function callOpenAiCore(
 			body: JSON.stringify({
 				model: m,
 				max_output_tokens: maxOutputTokens,
-				text: { format: { type: 'json_object' } },
+				...(options.json === false ? {} : { text: { format: { type: 'json_object' } } }),
 				input,
 			}),
 			signal: AbortSignal.timeout(40_000),
@@ -124,25 +139,33 @@ async function callOpenAiCore(
 	const raw = (await res.json()) as {
 		output_text?: string;
 		output?: { type: string; content?: { type: string; text?: string }[] }[];
-		usage?: { input_tokens?: number; output_tokens?: number };
+		usage?: {
+			input_tokens?: number;
+			output_tokens?: number;
+			input_tokens_details?: { cached_tokens?: number };
+		};
 	};
 	const text = raw.output_text ?? (raw.output ?? []).flatMap((o) => (o.content ?? []).map((c) => c.text ?? '')).join('');
 	const durationMs = Date.now() - started;
 	const inputTokens = raw.usage?.input_tokens;
 	const outputTokens = raw.usage?.output_tokens;
+	const cachedInputTokens = raw.usage?.input_tokens_details?.cached_tokens;
 	const prices = PRICES[m] ?? PRICES['gpt-4o-mini'];
 	const estimatedCostUsd =
 		inputTokens !== undefined && outputTokens !== undefined
 			? Math.round(((inputTokens * prices.input + outputTokens * prices.output) / 1_000_000) * 100000) / 100000
 			: undefined;
 	if (!text) throw new OpenAiUnavailableError('Réponse IA vide.');
+	if (options.json === false) {
+		return { text, json: undefined, usage: { model: m, inputTokens, outputTokens, cachedInputTokens, durationMs, estimatedCostUsd } };
+	}
 	let json: unknown;
 	try {
 		json = JSON.parse(text);
 	} catch {
 		throw new OpenAiUnavailableError('Réponse IA illisible.');
 	}
-	return { json, usage: { model: m, inputTokens, outputTokens, durationMs, estimatedCostUsd } };
+	return { text, json, usage: { model: m, inputTokens, outputTokens, cachedInputTokens, durationMs, estimatedCostUsd } };
 }
 
 /** Appel AVEC IMAGE (étiquette, repas, recette) — signature historique inchangée. */
@@ -172,6 +195,37 @@ async function callOpenAiText(
 	maxOutputTokens: number
 ): Promise<{ json: unknown; usage: AiUsage }> {
 	return callOpenAiCore([{ role: 'user', content: [{ type: 'input_text', text: prompt }] }], maxOutputTokens);
+}
+
+/**
+ * GÉNÉRATION DE TEXTE BRUT (brouillons de retour coach) — MÊME cœur d'appel,
+ * MÊME clé que l'analyse des repas, aucun SDK ni moteur parallèle.
+ *
+ *  - `model` fourni par l'appelant : variable OPENAI_COACH_DRAFT_MODEL, aucun
+ *    nom de modèle écrit en dur et aucune borne de liste blanche ici ;
+ *  - sortie TEXTE (pas de format JSON) : c'est le brouillon lui-même ;
+ *  - consignes système en tête d'appel (`role: 'system'`), puis le prompt :
+ *    le préfixe identique à chaque appel profite du cache de prompt ;
+ *  - usages complets renvoyés : modèle, tokens lus/écrits, tokens mis en
+ *    cache (`input_tokens_details.cached_tokens`), durée et coût estimé.
+ */
+export async function generateCoachDraftText(args: {
+	system: string;
+	prompt: string;
+	model: string;
+	maxOutputTokens: number;
+}): Promise<{ text: string; usage: AiUsage }> {
+	const model = args.model.trim();
+	if (!model) throw new OpenAiUnavailableError('Modèle IA non configuré sur le serveur.');
+	const { text, usage } = await callOpenAiCore(
+		[
+			{ role: 'system', content: [{ type: 'input_text', text: args.system }] },
+			{ role: 'user', content: [{ type: 'input_text', text: args.prompt }] },
+		],
+		args.maxOutputTokens,
+		{ model, json: false }
+	);
+	return { text, usage };
 }
 
 /* ─────────────── ÉTIQUETTE NUTRITIONNELLE ─────────────── */

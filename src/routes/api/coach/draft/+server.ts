@@ -28,8 +28,16 @@ import { SESSION_COOKIE, requireRole } from '$lib/server/session';
 /** Délai maximal de préparation d'un brouillon (ms). */
 const DRAFT_TIMEOUT_MS = 40_000;
 
-/** Message unique côté coach en cas d'échec — sobre, sans détail technique. */
-const DRAFT_ERROR = "Le brouillon n'a pas pu être préparé. Réessaie dans un instant.";
+/**
+ * Message unique côté coach en cas d'échec — sobre, sans détail technique,
+ * et explicite sur la suite : le coach écrit à la main comme avant.
+ */
+const DRAFT_ERROR =
+	"Le brouillon n'a pas pu être préparé. Tu peux écrire ton retour à la main comme avant, ou réessayer dans un instant.";
+
+/** Délai dépassé : même message clair, même repli manuel. */
+const DRAFT_SLOW =
+	"La préparation a pris trop de temps et a été interrompue. Tu peux écrire ton retour à la main comme avant, ou réessayer.";
 
 /** Message quand le kill switch est actif. */
 const DRAFT_DISABLED = 'La préparation de brouillon est momentanément désactivée.';
@@ -95,7 +103,7 @@ export const POST: RequestHandler = async (event) => {
 		// Cause réelle dans les logs serveur uniquement ; le coach ne voit
 		// jamais de stack, de code Convex ni de message de fournisseur.
 		console.error('[coach-draft] échec de la préparation', e instanceof Error ? e.message : e);
-		const status = e instanceof Error && e.message === 'draft-timeout' ? 504 : 502;
-		return json({ error: DRAFT_ERROR }, { status });
+		const timedOut = e instanceof Error && e.message === 'draft-timeout';
+		return json({ error: timedOut ? DRAFT_SLOW : DRAFT_ERROR }, { status: timedOut ? 504 : 502 });
 	}
 };
