@@ -15,6 +15,8 @@ Ces règles viennent du retour de Hugo sur les brouillons de l'assistant. Elles 
 5. **Toujours une décision claire** : « On ne touche à rien et on continue sur cette lancée » ou l'ajustement proposé.
 6. **Pas de « focus » imposé quand tout va bien.**
 7. **Fin courte et chaleureuse, liée au moment** (« Passe un bon dimanche :) »). Jamais « Si tu as une question, n'hésite pas ».
+8. Si aucune tendance de poids n'est disponible, ne parle pas du poids ; ne jamais expliquer qu'une donnée manque.
+9. Phrases courtes : une idée par phrase, 20 mots maximum.
 
 **Exemple de référence — la version de Hugo :**
 

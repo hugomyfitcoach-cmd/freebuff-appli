@@ -448,18 +448,18 @@ function formatSportLine(stats: CoachDraftWeekStats, prefix: string): string {
 }
 
 /**
- * TENDANCE DE POIDS — écart entre les deux dernières pesées (toutes dates) et
- * poids moyen du bilan précédent. Valeurs déjà arrondies (centaine de
- * grammes) ; chaque absence reste explicite, jamais un zéro inventé.
+ * TENDANCE DE POIDS — présentée comme la tendance : l'écart entre les deux
+ * dernières pesées (toutes dates confondues), avec ses deux dates. Valeurs déjà
+ * arrondies (centaine de grammes). Si l'écart est absent (moins de deux
+ * pesées) : AUCUNE ligne de tendance, jamais un zéro inventé. Le poids moyen
+ * du bilan précédent reste la moyenne des pesées de la semaine du bilan.
  */
 function formatWeightTrend(trend: CoachDraftWeightTrend | null | undefined): string[] {
 	const lines: string[] = [];
 	if (trend && trend.last && trend.previous && trend.gapKg !== null) {
 		lines.push(
-			`- Écart de pesée : dernière pesée ${formatNumberTrimmed(trend.last.weightKg, 1)} kg le ${formatDateFR(trend.last.date)} ; pesée précédente ${formatNumberTrimmed(trend.previous.weightKg, 1)} kg le ${formatDateFR(trend.previous.date)} ; écart ${formatWeightGap(trend.gapKg)}.`
+			`- Tendance de poids : dernière pesée ${formatNumberTrimmed(trend.last.weightKg, 1)} kg le ${formatDateFR(trend.last.date)}, précédente ${formatNumberTrimmed(trend.previous.weightKg, 1)} kg le ${formatDateFR(trend.previous.date)}, écart ${formatWeightGap(trend.gapKg)}.`
 		);
-	} else {
-		lines.push("- Écart de pesée : indisponible (moins de deux pesées enregistrées).");
 	}
 	if (!trend || !trend.prevCheckin) {
 		lines.push("- Poids moyen du bilan précédent : indisponible (aucun bilan précédent).");

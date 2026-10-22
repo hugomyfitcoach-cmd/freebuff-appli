@@ -367,6 +367,8 @@ Ces règles viennent du retour de Hugo sur les brouillons de l'assistant. Elles 
 5. **Toujours une décision claire** : « On ne touche à rien et on continue sur cette lancée » ou l'ajustement proposé.
 6. **Pas de « focus » imposé quand tout va bien.**
 7. **Fin courte et chaleureuse, liée au moment** (« Passe un bon dimanche :) »). Jamais « Si tu as une question, n'hésite pas ».
+8. Si aucune tendance de poids n'est disponible, ne parle pas du poids ; ne jamais expliquer qu'une donnée manque.
+9. Phrases courtes : une idée par phrase, 20 mots maximum.
 
 **Exemple de référence — la version de Hugo :**
 
@@ -548,7 +550,7 @@ Statistiques — semaine du bilan (7 jours complets) : 14/09/2026 → 20/09/2026
 - Protéines : moyenne 78 g sur les mêmes 3 jour(s) exploitable(s) ; objectif 115 g
 - Repas estimés par photo IA : part indisponible (aucune calorie saisie) ; aucun repas renseigné.
 - Poids : moyenne 64,9 kg sur 1 pesée(s) ; dernière pesée 65,1 kg le 18/09/2026 ; pesée de référence précédente 64,4 kg le 11/09/2026 ; écart +700 g.
-- Écart de pesée : dernière pesée 65,1 kg le 18/09/2026 ; pesée précédente 64,4 kg le 11/09/2026 ; écart +700 g.
+- Tendance de poids : dernière pesée 65,1 kg le 18/09/2026, précédente 64,4 kg le 11/09/2026, écart +700 g.
 - Poids moyen du bilan précédent (S37 - 07 septembre 2026) : 64,5 kg sur 2 pesée(s).
 - Pas : moyenne 4 200 pas sur 3 jour(s) renseigné(s) ; objectif 9 000.
 - Sport : 5 activité(s), 310 min, 1 900 kcal estimées, 2 100 MET-min.

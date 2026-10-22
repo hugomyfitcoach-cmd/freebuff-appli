@@ -281,13 +281,13 @@ test('loadContext : écart absent quand il n\u2019y a pas de pesée précédente
 	assert.equal(context.stats.weightTrend.prevCheckin, null);
 });
 
-test('Prompt : l\u2019écart de pesée et le poids moyen du bilan précédent sont dans les faits envoyés', () => {
+test('Prompt : la tendance de poids (écart des deux dernières pesées) et le poids moyen du bilan précédent sont dans les faits envoyés', () => {
 	const prompt = buildFor(contextOf('progression.context.json'));
 	assert.ok(
 		prompt.includes(
-			'- Écart de pesée : dernière pesée 61,6 kg le 20/09/2026 ; pesée précédente 61,9 kg le 16/09/2026 ; écart -300 g.'
+			'- Tendance de poids : dernière pesée 61,6 kg le 20/09/2026, précédente 61,9 kg le 16/09/2026, écart -300 g.'
 		),
-		'écart entre les deux dernières pesées, arrondi à la centaine de grammes'
+		'tendance = écart entre les deux dernières pesées, avec ses deux dates, arrondi à la centaine de grammes'
 	);
 	assert.ok(
 		prompt.includes('- Poids moyen du bilan précédent (S37 - 07 septembre 2026) : 62,3 kg sur 2 pesée(s).'),
@@ -295,7 +295,7 @@ test('Prompt : l\u2019écart de pesée et le poids moyen du bilan précédent so
 	);
 });
 
-test('Prompt : écart de pesée absent — lignes explicites, jamais un zéro', () => {
+test('Prompt : écart de pesée absent — aucune ligne de tendance, jamais un zéro', () => {
 	const context = contextOf('progression.context.json');
 	context.stats.weightTrend = {
 		last: null,
@@ -305,8 +305,8 @@ test('Prompt : écart de pesée absent — lignes explicites, jamais un zéro', 
 	};
 	const prompt = buildFor(context);
 	assert.ok(
-		prompt.includes('- Écart de pesée : indisponible (moins de deux pesées enregistrées).'),
-		'absence annoncée'
+		!prompt.includes('- Tendance de poids :'),
+		'aucune ligne de tendance quand l’écart est absent'
 	);
 	assert.ok(
 		prompt.includes(
