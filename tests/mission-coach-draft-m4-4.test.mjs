@@ -259,23 +259,37 @@ test('Contexte : relevé à J-3 → mensurations transmises avec leur écart', a
 	assert.ok(prompt.includes(`- Mensurations : dernier relevé le ${day(-3).split('-').reverse().join('/')}`), 'date du relevé frais');
 });
 
-test('Contexte : « Oui » sans relevé dans la fenêtre → mensurationsAttenduesNonSaisies à true', async () => {
-	const tables = makeTables({
-		answers: { mensurations: 'oui' },
-		mensurations: [{ date: day(-20), waistCm: 76 }, { date: day(-11), waistCm: 74 }],
-	});
-	const context = await runLoadContext(tables);
-	assert.equal(context.stats.mensurations, null);
-	assert.equal(context.stats.mensurationsAttenduesNonSaisies, true, 'indicateur simple pour une relance courte');
-	const prompt = buildPrompt(context);
-	assert.ok(prompt.includes("l'inviter en UNE phrase courte à saisir ses mensurations"), 'invitation prévue');
+test('Mensurations, rythme de 15 jours : J-7 → J transmis, J-14 → J-8 silencieux, au-delà relance', async () => {
+	// J-11 (dans les temps) : rien n'est transmis, aucune relance — même si
+	// la cliente a répondu « Oui » (l'indicateur ne dépend plus de la réponse).
+	const enTemps = await runLoadContext(
+		makeTables({
+			answers: { mensurations: 'oui' },
+			mensurations: [{ date: day(-20), waistCm: 76 }, { date: day(-11), waistCm: 74 }],
+		})
+	);
+	assert.equal(enTemps.stats.mensurations, null, 'aucune donnée transmise');
+	assert.equal(enTemps.stats.mensurationsAttenduesNonSaisies, false, 'J-11 : pas d’indicateur');
+	let prompt = buildPrompt(enTemps);
+	assert.ok(!prompt.includes("l'inviter en UNE phrase courte à saisir ses mensurations"), 'aucune invitation');
+	assert.ok(prompt.includes('aucune relance'), 'le contexte dit de ne pas relancer');
 	assert.ok(!prompt.includes('74 cm'), 'aucune valeur ancienne transmise');
 
-	// Relevé frais + « Oui » → indicateur à false (rien à relancer).
-	const fresh = await runLoadContext(
-		makeTables({ answers: { mensurations: 'oui' }, mensurations: [{ date: day(-20), waistCm: 76 }, { date: day(-3), waistCm: 72 }] })
+	// J-16 (dernier relevé antérieur à J-14) : indicateur à true + invitation.
+	const enRetard = await runLoadContext(
+		makeTables({ mensurations: [{ date: day(-30), waistCm: 78 }, { date: day(-16), waistCm: 76 }] })
 	);
-	assert.equal(fresh.stats.mensurationsAttenduesNonSaisies, false);
+	assert.equal(enRetard.stats.mensurationsAttenduesNonSaisies, true, 'J-16 : indicateur à true');
+	prompt = buildPrompt(enRetard);
+	assert.ok(prompt.includes("l'inviter en UNE phrase courte à saisir ses mensurations"), 'invitation prévue');
+
+	// Aucun relevé (même avec une réponse « non ») : indicateur à true.
+	const aucun = await runLoadContext(makeTables({ answers: { mensurations: 'non' } }));
+	assert.equal(aucun.stats.mensurationsAttenduesNonSaisies, true, 'aucun relevé : indicateur à true');
+
+	// Relevé frais : indicateur à false.
+	const frais = await runLoadContext(makeTables({ mensurations: [{ date: day(-3), waistCm: 72 }] }));
+	assert.equal(frais.stats.mensurationsAttenduesNonSaisies, false);
 });
 
 /* ═══════════════ 4) CONTEXTE ENVOYÉ — COMPLÉTUDE DU SUIVI ═══════════════ */
@@ -399,6 +413,39 @@ test('Complétude : 5/7 jours exploitables → nombre de jours transmis (« sur 
 	assert.equal(context.stats.week.food.exploitableDays, card.cockpit.calories.trackedDays);
 });
 
+test('Ouverture : données partielles → consigne d’ouverture factuelle dans le prompt', async () => {
+	// 5/7 jours de calories, aucun pas : une donnée commentée est partielle.
+	const food = [day(-7), day(-6), day(-5), day(-4), day(-3)].map((d) => entry(d, 1500, 100));
+	const partiel = await runLoadContext(makeTables({ food }));
+	assert.equal(partiel.stats.ouvertureFactuelle, true, 'données partielles');
+	let prompt = buildPrompt(partiel);
+	assert.ok(
+		prompt.includes('Ouverture : FACTUELLE obligatoire'),
+		'consigne d’ouverture factuelle transmise au modèle'
+	);
+	assert.ok(
+		prompt.includes('aucune appréciation globale'),
+		'aucune appréciation globale tant qu’une donnée est partielle'
+	);
+	assert.ok(
+		prompt.includes('« bonne semaine côté activité »'),
+		'formulations globales explicitement interdites'
+	);
+
+	// 7/7 jours de calories ET de pas : toutes les données commentées sont complètes.
+	const semaine = [day(-7), day(-6), day(-5), day(-4), day(-3), day(-2), day(-1)];
+	const complet = await runLoadContext(
+		makeTables({
+			food: semaine.map((d) => entry(d, 1500, 100)),
+			steps: semaine.map((d, i) => ({ _id: `stc-${i}`, _creationTime: 10 + i, userId: 'client1', date: d, count: 9000 })),
+		})
+	);
+	assert.equal(complet.stats.ouvertureFactuelle, false, 'données complètes');
+	prompt = buildPrompt(complet);
+	assert.ok(prompt.includes('une appréciation globale est possible'), 'verdict global autorisé');
+	assert.ok(!prompt.includes('Ouverture : FACTUELLE obligatoire'));
+});
+
 /* ═══════════════ 5) ÉCART DE PESÉE — FENÊTRE J-7 → J ═══════════════ */
 
 test('Pesée à J-10 : aucun écart transmis, indicateur peseeRecenteAbsente et invitation à se peser', async () => {
@@ -494,7 +541,7 @@ test('Panneau : données suffisantes et relevés frais → valeurs conservées',
 /* ═══════════════ 7) GUIDE DE STYLE — RÈGLES 11, 12 ET 13 ═══════════════ */
 
 const RULE_MENSURATIONS =
-	"11. **Mensurations hors semaine** : ne parle des mensurations que si le dernier relevé est daté de J-7 à J (aujourd'hui inclus).";
+	"11. **Mensurations, rythme de 15 jours** : ne parle des mensurations que si le dernier relevé est daté de J-7 à J (aujourd'hui inclus)";
 const RULE_COMPLETENESS = "12. **Complétude du suivi** : moins de 4 jours exploitables sur 7";
 const RULE_FRESHNESS =
 	"13. **Fraîcheur des relevés** : l'écart entre la dernière pesée et la précédente ne se commente que si la dernière pesée est datée de J-7 à J (aujourd'hui inclus).";
@@ -510,9 +557,17 @@ test('Guide : les règles 11 (mensurations) et 12 (complétude) sont dans les R�
 	assert.ok(priorities.includes(RULE_FRESHNESS), 'règle 13 (fraîcheur des relevés) dans le .md source');
 	assert.ok(priorities.includes('seules celles de J-7 à J sont mentionnées'), 'photos : même fenêtre');
 	assert.ok(
-		priorities.includes('L’appréciation d’ouverture (« très bonne semaine ») ne s’appuie jamais sur une donnée dont le suivi est inférieur à 4 jours.') ||
-			priorities.includes("L'appréciation d'ouverture (« très bonne semaine ») ne s'appuie jamais sur une donnée dont le suivi est inférieur à 4 jours."),
-		'ouverture jamais appuyée sur moins de 4 jours'
+		priorities.includes("L'appréciation d'ouverture (« très bonne semaine », « bonne semaine côté activité »…)"),
+		'appréciation globale nommée explicitement'
+	);
+	assert.ok(
+		priorities.includes('est interdite dès qu’une donnée commentée est partielle ou insuffisante') ||
+			priorities.includes("est interdite dès qu'une donnée commentée est partielle ou insuffisante"),
+		'aucune appréciation globale sur une donnée partielle (< 7 jours)'
+	);
+	assert.ok(
+		priorities.includes("ouvre directement sur un fait, par exemple la tendance de poids"),
+		'ouverture factuelle imposée'
 	);
 });
 

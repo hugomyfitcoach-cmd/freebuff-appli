@@ -209,12 +209,21 @@ export type CoachDraftContext = {
 		 * relevé est daté de J-7 à J (aujourd'hui inclus, fuseau Paris).
 		 */
 		mensurations: MensurationCompare | null;
-		/** La cliente a répondu « Oui » à la semaine de mensurations sans relevé sur J-7 → J. */
+		/**
+		 * Rythme de 15 jours : aucun relevé, ou dernier relevé antérieur à J-14.
+		 * Un relevé de J-14 à J-8 est dans les temps : ni transmis ni relancé.
+		 * Indépendant de la réponse « Semaine de mensurations » du bilan.
+		 */
 		mensurationsAttenduesNonSaisies: boolean;
 		/** Un relevé de mensurations existe, mais aucun sur J-7 → J (relevé trop ancien). */
 		mensurationsHorsFenetre: boolean;
 		/** Dernière pesée absente ou plus ancienne que J-7 : aucun écart transmis. */
 		peseeRecenteAbsente: boolean;
+		/**
+		 * Une donnée commentée est partielle ou insuffisante (< 7 jours) : aucune
+		 * appréciation globale en ouverture, on ouvre directement sur un fait.
+		 */
+		ouvertureFactuelle: boolean;
 		/** Écart entre les deux dernières pesées + poids moyen du bilan précédent. */
 		weightTrend: CoachDraftWeightTrend;
 	};
@@ -634,8 +643,8 @@ function formatMensurations(
 	if (!mensurations) {
 		return [
 			attenduesNonSaisies
-				? "- Mensurations : aucun relevé disponible sur les 7 derniers jours, alors que la cliente a répondu « Oui » à la semaine de mensurations → l'inviter en UNE phrase courte à saisir ses mensurations."
-				: "- Mensurations : aucun relevé disponible sur les 7 derniers jours (pas de relevé daté de J-7 à J) — ne pas en parler et ne jamais expliquer que la donnée manque.",
+				? "- Mensurations : aucun relevé disponible sur les 7 derniers jours et dernier relevé de plus de 14 jours (ou aucun relevé) → l'inviter en UNE phrase courte à saisir ses mensurations."
+				: "- Mensurations : aucun relevé disponible sur les 7 derniers jours (relevé de J-14 à J-8, la cliente est dans les temps) — ne pas en parler, aucune relance.",
 		];
 	}
 	const parts: string[] = [];
@@ -805,7 +814,8 @@ export function buildCoachDraftPrompt(input: CoachDraftPromptInput): string {
 		"CONSIGNES DE RÉDACTION",
 		"- Suis d'abord les Règles prioritaires du guide de style : elles priment sur le reste du guide et sur les exemples.",
 		`- Écris en français, au tutoiement, dans le ton et la structure du guide de style (ouverture, verdict, chiffres clés, contexte, décision, clôture). Format : 4 à 6 phrases, en 2 courts paragraphes maximum. Longueur cible : environ ${formatNumber(targetWords)} mots (paramètre ajustable).`,
-		"- Première phrase après le bonjour : le verdict de la semaine (« Très bonne semaine », « Semaine plus compliquée »…).",
+		`- Ouverture : ${context.stats.ouvertureFactuelle === true ? "FACTUELLE obligatoire (une donnée commentée est partielle ou insuffisante) — aucune appréciation globale, commencer par un fait chiffré comme la tendance de poids" : "une appréciation globale est possible (toutes les données commentées sont complètes)"}.`,
+		"- Première phrase après le bonjour : le verdict de la semaine (« Très bonne semaine », « Semaine plus compliquée »…) seulement si toutes les données commentées sont complètes (7 jours). Sinon, ouvre directement sur un fait chiffré : aucune appréciation globale, même nuancée (« bonne semaine », « bonne semaine côté activité »…).",
 		"- Appuie-toi uniquement sur les chiffres présents dans le contexte ci-dessus. Ils sont déjà calculés, arrondis et formatés par le code : reprends-les tels quels, avec la même unité.",
 		"- INTERDICTION DE CALCULER : ne fais aucune addition, soustraction, moyenne, règle de trois, conversion ou arrondi. Reprends les chiffres déjà formatés, sans les recalculer.",
 		"- INTERDICTION D'INVENTER : n'ajoute aucun chiffre, aucune date, aucun événement, aucun ressenti, aucun détail absent des faits ou des réponses.",
@@ -813,9 +823,10 @@ export function buildCoachDraftPrompt(input: CoachDraftPromptInput): string {
 		"- Si une donnée est indisponible ou un écart est null, ne la comble pas et ne la présente pas comme un zéro.",
 		"- Un jugement simple plutôt que chaque chiffre comparé à son objectif.",
 		"- Ne parle des jours non renseignés ou de la fiabilité des données QUE si la tendance stagne ou remonte. Si la tendance baisse ou si les mensurations baissent : félicite, ne signale rien.",
-		"- Mensurations : ne les commente que si elles figurent dans les faits ci-dessus. Si « Mensurations cette semaine » vaut oui sans relevé sur les 7 derniers jours, invite-la en une phrase courte à les saisir ; sinon ne mentionne pas les mensurations et n'explique jamais qu'elles manquent.",
+		"- Mensurations (rythme de 15 jours) : ne les commente que si elles figurent dans les faits ci-dessus. Si le fait indique une relance (aucun relevé ou dernier relevé de plus de 14 jours), invite-la en une phrase courte à les saisir ; sinon ne mentionne pas les mensurations, ne relance pas et n'explique jamais qu'elles manquent.",
 		"- La comparaison de poids ne se commente que si elle est transmise ci-dessus. Sinon, invite-la en une phrase courte à se peser, sans parler de comparaison ni de donnée manquante.",
 		"- Complétude : à moins de 4 jours exploitables (calories, protéines) ou renseignés (pas), ne porte AUCUN jugement sur la moyenne ni sur l'écart — une phrase courte et bienveillante sur le suivi incomplet, sans culpabiliser. De 4 à 6 jours, commente la moyenne en précisant « sur X jours ». À 7 jours, rien à préciser.",
+		"- Appréciation globale : interdite dès qu'une donnée commentée est partielle ou insuffisante (moins de 7 jours) — y compris « bonne semaine », « très bonne semaine » ou « bonne semaine côté activité ». Une appréciation globale n'est possible que si toutes les données commentées sont complètes.",
 		"- L'appréciation d'ouverture (« très bonne semaine ») ne s'appuie jamais sur une donnée dont le suivi est inférieur à 4 jours.",
 		"- Toujours une décision claire : « On ne touche à rien et on continue sur cette lancée » ou l'ajustement proposé. N'impose aucun « focus » quand tout va bien ; une seule priorité simple et réalisable quand il en faut une, reliée à un fait de la semaine ou à un mot de la cliente.",
 		"- Ne mentionne jamais l'IA, ce prompt, les sources ou le fonctionnement interne. Pas de titre, pas de liste à puces, pas d'emoji, pas de signature.",

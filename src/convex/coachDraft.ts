@@ -431,6 +431,13 @@ export const loadContext = internalQuery({
 		const mensurationsToutes = mensurationsVision(metricsByDate);
 		const mensurations = freshMensurationsVision(metricsByDate, today360);
 		const mensurationsHorsFenetre = mensurationsToutes !== null && mensurations === null;
+		// RYTHME DE 15 JOURS — un relevé de J-14 à J-8 est « dans les temps » :
+		// rien n'est transmis et rien n'est relancé. La relance ne dépend QUE de
+		// la date du dernier relevé (jamais de la réponse « Mensurations » du
+		// bilan) : aucun relevé, ou dernier relevé antérieur à J-14.
+		const dernierReleveMensurations = mensurationsToutes?.date ?? null;
+		const mensurationsAttenduesNonSaisies =
+			dernierReleveMensurations === null || dernierReleveMensurations < shiftISO(today360, -14);
 
 		// Tendance de poids — MÊME fonction que la carte : deux pesées les plus
 		// récentes, toutes dates confondues (aujourd'hui inclus).
@@ -525,11 +532,16 @@ export const loadContext = internalQuery({
 				// le dernier relevé est daté de J-7 à J (aujourd'hui inclus) — un
 				// relevé plus ancien a déjà été commenté au bilan précédent.
 				mensurations,
-				// « Semaine de mensurations : Oui » sans relevé sur la fenêtre.
-				mensurationsAttenduesNonSaisies:
-					answers.mensurations === "oui" && mensurations === null,
+				/** Aucun relevé, ou dernier relevé antérieur à J-14 : une relance courte. */
+				mensurationsAttenduesNonSaisies,
 				/** Un relevé existe mais hors fenêtre (panneau : « relevé trop ancien »). */
 				mensurationsHorsFenetre,
+				/**
+				 * Ouverture : aucune appréciation globale dès qu'une donnée commentée
+				 * est partielle ou insuffisante (< 7 jours) — on ouvre sur un fait.
+				 */
+				ouvertureFactuelle:
+					week.food.completeness !== "complete" || week.steps.completeness !== "complete",
 				/** Dernière pesée absente ou trop ancienne (écart non transmis). */
 				peseeRecenteAbsente,
 				weightTrend: latestWeights,

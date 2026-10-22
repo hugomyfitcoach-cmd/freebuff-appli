@@ -104,6 +104,7 @@
 		},
 		"mensurationsAttenduesNonSaisies": false,
 		"mensurationsHorsFenetre": false,
+		"ouvertureFactuelle": true,
 		"peseeRecenteAbsente": false,
 		"mensurations": null,
 		"weightTrend": {
