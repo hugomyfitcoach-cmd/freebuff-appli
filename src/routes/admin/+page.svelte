@@ -32,9 +32,14 @@
 		DEFICIT_PCT_DEFAUT,
 		DISPONIBILITE_NIVEAUX,
 		PROTEINES_PAR_KG_MM_DEFAUT,
+		impactObjectifApplique,
+		perteGraisseKgSemaine,
 		resultatsFiche,
+		semaineAvecObjectif,
 		type EntreesFicheCalibrage,
-		type ResultatsFicheCalibrage
+		type ImpactObjectifApplique,
+		type ResultatsFicheCalibrage,
+		type SemaineCalibrage
 	} from '$lib/calibrageFiche';
 	import {
 		MENTION_AJUSTER_AVANT_DE_PRESENTER,
@@ -1751,7 +1756,10 @@
 		calibrageInputs.seances = p;
 	}
 
-	/* ── Semaine type : un apport par jour (journées hautes et basses) ── */
+	/* ── Semaine type : un apport par jour (journées hautes et basses) ──
+	   « Tous à l'objectif » repart de jours « type » (null) : ils suivent
+	   l'objectif du bloc « Appliquer à la fiche » (même modifié à la main) et
+	   restent synchronisés tant que le coach n'y saisit rien. */
 	function semaineVersObjectif() {
 		calibrageInputs.apportsSemaine = [null, null, null, null, null, null, null];
 	}
@@ -1926,6 +1934,36 @@
 	const applyAlerteGlucides = $derived(alerteGlucidesPour(applyCarbs));
 	/** Blocage : les glucides calculés sont négatifs. */
 	const applyBlocageGlucides = $derived(messageBlocageGlucides(applyCarbs));
+	/** Impact de l'objectif RÉELLEMENT appliqué (celui du bloc ci-dessus, même
+	 *  modifié à la main) : recalculé en direct par le module pur — déficit réel,
+	 *  perte de graisse, disponibilité et plafonds, mêmes avertissements que les
+	 *  résultats. Rien n'est écrit : simple lecture du module. */
+	const calImpact = $derived.by((): ImpactObjectifApplique | null => {
+		if (!calR || !Number.isFinite(applyKcal) || applyKcal <= 0) return null;
+		try {
+			return impactObjectifApplique({
+				entrees: calibrageInputs,
+				resultats: calR,
+				objectifKcal: applyKcal
+			});
+		} catch {
+			return null;
+		}
+	});
+	/** Semaine type avec l'objectif du bloc d'application : les jours non
+	 *  modifiés à la main (`null`) le suivent, les jours saisis gardent leur
+	 *  valeur — jamais écrasés (même logique que les badges « modifié »). */
+	const calSemaine = $derived.by((): SemaineCalibrage | null => {
+		if (!calR) return null;
+		if (!(applyKcal > 0)) return calR.semaine;
+		try {
+			return semaineAvecObjectif(calibrageInputs, calR, applyKcal);
+		} catch {
+			return calR.semaine;
+		}
+	});
+	/** Déficit choisi (% du budget) → perte estimée, arrondie au 0,05 kg. */
+	const calPerteDeficit = $derived(calR ? perteGraisseKgSemaine(calR.deficitSemaineKcal) : null);
 	/** « Appliquer à la fiche » : la confirmation ne s'ouvre jamais si les
 	 *  glucides calculés sont négatifs — message clair à la place. */
 	function demarrerApplication() {
@@ -4682,6 +4720,8 @@
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Déficit choisi (% du budget)</span>
 									<input type="number" inputmode="decimal" min="0" max="30" step="1" bind:value={calibrageInputs.deficitPct} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
 									<p class="mt-1 min-h-[15px] text-[11px] font-semibold text-danger">{calErreursChamps.deficitPct ?? ''}</p>
+									<!-- Perte estimée du déficit choisi, arrondie au 0,05 kg (module pur). -->
+									<p class="text-[11px] font-semibold text-brand-dark">{calPerteDeficit !== null ? `≈ ${decimalFr(calPerteDeficit)} kg de graisse par semaine` : '—'}</p>
 								</label>
 								<label class="block">
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Protéines (g/kg de masse maigre)</span>
@@ -4791,7 +4831,7 @@
 											min="0"
 											max="20000"
 											step="10"
-											placeholder={calR ? String(calR.objectifJournalierKcal) : '—'}
+											placeholder={applyKcal > 0 ? String(Math.round(applyKcal)) : '—'}
 											value={calibrageInputs.apportsSemaine[i] ?? ''}
 											oninput={(e) => {
 												const raw = (e.currentTarget as HTMLInputElement).value;
@@ -4801,21 +4841,21 @@
 											}}
 											class="mt-1 w-full rounded-lg border-2 border-line px-1.5 py-1.5 text-center text-sm font-semibold outline-none focus:border-brand"
 										/>
-										{#if calR}
+										{#if calSemaine}
 											<div class="mt-1.5 flex items-center justify-center gap-1.5">
-												<span class="h-2 w-2 shrink-0 rounded-full {DISPONIBILITE_NIVEAUX[calR.semaine.niveauxDisponibilite[i]].pastille}"></span>
-												<span class="text-[10px] font-bold {DISPONIBILITE_NIVEAUX[calR.semaine.niveauxDisponibilite[i]].couleur}">{String(calR.semaine.disponibilitesKcal[i]).replace('.', ',')}</span>
+												<span class="h-2 w-2 shrink-0 rounded-full {DISPONIBILITE_NIVEAUX[calSemaine.niveauxDisponibilite[i]].pastille}"></span>
+												<span class="text-[10px] font-bold {DISPONIBILITE_NIVEAUX[calSemaine.niveauxDisponibilite[i]].couleur}">{String(calSemaine.disponibilitesKcal[i]).replace('.', ',')}</span>
 											</div>
 										{/if}
 									</div>
 								{/each}
 							</div>
-							{#if calR}
+							{#if calR && calSemaine}
 								<p class="mt-2 text-[11px] text-mist">
-									Disponibilité en énergie de chaque jour (kcal/kg de masse maigre) — seuils 30 et 24 kcal/kg, soit {calR.seuilsDisponibiliteKcal.haut} et {calR.seuilsDisponibiliteKcal.bas} kcal · exercice réparti : {Math.round(calR.semaine.exerciceKcal)} kcal/jour.
+									Disponibilité en énergie de chaque jour (kcal/kg de masse maigre) — seuils 30 et 24 kcal/kg, soit {calR.seuilsDisponibiliteKcal.haut} et {calR.seuilsDisponibiliteKcal.bas} kcal · exercice réparti : {Math.round(calSemaine.exerciceKcal)} kcal/jour.
 								</p>
 								<p class="mt-1 text-sm font-semibold text-ink">
-									Déficit total de la semaine : {Math.round(-calR.semaine.deficitSemaineKcal).toLocaleString('fr-FR')} kcal · graisse estimée {String(Math.abs(calR.semaine.graisseKg)).replace('.', ',')} kg
+									Déficit total de la semaine : {Math.round(-calSemaine.deficitSemaineKcal).toLocaleString('fr-FR')} kcal · graisse estimée {String(Math.abs(calSemaine.graisseKg)).replace('.', ',')} kg
 								</p>
 							{/if}
 						</div>
@@ -4856,6 +4896,47 @@
 									<input type="number" inputmode="numeric" min="0" max="300" step="1" bind:value={applyFat} onchange={() => recalculerApresSaisie('lipides')} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
 								</label>
 							</div>
+							<!-- IMPACT DE L'OBJECTIF APPLIQUÉ : recalculé en direct depuis l'objectif
+							     réellement saisi ci-dessus (même modifié à la main, ex. 1 550 au lieu
+							     de 1 531), par le module pur — mêmes fonctions et mêmes avertissements
+							     que les résultats. Aucune écriture. -->
+							{#if calImpact}
+								<div class="mt-3 rounded-xl border border-brand/25 bg-white px-3.5 py-3">
+									<div class="flex flex-wrap items-baseline justify-between gap-2">
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Impact de l'objectif appliqué</div>
+										<div class="text-[11px] text-mist">{calImpact.objectifKcal.toLocaleString('fr-FR')} kcal/jour · maintenance totale {calImpact.maintenanceTotaleKcal.toLocaleString('fr-FR')} kcal</div>
+									</div>
+									<div class="mt-2 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+										<div>
+											<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Déficit réel</div>
+											<div class="mt-0.5 font-display text-lg font-bold text-ink">{decimalFr(calImpact.deficitPct)} <span class="text-xs font-semibold text-mist">% de la maintenance totale</span></div>
+											<p class="mt-0.5 text-[11px] text-mist">{Math.round(calImpact.deficitSemaineKcal).toLocaleString('fr-FR')} kcal/semaine</p>
+										</div>
+										<div>
+											<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Perte de graisse estimée</div>
+											<div class="mt-0.5 font-display text-lg font-bold text-ink">{decimalFr(calImpact.perteGraisseKg)} <span class="text-xs font-semibold text-mist">kg/semaine</span></div>
+											<p class="mt-0.5 text-[11px] text-mist">7 700 kcal par kg de graisse</p>
+										</div>
+										<div>
+											<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Disponibilité en énergie</div>
+											<div class="mt-0.5 flex items-center gap-1.5 font-display text-lg font-bold {DISPONIBILITE_NIVEAUX[calImpact.niveauDisponibilite].couleur}">
+												<span class="h-2 w-2 shrink-0 rounded-full {DISPONIBILITE_NIVEAUX[calImpact.niveauDisponibilite].pastille}"></span>
+												{decimalFr(calImpact.disponibiliteKcal)} <span class="text-xs font-semibold text-mist">kcal/kg de MM</span>
+											</div>
+											<p class="mt-0.5 text-[11px] text-mist">{DISPONIBILITE_NIVEAUX[calImpact.niveauDisponibilite].label} · seuils {calImpact.seuilsDisponibiliteKcal.haut} et {calImpact.seuilsDisponibiliteKcal.bas} kcal</p>
+										</div>
+										<div>
+											<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Plafonds Alpert / Macdonald</div>
+											<div class="mt-0.5 text-[12px] font-bold leading-snug text-ink">{calImpact.comparaisonPlafonds}</div>
+										</div>
+									</div>
+									<!-- Mêmes avertissements que les résultats (messages du module). -->
+									{#if calImpact.avertissementDeficit}<p class="mt-2 flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calImpact.avertissementDeficit}</p>{/if}
+									{#if calImpact.avertissementDeficitEleve}<p class="mt-2 flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calImpact.avertissementDeficitEleve}</p>{/if}
+									{#if calImpact.alertePlafonds}<p class="mt-2 flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calImpact.alertePlafonds}</p>{/if}
+									{#if calImpact.avertissementDisponibilite}<p class="mt-2 flex items-start gap-2 rounded-xl border px-3.5 py-2.5 text-[12px] font-semibold {calImpact.avertissementDisponibilite.niveau === 'alerte' ? 'border-danger/40 bg-danger-light text-danger' : 'border-warn/40 bg-warn-light text-warn'}"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calImpact.avertissementDisponibilite.message}</p>{/if}
+								</div>
+							{/if}
 							<!-- Cohérence 4G + 4P + 9L : information glucides < 100 g (message
 							     du calibrage, style DISCRET gris neutre — pas une alerte, masquée
 							     en mode présentation) + blocage si les glucides sont négatifs. -->

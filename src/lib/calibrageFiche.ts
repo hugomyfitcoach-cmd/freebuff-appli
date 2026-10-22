@@ -15,7 +15,9 @@
 import {
 	ADAPTATION_AVERTISSEMENT,
 	ADAPTATION_PCT_AVERTISSEMENT,
+	BORNES,
 	JOURS_SEMAINE,
+	KCAL_PAR_KG_GRAISSE,
 	PROTEINES_G_PAR_KG_MM,
 	SEUIL_DISPONIBILITE_BAS,
 	SEUIL_DISPONIBILITE_HAUT,
@@ -109,6 +111,18 @@ export type EntreesFicheCalibrage = {
 
 /** Niveau de disponibilité en énergie face aux seuils 30 / 24 kcal/kg de MM. */
 export type NiveauDisponibilite = 'haute' | 'intermediaire' | 'basse';
+
+/** Semaine type calculée sur 7 jours (un apport par jour, lundi → dimanche). */
+export type SemaineCalibrage = {
+	apportsKcal: number[];
+	exerciceKcal: number;
+	disponibilitesKcal: number[];
+	niveauxDisponibilite: NiveauDisponibilite[];
+	/** Déficit total de la semaine (kcal) — négatif en cas de déficit. */
+	deficitSemaineKcal: number;
+	/** Graisse estimée (kg) — négative en cas de déficit. */
+	graisseKg: number;
+};
 
 /**
  * Avertissement de disponibilité en énergie : sous 30 kcal/kg de masse maigre
@@ -204,16 +218,41 @@ export type ResultatsFicheCalibrage = {
 	/** Profil sportif résolu (affichage séance par séance). */
 	seances: SeanceCalculee[];
 	/** Semaine type sur 7 jours. */
-	semaine: {
-		apportsKcal: number[];
-		exerciceKcal: number;
-		disponibilitesKcal: number[];
-		niveauxDisponibilite: NiveauDisponibilite[];
-		/** Déficit total de la semaine (kcal) — négatif en cas de déficit. */
-		deficitSemaineKcal: number;
-		/** Graisse estimée (kg) — négative en cas de déficit. */
-		graisseKg: number;
-	};
+	semaine: SemaineCalibrage;
+};
+
+/**
+ * Impact de l'objectif RÉELLEMENT appliqué (celui du bloc « Appliquer à la
+ * fiche », même modifié à la main) — mêmes fonctions et mêmes avertissements
+ * que les résultats, calculés sur cet objectif et non sur le déficit choisi.
+ */
+export type ImpactObjectifApplique = {
+	/** Objectif journalier appliqué (kcal). */
+	objectifKcal: number;
+	/** Maintenance totale journalière (budget ÷ 7, sport habituel inclus). */
+	maintenanceTotaleKcal: number;
+	/** Budget de la semaine (kcal) — maintenance totale hebdomadaire. */
+	budgetSemaineKcal: number;
+	/** Déficit de la semaine (kcal) — POSITIF en cas de déficit. */
+	deficitSemaineKcal: number;
+	/** Déficit réel, en % de la maintenance totale — positif en cas de déficit. */
+	deficitPct: number;
+	/** Perte de graisse estimée (kg/semaine) — négative en cas de prise. */
+	perteGraisseKg: number;
+	/** Disponibilité en énergie du jour type = (objectif − exercice)/MM. */
+	disponibiliteKcal: number;
+	niveauDisponibilite: NiveauDisponibilite;
+	seuilsDisponibiliteKcal: { haut: number; bas: number };
+	vitesseMaxAlpertKgSemaine: number;
+	vitesseMaxMacdonaldKgSemaine: number;
+	depasseAlpert: boolean;
+	depasseMacdonald: boolean;
+	/** Comparaison lisible de la perte estimée aux deux plafonds. */
+	comparaisonPlafonds: string;
+	alertePlafonds: string | null;
+	avertissementDeficit: string | null;
+	avertissementDeficitEleve: string | null;
+	avertissementDisponibilite: AvertissementDisponibilite | null;
 };
 
 /* ───────────────────────── Aides d'affichage ───────────────────────── */
@@ -226,6 +265,53 @@ export function niveauDisponibilite(dispoKcal: number): NiveauDisponibilite {
 	if (dispoKcal >= SEUIL_DISPONIBILITE_HAUT) return 'haute';
 	if (dispoKcal >= SEUIL_DISPONIBILITE_BAS) return 'intermediaire';
 	return 'basse';
+}
+
+/**
+ * Avertissement de disponibilité en énergie du jour type : sous 30 kcal/kg de
+ * masse maigre → vigilance ; sous 24 → alerte (le plus haut seuil franchi
+ * l'emporte). MÊME règle et mêmes messages que les résultats.
+ */
+export function avertissementDisponibilitePour(
+	disponibiliteKcal: number
+): AvertissementDisponibilite | null {
+	return disponibiliteKcal < SEUIL_DISPONIBILITE_BAS
+		? {
+				niveau: 'alerte',
+				message: `Disponibilité en énergie sous ${SEUIL_DISPONIBILITE_BAS} kcal/kg de masse maigre : alerte.`
+			}
+		: disponibiliteKcal < SEUIL_DISPONIBILITE_HAUT
+			? {
+					niveau: 'vigilance',
+					message: `Disponibilité en énergie sous ${SEUIL_DISPONIBILITE_HAUT} kcal/kg de masse maigre : vigilance.`
+				}
+			: null;
+}
+
+/**
+ * Avertissement « dépasse le rythme conseillé » — UNIQUEMENT quand la perte
+ * estimée dépasse le plafond Alpert ou Macdonald (null sinon). MÊME message
+ * que les résultats (une seule source pour les deux blocs).
+ */
+export function alertePlafondsPour(
+	perteKg: number,
+	alpertKg: number,
+	macdonaldKg: number
+): string | null {
+	return perteKg > macdonaldKg
+		? `Perte estimée de ${decimalFr(perteKg)} kg/semaine : elle dépasse le rythme conseillé — plafond Alpert (${decimalFr(alpertKg)} kg/semaine) et plafond Macdonald (${decimalFr(macdonaldKg)} kg/semaine) dépassés.`
+		: perteKg > alpertKg
+			? `Perte estimée de ${decimalFr(perteKg)} kg/semaine : elle dépasse le rythme conseillé — plafond Alpert (${decimalFr(alpertKg)} kg/semaine) dépassé, plafond Macdonald (${decimalFr(macdonaldKg)} kg/semaine) non dépassé.`
+			: null;
+}
+
+/**
+ * Perte de graisse hebdomadaire (kg) pour un déficit hebdomadaire donné,
+ * arrondie au 0,05 kg le plus proche (grille de lecture du déficit choisi).
+ */
+export function perteGraisseKgSemaine(deficitSemaineKcal: number): number {
+	const perte = nombre(deficitSemaineKcal, 'Déficit de la semaine') / KCAL_PAR_KG_GRAISSE;
+	return Math.round(Math.round(perte / 0.05) * 0.05 * 100) / 100;
 }
 
 /** Libellés et couleurs associés aux niveaux de disponibilité (UI CRM). */
@@ -392,27 +478,11 @@ export function resultatsFiche(entrees: EntreesFicheCalibrage): ResultatsFicheCa
 	const alpert = profil.vitesseMaxAlpertKgSemaine;
 	const macdonald = profil.vitesseMaxMacdonaldKgSemaine;
 	const perte = bilan.perteGraisseKg;
-	const alertePlafonds =
-		perte > macdonald
-			? `Perte estimée de ${decimalFr(perte)} kg/semaine : elle dépasse le rythme conseillé — plafond Alpert (${decimalFr(alpert)} kg/semaine) et plafond Macdonald (${decimalFr(macdonald)} kg/semaine) dépassés.`
-			: perte > alpert
-				? `Perte estimée de ${decimalFr(perte)} kg/semaine : elle dépasse le rythme conseillé — plafond Alpert (${decimalFr(alpert)} kg/semaine) dépassé, plafond Macdonald (${decimalFr(macdonald)} kg/semaine) non dépassé.`
-				: null;
+	const alertePlafonds = alertePlafondsPour(perte, alpert, macdonald);
 
 	/* Disponibilité en énergie du jour type : sous 30 kcal/kg de MM → vigilance,
 	   sous 24 → alerte (seuils du référentiel, le plus haut franchi l'emporte). */
-	const avertissementDisponibilite: AvertissementDisponibilite | null =
-		disponibiliteKcal < SEUIL_DISPONIBILITE_BAS
-			? {
-					niveau: 'alerte',
-					message: `Disponibilité en énergie sous ${SEUIL_DISPONIBILITE_BAS} kcal/kg de masse maigre : alerte.`
-				}
-			: disponibiliteKcal < SEUIL_DISPONIBILITE_HAUT
-				? {
-						niveau: 'vigilance',
-						message: `Disponibilité en énergie sous ${SEUIL_DISPONIBILITE_HAUT} kcal/kg de masse maigre : vigilance.`
-					}
-				: null;
+	const avertissementDisponibilite = avertissementDisponibilitePour(disponibiliteKcal);
 
 	/* Maintenance totale = budget ÷ 7 (sport habituel INCLUS) — même valeur que
 	   le champ « Maintenance » de « Appliquer à la fiche ». La carte l'affiche
@@ -467,5 +537,130 @@ export function resultatsFiche(entrees: EntreesFicheCalibrage): ResultatsFicheCa
 			deficitSemaineKcal: semaine.deficitSemaineKcal,
 			graisseKg: semaine.graisseKg
 		}
+	};
+}
+
+/**
+ * Semaine type recalculée avec l'objectif du bloc « Appliquer à la fiche » :
+ * les jours non modifiés à la main (`null`) suivent CET objectif, les jours
+ * saisis gardent leur valeur (jamais écrasés) — même logique que les badges
+ * « modifié ». Aucune formule nouvelle : `bilanSemaine` reçoit simplement
+ * l'objectif appliqué comme apport des jours « type ».
+ */
+export function semaineAvecObjectif(
+	entrees: EntreesFicheCalibrage,
+	resultats: ResultatsFicheCalibrage,
+	objectifKcal: number
+): SemaineCalibrage {
+	const objectif = Math.round(nombre(objectifKcal, 'Objectif appliqué'));
+	const apports = entrees.apportsSemaine ?? [];
+	if (!Array.isArray(apports) || apports.length !== JOURS_SEMAINE) {
+		throw new CalibrageError(
+			`Semaine type invalide : ${JOURS_SEMAINE} apports journaliers sont attendus (reçu ${Array.isArray(apports) ? apports.length : 0}).`
+		);
+	}
+	const apportsKcal = apports.map((a) =>
+		a === null || a === undefined ? objectif : nombre(a, 'Apport du jour')
+	);
+	const semaine = bilanSemaine({
+		jours: apportsKcal.map((apportKcal) => ({
+			apportKcal,
+			exerciceKcal: resultats.exerciceJournalierKcal
+		})),
+		maintenance: resultats.maintenanceKcal,
+		masseMaigreKg: masseMaigreBrute(
+			nombre(entrees.poidsKg, 'Poids'),
+			nombre(entrees.mgPct, 'Masse grasse')
+		)
+	});
+	return {
+		apportsKcal,
+		exerciceKcal: resultats.exerciceJournalierKcal,
+		disponibilitesKcal: semaine.disponibilitesKcal,
+		niveauxDisponibilite: semaine.disponibilitesKcal.map((d) => niveauDisponibilite(d)),
+		deficitSemaineKcal: semaine.deficitSemaineKcal,
+		graisseKg: semaine.graisseKg
+	};
+}
+
+/**
+ * Impact de l'objectif appliqué — recalculé en direct à partir de CET objectif
+ * (même modifié à la main, ex. 1 550 au lieu de 1 531) : déficit réel en % de
+ * la maintenance totale, perte de graisse (7 700 kcal/kg), disponibilité en
+ * énergie avec son niveau, comparaison aux plafonds Alpert/Macdonald et les
+ * MÊMES avertissements que les résultats. Formules : uniquement celles du
+ * module `calibrage.ts`, via `bilanSemaine`, `disponibiliteEnergieKcal`, les
+ * plafonds du profil et les seuils des résultats.
+ */
+export function impactObjectifApplique(entree: {
+	entrees: EntreesFicheCalibrage;
+	resultats: ResultatsFicheCalibrage;
+	objectifKcal: number;
+}): ImpactObjectifApplique {
+	const objectifKcal = Math.round(nombre(entree.objectifKcal, 'Objectif appliqué'));
+	const r = entree.resultats;
+	const masseMaigre = masseMaigreBrute(
+		nombre(entree.entrees.poidsKg, 'Poids'),
+		nombre(entree.entrees.mgPct, 'Masse grasse')
+	);
+
+	/* Même bilan que la semaine type, sur 7 jours au nouvel objectif : le déficit
+	   hebdomadaire vaut budget − 7 × objectif (sport habituel inclus). */
+	const semaine = bilanSemaine({
+		jours: Array.from({ length: JOURS_SEMAINE }, () => ({
+			apportKcal: objectifKcal,
+			exerciceKcal: r.exerciceJournalierKcal
+		})),
+		maintenance: r.maintenanceKcal,
+		masseMaigreKg: masseMaigre
+	});
+	const deficitSemaineKcal = -semaine.deficitSemaineKcal;
+	const deficitPct = Math.round((deficitSemaineKcal / r.budgetSemaineKcal) * 100 * 10) / 10;
+	const perteGraisseKg = -semaine.graisseKg;
+
+	const disponibiliteKcal = disponibiliteEnergieKcal({
+		apportKcal: objectifKcal,
+		exerciceKcal: r.exerciceJournalierKcal,
+		masseMaigreKg: masseMaigre
+	});
+
+	const alpert = r.vitesseMaxAlpertKgSemaine;
+	const macdonald = r.vitesseMaxMacdonaldKgSemaine;
+	const depasseAlpert = perteGraisseKg > alpert;
+	const depasseMacdonald = perteGraisseKg > macdonald;
+
+	/* Avertissements de déficit : MÊMES seuils et MÊMES messages que les
+	   résultats, appliqués au déficit RÉEL de cet objectif (borné à la plage
+	   de saisie du déficit pour ne pas refuser un objectif très bas). */
+	const bilanSeuils = bilanObjectifSemaine({
+		budgetSemaineKcal: r.budgetSemaineKcal,
+		deficitPct: Math.min(BORNES.deficitPct.max, Math.max(BORNES.deficitPct.min, deficitPct))
+	});
+
+	const comparaisonPlafonds = depasseMacdonald
+		? `Au-dessus des plafonds Alpert (${decimalFr(alpert)} kg/semaine) et Macdonald (${decimalFr(macdonald)} kg/semaine).`
+		: depasseAlpert
+			? `Au-dessus du plafond Alpert (${decimalFr(alpert)} kg/semaine), sous le plafond Macdonald (${decimalFr(macdonald)} kg/semaine).`
+			: `Sous les plafonds Alpert (${decimalFr(alpert)} kg/semaine) et Macdonald (${decimalFr(macdonald)} kg/semaine).`;
+
+	return {
+		objectifKcal,
+		maintenanceTotaleKcal: Math.round(r.budgetSemaineKcal / JOURS_SEMAINE),
+		budgetSemaineKcal: r.budgetSemaineKcal,
+		deficitSemaineKcal,
+		deficitPct,
+		perteGraisseKg,
+		disponibiliteKcal,
+		niveauDisponibilite: niveauDisponibilite(disponibiliteKcal),
+		seuilsDisponibiliteKcal: r.seuilsDisponibiliteKcal,
+		vitesseMaxAlpertKgSemaine: alpert,
+		vitesseMaxMacdonaldKgSemaine: macdonald,
+		depasseAlpert,
+		depasseMacdonald,
+		comparaisonPlafonds,
+		alertePlafonds: alertePlafondsPour(perteGraisseKg, alpert, macdonald),
+		avertissementDeficit: bilanSeuils.avertissement,
+		avertissementDeficitEleve: bilanSeuils.avertissementDeficitEleve,
+		avertissementDisponibilite: avertissementDisponibilitePour(disponibiliteKcal)
 	};
 }
