@@ -369,6 +369,7 @@ Ces règles viennent du retour de Hugo sur les brouillons de l'assistant. Elles 
 7. **Fin courte et chaleureuse, liée au moment** (« Passe un bon dimanche :) »). Jamais « Si tu as une question, n'hésite pas ».
 8. Si aucune tendance de poids n'est disponible, ne parle pas du poids ; ne jamais expliquer qu'une donnée manque.
 9. Phrases courtes : une idée par phrase, 20 mots maximum.
+10. **Tendance de poids** : si la tendance de poids est en baisse, la citer dans la première phrase avec l'écart en grammes. Si elle est stable ou en hausse, ne la commenter que si la semaine stagne.
 
 **Exemple de référence — la version de Hugo :**
 
@@ -545,7 +546,7 @@ Semaine : S38 - 14 sept. 2026 (du 14/09/2026 au 20/09/2026)
 Objectifs : 1 600 kcal, 110 g de protéines, 10 000 pas.
 Formule : coaching.
 
-Statistiques — semaine du bilan (7 jours complets) : 14/09/2026 → 20/09/2026
+Statistiques — 7 derniers jours terminés : 14/09/2026 → 20/09/2026
 - Calories : moyenne 1 580 kcal sur 6 jour(s) exploitable(s) ; 1 jour(s) partiel(s) exclu(s) ; 0 jour(s) sans donnée ; 7 jour(s) renseigné(s) sur 7 ; objectif 1 600 kcal ; seuil 960 kcal
 - Protéines : moyenne 108 g sur les mêmes 6 jour(s) exploitable(s) ; objectif 110 g
 - Repas estimés par photo IA : 38 % des calories de la semaine ; 9 repas sur 24 repas renseignés.
@@ -556,7 +557,7 @@ Statistiques — semaine du bilan (7 jours complets) : 14/09/2026 → 20/09/2026
 - Sport : 4 activité(s), 220 min, 1 350 kcal estimées, 1 500 MET-min.
 - Mensurations : dernier relevé le 20/09/2026 (précédent le 06/09/2026, il y a 14 jour(s)) ; tour de taille 71,5 cm (écart -1,5 cm) ; hanches 97 cm (écart -1 cm) ; tour de cou 31 cm (écart -0,5 cm).
 
-Statistiques — semaine précédente (pour les écarts) : 07/09/2026 → 13/09/2026
+Statistiques — 7 jours précédents (pour les écarts) : 07/09/2026 → 13/09/2026
 - Calories : moyenne 1 710 kcal sur 5 jour(s) exploitable(s) ; 2 jour(s) partiel(s) exclu(s) ; 0 jour(s) sans donnée ; 7 jour(s) renseigné(s) sur 7 ; objectif 1 600 kcal ; seuil 960 kcal
 - Protéines : moyenne 95 g sur les mêmes 5 jour(s) exploitable(s) ; objectif 110 g
 - Repas estimés par photo IA : 30 % des calories de la semaine ; 7 repas sur 23 repas renseignés.

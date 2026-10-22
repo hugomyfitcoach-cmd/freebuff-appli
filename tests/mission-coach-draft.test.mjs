@@ -183,11 +183,13 @@ test('coachDraft.loadContext est une query INTERNE, réservée au coach, en lect
 });
 
 test('coachDraft.loadContext réutilise les fonctions pures de vision360', () => {
-	for (const fn of ['foodAverages', 'weightVision', 'stepsAverages', 'sportVision', 'mensurationsVision', 'last7CompletedDays']) {
+	for (const fn of ['foodAverages', 'weightVision', 'weightTrendFacts', 'stepsAverages', 'sportVision', 'mensurationsVision', 'last7CompletedDays']) {
 		assert.ok(contextSource.includes(fn), `fonction pure manquante : ${fn}`);
 	}
-	assert.ok(contextSource.includes('last7CompletedDays(addDaysISO(checkin.weekStart, 7))'), '7 jours du bilan');
-	assert.ok(contextSource.includes('last7CompletedDays(checkin.weekStart)'), '7 jours précédents');
+	// Fenêtres LIVE, identiques à la carte du bilan : 7 derniers jours terminés
+	// (J-7 → J-1) et 7 jours précédents (J-14 → J-8).
+	assert.ok(contextSource.includes('last7CompletedDays(today360)'), '7 derniers jours terminés');
+	assert.ok(contextSource.includes('last7CompletedDays(shiftISO(today360, -7))'), '7 jours précédents');
 	assert.ok(contextSource.includes('row.status === "retour_envoye"'), 'retours publiés uniquement');
 	assert.ok(contextSource.includes('.slice(0, 2)'), '2 derniers retours');
 });

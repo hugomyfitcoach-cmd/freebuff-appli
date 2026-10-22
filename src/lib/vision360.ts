@@ -312,6 +312,58 @@ export function weightVision(rows: WeightPoint[], days: string[]): WeightVision 
 	};
 }
 
+export type WeightTrendFacts = {
+	/** Dernière pesée enregistrée, toutes dates confondues (aujourd'hui inclus). */
+	last: { date: string; weightKg: number } | null;
+	/** Pesée immédiatement précédente, toutes dates confondues. */
+	previous: { date: string; weightKg: number } | null;
+	/** Écart kg (last − previous), arrondi 0,01 — null si moins de 2 pesées. */
+	gapKg: number | null;
+	/** Poids moyen de la semaine d'un bilan précédent — null si aucun bilan fourni. */
+	prevCheckin: {
+		weekLabel: string;
+		avgKg: number | null;
+		count: number;
+	} | null;
+};
+
+/**
+ * TENDANCE DE POIDS — la MÊME fonction pour la carte du bilan et le contexte
+ * du brouillon (aucun calcul parallèle) :
+ *  - écart entre les deux pesées les plus récentes, TOUTES DATES confondues,
+ *    aujourd'hui inclus : la tendance reste lisible même quand la fenêtre
+ *    des 7 derniers jours terminés est peu renseignée ;
+ *  - poids moyen de la semaine d'un bilan précédent, s'il est fourni.
+ * Aucun zéro inventé : chaque absence reste `null`.
+ */
+export function weightTrendFacts(
+	rows: WeightPoint[],
+	prevCheckin: { weekLabel: string; weekStart: string } | null
+): WeightTrendFacts {
+	// Tri défensif par DATE : « dernière pesée » = date la plus récente.
+	const sorted = [...rows].sort((a, b) => a.date.localeCompare(b.date));
+	const last = sorted.length > 0 ? sorted[sorted.length - 1] : null;
+	const previous = sorted.length > 1 ? sorted[sorted.length - 2] : null;
+	let prevFacts: WeightTrendFacts['prevCheckin'] = null;
+	if (prevCheckin) {
+		// Semaine du bilan précédent (lundi → dimanche), même calcul que pour
+		// la fenêtre courante : moyenne des pesées réellement enregistrées.
+		const prevDays = last7CompletedDays(shiftISO(prevCheckin.weekStart, 7));
+		const vision = weightVision(sorted, prevDays);
+		prevFacts = {
+			weekLabel: prevCheckin.weekLabel,
+			avgKg: vision.avg,
+			count: vision.count,
+		};
+	}
+	return {
+		last: last ? { date: last.date, weightKg: last.weightKg } : null,
+		previous: previous ? { date: previous.date, weightKg: previous.weightKg } : null,
+		gapKg: last && previous ? Math.round((last.weightKg - previous.weightKg) * 100) / 100 : null,
+		prevCheckin: prevFacts,
+	};
+}
+
 /* ──────────────────────── DÉPENSE SPORTIVE ──────────────────────── */
 
 export type SportDayInput = {

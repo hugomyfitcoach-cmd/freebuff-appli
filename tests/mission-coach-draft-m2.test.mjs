@@ -130,7 +130,7 @@ const checkin1 = {
 	},
 };
 
-/** Entrées du journal : semaine du bilan (2026-10-05 → 10-11) + précédente. */
+/** Entrées du journal : 7 derniers jours terminés (J-7 → J-1) + 7 précédents (J-14 → J-8). */
 const entry = (id, date, meal, kcal, protein, mealGroup) => ({
 	_id: id,
 	_creationTime: 200,
@@ -147,25 +147,27 @@ const entry = (id, date, meal, kcal, protein, mealGroup) => ({
 });
 
 const diaryEntries = [
-	// 05 oct. : repas analysé photo (900 kcal) + dîner manuel (700) → jour exploitable.
-	entry('e1', '2026-10-05', 'dejeuner', 500, 40, 'analyse:a1'),
-	entry('e2', '2026-10-05', 'dejeuner', 400, 35, 'analyse:a1'),
-	entry('e3', '2026-10-05', 'diner', 700, 35),
-	// 06 oct. : repas mixte (analyse 650 + ajout manuel 150) → journée partielle.
-	entry('e4', '2026-10-06', 'dejeuner', 650, 50, 'analyse:a2'),
-	entry('e5', '2026-10-06', 'collation', 150, 10),
-	// 07 oct. : saisie manuelle seule (1 200) → jour exploitable.
-	entry('e6', '2026-10-07', 'diner', 1200, 90),
-	// Semaine précédente : une journée renseignée, sans aucune analyse photo.
-	entry('e7', '2026-09-30', 'diner', 1200, 80),
+	// J-7 : repas analysé photo (900 kcal) + dîner manuel (700) → jour exploitable.
+	entry('e1', day(-7), 'dejeuner', 500, 40, 'analyse:a1'),
+	entry('e2', day(-7), 'dejeuner', 400, 35, 'analyse:a1'),
+	entry('e3', day(-7), 'diner', 700, 35),
+	// J-6 : repas mixte (analyse 650 + ajout manuel 150) → journée partielle.
+	entry('e4', day(-6), 'dejeuner', 650, 50, 'analyse:a2'),
+	entry('e5', day(-6), 'collation', 150, 10),
+	// J-5 : saisie manuelle seule (1 200) → jour exploitable.
+	entry('e6', day(-5), 'diner', 1200, 90),
+	// Fenêtre précédente : une journée renseignée, sans aucune analyse photo.
+	entry('e7', day(-11), 'diner', 1200, 80),
 ];
 
 const bodyMetrics = [
 	// Mensurations : dernier relevé vs précédent (fenêtre indépendante).
-	{ _id: 'm1', _creationTime: 1, userId: 'client1', date: '2026-09-24', weightKg: 62.3, waistCm: 72, hipCm: 97, neckCm: 31, createdAt: 1 },
-	{ _id: 'm2', _creationTime: 2, userId: 'client1', date: '2026-10-01', weightKg: 61.9, createdAt: 2 },
-	{ _id: 'm3', _creationTime: 3, userId: 'client1', date: '2026-10-06', weightKg: 61.5, createdAt: 3 },
-	{ _id: 'm4', _creationTime: 4, userId: 'client1', date: '2026-10-10', weightKg: 61.2, waistCm: 71, hipCm: 96.5, neckCm: 30.5, createdAt: 4 },
+	{ _id: 'm1', _creationTime: 1, userId: 'client1', date: day(-20), weightKg: 62.3, waistCm: 72, hipCm: 97, neckCm: 31, createdAt: 1 },
+	// Fenêtre précédente (J-14 → J-8) : la pesée de référence des écarts.
+	{ _id: 'm2', _creationTime: 2, userId: 'client1', date: day(-8), weightKg: 61.9, createdAt: 2 },
+	{ _id: 'm3', _creationTime: 3, userId: 'client1', date: day(-5), weightKg: 61.5, createdAt: 3 },
+	// J-1 : pesée la plus récente (aujourd'hui inclus côté carte).
+	{ _id: 'm4', _creationTime: 4, userId: 'client1', date: day(-1), weightKg: 61.2, waistCm: 71, hipCm: 96.5, neckCm: 30.5, createdAt: 4 },
 ];
 
 const fullTables = {
@@ -209,15 +211,15 @@ const fullTables = {
 	clientGoals: [{ _id: 'g1', _creationTime: 1, userId: 'client1', kcal: 1800, carbs: 200, protein: 120, fat: 60, stepGoal: 10000 }],
 	clientGoalHistory: [],
 	dailySteps: [
-		{ _id: 'st1', _creationTime: 1, userId: 'client1', date: '2026-10-05', count: 9000 },
-		{ _id: 'st2', _creationTime: 2, userId: 'client1', date: '2026-10-06', count: 11000 },
-		{ _id: 'st3', _creationTime: 3, userId: 'client1', date: '2026-09-30', count: 8000 },
+		{ _id: 'st1', _creationTime: 1, userId: 'client1', date: day(-7), count: 9000 },
+		{ _id: 'st2', _creationTime: 2, userId: 'client1', date: day(-6), count: 11000 },
+		{ _id: 'st3', _creationTime: 3, userId: 'client1', date: day(-11), count: 8000 },
 	],
 	bodyMetrics,
 	sportActivities: [
-		{ _id: 'sp1', _creationTime: 1, userId: 'client1', date: '2026-10-05', durationMinutes: 60, source: 'gflux_training', estimatedCalories: 400, metMinutes: 360 },
-		{ _id: 'sp2', _creationTime: 2, userId: 'client1', date: '2026-10-07', durationMinutes: 45, source: 'manual', estimatedCalories: 350, metMinutes: 280 },
-		{ _id: 'sp3', _creationTime: 3, userId: 'client1', date: '2026-09-29', durationMinutes: 30, source: 'manual', estimatedCalories: 250, metMinutes: 180 },
+		{ _id: 'sp1', _creationTime: 1, userId: 'client1', date: day(-7), durationMinutes: 60, source: 'gflux_training', estimatedCalories: 400, metMinutes: 360 },
+		{ _id: 'sp2', _creationTime: 2, userId: 'client1', date: day(-5), durationMinutes: 45, source: 'manual', estimatedCalories: 350, metMinutes: 280 },
+		{ _id: 'sp3', _creationTime: 3, userId: 'client1', date: day(-11), durationMinutes: 30, source: 'manual', estimatedCalories: 250, metMinutes: 180 },
 	],
 	appointments: [
 		// Appel passé (20 jours) — la seule date qui déclenche la règle des 15 jours.
@@ -271,11 +273,15 @@ test('Contexte complet sur la cliente fictive Léa : tous les faits calculés pa
 	// Poids moyen et tendance, mensurations récentes.
 	assert.equal(context.stats.week.weight.avg, 61.4);
 	assert.equal(context.stats.week.weight.count, 2);
-	assert.deepEqual(context.stats.week.weight.last, { date: '2026-10-10', weightKg: 61.2 });
-	assert.equal(context.stats.week.weight.delta, -0.7, '61,2 kg vs 61,9 kg — écart calculé par le code');
+	// Dernière pesée et écart : les DEUX pesées les plus récentes, toutes dates
+	// (aujourd'hui inclus) — même règle que la carte du bilan.
+	assert.deepEqual(context.stats.week.weight.last, { date: day(-1), weightKg: 61.2 });
+	assert.equal(context.stats.week.weight.delta, -0.3, '61,2 kg vs 61,5 kg — écart calculé par le code');
+	assert.deepEqual(context.stats.weightTrend.last, { date: day(-1), weightKg: 61.2 });
+	assert.deepEqual(context.stats.weightTrend.previous, { date: day(-5), weightKg: 61.5 });
 	const mens = context.stats.mensurations;
-	assert.equal(mens.date, '2026-10-10');
-	assert.equal(mens.prevDate, '2026-09-24');
+	assert.equal(mens.date, day(-1));
+	assert.equal(mens.prevDate, day(-20));
 	assert.equal(mens.waistCm, 71);
 	assert.equal(mens.deltas.waistCm, -1);
 

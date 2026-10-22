@@ -29,6 +29,7 @@ import {
 	parisTodayISO,
 	visionWindow,
 	weightVision,
+	weightTrendFacts,
 	stepsAverages,
 	foodAverages,
 	sportVision,
@@ -860,6 +861,10 @@ export const client360 = query({
 		const weightTrend = metricsByDate
 			.filter((m) => m.weightKg !== undefined)
 			.map((m) => ({ date: m.date, weightKg: m.weightKg as number }));
+		// Dernière pesée et écart de la carte du bilan : les DEUX pesées les plus
+		// récentes, toutes dates confondues, aujourd'hui inclus — même fonction
+		// que le contexte du brouillon (aucun calcul parallèle).
+		const latestWeights = weightTrendFacts(weightTrend, null);
 		const firstWeight = weightTrend.length > 0 ? weightTrend[0].weightKg : null;
 		const lastWeight = weightTrend.length > 0 ? weightTrend[weightTrend.length - 1].weightKg : null;
 
@@ -941,11 +946,11 @@ export const client360 = query({
 				avg: number | null;
 				/** Nombre de pesées sur la période. */
 				count: number;
-				/** Dernière pesée de la période — jamais un 0 kg inventé. */
+				/** Pesée la plus récente, toutes dates confondues (aujourd'hui inclus). */
 				last: { date: string; weightKg: number } | null;
-				/** Dernière pesée de la période précédente (J-14 → J-8). */
+				/** Pesée immédiatement précédente, toutes dates confondues. */
 				prevLast: { date: string; weightKg: number } | null;
-				/** Delta last − prevLast — null si incomparable (période sans pesée). */
+				/** Delta last − prevLast — null si moins de deux pesées. */
 				delta: number | null;
 			};
 			calories: {
@@ -1102,9 +1107,9 @@ export const client360 = query({
 				weight: {
 					avg: weight360.avg,
 					count: weight360.count,
-					last: weight360.last,
-					prevLast: weight360.prevLast,
-					delta: weight360.delta,
+					last: latestWeights.last,
+					prevLast: latestWeights.previous,
+					delta: latestWeights.gapKg,
 				},
 				calories: {
 					avg: food360.kcalAvg,

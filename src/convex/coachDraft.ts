@@ -3,9 +3,11 @@
  *
  * Pour UN bilan donné, assemble :
  *  - les réponses du bilan et sa semaine ;
- *  - les statistiques de la semaine du bilan (7 jours complets) et de la
- *    semaine précédente (7 jours précédents, pour les écarts), en réutilisant
- *    les fonctions pures de `src/lib/vision360.ts` ;
+ *  - les statistiques LIVE des 7 derniers jours terminés (J-7 → J-1) et des
+ *    7 jours précédents (J-14 → J-8, pour les écarts), en réutilisant les
+ *    fonctions pures de `src/lib/vision360.ts` — EXACTEMENT les mêmes que la
+ *    carte du bilan, pour qu'elle et le brouillon affichent les mêmes chiffres
+ *    au moment de la consultation ;
  *  - les 2 derniers retours PUBLIÉS de la MÊME cliente.
  *
  * Aucun identifiant, e-mail ni nom de famille ne sort de cette query :
@@ -40,7 +42,7 @@ import { api, internal } from "./_generated/api";
 import { generateText, isAiFeatureDisabled, resolveGenerationConfig } from "./ai/provider";
 import { COACH_DRAFT_STYLE_GUIDE } from "../lib/data/coachDraftStyleGuide";
 import { COACH_DRAFT_METHOD_REFERENCE } from "./ai/methodeGflux";
-import { addDaysISO, daysBetweenISO, getSessionUser, localTodayISO } from "./helpers";
+import { daysBetweenISO, getSessionUser, localTodayISO } from "./helpers";
 import { DEFAULT_GOALS } from "./journal";
 import { cycleState } from "../lib/cycle";
 import { kcalGoalForDate, withCurrentGoal, type GoalHistoryRow } from "../lib/goalHistory";
@@ -49,8 +51,11 @@ import {
 	foodAverages,
 	last7CompletedDays,
 	mensurationsVision,
+	parisTodayISO,
+	shiftISO,
 	sportVision,
 	stepsAverages,
+	weightTrendFacts,
 	weightVision,
 	type SportDayInput,
 } from "../lib/vision360";
@@ -62,8 +67,11 @@ import {
 	type CoachDraftCycle,
 	type CoachDraftPhotoAi,
 	type CoachDraftWeekStats,
-	type CoachDraftWeightTrend,
 } from "./coachDraftPrompt";
+
+// MÊME fonction que la carte du bilan (une seule définition de la tendance) —
+// ré-exportée ici pour les tests et les appelants historiques du module.
+export { weightTrendFacts };
 
 type CheckinRow = Doc<"checkins">;
 type UserRow = Doc<"users">;
@@ -136,6 +144,12 @@ function buildWeekStats(args: {
 	fallbackKcal: number;
 	proteinGoal: number;
 	stepGoal: number | null;
+	/**
+	 * Deux pesées les plus récentes (toutes dates, aujourd'hui inclus) —
+	 * fournies pour la fenêtre courante afin que la carte et le brouillon
+	 * affichent la même dernière pesée et le même écart.
+	 */
+	latestWeights?: { last: { date: string; weightKg: number } | null; previous: { date: string; weightKg: number } | null; gapKg: number | null };
 }): CoachDraftWeekStats {
 	const { days, goalHistory, fallbackKcal } = args;
 	const start = days[0];
@@ -168,9 +182,9 @@ function buildWeekStats(args: {
 		weight: {
 			avg: weight.avg,
 			count: weight.count,
-			last: weight.last,
-			prevLast: weight.prevLast,
-			delta: weight.delta,
+			last: args.latestWeights ? args.latestWeights.last : weight.last,
+			prevLast: args.latestWeights ? args.latestWeights.previous : weight.prevLast,
+			delta: args.latestWeights ? args.latestWeights.gapKg : weight.delta,
 		},
 		steps: {
 			avg: steps.avg,
@@ -191,43 +205,6 @@ function deltaOf(a: number | null, b: number | null, digits: number): number | n
 	if (a === null || b === null) return null;
 	const factor = 10 ** digits;
 	return Math.round((a - b) * factor) / factor;
-}
-
-/**
- * TENDANCE DE POIDS — calculée INDÉPENDAMMENT des fenêtres hebdomadaires :
- *  - écart entre les deux dernières pesées enregistrées (toutes dates) : la
- *    tendance reste lisible même quand la semaine précédente est peu
- *    renseignée ;
- *  - poids moyen de la semaine du bilan précédent, s'il existe.
- * Aucun zéro inventé : chaque absence reste `null` (« indisponible » côté
- * prompt). Fonction pure, testable sans base.
- */
-export function weightTrendFacts(
-	weightRows: { date: string; weightKg: number }[],
-	prevCheckin: { weekLabel: string; weekStart: string } | null
-): CoachDraftWeightTrend {
-	// Tri défensif par DATE : « dernière pesée » = date la plus récente.
-	const sorted = [...weightRows].sort((a, b) => a.date.localeCompare(b.date));
-	const last = sorted.length > 0 ? sorted[sorted.length - 1] : null;
-	const previous = sorted.length > 1 ? sorted[sorted.length - 2] : null;
-	let prevFacts: CoachDraftWeightTrend["prevCheckin"] = null;
-	if (prevCheckin) {
-		// Semaine du bilan précédent (lundi → dimanche), même calcul que pour
-		// le bilan courant : moyenne des pesées réellement enregistrées.
-		const prevDays = last7CompletedDays(addDaysISO(prevCheckin.weekStart, 7));
-		const vision = weightVision(sorted, prevDays);
-		prevFacts = {
-			weekLabel: prevCheckin.weekLabel,
-			avgKg: vision.avg,
-			count: vision.count,
-		};
-	}
-	return {
-		last: last ? { date: last.date, weightKg: last.weightKg } : null,
-		previous: previous ? { date: previous.date, weightKg: previous.weightKg } : null,
-		gapKg: last && previous ? deltaOf(last.weightKg, previous.weightKg, 2) : null,
-		prevCheckin: prevFacts,
-	};
 }
 
 /* ───────── Faits calculés : photo IA, cycle, rendez-vous (M2) ───────── */
@@ -352,11 +329,15 @@ export const loadContext = internalQuery({
 			throw new ConvexError("Accès refusé.");
 		}
 
-		// Fenêtres CALENDAIRES : semaine du bilan (lundi → dimanche) et les 7
-		// journées immédiatement précédentes. `last7CompletedDays(J)` renvoie
-		// exactement J-7 → J-1 : on l'ancre au lendemain de la semaine.
-		const weekDays = last7CompletedDays(addDaysISO(checkin.weekStart, 7));
-		const previousDays = last7CompletedDays(checkin.weekStart);
+		// FENÊTRES LIVE — les mêmes que la carte du bilan, calculées AU MOMENT
+		// DE LA CONSULTATION dans le fuseau de référence (Europe/Paris) :
+		// 7 journées terminées J-7 → J-1 (la journée en cours est exclue) et les
+		// 7 précédentes J-14 → J-8, uniquement pour les écarts. La date d'envoi
+		// du bilan n'entre plus dans le calcul des chiffres — elle ne sert
+		// qu'à identifier le bilan (libellé, précédent, exemples).
+		const today360 = parisTodayISO();
+		const weekDays = last7CompletedDays(today360);
+		const previousDays = last7CompletedDays(shiftISO(today360, -7));
 		const weekEnd = weekDays[weekDays.length - 1];
 		const previousStart = previousDays[0];
 
@@ -407,7 +388,8 @@ export const loadContext = internalQuery({
 		const effectiveHistory = withCurrentGoal(
 			goalHistory.map((row) => ({ kcal: row.kcal, effectiveFrom: row.effectiveFrom })),
 			currentKcalGoal,
-			localTodayISO()
+			// Même « aujourd'hui » que la carte (fuseau de référence Europe/Paris).
+			today360
 		);
 
 		const metricsByDate = [...metrics].sort((a, b) => a.date.localeCompare(b.date));
@@ -423,6 +405,17 @@ export const loadContext = internalQuery({
 			metMinutes: row.metMinutes,
 		}));
 
+		// Bilan précédent (le plus récent avant celui-ci) : pour son poids
+		// moyen, même quand la semaine précédente du calendrier est vide.
+		const prevCheckinRow =
+			allCheckins.find((row) => row._id !== checkinId && row.weekStart < checkin.weekStart) ?? null;
+
+		// Tendance de poids — MÊME fonction que la carte : deux pesées les plus
+		// récentes, toutes dates confondues (aujourd'hui inclus).
+		const latestWeights = weightTrendFacts(
+			weightRows,
+			prevCheckinRow ? { weekLabel: prevCheckinRow.weekLabel, weekStart: prevCheckinRow.weekStart } : null
+		);
 		const week = buildWeekStats({
 			days: weekDays,
 			entries,
@@ -433,6 +426,7 @@ export const loadContext = internalQuery({
 			fallbackKcal: currentKcalGoal,
 			proteinGoal,
 			stepGoal,
+			latestWeights,
 		});
 		const previousWeek = buildWeekStats({
 			days: previousDays,
@@ -445,11 +439,6 @@ export const loadContext = internalQuery({
 			proteinGoal,
 			stepGoal,
 		});
-
-		// Bilan précédent (le plus récent avant celui-ci) : pour son poids
-		// moyen, même quand la semaine précédente du calendrier est vide.
-		const prevCheckinRow =
-			allCheckins.find((row) => row._id !== checkinId && row.weekStart < checkin.weekStart) ?? null;
 
 		// 2 derniers retours PUBLIÉS de la même cliente, du plus récent au plus
 		// ancien. Un brouillon (`nouveau`) n'est jamais un exemple de style.
@@ -505,10 +494,7 @@ export const loadContext = internalQuery({
 					sportKcal: week.sport.kcal - previousWeek.sport.kcal,
 				},
 				mensurations: mensurationsVision(metricsByDate),
-				weightTrend: weightTrendFacts(
-					weightRows,
-					prevCheckinRow ? { weekLabel: prevCheckinRow.weekLabel, weekStart: prevCheckinRow.weekStart } : null
-				),
+				weightTrend: latestWeights,
 			},
 			examples,
 		};

@@ -55,7 +55,7 @@ export type CoachDraftFeedbackExample = {
 export type CoachDraftWeekStats = {
 	start: string;
 	end: string;
-	/** Les 7 clés ISO de la semaine, du lundi au dimanche. */
+	/** Les 7 clés ISO de la fenêtre, du plus ancien au plus récent. */
 	days: string[];
 	food: {
 		kcalAvg: number | null;
@@ -77,7 +77,7 @@ export type CoachDraftWeekStats = {
 		avg: number | null;
 		count: number;
 		last: { date: string; weightKg: number } | null;
-		/** Dernière pesée de la période précédente (J-14 → J-8) — comparaison Vision 360. */
+		/** Pesée immédiatement précédente, toutes dates (aujourd'hui inclus) — même règle que la carte. */
 		prevLast: { date: string; weightKg: number } | null;
 		delta: number | null;
 	};
@@ -183,9 +183,9 @@ export type CoachDraftContext = {
 	/** Dernier appel et prochain rendez-vous réservé (appointments). */
 	appointments: CoachDraftAppointments;
 	stats: {
-		/** Semaine ciblée par le bilan (7 jours complets). */
+		/** 7 derniers jours terminés (J-7 → J-1) — EXACTEMENT les chiffres de la carte. */
 		week: CoachDraftWeekStats;
-		/** Semaine précédente, uniquement pour les écarts. */
+		/** 7 jours précédents (J-14 → J-8), uniquement pour les écarts. */
 		previousWeek: CoachDraftWeekStats;
 		/** Écarts calculés par le code entre les deux semaines (null = incomparable). */
 		deltas: {
@@ -419,7 +419,7 @@ function formatPhotoAiLine(photoAi: CoachDraftPhotoAi, prefix: string): string {
 function formatWeightLine(stats: CoachDraftWeekStats, prefix: string, includeComparison: boolean): string {
 	const { weight } = stats;
 	if (weight.count === 0 || weight.last === null) {
-		return `- ${prefix}Poids : aucune pesée sur la semaine (moyenne indisponible).`;
+		return `- ${prefix}Poids : aucune pesée sur la fenêtre (moyenne indisponible).`;
 	}
 	const avg = weight.avg === null ? "moyenne indisponible" : `moyenne ${formatNumberTrimmed(weight.avg, 1)} kg`;
 	let line = `- ${prefix}Poids : ${avg} sur ${formatNumber(weight.count)} pesée(s) ; dernière pesée ${formatNumberTrimmed(weight.last.weightKg, 1)} kg le ${formatDateFR(weight.last.date)}`;
@@ -590,7 +590,7 @@ export function buildCoachDraftPrompt(input: CoachDraftPromptInput): string {
 		`Objectifs : ${formatNumber(context.goals.kcal)} kcal, ${formatNumber(context.goals.protein)} g de protéines, ${context.goals.stepGoal === null ? "pas : objectif non défini" : `${formatNumber(context.goals.stepGoal)} pas`}.`,
 		`Formule : ${context.formule === "autonomie" ? "autonomie" : "coaching"}.`,
 		"",
-		`Statistiques — semaine du bilan (7 jours complets) : ${weekDaysLabel(week)}`,
+		`Statistiques — 7 derniers jours terminés : ${weekDaysLabel(week)}`,
 		...formatFoodLines(week, ""),
 		formatPhotoAiLine(week.photoAi, ""),
 		formatWeightLine(week, "", true),
@@ -599,7 +599,7 @@ export function buildCoachDraftPrompt(input: CoachDraftPromptInput): string {
 		formatSportLine(week, ""),
 		...formatMensurations(mensurations),
 		"",
-		`Statistiques — semaine précédente (pour les écarts) : ${weekDaysLabel(previousWeek)}`,
+		`Statistiques — 7 jours précédents (pour les écarts) : ${weekDaysLabel(previousWeek)}`,
 		...formatFoodLines(previousWeek, ""),
 		formatPhotoAiLine(previousWeek.photoAi, ""),
 		formatWeightLine(previousWeek, "", false),

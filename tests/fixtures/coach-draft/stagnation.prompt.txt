@@ -369,6 +369,7 @@ Ces règles viennent du retour de Hugo sur les brouillons de l'assistant. Elles 
 7. **Fin courte et chaleureuse, liée au moment** (« Passe un bon dimanche :) »). Jamais « Si tu as une question, n'hésite pas ».
 8. Si aucune tendance de poids n'est disponible, ne parle pas du poids ; ne jamais expliquer qu'une donnée manque.
 9. Phrases courtes : une idée par phrase, 20 mots maximum.
+10. **Tendance de poids** : si la tendance de poids est en baisse, la citer dans la première phrase avec l'écart en grammes. Si elle est stable ou en hausse, ne la commenter que si la semaine stagne.
 
 **Exemple de référence — la version de Hugo :**
 
@@ -545,7 +546,7 @@ Semaine : S37 - 07 sept. 2026 (du 07/09/2026 au 13/09/2026)
 Objectifs : 1 500 kcal, 105 g de protéines, 8 000 pas.
 Formule : coaching.
 
-Statistiques — semaine du bilan (7 jours complets) : 07/09/2026 → 13/09/2026
+Statistiques — 7 derniers jours terminés : 07/09/2026 → 13/09/2026
 - Calories : moyenne 1 490 kcal sur 4 jour(s) exploitable(s) ; 2 jour(s) partiel(s) exclu(s) ; 1 jour(s) sans donnée ; 6 jour(s) renseigné(s) sur 7 ; objectif 1 500 kcal ; seuil 900 kcal
 - Protéines : moyenne 92 g sur les mêmes 4 jour(s) exploitable(s) ; objectif 105 g
 - Repas estimés par photo IA : 62 % des calories de la semaine ; 15 repas sur 25 repas renseignés.
@@ -556,7 +557,7 @@ Statistiques — semaine du bilan (7 jours complets) : 07/09/2026 → 13/09/2026
 - Sport : 1 activité(s), 45 min, 250 kcal estimées, 300 MET-min.
 - Mensurations : aucun relevé disponible.
 
-Statistiques — semaine précédente (pour les écarts) : 31/08/2026 → 06/09/2026
+Statistiques — 7 jours précédents (pour les écarts) : 31/08/2026 → 06/09/2026
 - Calories : moyenne 1 480 kcal sur 4 jour(s) exploitable(s) ; 1 jour(s) partiel(s) exclu(s) ; 2 jour(s) sans donnée ; 5 jour(s) renseigné(s) sur 7 ; objectif 1 500 kcal ; seuil 900 kcal
 - Protéines : moyenne 90 g sur les mêmes 4 jour(s) exploitable(s) ; objectif 105 g
 - Repas estimés par photo IA : 58 % des calories de la semaine ; 14 repas sur 25 repas renseignés.

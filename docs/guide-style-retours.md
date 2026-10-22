@@ -17,6 +17,7 @@ Ces règles viennent du retour de Hugo sur les brouillons de l'assistant. Elles 
 7. **Fin courte et chaleureuse, liée au moment** (« Passe un bon dimanche :) »). Jamais « Si tu as une question, n'hésite pas ».
 8. Si aucune tendance de poids n'est disponible, ne parle pas du poids ; ne jamais expliquer qu'une donnée manque.
 9. Phrases courtes : une idée par phrase, 20 mots maximum.
+10. **Tendance de poids** : si la tendance de poids est en baisse, la citer dans la première phrase avec l'écart en grammes. Si elle est stable ou en hausse, ne la commenter que si la semaine stagne.
 
 **Exemple de référence — la version de Hugo :**
 
