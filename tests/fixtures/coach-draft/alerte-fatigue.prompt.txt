@@ -549,13 +549,13 @@ Objectifs : 1 700 kcal, 115 g de protéines, 9 000 pas.
 Formule : autonomie.
 
 Statistiques — 7 derniers jours terminés : 14/09/2026 → 20/09/2026
-- Calories : moyenne 1 650 kcal sur 3 jour(s) exploitable(s) ; 2 jour(s) partiel(s) exclu(s) ; 2 jour(s) sans donnée ; 5 jour(s) renseigné(s) sur 7 ; objectif 1 700 kcal ; seuil 1 020 kcal ; suivi insuffisant (3 jour(s) exploitable(s) sur 7) : ne commente PAS la moyenne — une phrase courte et bienveillante sur le suivi incomplet, sans culpabiliser
-- Protéines : moyenne 78 g sur les mêmes 3 jour(s) exploitable(s) ; objectif 115 g
+- Calories : moyenne NON transmise — suivi insuffisant (3 jour(s) exploitable(s) sur 7) : aucun jugement sur la moyenne.
+- Protéines : moyenne NON transmise — suivi insuffisant (mêmes 3 jour(s) exploitable(s) sur 7) : aucun jugement sur la moyenne.
 - Repas estimés par photo IA : part indisponible (aucune calorie saisie) ; aucun repas renseigné.
 - Poids : moyenne 64,9 kg sur 1 pesée(s) ; dernière pesée 65,1 kg le 18/09/2026 ; pesée de référence précédente 64,4 kg le 11/09/2026 ; écart +700 g.
 - Tendance de poids : dernière pesée 65,1 kg le 18/09/2026, précédente 64,4 kg le 11/09/2026, écart +700 g.
 - Poids moyen du bilan précédent (S37 - 07 septembre 2026) : 64,5 kg sur 2 pesée(s).
-- Pas : moyenne 4 200 pas sur 3 jour(s) renseigné(s) ; objectif 9 000 ; suivi insuffisant (3 jour(s) renseigné(s) sur 7) : ne commente PAS la moyenne — une phrase courte et bienveillante sur le suivi incomplet, sans culpabiliser.
+- Pas : moyenne NON transmise — suivi insuffisant (3 jour(s) renseigné(s) sur 7) : aucun jugement sur la moyenne.
 - Sport : 5 activité(s), 310 min, 1 900 kcal estimées, 2 100 MET-min.
 - Mensurations : aucun relevé disponible sur les 7 derniers jours (pas de relevé daté de J-7 à J) — ne pas en parler et ne jamais expliquer que la donnée manque.
 
@@ -568,12 +568,10 @@ Statistiques — 7 jours précédents (pour les écarts) : 07/09/2026 → 13/09/
 - Sport : 2 activité(s), 120 min, 700 kcal estimées, 800 MET-min.
 
 Écarts calculés par le code (déjà formatés — ne pas les recalculer) :
-- Calories : +50 kcal
-- Protéines : -17 g
 - Poids moyen : +400 g
-- Pas : -2 600 pas
 - Durée de sport : +190 min
 - Dépense sportive : +1 200 kcal
+- Écart non transmis (calories/protéines et pas) : suivi inférieur à 4 jours sur l'une des deux semaines — comparaison non fiable.
 
 Suivi de la cliente :
 - Suivi de cycle : renseigné, mais aucune phase estimable (contraception hormonale ou cycle irrégulier).

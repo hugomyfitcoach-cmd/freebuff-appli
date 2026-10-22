@@ -401,27 +401,30 @@ function weekDaysLabel(stats: CoachDraftWeekStats): string {
 }
 
 /**
- * MARQUEUR DE COMPLÉTUDE — le modèle ne juge la moyenne que sur un suivi
- * suffisant (règle 12 du guide) : moins de 4 jours, aucun jugement ; de 4 à
- * 6 jours, la moyenne se commente « sur X jours » ; à 7 jours, rien.
+ * SUIVI INSUFFISANT — moins de 4 jours sur 7 (règle 12 du guide). La donnée
+ * n'est alors PAS transmise comme une moyenne : seuls le nombre de jours et
+ * le statut partent, pour une phrase courte et bienveillante.
  */
-function completenessMarker(
+function isTrackingInsufficient(
 	state: TrackingCompleteness | undefined,
-	days: number,
-	unit: "exploitable(s)" | "renseigné(s)"
-): string {
-	const kind = state ?? trackingCompleteness(days);
-	if (kind === "insufficient") {
-		return ` ; suivi insuffisant (${formatNumber(days)} jour(s) ${unit} sur 7) : ne commente PAS la moyenne — une phrase courte et bienveillante sur le suivi incomplet, sans culpabiliser`;
-	}
-	if (kind === "partial") {
-		return ` ; moyenne à commenter en précisant « sur ${formatNumber(days)} jours »`;
-	}
-	return "";
+	days: number
+): boolean {
+	return (state ?? trackingCompleteness(days)) === "insufficient";
 }
 
 function formatFoodLines(stats: CoachDraftWeekStats, prefix: string, withCompleteness = false): string[] {
 	const { food } = stats;
+	const goalKcal = formatNumber(roundKcal(food.goalKcal));
+	const goalProtein = formatNumber(roundProtein(food.goalProtein));
+	if (isTrackingInsufficient(food.completeness, food.exploitableDays)) {
+		// Garde uniquement le nombre de jours et le statut « insuffisant » :
+		// ni moyenne, ni objectif comparé à une moyenne d'un jour ou deux.
+		const days = formatNumber(food.exploitableDays);
+		return [
+			`- ${prefix}Calories : moyenne NON transmise — suivi insuffisant (${days} jour(s) exploitable(s) sur 7) : aucun jugement sur la moyenne.`,
+			`- ${prefix}Protéines : moyenne NON transmise — suivi insuffisant (mêmes ${days} jour(s) exploitable(s) sur 7) : aucun jugement sur la moyenne.`,
+		];
+	}
 	const calories =
 		food.kcalAvg === null
 			? "moyenne indisponible (aucune journée exploitable)"
@@ -430,12 +433,13 @@ function formatFoodLines(stats: CoachDraftWeekStats, prefix: string, withComplet
 		food.proteinAvg === null
 			? "moyenne indisponible (aucune journée exploitable)"
 			: `moyenne ${formatNumber(roundProtein(food.proteinAvg))} g`;
-	const marker = withCompleteness
-		? completenessMarker(food.completeness, food.exploitableDays, "exploitable(s)")
+	// 4 à 6 jours : la moyenne se commente en précisant « sur X jours ».
+	const marker = withCompleteness && (food.completeness ?? trackingCompleteness(food.exploitableDays)) === "partial"
+		? ` ; moyenne à commenter en précisant « sur ${formatNumber(food.exploitableDays)} jours »`
 		: "";
 	return [
-		`- ${prefix}Calories : ${calories} sur ${formatNumber(food.exploitableDays)} jour(s) exploitable(s) ; ${formatNumber(food.partialDays)} jour(s) partiel(s) exclu(s) ; ${formatNumber(food.absentDays)} jour(s) sans donnée ; ${formatNumber(food.daysWithData)} jour(s) renseigné(s) sur 7 ; objectif ${formatNumber(roundKcal(food.goalKcal))} kcal ; seuil ${formatNumber(roundKcal(food.thresholdKcal))} kcal${marker}`,
-		`- ${prefix}Protéines : ${protein} sur les mêmes ${formatNumber(food.exploitableDays)} jour(s) exploitable(s) ; objectif ${formatNumber(roundProtein(food.goalProtein))} g`,
+		`- ${prefix}Calories : ${calories} sur ${formatNumber(food.exploitableDays)} jour(s) exploitable(s) ; ${formatNumber(food.partialDays)} jour(s) partiel(s) exclu(s) ; ${formatNumber(food.absentDays)} jour(s) sans donnée ; ${formatNumber(food.daysWithData)} jour(s) renseigné(s) sur 7 ; objectif ${goalKcal} kcal ; seuil ${formatNumber(roundKcal(food.thresholdKcal))} kcal${marker}`,
+		`- ${prefix}Protéines : ${protein} sur les mêmes ${formatNumber(food.exploitableDays)} jour(s) exploitable(s) ; objectif ${goalProtein} g`,
 	];
 }
 
@@ -473,10 +477,15 @@ function formatWeightLine(stats: CoachDraftWeekStats, prefix: string, includeCom
 
 function formatStepsLine(stats: CoachDraftWeekStats, prefix: string, withCompleteness = false): string {
 	const { steps } = stats;
-	const avg = steps.avg === null ? "moyenne indisponible" : `moyenne ${formatNumber(roundSteps(steps.avg))} pas`;
 	const goal = steps.goal === null ? "objectif non défini" : `objectif ${formatNumber(roundSteps(steps.goal))}`;
-	const marker = withCompleteness
-		? completenessMarker(steps.completeness, steps.trackedDays, "renseigné(s)")
+	if (isTrackingInsufficient(steps.completeness, steps.trackedDays)) {
+		// Même règle : nombre de jours et statut seulement.
+		return `- ${prefix}Pas : moyenne NON transmise — suivi insuffisant (${formatNumber(steps.trackedDays)} jour(s) renseigné(s) sur 7) : aucun jugement sur la moyenne.`;
+	}
+	const avg = steps.avg === null ? "moyenne indisponible" : `moyenne ${formatNumber(roundSteps(steps.avg))} pas`;
+	// 4 à 6 jours : la moyenne se commente en précisant « sur X jours ».
+	const marker = withCompleteness && (steps.completeness ?? trackingCompleteness(steps.trackedDays)) === "partial"
+		? ` ; moyenne à commenter en précisant « sur ${formatNumber(steps.trackedDays)} jours »`
 		: "";
 	return `- ${prefix}Pas : ${avg} sur ${formatNumber(steps.trackedDays)} jour(s) renseigné(s) ; ${goal}${marker}.`;
 }
@@ -575,18 +584,45 @@ function formatAppointmentsLine(appointments: CoachDraftAppointments): string {
 	return `- Appels et rendez-vous : ${last} ; ${next}.`;
 }
 
-function formatDeltas(deltas: CoachDraftContext["stats"]["deltas"]): string[] {
+/**
+ * ÉCARTS — un écart n'est transmis que si les DEUX semaines comparées ont un
+ * suivi suffisant (au moins 4 jours) pour la donnée concernée. Sinon la ligne
+ * disparaît : le nombre de jours et le statut « insuffisant » suffisent, et
+ * le modèle ne peut pas appuyer un jugement sur une comparaison non fiable.
+ * Poids et sport gardent leurs écarts (aucune règle de complétude).
+ */
+function formatDeltas(
+	deltas: CoachDraftContext["stats"]["deltas"],
+	week: CoachDraftWeekStats,
+	previousWeek: CoachDraftWeekStats
+): string[] {
 	const lines: string[] = [];
+	const foodHidden =
+		isTrackingInsufficient(week.food.completeness, week.food.exploitableDays) ||
+		isTrackingInsufficient(previousWeek.food.completeness, previousWeek.food.exploitableDays);
+	const stepsHidden =
+		isTrackingInsufficient(week.steps.completeness, week.steps.trackedDays) ||
+		isTrackingInsufficient(previousWeek.steps.completeness, previousWeek.steps.trackedDays);
 	const add = (label: string, value: number | null, text: (value: number) => string) => {
 		if (value === null) return;
 		lines.push(`- ${label} : ${text(value)}`);
 	};
-	add("Calories", deltas.kcalAvg, (v) => `${formatSigned(roundKcal(v), 0)} kcal`);
-	add("Protéines", deltas.proteinAvg, (v) => `${formatSigned(roundProtein(v), 0)} g`);
+	if (!foodHidden) {
+		add("Calories", deltas.kcalAvg, (v) => `${formatSigned(roundKcal(v), 0)} kcal`);
+		add("Protéines", deltas.proteinAvg, (v) => `${formatSigned(roundProtein(v), 0)} g`);
+	}
 	add("Poids moyen", deltas.weightAvg, (v) => formatWeightGap(v));
-	add("Pas", deltas.stepsAvg, (v) => `${formatSigned(roundSteps(v), 0)} pas`);
+	if (!stepsHidden) add("Pas", deltas.stepsAvg, (v) => `${formatSigned(roundSteps(v), 0)} pas`);
 	add("Durée de sport", deltas.sportDurationMin, (v) => `${formatSigned(v, 0)} min`);
 	add("Dépense sportive", deltas.sportKcal, (v) => `${formatSigned(roundKcal(v), 0)} kcal`);
+	if (foodHidden || stepsHidden) {
+		const hidden = [foodHidden ? "calories/protéines" : null, stepsHidden ? "pas" : null]
+			.filter((entry): entry is string => entry !== null)
+			.join(" et ");
+		lines.push(
+			`- Écart non transmis (${hidden}) : suivi inférieur à 4 jours sur l'une des deux semaines — comparaison non fiable.`
+		);
+	}
 	return lines.length > 0 ? lines : ["- Aucun écart disponible (données incomparables)."];
 }
 
@@ -660,7 +696,7 @@ export function buildCoachDraftPrompt(input: CoachDraftPromptInput): string {
 		formatSportLine(previousWeek, ""),
 		"",
 		"Écarts calculés par le code (déjà formatés — ne pas les recalculer) :",
-		...formatDeltas(deltas),
+		...formatDeltas(deltas, week, previousWeek),
 		"",
 		"Suivi de la cliente :",
 		formatCycleLine(context.cycle),

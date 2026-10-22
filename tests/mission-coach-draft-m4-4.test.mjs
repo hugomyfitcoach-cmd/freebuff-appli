@@ -287,11 +287,87 @@ test('Complétude : 1/7 jour de calories → donnée marquée insuffisante, aucu
 
 	const prompt = buildPrompt(context);
 	assert.ok(
-		prompt.includes('suivi insuffisant (1 jour(s) exploitable(s) sur 7) : ne commente PAS la moyenne'),
-		'calories marquées insuffisantes, sans jugement sur la moyenne'
+		prompt.includes('moyenne NON transmise — suivi insuffisant (1 jour(s) exploitable(s) sur 7)'),
+		'calories marquées insuffisantes, sans moyenne transmise'
 	);
-	assert.ok(prompt.includes('suivi insuffisant (1 jour(s) renseigné(s) sur 7)'), 'pas marqués insuffisants');
+	assert.ok(
+		prompt.includes('moyenne NON transmise — suivi insuffisant (1 jour(s) renseigné(s) sur 7)'),
+		'pas marqués insuffisants, sans moyenne transmise'
+	);
 	assert.ok(!prompt.includes('sur 1 jours »'), 'aucune invitation à commenter la moyenne');
+	assert.ok(!prompt.includes('moyenne 1 500 kcal'), 'aucune moyenne calorique dans le prompt');
+	assert.ok(!prompt.includes('moyenne 8 000 pas'), 'aucune moyenne de pas dans le prompt');
+});
+
+test('Suivi insuffisant : ni moyenne ni écart pour calories, protéines et pas', async () => {
+	// Semaine courante : 1 jour de calories et 1 jour de pas. Semaine de
+	// comparaison : complète, donc seule la semaine courante bloque l'écart.
+	const food = [entry(day(-4), 1500, 100), ...[day(-14), day(-13), day(-12), day(-11), day(-10), day(-9), day(-8)].map((d) => entry(d, 1400, 90))];
+	const steps = [
+		{ _id: 'st-cur', _creationTime: 1, userId: 'client1', date: day(-4), count: 8000 },
+		...[-14, -13, -12, -11, -10, -9, -8].map((offset, i) => ({
+			_id: `st-prev-${i}`,
+			_creationTime: 10 + i,
+			userId: 'client1',
+			date: day(offset),
+			count: 9000,
+		})),
+	];
+	const context = await runLoadContext(makeTables({ food, steps }));
+	assert.equal(context.stats.week.food.completeness, 'insufficient');
+	assert.equal(context.stats.week.steps.completeness, 'insufficient');
+	assert.equal(context.stats.previousWeek.food.completeness, 'complete');
+	assert.notEqual(context.stats.deltas.kcalAvg, null, 'écart calculé par le code, mais pas transmis');
+
+	const prompt = buildPrompt(context);
+	// Ni moyenne ni écart pour les trois données au suivi insuffisant.
+	assert.ok(!prompt.includes('moyenne 1 500 kcal'), 'aucune moyenne calorique');
+	assert.ok(!prompt.includes('moyenne 100 g'), 'aucune moyenne de protéines');
+	assert.ok(!prompt.includes('moyenne 8 000 pas'), 'aucune moyenne de pas');
+	assert.ok(!/^- Calories : [+-]/m.test(prompt), 'aucun écart calorique');
+	assert.ok(!/^- Protéines : [+-]/m.test(prompt), 'aucun écart de protéines');
+	assert.ok(!/^- Pas : [+-]/m.test(prompt), 'aucun écart de pas');
+	// Seuls le nombre de jours, le statut et l'explication restent transmis.
+	assert.ok(prompt.includes('(1 jour(s) exploitable(s) sur 7)'), 'nombre de jours de calories');
+	assert.ok(prompt.includes('(1 jour(s) renseigné(s) sur 7)'), 'nombre de jours de pas');
+	assert.ok(
+		prompt.includes('- Écart non transmis (calories/protéines et pas)'),
+		'l’absence d’écart est expliquée, jamais un zéro inventé'
+	);
+});
+
+test('Semaine de comparaison insuffisante : pas d’écart, moyenne de la semaine en cours conservée', async () => {
+	// Semaine courante : 5 jours exploitables (suffisant). Semaine de
+	// comparaison : 2 jours seulement → aucun écart calorique ni protéique.
+	const food = [
+		...[day(-7), day(-6), day(-5), day(-4), day(-3)].map((d) => entry(d, 1500, 100)),
+		entry(day(-11), 1400, 90),
+		entry(day(-10), 1400, 90),
+	];
+	const stepRows = [...[-14, -13, -12, -11, -10, -9, -8], ...[-7, -6, -5, -4, -3, -2, -1]].map((offset, i) => ({
+		_id: `st-${i}`,
+		_creationTime: 10 + i,
+		userId: 'client1',
+		date: day(offset),
+		// Deux semaines complètes mais différentes : l'écart de pas existe.
+		count: offset <= -8 ? 8000 : 10000,
+	}));
+	const context = await runLoadContext(makeTables({ food, steps: stepRows }));
+	assert.equal(context.stats.week.food.completeness, 'partial', 'semaine courante suffisante');
+	assert.equal(context.stats.previousWeek.food.completeness, 'insufficient', 'comparaison trop courte');
+	assert.notEqual(context.stats.deltas.kcalAvg, null, 'écart calculé mais non transmis');
+
+	const prompt = buildPrompt(context);
+	assert.ok(prompt.includes('moyenne 1 500 kcal'), 'moyenne de la semaine en cours conservée');
+	assert.ok(prompt.includes('« sur 5 jours »'), 'moyenne commentée sur 5 jours');
+	assert.ok(!/^- Calories : [+-]/m.test(prompt), 'aucun écart calorique');
+	assert.ok(!/^- Protéines : [+-]/m.test(prompt), 'aucun écart de protéines');
+	assert.ok(
+		prompt.includes('- Écart non transmis (calories/protéines)'),
+		'écart alimentaire retiré, pas de zéro inventé'
+	);
+	// Les pas, suffisants des deux côtés, gardent leur écart.
+	assert.ok(/^- Pas : [+-]/m.test(prompt), 'écart de pas transmis quand les deux semaines sont suffisantes');
 });
 
 test('Complétude : 5/7 jours exploitables → nombre de jours transmis (« sur 5 jours »)', async () => {
