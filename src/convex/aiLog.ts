@@ -8,10 +8,12 @@ import { v } from "convex/values";
  */
 export const record = internalMutation({
 	args: {
-		kind: v.union(v.literal("label"), v.literal("meal")),
+		kind: v.union(v.literal("label"), v.literal("meal"), v.literal("coach_draft")),
 		model: v.string(),
 		inputTokens: v.optional(v.number()),
 		outputTokens: v.optional(v.number()),
+		/** Tokens d'entrée servis depuis le cache de prompt (modèles OpenAI). */
+		cachedInputTokens: v.optional(v.number()),
 		durationMs: v.number(),
 		status: v.union(v.literal("ok"), v.literal("error")),
 		estimatedCostUsd: v.optional(v.number()),

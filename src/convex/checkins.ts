@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { answersValidator } from "./answers";
 import { formatWeekLabel, getSessionUser, isMondayISO } from "./helpers";
+import { publicCheckin } from "../lib/coachDraftUi";
 import type { QueryCtx } from "./_generated/server";
 import { recordEvent } from "./notifications";
 
@@ -80,6 +81,8 @@ export const myCheckins = query({
 			.withIndex("by_user_week", (q) => q.eq("userId", user._id))
 			.order("desc")
 			.collect();
-		return rows;
+		// `feedbackAiDraft` est une information de travail du CRM coach : elle
+		// n'est JAMAIS renvoyée à la cliente (aucun badge IA côté cliente).
+		return rows.map(publicCheckin);
 	},
 });
