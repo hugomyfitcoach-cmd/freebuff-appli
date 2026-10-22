@@ -21,6 +21,8 @@ import {
 	PROTEINES_G_PAR_KG_MM,
 	SEUIL_DISPONIBILITE_BAS,
 	SEUIL_DISPONIBILITE_HAUT,
+	SUPPLEMENT_TRAVAIL_PAR_HEURE,
+	SUPPLEMENT_TRAVAIL_PLAFOND,
 	VERSION_FORMULES_CALIBRAGE,
 	adaptationEffetKcal,
 	bilanObjectifSemaine,
@@ -303,6 +305,28 @@ export function alertePlafondsPour(
 		: perteKg > alpertKg
 			? `Perte estimée de ${decimalFr(perteKg)} kg/semaine : elle dépasse le rythme conseillé — plafond Alpert (${decimalFr(alpertKg)} kg/semaine) dépassé, plafond Macdonald (${decimalFr(macdonaldKg)} kg/semaine) non dépassé.`
 			: null;
+}
+
+/**
+ * Deux décimales à la française — uniquement pour les textes du supplément
+ * travail (0,05 par heure, 0,60 au maximum), jamais pour un calcul.
+ */
+function deuxDecimales(n: number): string {
+	return n.toFixed(2).replace('.', ',');
+}
+
+/**
+ * Libellé du supplément travail affiché sous sa valeur : « +0,05 · travail de
+ * bureau ». Le 0,05 vient du barème ($lib/calibrage) — jamais recopié en dur.
+ */
+export const LIBELLE_SUPPLEMENT_TRAVAIL = `+${deuxDecimales(SUPPLEMENT_TRAVAIL_PAR_HEURE)} · travail de bureau`;
+
+/**
+ * Phrase d'aide du supplément travail, valeurs du barème (0,05 par heure,
+ * 0,60 au maximum) : aucune valeur figée dans le texte.
+ */
+export function phraseSupplementTravail(): string {
+	return `Chaque heure en mouvement ajoute ${deuxDecimales(SUPPLEMENT_TRAVAIL_PAR_HEURE)}, jusqu'à ${deuxDecimales(SUPPLEMENT_TRAVAIL_PLAFOND)} au maximum.`;
 }
 
 /**

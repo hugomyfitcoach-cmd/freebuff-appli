@@ -77,6 +77,8 @@
 	--color-danger-light: #fff0f0;
 	--color-warn: #ff9500;
 	--color-warn-light: #fff8f0;
+	/* Perte de graisse estimée (onglet Calibrage) : violet, distinct des seuils. */
+	--color-loss: #7c3aed;
 	--font-sans: 'Lato', ui-sans-serif, system-ui, sans-serif;
 	--font-display: 'Lato', ui-sans-serif, system-ui, sans-serif;
 }
