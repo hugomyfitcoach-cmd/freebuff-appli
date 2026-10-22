@@ -44,7 +44,8 @@
 				"exploitableDays": 6,
 				"partialDays": 1,
 				"absentDays": 0,
-				"daysWithData": 7
+				"daysWithData": 7,
+				"completeness": "partial"
 			},
 			"weight": {
 				"avg": 61.8,
@@ -53,7 +54,7 @@
 				"prevLast": { "date": "2026-09-13", "weightKg": 62.2 },
 				"delta": -0.6
 			},
-			"steps": { "avg": 10400, "goal": 10000, "trackedDays": 7 },
+			"steps": { "avg": 10400, "goal": 10000, "trackedDays": 7, "completeness": "complete" },
 			"sport": { "activities": 4, "durationMin": 220, "kcal": 1350, "metMinutes": 1500 },
 			"photoAi": { "kcalSharePct": 38, "aiKcal": 4190, "totalKcal": 11020, "mealsWithAi": 9, "mealsLogged": 24 }
 		},
@@ -78,7 +79,8 @@
 				"exploitableDays": 5,
 				"partialDays": 2,
 				"absentDays": 0,
-				"daysWithData": 7
+				"daysWithData": 7,
+				"completeness": "partial"
 			},
 			"weight": {
 				"avg": 62.3,
@@ -87,7 +89,7 @@
 				"prevLast": null,
 				"delta": null
 			},
-			"steps": { "avg": 8700, "goal": 10000, "trackedDays": 6 },
+			"steps": { "avg": 8700, "goal": 10000, "trackedDays": 6, "completeness": "partial" },
 			"sport": { "activities": 2, "durationMin": 110, "kcal": 650, "metMinutes": 720 },
 			"photoAi": { "kcalSharePct": 30, "aiKcal": 3200, "totalKcal": 10670, "mealsWithAi": 7, "mealsLogged": 23 }
 		},
@@ -99,6 +101,7 @@
 			"sportDurationMin": 110,
 			"sportKcal": 700
 		},
+		"mensurationsAttenduesNonSaisies": false,
 		"mensurations": {
 			"date": "2026-09-20",
 			"prevDate": "2026-09-06",

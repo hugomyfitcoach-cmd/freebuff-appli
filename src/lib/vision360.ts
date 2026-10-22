@@ -472,6 +472,58 @@ export function mensurationsVision(rows: MensurationPoint[]): MensurationCompare
 	};
 }
 
+/* ───────────── Fraîcheur d'un relevé de mensurations (brouillon) ───────────── */
+
+/**
+ * FENÊTRE DE FRAÎCHEUR — le dernier relevé doit être daté de J-7 à J
+ * (aujourd'hui INCLUS), dans le fuseau de référence (Europe/Paris, même clé
+ * `parisTodayISO`). Un relevé plus ancien a déjà été commenté au bilan
+ * précédent : il n'est jamais renvoyé au brouillon (aucun doublon de bilan
+ * à bilan).
+ */
+export const MENSURATIONS_FRESH_DAYS = 7;
+
+/** Le relevé du `date` tombe-t-il dans la fenêtre J-7 → J de `todayISO` ? */
+export function isMensurationFresh(date: string, todayISO: string): boolean {
+	assertISO(date, 'date');
+	assertISO(todayISO, 'todayISO');
+	return date >= shiftISO(todayISO, -MENSURATIONS_FRESH_DAYS) && date <= todayISO;
+}
+
+/**
+ * MENSURATIONS DU BROUILLON — la MÊME comparaison que la carte
+ * (`mensurationsVision`: dernier relevé vs précédent, deltas par mesure),
+ * mais transmise UNIQUEMENT si le dernier relevé est frais (J-7 → J).
+ * Sinon `null` : rien ne part vers l'assistant.
+ */
+export function freshMensurationsVision(
+	rows: MensurationPoint[],
+	todayISO: string
+): MensurationCompare | null {
+	const latest = mensurationsVision(rows);
+	if (!latest) return null;
+	return isMensurationFresh(latest.date, todayISO) ? latest : null;
+}
+
+/* ────────────────── Complétude du suivi (brouillon) ────────────────── */
+
+/**
+ * SEUIL DE COMPLÉTUDE — moins de 4 jours exploitables (calories, protéines)
+ * ou renseignés (pas) sur 7 : aucun jugement sur la moyenne. De 4 à 6 jours :
+ * la moyenne se commente en précisant « sur X jours ». 7 jours : rien à
+ * préciser. Appliqué aux MÊMES compteurs que la carte du bilan.
+ */
+export const MIN_COMPLETE_TRACKING_DAYS = 4;
+
+export type TrackingCompleteness = 'insufficient' | 'partial' | 'complete';
+
+/** Complétude d'un suivi à partir du nombre de jours exploitables/renseignés. */
+export function trackingCompleteness(days: number): TrackingCompleteness {
+	if (!Number.isFinite(days) || days < MIN_COMPLETE_TRACKING_DAYS) return 'insufficient';
+	if (days < 7) return 'partial';
+	return 'complete';
+}
+
 /* ─────────────────────────── Formatage dates ─────────────────────────── */
 
 /** "2026-09-26" → "26 sept." (sans année) — discret, pour les repères. */

@@ -33,6 +33,12 @@
  * n'entre que dans le prompt — jamais dans une réponse de query. M2 ajoute
  * `contextPreview` (query coach, via loadContext) : le contexte assemblé du
  * lien discret « Voir les données envoyées à l'assistant », réservé au CRM.
+ *
+ * M4-4 précise DEUX filtres appliqués ici, dans le code (pas seulement dans le
+ * guide) : les mensurations ne partent QUE si le dernier relevé est daté de
+ * J-7 à J (sinon un simple indicateur `mensurationsAttenduesNonSaisies`), et
+ * calories, protéines et pas transportent leur complétude (moins de 4 jours
+ * sur 7 = aucun jugement sur la moyenne).
  */
 import { action, internalQuery, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
@@ -49,12 +55,13 @@ import { kcalGoalForDate, withCurrentGoal, type GoalHistoryRow } from "../lib/go
 import {
 	exploitabilityThresholdKcal,
 	foodAverages,
+	freshMensurationsVision,
 	last7CompletedDays,
-	mensurationsVision,
 	parisTodayISO,
 	shiftISO,
 	sportVision,
 	stepsAverages,
+	trackingCompleteness,
 	weightTrendFacts,
 	weightVision,
 	type SportDayInput,
@@ -178,6 +185,8 @@ function buildWeekStats(args: {
 			partialDays: food.breakdown.partialDays,
 			absentDays: food.breakdown.absentDays,
 			daysWithData: food.breakdown.daysWithData,
+			// Complétude : dénominateur RÉEL de la moyenne (jours exploitables).
+			completeness: trackingCompleteness(food.breakdown.exploitableDays),
 		},
 		weight: {
 			avg: weight.avg,
@@ -190,6 +199,8 @@ function buildWeekStats(args: {
 			avg: steps.avg,
 			goal: args.stepGoal,
 			trackedDays: steps.trackedDays,
+			// Complétude : dénominateur RÉEL de la moyenne (jours renseignés).
+			completeness: trackingCompleteness(steps.trackedDays),
 		},
 		sport: {
 			activities: sport.activities,
@@ -410,6 +421,12 @@ export const loadContext = internalQuery({
 		const prevCheckinRow =
 			allCheckins.find((row) => row._id !== checkinId && row.weekStart < checkin.weekStart) ?? null;
 
+		// Mensurations — MÊME comparaison que la carte (mensurationsVision :
+		// dernier relevé vs précédent, deltas par mesure), mais filtrée par la
+		// fraîcheur du dernier relevé (J-7 → J, fuseau Paris) : au-delà, rien
+		// n'est transmis à l'assistant.
+		const mensurations = freshMensurationsVision(metricsByDate, today360);
+
 		// Tendance de poids — MÊME fonction que la carte : deux pesées les plus
 		// récentes, toutes dates confondues (aujourd'hui inclus).
 		const latestWeights = weightTrendFacts(
@@ -493,7 +510,13 @@ export const loadContext = internalQuery({
 					sportDurationMin: week.sport.durationMin - previousWeek.sport.durationMin,
 					sportKcal: week.sport.kcal - previousWeek.sport.kcal,
 				},
-				mensurations: mensurationsVision(metricsByDate),
+				// Mensurations : la comparaison de la carte, transmise SEULEMENT si
+				// le dernier relevé est daté de J-7 à J (aujourd'hui inclus) — un
+				// relevé plus ancien a déjà été commenté au bilan précédent.
+				mensurations,
+				// « Semaine de mensurations : Oui » sans relevé sur la fenêtre.
+				mensurationsAttenduesNonSaisies:
+					answers.mensurations === "oui" && mensurations === null,
 				weightTrend: latestWeights,
 			},
 			examples,

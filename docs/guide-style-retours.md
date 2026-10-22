@@ -18,6 +18,8 @@ Ces règles viennent du retour de Hugo sur les brouillons de l'assistant. Elles 
 8. Si aucune tendance de poids n'est disponible, ne parle pas du poids ; ne jamais expliquer qu'une donnée manque.
 9. Phrases courtes : une idée par phrase, 20 mots maximum.
 10. **Tendance de poids** : si la tendance de poids est en baisse, la citer dans la première phrase avec l'écart en grammes. Si elle est stable ou en hausse, ne la commenter que si la semaine stagne.
+11. **Mensurations hors semaine** : ne parle des mensurations que si le dernier relevé est daté de J-7 à J (aujourd'hui inclus). Un relevé plus ancien a déjà été commenté au bilan précédent : ne le reprends jamais. Si la cliente a répondu « Oui » à la semaine de mensurations sans aucun relevé sur cette fenêtre, invite-la en une phrase courte à les saisir.
+12. **Complétude du suivi** : moins de 4 jours exploitables sur 7 (calories, protéines) ou renseignés (pas) : aucun jugement sur la moyenne, une phrase courte et bienveillante sur le suivi incomplet, sans culpabiliser. De 4 à 6 jours : commente la moyenne en précisant « sur X jours ». 7 jours : rien à préciser. L'appréciation d'ouverture (« très bonne semaine ») ne s'appuie jamais sur une donnée dont le suivi est inférieur à 4 jours.
 
 **Exemple de référence — la version de Hugo :**
 
