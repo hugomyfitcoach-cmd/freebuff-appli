@@ -211,6 +211,10 @@ export type CoachDraftContext = {
 		mensurations: MensurationCompare | null;
 		/** La cliente a répondu « Oui » à la semaine de mensurations sans relevé sur J-7 → J. */
 		mensurationsAttenduesNonSaisies: boolean;
+		/** Un relevé de mensurations existe, mais aucun sur J-7 → J (relevé trop ancien). */
+		mensurationsHorsFenetre: boolean;
+		/** Dernière pesée absente ou plus ancienne que J-7 : aucun écart transmis. */
+		peseeRecenteAbsente: boolean;
 		/** Écart entre les deux dernières pesées + poids moyen du bilan précédent. */
 		weightTrend: CoachDraftWeightTrend;
 	};
@@ -412,11 +416,95 @@ function isTrackingInsufficient(
 	return (state ?? trackingCompleteness(days)) === "insufficient";
 }
 
+/** Calories/protéines d'une semaine : suivi insuffisant ? */
+export function isFoodTrackingInsufficient(stats: CoachDraftWeekStats): boolean {
+	return isTrackingInsufficient(stats.food.completeness, stats.food.exploitableDays);
+}
+
+/** Pas d'une semaine : suivi insuffisant ? */
+export function isStepsTrackingInsufficient(stats: CoachDraftWeekStats): boolean {
+	return isTrackingInsufficient(stats.steps.completeness, stats.steps.trackedDays);
+}
+
+/* ─────────── Vue de transmission (panneau CRM) : mêmes décisions ─────────── */
+
+/**
+ * SENTINELLES DU PANNEAU — une donnée retirée est affichée telle qu'elle part
+ * au modèle : absente, avec sa raison. Jamais la valeur d'origine.
+ */
+export const NOT_TRANSMITTED_INSUFFICIENT = "non transmis — suivi insuffisant";
+export const NOT_TRANSMITTED_STALE = "non transmis — relevé trop ancien";
+
+/**
+ * VUE DE TRANSMISSION — le contexte assemblé, mais avec les mêmes retraits que
+ * le prompt (une seule source de vérité : les helpers ci-dessus). Sert au
+ * panneau « Voir les données envoyées à l'assistant » : ce qu'il montre est
+ * exactement ce que reçoit le modèle, valeurs retirées comprises.
+ *
+ * Poids moyen et nombre de jours restent visibles : seules les données que le
+ * prompt ne transmet pas sont remplacées par leur sentinelle.
+ */
+export function buildDraftPreview(context: CoachDraftContext): Record<string, unknown> {
+	const { week, previousWeek } = context.stats;
+	const foodHidden = isFoodTrackingInsufficient(week) || isFoodTrackingInsufficient(previousWeek);
+	const stepsHidden = isStepsTrackingInsufficient(week) || isStepsTrackingInsufficient(previousWeek);
+	const previewWeek = (stats: CoachDraftWeekStats, isCurrent: boolean) => ({
+		...stats,
+		food: {
+			...stats.food,
+			kcalAvg: isFoodTrackingInsufficient(stats) ? NOT_TRANSMITTED_INSUFFICIENT : stats.food.kcalAvg,
+			proteinAvg: isFoodTrackingInsufficient(stats)
+				? NOT_TRANSMITTED_INSUFFICIENT
+				: stats.food.proteinAvg,
+		},
+		steps: {
+			...stats.steps,
+			avg: isStepsTrackingInsufficient(stats) ? NOT_TRANSMITTED_INSUFFICIENT : stats.steps.avg,
+		},
+		weight: {
+			...stats.weight,
+			prevLast:
+				isCurrent && context.stats.peseeRecenteAbsente
+					? NOT_TRANSMITTED_STALE
+					: stats.weight.prevLast,
+			delta:
+				isCurrent && context.stats.peseeRecenteAbsente ? NOT_TRANSMITTED_STALE : stats.weight.delta,
+		},
+	});
+	return {
+		...context,
+		stats: {
+			...context.stats,
+			week: previewWeek(week, true),
+			previousWeek: previewWeek(previousWeek, false),
+			deltas: {
+				...context.stats.deltas,
+				kcalAvg: foodHidden ? NOT_TRANSMITTED_INSUFFICIENT : context.stats.deltas.kcalAvg,
+				proteinAvg: foodHidden ? NOT_TRANSMITTED_INSUFFICIENT : context.stats.deltas.proteinAvg,
+				stepsAvg: stepsHidden ? NOT_TRANSMITTED_INSUFFICIENT : context.stats.deltas.stepsAvg,
+			},
+			mensurations:
+				context.stats.mensurations === null && context.stats.mensurationsHorsFenetre
+					? NOT_TRANSMITTED_STALE
+					: context.stats.mensurations,
+			weightTrend: {
+				...context.stats.weightTrend,
+				previous: context.stats.peseeRecenteAbsente
+					? NOT_TRANSMITTED_STALE
+					: context.stats.weightTrend.previous,
+				gapKg: context.stats.peseeRecenteAbsente
+					? NOT_TRANSMITTED_STALE
+					: context.stats.weightTrend.gapKg,
+			},
+		},
+	};
+}
+
 function formatFoodLines(stats: CoachDraftWeekStats, prefix: string, withCompleteness = false): string[] {
 	const { food } = stats;
 	const goalKcal = formatNumber(roundKcal(food.goalKcal));
 	const goalProtein = formatNumber(roundProtein(food.goalProtein));
-	if (isTrackingInsufficient(food.completeness, food.exploitableDays)) {
+	if (isFoodTrackingInsufficient(stats)) {
 		// Garde uniquement le nombre de jours et le statut « insuffisant » :
 		// ni moyenne, ni objectif comparé à une moyenne d'un jour ou deux.
 		const days = formatNumber(food.exploitableDays);
@@ -456,6 +544,13 @@ function formatPhotoAiLine(photoAi: CoachDraftPhotoAi, prefix: string): string {
 	return `- ${prefix}Repas estimés par photo IA : ${share} ; ${meals}.`;
 }
 
+/**
+ * PESÉE — invitation d'une phrase quand la dernière pesée est absente ou plus
+ * ancienne que J-7 : l'écart n'est pas transmis, on demande une pesée à jour.
+ */
+const PESEE_INVITE_LINE =
+	"- Pesée : aucune pesée sur les 7 derniers jours → l'inviter en UNE phrase courte à se peser (l'écart n'est pas transmis).";
+
 function formatWeightLine(stats: CoachDraftWeekStats, prefix: string, includeComparison: boolean): string {
 	const { weight } = stats;
 	if (weight.count === 0 || weight.last === null) {
@@ -478,7 +573,7 @@ function formatWeightLine(stats: CoachDraftWeekStats, prefix: string, includeCom
 function formatStepsLine(stats: CoachDraftWeekStats, prefix: string, withCompleteness = false): string {
 	const { steps } = stats;
 	const goal = steps.goal === null ? "objectif non défini" : `objectif ${formatNumber(roundSteps(steps.goal))}`;
-	if (isTrackingInsufficient(steps.completeness, steps.trackedDays)) {
+	if (isStepsTrackingInsufficient(stats)) {
 		// Même règle : nombre de jours et statut seulement.
 		return `- ${prefix}Pas : moyenne NON transmise — suivi insuffisant (${formatNumber(steps.trackedDays)} jour(s) renseigné(s) sur 7) : aucun jugement sur la moyenne.`;
 	}
@@ -499,12 +594,16 @@ function formatSportLine(stats: CoachDraftWeekStats, prefix: string): string {
  * TENDANCE DE POIDS — présentée comme la tendance : l'écart entre les deux
  * dernières pesées (toutes dates confondues), avec ses deux dates. Valeurs déjà
  * arrondies (centaine de grammes). Si l'écart est absent (moins de deux
- * pesées) : AUCUNE ligne de tendance, jamais un zéro inventé. Le poids moyen
- * du bilan précédent reste la moyenne des pesées de la semaine du bilan.
+ * pesées) OU si la dernière pesée est trop ancienne (`includeGap = false`) :
+ * AUCUNE ligne de tendance, jamais un zéro inventé. Le poids moyen du bilan
+ * précédent reste la moyenne des pesées de la semaine du bilan.
  */
-function formatWeightTrend(trend: CoachDraftWeightTrend | null | undefined): string[] {
+function formatWeightTrend(
+	trend: CoachDraftWeightTrend | null | undefined,
+	includeGap = true
+): string[] {
 	const lines: string[] = [];
-	if (trend && trend.last && trend.previous && trend.gapKg !== null) {
+	if (includeGap && trend && trend.last && trend.previous && trend.gapKg !== null) {
 		lines.push(
 			`- Tendance de poids : dernière pesée ${formatNumberTrimmed(trend.last.weightKg, 1)} kg le ${formatDateFR(trend.last.date)}, précédente ${formatNumberTrimmed(trend.previous.weightKg, 1)} kg le ${formatDateFR(trend.previous.date)}, écart ${formatWeightGap(trend.gapKg)}.`
 		);
@@ -597,12 +696,8 @@ function formatDeltas(
 	previousWeek: CoachDraftWeekStats
 ): string[] {
 	const lines: string[] = [];
-	const foodHidden =
-		isTrackingInsufficient(week.food.completeness, week.food.exploitableDays) ||
-		isTrackingInsufficient(previousWeek.food.completeness, previousWeek.food.exploitableDays);
-	const stepsHidden =
-		isTrackingInsufficient(week.steps.completeness, week.steps.trackedDays) ||
-		isTrackingInsufficient(previousWeek.steps.completeness, previousWeek.steps.trackedDays);
+	const foodHidden = isFoodTrackingInsufficient(week) || isFoodTrackingInsufficient(previousWeek);
+	const stepsHidden = isStepsTrackingInsufficient(week) || isStepsTrackingInsufficient(previousWeek);
 	const add = (label: string, value: number | null, text: (value: number) => string) => {
 		if (value === null) return;
 		lines.push(`- ${label} : ${text(value)}`);
@@ -682,8 +777,10 @@ export function buildCoachDraftPrompt(input: CoachDraftPromptInput): string {
 		`Statistiques — 7 derniers jours terminés : ${weekDaysLabel(week)}`,
 		...formatFoodLines(week, "", true),
 		formatPhotoAiLine(week.photoAi, ""),
-		formatWeightLine(week, "", true),
-		...formatWeightTrend(context.stats.weightTrend),
+		// Écart de pesée : seulement si la dernière pesée est datée de J-7 à J.
+		formatWeightLine(week, "", context.stats.peseeRecenteAbsente !== true),
+		...formatWeightTrend(context.stats.weightTrend, context.stats.peseeRecenteAbsente !== true),
+		...(context.stats.peseeRecenteAbsente === true ? [PESEE_INVITE_LINE] : []),
 		formatStepsLine(week, "", true),
 		formatSportLine(week, ""),
 		...formatMensurations(mensurations, context.stats.mensurationsAttenduesNonSaisies === true),
@@ -717,6 +814,7 @@ export function buildCoachDraftPrompt(input: CoachDraftPromptInput): string {
 		"- Un jugement simple plutôt que chaque chiffre comparé à son objectif.",
 		"- Ne parle des jours non renseignés ou de la fiabilité des données QUE si la tendance stagne ou remonte. Si la tendance baisse ou si les mensurations baissent : félicite, ne signale rien.",
 		"- Mensurations : ne les commente que si elles figurent dans les faits ci-dessus. Si « Mensurations cette semaine » vaut oui sans relevé sur les 7 derniers jours, invite-la en une phrase courte à les saisir ; sinon ne mentionne pas les mensurations et n'explique jamais qu'elles manquent.",
+		"- La comparaison de poids ne se commente que si elle est transmise ci-dessus. Sinon, invite-la en une phrase courte à se peser, sans parler de comparaison ni de donnée manquante.",
 		"- Complétude : à moins de 4 jours exploitables (calories, protéines) ou renseignés (pas), ne porte AUCUN jugement sur la moyenne ni sur l'écart — une phrase courte et bienveillante sur le suivi incomplet, sans culpabiliser. De 4 à 6 jours, commente la moyenne en précisant « sur X jours ». À 7 jours, rien à préciser.",
 		"- L'appréciation d'ouverture (« très bonne semaine ») ne s'appuie jamais sur une donnée dont le suivi est inférieur à 4 jours.",
 		"- Toujours une décision claire : « On ne touche à rien et on continue sur cette lancée » ou l'ajustement proposé. N'impose aucun « focus » quand tout va bien ; une seule priorité simple et réalisable quand il en faut une, reliée à un fait de la semaine ou à un mot de la cliente.",

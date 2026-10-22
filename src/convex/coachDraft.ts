@@ -56,7 +56,9 @@ import {
 	exploitabilityThresholdKcal,
 	foodAverages,
 	freshMensurationsVision,
+	isRecentDate,
 	last7CompletedDays,
+	mensurationsVision,
 	parisTodayISO,
 	shiftISO,
 	sportVision,
@@ -68,6 +70,7 @@ import {
 } from "../lib/vision360";
 import {
 	buildCoachDraftPrompt,
+	buildDraftPreview,
 	restorePrenom,
 	type CoachDraftAppointments,
 	type CoachDraftContext,
@@ -424,8 +427,10 @@ export const loadContext = internalQuery({
 		// Mensurations — MÊME comparaison que la carte (mensurationsVision :
 		// dernier relevé vs précédent, deltas par mesure), mais filtrée par la
 		// fraîcheur du dernier relevé (J-7 → J, fuseau Paris) : au-delà, rien
-		// n'est transmis à l'assistant.
+		// n'est transmis à l'assistant (le panneau dira « relevé trop ancien »).
+		const mensurationsToutes = mensurationsVision(metricsByDate);
 		const mensurations = freshMensurationsVision(metricsByDate, today360);
+		const mensurationsHorsFenetre = mensurationsToutes !== null && mensurations === null;
 
 		// Tendance de poids — MÊME fonction que la carte : deux pesées les plus
 		// récentes, toutes dates confondues (aujourd'hui inclus).
@@ -433,6 +438,12 @@ export const loadContext = internalQuery({
 			weightRows,
 			prevCheckinRow ? { weekLabel: prevCheckinRow.weekLabel, weekStart: prevCheckinRow.weekStart } : null
 		);
+		// ÉCART DE PESÉE — les faits restent calculés (même contrat que la carte),
+		// mais l'écart n'est TRANSMIS que si la DERNIÈRE pesée est datée de J-7 à J
+		// (même fenêtre que les mensurations). Sinon le prompt le retire et invite
+		// à se peser ; la moyenne J-7 → J-1 reste inchangée.
+		const peseeRecenteAbsente =
+			latestWeights.last === null || !isRecentDate(latestWeights.last.date, today360);
 		const week = buildWeekStats({
 			days: weekDays,
 			entries,
@@ -517,6 +528,10 @@ export const loadContext = internalQuery({
 				// « Semaine de mensurations : Oui » sans relevé sur la fenêtre.
 				mensurationsAttenduesNonSaisies:
 					answers.mensurations === "oui" && mensurations === null,
+				/** Un relevé existe mais hors fenêtre (panneau : « relevé trop ancien »). */
+				mensurationsHorsFenetre,
+				/** Dernière pesée absente ou trop ancienne (écart non transmis). */
+				peseeRecenteAbsente,
 				weightTrend: latestWeights,
 			},
 			examples,
@@ -653,10 +668,11 @@ export const generate = action({
  *
  * Sert le lien discret « Voir les données envoyées à l'assistant » de la
  * carte du bilan (CRM uniquement — la vue cliente n'appelle ni cette query
- * ni la route BFF associée). Renvoie EXACTEMENT le contexte assemblé par
- * `loadContext` : mêmes gardes (coach + appartenance), mêmes chiffres
- * calculés par le code. Le coach peut vérifier ce qui part dans le prompt
- * avant de lancer une génération.
+ * ni la route BFF associée). Renvoie le contexte assemblé par `loadContext`,
+ * présenté comme il part au modèle : chaque donnée retirée (suivi
+ * insuffisant, relevé trop ancien, écart non fiable) est remplacée par
+ * « non transmis — … » au lieu de sa valeur. Mêmes gardes (coach +
+ * appartenance), mêmes chiffres calculés par le code.
  *
  * Le référentiel de méthode n'en fait pas partie : il reste côté serveur et
  * n'est injecté que dans le prompt de `generate`.
@@ -666,8 +682,11 @@ export const contextPreview = query({
 		sessionToken: v.optional(v.string()),
 		checkinId: v.id("checkins"),
 	},
-	handler: async (ctx, { sessionToken, checkinId }): Promise<CoachDraftContext> => {
-		// Même query interne, aucune duplication du calcul ni de la lecture.
-		return await ctx.runQuery(internal.coachDraft.loadContext, { sessionToken, checkinId });
+	handler: async (ctx, { sessionToken, checkinId }): Promise<Record<string, unknown>> => {
+		// Même query interne, aucune duplication du calcul ni de la lecture :
+		// les faits sont ensuite présentés comme ils partent au modèle (une
+		// donnée retirée est remplacée par « non transmis — … »).
+		const context = await ctx.runQuery(internal.coachDraft.loadContext, { sessionToken, checkinId });
+		return buildDraftPreview(context);
 	},
 });

@@ -472,22 +472,30 @@ export function mensurationsVision(rows: MensurationPoint[]): MensurationCompare
 	};
 }
 
-/* ───────────── Fraîcheur d'un relevé de mensurations (brouillon) ───────────── */
+/* ──────────── Fenêtre de fraîcheur d'un relevé (brouillon) ──────────── */
 
 /**
- * FENÊTRE DE FRAÎCHEUR — le dernier relevé doit être daté de J-7 à J
- * (aujourd'hui INCLUS), dans le fuseau de référence (Europe/Paris, même clé
- * `parisTodayISO`). Un relevé plus ancien a déjà été commenté au bilan
- * précédent : il n'est jamais renvoyé au brouillon (aucun doublon de bilan
- * à bilan).
+ * FENÊTRE DE FRAÎCHEUR — une donnée datée n'est transmise au brouillon que
+ * si elle tombe de J-7 à J (aujourd'hui INCLUS), dans le fuseau de référence
+ * (Europe/Paris, même clé `parisTodayISO`). Vaut pour les mensurations, la
+ * dernière pesée et les photos : au-delà, la donnée a déjà été commentée au
+ * bilan précédent (aucun doublon de bilan à bilan).
  */
-export const MENSURATIONS_FRESH_DAYS = 7;
+export const RECENT_WINDOW_DAYS = 7;
+
+/** Fenêtre de fraîcheur des mensurations — même règle que `isRecentDate`. */
+export const MENSURATIONS_FRESH_DAYS = RECENT_WINDOW_DAYS;
+
+/** La date `date` tombe-t-elle dans la fenêtre J-7 → J de `todayISO` ? */
+export function isRecentDate(date: string, todayISO: string): boolean {
+	assertISO(date, 'date');
+	assertISO(todayISO, 'todayISO');
+	return date >= shiftISO(todayISO, -RECENT_WINDOW_DAYS) && date <= todayISO;
+}
 
 /** Le relevé du `date` tombe-t-il dans la fenêtre J-7 → J de `todayISO` ? */
 export function isMensurationFresh(date: string, todayISO: string): boolean {
-	assertISO(date, 'date');
-	assertISO(todayISO, 'todayISO');
-	return date >= shiftISO(todayISO, -MENSURATIONS_FRESH_DAYS) && date <= todayISO;
+	return isRecentDate(date, todayISO);
 }
 
 /**

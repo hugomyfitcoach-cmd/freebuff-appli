@@ -103,6 +103,8 @@
 			"sportKcal": -30
 		},
 		"mensurationsAttenduesNonSaisies": false,
+		"mensurationsHorsFenetre": false,
+		"peseeRecenteAbsente": false,
 		"mensurations": null,
 		"weightTrend": {
 			"last": { "date": "2026-09-13", "weightKg": 68.5 },

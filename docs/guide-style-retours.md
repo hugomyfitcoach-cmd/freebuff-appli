@@ -20,6 +20,7 @@ Ces règles viennent du retour de Hugo sur les brouillons de l'assistant. Elles 
 10. **Tendance de poids** : si la tendance de poids est en baisse, la citer dans la première phrase avec l'écart en grammes. Si elle est stable ou en hausse, ne la commenter que si la semaine stagne.
 11. **Mensurations hors semaine** : ne parle des mensurations que si le dernier relevé est daté de J-7 à J (aujourd'hui inclus). Un relevé plus ancien a déjà été commenté au bilan précédent : ne le reprends jamais. Si la cliente a répondu « Oui » à la semaine de mensurations sans aucun relevé sur cette fenêtre, invite-la en une phrase courte à les saisir.
 12. **Complétude du suivi** : moins de 4 jours exploitables sur 7 (calories, protéines) ou renseignés (pas) : aucun jugement sur la moyenne, une phrase courte et bienveillante sur le suivi incomplet, sans culpabiliser. De 4 à 6 jours : commente la moyenne en précisant « sur X jours ». 7 jours : rien à préciser. L'appréciation d'ouverture (« très bonne semaine ») ne s'appuie jamais sur une donnée dont le suivi est inférieur à 4 jours.
+13. **Fraîcheur des relevés** : l'écart entre la dernière pesée et la précédente ne se commente que si la dernière pesée est datée de J-7 à J (aujourd'hui inclus). Sinon, n'en parle pas et invite-la en une phrase courte à se peser. Les photos et leurs dates suivent la même fenêtre : seules celles de J-7 à J sont mentionnées, sinon on n'en parle pas. La moyenne de poids sur J-7 → J-1 reste valable.
 
 **Exemple de référence — la version de Hugo :**
 

@@ -20,7 +20,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import { loadContext } from '../src/convex/coachDraft.ts';
+import { contextPreview, loadContext } from '../src/convex/coachDraft.ts';
 import { client360 } from '../src/convex/coach.ts';
 import { hashToken, addDaysISO } from '../src/convex/helpers.ts';
 import {
@@ -29,7 +29,11 @@ import {
 	parisTodayISO,
 	trackingCompleteness,
 } from '../src/lib/vision360.ts';
-import { buildCoachDraftPrompt } from '../src/convex/coachDraftPrompt.ts';
+import {
+	buildCoachDraftPrompt,
+	NOT_TRANSMITTED_INSUFFICIENT,
+	NOT_TRANSMITTED_STALE,
+} from '../src/convex/coachDraftPrompt.ts';
 import { COACH_DRAFT_STYLE_GUIDE } from '../src/lib/data/coachDraftStyleGuide.ts';
 import { COACH_DRAFT_METHOD_REFERENCE } from '../src/convex/ai/methodeGflux.ts';
 
@@ -181,6 +185,13 @@ const runLoadContext = (tables) =>
 
 const runClient360 = (tables) =>
 	client360._handler({ db: makeDb(tables) }, { sessionToken: 'tok-m44', userId: 'client1' });
+
+/** Panneau « Voir les données envoyées à l'assistant » (query + vue de transmission). */
+const runContextPreview = (tables) =>
+	contextPreview._handler(
+		{ runQuery: async (_ref, args) => loadContext._handler({ db: makeDb(tables) }, args) },
+		{ sessionToken: 'tok-m44', checkinId: 'checkin1' }
+	);
 
 function buildPrompt(context) {
 	return buildCoachDraftPrompt({
@@ -388,11 +399,105 @@ test('Complétude : 5/7 jours exploitables → nombre de jours transmis (« sur 
 	assert.equal(context.stats.week.food.exploitableDays, card.cockpit.calories.trackedDays);
 });
 
-/* ═══════════════ 5) GUIDE DE STYLE — RÈGLES 11 ET 12 ═══════════════ */
+/* ═══════════════ 5) ÉCART DE PESÉE — FENÊTRE J-7 → J ═══════════════ */
+
+test('Pesée à J-10 : aucun écart transmis, indicateur peseeRecenteAbsente et invitation à se peser', async () => {
+	const tables = makeTables({
+		weightMetrics: [
+			{ date: day(-17), weightKg: 62.4 },
+			{ date: day(-10), weightKg: 61.9 },
+		],
+	});
+	const context = await runLoadContext(tables);
+	assert.equal(context.stats.peseeRecenteAbsente, true, 'dernière pesée hors fenêtre');
+	// La moyenne J-7 → J-1 et la dernière pesée restent des faits calculés ;
+	// c'est l'ÉCART qui n'est pas transmis.
+	assert.equal(context.stats.week.weight.avg, null, 'aucune pesée dans J-7 → J-1');
+	assert.deepEqual(context.stats.weightTrend.last, { date: day(-10), weightKg: 61.9 }, 'dernière pesée connue conservée');
+
+	const prompt = buildPrompt(context);
+	assert.ok(!prompt.includes('- Tendance de poids :'), 'aucune ligne de tendance');
+	assert.ok(!/écart [-+]?\d/.test(prompt), 'aucun écart de pesée dans le prompt');
+	assert.ok(prompt.includes("l'inviter en UNE phrase courte à se peser"), 'invitation à se peser');
+
+	// Le panneau montre la valeur retirée, pas l'écart calculé.
+	const preview = await runContextPreview(tables);
+	assert.equal(preview.stats.weightTrend.gapKg, NOT_TRANSMITTED_STALE);
+	assert.equal(preview.stats.week.weight.delta, NOT_TRANSMITTED_STALE);
+});
+
+test('Pesée du jour : l’écart dernière pesée vs précédente est transmis', async () => {
+	const tables = makeTables({
+		weightMetrics: [
+			{ date: day(-5), weightKg: 62 },
+			{ date: day(0), weightKg: 61.5 },
+		],
+	});
+	const context = await runLoadContext(tables);
+	assert.equal(context.stats.peseeRecenteAbsente, false);
+	assert.equal(context.stats.weightTrend.gapKg, -0.5, 'écart calculé par le code');
+	assert.equal(context.stats.week.weight.avg, 62, 'moyenne J-7 → J-1 inchangée');
+
+	const prompt = buildPrompt(context);
+	assert.ok(
+		prompt.includes('- Tendance de poids : dernière pesée 61,5 kg le ' + day(0).split('-').reverse().join('/')),
+		'écart transmis avec ses deux dates'
+	);
+	assert.ok(!prompt.includes("l'inviter en UNE phrase courte à se peser"), 'aucune invitation inutile');
+});
+
+/* ═══════════ 6) PANNEAU CRM — CE QUI EST RETIRÉ EST AFFICHÉ COMME TEL ═══════════ */
+
+test('Panneau : suivi insuffisant et relevé trop ancien affichent « non transmis »', async () => {
+	const tables = makeTables({
+		food: [entry(day(-4), 1500, 100)],
+		steps: [{ _id: 'st1', _creationTime: 1, userId: 'client1', date: day(-4), count: 8000 }],
+		mensurations: [{ date: day(-20), waistCm: 76 }, { date: day(-11), waistCm: 74 }],
+		weightMetrics: [{ date: day(-10), weightKg: 61.9 }],
+	});
+	const preview = await runContextPreview(tables);
+	const week = preview.stats.week;
+
+	// Suivi insuffisant : nombre de jours conservé, valeur remplacée.
+	assert.equal(week.food.exploitableDays, 1, 'nombre de jours toujours visible');
+	assert.equal(week.food.kcalAvg, NOT_TRANSMITTED_INSUFFICIENT);
+	assert.equal(week.food.proteinAvg, NOT_TRANSMITTED_INSUFFICIENT);
+	assert.equal(week.steps.avg, NOT_TRANSMITTED_INSUFFICIENT);
+	assert.equal(week.steps.trackedDays, 1);
+	assert.equal(preview.stats.deltas.kcalAvg, NOT_TRANSMITTED_INSUFFICIENT);
+	assert.equal(preview.stats.deltas.stepsAvg, NOT_TRANSMITTED_INSUFFICIENT);
+
+	// Relevés trop anciens : mensurations et écart de pesée.
+	assert.equal(preview.stats.mensurations, NOT_TRANSMITTED_STALE);
+	assert.equal(preview.stats.weightTrend.gapKg, NOT_TRANSMITTED_STALE);
+	assert.equal(week.weight.delta, NOT_TRANSMITTED_STALE);
+
+	// Les données transmises restent des valeurs, jamais des sentinelles.
+	assert.equal(typeof week.sport.activities, 'number');
+	assert.equal(typeof week.steps.goal, 'number');
+});
+
+test('Panneau : données suffisantes et relevés frais → valeurs conservées', async () => {
+	const food = [day(-7), day(-6), day(-5), day(-4), day(-3)].map((d) => entry(d, 1500, 100));
+	const tables = makeTables({
+		food,
+		weightMetrics: [{ date: day(-5), weightKg: 62 }, { date: day(0), weightKg: 61.5 }],
+		mensurations: [{ date: day(-20), waistCm: 76 }, { date: day(-3), waistCm: 72 }],
+	});
+	const preview = await runContextPreview(tables);
+	assert.equal(preview.stats.week.food.kcalAvg, 1500, 'moyenne conservée');
+	assert.equal(typeof preview.stats.week.food.kcalAvg, 'number', 'aucune sentinelle');
+	assert.equal(preview.stats.weightTrend.gapKg, -0.5, 'écart conservé');
+	assert.equal(preview.stats.mensurations.waistCm, 72, 'mensurations conservées');
+});
+
+/* ═══════════════ 7) GUIDE DE STYLE — RÈGLES 11, 12 ET 13 ═══════════════ */
 
 const RULE_MENSURATIONS =
 	"11. **Mensurations hors semaine** : ne parle des mensurations que si le dernier relevé est daté de J-7 à J (aujourd'hui inclus).";
 const RULE_COMPLETENESS = "12. **Complétude du suivi** : moins de 4 jours exploitables sur 7";
+const RULE_FRESHNESS =
+	"13. **Fraîcheur des relevés** : l'écart entre la dernière pesée et la précédente ne se commente que si la dernière pesée est datée de J-7 à J (aujourd'hui inclus).";
 
 test('Guide : les règles 11 (mensurations) et 12 (complétude) sont dans les Règles prioritaires', () => {
 	const markdown = read('docs/guide-style-retours.md');
@@ -402,6 +507,8 @@ test('Guide : les règles 11 (mensurations) et 12 (complétude) sont dans les R�
 	);
 	assert.ok(priorities.includes(RULE_MENSURATIONS), 'règle 11 dans le .md source');
 	assert.ok(priorities.includes(RULE_COMPLETENESS), 'règle 12 dans le .md source');
+	assert.ok(priorities.includes(RULE_FRESHNESS), 'règle 13 (fraîcheur des relevés) dans le .md source');
+	assert.ok(priorities.includes('seules celles de J-7 à J sont mentionnées'), 'photos : même fenêtre');
 	assert.ok(
 		priorities.includes('L’appréciation d’ouverture (« très bonne semaine ») ne s’appuie jamais sur une donnée dont le suivi est inférieur à 4 jours.') ||
 			priorities.includes("L'appréciation d'ouverture (« très bonne semaine ») ne s'appuie jamais sur une donnée dont le suivi est inférieur à 4 jours."),
@@ -412,10 +519,12 @@ test('Guide : les règles 11 (mensurations) et 12 (complétude) sont dans les R�
 test('Copie serveur : les règles 11 et 12 voyagent dans COACH_DRAFT_STYLE_GUIDE et dans le prompt', async () => {
 	assert.ok(COACH_DRAFT_STYLE_GUIDE.includes(RULE_MENSURATIONS), 'règle 11 dans la copie serveur');
 	assert.ok(COACH_DRAFT_STYLE_GUIDE.includes(RULE_COMPLETENESS), 'règle 12 dans la copie serveur');
+	assert.ok(COACH_DRAFT_STYLE_GUIDE.includes(RULE_FRESHNESS), 'règle 13 dans la copie serveur');
 	const context = await runLoadContext(makeTables({ food: [entry(day(-4), 1500, 100)] }));
 	const prompt = buildPrompt(context);
 	assert.ok(prompt.includes(RULE_MENSURATIONS), 'règle 11 transmise au modèle');
 	assert.ok(prompt.includes(RULE_COMPLETENESS), 'règle 12 transmise au modèle');
+	assert.ok(prompt.includes(RULE_FRESHNESS), 'règle 13 transmise au modèle');
 	assert.ok(
 		prompt.includes("L'appréciation d'ouverture (« très bonne semaine ») ne s'appuie jamais"),
 		'consigne d’ouverture transmise au modèle'
