@@ -364,7 +364,7 @@ export const purgeOffId = mutation({
 	args: { sessionToken: v.optional(v.string()), offId: v.string() },
 	handler: async (ctx, { sessionToken, offId }) => {
 		const user = await getSessionUser(ctx, sessionToken);
-		if (!user || user.role !== "coach") throw new ConvexError("Réservé à la coach.");
+		if (!user || user.role !== "coach") throw new ConvexError("Réservé au coach.");
 		const row = await ctx.db
 			.query("foodImageCache")
 			.withIndex("by_offId", (q) => q.eq("offId", offId))

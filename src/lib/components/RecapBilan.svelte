@@ -79,7 +79,7 @@
 		<p class="px-5 py-4 text-sm italic text-mist">Aucune réponse enregistrée pour cette semaine.</p>
 	{/if}
 
-	<!-- Retour de la coach : texte + éventuel retour audio + pièces jointes -->
+	<!-- Retour du coach : texte + éventuel retour audio + pièces jointes -->
 	<div class="border-t border-line bg-cream/50 px-5 py-4">
 		{#if published}			<div class="flex items-start gap-3">
 				<CoachAvatar url={coach?.profilePhotoUrl ?? null} name={coach?.prenom ?? 'Coach'} size={36} />

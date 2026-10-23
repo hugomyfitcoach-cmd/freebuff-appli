@@ -10,7 +10,7 @@ import type { Id, Doc } from "./_generated/dataModel";
 /**
  * Plans de repas (coach) + planification (cliente).
  *
- * - `mealPlanTemplates`    : bibliothèque de plans de la coach (1 journée type,
+ * - `mealPlanTemplates`    : bibliothèque de plans du coach (1 journée type,
  *   indépendante des clientes — le même plan sert à plusieurs clientes).
  * - `mealPlanAssignments`  : plan ↔ cliente (période + jours concernés).
  * - `plannedEntries`       : aliment planifié d'une journée précise
@@ -42,13 +42,13 @@ const round1 = (n: number) => Math.round(n * 10) / 10;
 async function requireCoach(ctx: Pick<QueryCtx, "db">, sessionToken: string | undefined | null) {
 	const user = await getSessionUser(ctx, sessionToken);
 	if (!user) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
-	if (user.role !== "coach") throw new ConvexError("Réservé à la coach (CRM).");
+	if (user.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
 	return user;
 }
 
 /* ───────────────────────── Bibliothèque (coach) ───────────────────────── */
 
-/** Liste compacte des plans de la coach (sans les items — léger). */
+/** Liste compacte des plans du coach (sans les items — léger). */
 export const listTemplates = query({
 	args: { sessionToken: v.optional(v.string()) },
 	handler: async (ctx, { sessionToken }) => {
@@ -486,7 +486,7 @@ export const ensurePlanForDate = mutation({
  * - l'assignation doit couvrir la date (start/end/weekday, non retirée) ;
  * - une date PASSÉE n'est jamais résolue (l'historique n'est jamais reconstruit) ;
  * - items déjà matérialisés pour la même clé template → aucun doublon ;
- * - un template modifié par la coach n'affecte que les dates PAS ENCORE matérialisées.
+ * - un template modifié par le coach n'affecte que les dates PAS ENCORE matérialisées.
  */
 export async function resolveCoachPlanForDate(
 	ctx: MutationCtx,
@@ -554,7 +554,7 @@ function templateItemKey(item: { meal: string; name: string }, index: number): s
 	return `${index}:${item.meal}:${item.name}`;
 }
 
-/** Jour ISO local d'un timestamp (le serveur vit dans le fuseau de la coach —
+/** Jour ISO local d'un timestamp (le serveur vit dans le fuseau du coach —
  *  la résolution ne sert qu'à borner « pas de résolution dans le passé »). */
 function localTodayOfTs(ts: number): string {
 	const d = new Date(ts);

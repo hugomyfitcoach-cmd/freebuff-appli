@@ -231,7 +231,7 @@ export function nextMidnightUtcMs(ts: number, timeZone: string): number {
 /**
  * Instant (ms UTC) d'un horaire "murale" (date ISO + "HH:mm") dans un fuseau
  * IANA — gère l'heure d'été par itération (même moteur que nextMidnightUtcMs).
- * Sert à convertir un rendez-vous (date + heure, fuseau de la coach) en vrai
+ * Sert à convertir un rendez-vous (date + heure, fuseau du coach) en vrai
  * instant UTC pour les rappels et la disponibilité.
  */
 export function wallTimeToUtcMs(dateISO: string, hhmm: string, timeZone = "Europe/Paris"): number {

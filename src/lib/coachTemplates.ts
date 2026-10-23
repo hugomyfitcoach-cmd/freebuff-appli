@@ -14,7 +14,7 @@
  * d'astérisques (*GRAS*) comme dans le générateur d'origine.
  *
  * Aucun préremplissage depuis la fiche cliente (V1) : tous les champs sont
- * saisis par la coach, seuls les textes sont normalisés ici.
+ * saisis par le coach, seuls les textes sont normalisés ici.
  */
 
 /** Lien de visio par défaut (éditable au planning — ne jamais coder côté affichage). */

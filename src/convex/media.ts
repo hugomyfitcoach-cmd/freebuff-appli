@@ -127,7 +127,7 @@ export const record = mutation({
 });
 
 /**
- * Supprime réellement un fichier (storage + ligne). Réservé à la coach :
+ * Supprime réellement un fichier (storage + ligne). Réservé au coach :
  * brouillons à remplacer/supprimer, ou fichiers d'un retour passé en
  * brouillon. Un fichier déjà consulté peut être retiré manuellement.
  */
@@ -164,7 +164,7 @@ export const markListened = mutation({
 	},
 });
 
-/** Fichiers d'un bilan pour le CRM (brouillons inclus — réservé à la coach). */
+/** Fichiers d'un bilan pour le CRM (brouillons inclus — réservé au coach). */
 export const forCheckin = query({
 	args: { sessionToken: v.optional(v.string()), checkinId: v.id("checkins") },
 	handler: async (ctx, { sessionToken, checkinId }) => {

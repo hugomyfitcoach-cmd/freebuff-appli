@@ -26,10 +26,54 @@
 	import CountUp from '$lib/components/CountUp.svelte';
 	import CoachIdentity from '$lib/components/CoachIdentity.svelte';
 	import { coachIdentity, type CoachUserLike } from '$lib/coachIdentity';
+	import ConfirmDialog from '../../lib/components/ConfirmDialog.svelte';
+	import { ADAPTATION_AIDE, ADAPTATION_REPERES, CalibrageError, decimalFr } from '$lib/calibrage';
+	import {
+		DEFICIT_PCT_DEFAUT,
+		DISPONIBILITE_NIVEAUX,
+		phraseSupplementTravail,
+		supplementTravailTextes,
+		PROTEINES_PAR_KG_MM_DEFAUT,
+		impactObjectifApplique,
+		formatPerteGraisse,
+		perteGraisseKgSemaine,
+		resultatsFiche,
+		semaineAvecEcarts,
+		type EntreesFicheCalibrage,
+		type ImpactObjectifApplique,
+		type ResultatsFicheCalibrage,
+		type SemaineCalibrage
+	} from '$lib/calibrageFiche';
+	import {
+		MENTION_AJUSTER_AVANT_DE_PRESENTER,
+		mentionAjusterAvantDePresenter,
+		messagesPresentation
+	} from '$lib/calibragePresentation';
+	import { prefillProfilSportif } from '$lib/sportPrefill';
+	import {
+		alerteGlucidesPour,
+		messageBlocageGlucides,
+		recalculerObjectif,
+		type ChampSaisi
+	} from '$lib/goalMacros';
+	import {
+		messageDateEffetFuture,
+		messagesChampsCalibrage,
+		saisiesCalibrageValides
+	} from '$lib/calibrageSaisie';
+	import { MACRO_DEFS } from '$lib/macros';
+	import {
+		SPORT_CATALOG,
+		SPORT_CATEGORIES,
+		SPORT_CHOIX_DOUCES,
+		SPORT_CHOIX_MUSCULATION,
+		SPORT_ZONES_CARDIO,
+		getSportEntry
+	} from '../../convex/sportCatalog';
 
 	let { data, form } = $props();
 	/* « vivant » uniquement côté navigateur : la date/heure du hero est locale
-	   à la coach, jamais celle du serveur (SSR : ligne date absente). L'effet
+	   au coach, jamais celle du serveur (SSR : ligne date absente). L'effet
 	   ci-dessous bascule l'état après hydratation — le titre SSR neutre évite
 	   tout flash d'heure serveur et toute hydromismatch. */		let dashLive = $state(false);
 	$effect(() => {
@@ -438,7 +482,7 @@
 	   Hero dashboard : salutation « Bonjour {prenom} 👋 » + date longue du jour
 	   + sous-titre métier, selon le mockup validé. Côté serveur (SSR) : titre
 	   neutre « Tableau de bord — CRM coach » (aucune information d'heure, la
-	   date vivant côté navigateur pour suivre le fuseau de la coach) ; après
+	   date vivant côté navigateur pour suivre le fuseau du coach) ; après
 	   hydratation le titre devient « Bonjour Hugo 👋 » et la ligne date se
 	   révèle — stable pendant TOUTE la session (pas de re-rendu à la minute). */
 	const dashNow = $derived.by(() => {
@@ -523,7 +567,7 @@
 			});
 			if (out.length >= 3) break;
 		}
-		// 2) Inactivité 24 h : la coach voit d'un œil qui n'a pas ouvert l'app.
+		// 2) Inactivité 24 h : le coach voit d'un œil qui n'a pas ouvert l'app.
 		const inactive = clients.filter((c: { user: { lastSeenAt: number | null } }) => {
 			const ts = c.user.lastSeenAt;
 			return !ts || Date.now() - ts >= 24 * 3600 * 1000;
@@ -567,7 +611,7 @@
 			? view.goals.maintenanceKcal
 			: null
 	);
-	/** Objectif quotidien de pas — saisi manuellement par la coach, optionnel. */
+	/** Objectif quotidien de pas — saisi manuellement par le coach, optionnel. */
 	let stepGoal = $state('');
 	/** Objectif de pas déjà enregistré en base (le fallback DEFAULT_GOALS n'a pas le champ). */
 	const savedStepGoal = $derived(
@@ -584,9 +628,12 @@
 			const fat = Math.round(((kcal * (pctFat || 0)) / 100) / 9);
 			return { kcal, carbs, protein, fat };
 		}
-		const carbs = Math.max(0, Math.round(gCarbs) || 0);
-		const protein = Math.max(0, Math.round(gProtein) || 0);
-		const fat = Math.max(0, Math.round(gFat) || 0);
+		/* Mode macros (g) : AUCUN arrondi — « Calories calculées » = somme exacte
+		   4G + 4P + 9L des grammes affichés, identique à l'objectif appliqué par le
+		   calibrage (tout arrondi recréerait un écart entre la carte et le reste). */
+		const carbs = Math.max(0, gCarbs || 0);
+		const protein = Math.max(0, gProtein || 0);
+		const fat = Math.max(0, gFat || 0);
 		return { kcal: 4 * carbs + 4 * protein + 9 * fat, carbs, protein, fat };
 	});
 	const pctSum = $derived((pctCarbs || 0) + (pctProtein || 0) + (pctFat || 0));
@@ -603,6 +650,15 @@
 		return '';
 	});
 
+	/** Préférence de mode de saisie — mémorisée pour survivre au rechargement. */
+	const GOALS_MODE_KEY = 'coach-goals-mode';
+	function rememberGoalsMode(m: GoalsMode) {
+		try {
+			localStorage.setItem(GOALS_MODE_KEY, m);
+		} catch {
+			/* stockage indisponible : préférence simplement non mémorisée */
+		}
+	}
 	function switchGoalsMode(m: GoalsMode) {
 		if (m === goalsMode) return;
 		const { kcal, carbs, protein, fat } = goalsValues;
@@ -621,14 +677,28 @@
 			gCarbs = carbs;
 			gProtein = protein;
 			gFat = fat;
-		}
-		goalsMode = m;
+		}			goalsMode = m;
+		rememberGoalsMode(m);
 	}
+
+	/* Mode de saisie restauré après rechargement (une seule fois, après
+	   hydratation) — « Méthode macros (g) » reste active après une application
+	   de calibrage, même au rechargement complet de la fiche. */
+	$effect(() => {
+		untrack(() => {
+			try {
+				const saved = localStorage.getItem(GOALS_MODE_KEY);
+				if (saved === 'pct' || saved === 'grams') goalsMode = saved;
+			} catch {
+				/* stockage indisponible : mode par défaut */
+			}
+		});
+	});
 
 	/*
 	 * Initialise les champs depuis les objectifs enregistrés (grammes), UNIQUEMENT
 	 * quand on change de client : `untrack` évite que l'effet se relance à chaque
-	 * frappe (ce qui écraserait la saisie de la coach).
+	 * frappe (ce qui écraserait la saisie du coach).
 	 */
 	$effect(() => {
 		const id = selectedId;
@@ -648,7 +718,7 @@
 		if (kcal > 0) {
 			// Attention : ne JAMAIS relire pctCarbs/pctProtein ici — ils deviendraient
 			// des dépendances de l'effet et chaque frappe dans Glucides/Protéines
-			// relancerait l'initialisation, écrasant la saisie de la coach.
+			// relancerait l'initialisation, écrasant la saisie du coach.
 			const c = Math.round(((carbs * 4) / kcal) * 100);
 			const p = Math.round(((protein * 4) / kcal) * 100);
 			pctCarbs = c;
@@ -661,7 +731,7 @@
 		}
 	});
 
-	/* ── Journal alimentaire (la coach agit « en doublon ») ────── */
+	/* ── Journal alimentaire (le coach agit « en doublon ») ────── */
 	const MEALS = [
 		{ id: 'petit-dej', label: 'Petit-déjeuner' },
 		{ id: 'dejeuner', label: 'Déjeuner' },
@@ -725,7 +795,7 @@
 	let addQty = $state('100');
 
 	/*
-	 * Garde-fou anti-course : si la coach change la date plusieurs fois vite
+	 * Garde-fou anti-course : si le coach change la date plusieurs fois vite
 	 * (roue iOS / double-clic), seule la réponse de la DERNIÈRE date demandée
 	 * est appliquée — sinon un jour déjà quitté peut réapparaître.
 	 */
@@ -815,7 +885,7 @@
 		}
 	}
 
-	/* ── Mensurations / poids (la coach corrige) ─────────────────
+	/* ── Mensurations / poids (le coach corrige) ─────────────────
 	   Chaque métrique possède SON PROPRE historique : une prise n'écrit que
 	   SON champ sur la ligne de la date (upsert), une modification ne touche
 	   que la métrique ciblée (updateOne), une suppression ne retire que cette
@@ -1407,10 +1477,9 @@
 	}
 
 	/* ── Sections du tiroir 360° ───────────────────────────────── */
-	let section = $state('apercu');
-
-	const sectionTabs = $derived([
+	let section = $state('apercu');		const sectionTabs = $derived([
 		{ id: 'apercu', label: 'Vision 360' },
+		{ id: 'calibrage', label: 'Calibrage' },
 		{ id: 'journal', label: 'Journal' },
 		{ id: 'plan', label: 'Plan de repas' },
 		{ id: 'entrainement', label: 'Entraînement' },
@@ -1463,6 +1532,524 @@
 		await goto(qs ? `/admin?${qs}` : '/admin', { noScroll: true });
 		await tick();
 		if (Math.abs(window.scrollY - dashScrollY) > 1) window.scrollTo(0, dashScrollY);
+	}
+
+	/* ═══ Onglet Calibrage (coach) — calculs UNIQUEMENT via $lib/calibrage ═══
+	   La vue modèle `$lib/calibrageFiche` orchestre le module pur : cette page
+	   ne saisit que des entrées et affiche `resultatsFiche` — AUCUNE formule
+	   n'est recopiée ici. Rien n'est jamais appliqué automatiquement : seul
+	   « Appliquer à la fiche » écrit (objectifs + historique + instantané),
+	   après confirmation obligatoire. Côté coach : aucune vue cliente. */
+	type CalibragePrefill = {
+		today: string;
+		poids: {
+			valeur: number | null;
+			source: 'moyenne7j' | 'derniere' | null;
+			nbPesees: number;
+			date: string | null;
+		};
+		masseGrasse: { valeur: number | null; source: 'usNavy' | null; date: string | null };
+		pasMoyen: { valeur: number | null; jours: number };
+		sportOnboarding: {
+			sport: string | number | null;
+			sportsDetail: string | number | null;
+			sportFrequency: string | number | null;
+		};
+		goals: {
+			kcal: number;
+			carbs: number;
+			protein: number;
+			fat: number;
+			maintenanceKcal: number | null;
+			stepGoal: number | null;
+			goalsSet: boolean;
+		};
+		dernierCalibrage: { date: string; effectiveFrom: string; createdAt: number } | null;
+	};
+	let calibragePre = $state<CalibragePrefill | null>(null);
+	let calibrageInputs = $state<EntreesFicheCalibrage>({
+		poidsKg: 0,
+		mgPct: 26,
+		pasMoyen: 0,
+		heuresTravail: 0,
+		ajustementTravail: 0,
+		adaptationPct: 0,
+		deficitPct: DEFICIT_PCT_DEFAUT,
+		proteinesParKgMasseMaigre: PROTEINES_PAR_KG_MM_DEFAUT,
+		seances: [],
+		apportsSemaine: [null, null, null, null, null, null, null]
+	});
+	let calibrageBusy = $state(false);
+	let calibrageError = $state('');
+	/** Messages SOUS les champs : valeur vide ou hors limites (module PUR
+	 *  $lib/calibrageSaisie, bornes partagées avec le module calibrage). */
+	const calErreursChamps = $derived(messagesChampsCalibrage(calibrageInputs));
+	/** Résultats = sortie du module ($lib/calibrageFiche) — jamais recalculés ici.
+	 *  Une saisie invalide n'empêche QUE le calcul : elle affiche son message
+	 *  sous son champ et ne vide jamais l'écran des résultats. */
+	const calResults = $derived.by((): { results: ResultatsFicheCalibrage | null; error: string | null } => {
+		if (!saisiesCalibrageValides(calibrageInputs)) return { results: null, error: null };
+		try {
+			return { results: resultatsFiche(calibrageInputs), error: null };
+		} catch (e) {
+			return {
+				results: null,
+				error: e instanceof CalibrageError || e instanceof Error ? e.message : 'Calibrage invalide.'
+			};
+		}
+	});
+	/* DERNIERS résultats valides : affichés tant que la saisie courante est
+	   invalide (« les résultats restent affichés avec la dernière valeur
+	   valide ») — le calcul reprend dès que tout redevient valide. */
+	let calDerniersResultats = $state<ResultatsFicheCalibrage | null>(null);
+	$effect(() => {
+		const r = calResults.results;
+		if (r) calDerniersResultats = r;
+	});
+	const calR = $derived(calResults.results ?? calDerniersResultats);
+
+	const JOURS_COURTS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'] as const;
+	const JOURS_LONGS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'] as const;
+	/** Boutons rapides « activité au travail » (hors champ libre 0–12 h). */
+	const TRAVAIL_RAPIDE = [
+		{ label: 'Bureau, 0 h', heures: 0 },
+		{ label: '2 h', heures: 2 },
+		{ label: '6 h', heures: 6 },
+		{ label: '10 h et plus', heures: 10 }
+	] as const;
+
+	/* ── Historique des objectifs (LECTURE SEULE) : changements d'objectifs du
+	   plus récent au plus ancien — sources `calibrageSnapshots` (origine
+	   « Calibrage » + détail figé) et `clientGoalHistory` (« Saisie manuelle »),
+	   via la requête serveur `calibrage.historique` (réservée au coach de la
+	   cliente). Jamais d'écriture ici. ── */
+	type CalHistoDetail = {
+		poidsKg: number | null;
+		mgPct: number | null;
+		pasMoyen: number | null;
+		heuresTravail: number | null;
+		ajustementTravail: number | null;
+		adaptationPct: number | null;
+		deficitPct: number | null;
+		sportSemaineKcal: number | null;
+		coefficient: number | null;
+		metabolismeBaseKcal: number | null;
+		maintenanceKcal: number | null;
+		maintenanceFiletKcal: number | null;
+		objectifJournalierKcal: number | null;
+		budgetSemaineKcal: number | null;
+		deficitSemaineKcal: number | null;
+		perteGraisseKg: number | null;
+	};
+	type CalHistoLigne = {
+		id: string;
+		effectiveFrom: string;
+		createdAt: number;
+		kcal: number;
+		maintenanceKcal: number | null;
+		macros: { glucidesG: number; proteinesG: number; lipidesG: number } | null;
+		origine: 'calibrage' | 'manuelle';
+		detail: CalHistoDetail | null;
+	};
+	/** Affichage par défaut : les 5 dernières lignes, « Voir tout » pour le reste. */
+	const CAL_HISTO_LIGNES = 5;
+	let calHisto = $state<CalHistoLigne[] | null>(null);
+	let calHistoErr = $state('');
+	let histoTout = $state(false);
+	let histoDetail = $state<string | null>(null);
+	async function loadHistorique() {
+		if (!selectedId) return;
+		histoTout = false;
+		histoDetail = null;
+		calHistoErr = '';
+		try {
+			const r = await fetch(`/api/coach/calibrage/historique?userId=${encodeURIComponent(selectedId)}`);
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			calHisto = Array.isArray(j) ? (j as CalHistoLigne[]) : [];
+		} catch (e) {
+			calHisto = [];
+			calHistoErr = e instanceof Error ? e.message : "Chargement de l'historique impossible.";
+		}
+	}
+
+	/** Pré-remplissage : poids (moyenne 7 j, sinon dernière pesée), masse grasse
+	 *  (dernière estimation US Navy, sinon saisie), pas sur 14 j, aide « sport »
+	 *  du formulaire de démarrage (affichée telle quelle, jamais convertie). */
+	async function loadCalibrage() {
+		if (!selectedId) return;
+		calibrageBusy = true;
+		calibrageError = '';
+		applyInitialise = false;
+		applyMsg = '';
+		ecartsSemaine = [0, 0, 0, 0, 0, 0, 0];
+		try {
+			const r = await fetch(`/api/coach/calibrage?userId=${encodeURIComponent(selectedId)}`);
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			calibragePre = j as CalibragePrefill;
+			calibrageInputs = {
+				poidsKg: j.poids?.valeur ?? 0,
+				mgPct: j.masseGrasse?.valeur ?? 26,
+				pasMoyen: j.pasMoyen?.valeur ?? 0,
+				heuresTravail: 0,
+				ajustementTravail: 0,
+				adaptationPct: 0,
+				deficitPct: DEFICIT_PCT_DEFAUT,
+				proteinesParKgMasseMaigre: PROTEINES_PAR_KG_MM_DEFAUT,
+				seances: [],
+				apportsSemaine: [null, null, null, null, null, null, null]
+			};
+		} catch (e) {
+			calibrageError = e instanceof Error ? e.message : 'Chargement du calibrage impossible.';
+		} finally {
+			calibrageBusy = false;
+		}
+		/* Historique des objectifs : requête dédiée, même ouverture de fiche. */
+		await loadHistorique();
+	}
+	$effect(() => {
+		const id = selectedId;
+		if (!id) return;
+		untrack(() => loadCalibrage());
+	});
+
+	/* ── Profil sportif habituel (catalogue + intensité/zone) ── */
+	function choixPourActivite(activiteId: string) {
+		const entry = getSportEntry(activiteId);
+		if (!entry) return [] as { id: string; label: string }[];
+		if (entry.bareme === 'musculation')
+			return SPORT_CHOIX_MUSCULATION.map((o) => ({ id: o.id, label: `${o.label} · ${o.hint}` }));
+		if (entry.bareme === 'douce')
+			return SPORT_CHOIX_DOUCES.map((o) => ({ id: o.id, label: `${o.label} · ${o.hint}` }));
+		return SPORT_ZONES_CARDIO.map((o) => ({ id: o.id, label: `${o.label} · ${o.hint}` }));
+	}
+	function ajouterSeance() {
+		calibrageInputs.seances = [
+			...calibrageInputs.seances,
+			{ activiteId: 'musculation', seancesParSemaine: 2, dureeMinutes: 60, choix: 'recreative' }
+		];
+	}
+	function majSeance(index: number, patch: Partial<EntreesFicheCalibrage['seances'][number]>) {
+		calibrageInputs.seances = calibrageInputs.seances.map((s, i) =>
+			i === index
+				? {
+						...s,
+						...patch,
+						/* Changement d'activité → choix réinitialisé sur sa barème (jamais
+						   un choix silencieusement invalide). */
+						choix:
+							patch.activiteId && patch.activiteId !== s.activiteId
+								? (choixPourActivite(patch.activiteId)[0]?.id ?? s.choix)
+								: (patch.choix ?? s.choix)
+					}
+				: s
+		);
+	}
+	function retirerSeance(index: number) {
+		calibrageInputs.seances = calibrageInputs.seances.filter((_, i) => i !== index);
+	}
+
+	/* ── « Pré-remplir depuis le démarrage » ──
+	   Diagnostic de format DANS le module pur $lib/sportPrefill : la réponse
+	   « sport » du formulaire de démarrage n'est pré-remplie QUE si elle est en
+	   choix structurés (activité résolue sur le catalogue par correspondance
+	   exacte). Texte libre → rien n'est interprété, la réponse reste affichée
+	   telle quelle à côté du profil (comportement actuel), aucun bouton.
+	   La proposition vit EN MÉMOIRE : rien n'est écrit sans « Appliquer à la
+	   fiche » (validation du coach). */
+	const prefillDemarrage = $derived(calibragePre ? prefillProfilSportif(calibragePre.sportOnboarding) : null);
+	function prefillDepuisDemarrage() {
+		const p = prefillDemarrage;
+		if (!p || calibrageInputs.seances.length > 0) return;
+		calibrageInputs.seances = p;
+	}
+
+	/* ── Semaine type : SIMULATEUR indépendant du bloc « Appliquer à la fiche »
+	   (annule la liaison de C2c-1 point 2). Chaque jour est un ÉCART (kcal) à
+	   l'objectif journalier CALCULÉ (`calR.objectifJournalierKcal`) : 0 = jour à
+	   l'objectif, négatif = déficit, positif = surplus. Modifier un jour ne
+	   touche donc jamais l'objectif du bloc « Appliquer à la fiche ». */
+	let ecartsSemaine = $state<number[]>([0, 0, 0, 0, 0, 0, 0]);
+	/* « Tous à l'objectif » : tous les écarts reviennent à 0 (jours à
+	   l'objectif journalier calculé). */
+	function semaineVersObjectif() {
+		ecartsSemaine = [0, 0, 0, 0, 0, 0, 0];
+	}
+
+	/* ── « Appliquer à la fiche » : objectif + macros + date d'effet, puis
+	   confirmation OBLIGATOIRE (ConfirmDialog) — l'annulation n'écrit rien. ── */
+	let applyInitialise = $state(false);
+	let applyKcal = $state(0);
+	let applyCarbs = $state(0);
+	let applyProtein = $state(0);
+	let applyFat = $state(0);
+	let applyMaintenance = $state('');
+	let applyDate = $state('');
+	/** Date d'effet maximale = aujourd'hui (fuseau Europe/Paris, valeur serveur) :
+	 *  une date future est refusée à l'écran (attribut max + contrôle ci-dessous)
+	 *  comme côté serveur (`calibrage.apply`). */
+	const calDateMax = $derived(calibragePre?.today ?? '');
+	let applyBusy = $state(false);
+	let applyError = $state('');
+	let applyMsg = $state('');
+	let calConfirmOpen = $state(false);
+	let calPresentation = $state(false);
+	/* Messages du « Mode présentation » (module pur $lib/calibragePresentation) :
+	   côté CLIENTE uniquement, jamais en mode normal. Entrées communes avec la
+	   mention coach ci-dessous. */
+	const calPresentationEntrees = $derived(
+		calR
+			? {
+					disponibiliteKcal: calR.disponibiliteKcal,
+					deficitPct: calR.deficitPct,
+					perteGraisseKg: calR.perteGraisseKg,
+					vitesseMaxAlpertKgSemaine: calR.vitesseMaxAlpertKgSemaine
+				}
+			: null
+	);
+	const calMessagesPresentation = $derived(
+		calPresentationEntrees ? messagesPresentation(calPresentationEntrees) : { energie: null, rythme: null }
+	);
+	/* Mention coach du mode normal : disponibilité sous 24 kcal/kg de MM ou
+	   perte estimée au-dessus des plafonds → « À ajuster avant de présenter ». */
+	const calMentionAjuster = $derived(
+		!!calPresentationEntrees && mentionAjusterAvantDePresenter(calPresentationEntrees)
+	);
+	/* Références de pré-remplissage : un champ égal à sa référence n'a pas été
+	   modifié par le coach ; dès qu'il s'en écarte, il affiche « modifié » et
+	   n'est jamais ré-écrasé par un recalcul des résultats. */
+	let refKcal = $state(0);
+	/** Objectif kcal de RÉFÉRENCE du bloc « Appliquer à la fiche » : base du
+	 *  recalcul des glucides — (objectif − 4P − 9L) ÷ 4. Ne bouge QUE lors d'une
+	 *  saisie explicite de l'objectif (kcal ou glucides) ou quand les résultats
+	 *  calculés sont repris ; les ajustements de protéines/lipides ne le
+	 *  touchent jamais, pour que l'écart dû aux grammes entiers (±2 kcal max)
+	 *  reste toujours mesuré sur la MÊME référence et ne s'accumule jamais. */
+	let applyKcalReference = $state(0);
+	let refMaintenance = $state('');
+	let refCarbs = $state(0);
+	let refProtein = $state(0);
+	let refFat = $state(0);
+	/** Signature des résultats qui alimentent le bloc « Appliquer à la fiche »
+	 *  (objectif, maintenance, macros) — la semaine type n'y figure PAS :
+	 *  modifier un jour ne doit jamais réinitialiser ce bloc. */
+	const calSignatureResultats = $derived(
+		calR
+			? [
+					calR.objectifJournalierKcal,
+					calR.maintenanceFiletKcal,
+					calR.macros.glucidesG,
+					calR.macros.proteinesG,
+					calR.macros.lipidesG
+				].join('|')
+			: ''
+	);
+	$effect(() => {
+		/* SEULE dépendance suivie : la signature ci-dessus. */
+		const signature = calSignatureResultats;
+		if (!signature) return;
+		untrack(() => {
+			const r = calR;
+			if (!r) return;
+			/* « LA DERNIÈRE ACTION GAGNE » : dès qu'une entrée du calibrage qui
+			   change les RÉSULTATS (poids, masse grasse, pas, sport, déficit…)
+			   change, les champs du bloc « Appliquer à la fiche » sont RECALCULÉS
+			   depuis les résultats affichés — objectif = objectif journalier moyen ·
+			   maintenance = filet de sécurité (budget ÷ 7, sport habituel inclus) ·
+			   macros = macros du jour type — et les badges « modifié »
+			   disparaissent (chaque référence est réalignée sur la valeur
+			   recalculée). La semaine type est un simulateur INDÉPENDANT : ses
+			   jours ne sont pas dans la signature, donc les modifier ne réinitialise
+			   jamais ce bloc. */
+			applyKcal = r.objectifJournalierKcal;
+			refKcal = applyKcal;
+			applyKcalReference = applyKcal;
+			applyMaintenance = String(Math.round(r.maintenanceFiletKcal));
+			refMaintenance = applyMaintenance;
+			applyCarbs = r.macros.glucidesG;
+			refCarbs = applyCarbs;
+			applyProtein = r.macros.proteinesG;
+			refProtein = applyProtein;
+			applyFat = r.macros.lipidesG;
+			refFat = applyFat;
+			if (!applyInitialise) applyDate = calibragePre?.today ?? applyDate;
+			applyInitialise = true;
+		});
+	});
+	/* ── Cohérence « Appliquer à la fiche » : objectif = 4G + 4P + 9L ──
+	   Toute saisie validée (flou/Entrée) recalcule le champ déduit via
+	   $lib/goalMacros (PUR) : protéines ou lipides → glucides (objectif kcal
+	   inchangé, réaligné de ±2 kcal max pour rester en grammes entiers) ;
+	   glucides → objectif kcal ; objectif kcal → glucides. Sous 100 g de
+	   glucides → l'avertissement existant ; glucides calculés négatifs →
+	   application bloquée avec un message clair. Les badges « modifié »
+	   (comparaison aux références) restent inchangés. */
+	function recalculerApresSaisie(champ: ChampSaisi) {
+		const saisie =
+			champ === 'kcal' ? applyKcal : champ === 'glucides' ? applyCarbs : champ === 'proteines' ? applyProtein : applyFat;
+		if (typeof saisie !== 'number' || !Number.isFinite(saisie)) return; // champ vidé : on n'écrase rien
+		/* Les glucides sont recalculés depuis l'OBJECTIF KCAL DE RÉFÉRENCE —
+		   (objectif − 4P − 9L) ÷ 4 — et non depuis la valeur précédemment
+		   affichée : l'écart d'arrondi (±2 kcal max) ne s'accumule jamais. */
+		const r = recalculerObjectif(
+			{ kcal: applyKcal, glucidesG: applyCarbs, proteinesG: applyProtein, lipidesG: applyFat },
+			champ,
+			applyKcalReference
+		);
+		applyKcal = r.valeurs.kcal;
+		applyCarbs = r.valeurs.glucidesG;
+		applyProtein = r.valeurs.proteinesG;
+		applyFat = r.valeurs.lipidesG;
+		applyKcalReference = r.kcalReference;
+	}
+	/* ── Flèches des champs kcal / macros du bloc « Appliquer » : +10 / −10 kcal
+	   par clic (+1 / −1 g pour les macros). Toute valeur entière reste acceptée
+	   (aucune contrainte de saisie → jamais de message de validation du
+	   navigateur) et chaque clic recalcule immédiatement l'encadré d'impact, le
+	   bandeau et la semaine type (dérivés réactifs de `applyKcal`). */
+	const PAS_FLECHES: Record<ChampSaisi, number> = { kcal: 10, glucides: 1, proteines: 1, lipides: 1 };
+	function flecheSaisie(champ: ChampSaisi, sens: 1 | -1) {
+		const actuel =
+			champ === 'kcal' ? applyKcal : champ === 'glucides' ? applyCarbs : champ === 'proteines' ? applyProtein : applyFat;
+		const base = typeof actuel === 'number' && Number.isFinite(actuel) ? Math.round(actuel) : 0;
+		const suivant = base + sens * PAS_FLECHES[champ];
+		if (champ === 'kcal') applyKcal = suivant;
+		else if (champ === 'glucides') applyCarbs = suivant;
+		else if (champ === 'proteines') applyProtein = suivant;
+		else applyFat = suivant;
+		recalculerApresSaisie(champ);
+	}
+	/** Avertissement existant : glucides affichés sous 100 g. */
+	const applyAlerteGlucides = $derived(alerteGlucidesPour(applyCarbs));
+	/** Blocage : les glucides calculés sont négatifs. */
+	const applyBlocageGlucides = $derived(messageBlocageGlucides(applyCarbs));
+	/** Impact de l'objectif RÉELLEMENT appliqué (celui du bloc ci-dessus, même
+	 *  modifié à la main) : recalculé en direct par le module pur — déficit réel,
+	 *  perte de graisse, disponibilité et plafonds, mêmes avertissements que les
+	 *  résultats. Rien n'est écrit : simple lecture du module. */
+	const calImpact = $derived.by((): ImpactObjectifApplique | null => {
+		if (!calR || !Number.isFinite(applyKcal) || applyKcal <= 0) return null;
+		try {
+			return impactObjectifApplique({
+				entrees: calibrageInputs,
+				resultats: calR,
+				objectifKcal: applyKcal
+			});
+		} catch {
+			return null;
+		}
+	});
+	/** Semaine type SIMULÉE : chaque jour = objectif journalier CALCULÉ + écart
+	 *  saisi. Indépendante de l'objectif du bloc « Appliquer à la fiche » (même
+	 *  modifié à la main) : le déficit affiché est celui de la semaine simulée. */
+	const calSemaine = $derived.by((): SemaineCalibrage | null => {
+		if (!calR) return null;
+		try {
+			return semaineAvecEcarts(calibrageInputs, calR, ecartsSemaine);
+		} catch {
+			return calR.semaine;
+		}
+	});
+	/* L'instantané serveur garde la semaine AFFICHÉE : recopie des apports de
+	   `calSemaine` dans les entrées (uniquement si les valeurs diffèrent, pour
+	   ne jamais boucler ni écraser inutilement). */
+	$effect(() => {
+		const semaine = calSemaine;
+		if (!semaine) return;
+		untrack(() => {
+			const actuels = calibrageInputs.apportsSemaine;
+			const suivants = semaine.apportsKcal;
+			if (
+				!Array.isArray(actuels) ||
+				actuels.length !== suivants.length ||
+				suivants.some((valeur, i) => actuels[i] !== valeur)
+			) {
+				calibrageInputs.apportsSemaine = [...suivants];
+			}
+		});
+	});
+	/** Déficit choisi (% du budget) → perte estimée, arrondie au 0,05 kg. */
+	const calPerteDeficit = $derived(calR ? perteGraisseKgSemaine(calR.deficitSemaineKcal) : null);
+	/** Couleur G-FLUX d'une macro — MÊMES valeurs que le Journal alimentaire
+	 *  ($lib/macros, source unique) : glucides rose, protéines bleu, lipides
+	 *  orange. Aucune couleur de macro n'est recopiée dans cette page. */
+	function macroColor(key: 'carbs' | 'protein' | 'fat'): string {
+		return MACRO_DEFS.find((macro) => macro.key === key)?.color ?? 'currentColor';
+	}
+	/** « Appliquer à la fiche » : la confirmation ne s'ouvre jamais si les
+	 *  glucides calculés sont négatifs — message clair à la place. */
+	function demarrerApplication() {
+		applyError = '';
+		applyMsg = '';
+		if (applyBlocageGlucides) {
+			applyError = applyBlocageGlucides;
+			return;
+		}
+		/* Date d'effet : maximum aujourd'hui (Europe/Paris) — jamais de date
+		   future, refusée ici avec le MÊME message que la mutation serveur. */
+		const msgDateFuture = messageDateEffetFuture(applyDate, calDateMax);
+		if (msgDateFuture) {
+			applyError = msgDateFuture;
+			return;
+		}
+		calConfirmOpen = true;
+	}
+	async function appliquerCalibrage() {
+		if (!selectedId || !calR || applyBusy) return;
+		/* Filet de sécurité : jamais d'écriture avec des glucides négatifs. */
+		if (applyBlocageGlucides) {
+			applyError = applyBlocageGlucides;
+			calConfirmOpen = false;
+			return;
+		}
+		applyBusy = true;
+		applyError = '';
+		try {
+			const r = await fetch('/api/coach/calibrage', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					userId: selectedId,
+					entrees: calibrageInputs,
+					kcal: applyKcal,
+					carbs: applyCarbs,
+					protein: applyProtein,
+					fat: applyFat,
+					maintenanceKcal:
+						String(applyMaintenance ?? '').trim() === '' ? undefined : Number(applyMaintenance),
+					effectiveFrom: applyDate
+				})
+			});
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			calConfirmOpen = false;
+			applyMsg = `Objectifs appliqués à la fiche — effectifs le ${fmtISO(applyDate)}. Instantané du calibrage enregistré.`;
+			/* La fiche « Objectifs journaliers » reflète IMMÉDIATEMENT l'écriture :
+			   méthode macros (g), objectif, macros et filet de sécurité. Le mode est
+			   mémorisé pour rester actif après un rechargement complet. */
+			goalsMode = 'grams';
+			rememberGoalsMode('grams');
+			pctKcal = applyKcal;
+			if (applyKcal > 0) {
+				pctCarbs = Math.round(((applyCarbs * 4) / applyKcal) * 100);
+				pctProtein = Math.round(((applyProtein * 4) / applyKcal) * 100);
+				pctFat = Math.max(0, 100 - pctCarbs - pctProtein);
+			}
+			gCarbs = applyCarbs;
+			gProtein = applyProtein;
+			gFat = applyFat;
+			maintenanceKcal = String(applyMaintenance ?? '').trim();
+			/* Rechargement des données de la fiche (clientGoals relu côté serveur) :
+			   la Vision 360, le cockpit et le journal repartent des nouvelles valeurs. */
+			await invalidateAll();
+			/* L'historique reflète IMMÉDIATEMENT la nouvelle ligne d'objectif. */
+			await loadHistorique();
+		} catch (e) {
+			applyError = e instanceof Error ? e.message : "Application impossible — rien n'a été écrit.";
+		} finally {
+			applyBusy = false;
+		}
 	}
 
 	/* Onglet Plan de repas : chargé à l'ouverture du tiroir (changement de cliente). */
@@ -3034,7 +3621,7 @@
 					</div>
 				{/if}
 
-			<!-- ═══ Journal alimentaire : la coach agit en doublon ═══ -->
+			<!-- ═══ Journal alimentaire : le coach agit en doublon ═══ -->
 			{:else if section === 'journal'}
 				<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
 					<div class="flex flex-wrap items-center justify-between gap-3">
@@ -3914,7 +4501,664 @@
 							<BilanCard checkin={checkin} clientName={fullName(selected.user)} clientId={selected.user._id} media={mediaFor(checkin._id)} />
 						{/each}
 					{/if}
-				</div>				{:else if section === 'rdv'}
+				</div>
+
+			{:else if section === 'calibrage'}
+				{#if calPresentation}
+					<!-- MODE PRÉSENTATION : vue épurée, lisible en partage d'écran —
+					     ni champs techniques, ni saisies, ni actions d'écriture. -->
+					<div class="rounded-2xl border-2 border-brand/30 bg-gradient-to-b from-card to-brand-light/20 px-6 py-6 shadow-sm">
+						<div class="flex flex-wrap items-center justify-between gap-3">
+							<div>
+								<h3 class="font-display text-xl font-bold text-ink">Calibrage — {selected.user.prenom}</h3>
+								<p class="mt-0.5 text-xs text-mist">Semaine type · données de référence du suivi</p>
+							</div>
+							<button
+								type="button"
+								onclick={() => (calPresentation = false)}
+								class="rounded-full border-2 border-line bg-white px-4 py-2 text-sm font-bold text-ink transition hover:border-brand"
+							>Quitter le mode présentation</button>
+						</div>
+						{#if calR && calSemaine}
+							<div class="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+								<!-- VALEURS RÉELLEMENT RETENUES : objectif et macros du bloc
+								     « Appliquer à la fiche » (même modifiés à la main), semaine
+								     type appliquée (calSemaine, jours personnalisés compris) —
+								     jamais les valeurs calculées non retenues. Maintenance =
+								     maintenance TOTALE (sport habituel inclus), comme partout. -->
+								{#each [
+									{ label: 'Objectif journalier', value: `${applyKcal.toLocaleString('fr-FR')} kcal`, classe: 'text-brand-dark' },
+									{ label: 'Maintenance', value: `${Math.round(calR.maintenanceFiletKcal).toLocaleString('fr-FR')} kcal`, classe: 'text-ink' },
+									{ label: 'Perte estimée', value: `${String(calR.perteGraisseKg).replace('.', ',')} kg/sem`, classe: 'text-loss' },
+									{ label: 'Coefficient', value: String(calR.coefficient).replace('.', ','), classe: 'text-ink' }
+								] as kpi (kpi.label)}
+									<div class="rounded-2xl bg-white/80 px-4 py-3 text-center">
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">{kpi.label}</div>
+										<div class="mt-1 font-display text-2xl font-bold {kpi.classe}">{kpi.value}</div>
+									</div>
+								{/each}
+							</div>
+							<!-- Couleurs macros : IDENTIQUES au Journal alimentaire cliente
+							     (protéines bleu, lipides orange, glucides rose — $lib/macros). -->
+							<p class="mt-4 text-center text-sm font-semibold text-ink">
+								Macros :
+								<span style="color:{macroColor('protein')}">{applyProtein} g de protéines</span> ·
+								<span style="color:{macroColor('fat')}">{applyFat} g de lipides</span> ·
+								<span style="color:{macroColor('carbs')}">{applyCarbs} g de glucides</span>
+							</p>
+							<div class="mt-4 grid grid-cols-7 gap-2">
+								{#each calSemaine.apportsKcal as apport, i (i)}
+									<div class="rounded-xl bg-white/80 px-1 py-2.5 text-center">
+										<div class="text-[10px] font-bold uppercase text-mist">{JOURS_COURTS[i]}</div>
+										<div class="mt-1 text-sm font-bold text-ink">{apport.toLocaleString('fr-FR')}</div>
+										<span class="mt-1.5 mx-auto block h-2 w-2 rounded-full {DISPONIBILITE_NIVEAUX[calSemaine.niveauxDisponibilite[i]].pastille}" title={DISPONIBILITE_NIVEAUX[calSemaine.niveauxDisponibilite[i]].label}></span>
+									</div>
+								{/each}
+							</div>
+							<p class="mt-3 text-center text-xs text-mist">
+								Déficit total de la semaine : {Math.round(-calSemaine.deficitSemaineKcal).toLocaleString('fr-FR')} kcal · graisse estimée <strong class="text-loss">{formatPerteGraisse(Math.abs(calSemaine.graisseKg))} kg</strong>
+							</p>
+							<!-- MESSAGES CLIENTE — neutres et rassurants (module pur). Jamais
+							     les mots alerte, risque, dépasse, exceptionnelle, ni Alpert/
+							     Macdonald. Disponibilité < 24 ou perte au-dessus des plafonds →
+							     aucun message ici (le coach ajuste, voir mode normal). -->
+							{#if calMessagesPresentation.energie || calMessagesPresentation.rythme}
+								<div class="mt-3 space-y-1.5">
+									{#if calMessagesPresentation.energie}
+										<p class="text-center text-sm leading-relaxed text-ink">{calMessagesPresentation.energie}</p>
+									{/if}
+									{#if calMessagesPresentation.rythme}
+										<p class="text-center text-sm leading-relaxed text-ink">{calMessagesPresentation.rythme}</p>
+									{/if}
+								</div>
+							{/if}
+						{:else}
+							<p class="mt-6 text-center text-sm text-mist">Renseigne le poids et la masse grasse pour afficher le calibrage.</p>
+						{/if}
+					</div>
+				{:else}
+				<div class="space-y-5">
+					{#if calibrageBusy}
+						<p class="py-8 text-center text-sm text-mist">Chargement du calibrage…</p>
+					{:else if calibrageError}
+						<p class="rounded-xl border border-danger/40 bg-danger-light px-4 py-3 text-sm font-semibold text-danger">{calibrageError}</p>
+					{:else}
+						<!-- BANDEAU DE SYNTHÈSE (collant) : objectif du bloc « Appliquer à
+						     la fiche » et valeurs DÉJÀ calculées par l'impact (déficit réel,
+						     perte estimée, disponibilité) — aucun nouveau calcul ici. Absent
+						     en mode présentation : cette vue tient sur un écran et affiche
+						     déjà ces repères. 4 cases compactes (2 × 2 sur mobile), testé à 320 px. -->
+						{#if calImpact}
+							<div
+								class="sticky top-0 z-20 -mx-5 -mt-5 border-b border-line bg-white/95 px-5 py-2 shadow-sm backdrop-blur"
+								aria-label="Synthèse du calibrage"
+							>
+								<div class="grid grid-cols-2 divide-x divide-line sm:grid-cols-4">
+									<div class="min-w-0 px-1.5 text-center" title="Objectif journalier">
+										<div class="truncate text-[9px] font-bold uppercase tracking-wider text-mist">Objectif</div>
+										<div class="truncate font-display text-[13px] font-bold text-brand-dark">
+											{calImpact.objectifKcal.toLocaleString('fr-FR')} <span class="text-[9px] font-semibold">kcal</span>
+										</div>
+										<div class="truncate text-[9px] font-semibold text-mist">déficit {decimalFr(calImpact.deficitPct)} %</div>
+									</div>
+									<div class="min-w-0 px-1.5 text-center" title="Perte de graisse estimée par semaine">
+										<div class="truncate text-[9px] font-bold uppercase tracking-wider text-mist">Perte graisse</div>
+										<div class="truncate font-display text-[13px] font-bold text-loss">{formatPerteGraisse(calImpact.perteGraisseKg)}</div>
+										<div class="truncate text-[9px] font-semibold text-mist">kg/semaine</div>
+									</div>
+									<div class="min-w-0 px-1.5 text-center" title="Disponibilité en énergie">
+										<div class="truncate text-[9px] font-bold uppercase tracking-wider text-mist">Disponibilité</div>
+										<div class="flex items-center justify-center gap-1 font-display text-[13px] font-bold {DISPONIBILITE_NIVEAUX[calImpact.niveauDisponibilite].couleur}">
+											<span class="h-1.5 w-1.5 shrink-0 rounded-full {DISPONIBILITE_NIVEAUX[calImpact.niveauDisponibilite].pastille}"></span>
+											<span class="truncate">{decimalFr(calImpact.disponibiliteKcal)}</span>
+										</div>
+										<div class="truncate text-[9px] font-semibold text-mist">kcal/kg MM</div>
+									</div>
+									<div class="min-w-0 px-1.5 text-center" title="Maintenance totale (sport habituel inclus)">
+										<div class="truncate text-[9px] font-bold uppercase tracking-wider text-mist">Maintenance totale</div>
+										<div class="truncate font-display text-[13px] font-bold text-ink">{calImpact.maintenanceTotaleKcal.toLocaleString('fr-FR')} <span class="text-[9px] font-semibold">kcal</span></div>
+										<div class="truncate text-[9px] font-semibold text-mist">sport inclus</div>
+									</div>
+								</div>
+							</div>
+						{/if}
+
+						{#if applyMsg}
+							<p class="rounded-xl border border-brand/40 bg-brand-light px-4 py-3 text-sm font-semibold text-ink">{applyMsg}</p>
+						{/if}
+
+						<!-- ENTRÉES : pré-remplies, toutes modifiables -->
+						<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
+							<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="settings" size={17} class="shrink-0 text-brand" /> Entrées</h3>
+							<div class="mt-3 grid gap-3 sm:grid-cols-2">
+								<label class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Poids (kg)</span>
+									<input type="number" inputmode="decimal" min="20" max="400" step="0.1" bind:value={calibrageInputs.poidsKg} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+									<p class="mt-1 min-h-[15px] text-[11px] font-semibold text-danger">{calErreursChamps.poidsKg ?? ''}</p>
+									{#if calibragePre?.poids.source}
+										<span class="mt-1 block text-[11px] text-mist">{calibragePre.poids.source === 'moyenne7j' ? `Moyenne de ${calibragePre.poids.nbPesees} pesée(s) sur 7 jours` : 'Dernière pesée'}{calibragePre.poids.date ? ` · ${fmtISO(calibragePre.poids.date)}` : ''}</span>
+									{/if}
+								</label>
+								<label class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Taux de masse grasse (%)</span>
+									<input type="number" inputmode="decimal" min="5" max="60" step="0.1" bind:value={calibrageInputs.mgPct} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+									<p class="mt-1 min-h-[15px] text-[11px] font-semibold text-danger">{calErreursChamps.mgPct ?? ''}</p>
+									{#if calibragePre?.masseGrasse.source}
+										<span class="mt-1 block text-[11px] text-mist">Dernière estimation US Navy{calibragePre.masseGrasse.date ? ` · ${fmtISO(calibragePre.masseGrasse.date)}` : ''}</span>
+									{/if}
+								</label>
+								<label class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Moyenne de pas sur 14 jours</span>
+									<input type="number" inputmode="numeric" min="0" max="100000" step="100" bind:value={calibrageInputs.pasMoyen} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+									<p class="mt-1 min-h-[15px] text-[11px] font-semibold text-danger">{calErreursChamps.pasMoyen ?? ''}</p>
+									{#if calibragePre?.pasMoyen.jours}
+										<span class="mt-1 block text-[11px] text-mist">{calibragePre.pasMoyen.jours} jour(s) renseigné(s) sur 14</span>
+									{/if}
+								</label>
+								<div class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Adaptation (% du métabolisme de base)</span>
+									<input type="number" inputmode="decimal" min="0" max="20" step="0.5" bind:value={calibrageInputs.adaptationPct} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+									<p class="mt-1 min-h-[15px] text-[11px] font-semibold text-danger">{calErreursChamps.adaptationPct ?? ''}</p>
+									<!-- Sous-ligne RÉSERVÉE (stabilité de la saisie) : hauteur minimale permanente. -->
+									<span class="mt-1 block min-h-[15px] text-[11px] font-semibold text-warn">{#if calR && calR.adaptationEffetKcal > 0}−{decimalFr(calR.adaptationEffetKcal)} kcal/jour{/if}</span>
+									<p class="mt-1 text-[11px] leading-snug text-mist">{ADAPTATION_AIDE}</p>
+									<ul class="mt-1 space-y-0.5 text-[11px] text-mist">
+										{#each ADAPTATION_REPERES as repere (repere.pct)}
+											<li><strong class="text-ink">{repere.pct} %</strong> : {repere.texte}</li>
+										{/each}
+									</ul>
+									<!-- Avertissement d'adaptation : zone RÉSERVÉE (stabilité de la saisie), hauteur minimale permanente. -->
+									<div class="mt-1.5 min-h-[34px]">
+										{#if calR?.avertissementAdaptation}
+											<p class="flex items-start gap-1.5 rounded-lg border border-warn/40 bg-warn-light px-2.5 py-2 text-[11px] font-semibold text-warn"><Icon name="triangleAlert" size={12} class="mt-0.5 shrink-0" /> {calR.avertissementAdaptation}</p>
+										{/if}
+									</div>
+								</div>
+							</div>
+
+							<!-- Activité au travail : boutons rapides + champ libre 0–12 h -->
+							<div class="mt-3 rounded-xl border-2 border-dashed border-line bg-cream/40 px-3.5 py-3">
+								<div class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-mist"><Icon name="footprints" size={12} class="shrink-0" /> Activité au travail (mouvement constant)</div>
+								<div class="mt-2 flex flex-wrap gap-1.5">
+									{#each TRAVAIL_RAPIDE as q (q.label)}
+										<button
+											type="button"
+											onclick={() => (calibrageInputs.heuresTravail = q.heures)}
+											class="rounded-full border-2 px-3 py-1.5 text-[12px] font-bold transition {calibrageInputs.heuresTravail === q.heures ? 'border-brand bg-brand text-white' : 'border-line bg-white text-ink hover:border-brand/50'}"
+										>{q.label}</button>
+									{/each}
+									<label class="inline-flex items-center gap-1.5 rounded-full border-2 border-line bg-white px-3 py-1.5 text-[12px] font-semibold text-ink">
+										<input type="number" inputmode="decimal" min="0" max="12" step="0.5" bind:value={calibrageInputs.heuresTravail} class="w-14 border-0 bg-transparent p-0 text-right text-[12px] font-bold outline-none" />
+										<span>h/jour</span>
+									</label>
+								</div>
+								<div class="mt-2.5 rounded-lg bg-white px-3 py-2">
+									<span class="block text-[10px] font-bold uppercase tracking-wider text-mist">Supplément travail</span>
+									{#if supplementTravailTextes(calibrageInputs.heuresTravail)}
+										{@const supplementTextes = supplementTravailTextes(calibrageInputs.heuresTravail)!}
+										<span class="mt-0.5 block text-sm font-bold text-ink">{supplementTextes.total}</span>
+										<span class="block text-[11px] font-semibold text-mist">{supplementTextes.detail}</span>
+									{:else}
+										<span class="mt-0.5 block text-sm font-bold text-ink">—</span>
+									{/if}
+									<p class="mt-1 text-[11px] leading-snug text-mist">{phraseSupplementTravail()}</p>
+								</div>
+							</div>
+
+							<div class="mt-3 grid gap-3 sm:grid-cols-3">
+								<label class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Déficit choisi (% du budget)</span>
+									<input type="number" inputmode="decimal" min="0" max="30" step="1" bind:value={calibrageInputs.deficitPct} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+									<p class="mt-1 min-h-[15px] text-[11px] font-semibold text-danger">{calErreursChamps.deficitPct ?? ''}</p>
+									<!-- Perte estimée du déficit choisi, arrondie au 0,05 kg (module pur). -->
+									<p class="text-[11px] font-semibold text-loss">{calPerteDeficit !== null ? `≈ ${formatPerteGraisse(calPerteDeficit)} kg de graisse par semaine` : '—'}</p>
+								</label>
+								<label class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Protéines (g/kg de masse maigre)</span>
+									<input type="number" inputmode="decimal" min="2" max="2.6" step="0.1" bind:value={calibrageInputs.proteinesParKgMasseMaigre} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+									<p class="mt-1 min-h-[15px] text-[11px] font-semibold text-danger">{calErreursChamps.proteinesParKgMasseMaigre ?? ''}</p>
+								</label>
+								<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
+									<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Réponse « sport » du démarrage</div>
+									{#if calibragePre && (calibragePre.sportOnboarding.sport !== null || calibragePre.sportOnboarding.sportsDetail !== null)}
+										<p class="mt-1 text-[12px] leading-relaxed text-ink">
+											{readableAnswer('sport', calibragePre.sportOnboarding.sport)}
+											{#if calibragePre.sportOnboarding.sportsDetail} — {calibragePre.sportOnboarding.sportsDetail}{/if}
+											{#if calibragePre.sportOnboarding.sportFrequency} · {readableAnswer('sportFrequency', calibragePre.sportOnboarding.sportFrequency)}{/if}
+										</p>
+										<p class="mt-1 text-[10px] italic text-mist">Aide à la lecture — réponse d'onboarding affichée telle quelle, non convertie.</p>
+									{:else}
+										<p class="mt-1 text-[12px] italic text-mist">Aucune réponse « sport » au formulaire de démarrage.</p>
+									{/if}
+								</div>
+							</div>
+						</div>
+
+						<!-- PROFIL SPORTIF HABITUEL : liste de séances (catalogue + intensité) -->
+						<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
+							<div class="flex flex-wrap items-center justify-between gap-2">
+								<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="dumbbell" size={17} class="shrink-0 text-brand" /> Profil sportif habituel</h3>
+								<div class="flex flex-wrap items-center gap-1.5">
+									<!-- Bouton visible SI ET SEULEMENT si la réponse « sport » du démarrage
+									     existe, est structurée (pré-remplissage sans interprétation) et que
+									     le profil est vide — jamais sur du texte libre. -->
+									{#if calibrageInputs.seances.length === 0 && prefillDemarrage}
+										<button type="button" onclick={prefillDepuisDemarrage} class="rounded-full border-2 border-brand/50 bg-white px-3.5 py-1.5 text-[12px] font-bold text-brand-dark transition hover:border-brand"><span class="inline-flex items-center gap-1.5"><Icon name="rocket" size={13} /> Pré-remplir depuis le démarrage</span></button>
+									{/if}
+									<button type="button" onclick={ajouterSeance} class="rounded-full bg-brand px-3.5 py-1.5 text-[12px] font-bold text-white transition hover:bg-brand-dark"><span class="inline-flex items-center gap-1.5"><Icon name="plus" size={13} /> Ajouter une séance</span></button>
+								</div>
+							</div>
+							{#if calibrageInputs.seances.length === 0}
+								<p class="mt-2 text-xs text-mist">Aucune séance habituelle — le sport de la semaine reste à 0 kcal.</p>
+							{:else}
+								<div class="mt-3 space-y-2">
+									{#each calibrageInputs.seances as seance, i (i)}
+										<div class="rounded-xl border border-line bg-white px-3 py-2.5">
+											<div class="flex flex-wrap items-end gap-2">
+												<label class="block">
+													<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Activité</span>
+													<select
+														value={seance.activiteId}
+														onchange={(e) => majSeance(i, { activiteId: (e.currentTarget as HTMLSelectElement).value })}
+														class="w-52 rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand"
+													>
+														{#each SPORT_CATEGORIES as cat (cat.id)}
+															<optgroup label={cat.label}>
+																{#each SPORT_CATALOG.filter((a) => a.category === cat.id) as act (act.id)}
+																	<option value={act.id} selected={act.id === seance.activiteId}>{act.name}</option>
+																{/each}
+															</optgroup>
+														{/each}
+													</select>
+												</label>
+												<label class="block">
+													<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Intensité / zone</span>
+													<select
+														value={seance.choix}
+														onchange={(e) => majSeance(i, { choix: (e.currentTarget as HTMLSelectElement).value })}
+														class="w-52 rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand"
+													>
+														{#each choixPourActivite(seance.activiteId) as c (c.id)}
+															<option value={c.id} selected={c.id === seance.choix}>{c.label}</option>
+														{/each}
+													</select>
+												</label>
+												<label class="block">
+													<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Séances/sem</span>
+													<input type="number" inputmode="numeric" min="0" max="14" step="1" value={seance.seancesParSemaine} oninput={(e) => majSeance(i, { seancesParSemaine: Number((e.currentTarget as HTMLInputElement).value) })} class="w-20 rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
+												</label>
+												<label class="block">
+													<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Durée (min)</span>
+													<input type="number" inputmode="numeric" min="0" max="600" step="5" value={seance.dureeMinutes} oninput={(e) => majSeance(i, { dureeMinutes: Number((e.currentTarget as HTMLInputElement).value) })} class="w-24 rounded-lg border-2 border-line px-2 py-2 text-sm outline-none focus:border-brand" />
+												</label>
+												<button type="button" onclick={() => retirerSeance(i)} class="ml-auto grid h-9 w-9 place-items-center rounded-lg border border-line text-mist transition hover:border-danger hover:text-danger" aria-label="Retirer la séance"><Icon name="x" size={14} /></button>
+											</div>
+											{#if calR}
+												{@const sCalc = calR.seances[i]}
+												{#if sCalc}
+													<p class="mt-1.5 text-[11px] text-mist">{sCalc.nom} · {sCalc.libelleChoix} · {String(sCalc.coefficientKcalKgH).replace('.', ',')} kcal/kg/h → <strong class="text-ink">{sCalc.depenseSeanceKcal} kcal/séance</strong> · <strong class="text-ink">{sCalc.depenseSemaineKcal} kcal/sem</strong></p>
+												{/if}
+											{/if}
+										</div>
+									{/each}
+								</div>
+							{/if}
+						</div>
+
+						<!-- RÉSULTATS : sortie du module $lib/calibrage — jamais recalculés ici -->
+						<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
+							<div class="flex flex-wrap items-center justify-between gap-3">
+								<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="gauge" size={17} class="shrink-0 text-brand" /> Résultats du calibrage</h3>
+								<button
+									type="button"
+									onclick={() => (calPresentation = true)}
+									class="rounded-full border-2 border-brand/40 bg-brand-light px-3.5 py-1.5 text-[12px] font-bold text-brand-dark transition hover:border-brand"
+								><span class="inline-flex items-center gap-1.5"><Icon name="eye" size={13} /> Mode présentation</span></button>
+							</div>
+							{#if calR}
+								<div class="mt-3 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Coefficient total</div>
+										<div class="mt-0.5 font-display text-xl font-bold text-ink">{String(calR.coefficient).replace('.', ',')}</div>
+										<p class="mt-0.5 text-[11px] text-mist">pas {String(calR.coefficientPas).replace('.', ',')} + travail {String(calR.supplementTravail).replace('.', ',')}</p>
+									</div>
+									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Métabolisme de base</div>
+										<div class="mt-0.5 font-display text-xl font-bold text-ink">{calR.metabolismeBaseKcal.toLocaleString('fr-FR')} <span class="text-xs font-semibold text-mist">kcal</span></div>
+										<p class="mt-0.5 text-[11px] text-mist">MM {String(calR.masseMaigreKg).replace('.', ',')} kg · MG {String(calR.masseGrasseKg).replace('.', ',')} kg</p>
+									</div>
+									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Maintenance totale (sport habituel inclus)</div>
+										<div class="mt-0.5 font-display text-xl font-bold text-ink">{calR.maintenanceFiletKcal.toLocaleString('fr-FR')} <span class="text-xs font-semibold text-mist">kcal</span></div>
+										<p class="mt-0.5 text-[11px] text-mist">dont sans exercice {calR.maintenanceDetailKcal.sansExerciceKcal.toLocaleString('fr-FR')} kcal · sport {calR.maintenanceDetailKcal.sportJournalierKcal.toLocaleString('fr-FR')} kcal/jour</p>
+									</div>
+									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Sport de la semaine</div>
+										<div class="mt-0.5 font-display text-xl font-bold text-ink">{calR.sportSemaineKcal.toLocaleString('fr-FR')} <span class="text-xs font-semibold text-mist">kcal</span></div>
+									</div>
+									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Budget de la semaine</div>
+										<div class="mt-0.5 font-display text-xl font-bold text-ink">{Math.round(calR.budgetSemaineKcal).toLocaleString('fr-FR')} <span class="text-xs font-semibold text-mist">kcal</span></div>
+										<p class="mt-0.5 text-[11px] text-mist">objectif {calR.objectifSemaineKcal.toLocaleString('fr-FR')} kcal/sem · filet de sécurité {calR.maintenanceFiletKcal.toLocaleString('fr-FR')} kcal/jour</p>
+									</div>
+									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Objectif journalier moyen</div>
+										<div class="mt-0.5 font-display text-xl font-bold text-brand-dark">{calR.objectifJournalierKcal.toLocaleString('fr-FR')} <span class="text-xs font-semibold text-mist">kcal</span></div>
+										<p class="mt-0.5 text-[11px] text-mist">somme exacte des macros 4G + 4P + 9L · objectif visé {calR.objectifCibleKcal.toLocaleString('fr-FR')} kcal</p>
+									</div>
+									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Perte de graisse estimée</div>
+										<div class="mt-0.5 font-display text-xl font-bold text-loss">{String(calR.perteGraisseKg).replace('.', ',')} <span class="text-xs font-semibold text-mist">kg/semaine</span></div>
+										<p class="mt-0.5 text-[11px] text-mist">plafonds Alpert {String(calR.vitesseMaxAlpertKgSemaine).replace('.', ',')} · Macdonald {String(calR.vitesseMaxMacdonaldKgSemaine).replace('.', ',')} kg/sem</p>
+									</div>
+									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Disponibilité en énergie</div>
+										<div class="mt-0.5 font-display text-xl font-bold {DISPONIBILITE_NIVEAUX[calR.niveauDisponibilite].couleur}">{String(calR.disponibiliteKcal).replace('.', ',')} <span class="text-xs font-semibold text-mist">kcal/kg de MM</span></div>
+										<p class="mt-0.5 text-[11px] text-mist">seuils {calR.seuilsDisponibiliteKcal.haut} et {calR.seuilsDisponibiliteKcal.bas} kcal · {DISPONIBILITE_NIVEAUX[calR.niveauDisponibilite].label}</p>
+									</div>
+									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Macros du jour type</div>
+										<!-- Couleurs macros : IDENTIQUES au Journal alimentaire cliente. -->
+										<div class="mt-0.5 text-sm font-bold text-ink">
+											P <span style="color:{macroColor('protein')}">{calR.macros.proteinesG} g</span> ·
+											L <span style="color:{macroColor('fat')}">{calR.macros.lipidesG} g</span> ·
+											G <span style="color:{macroColor('carbs')}">{calR.macros.glucidesG} g</span>
+										</div>
+										<!-- Sous-ligne RÉSERVÉE (stabilité de la saisie) : hauteur minimale permanente.
+										     Information glucides < 100 g : discrète (gris neutre), jamais une alerte —
+										     masquée en mode présentation. -->
+										<div class="mt-1 min-h-[16px]">{#if calR.macros.alerteGlucides}<p class="text-[11px] text-mist">{calR.macros.alerteGlucides}</p>{/if}</div>
+									</div>
+								</div>
+								{:else}
+								<p class="mt-3 text-sm text-mist">{calResults.error ?? 'Renseigne le poids et la masse grasse pour afficher les résultats.'}</p>
+							{/if}
+							<!-- ZONE D'AVERTISSEMENTS RÉSERVÉE (stabilité de la saisie) : toujours
+							     rendue (hauteur minimale), avec ou sans avertissement — les messages
+							     s'y affichent sans insérer ni retirer d'espace, la page ne saute plus. -->
+							<div class="mt-3 min-h-[124px] space-y-2">
+								{#if calR && calR.avertissementDeficitEleve}<p class="flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.avertissementDeficitEleve}</p>{/if}
+								{#if calR && calR.alertePlafonds}<p class="flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.alertePlafonds}</p>{/if}
+								{#if calR && calR.avertissementDisponibilite}<p class="flex items-start gap-2 rounded-xl border px-3.5 py-2.5 text-[12px] font-semibold {calR.avertissementDisponibilite.niveau === 'alerte' ? 'border-danger/40 bg-danger-light text-danger' : 'border-warn/40 bg-warn-light text-warn'}"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.avertissementDisponibilite.message}</p>{/if}
+								<!-- Erreur de calcul hors champs chiffrés (séances, semaine type…) :
+								     les résultats déjà affichés restent en place. -->
+								{#if calResults.error && calR}<p class="flex items-start gap-2 rounded-xl border border-danger/40 bg-danger-light px-3.5 py-2.5 text-[12px] font-semibold text-danger"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calResults.error}</p>{/if}
+								<!-- Mention COACH (mode normal uniquement) : fiche non présentable en
+								     l'état (disponibilité < 24 ou perte au-dessus des plafonds) — côté
+								     cliente, aucun message ne s'affiche alors. -->
+								{#if calMentionAjuster}<p class="flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {MENTION_AJUSTER_AVANT_DE_PRESENTER}</p>{/if}
+							</div>
+						</div>
+
+						<!-- SEMAINE TYPE : un apport par jour, couleurs de disponibilité -->
+						<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
+							<div class="flex flex-wrap items-center justify-between gap-2">
+								<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="calendarDays" size={17} class="shrink-0 text-brand" /> Semaine type</h3>
+								<button type="button" onclick={semaineVersObjectif} class="rounded-full border-2 border-line px-3.5 py-1.5 text-[12px] font-bold text-ink transition hover:border-brand">Tous à l'objectif</button>
+							</div>
+							<div class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+								{#each JOURS_LONGS as jour, i (jour)}
+									<div class="rounded-xl border border-line bg-white px-2.5 py-2 text-center">
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">{jour}</div>
+										<input
+											type="number"
+											inputmode="numeric"
+											min="0"
+											max="20000"
+											step="10"
+										placeholder={calR ? String(Math.round(calR.objectifJournalierKcal)) : '—'}
+										value={calSemaine ? calSemaine.apportsKcal[i] : ''}
+										oninput={(e) => {
+											// Saisie = ÉCART à l'objectif journalier calculé (champ vide → 0).
+											const raw = (e.currentTarget as HTMLInputElement).value;
+											const objectif = calR ? calR.objectifJournalierKcal : 0;
+											const valeur = raw === '' ? objectif : Number(raw);
+											const next = [...ecartsSemaine];
+											next[i] = Number.isFinite(valeur) ? valeur - objectif : 0;
+											ecartsSemaine = next;
+										}}
+											class="mt-1 w-full rounded-lg border-2 border-line px-1.5 py-1.5 text-center text-sm font-semibold outline-none focus:border-brand"
+										/>
+										{#if calSemaine}
+											<div class="mt-1.5 flex items-center justify-center gap-1.5">
+												<span class="h-2 w-2 shrink-0 rounded-full {DISPONIBILITE_NIVEAUX[calSemaine.niveauxDisponibilite[i]].pastille}"></span>
+												<span class="text-[10px] font-bold {DISPONIBILITE_NIVEAUX[calSemaine.niveauxDisponibilite[i]].couleur}">{String(calSemaine.disponibilitesKcal[i]).replace('.', ',')}</span>
+											</div>
+										{/if}
+									</div>
+								{/each}
+							</div>
+							{#if calR && calSemaine}
+								<p class="mt-2 text-[11px] text-mist">
+									Disponibilité en énergie de chaque jour (kcal/kg de masse maigre) — seuils 30 et 24 kcal/kg, soit {calR.seuilsDisponibiliteKcal.haut} et {calR.seuilsDisponibiliteKcal.bas} kcal · exercice réparti : {Math.round(calSemaine.exerciceKcal)} kcal/jour.
+								</p>
+								<p class="mt-1 text-sm font-semibold text-ink">
+									Déficit total de la semaine : {Math.round(-calSemaine.deficitSemaineKcal).toLocaleString('fr-FR')} kcal · graisse estimée <strong class="text-loss">{formatPerteGraisse(Math.abs(calSemaine.graisseKg))} kg</strong>
+								</p>
+							{/if}
+						</div>
+
+						<!-- APPLIQUER À LA FICHE : rien n'est jamais appliqué automatiquement -->
+						<div class="rounded-2xl border-2 border-brand/30 bg-brand-light/30 px-5 py-4 shadow-sm">
+							<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="check" size={17} class="shrink-0 text-brand" /> Appliquer à la fiche</h3>
+							<p class="mt-1 text-xs leading-relaxed text-mist">
+								Les valeurs calculées ne sont JAMAIS appliquées automatiquement. Vérifie et ajuste ci-dessous, choisis la date d'effet, puis confirme — l'écriture passe par le chemin existant des objectifs (l'historique préserve les journées passées) et un instantané du calibrage est enregistré. La saisie manuelle des objectifs reste disponible et inchangée.
+							</p>
+							<div class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+								<label class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Objectif journalier (kcal){#if applyKcal !== refKcal}<span class="ml-1 rounded-full bg-warn-light px-1.5 py-0.5 text-[9px] font-bold normal-case text-warn">modifié</span>{/if}</span>
+									<div class="flex items-stretch gap-1">
+										<input type="number" inputmode="numeric" step="any" bind:value={applyKcal} onchange={() => recalculerApresSaisie('kcal')} class="no-spinner w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+										<div class="flex w-7 shrink-0 flex-col">
+											<button type="button" aria-label="Objectif journalier : +10 kcal" onclick={() => flecheSaisie('kcal', 1)} class="flex flex-1 items-center justify-center rounded-t-lg border-2 border-line bg-white text-mist transition hover:border-brand hover:text-brand"><Icon name="chevronUp" size={13} /></button>
+											<button type="button" aria-label="Objectif journalier : −10 kcal" onclick={() => flecheSaisie('kcal', -1)} class="flex flex-1 items-center justify-center rounded-b-lg border-2 border-t-0 border-line bg-white text-mist transition hover:border-brand hover:text-brand"><Icon name="chevronDown" size={13} /></button>
+										</div>
+									</div>
+								</label>
+								<label class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Maintenance (kcal){#if applyMaintenance !== refMaintenance}<span class="ml-1 rounded-full bg-warn-light px-1.5 py-0.5 text-[9px] font-bold normal-case text-warn">modifié</span>{/if}</span>
+									<!-- oninput (et non bind:value) : bind:value sur un input number
+									     coerce la valeur en NOMBRE (to_number), ce qui ferait diverger
+									     applyMaintenance (nombre) de refMaintenance (chaîne) → badge
+									     « modifié » bloqué et champ qui ne suit plus les résultats. -->
+									<input type="number" inputmode="numeric" min="800" max="10000" step="10" value={applyMaintenance} oninput={(e) => (applyMaintenance = (e.currentTarget as HTMLInputElement).value)} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+								</label>
+								<label class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Date d'effet</span>
+									<input type="date" bind:value={applyDate} max={calDateMax} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+								</label>
+								<label class="block">
+									<!-- Couleurs macros du Journal cliente (rose · bleu · orange). -->
+									<span class="mb-1 flex flex-wrap items-center gap-1 text-[10px] font-bold uppercase tracking-wider" style="color:{macroColor('carbs')}"><span class="h-2 w-2 shrink-0 rounded-full" style="background:{macroColor('carbs')}"></span> Glucides (g){#if applyCarbs !== refCarbs}<span class="ml-1 rounded-full bg-warn-light px-1.5 py-0.5 text-[9px] font-bold normal-case text-warn">modifié</span>{/if}</span>
+									<div class="flex items-stretch gap-1">
+										<input type="number" inputmode="numeric" step="any" bind:value={applyCarbs} onchange={() => recalculerApresSaisie('glucides')} class="no-spinner w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+										<div class="flex w-7 shrink-0 flex-col">
+											<button type="button" aria-label="Glucides : +1 g" onclick={() => flecheSaisie('glucides', 1)} class="flex flex-1 items-center justify-center rounded-t-lg border-2 border-line bg-white text-mist transition hover:border-brand hover:text-brand"><Icon name="chevronUp" size={13} /></button>
+											<button type="button" aria-label="Glucides : −1 g" onclick={() => flecheSaisie('glucides', -1)} class="flex flex-1 items-center justify-center rounded-b-lg border-2 border-t-0 border-line bg-white text-mist transition hover:border-brand hover:text-brand"><Icon name="chevronDown" size={13} /></button>
+										</div>
+									</div>
+								</label>
+								<label class="block">
+									<span class="mb-1 flex flex-wrap items-center gap-1 text-[10px] font-bold uppercase tracking-wider" style="color:{macroColor('protein')}"><span class="h-2 w-2 shrink-0 rounded-full" style="background:{macroColor('protein')}"></span> Protéines (g){#if applyProtein !== refProtein}<span class="ml-1 rounded-full bg-warn-light px-1.5 py-0.5 text-[9px] font-bold normal-case text-warn">modifié</span>{/if}</span>
+									<div class="flex items-stretch gap-1">
+										<input type="number" inputmode="numeric" step="any" bind:value={applyProtein} onchange={() => recalculerApresSaisie('proteines')} class="no-spinner w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+										<div class="flex w-7 shrink-0 flex-col">
+											<button type="button" aria-label="Protéines : +1 g" onclick={() => flecheSaisie('proteines', 1)} class="flex flex-1 items-center justify-center rounded-t-lg border-2 border-line bg-white text-mist transition hover:border-brand hover:text-brand"><Icon name="chevronUp" size={13} /></button>
+											<button type="button" aria-label="Protéines : −1 g" onclick={() => flecheSaisie('proteines', -1)} class="flex flex-1 items-center justify-center rounded-b-lg border-2 border-t-0 border-line bg-white text-mist transition hover:border-brand hover:text-brand"><Icon name="chevronDown" size={13} /></button>
+										</div>
+									</div>
+								</label>
+								<label class="block">
+									<span class="mb-1 flex flex-wrap items-center gap-1 text-[10px] font-bold uppercase tracking-wider" style="color:{macroColor('fat')}"><span class="h-2 w-2 shrink-0 rounded-full" style="background:{macroColor('fat')}"></span> Lipides (g){#if applyFat !== refFat}<span class="ml-1 rounded-full bg-warn-light px-1.5 py-0.5 text-[9px] font-bold normal-case text-warn">modifié</span>{/if}</span>
+									<div class="flex items-stretch gap-1">
+										<input type="number" inputmode="numeric" step="any" bind:value={applyFat} onchange={() => recalculerApresSaisie('lipides')} class="no-spinner w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+										<div class="flex w-7 shrink-0 flex-col">
+											<button type="button" aria-label="Lipides : +1 g" onclick={() => flecheSaisie('lipides', 1)} class="flex flex-1 items-center justify-center rounded-t-lg border-2 border-line bg-white text-mist transition hover:border-brand hover:text-brand"><Icon name="chevronUp" size={13} /></button>
+											<button type="button" aria-label="Lipides : −1 g" onclick={() => flecheSaisie('lipides', -1)} class="flex flex-1 items-center justify-center rounded-b-lg border-2 border-t-0 border-line bg-white text-mist transition hover:border-brand hover:text-brand"><Icon name="chevronDown" size={13} /></button>
+										</div>
+									</div>
+								</label>
+							</div>
+							<!-- IMPACT DE L'OBJECTIF APPLIQUÉ : recalculé en direct depuis l'objectif
+							     réellement saisi ci-dessus (même modifié à la main, ex. 1 550 au lieu
+							     de 1 531), par le module pur — mêmes fonctions et mêmes avertissements
+							     que les résultats. Aucune écriture. -->
+							{#if calImpact}
+								<div class="mt-3 rounded-xl border border-brand/25 bg-white px-3.5 py-3">
+									<div class="flex flex-wrap items-baseline justify-between gap-2">
+										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Impact de l'objectif appliqué</div>
+										<div class="text-[11px] text-mist">{calImpact.objectifKcal.toLocaleString('fr-FR')} kcal/jour · maintenance totale {calImpact.maintenanceTotaleKcal.toLocaleString('fr-FR')} kcal</div>
+									</div>
+									<div class="mt-2 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+										<div>
+											<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Déficit réel</div>
+											<div class="mt-0.5 font-display text-lg font-bold text-ink">{decimalFr(calImpact.deficitPct)} <span class="text-xs font-semibold text-mist">% de la maintenance totale</span></div>
+											<p class="mt-0.5 text-[11px] text-mist">{Math.round(calImpact.deficitSemaineKcal).toLocaleString('fr-FR')} kcal/semaine</p>
+										</div>
+										<div>
+											<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Perte de graisse estimée</div>
+											<div class="mt-0.5 font-display text-lg font-bold text-loss">{formatPerteGraisse(calImpact.perteGraisseKg)} <span class="text-xs font-semibold text-mist">kg/semaine</span></div>
+											<p class="mt-0.5 text-[11px] text-mist">7 700 kcal par kg de graisse</p>
+										</div>
+										<div>
+											<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Disponibilité en énergie</div>
+											<div class="mt-0.5 flex items-center gap-1.5 font-display text-lg font-bold {DISPONIBILITE_NIVEAUX[calImpact.niveauDisponibilite].couleur}">
+												<span class="h-2 w-2 shrink-0 rounded-full {DISPONIBILITE_NIVEAUX[calImpact.niveauDisponibilite].pastille}"></span>
+												{decimalFr(calImpact.disponibiliteKcal)} <span class="text-xs font-semibold text-mist">kcal/kg de MM</span>
+											</div>
+											<p class="mt-0.5 text-[11px] text-mist">{DISPONIBILITE_NIVEAUX[calImpact.niveauDisponibilite].label} · seuils {calImpact.seuilsDisponibiliteKcal.haut} et {calImpact.seuilsDisponibiliteKcal.bas} kcal</p>
+										</div>
+										<div>
+											<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Plafonds Alpert / Macdonald</div>
+											<div class="mt-0.5 text-[12px] font-bold leading-snug text-ink">{calImpact.comparaisonPlafonds}</div>
+										</div>
+									</div>
+									<!-- Mêmes avertissements que les résultats (messages du module). -->
+									{#if calImpact.avertissementDeficitEleve}<p class="mt-2 flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calImpact.avertissementDeficitEleve}</p>{/if}
+									{#if calImpact.alertePlafonds}<p class="mt-2 flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calImpact.alertePlafonds}</p>{/if}
+									{#if calImpact.avertissementDisponibilite}<p class="mt-2 flex items-start gap-2 rounded-xl border px-3.5 py-2.5 text-[12px] font-semibold {calImpact.avertissementDisponibilite.niveau === 'alerte' ? 'border-danger/40 bg-danger-light text-danger' : 'border-warn/40 bg-warn-light text-warn'}"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calImpact.avertissementDisponibilite.message}</p>{/if}
+								</div>
+							{/if}
+							<!-- Cohérence 4G + 4P + 9L : information glucides < 100 g (message
+							     du calibrage, style DISCRET gris neutre — pas une alerte, masquée
+							     en mode présentation) + blocage si les glucides sont négatifs. -->
+							{#if applyAlerteGlucides}
+								<p class="mt-3 flex items-start gap-1.5 rounded-xl border border-line bg-cream/40 px-3.5 py-2 text-[11px] leading-snug text-mist"><Icon name="info" size={13} class="mt-0.5 shrink-0" /> {applyAlerteGlucides}</p>
+							{/if}
+							{#if applyBlocageGlucides}
+								<p class="mt-2 flex items-start gap-1.5 rounded-xl border border-danger/40 bg-danger-light px-3.5 py-2.5 text-[12px] font-semibold leading-snug text-danger"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {applyBlocageGlucides}</p>
+							{/if}
+
+							{#if applyError}
+								<p class="mt-3 rounded-xl border border-danger/40 bg-danger-light px-3.5 py-2.5 text-[12px] font-semibold text-danger">{applyError}</p>
+							{/if}
+							<button
+								type="button"
+								onclick={demarrerApplication}
+								disabled={!calR}
+								class="mt-4 w-full rounded-full bg-brand px-3 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
+							>Appliquer à la fiche</button>
+						</div>
+
+						<!-- HISTORIQUE DES OBJECTIFS : lecture seule — changements d'objectifs
+						     (calibrage + saisie manuelle), du plus récent au plus ancien. -->
+						<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
+							<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="clock" size={17} class="shrink-0 text-brand" /> Historique des objectifs</h3>
+							{#if calHisto === null}
+								<p class="mt-2 text-sm text-mist">Chargement de l'historique…</p>
+							{:else if calHistoErr}
+								<p class="mt-2 text-sm font-semibold text-danger">{calHistoErr}</p>
+							{:else if calHisto.length === 0}
+								<p class="mt-2 text-sm italic text-mist">Aucun calibrage appliqué pour l'instant.</p>
+							{:else}
+								<div class="mt-2 divide-y divide-line/60">
+									{#each calHisto.slice(0, histoTout ? calHisto.length : CAL_HISTO_LIGNES) as ligne (ligne.id)}
+										<div class="py-2">
+											{#if ligne.origine === 'calibrage'}
+												<button
+													type="button"
+													class="flex w-full flex-wrap items-center justify-between gap-2 text-left"
+													aria-expanded={histoDetail === ligne.id}
+													onclick={() => (histoDetail = histoDetail === ligne.id ? null : ligne.id)}
+												>
+													<span class="flex flex-wrap items-center gap-2 text-sm">
+														<strong class="tabular-nums">{fmtISO(ligne.effectiveFrom)}</strong>
+														<span class="font-semibold text-ink">{ligne.kcal.toLocaleString('fr-FR')} kcal/jour</span>
+														<span class="text-xs text-mist">Maintenance {ligne.maintenanceKcal !== null ? `${ligne.maintenanceKcal.toLocaleString('fr-FR')} kcal` : '—'}</span>
+														{#if ligne.macros}
+															<span class="text-xs text-mist"><span style="color:{macroColor('carbs')}">G {ligne.macros.glucidesG} g</span> · <span style="color:{macroColor('protein')}">P {ligne.macros.proteinesG} g</span> · <span style="color:{macroColor('fat')}">L {ligne.macros.lipidesG} g</span></span>
+														{:else}
+															<span class="text-xs text-mist">Macros —</span>
+														{/if}
+													</span>
+													<span class="flex items-center gap-1.5">
+														<span class="rounded-full bg-brand-light px-2 py-0.5 text-[10px] font-bold text-brand-dark">Calibrage</span>
+														<Icon name={histoDetail === ligne.id ? 'chevronUp' : 'chevronDown'} size={14} class="text-mist" />
+													</span>
+												</button>
+											{:else}
+												<div class="flex w-full flex-wrap items-center justify-between gap-2">
+													<span class="flex flex-wrap items-center gap-2 text-sm">
+														<strong class="tabular-nums">{fmtISO(ligne.effectiveFrom)}</strong>
+														<span class="font-semibold text-ink">{ligne.kcal.toLocaleString('fr-FR')} kcal/jour</span>
+														<span class="text-xs text-mist">Maintenance — · Macros —</span>
+													</span>
+													<span class="rounded-full bg-line px-2 py-0.5 text-[10px] font-bold text-mist">Saisie manuelle</span>
+												</div>
+											{/if}
+											{#if histoDetail === ligne.id && ligne.detail}
+												{@const d = ligne.detail}
+												<div class="mt-2 rounded-xl border border-line bg-white px-3 py-2.5 text-[11px]">
+													<div class="grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-3 lg:grid-cols-4">
+														<span class="text-mist">Poids : <strong class="text-ink">{d.poidsKg !== null ? `${decimalFr(d.poidsKg)} kg` : '—'}</strong></span>
+														<span class="text-mist">Masse grasse : <strong class="text-ink">{d.mgPct !== null ? `${decimalFr(d.mgPct)} %` : '—'}</strong></span>
+														<span class="text-mist">Pas : <strong class="text-ink">{d.pasMoyen !== null ? `${Math.round(d.pasMoyen).toLocaleString('fr-FR')}/jour` : '—'}</strong></span>
+														<span class="text-mist">Travail : <strong class="text-ink">{d.heuresTravail !== null ? `${decimalFr(d.heuresTravail)} h/jour` : '—'}</strong>{#if d.ajustementTravail} · ajust. {decimalFr(d.ajustementTravail)}{/if}</span>
+														<span class="text-mist">Adaptation : <strong class="text-ink">{d.adaptationPct !== null ? `${decimalFr(d.adaptationPct)} %` : '—'}</strong></span>
+														<span class="text-mist">Déficit : <strong class="text-ink">{d.deficitPct !== null ? `${decimalFr(d.deficitPct)} %` : '—'}</strong></span>
+														<span class="text-mist">Sport de la semaine : <strong class="text-ink">{d.sportSemaineKcal !== null ? `${Math.round(d.sportSemaineKcal).toLocaleString('fr-FR')} kcal` : '—'}</strong></span>
+													</div>
+													<p class="mt-2 text-mist">Résultats : coefficient <strong class="text-ink">{d.coefficient !== null ? decimalFr(d.coefficient) : '—'}</strong> · métabolisme de base <strong class="text-ink">{d.metabolismeBaseKcal !== null ? `${Math.round(d.metabolismeBaseKcal).toLocaleString('fr-FR')} kcal` : '—'}</strong> · maintenance totale <strong class="text-ink">{d.maintenanceFiletKcal !== null ? `${Math.round(d.maintenanceFiletKcal).toLocaleString('fr-FR')} kcal` : '—'}</strong> · objectif <strong class="text-ink">{d.objectifJournalierKcal !== null ? `${Math.round(d.objectifJournalierKcal).toLocaleString('fr-FR')} kcal/jour` : '—'}</strong></p>
+													<p class="mt-1 text-mist">Semaine : budget <strong class="text-ink">{d.budgetSemaineKcal !== null ? `${Math.round(d.budgetSemaineKcal).toLocaleString('fr-FR')} kcal` : '—'}</strong> · déficit <strong class="text-ink">{d.deficitSemaineKcal !== null ? `${Math.round(d.deficitSemaineKcal).toLocaleString('fr-FR')} kcal` : '—'}</strong> · perte estimée <strong class="text-loss">{d.perteGraisseKg !== null ? `${decimalFr(d.perteGraisseKg)} kg/sem` : '—'}</strong></p>
+												</div>
+											{/if}
+										</div>
+									{/each}
+								</div>
+								{#if calHisto.length > CAL_HISTO_LIGNES}
+									<button
+										type="button"
+										onclick={() => (histoTout = !histoTout)}
+										class="mt-2 rounded-full border-2 border-line px-3.5 py-1.5 text-[12px] font-bold text-ink transition hover:border-brand"
+									>{histoTout ? 'Réduire' : `Voir tout (${calHisto.length})`}</button>
+								{/if}
+							{/if}
+						</div>
+					{/if}
+				</div>
+
+				<!-- Confirmation obligatoire (ConfirmDialog) — l'annulation n'écrit rien -->
+				<ConfirmDialog
+					open={calConfirmOpen}
+					title={`Appliquer à la fiche de ${selected.user.prenom} ?`}
+					message={`Objectif de ${applyKcal} kcal/jour à partir du ${fmtISO(applyDate)} — les journées passées gardent leur ancien objectif.`}
+					confirmLabel="Appliquer"
+					busy={applyBusy}
+					onconfirm={appliquerCalibrage}
+					oncancel={() => { calConfirmOpen = false; applyError = ''; }}
+				>
+				<ul class="space-y-1 text-xs text-mist">
+					<!-- Valeurs EXACTEMENT envoyées (kcal, maintenance, macros) — décimales françaises. -->
+					<li>Objectif : <strong class="text-ink">{applyKcal} kcal/jour</strong></li>
+					<li>Maintenance : <strong class="text-ink">{applyMaintenance ? decimalFr(Number(applyMaintenance)) : '—'} kcal</strong></li>
+					<li>Macros : <strong class="text-ink"><span style="color:{macroColor('carbs')}">G {decimalFr(applyCarbs)} g</span> · <span style="color:{macroColor('protein')}">P {decimalFr(applyProtein)} g</span> · <span style="color:{macroColor('fat')}">L {decimalFr(applyFat)} g</span></strong></li>
+						<li>Instantané du calibrage (entrées, résultats, version des formules) enregistré dans la fiche.</li>
+					</ul>
+					{#if applyError}
+						<p class="mt-2 rounded-lg bg-danger-light px-3 py-2 text-xs font-semibold text-danger">{applyError}</p>
+					{/if}					</ConfirmDialog>
+				{/if}
+				{:else if section === 'rdv'}
 				<!-- Rendez-vous (Vision 360) : UNIQUEMENT les RDV de cette cliente.
 				     Affichage simple : un RDV futur ? → carte + actions. Sinon →
 				     réservation. (La vue globale reste /admin/rendez-vous.) -->

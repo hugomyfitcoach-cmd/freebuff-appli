@@ -53,8 +53,8 @@ les fonctions Convex ou le frontend ne dépend de sa structure ni de ses ids :
   `thumbnailUrl`, `sourceLabel`…) — aucune URL source codée en dur.
 
 Deux familles coexistent : `system: true` (bibliothèque système importée) et
-`system: false` (exercices créés par la coach, `source: "gflux"`, jamais
-touchés par un import). Les champs édités par la coach (`name`, `hidden`)
+`system: false` (exercices créés par le coach, `source: "gflux"`, jamais
+touchés par un import). Les champs édités par le coach (`name`, `hidden`)
 sont préservés par les imports.
 
 ## Source retenue (prototypage)

@@ -165,7 +165,7 @@ await client.mutation(api.sport.addActivity, {
 	sessionToken: user.token,
 	date: isoOf(new Date()),
 	activityId: 'padel',
-	intensity: 'moderee',
+	intensity: '130-150', // zone cardio du barème (130–150 BPM → 5,5 kcal/kg/h)
 	durationMinutes: 60,
 });
 const dashAfter = await client.query(api.dashboard.getDashboard, { sessionToken: user.token });

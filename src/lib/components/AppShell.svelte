@@ -329,11 +329,12 @@
 				{ href: '/admin/rendez-vous', label: 'Rendez-vous', icon: 'calendarCheck' },
 				{ href: '/admin/templates', label: 'Templates', icon: 'messageCircle' },
 				{ href: '/recettes', label: 'Guide nutrition & recettes', icon: 'chefHat' },
-				{ href: '/outils', label: 'Outils & calibrage', icon: 'wrench' },
+				// « Outils & calibrage » (/outils) retiré du menu coach (mission C2b-2) :
+				// la page reste accessible par son adresse, le menu cliente est inchangé.
 			],
 		},
 	];
-	/** Aplat des liens coach (même contenu qu'avant — aucune entrée retirée). */
+	/** Aplat des liens coach (« Outils & calibrage » retiré du menu latéral). */
 	const coachLinks: Link[] = COACH_GROUPS.flatMap((g) => g.items);
 	/** Badge de l'Accueil = actions bilans + message du coach non lu + rappel RDV 12 h.
 	    Le rappel compte pour 1 (point, §21) : une information importante est
