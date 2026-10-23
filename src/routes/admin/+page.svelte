@@ -31,8 +31,8 @@
 	import {
 		DEFICIT_PCT_DEFAUT,
 		DISPONIBILITE_NIVEAUX,
-		LIBELLE_SUPPLEMENT_TRAVAIL,
 		phraseSupplementTravail,
+		supplementTravailTextes,
 		PROTEINES_PAR_KG_MM_DEFAUT,
 		impactObjectifApplique,
 		formatPerteGraisse,
@@ -4546,13 +4546,13 @@
 						     la fiche » et valeurs DÉJÀ calculées par l'impact (déficit réel,
 						     perte estimée, disponibilité) — aucun nouveau calcul ici. Absent
 						     en mode présentation : cette vue tient sur un écran et affiche
-						     déjà ces repères. 3 colonnes compactes, testé à 320 px. -->
+						     déjà ces repères. 4 cases compactes (2 × 2 sur mobile), testé à 320 px. -->
 						{#if calImpact}
 							<div
 								class="sticky top-0 z-20 -mx-5 -mt-5 border-b border-line bg-white/95 px-5 py-2 shadow-sm backdrop-blur"
 								aria-label="Synthèse du calibrage"
 							>
-								<div class="grid grid-cols-3 divide-x divide-line">
+								<div class="grid grid-cols-2 divide-x divide-line sm:grid-cols-4">
 									<div class="min-w-0 px-1.5 text-center" title="Objectif journalier">
 										<div class="truncate text-[9px] font-bold uppercase tracking-wider text-mist">Objectif</div>
 										<div class="truncate font-display text-[13px] font-bold text-brand-dark">
@@ -4572,6 +4572,11 @@
 											<span class="truncate">{decimalFr(calImpact.disponibiliteKcal)}</span>
 										</div>
 										<div class="truncate text-[9px] font-semibold text-mist">kcal/kg MM</div>
+									</div>
+									<div class="min-w-0 px-1.5 text-center" title="Maintenance totale (sport habituel inclus)">
+										<div class="truncate text-[9px] font-bold uppercase tracking-wider text-mist">Maintenance totale</div>
+										<div class="truncate font-display text-[13px] font-bold text-ink">{calImpact.maintenanceTotaleKcal.toLocaleString('fr-FR')} <span class="text-[9px] font-semibold">kcal</span></div>
+										<div class="truncate text-[9px] font-semibold text-mist">sport inclus</div>
 									</div>
 								</div>
 							</div>
@@ -4648,7 +4653,13 @@
 								</div>
 								<div class="mt-2.5 rounded-lg bg-white px-3 py-2">
 									<span class="block text-[10px] font-bold uppercase tracking-wider text-mist">Supplément travail</span>
-									<span class="mt-0.5 block text-sm font-bold text-ink">{LIBELLE_SUPPLEMENT_TRAVAIL} · {decimalFr(calibrageInputs.heuresTravail)} h</span>
+									{#if supplementTravailTextes(calibrageInputs.heuresTravail)}
+										{@const supplementTextes = supplementTravailTextes(calibrageInputs.heuresTravail)!}
+										<span class="mt-0.5 block text-sm font-bold text-ink">{supplementTextes.total}</span>
+										<span class="block text-[11px] font-semibold text-mist">{supplementTextes.detail}</span>
+									{:else}
+										<span class="mt-0.5 block text-sm font-bold text-ink">—</span>
+									{/if}
 									<p class="mt-1 text-[11px] leading-snug text-mist">{phraseSupplementTravail()}</p>
 								</div>
 							</div>
@@ -5030,7 +5041,11 @@
 														<strong class="tabular-nums">{fmtISO(ligne.effectiveFrom)}</strong>
 														<span class="font-semibold text-ink">{ligne.kcal.toLocaleString('fr-FR')} kcal/jour</span>
 														<span class="text-xs text-mist">Maintenance {ligne.maintenanceKcal !== null ? `${ligne.maintenanceKcal.toLocaleString('fr-FR')} kcal` : '—'}</span>
-														<span class="text-xs text-mist">{ligne.macros ? `G ${ligne.macros.glucidesG} g · P ${ligne.macros.proteinesG} g · L ${ligne.macros.lipidesG} g` : 'Macros —'}</span>
+														{#if ligne.macros}
+															<span class="text-xs text-mist"><span style="color:{macroColor('carbs')}">G {ligne.macros.glucidesG} g</span> · <span style="color:{macroColor('protein')}">P {ligne.macros.proteinesG} g</span> · <span style="color:{macroColor('fat')}">L {ligne.macros.lipidesG} g</span></span>
+														{:else}
+															<span class="text-xs text-mist">Macros —</span>
+														{/if}
 													</span>
 													<span class="flex items-center gap-1.5">
 														<span class="rounded-full bg-brand-light px-2 py-0.5 text-[10px] font-bold text-brand-dark">Calibrage</span>
@@ -5092,7 +5107,7 @@
 					<!-- Valeurs EXACTEMENT envoyées (kcal, maintenance, macros) — décimales françaises. -->
 					<li>Objectif : <strong class="text-ink">{applyKcal} kcal/jour</strong></li>
 					<li>Maintenance : <strong class="text-ink">{applyMaintenance ? decimalFr(Number(applyMaintenance)) : '—'} kcal</strong></li>
-					<li>Macros : <strong class="text-ink">G {decimalFr(applyCarbs)} g · P {decimalFr(applyProtein)} g · L {decimalFr(applyFat)} g</strong></li>
+					<li>Macros : <strong class="text-ink"><span style="color:{macroColor('carbs')}">G {decimalFr(applyCarbs)} g</span> · <span style="color:{macroColor('protein')}">P {decimalFr(applyProtein)} g</span> · <span style="color:{macroColor('fat')}">L {decimalFr(applyFat)} g</span></strong></li>
 						<li>Instantané du calibrage (entrées, résultats, version des formules) enregistré dans la fiche.</li>
 					</ul>
 					{#if applyError}

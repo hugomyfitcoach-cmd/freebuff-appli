@@ -263,7 +263,11 @@ test('SUPPLÉMENT TRAVAIL : « +0,05 · travail de bureau » et la phrase d’ai
 		adminPage.indexOf('Déficit choisi (% du budget)</span>')
 	);
 	assert.ok(blocSupplement.length > 0, 'bloc « Supplément travail » trouvé');
-	assert.ok(blocSupplement.includes('{LIBELLE_SUPPLEMENT_TRAVAIL}'), 'libellé « +0,05 · travail de bureau »');
+	/* C2c-5a : le bloc affiche le total et son détail, calculés par
+	   `supplementTravailTextes` depuis les heures saisies. */
+	assert.ok(blocSupplement.includes('supplementTravailTextes(calibrageInputs.heuresTravail)'), 'total et détail du supplément');
+	assert.ok(blocSupplement.includes('{supplementTextes.total}'), 'ligne 1 : total');
+	assert.ok(blocSupplement.includes('{supplementTextes.detail}'), 'ligne 2 : détail');
 	assert.ok(blocSupplement.includes('{phraseSupplementTravail()}'), 'phrase d’aide affichée en dessous');
 	assert.ok(blocSupplement.includes('calibrageInputs.heuresTravail'), 'nombre d’heures dynamique');
 	/* C2c-3 : le champ « Ajustement du coach » est supprimé et le supplément

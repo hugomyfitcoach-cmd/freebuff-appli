@@ -326,6 +326,33 @@ export function phraseSupplementTravail(): string {
 }
 
 /**
+ * Textes du supplément travail pour un nombre d'heures de mouvement : le
+ * total (« +0,15 ») et son détail (« 0,05 travail de bureau + 0,10 pour 2 h en
+ * mouvement »). Toutes les parts viennent du barème ($lib/calibrage) : la part
+ * mouvement est la différence entre le total et la base à 0 h. `null` si les
+ * heures sont invalides (le module refuse alors la saisie).
+ */
+export function supplementTravailTextes(
+	heures: number
+): { total: string; detail: string } | null {
+	let total: number;
+	try {
+		total = supplementTravail({ heures });
+	} catch {
+		return null;
+	}
+	const base = supplementTravail({ heures: 0 });
+	const mouvement = total - base;
+	return {
+		total: `+${deuxDecimales(total)}`,
+		detail:
+			mouvement > 0
+				? `${deuxDecimales(base)} travail de bureau + ${deuxDecimales(mouvement)} pour ${decimalFr(heures)} h en mouvement`
+				: `${deuxDecimales(base)} travail de bureau`
+	};
+}
+
+/**
  * Perte de graisse hebdomadaire (kg) pour un déficit hebdomadaire donné,
  * arrondie au 0,05 kg le plus proche (grille de lecture du déficit choisi).
  */

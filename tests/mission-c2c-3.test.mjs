@@ -269,9 +269,10 @@ test('AJUSTEMENT DU COACH : champ supprimé, module inchangé (ajustement transm
 	/* L'historique des anciens calibrages continue d'afficher l'ajustement
 	   stocké, sans erreur. */
 	assert.ok(adminPage.includes('d.ajustementTravail'), 'anciennes lignes : ajustement affiché tel quel');
-	/* Le supplément travail affiche « +0,05 · travail de bureau · X h » et la
-	   phrase d'aide, valeurs du barème et heures dynamiques. */
-	assert.ok(adminPage.includes('{LIBELLE_SUPPLEMENT_TRAVAIL} · {decimalFr(calibrageInputs.heuresTravail)} h'), 'libellé + heures');
+	/* Le supplément travail affiche le total et son détail (C2c-5a), puis la
+	   phrase d'aide — valeurs du barème et heures dynamiques. */
+	assert.ok(adminPage.includes('supplementTravailTextes(calibrageInputs.heuresTravail)'), 'total + détail depuis les heures');
+	assert.ok(adminPage.includes('{supplementTextes.total}'), 'ligne 1 : total');
 	assert.ok(adminPage.includes('{phraseSupplementTravail()}'), 'phrase d’aide');
 	assert.equal(fiche.phraseSupplementTravail(), "Chaque heure en mouvement ajoute 0,05, jusqu'à 0,60 au maximum.");
 });
