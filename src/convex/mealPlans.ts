@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { getSessionUser } from "./helpers";
 import { ciqualFoodSource } from "./ciqualSource";
+import { resolveReferenceFoodLabel } from "./referenceFoods";
 import { applyKcalGuard } from "../lib/nutritionGuard";
 import { recordClientEvent, recordEvent } from "./notifications";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
@@ -127,7 +128,7 @@ type ItemInput = {
 };
 
 /** Construit le snapshot des items + totaux (source unique pour create/update). */
-async function buildSnapshot(ctx: QueryCtx, items: ItemInput[]) {
+async function buildSnapshot(ctx: QueryCtx, coach: Doc<"users">, items: ItemInput[]) {
 	if (items.length === 0) throw new ConvexError("Ajoute au moins un aliment au plan.");
 	if (items.length > 60) throw new ConvexError("Maximum 60 aliments par plan.");
 	const snapshot: {
@@ -153,18 +154,33 @@ async function buildSnapshot(ctx: QueryCtx, items: ItemInput[]) {
 		if (!isFinite(it.qtyGrams) || it.qtyGrams <= 0 || it.qtyGrams > 5000) {
 			throw new ConvexError("Quantité invalide (entre 1 et 5000 g).");
 		}
+		// Fiche de RÉFÉRENCE G-FLUX (Mission R3) : libellé `gflux:<id>` résolu
+		// pour la coach propriétaire. Le plan reçoit une COPIE du nom et des
+		// valeurs (aucun lien vers la fiche) : la modifier ou la supprimer
+		// ensuite ne change jamais les plans existants.
+		const gfluxFood = await resolveReferenceFoodLabel(ctx, coach, it.ciqualLabel);
 		// Fiche de RÉFÉRENCE Ciqual (additif) : valeurs officielles /100 g résolues
 		// côté serveur — aucune donnée OFF lue, modifiée ou fusionnée.
-		const ciqualFood = it.ciqualLabel ? ciqualFoodSource(it.ciqualLabel) : null;
-		if (it.ciqualLabel && !ciqualFood) {
-			throw new ConvexError("Une référence Ciqual du plan n'existe plus.");
+		const ciqualFood = !gfluxFood && it.ciqualLabel ? ciqualFoodSource(it.ciqualLabel) : null;
+		if (it.ciqualLabel && !ciqualFood && !gfluxFood) {
+			throw new ConvexError("Une fiche de référence du plan n'existe plus.");
 		}
-		const food = ciqualFood ?? (await resolveItemFood(ctx, it.foodId, it.customFoodId));
+		const food = gfluxFood
+			? {
+					name: gfluxFood.name,
+					brand: undefined,
+					imageUrl: undefined,
+					kcal100: gfluxFood.kcal,
+					carbs100: gfluxFood.carbsG,
+					protein100: gfluxFood.proteinG,
+					fat100: gfluxFood.fatG,
+				}
+			: (ciqualFood ?? (await resolveItemFood(ctx, it.foodId, it.customFoodId)));
 		const k = it.qtyGrams / 100;
 		const row = {
 			meal: it.meal,
-			foodId: ciqualFood ? undefined : (it.foodId ?? undefined),
-			customFoodId: ciqualFood ? undefined : (it.customFoodId ?? undefined),
+			foodId: ciqualFood || gfluxFood ? undefined : (it.foodId ?? undefined),
+			customFoodId: ciqualFood || gfluxFood ? undefined : (it.customFoodId ?? undefined),
 			ciqualLabel: ciqualFood ? it.ciqualLabel : undefined,
 			name: food.name,
 			brand: food.brand,
@@ -215,7 +231,7 @@ export const createTemplate = mutation({
 		if (description && description.trim().length > 300) {
 			throw new ConvexError("Description trop longue (300 caractères max).");
 		}
-		const snap = await buildSnapshot(ctx, items);
+		const snap = await buildSnapshot(ctx, coach, items);
 		const now = Date.now();
 		const templateId = await ctx.db.insert("mealPlanTemplates", {
 			coachId: coach._id,
@@ -257,7 +273,7 @@ export const updateTemplate = mutation({
 		if (description && description.trim().length > 300) {
 			throw new ConvexError("Description trop longue (300 caractères max).");
 		}
-		const snap = await buildSnapshot(ctx, items);
+		const snap = await buildSnapshot(ctx, coach, items);
 		await ctx.db.patch(templateId, {
 			name: clean,
 			description: description?.trim() || undefined,

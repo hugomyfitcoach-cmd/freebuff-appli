@@ -751,6 +751,30 @@ export default defineSchema({
 	})
 		.index("by_user", ["userId"]),
 
+	/**
+	 * ALIMENTS DE RÉFÉRENCE G-FLUX (Mission R3) — table ADDITIVE, aucune table
+	 * existante modifiée. Le coach crée ses propres aliments (valeurs /100 g) ;
+	 * ils apparaissent dans la section « Aliments de référence » des recherches
+	 * avec le badge « Référence G-Flux ».
+	 *
+	 * Le journal et les plans n'y font JAMAIS référence : à l'ajout, le nom et
+	 * les valeurs sont recopiés dans l'entrée (snapshot). Modifier ou supprimer
+	 * une fiche ne change donc jamais les entrées passées.
+	 */
+	referenceFoods: defineTable({
+		/** Coach propriétaire — seul habilité à créer / modifier / supprimer. */
+		coachId: v.id("users"),
+		/** Nom affiché (2 à 120 caractères), badge « Référence G-Flux ». */
+		name: v.string(),
+		/** Valeurs pour 100 g (kcal 0–900, macros 0–100). */
+		kcal: v.number(),
+		proteinG: v.number(),
+		carbsG: v.number(),
+		fatG: v.number(),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	}).index("by_coach", ["coachId"]),
+
 	/* ═══ Plans de repas coach + planification (client & coach) ═══ */
 
 	/**

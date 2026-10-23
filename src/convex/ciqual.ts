@@ -60,6 +60,8 @@ import {
 import { query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { getSessionUser } from "./helpers";
+import { listReferenceFoodsForUser } from "./referenceFoods";
+import { mergeReferenceHits } from "../lib/referenceFoods";
 import type { QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 
@@ -74,6 +76,11 @@ export type CiqualHit = {
 	protein?: number;
 	carbs?: number;
 	fat?: number;
+	/** Mission R3 : fiche G-Flux (badge « Référence G-Flux ») insérée dans le
+	 *  même bloc, à pertinence égale devant les fiches Ciqual. */
+	source?: "gflux";
+	/** Identité d'ajout `gflux:<id>` (absente pour une fiche Ciqual). */
+	id?: string;
 };
 
 /** Options de classement — `usedLabels` = libellés déjà journalisés par la cliente. */
@@ -311,6 +318,13 @@ export const searchCiqual = query({
 		if (!user) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
 		if (q.trim().length < 2) return [] as CiqualHit[];
 		const usedLabels = await usedCiqualLabels(ctx, user._id);
-		return searchCiqualLocal(q, limit ?? CIQUAL_DEFAULT_RESULTS, { usedLabels });
+		const requestedLimit = Math.max(1, Math.min(CIQUAL_MAX_RESULTS, Math.floor(limit ?? CIQUAL_DEFAULT_RESULTS)));
+		const ciqual = searchCiqualLocal(q, requestedLimit, { usedLabels });
+		// Mission R3 — aliments de référence G-Flux du coach : même section, mêmes
+		// règles de classement, G-Flux devant à pertinence égale. Aucune donnée
+		// Ciqual n'est lue en écriture ni modifiée.
+		const gflux = await listReferenceFoodsForUser(ctx, user);
+		if (gflux.length === 0) return ciqual;
+		return mergeReferenceHits(q, gflux, ciqual).slice(0, requestedLimit);
 	},
 });

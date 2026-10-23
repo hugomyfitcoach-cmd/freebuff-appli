@@ -59,12 +59,25 @@ export type SearchFood = {
 	custom?: boolean;
 	/** Fiche de RÉFÉRENCE Ciqual (ANSES) — _id = libellé officiel exact. */
 	ciqual?: boolean;
+	/** Fiche de RÉFÉRENCE G-FLUX (créée par le coach) — badge distinct de Ciqual.
+	 *  `_id` = `gflux:<id>` (le serveur résout la fiche à l'ajout). */
+	gflux?: boolean;
 	/** Badge de cuisson Ciqual (détection cookedState.ts, source unique) — null = aucun. */
 	cookLabel?: string | null;
 };
 
-/** Fiche Ciqual brute renvoyée par le BFF `/api/foods/ciqual`. */
-export type CiqualRaw = { label: string; kcal: number; protein?: number; carbs?: number; fat?: number };
+/** Fiche brute renvoyée par le BFF `/api/foods/ciqual` (Ciqual ou G-Flux). */
+export type CiqualRaw = {
+	label: string;
+	kcal: number;
+	protein?: number;
+	carbs?: number;
+	fat?: number;
+	/** « gflux » = aliment de référence créé par le coach (Mission R3). */
+	source?: 'gflux';
+	/** Identité d'ajout `gflux:<id>` (absente pour Ciqual). */
+	id?: string;
+};
 
 /** Réponse produits normalisée par le contrôleur (items + présence d'une suite). */
 export type SearchPage = { items: SearchFood[]; hasMore: boolean };
@@ -115,14 +128,18 @@ export type FoodSearchController = {
  *  Le badge de cuisson vient de la MÊME fonction que le classement
  *  (cookedState.ts) : une seule source, quelle que soit la carte. */
 export function ciqualToFood(h: CiqualRaw): SearchFood {
+	const gflux = h.source === 'gflux';
 	return {
-		_id: h.label,
+		// G-Flux : identité préfixée `gflux:<id>` (résolue côté serveur à
+		// l'ajout) ; Ciqual : libellé officiel exact.
+		_id: h.id ?? h.label,
 		name: h.label,
 		kcal100: h.kcal,
 		carbs100: h.carbs ?? 0,
 		protein100: h.protein ?? 0,
 		fat100: h.fat ?? 0,
 		ciqual: true,
+		...(gflux ? { gflux: true } : {}),
 		cookLabel: cookingBadgeOf(h.label),
 	};
 }

@@ -9,6 +9,8 @@ import { attachThumbs, attachThumbsForFoodIds } from "./foodImages";
 import { tagFoodImgUrl } from "../lib/foodImgTag";
 import { ciqualFoodSource } from "./ciqualSource";
 import { resolveCiqualLabel } from "./ciqual";
+import { resolveReferenceFoodLabel } from "./referenceFoods";
+import { gfluxIdFromLabel } from "../lib/referenceFoods";
 import { foodFrequencyKey, rankFrequentFoods, type FreqEntry } from "../lib/foodFrequency";
 import { internal } from "./_generated/api";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
@@ -162,16 +164,23 @@ export const addEntryForCoach = mutation({
 	},
 	handler: async (ctx, { sessionToken, userId, date, meal, foodId, ciqualLabel, qtyGrams }) => {
 		await resolveCoachTarget(ctx, sessionToken, userId);
+		const coach = await getSessionUser(ctx, sessionToken);
+		if (!coach) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
 		if (!isValidDateISO(date)) throw new ConvexError("Date invalide.");
 		if (!isMeal(meal)) throw new ConvexError("Repas invalide.");
 		if (!isFinite(qtyGrams) || qtyGrams <= 0 || qtyGrams > 5000) {
 			throw new ConvexError("Quantité invalide (entre 1 et 5000 g).");
 		}
+		// Fiche de RÉFÉRENCE G-FLUX (Mission R3) : libellé `gflux:<id>` — la fiche
+		// doit appartenir à la coach connectée. Valeurs copiées à l'ajout.
+		const gfluxRef = await resolveReferenceFoodLabel(ctx, coach, ciqualLabel);
 		// Fiche de référence Ciqual (additif) : valeurs résolues côté serveur,
 		// aucune donnée OFF lue ou fusionnée.
-		const ciqualRef = ciqualLabel ? ciqualFoodSource(ciqualLabel) : null;
-		if (ciqualLabel && !ciqualRef) throw new ConvexError("Cette référence Ciqual n'existe plus.");
-		if (!foodId && !ciqualRef) throw new ConvexError("Aucun aliment fourni.");
+		const ciqualRef = !gfluxRef && ciqualLabel ? ciqualFoodSource(ciqualLabel) : null;
+		if (ciqualLabel && !ciqualRef && !gfluxRef) {
+			throw new ConvexError(gfluxIdFromLabel(ciqualLabel) ? "Cette fiche G-Flux n'existe plus." : "Cette référence Ciqual n'existe plus.");
+		}
+		if (!foodId && !ciqualRef && !gfluxRef) throw new ConvexError("Aucun aliment fourni.");
 
 		let name: string;
 		let brand: string | undefined;
@@ -180,7 +189,13 @@ export const addEntryForCoach = mutation({
 		let carbs100: number;
 		let protein100: number;
 		let fat100: number;
-		if (ciqualRef) {
+		if (gfluxRef) {
+			name = gfluxRef.name;
+			kcal100 = gfluxRef.kcal;
+			carbs100 = gfluxRef.carbsG;
+			protein100 = gfluxRef.proteinG;
+			fat100 = gfluxRef.fatG;
+		} else if (ciqualRef) {
 			name = ciqualRef.name;
 			kcal100 = ciqualRef.kcal100;
 			carbs100 = ciqualRef.carbs100;
@@ -204,7 +219,7 @@ export const addEntryForCoach = mutation({
 			userId,
 			date,
 			meal,
-			foodId: ciqualRef ? undefined : foodId,
+			foodId: ciqualRef || gfluxRef ? undefined : foodId,
 			name,
 			brand,
 			imageUrl,
@@ -1078,11 +1093,20 @@ export const addEntry = mutation({
 		// /100 g depuis la table embarquée (jamais depuis le client). Aucune
 		// donnée OFF n'est lue, modifiée ou fusionnée : uniquement un snapshot
 		// journal comme pour tout autre aliment.
-		const ciqualRef = ciqualLabel ? ciqualFoodSource(ciqualLabel) : null;
-		if (ciqualLabel && !ciqualRef) {
-			throw new ConvexError("Cette référence Ciqual n'existe plus.");
+		// Mission R3 — fiche G-FLUX (`gflux:<id>`) : valeurs /100 g copiées depuis
+		// la fiche du coach de la cliente au moment de l'ajout. Aucune référence
+		// n'est conservée sur l'entrée : la modifier ou la supprimer ensuite ne
+		// change jamais le journal passé.
+		const gfluxRef = await resolveReferenceFoodLabel(ctx, user, ciqualLabel);
+		const ciqualRef = !gfluxRef && ciqualLabel ? ciqualFoodSource(ciqualLabel) : null;
+		if (ciqualLabel && !ciqualRef && !gfluxRef) {
+			throw new ConvexError(
+				gfluxIdFromLabel(ciqualLabel)
+					? "Cette fiche G-Flux n'existe plus."
+					: "Cette référence Ciqual n'existe plus."
+			);
 		}
-		if (!foodId && !customFoodId && !ciqualRef) {
+		if (!foodId && !customFoodId && !ciqualRef && !gfluxRef) {
 			throw new ConvexError("Aucun aliment fourni.");
 		}
 
@@ -1097,7 +1121,13 @@ export const addEntry = mutation({
 		let carbs100 = 0;
 		let protein100 = 0;
 		let fat100 = 0;
-		if (ciqualRef) {
+		if (gfluxRef) {
+			name = gfluxRef.name;
+			kcal100 = gfluxRef.kcal;
+			carbs100 = gfluxRef.carbsG;
+			protein100 = gfluxRef.proteinG;
+			fat100 = gfluxRef.fatG;
+		} else if (ciqualRef) {
 			name = ciqualRef.name;
 			kcal100 = ciqualRef.kcal100;
 			carbs100 = ciqualRef.carbs100;
@@ -1188,6 +1218,9 @@ export const addEntry = mutation({
 		}[] = [];
 		if (ciqualRef) {
 			portions.push({ userId: user._id, ciqualLabel, qtyGrams, meal });
+		} else if (gfluxRef) {
+			// Fiche G-Flux : aucune portion mémorisée (choix simple — la fiche peut
+			// être supprimée par le coach, le journal n'en dépend jamais).
 		} else if (foodId) {
 			portions.push({ userId: user._id, foodId, qtyGrams, meal });
 		} else if (customFoodId) {
