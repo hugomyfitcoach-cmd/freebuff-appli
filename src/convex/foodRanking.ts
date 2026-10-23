@@ -62,9 +62,13 @@ function deaccent(s: string): string {
 		.replace(/[\u0300-\u036f]/g, "");
 }
 
-/** Normalisation pour comparaison : minuscules, sans accents, ponctuation → espace. */
+/** Normalisation pour comparaison : minuscules, sans accents, ponctuation →
+ *  espace. Les apostrophes droites ET typographiques SÉPARENT les mots :
+ *  « d'avoine » / « d’avoine » → « d » + « avoine » (jamais « davoine »),
+ *  pour qu'une recherche « avoine » trouve « Flocon d'avoine ». */
 export function norm(s: string): string {
 	return deaccent(s.toLowerCase())
+		.replace(/['\u2019]/g, " ")
 		.replace(/[^a-z0-9]+/g, " ")
 		.trim();
 }
@@ -143,7 +147,12 @@ export function wordPresent(toks: string[], qTok: string): boolean {
 		if (t.startsWith(qTok)) return true;
 		const tc = sc !== undefined ? cookingStateOfToken(t) : undefined;
 		if (sc !== undefined && tc !== undefined && sameCookFamily(sc, tc)) return true;
-		if (qTok.length >= 4 && qTok.startsWith(t)) return true;
+		// Réciproque (genre : « complètes » ≈ « complet ») UNIQUEMENT sur un
+		// mot significatif : sans ce seuil, « avoine » matchait tous les noms
+		// contenant « a », « au », « d »… — 560 fiches hors sujet (Sole,
+		// Homard, Navet) présentées comme résultats. Les mots outils d'une
+		// fiche ne rendent jamais son nom pertinent.
+		if (t.length >= 4 && qTok.startsWith(t)) return true;
 	}
 	return false;
 }

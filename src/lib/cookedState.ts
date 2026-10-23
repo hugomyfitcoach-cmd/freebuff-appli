@@ -59,6 +59,9 @@ function normalizeToken(s: string): string[] {
 		.normalize('NFD')
 		.replace(/[\u0300-\u036f]/g, '')
 		.toLowerCase()
+		// Apostrophes droites et typographiques : séparateurs de mots
+		// (« d’avoine » → « d » + « avoine », jamais « davoine »).
+		.replace(/['\u2019]/g, ' ')
 		.replace(/[^a-z0-9]+/g, ' ')
 		.trim()
 		.split(' ')
@@ -197,6 +200,9 @@ function cookingText(s: string): string {
 		.normalize('NFD')
 		.replace(/[\u0300-\u036f]/g, '')
 		.toLowerCase()
+		// Apostrophes droites et typographiques : séparateurs de mots
+		// (« d’avoine » → « d » + « avoine », jamais « davoine »).
+		.replace(/['\u2019]/g, ' ')
 		.replace(/[^a-z0-9]+/g, ' ')
 		.replace(/\s+/g, ' ')
 		.trim();

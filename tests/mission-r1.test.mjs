@@ -365,3 +365,44 @@ test('OFF : règle « tous les mots présents » — les produits complets passe
 		'pluriel/accents équivalents'
 	);
 });
+
+/* ─── 19) R1-ter : apostrophes + AUCUN résultat de remplissage ─── */
+
+test('avoine : uniquement des noms qui contiennent « avoine », flocons inclus', () => {
+	const all = rankCiqual('avoine').map((h) => h.label);
+	assert.ok(all.length > 0, 'au moins une fiche pertinente');
+	assert.ok(
+		all.every((l) => plain(l).split(' ').some((w) => w.startsWith('avoine'))),
+		`chaque fiche porte le mot « avoine » en début de mot (obtenu : ${all.slice(0, 6).join(' | ')})`
+	);
+	const shown = labels('avoine', 13);
+	assert.ok(
+		shown.some((l) => /flocons d'avoine/i.test(l)),
+		`« Flocons d'avoine » présent (apostrophe = séparateur de mots) — obtenu : ${shown.join(' | ')}`
+	);
+	// La mésaventure Preview : « avoine » remplissait la liste avec des fiches
+	// sans rapport (mots outils « a », « au », « d » pris pour des préfixes).
+	for (const bad of ['sole', 'homard', 'navet']) {
+		assert.ok(!all.some((l) => plain(l).startsWith(bad)), `aucun « ${bad} » pour « avoine »`);
+	}
+});
+
+test('olive : « Huile d\'olive » est trouvée (apostrophe droite et typographique)', () => {
+	const shown = labels('olive', 13);
+	assert.ok(
+		shown.some((l) => /^huile d'olive/i.test(l)),
+		`« Huile d'olive vierge extra » présente — obtenu : ${shown.join(' | ')}`
+	);
+	assert.ok(
+		shown.every((l) => plain(l).split(' ').some((w) => w.startsWith('olive'))),
+		`aucune fiche sans le mot « olive » (obtenu : ${shown.join(' | ')})`
+	);
+	// Les deux apostrophes séparent « d » et « avoine » de la même façon.
+	for (const q of ["d'avoine", 'd’avoine']) {
+		const out = labels(q, 13);
+		assert.ok(
+			out.some((l) => /flocons d'avoine/i.test(l)),
+			`« ${q} » : flocons trouvés (obtenu : ${out.join(' | ')})`
+		);
+	}
+});
