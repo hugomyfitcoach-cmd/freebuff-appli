@@ -308,6 +308,10 @@ test('FICHE : avertissement 15 % supprimé (C2c-3), plafonds dépassés conserv�
 
 test("APPLY : écrit l'objectif (clientGoals), l'historique (clientGoalHistory) et l'instantané", async () => {
 	const { ctx, coachId, userId } = await ctxAvecCoach();
+	/* Date d'effet PASSÉE, calculée par rapport à aujourd'hui (hier, fuseau
+	   Europe/Paris) : depuis C2c-4 le serveur refuse toute date future. */
+	const { localTodayISO, addDaysISO } = await import(new URL('../src/convex/helpers.ts', import.meta.url).href);
+	const EFFET = addDaysISO(localTodayISO(), -1);
 	const res = await calibConvex.apply._handler(ctx, {
 		sessionToken: TOKEN,
 		userId,
@@ -317,10 +321,10 @@ test("APPLY : écrit l'objectif (clientGoals), l'historique (clientGoalHistory) 
 		protein: 102,
 		fat: 54,
 		maintenanceKcal: 1739,
-		effectiveFrom: '2026-10-27'
+		effectiveFrom: EFFET
 	});
 	assert.equal(res.ok, true);
-	assert.equal(res.effectiveFrom, '2026-10-27');
+	assert.equal(res.effectiveFrom, EFFET);
 
 	const goals = ctx.all('clientGoals');
 	assert.equal(goals.length, 1);
@@ -333,14 +337,14 @@ test("APPLY : écrit l'objectif (clientGoals), l'historique (clientGoalHistory) 
 	const history = ctx.all('clientGoalHistory');
 	assert.equal(history.length, 1);
 	assert.equal(history[0].kcal, 1630);
-	assert.equal(history[0].effectiveFrom, '2026-10-27', "l'historique porte la DATE D'EFFET choisie");
+	assert.equal(history[0].effectiveFrom, EFFET, "l'historique porte la DATE D'EFFET choisie");
 	assert.equal(history[0].createdBy, coachId);
 
 	const snaps = ctx.all('calibrageSnapshots');
 	assert.equal(snaps.length, 1);
 	assert.equal(snaps[0].userId, userId);
 	assert.equal(snaps[0].formulaVersion, cal.VERSION_FORMULES_CALIBRAGE);
-	assert.equal(snaps[0].effectiveFrom, '2026-10-27');
+	assert.equal(snaps[0].effectiveFrom, EFFET);
 	assert.equal(snaps[0].createdBy, coachId);
 	assert.equal(snaps[0].inputs.poidsKg, 60, 'entrées figées dans l’instantané');
 	assert.equal(snaps[0].results.maintenanceKcal, 1739, 'résultats = module');
@@ -349,8 +353,16 @@ test("APPLY : écrit l'objectif (clientGoals), l'historique (clientGoalHistory) 
 
 test('APPLY : les journées avant la date d’effet gardent l’ancien objectif (chemin existant)', async () => {
 	const { ctx, userId } = await ctxAvecCoach();
-	/* Cliente existante : objectif 1 600 déjà en place, aucun historique. */
-	await ctx.db.insert('clientGoals', { userId, kcal: 1600, carbs: 200, protein: 90, fat: 60 });
+	/* Date d'effet PASSÉE, calculée par rapport à aujourd'hui (hier, fuseau
+	   Europe/Paris) : depuis C2c-4 le serveur refuse toute date future. */
+	const { localTodayISO, addDaysISO } = await import(new URL('../src/convex/helpers.ts', import.meta.url).href);
+	const EFFET = addDaysISO(localTodayISO(), -1);
+	const VEILLE = addDaysISO(EFFET, -1);
+	/* Cliente existante : objectif 1 600 déjà en place, aucun historique.
+	   La BASELINE legacy s'ancre sur la date de création de clientGoals : on la
+	   fige dans le passé (cliente d'avant l'historisation) comme en production. */
+	const goalsId = await ctx.db.insert('clientGoals', { userId, kcal: 1600, carbs: 200, protein: 90, fat: 60 });
+	await ctx.db.patch(goalsId, { _creationTime: Date.parse('2026-09-01T12:00:00Z') });
 	await calibConvex.apply._handler(ctx, {
 		sessionToken: TOKEN,
 		userId,
@@ -359,15 +371,15 @@ test('APPLY : les journées avant la date d’effet gardent l’ancien objectif 
 		carbs: 220,
 		protein: 110,
 		fat: 60,
-		effectiveFrom: '2026-10-27'
+		effectiveFrom: EFFET
 	});
 	const history = ctx.all('clientGoalHistory');
 	/* Même chemin que setClientGoals : ligne d'effet + BASELINE legacy de l'ancien objectif. */
 	const rows = history.map((h) => ({ kcal: h.kcal, effectiveFrom: h.effectiveFrom })).sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
-	assert.ok(rows.some((r) => r.kcal === 1800 && r.effectiveFrom === '2026-10-27'), 'nouvel objectif daté');
-	assert.ok(rows.some((r) => r.kcal === 1600 && r.effectiveFrom < '2026-10-27'), 'ancien objectif historisé (baseline)');
-	assert.equal(kcalGoalForDate(rows, '2026-10-26', 1800), 1600, 'hier garde l’ancien objectif');
-	assert.equal(kcalGoalForDate(rows, '2026-10-27', 1800), 1800, 'la date d’effet applique le nouveau');
+	assert.ok(rows.some((r) => r.kcal === 1800 && r.effectiveFrom === EFFET), 'nouvel objectif daté');
+	assert.ok(rows.some((r) => r.kcal === 1600 && r.effectiveFrom < EFFET), 'ancien objectif historisé (baseline)');
+	assert.equal(kcalGoalForDate(rows, VEILLE, 1800), 1600, 'la veille garde l’ancien objectif');
+	assert.equal(kcalGoalForDate(rows, EFFET, 1800), 1800, 'la date d’effet applique le nouveau');
 });
 
 /* ── 4 · Annulation sans écriture + accès ── */

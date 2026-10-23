@@ -93,3 +93,20 @@ export function messagesChampsCalibrage(saisies: SaisiesCalibrage): Record<Champ
 export function saisiesCalibrageValides(saisies: SaisiesCalibrage): boolean {
 	return CHAMPS_CALIBRAGE.every((champ) => messageChampCalibrage(champ, saisies[champ]) === null);
 }
+
+/** Message du refus d'une date d'effet future (Europe/Paris). */
+export const MESSAGE_DATE_FUTURE =
+	"La date d'effet ne peut pas être dans le futur : au maximum aujourd'hui (Europe/Paris).";
+
+/**
+ * Date d'effet : JAMAIS dans le futur (maximum = aujourd'hui, fuseau
+ * Europe/Paris). Partagé par l'écran (bloc « Appliquer à la fiche ») et par la
+ * mutation serveur (`calibrage.apply`) : les deux comparent la date saisie à
+ * la date du jour métier. Les dates ISO se comparent lexicalement. Un format
+ * non « yyyy-mm-dd » est laissé au contrôle de format dédié (null ici).
+ */
+export function messageDateEffetFuture(dateISO: string, aujourdISO: string): string | null {
+	const estISO = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
+	if (!estISO(dateISO) || !estISO(aujourdISO)) return null;
+	return dateISO > aujourdISO ? MESSAGE_DATE_FUTURE : null;
+}

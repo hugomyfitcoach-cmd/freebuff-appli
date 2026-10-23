@@ -56,7 +56,11 @@
 		recalculerObjectif,
 		type ChampSaisi
 	} from '$lib/goalMacros';
-	import { messagesChampsCalibrage, saisiesCalibrageValides } from '$lib/calibrageSaisie';
+	import {
+		messageDateEffetFuture,
+		messagesChampsCalibrage,
+		saisiesCalibrageValides
+	} from '$lib/calibrageSaisie';
 	import { MACRO_DEFS } from '$lib/macros';
 	import {
 		SPORT_CATALOG,
@@ -1777,6 +1781,10 @@
 	let applyFat = $state(0);
 	let applyMaintenance = $state('');
 	let applyDate = $state('');
+	/** Date d'effet maximale = aujourd'hui (fuseau Europe/Paris, valeur serveur) :
+	 *  une date future est refusée à l'écran (attribut max + contrôle ci-dessous)
+	 *  comme côté serveur (`calibrage.apply`). */
+	const calDateMax = $derived(calibragePre?.today ?? '');
 	let applyBusy = $state(false);
 	let applyError = $state('');
 	let applyMsg = $state('');
@@ -1935,6 +1943,13 @@
 		applyMsg = '';
 		if (applyBlocageGlucides) {
 			applyError = applyBlocageGlucides;
+			return;
+		}
+		/* Date d'effet : maximum aujourd'hui (Europe/Paris) — jamais de date
+		   future, refusée ici avec le MÊME message que la mutation serveur. */
+		const msgDateFuture = messageDateEffetFuture(applyDate, calDateMax);
+		if (msgDateFuture) {
+			applyError = msgDateFuture;
 			return;
 		}
 		calConfirmOpen = true;
@@ -4463,13 +4478,16 @@
 								class="rounded-full border-2 border-line bg-white px-4 py-2 text-sm font-bold text-ink transition hover:border-brand"
 							>Quitter le mode présentation</button>
 						</div>
-						{#if calR}
+						{#if calR && calSemaine}
 							<div class="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-								<!-- Couleurs : objectif en vert, perte de graisse en violet —
-								     mêmes repères que le bandeau et les résultats. -->
+								<!-- VALEURS RÉELLEMENT RETENUES : objectif et macros du bloc
+								     « Appliquer à la fiche » (même modifiés à la main), semaine
+								     type appliquée (calSemaine, jours personnalisés compris) —
+								     jamais les valeurs calculées non retenues. Maintenance =
+								     maintenance TOTALE (sport habituel inclus), comme partout. -->
 								{#each [
-									{ label: 'Objectif journalier', value: `${calR.objectifJournalierKcal.toLocaleString('fr-FR')} kcal`, classe: 'text-brand-dark' },
-									{ label: 'Maintenance', value: `${Math.round(calR.maintenanceKcal).toLocaleString('fr-FR')} kcal`, classe: 'text-ink' },
+									{ label: 'Objectif journalier', value: `${applyKcal.toLocaleString('fr-FR')} kcal`, classe: 'text-brand-dark' },
+									{ label: 'Maintenance', value: `${Math.round(calR.maintenanceFiletKcal).toLocaleString('fr-FR')} kcal`, classe: 'text-ink' },
 									{ label: 'Perte estimée', value: `${String(calR.perteGraisseKg).replace('.', ',')} kg/sem`, classe: 'text-loss' },
 									{ label: 'Coefficient', value: String(calR.coefficient).replace('.', ','), classe: 'text-ink' }
 								] as kpi (kpi.label)}
@@ -4483,21 +4501,21 @@
 							     (protéines bleu, lipides orange, glucides rose — $lib/macros). -->
 							<p class="mt-4 text-center text-sm font-semibold text-ink">
 								Macros :
-								<span style="color:{macroColor('protein')}">{calR.macros.proteinesG} g de protéines</span> ·
-								<span style="color:{macroColor('fat')}">{calR.macros.lipidesG} g de lipides</span> ·
-								<span style="color:{macroColor('carbs')}">{calR.macros.glucidesG} g de glucides</span>
+								<span style="color:{macroColor('protein')}">{applyProtein} g de protéines</span> ·
+								<span style="color:{macroColor('fat')}">{applyFat} g de lipides</span> ·
+								<span style="color:{macroColor('carbs')}">{applyCarbs} g de glucides</span>
 							</p>
 							<div class="mt-4 grid grid-cols-7 gap-2">
-								{#each calR.semaine.apportsKcal as apport, i (i)}
+								{#each calSemaine.apportsKcal as apport, i (i)}
 									<div class="rounded-xl bg-white/80 px-1 py-2.5 text-center">
 										<div class="text-[10px] font-bold uppercase text-mist">{JOURS_COURTS[i]}</div>
 										<div class="mt-1 text-sm font-bold text-ink">{apport.toLocaleString('fr-FR')}</div>
-										<span class="mt-1.5 mx-auto block h-2 w-2 rounded-full {DISPONIBILITE_NIVEAUX[calR.semaine.niveauxDisponibilite[i]].pastille}" title={DISPONIBILITE_NIVEAUX[calR.semaine.niveauxDisponibilite[i]].label}></span>
+										<span class="mt-1.5 mx-auto block h-2 w-2 rounded-full {DISPONIBILITE_NIVEAUX[calSemaine.niveauxDisponibilite[i]].pastille}" title={DISPONIBILITE_NIVEAUX[calSemaine.niveauxDisponibilite[i]].label}></span>
 									</div>
 								{/each}
 							</div>
 							<p class="mt-3 text-center text-xs text-mist">
-								Déficit total de la semaine : {Math.round(-calR.semaine.deficitSemaineKcal).toLocaleString('fr-FR')} kcal · graisse estimée <strong class="text-loss">{String(Math.abs(calR.semaine.graisseKg)).replace('.', ',')} kg</strong>
+								Déficit total de la semaine : {Math.round(-calSemaine.deficitSemaineKcal).toLocaleString('fr-FR')} kcal · graisse estimée <strong class="text-loss">{formatPerteGraisse(Math.abs(calSemaine.graisseKg))} kg</strong>
 							</p>
 							<!-- MESSAGES CLIENTE — neutres et rassurants (module pur). Jamais
 							     les mots alerte, risque, dépasse, exceptionnelle, ni Alpert/
@@ -4892,7 +4910,7 @@
 								</label>
 								<label class="block">
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Date d'effet</span>
-									<input type="date" bind:value={applyDate} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+									<input type="date" bind:value={applyDate} max={calDateMax} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
 								</label>
 								<label class="block">
 									<!-- Couleurs macros du Journal cliente (rose · bleu · orange). -->

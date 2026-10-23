@@ -5,6 +5,7 @@ import { bodyFatSeries } from "./metrics";
 import { DEFAULT_GOALS, baselineLegacyGoalHistory, loadGoalHistory, upsertGoalHistoryToday } from "./journal";
 import { CalibrageError, VERSION_FORMULES_CALIBRAGE } from "../lib/calibrage";
 import { resultatsFiche, type EntreesFicheCalibrage } from "../lib/calibrageFiche";
+import { messageDateEffetFuture } from "../lib/calibrageSaisie";
 import type { Doc } from "./_generated/dataModel";
 
 /**
@@ -45,6 +46,33 @@ function estDateISO(s: string): boolean {
 	const dt = new Date(Date.UTC(y, m - 1, d));
 	return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
 }
+
+/** Une séance du profil sportif habituel — validateur STRICT (jamais v.any()). */
+const seanceValidator = v.object({
+	activiteId: v.string(),
+	seancesParSemaine: v.number(),
+	dureeMinutes: v.number(),
+	choix: v.string()
+});
+
+/**
+ * Entrées du calibrage — validateur Convex STRICT : la forme exacte attendue
+ * par `resultatsFiche`, rien d'autre n'est accepté (champ inconnu refusé à la
+ * frontière). La semaine type (`apportsSemaine`, 7 apports ou null) en fait
+ * partie : les résultats recalculés côté serveur l'intègrent toujours.
+ */
+const entreesValidator = v.object({
+	poidsKg: v.number(),
+	mgPct: v.number(),
+	pasMoyen: v.number(),
+	heuresTravail: v.number(),
+	ajustementTravail: v.optional(v.number()),
+	adaptationPct: v.optional(v.number()),
+	deficitPct: v.optional(v.number()),
+	proteinesParKgMasseMaigre: v.optional(v.number()),
+	seances: v.array(seanceValidator),
+	apportsSemaine: v.array(v.union(v.number(), v.null()))
+});
 
 export const fiche = query({
 	args: {
@@ -149,7 +177,7 @@ export const apply = mutation({
 		sessionToken: v.optional(v.string()),
 		userId: v.id("users"),
 		/** Entrées du calibrage figées dans l'instantané (recopiées telles quelles). */
-		entrees: v.record(v.string(), v.any()),
+		entrees: entreesValidator,
 		/** Objectif appliqué (le coach peut l'ajuster avant d'appliquer). */
 		kcal: v.number(),
 		carbs: v.number(),
@@ -187,12 +215,21 @@ export const apply = mutation({
 		if (!estDateISO(effectiveFrom)) {
 			throw new ConvexError("Date d'effet invalide : format « jj/mm/aaaa » attendu (yyyy-mm-dd).");
 		}
+		/* Date d'effet : JAMAIS dans le futur (maximum = aujourd'hui, fuseau
+		   Europe/Paris). Refus serveur clair — aucune tâche programmée : un
+		   calibrage s'applique au plus tard aujourd'hui. */
+		const messageDate = messageDateEffetFuture(effectiveFrom, localTodayISO());
+		if (messageDate) {
+			throw new ConvexError(messageDate);
+		}
 
-		/* Instantané : les RÉSULTATS sont recalculés par le module (la seule
-		   source des formules) à partir des entrées figées — jamais inventés. */
+		/* Instantané : les RÉSULTATS sont TOUJOURS recalculés côté serveur par
+		   le module (la seule source des formules) à partir des entrées validées,
+		   semaine type personnalisée (`apportsSemaine`) comprise — le navigateur
+		   n'envoie et ne fournit JAMAIS de résultats. */
 		let resultats;
 		try {
-			resultats = resultatsFiche(entrees as unknown as EntreesFicheCalibrage);
+			resultats = resultatsFiche(entrees);
 		} catch (e) {
 			throw new ConvexError(
 				e instanceof CalibrageError || e instanceof Error ? e.message : "Calibrage invalide."
