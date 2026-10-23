@@ -17,6 +17,7 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 import { warmFoodImages } from '$lib/foodImageWarm';
 import { journalTipForDay } from '$lib/data/journalTips';
 import { optimizeImageFile } from '$lib/media';
+import { clearRecipeDraft, loadRecipeDraft, saveRecipeDraft } from '$lib/recipeDraft';
 
 	type Goals = { kcal: number; carbs: number; protein: number; fat: number; maintenanceKcal?: number };
 	type Entry = {
@@ -1879,6 +1880,13 @@ import { optimizeImageFile } from '$lib/media';
 	let mealSearchMode = $state<'search' | 'barcode'>('search');
 	let mealSaving = $state(false);
 	let mealError = $state('');
+	/** Cliente connectée (clé de brouillon PAR compte). */
+	const recipeUserId = $derived(data.user?._id ?? '');
+	/** Un brouillon local existe pour cette nouvelle recette (proposé à l'ouverture). */
+	let recipeDraftFound = $state(false);
+	/** Confirmation de sortie du formulaire (brouillon gardé). */
+	let mealLeaveConfirm = $state(false);
+	let recipeDraftTimer: ReturnType<typeof setTimeout> | undefined;
 
 	function openMealEditor() {
 		leaveBarcodeForEditor();
@@ -1893,7 +1901,9 @@ import { optimizeImageFile } from '$lib/media';
 			mealShowScrollHint = false;
 			mealCiqualResults = [];
 			mealError = '';
-		}
+		recipeDraftFound = !!loadRecipeDraft(recipeUserId);
+		mealLeaveConfirm = false;
+	}
 	/** Édition : pré-remplit l'éditeur avec le repas existant (ingrédients « reconstruits »
 	 *  depuis le snapshot — mêmes valeurs /100 g, le serveur recalcule à l'enregistrement). */
 	function openMealEditorFor(meal: Meal) {
@@ -1930,10 +1940,110 @@ import { optimizeImageFile } from '$lib/media';
 			mealCiqualResults = [];
 			mealError = '';
 		}
-	function closeMealEditor() {
+	/* ————— Brouillon de recette (NOUVELLE recette uniquement) —————
+	   La saisie survit à une sortie de l'écran (localStorage, par cliente).
+	   Jamais de photo dans le brouillon : nom, description, ingrédients. */
+	function recipeHasContent(): boolean {
+		return mealName.trim().length > 0 || mealDesc.trim().length > 0 || mealItems.length > 0;
+	}
+	function draftIngredients() {
+		return mealItems.map((it) => ({
+			foodId: it.food._id,
+			name: it.food.name,
+			...(it.food.brand ? { brand: it.food.brand } : {}),
+			kcal100: it.food.kcal100,
+			carbs100: it.food.carbs100,
+			protein100: it.food.protein100,
+			fat100: it.food.fat100,
+			qty: it.qty,
+			...(it.customFoodId ? { customFoodId: it.customFoodId } : {}),
+			...(it.ciqualLabel ? { ciqualLabel: it.ciqualLabel } : {}),
+			...(it.aiEstimate ? { aiEstimate: true } : {}),
+		}));
+	}
+	/** Écrit tout de suite le brouillon (sortie volontaire : rien ne se perd). */
+	function persistRecipeDraftNow() {
+		if (!mealEditor || mealEditingId || !recipeHasContent()) return;
+		if (!recipeUserId) return;
+		if (recipeDraftTimer) clearTimeout(recipeDraftTimer);
+		recipeDraftTimer = undefined;
+		saveRecipeDraft(recipeUserId, { name: mealName, description: mealDesc, ingredients: draftIngredients() });
+	}
+	/** Sauvegarde automatique (500 ms après la dernière frappe), nouvelle recette seulement. */
+	$effect(() => {
+		const open = mealEditor;
+		const editingId = mealEditingId;
+		const name = mealName;
+		const description = mealDesc;
+		const items = mealItems;
+		const userId = recipeUserId;
+		if (!open || editingId || !userId) return;
+		if (!name.trim() && !description.trim() && items.length === 0) return;
+		if (recipeDraftTimer) clearTimeout(recipeDraftTimer);
+		recipeDraftTimer = setTimeout(() => {
+			recipeDraftTimer = undefined;
+			saveRecipeDraft(userId, { name, description, ingredients: draftIngredients() });
+		}, 500);
+		return () => {
+			if (recipeDraftTimer) clearTimeout(recipeDraftTimer);
+			recipeDraftTimer = undefined;
+		};
+	});
+	/** Reprise : remplit le formulaire avec le brouillon. */
+	function resumeRecipeDraft() {
+		const draft = loadRecipeDraft(recipeUserId);
+		recipeDraftFound = false;
+		if (!draft) return;
+		mealName = draft.name;
+		mealDesc = draft.description;
+		mealItems = draft.ingredients.map((ing) => ({
+			food: {
+				_id: ing.foodId,
+				name: ing.name,
+				brand: ing.brand,
+				kcal100: ing.kcal100,
+				carbs100: ing.carbs100,
+				protein100: ing.protein100,
+				fat100: ing.fat100,
+				custom: !!ing.customFoodId,
+				ciqual: !!ing.ciqualLabel,
+			},
+			qty: ing.qty,
+			custom: !!ing.customFoodId,
+			customFoodId: ing.customFoodId,
+			ciqualLabel: ing.ciqualLabel,
+			aiEstimate: ing.aiEstimate,
+		}));
+	}
+	/** Recommencer : le brouillon est supprimé, le formulaire reste vierge. */
+	function restartRecipeDraft() {
+		clearRecipeDraft(recipeUserId);
+		recipeDraftFound = false;
+	}
+	/** Fermeture immédiate (enregistrement réussi, changement d'onglet, abandon confirmé). */
+	function closeMealEditorNow() {
+		persistRecipeDraftNow();
 		void closeMealSearch(); // fenêtre produit refermée + scanner éventuellement arrêté
 		mealEditor = false;
 		mealEditingId = null;
+		mealLeaveConfirm = false;
+		recipeDraftFound = false;
+	}
+	/** Bouton retour du formulaire : confirme si une saisie non enregistrée existe. */
+	function closeMealEditor() {
+		if (!mealEditingId && recipeHasContent()) {
+			persistRecipeDraftNow();
+			mealLeaveConfirm = true;
+			return;
+		}
+		closeMealEditorNow();
+	}
+	function keepEditingRecipe() {
+		mealLeaveConfirm = false;
+	}
+	function quitRecipeEditor() {
+		mealLeaveConfirm = false;
+		closeMealEditorNow();
 	}
 
 	/**
@@ -1946,7 +2056,7 @@ import { optimizeImageFile } from '$lib/media';
 	 */
 	function switchTab(tab: 'produits' | 'repas' | 'crees') {
 		if (tab === searchTab) return;
-		if (mealEditor) closeMealEditor();
+		if (mealEditor) closeMealEditorNow();
 		if (customEditor) closeCustomEditor();
 		searchTab = tab;
 		if (tab !== 'produits') favOnly = false;
@@ -2172,7 +2282,8 @@ import { optimizeImageFile } from '$lib/media';
 			const j = await r.json();
 			if (j.error) throw new Error(j.error);
 			await loadMeals();
-			closeMealEditor();
+			closeMealEditorNow();
+			clearRecipeDraft(recipeUserId); // recette enregistrée : plus de brouillon
 			searchTab = 'repas';
 		} catch (e) {
 			mealError = e instanceof Error ? e.message : String(e);
@@ -4230,6 +4341,17 @@ import { optimizeImageFile } from '$lib/media';
 						<div>
 							<h2 class="mt-4 mb-3 text-[30px] font-black leading-[1.1] tracking-[-0.03em] text-ink">{mealEditingId ? 'Modifier la recette' : 'Nouvelle recette'}</h2>
 
+							{#if recipeDraftFound && !mealEditingId}
+								<!-- Brouillon local retrouvé : reprendre la saisie ou repartir de zéro. -->
+								<div class="mb-3 rounded-2xl border border-brand/30 bg-brand-light/60 p-3">
+									<p class="text-sm font-bold text-ink">Tu as une recette en cours</p>
+									<div class="mt-2 flex items-center gap-2">
+										<button type="button" class="rounded-full bg-brand px-4 py-2 text-sm font-bold text-white transition hover:bg-brand-dark" onclick={resumeRecipeDraft}>Reprendre</button>
+										<button type="button" class="rounded-full border border-line bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:bg-cream" onclick={restartRecipeDraft}>Recommencer</button>
+									</div>
+								</div>
+							{/if}
+
 							<input
 								type="text"
 								class="w-full rounded-xl border-2 border-line bg-cream px-3 py-2.5 text-sm font-semibold text-ink outline-none focus:border-brand"
@@ -5722,6 +5844,20 @@ import { optimizeImageFile } from '$lib/media';
 		}}
 		onClose={() => { if (!portionSaving) qtyMealSel = null; }}
 	/>
+{/if}
+
+<!-- ═══════════ Quitter la recette (brouillon gardé) ═══════════ -->
+{#if mealLeaveConfirm}
+	<div class="fixed inset-0 z-[80] grid place-items-center bg-ink/40 p-5" role="dialog" aria-modal="true" aria-labelledby="recipe-leave-title" aria-describedby="recipe-leave-body">
+		<div class="w-full max-w-[360px] rounded-3xl bg-white p-5 shadow-2xl">
+			<p id="recipe-leave-title" class="text-[17px] font-bold text-ink">Quitter la recette ?</p>
+			<p id="recipe-leave-body" class="mt-1 text-sm text-mist">Ton brouillon est gardé sur ce téléphone.</p>
+			<div class="mt-4 flex items-center justify-end gap-2">
+				<button type="button" class="rounded-full border border-line bg-white px-4 py-2 text-[14px] font-semibold text-ink transition hover:bg-cream" onclick={keepEditingRecipe}>Continuer</button>
+				<button type="button" class="rounded-full bg-brand px-5 py-2 text-[14px] font-bold text-white transition hover:bg-brand-dark" onclick={quitRecipeEditor}>Quitter</button>
+			</div>
+		</div>
+	</div>
 {/if}
 
 <!-- ═══════════ Feuille quantité (aliment) — édition ═══════════ -->
