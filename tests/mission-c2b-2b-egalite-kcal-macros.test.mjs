@@ -162,11 +162,13 @@ test('Badges « modifié » inchangés : chaque champ compare sa référence', (
 	}
 });
 
-test('« Reprendre les valeurs calculées » inchangé : bouton + résolution complète', () => {
-	assert.ok(adminPage.includes('onclick={reprendreValeursCalculees}'), 'bouton branché');
-	const debut = adminPage.indexOf('function reprendreValeursCalculees');
-	const corps = adminPage.slice(debut, adminPage.indexOf('async function appliquerCalibrage'));
-	assert.ok(debut > 0, 'fonction présente');
+test('« Reprendre les valeurs calculées » SUPPRIMÉ : la dernière action gagne (C2c-3)', () => {
+	/* Le bouton et sa fonction disparaissent avec le bandeau « Les résultats ont
+	   changé » : les champs sont recalculés automatiquement à chaque entrée. */
+	assert.ok(!adminPage.includes('onclick={reprendreValeursCalculees}'), 'bouton supprimé');
+	assert.ok(!adminPage.includes('function reprendreValeursCalculees'), 'fonction supprimée');
+	assert.ok(!adminPage.includes('applyResultatsChanges'), 'état du bandeau supprimé');
+	const suivi = adminPage.slice(adminPage.indexOf('$effect(() => {'), adminPage.indexOf('function recalculerApresSaisie'));
 	for (const ligne of [
 		'applyKcal = r.objectifJournalierKcal;',
 		'applyCarbs = r.macros.glucidesG;',
@@ -175,10 +177,9 @@ test('« Reprendre les valeurs calculées » inchangé : bouton + résolution co
 		'refKcal = applyKcal;',
 		'refCarbs = applyCarbs;',
 		'refProtein = applyProtein;',
-		'refFat = applyFat;',
-		'applyResultatsChanges = false;'
+		'refFat = applyFat;'
 	]) {
-		assert.ok(corps.includes(ligne), `reprise inchangée : ${ligne}`);
+		assert.ok(suivi.includes(ligne), `recalcul inconditionnel : ${ligne}`);
 	}
 });
 

@@ -284,7 +284,7 @@ test('PRÉ-REMPLISSAGE : objectif = objectif journalier moyen · maintenance = b
 	assert.ok(adminPage.includes('applyFat = r.macros.lipidesG;'), 'lipides = macros du jour type');
 });
 
-test('PRÉ-REMPLISSAGE : un champ ajusté par le coach affiche « modifié » et n’est jamais ré-écrasé', () => {
+test('PRÉ-REMPLISSAGE : un champ ajusté par le coach affiche « modifié » — dernière action gagne (C2c-3)', () => {
 	/* Badge « modifié » sur les cinq champs (objectif, maintenance, macros). */
 	const badges = adminPage.match(/normal-case text-warn\">modifié<\/span>/g) ?? [];
 	assert.equal(badges.length, 5, 'cinq badges « modifié », un par champ ajustable');
@@ -293,22 +293,23 @@ test('PRÉ-REMPLISSAGE : un champ ajusté par le coach affiche « modifié » et
 	assert.ok(adminPage.includes('{#if applyCarbs !== refCarbs}'), 'glucides : idem');
 	assert.ok(adminPage.includes('{#if applyProtein !== refProtein}'), 'protéines : idem');
 	assert.ok(adminPage.includes('{#if applyFat !== refFat}'), 'lipides : idem');
-	/* Les champs NON modifiés suivent les résultats affichés ; les autres restent. */
-	assert.ok(adminPage.includes('if (!applyInitialise || applyKcal === refKcal)'));
-	assert.ok(adminPage.includes('if (!applyInitialise || applyMaintenance === refMaintenance)'));
+	/* Mission C2c-3 — règle « la dernière action gagne » : dès qu’une entrée du
+	   calibrage change, TOUS les champs sont recalculés depuis les résultats et
+	   les badges « modifié » disparaissent (plus jamais de champ préservé). */
+	assert.ok(adminPage.includes('applyKcal = r.objectifJournalierKcal;'), 'objectif recalculé à chaque entrée');
+	assert.ok(!adminPage.includes('applyKcal === refKcal'), 'écrasement inconditionnel : la dernière action gagne');
 });
 
 /* ── 5 · Les trois cas d'avertissement ── */
 
-test('AVERTISSEMENT 1 : déficit > 15 % → message neutre, sans jugement de rythme', () => {
+test('AVERTISSEMENT 1 : déficit > 15 % → avertissement « règle de 10 à 15 % » SUPPRIMÉ (C2c-3)', () => {
 	const dur = fiche.resultatsFiche({ ...ENTREES, deficitPct: 20 });
-	assert.equal(dur.avertissementDeficit, 'Déficit supérieur à la règle de 10 à 15 % : décision du coach.');
+	assert.equal('avertissementDeficit' in dur, false, 'champ avertissementDeficit supprimé des résultats');
 	/* « dépasse le rythme conseillé » n'apparaît JAMAIS pour un simple déficit. */
-	assert.ok(!dur.avertissementDeficit.includes('rythme conseillé'));
 	assert.equal(dur.alertePlafonds, null, 'perte sous les plafonds : aucun message de rythme');
 	assert.ok(!adminPage.includes('dépasse le rythme conseillé'), 'le CRM ne recopie jamais ce message');
 	const doux = fiche.resultatsFiche({ ...ENTREES, deficitPct: 15 });
-	assert.equal(doux.avertissementDeficit, null, '15 % reste dans la règle de 10 à 15 %');
+	assert.equal('avertissementDeficit' in doux, false, 'aucun avertissement de déficit, quel que soit le taux');
 });
 
 test('AVERTISSEMENT 2 : « dépasse le rythme conseillé » seulement au-delà des plafonds Alpert / Macdonald', () => {

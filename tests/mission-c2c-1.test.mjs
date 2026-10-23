@@ -112,10 +112,10 @@ test('IMPACT : recalculé à partir de l’objectif saisi — 1 550 au lieu de 1
 	assert.ok(adminPage.includes("Impact de l'objectif appliqué"), 'encadré présent sous les champs');
 	assert.ok(adminPage.includes('objectifKcal: applyKcal'), 'recalculé depuis l’objectif saisi');
 	assert.ok(adminPage.includes('{decimalFr(calImpact.deficitPct)}'), 'déficit réel affiché');
-	assert.ok(adminPage.includes('{decimalFr(calImpact.perteGraisseKg)}'), 'perte estimée affichée');
+	assert.ok(adminPage.includes('{formatPerteGraisse(calImpact.perteGraisseKg)}'), 'perte estimée affichée (format unique C2c-3)');
 	assert.ok(adminPage.includes('{decimalFr(calImpact.disponibiliteKcal)}'), 'disponibilité affichée');
 	assert.ok(adminPage.includes('{calImpact.comparaisonPlafonds}'), 'plafonds comparés');
-	assert.ok(adminPage.includes('{calImpact.avertissementDeficit}') && adminPage.includes('{calImpact.alertePlafonds}'), 'mêmes avertissements que les résultats');
+	assert.ok(adminPage.includes('{calImpact.avertissementDeficitEleve}') && adminPage.includes('{calImpact.alertePlafonds}'), 'mêmes avertissements que les résultats (15 % supprimé, > 25 % conservé)');
 });
 
 /* ═══════════ 2 · Cohérence avec les résultats quand l'objectif n'est pas modifié ═══════════ */
@@ -247,6 +247,6 @@ test('DÉFICIT CHOISI : « ≈ X kg de graisse par semaine » sous le champ, arr
 		adminPage.indexOf('Protéines (g/kg de masse maigre)')
 	);
 	assert.ok(bloc.includes('kg de graisse par semaine'), 'mention affichée sous le champ');
-	assert.ok(bloc.includes('≈ ${decimalFr(calPerteDeficit)} kg de graisse par semaine'), 'valeur du module en décimales FR');
+	assert.ok(bloc.includes('≈ ${formatPerteGraisse(calPerteDeficit)} kg de graisse par semaine'), 'valeur du module, format unique C2c-3 (0,05 kg, deux décimales)');
 	assert.ok(bloc.includes('perteGraisseKgSemaine(calR.deficitSemaineKcal)') || adminPage.includes('perteGraisseKgSemaine(calR.deficitSemaineKcal)'), 'calcul depuis le déficit choisi');
 });

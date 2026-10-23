@@ -946,3 +946,18 @@ body:has(.gflux-app-client) {
 		display: none;
 	}
 }
+
+/* ─── Bloc « Appliquer à la fiche » : flèches natives masquées ────────────
+   Les champs kcal / macros acceptent toute valeur entière (aucune contrainte
+   de saisie, donc jamais de message de validation du navigateur) et leurs
+   flèches sont les boutons +10 / −10 kcal et +1 / −1 g du CRM (`flecheSaisie`).
+   Classe `no-spinner` posée sur ces seuls champs. */
+.no-spinner {
+	appearance: textfield;
+	-moz-appearance: textfield;
+}
+.no-spinner::-webkit-outer-spin-button,
+.no-spinner::-webkit-inner-spin-button {
+	appearance: none;
+	margin: 0;
+}

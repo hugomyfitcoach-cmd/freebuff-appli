@@ -35,6 +35,7 @@
 		phraseSupplementTravail,
 		PROTEINES_PAR_KG_MM_DEFAUT,
 		impactObjectifApplique,
+		formatPerteGraisse,
 		perteGraisseKgSemaine,
 		resultatsFiche,
 		semaineAvecObjectif,
@@ -1817,95 +1818,33 @@
 	let refCarbs = $state(0);
 	let refProtein = $state(0);
 	let refFat = $state(0);
-	/** Dernier jeu de valeurs calculées vu par le suivi — détecte « Les résultats
-	 *  ont changé » (résultats bougés après une modification manuelle). */
-	let calcPrecedent: {
-		kcal: number;
-		maintenance: string;
-		carbs: number;
-		protein: number;
-		fat: number;
-	} | null = null;
-	/** Bandeau « Les résultats ont changé » + bouton de reprise des calculs. */
-	let applyResultatsChanges = $state(false);
 	$effect(() => {
 		const r = calR;
 		if (!r) return;
 		untrack(() => {
-			/* Proposition = RÉSULTATS AFFICHÉS, exactement : objectif = objectif
-			   journalier moyen · maintenance = filet de sécurité (budget ÷ 7, sport
-			   habituel inclus) · macros = macros du jour type. Le coach peut tout
-			   ajuster (« modifié ») avant d'appliquer — jamais d'écriture seule. */
-			if (!applyInitialise || applyKcal === refKcal) {
-				applyKcal = r.objectifJournalierKcal;
-				refKcal = applyKcal;
-				applyKcalReference = applyKcal;
-			}
-			if (!applyInitialise || applyMaintenance === refMaintenance) {
-				applyMaintenance = String(Math.round(r.maintenanceFiletKcal));
-				refMaintenance = applyMaintenance;
-			}
-			if (!applyInitialise || applyCarbs === refCarbs) {
-				applyCarbs = r.macros.glucidesG;
-				refCarbs = applyCarbs;
-			}
-			if (!applyInitialise || applyProtein === refProtein) {
-				applyProtein = r.macros.proteinesG;
-				refProtein = applyProtein;
-			}
-			if (!applyInitialise || applyFat === refFat) {
-				applyFat = r.macros.lipidesG;
-				refFat = applyFat;
-			}
-			/* « Les résultats ont changé » : les résultats ont bougé alors que la
-			   coach avait déjà modifié un champ → bandeau + bouton « Reprendre les
-			   valeurs calculées ». Ses valeurs modifiées ne sont JAMAIS perdues sans
-			   son action explicite. */
-			const calc = {
-				kcal: r.objectifJournalierKcal,
-				maintenance: String(Math.round(r.maintenanceFiletKcal)),
-				carbs: r.macros.glucidesG,
-				protein: r.macros.proteinesG,
-				fat: r.macros.lipidesG
-			};
-			const modifie =
-				applyKcal !== refKcal ||
-				applyMaintenance !== refMaintenance ||
-				applyCarbs !== refCarbs ||
-				applyProtein !== refProtein ||
-				applyFat !== refFat;
-			const change =
-				calcPrecedent !== null &&
-				(calcPrecedent.kcal !== calc.kcal ||
-					calcPrecedent.maintenance !== calc.maintenance ||
-					calcPrecedent.carbs !== calc.carbs ||
-					calcPrecedent.protein !== calc.protein ||
-					calcPrecedent.fat !== calc.fat);
-			if (change && modifie) applyResultatsChanges = true;
-			else if (!modifie) applyResultatsChanges = false;
-			calcPrecedent = calc;
+			/* « LA DERNIÈRE ACTION GAGNE » : dès qu'une entrée du calibrage change,
+			   les champs du bloc « Appliquer à la fiche » sont RECALCULÉS depuis les
+			   résultats affichés — objectif = objectif journalier moyen · maintenance
+			   = filet de sécurité (budget ÷ 7, sport habituel inclus) · macros =
+			   macros du jour type — et les badges « modifié » disparaissent (chaque
+			   référence est réalignée sur la valeur recalculée). Les jours de la
+			   semaine type saisis à la main restent protégés : seuls les jours
+			   « type » (null) suivent l'objectif. */
+			applyKcal = r.objectifJournalierKcal;
+			refKcal = applyKcal;
+			applyKcalReference = applyKcal;
+			applyMaintenance = String(Math.round(r.maintenanceFiletKcal));
+			refMaintenance = applyMaintenance;
+			applyCarbs = r.macros.glucidesG;
+			refCarbs = applyCarbs;
+			applyProtein = r.macros.proteinesG;
+			refProtein = applyProtein;
+			applyFat = r.macros.lipidesG;
+			refFat = applyFat;
 			if (!applyInitialise) applyDate = calibragePre?.today ?? applyDate;
 			applyInitialise = true;
 		});
 	});
-	/** « Reprendre les valeurs calculées » : tous les champs reprennent les résultats
-	 *  courants — les badges « modifié » et le bandeau disparaissent. */
-	function reprendreValeursCalculees() {
-		const r = calR;
-		if (!r) return;
-		applyKcal = r.objectifJournalierKcal;
-		refKcal = applyKcal;
-		applyKcalReference = applyKcal;
-		applyMaintenance = String(Math.round(r.maintenanceFiletKcal));
-		refMaintenance = applyMaintenance;
-		applyCarbs = r.macros.glucidesG;
-		refCarbs = applyCarbs;
-		applyProtein = r.macros.proteinesG;
-		refProtein = applyProtein;
-		applyFat = r.macros.lipidesG;
-		refFat = applyFat;
-		applyResultatsChanges = false;
-	}
 	/* ── Cohérence « Appliquer à la fiche » : objectif = 4G + 4P + 9L ──
 	   Toute saisie validée (flou/Entrée) recalcule le champ déduit via
 	   $lib/goalMacros (PUR) : protéines ou lipides → glucides (objectif kcal
@@ -1913,8 +1852,7 @@
 	   glucides → objectif kcal ; objectif kcal → glucides. Sous 100 g de
 	   glucides → l'avertissement existant ; glucides calculés négatifs →
 	   application bloquée avec un message clair. Les badges « modifié »
-	   (comparaison aux références) et « Reprendre les valeurs calculées »
-	   restent inchangés. */
+	   (comparaison aux références) restent inchangés. */
 	function recalculerApresSaisie(champ: ChampSaisi) {
 		const saisie =
 			champ === 'kcal' ? applyKcal : champ === 'glucides' ? applyCarbs : champ === 'proteines' ? applyProtein : applyFat;
@@ -1932,6 +1870,23 @@
 		applyProtein = r.valeurs.proteinesG;
 		applyFat = r.valeurs.lipidesG;
 		applyKcalReference = r.kcalReference;
+	}
+	/* ── Flèches des champs kcal / macros du bloc « Appliquer » : +10 / −10 kcal
+	   par clic (+1 / −1 g pour les macros). Toute valeur entière reste acceptée
+	   (aucune contrainte de saisie → jamais de message de validation du
+	   navigateur) et chaque clic recalcule immédiatement l'encadré d'impact, le
+	   bandeau et la semaine type (dérivés réactifs de `applyKcal`). */
+	const PAS_FLECHES: Record<ChampSaisi, number> = { kcal: 10, glucides: 1, proteines: 1, lipides: 1 };
+	function flecheSaisie(champ: ChampSaisi, sens: 1 | -1) {
+		const actuel =
+			champ === 'kcal' ? applyKcal : champ === 'glucides' ? applyCarbs : champ === 'proteines' ? applyProtein : applyFat;
+		const base = typeof actuel === 'number' && Number.isFinite(actuel) ? Math.round(actuel) : 0;
+		const suivant = base + sens * PAS_FLECHES[champ];
+		if (champ === 'kcal') applyKcal = suivant;
+		else if (champ === 'glucides') applyCarbs = suivant;
+		else if (champ === 'proteines') applyProtein = suivant;
+		else applyFat = suivant;
+		recalculerApresSaisie(champ);
 	}
 	/** Avertissement existant : glucides affichés sous 100 g. */
 	const applyAlerteGlucides = $derived(alerteGlucidesPour(applyCarbs));
@@ -4589,7 +4544,7 @@
 									</div>
 									<div class="min-w-0 px-1.5 text-center" title="Perte de graisse estimée par semaine">
 										<div class="truncate text-[9px] font-bold uppercase tracking-wider text-mist">Perte graisse</div>
-										<div class="truncate font-display text-[13px] font-bold text-loss">{decimalFr(calImpact.perteGraisseKg)}</div>
+										<div class="truncate font-display text-[13px] font-bold text-loss">{formatPerteGraisse(calImpact.perteGraisseKg)}</div>
 										<div class="truncate text-[9px] font-semibold text-mist">kg/semaine</div>
 									</div>
 									<div class="min-w-0 px-1.5 text-center" title="Disponibilité en énergie">
@@ -4673,19 +4628,10 @@
 										<span>h/jour</span>
 									</label>
 								</div>
-								<div class="mt-2.5 grid gap-2 sm:grid-cols-2">
-									<label class="block">
-										<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Ajustement du coach (0 à +0,05)</span>
-										<input type="number" inputmode="decimal" min="0" max="0.05" step="0.01" bind:value={calibrageInputs.ajustementTravail} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
-									</label>
-									<div class="rounded-lg bg-white px-3 py-2">
-										<span class="block text-[10px] font-bold uppercase tracking-wider text-mist">Supplément travail</span>
-										<span class="mt-0.5 block text-sm font-bold text-ink">
-											{calR ? decimalFr(calR.supplementTravail) : '—'}
-											<span class="text-[11px] font-semibold text-mist">{LIBELLE_SUPPLEMENT_TRAVAIL} · {decimalFr(calibrageInputs.heuresTravail)} h</span>
-										</span>
-										<p class="mt-1 text-[11px] leading-snug text-mist">{phraseSupplementTravail()}</p>
-									</div>
+								<div class="mt-2.5 rounded-lg bg-white px-3 py-2">
+									<span class="block text-[10px] font-bold uppercase tracking-wider text-mist">Supplément travail</span>
+									<span class="mt-0.5 block text-sm font-bold text-ink">{LIBELLE_SUPPLEMENT_TRAVAIL} · {decimalFr(calibrageInputs.heuresTravail)} h</span>
+									<p class="mt-1 text-[11px] leading-snug text-mist">{phraseSupplementTravail()}</p>
 								</div>
 							</div>
 
@@ -4695,7 +4641,7 @@
 									<input type="number" inputmode="decimal" min="0" max="30" step="1" bind:value={calibrageInputs.deficitPct} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
 									<p class="mt-1 min-h-[15px] text-[11px] font-semibold text-danger">{calErreursChamps.deficitPct ?? ''}</p>
 									<!-- Perte estimée du déficit choisi, arrondie au 0,05 kg (module pur). -->
-									<p class="text-[11px] font-semibold text-loss">{calPerteDeficit !== null ? `≈ ${decimalFr(calPerteDeficit)} kg de graisse par semaine` : '—'}</p>
+									<p class="text-[11px] font-semibold text-loss">{calPerteDeficit !== null ? `≈ ${formatPerteGraisse(calPerteDeficit)} kg de graisse par semaine` : '—'}</p>
 								</label>
 								<label class="block">
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Protéines (g/kg de masse maigre)</span>
@@ -4861,7 +4807,6 @@
 							     rendue (hauteur minimale), avec ou sans avertissement — les messages
 							     s'y affichent sans insérer ni retirer d'espace, la page ne saute plus. -->
 							<div class="mt-3 min-h-[124px] space-y-2">
-								{#if calR && calR.avertissementDeficit}<p class="flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.avertissementDeficit}</p>{/if}
 								{#if calR && calR.avertissementDeficitEleve}<p class="flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.avertissementDeficitEleve}</p>{/if}
 								{#if calR && calR.alertePlafonds}<p class="flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.alertePlafonds}</p>{/if}
 								{#if calR && calR.avertissementDisponibilite}<p class="flex items-start gap-2 rounded-xl border px-3.5 py-2.5 text-[12px] font-semibold {calR.avertissementDisponibilite.niveau === 'alerte' ? 'border-danger/40 bg-danger-light text-danger' : 'border-warn/40 bg-warn-light text-warn'}"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.avertissementDisponibilite.message}</p>{/if}
@@ -4915,7 +4860,7 @@
 									Disponibilité en énergie de chaque jour (kcal/kg de masse maigre) — seuils 30 et 24 kcal/kg, soit {calR.seuilsDisponibiliteKcal.haut} et {calR.seuilsDisponibiliteKcal.bas} kcal · exercice réparti : {Math.round(calSemaine.exerciceKcal)} kcal/jour.
 								</p>
 								<p class="mt-1 text-sm font-semibold text-ink">
-									Déficit total de la semaine : {Math.round(-calSemaine.deficitSemaineKcal).toLocaleString('fr-FR')} kcal · graisse estimée <strong class="text-loss">{String(Math.abs(calSemaine.graisseKg)).replace('.', ',')} kg</strong>
+									Déficit total de la semaine : {Math.round(-calSemaine.deficitSemaineKcal).toLocaleString('fr-FR')} kcal · graisse estimée <strong class="text-loss">{formatPerteGraisse(Math.abs(calSemaine.graisseKg))} kg</strong>
 								</p>
 							{/if}
 						</div>
@@ -4929,7 +4874,13 @@
 							<div class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
 								<label class="block">
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Objectif journalier (kcal){#if applyKcal !== refKcal}<span class="ml-1 rounded-full bg-warn-light px-1.5 py-0.5 text-[9px] font-bold normal-case text-warn">modifié</span>{/if}</span>
-									<input type="number" inputmode="numeric" min="800" max="6000" step="10" bind:value={applyKcal} onchange={() => recalculerApresSaisie('kcal')} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+									<div class="flex items-stretch gap-1">
+										<input type="number" inputmode="numeric" step="any" bind:value={applyKcal} onchange={() => recalculerApresSaisie('kcal')} class="no-spinner w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+										<div class="flex w-7 shrink-0 flex-col">
+											<button type="button" aria-label="Objectif journalier : +10 kcal" onclick={() => flecheSaisie('kcal', 1)} class="flex flex-1 items-center justify-center rounded-t-lg border-2 border-line bg-white text-mist transition hover:border-brand hover:text-brand"><Icon name="chevronUp" size={13} /></button>
+											<button type="button" aria-label="Objectif journalier : −10 kcal" onclick={() => flecheSaisie('kcal', -1)} class="flex flex-1 items-center justify-center rounded-b-lg border-2 border-t-0 border-line bg-white text-mist transition hover:border-brand hover:text-brand"><Icon name="chevronDown" size={13} /></button>
+										</div>
+									</div>
 								</label>
 								<label class="block">
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Maintenance (kcal){#if applyMaintenance !== refMaintenance}<span class="ml-1 rounded-full bg-warn-light px-1.5 py-0.5 text-[9px] font-bold normal-case text-warn">modifié</span>{/if}</span>
@@ -4946,15 +4897,33 @@
 								<label class="block">
 									<!-- Couleurs macros du Journal cliente (rose · bleu · orange). -->
 									<span class="mb-1 flex flex-wrap items-center gap-1 text-[10px] font-bold uppercase tracking-wider" style="color:{macroColor('carbs')}"><span class="h-2 w-2 shrink-0 rounded-full" style="background:{macroColor('carbs')}"></span> Glucides (g){#if applyCarbs !== refCarbs}<span class="ml-1 rounded-full bg-warn-light px-1.5 py-0.5 text-[9px] font-bold normal-case text-warn">modifié</span>{/if}</span>
-									<input type="number" inputmode="numeric" min="0" max="1000" step="1" bind:value={applyCarbs} onchange={() => recalculerApresSaisie('glucides')} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+									<div class="flex items-stretch gap-1">
+										<input type="number" inputmode="numeric" step="any" bind:value={applyCarbs} onchange={() => recalculerApresSaisie('glucides')} class="no-spinner w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+										<div class="flex w-7 shrink-0 flex-col">
+											<button type="button" aria-label="Glucides : +1 g" onclick={() => flecheSaisie('glucides', 1)} class="flex flex-1 items-center justify-center rounded-t-lg border-2 border-line bg-white text-mist transition hover:border-brand hover:text-brand"><Icon name="chevronUp" size={13} /></button>
+											<button type="button" aria-label="Glucides : −1 g" onclick={() => flecheSaisie('glucides', -1)} class="flex flex-1 items-center justify-center rounded-b-lg border-2 border-t-0 border-line bg-white text-mist transition hover:border-brand hover:text-brand"><Icon name="chevronDown" size={13} /></button>
+										</div>
+									</div>
 								</label>
 								<label class="block">
 									<span class="mb-1 flex flex-wrap items-center gap-1 text-[10px] font-bold uppercase tracking-wider" style="color:{macroColor('protein')}"><span class="h-2 w-2 shrink-0 rounded-full" style="background:{macroColor('protein')}"></span> Protéines (g){#if applyProtein !== refProtein}<span class="ml-1 rounded-full bg-warn-light px-1.5 py-0.5 text-[9px] font-bold normal-case text-warn">modifié</span>{/if}</span>
-									<input type="number" inputmode="numeric" min="0" max="400" step="1" bind:value={applyProtein} onchange={() => recalculerApresSaisie('proteines')} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+									<div class="flex items-stretch gap-1">
+										<input type="number" inputmode="numeric" step="any" bind:value={applyProtein} onchange={() => recalculerApresSaisie('proteines')} class="no-spinner w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+										<div class="flex w-7 shrink-0 flex-col">
+											<button type="button" aria-label="Protéines : +1 g" onclick={() => flecheSaisie('proteines', 1)} class="flex flex-1 items-center justify-center rounded-t-lg border-2 border-line bg-white text-mist transition hover:border-brand hover:text-brand"><Icon name="chevronUp" size={13} /></button>
+											<button type="button" aria-label="Protéines : −1 g" onclick={() => flecheSaisie('proteines', -1)} class="flex flex-1 items-center justify-center rounded-b-lg border-2 border-t-0 border-line bg-white text-mist transition hover:border-brand hover:text-brand"><Icon name="chevronDown" size={13} /></button>
+										</div>
+									</div>
 								</label>
 								<label class="block">
 									<span class="mb-1 flex flex-wrap items-center gap-1 text-[10px] font-bold uppercase tracking-wider" style="color:{macroColor('fat')}"><span class="h-2 w-2 shrink-0 rounded-full" style="background:{macroColor('fat')}"></span> Lipides (g){#if applyFat !== refFat}<span class="ml-1 rounded-full bg-warn-light px-1.5 py-0.5 text-[9px] font-bold normal-case text-warn">modifié</span>{/if}</span>
-									<input type="number" inputmode="numeric" min="0" max="300" step="1" bind:value={applyFat} onchange={() => recalculerApresSaisie('lipides')} class="w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+									<div class="flex items-stretch gap-1">
+										<input type="number" inputmode="numeric" step="any" bind:value={applyFat} onchange={() => recalculerApresSaisie('lipides')} class="no-spinner w-full rounded-lg border-2 border-line bg-white px-2.5 py-2 text-sm font-semibold outline-none focus:border-brand" />
+										<div class="flex w-7 shrink-0 flex-col">
+											<button type="button" aria-label="Lipides : +1 g" onclick={() => flecheSaisie('lipides', 1)} class="flex flex-1 items-center justify-center rounded-t-lg border-2 border-line bg-white text-mist transition hover:border-brand hover:text-brand"><Icon name="chevronUp" size={13} /></button>
+											<button type="button" aria-label="Lipides : −1 g" onclick={() => flecheSaisie('lipides', -1)} class="flex flex-1 items-center justify-center rounded-b-lg border-2 border-t-0 border-line bg-white text-mist transition hover:border-brand hover:text-brand"><Icon name="chevronDown" size={13} /></button>
+										</div>
+									</div>
 								</label>
 							</div>
 							<!-- IMPACT DE L'OBJECTIF APPLIQUÉ : recalculé en direct depuis l'objectif
@@ -4975,7 +4944,7 @@
 										</div>
 										<div>
 											<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Perte de graisse estimée</div>
-											<div class="mt-0.5 font-display text-lg font-bold text-loss">{decimalFr(calImpact.perteGraisseKg)} <span class="text-xs font-semibold text-mist">kg/semaine</span></div>
+											<div class="mt-0.5 font-display text-lg font-bold text-loss">{formatPerteGraisse(calImpact.perteGraisseKg)} <span class="text-xs font-semibold text-mist">kg/semaine</span></div>
 											<p class="mt-0.5 text-[11px] text-mist">7 700 kcal par kg de graisse</p>
 										</div>
 										<div>
@@ -4992,7 +4961,6 @@
 										</div>
 									</div>
 									<!-- Mêmes avertissements que les résultats (messages du module). -->
-									{#if calImpact.avertissementDeficit}<p class="mt-2 flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calImpact.avertissementDeficit}</p>{/if}
 									{#if calImpact.avertissementDeficitEleve}<p class="mt-2 flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calImpact.avertissementDeficitEleve}</p>{/if}
 									{#if calImpact.alertePlafonds}<p class="mt-2 flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calImpact.alertePlafonds}</p>{/if}
 									{#if calImpact.avertissementDisponibilite}<p class="mt-2 flex items-start gap-2 rounded-xl border px-3.5 py-2.5 text-[12px] font-semibold {calImpact.avertissementDisponibilite.niveau === 'alerte' ? 'border-danger/40 bg-danger-light text-danger' : 'border-warn/40 bg-warn-light text-warn'}"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calImpact.avertissementDisponibilite.message}</p>{/if}
@@ -5007,19 +4975,7 @@
 							{#if applyBlocageGlucides}
 								<p class="mt-2 flex items-start gap-1.5 rounded-xl border border-danger/40 bg-danger-light px-3.5 py-2.5 text-[12px] font-semibold leading-snug text-danger"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {applyBlocageGlucides}</p>
 							{/if}
-							<!-- Bandeau RÉSERVÉ (stabilité de la saisie) : espace permanent, le bandeau
-							     « Les résultats ont changé » s'y affiche sans décaler la page. -->
-							<div class="mt-3 min-h-[42px]">
-								{#if applyResultatsChanges}
-									<p class="flex flex-wrap items-center gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="shrink-0" /> Les résultats ont changé — tes champs modifiés sont conservés.
-										<button
-											type="button"
-											onclick={reprendreValeursCalculees}
-											class="rounded-full border-2 border-warn/40 bg-white px-3 py-1 text-[11px] font-bold text-warn transition hover:border-warn"
-										>Reprendre les valeurs calculées</button>
-									</p>
-								{/if}
-							</div>
+
 							{#if applyError}
 								<p class="mt-3 rounded-xl border border-danger/40 bg-danger-light px-3.5 py-2.5 text-[12px] font-semibold text-danger">{applyError}</p>
 							{/if}

@@ -358,9 +358,11 @@ test('STABILITÉ : zone d’avertissements permanente (avec ou sans avertissemen
 		'plus de condition qui insère/retire la zone'
 	);
 	assert.ok(adminPage.includes('<div class="mt-3 min-h-[124px] space-y-2">'), 'zone d’avertissements à hauteur minimale');
-	/* Les messages restent conditionnels À L'INTÉRIEUR de la zone. */
+	/* Les messages restent conditionnels À L'INTÉRIEUR de la zone. C2c-3 :
+	   l'avertissement « règle de 10 à 15 % » est supprimé de la zone. */
 	const zone = adminPage.slice(adminPage.indexOf('min-h-[124px]'), adminPage.indexOf('min-h-[124px]') + 1200);
-	assert.ok(zone.includes('{#if calR && calR.avertissementDeficit}'), 'avertissement déficit conditionnel dans la zone');
+	assert.ok(!zone.includes('avertissementDeficit}'), 'avertissement « règle de 10 à 15 % » supprimé');
+	assert.ok(zone.includes('{#if calR && calR.avertissementDeficitEleve}'), 'attention > 25 % conditionnelle dans la zone');
 	assert.ok(zone.includes('{#if calR && calR.alertePlafonds}'), 'alerte plafonds conditionnelle dans la zone');
 	assert.ok(zone.includes('{#if calR && calR.avertissementDisponibilite}'), 'vigilance disponibilité conditionnelle dans la zone');
 });
@@ -380,13 +382,14 @@ test('STABILITÉ : sous-lignes et avertissement d’adaptation à espace réserv
 	);
 });
 
-test('STABILITÉ : bandeau « Les résultats ont changé » à espace réservé', () => {
-	assert.ok(adminPage.includes('<div class="mt-3 min-h-[42px]">'), 'bandeau réservé (hauteur minimale)');
-	const bandeau = adminPage.slice(adminPage.indexOf('min-h-[42px]'), adminPage.indexOf('min-h-[42px]') + 800);
-	assert.ok(bandeau.includes('{#if applyResultatsChanges}'), 'le bandeau s’affiche DANS la zone réservée');
-	assert.ok(bandeau.includes('Les résultats ont changé'), 'libellé du bandeau inchangé');
-	assert.ok(bandeau.includes('Reprendre les valeurs calculées'), 'bouton de reprise inchangé');
-	/* Les zones réservées sont bien dans la vue de saisie : chaque conteneur est
+test('STABILITÉ : bandeau « Les résultats ont changé » SUPPRIMÉ (C2c-3)', () => {
+	/* Règle « la dernière action gagne » (C2c-3) : le bandeau de conservation
+	   des champs modifiés, son bouton de reprise et sa zone réservée ont disparu. */
+	assert.ok(!adminPage.includes('Les résultats ont changé'), 'message de conservation supprimé');
+	assert.ok(!adminPage.includes('Reprendre les valeurs calculées'), 'bouton de reprise supprimé');
+	assert.ok(!adminPage.includes('applyResultatsChanges'), 'état du bandeau supprimé');
+	assert.ok(!adminPage.includes('min-h-[42px]'), 'zone réservée du bandeau supprimée');
+	/* Les zones réservées restantes sont bien dans la vue de saisie : chaque conteneur est
 	   rendu en permanence (aucun {#if} englobant immédiat). */
 	/* Comptes EXACTS (mission C2b-2c : les 6 champs de saisie portent chacun
 	   une ligne de message réservée `min-h-[15px]`, en plus de la sous-ligne
@@ -396,8 +399,7 @@ test('STABILITÉ : bandeau « Les résultats ont changé » à espace réservé'
 		'min-h-[124px]': 1,
 		'min-h-[15px]': 7,
 		'min-h-[34px]': 1,
-		'min-h-[16px]': 1,
-		'min-h-[42px]': 1
+		'min-h-[16px]': 1
 	};
 	for (const [zone, attendu] of Object.entries(zonesAttendues)) {
 		const trouve = (adminPage.match(new RegExp(zone.replace(/[[\]]/g, '\\$&'), 'g')) ?? []).length;

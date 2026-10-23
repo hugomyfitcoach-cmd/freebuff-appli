@@ -256,32 +256,30 @@ test('Objectif de la semaine : déficit borné 0–30 %, 0 = maintenance', () =>
 	refuse(() => cal.objectifSemaineKcal({ budgetSemaineKcal: 11487, deficitPct: 31 }), 'déficit > 30 %');
 });
 
-test('Bilan de la semaine : déficit en kcal, perte estimée et avertissement > 15 %', () => {
+test('Bilan de la semaine : déficit en kcal, perte estimée — avertissement 15 % supprimé (C2c-3), > 25 % conservé', () => {
 	const doux = cal.bilanObjectifSemaine({ budgetSemaineKcal: 12327, deficitPct: 15 });
 	assert.equal(doux.objectifSemaineKcal, 10478); // 12 327 × 0,85 = 10 477,95
 	assert.equal(doux.deficitSemaineKcal, 1849); // 12 327 − 10 478
 	assert.equal(doux.perteGraisseKg, 0.24); // 1 849/7 700 = 0,2401
-	assert.equal(doux.avertissement, null, '15 % reste dans le rythme conseillé');
 
 	const fort = cal.bilanObjectifSemaine({ budgetSemaineKcal: 12327, deficitPct: 20 });
 	assert.equal(fort.objectifSemaineKcal, 9862);
 	assert.equal(fort.deficitSemaineKcal, 2465);
 	assert.equal(fort.perteGraisseKg, 0.32); // 2 465/7 700 = 0,3201
-	assert.ok(fort.avertissement?.includes('15'), 'l’avertissement cite le seuil de 15 %');
-	/* Message NEUTRE (mission C2a-bis) : le rythme de perte n'est jamais jugé ici.
-	   « dépasse le rythme conseillé » n'apparaît QUE si la perte estimée franchit
-	   un plafond Alpert / Macdonald (`alertePlafonds` dans calibrageFiche). */
-	assert.equal(
-		fort.avertissement,
-		'Déficit supérieur à la règle de 10 à 15 % : décision du coach.',
-		'message neutre, sans jugement de rythme'
-	);
-	assert.ok(!fort.avertissement.includes('rythme conseillé'), 'jamais de rythme jugé dans l’avertissement déficit');
+	/* Mission C2c-3 : l'avertissement « déficit supérieur à la règle de 10 à
+	   15 % » est SUPPRIMÉ (champ retiré) — le rythme de perte n'est jamais jugé
+	   ici (il relève des plafonds Alpert / Macdonald, `alertePlafonds`). */
+	assert.equal('avertissement' in fort, false, 'champ avertissement supprimé');
+	assert.equal(fort.avertissementDeficitEleve, null, '20 % : rien au-delà de 25 %');
+
+	/* L'attention au-delà de 25 % est CONSERVÉE. */
+	const severe = cal.bilanObjectifSemaine({ budgetSemaineKcal: 12327, deficitPct: 26 });
+	assert.equal(severe.avertissementDeficitEleve, 'Déficit au-delà de 25 % à prendre en compte.');
 
 	const maintenance = cal.bilanObjectifSemaine({ budgetSemaineKcal: 11487 });
 	assert.equal(maintenance.deficitSemaineKcal, 0);
 	assert.equal(maintenance.perteGraisseKg, 0);
-	assert.equal(maintenance.avertissement, null);
+	assert.equal(maintenance.avertissementDeficitEleve, null);
 });
 
 /* ── 7 · Refus propres des entrées invalides ── */

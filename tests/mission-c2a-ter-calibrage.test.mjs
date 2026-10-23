@@ -108,13 +108,14 @@ test('SUIVI : un champ non modifié suit les résultats en temps réel (valeurs 
 	assert.notEqual(a.objectifJournalierKcal, b.objectifJournalierKcal, 'objectif suit les résultats');
 	assert.notEqual(a.maintenanceFiletKcal, b.maintenanceFiletKcal, 'maintenance suit les résultats');
 	assert.notEqual(a.macros.glucidesG, b.macros.glucidesG, 'glucides suivent les résultats');
-	/* Le mécanisme du CRM : chaque champ non modifié (applyX === refX) reprend la
-	   nouvelle valeur calculée à chaque exécution du suivi. */
-	assert.ok(adminPage.includes('if (!applyInitialise || applyKcal === refKcal)'), 'objectif resynchronisé');
-	assert.ok(adminPage.includes('if (!applyInitialise || applyMaintenance === refMaintenance)'), 'maintenance resynchronisée');
-	assert.ok(adminPage.includes('if (!applyInitialise || applyCarbs === refCarbs)'), 'glucides resynchronisés');
-	assert.ok(adminPage.includes('if (!applyInitialise || applyProtein === refProtein)'), 'protéines resynchronisées');
-	assert.ok(adminPage.includes('if (!applyInitialise || applyFat === refFat)'), 'lipides resynchronisés');
+	/* Le mécanisme du CRM (C2c-3 — « la dernière action gagne ») : chaque champ
+	   reprend la nouvelle valeur calculée à CHAQUE exécution du suivi. */
+	assert.ok(adminPage.includes('applyKcal = r.objectifJournalierKcal;'), 'objectif resynchronisé');
+	assert.ok(adminPage.includes('applyMaintenance = String(Math.round(r.maintenanceFiletKcal));'), 'maintenance resynchronisée');
+	assert.ok(adminPage.includes('applyCarbs = r.macros.glucidesG;'), 'glucides resynchronisés');
+	assert.ok(adminPage.includes('applyProtein = r.macros.proteinesG;'), 'protéines resynchronisées');
+	assert.ok(adminPage.includes('applyFat = r.macros.lipidesG;'), 'lipides resynchronisés');
+	assert.ok(!adminPage.includes('applyKcal === refKcal'), 'plus de champ figé : recalcul inconditionnel');
 	assert.ok(
 		adminPage.includes('applyKcal = r.objectifJournalierKcal;') &&
 			adminPage.includes('applyMaintenance = String(Math.round(r.maintenanceFiletKcal));') &&
@@ -125,17 +126,18 @@ test('SUIVI : un champ non modifié suit les résultats en temps réel (valeurs 
 	);
 });
 
-test('SUIVI : badge « modifié » = règle existante, un champ modifié n’est jamais écrasé', () => {
+test('SUIVI : badge « modifié » = règle existante, recalcul dès qu’une entrée du calibrage change (C2c-3)', () => {
 	const badges = adminPage.match(/normal-case text-warn\">modifié<\/span>/g) ?? [];
 	assert.equal(badges.length, 5, 'cinq badges « modifié », un par champ');
 	for (const champ of ['applyKcal !== refKcal', 'applyMaintenance !== refMaintenance', 'applyCarbs !== refCarbs', 'applyProtein !== refProtein', 'applyFat !== refFat']) {
 		assert.ok(adminPage.includes(`{#if ${champ}}`), `badge « modifié » pour ${champ}`);
 	}
-	/* La resynchronisation n'écrase JAMAIS un champ modifié : elle n'écrit que
-	   quand la valeur affichée est encore la référence (le cas « modifié » sort
-	   de la condition ci-dessus). */
-	const suivi = adminPage.slice(adminPage.indexOf('$effect(() => {'), adminPage.indexOf('function reprendreValeursCalculees'));
-	assert.ok(suivi.includes('applyKcal === refKcal'), 'écrasement conditionné à l’absence de modification');
+	/* C2c-3 — « la dernière action gagne » : le suivi RECALCULE les cinq champs
+	   inconditionnellement et réaligne les références dès qu’une entrée du
+	   calibrage change (le badge « modifié » disparaît alors). */
+	const suivi = adminPage.slice(adminPage.indexOf('$effect(() => {'), adminPage.indexOf('function recalculerApresSaisie'));
+	assert.ok(!suivi.includes('applyKcal === refKcal'), 'écrasement inconditionnel : la dernière action gagne');
+	assert.ok(suivi.includes('refKcal = applyKcal;'), 'références réalignées : badges « modifié » effacés');
 	/* Maintenance : saisie en CHAÎNE (oninput) — bind:value sur input number
 	   coerce en nombre (to_number) et bloquerait le badge sur « modifié ». */
 	assert.ok(
@@ -148,36 +150,27 @@ test('SUIVI : badge « modifié » = règle existante, un champ modifié n’est
 	);
 });
 
-test('SUIVI : « Les résultats ont changé » + bouton « Reprendre les valeurs calculées »', () => {
-	assert.ok(adminPage.includes('Les résultats ont changé'), 'bandeau affiché quand les résultats bougent après modification');
-	assert.ok(adminPage.includes('Reprendre les valeurs calculées'), 'bouton de reprise');
-	assert.ok(adminPage.includes('onclick={reprendreValeursCalculees}'), 'le bouton appelle la reprise');
-	/* La reprise remet les CINQ champs (et leurs références) sur les résultats
-	   courants et ferme le bandeau. */
-	const fn = adminPage.slice(
-		adminPage.indexOf('function reprendreValeursCalculees'),
-		adminPage.indexOf('async function appliquerCalibrage')
-	);
+test('SUIVI : « Les résultats ont changé » SUPPRIMÉ — la dernière action gagne (C2c-3)', () => {
+	/* L'avertissement « Les résultats ont changé — tes champs modifiés sont
+	   conservés », son bouton « Reprendre les valeurs calculées » et toute la
+	   logique de conservation sont SUPPRIMÉS. */
+	assert.ok(!adminPage.includes('Les résultats ont changé'), 'bandeau de conservation supprimé');
+	assert.ok(!adminPage.includes('Reprendre les valeurs calculées'), 'bouton de reprise supprimé');
+	assert.ok(!adminPage.includes('function reprendreValeursCalculees'), 'fonction de reprise supprimée');
+	assert.ok(!adminPage.includes('applyResultatsChanges'), 'état du bandeau supprimé');
+	assert.ok(!adminPage.includes('calcPrecedent'), 'détection des résultats changés supprimée');
+	/* En échange : les cinq champs sont recalculés depuis les résultats à chaque
+	   changement d’entrée (références réalignées = badges effacés). */
+	const suivi = adminPage.slice(adminPage.indexOf('$effect(() => {'), adminPage.indexOf('function recalculerApresSaisie'));
 	for (const ligne of [
 		'applyKcal = r.objectifJournalierKcal;',
 		'applyMaintenance = String(Math.round(r.maintenanceFiletKcal));',
 		'applyCarbs = r.macros.glucidesG;',
 		'applyProtein = r.macros.proteinesG;',
-		'applyFat = r.macros.lipidesG;',
-		'refKcal = applyKcal;',
-		'refMaintenance = applyMaintenance;',
-		'refCarbs = applyCarbs;',
-		'refProtein = applyProtein;',
-		'refFat = applyFat;',
-		'applyResultatsChanges = false;'
+		'applyFat = r.macros.lipidesG;'
 	]) {
-		assert.ok(fn.includes(ligne), `reprise : ${ligne}`);
+		assert.ok(suivi.includes(ligne), `recalcul inconditionnel : ${ligne}`);
 	}
-	/* Le bandeau ne se déclenche QUE sur un changement de résultats avec au
-	   moins un champ modifié (pas à chaque frappe). */
-	const suivi = adminPage.slice(adminPage.indexOf('const calc = {'), adminPage.indexOf('function reprendreValeursCalculees'));
-	assert.ok(suivi.includes('if (change && modifie) applyResultatsChanges = true;'));
-	assert.ok(suivi.includes('else if (!modifie) applyResultatsChanges = false;'));
 });
 
 test('SUIVI : la fenêtre de confirmation affiche les valeurs réellement envoyées', () => {

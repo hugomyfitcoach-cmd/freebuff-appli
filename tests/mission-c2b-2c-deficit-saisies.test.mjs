@@ -153,7 +153,7 @@ async function ctxAvecCoach() {
 
 /* ═══ 1 · Déficit 22 → calcul normal · 27 → message « au-delà de 25 % » ═══ */
 
-test('Déficit 22 % : calcul normal, avertissement > 15 % inchangé, rien au-delà de 25 %', () => {
+test('Déficit 22 % : calcul normal, avertissement 15 % supprimé (C2c-3), rien au-delà de 25 %', () => {
 	const r = fiche.resultatsFiche({ ...ENTREES, deficitPct: 22 });
 	assert.equal(r.deficitPct, 22);
 	assert.equal(
@@ -162,25 +162,17 @@ test('Déficit 22 % : calcul normal, avertissement > 15 % inchangé, rien au-del
 		'formule objectif = budget × (1 − déficit) inchangée'
 	);
 	assert.ok(r.objectifJournalierKcal > 0, 'calcul complet : objectif journalier affichable');
-	assert.equal(
-		r.avertissementDeficit,
-		'Déficit supérieur à la règle de 10 à 15 % : décision du coach.',
-		'avertissement existant > 15 % inchangé'
-	);
+	assert.equal('avertissementDeficit' in r, false, 'avertissement « règle de 10 à 15 % » supprimé (C2c-3)');
 	assert.equal(r.avertissementDeficitEleve, null, '22 % ≤ 25 % : aucun message « au-delà de 25 % »');
 	assert.equal(saisie.messageChampCalibrage('deficitPct', 22), null, 'saisie 22 acceptée');
 });
 
-test('Déficit 27 % : calcul fait + « Déficit au-delà de 25 % à prendre en compte. » EN PLUS', () => {
+test('Déficit 27 % : calcul fait + « Déficit au-delà de 25 % à prendre en compte. »', () => {
 	const r = fiche.resultatsFiche({ ...ENTREES, deficitPct: 27 });
 	assert.equal(r.deficitPct, 27, 'le calcul est bien fait à 27 %');
 	assert.equal(r.objectifSemaineKcal, Math.round(r.budgetSemaineKcal * (1 - 27 / 100)));
 	assert.equal(r.avertissementDeficitEleve, 'Déficit au-delà de 25 % à prendre en compte.');
-	assert.equal(
-		r.avertissementDeficit,
-		'Déficit supérieur à la règle de 10 à 15 % : décision du coach.',
-		'avertissement existant inchangé, affiché EN PLUS'
-	);
+	assert.equal('avertissementDeficit' in r, false, 'avertissement « règle de 10 à 15 % » supprimé (C2c-3)');
 	/* Les autres avertissements existants restent présents et inchangés. */
 	assert.ok('alertePlafonds' in r, 'plafonds Alpert / Macdonald inchangés');
 	assert.ok('avertissementDisponibilite' in r, 'disponibilité en énergie inchangée');
@@ -192,7 +184,7 @@ test('Le message « au-delà de 25 % » vient du module (25 % pile : aucun messa
 	assert.equal(bilan25.avertissementDeficitEleve, null, 'strictement au-delà de 25 %');
 	const bilan26 = cal.bilanObjectifSemaine({ budgetSemaineKcal: 10_000, deficitPct: 26 });
 	assert.equal(bilan26.avertissementDeficitEleve, 'Déficit au-delà de 25 % à prendre en compte.');
-	assert.equal(bilan26.avertissement, 'Déficit supérieur à la règle de 10 à 15 % : décision du coach.');
+	assert.equal('avertissement' in bilan26, false, 'avertissement « règle de 10 à 15 % » supprimé (C2c-3)');
 });
 
 /* ═══ 2 · Déficit 31 → champ refusé, résultats toujours affichés ═══ */

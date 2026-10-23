@@ -286,12 +286,12 @@ test('FICHE : semaine type = module bilanSemaine (disponibilités colorées jour
 	assert.equal(basse.semaine.niveauxDisponibilite[1], fiche.niveauDisponibilite(basse.semaine.disponibilitesKcal[1]));
 });
 
-test('FICHE : avertissement au-delà de 15 % de déficit et plafonds dépassés', () => {
+test('FICHE : avertissement 15 % supprimé (C2c-3), plafonds dépassés conservés', () => {
 	const doux = fiche.resultatsFiche({ ...ENTREES, deficitPct: 12 });
-	assert.equal(doux.avertissementDeficit, null, '12 % : aucun avertissement');
+	assert.equal('avertissementDeficit' in doux, false, 'avertissement « règle de 10 à 15 % » supprimé');
 	assert.equal(doux.alertePlafonds, null);
 	const dur = fiche.resultatsFiche({ ...ENTREES, deficitPct: 20 });
-	assert.ok(dur.avertissementDeficit && dur.avertissementDeficit.includes('15 %'), 'au-delà de 15 % : avertissement');
+	assert.equal('avertissementDeficit' in dur, false, 'aucun avertissement au-delà de 15 % (C2c-3)');
 	/* Masse grasse basse → plafonds serrés : la perte estimée dépasse Alpert ET
 	   Macdonald → avertissement explicite. */
 	const rapide = fiche.resultatsFiche({ ...ENTREES, mgPct: 5, deficitPct: 20, seances: [] });

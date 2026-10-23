@@ -210,7 +210,7 @@ test('VIOLET : perte de graisse estimée en violet partout ; objectif en vert ; 
 		adminPage.slice(adminPage.indexOf('<!-- BANDEAU DE SYNTHÈSE'), adminPage.indexOf('<!-- ENTRÉES : pré-remplies'))
 	);
 	assert.ok(bandeau.includes('text-brand-dark'), 'objectif journalier en vert dans le bandeau');
-	assert.ok(/text-loss[^"]*">\{decimalFr\(calImpact\.perteGraisseKg\)\}/.test(bandeau), 'perte en violet dans le bandeau');
+	assert.ok(/text-loss[^"]*">\{formatPerteGraisse\(calImpact\.perteGraisseKg\)\}/.test(bandeau), 'perte en violet dans le bandeau (format unique C2c-3)');
 
 	/* Encadré d'impact : perte violette, disponibilité sur la couleur de son seuil. */
 	const impactBloc = adminPage.slice(adminPage.indexOf("Impact de l'objectif appliqué"), adminPage.indexOf('<!-- Cohérence 4G + 4P + 9L'));
@@ -265,8 +265,11 @@ test('SUPPLÉMENT TRAVAIL : « +0,05 · travail de bureau » et la phrase d’ai
 	assert.ok(blocSupplement.length > 0, 'bloc « Supplément travail » trouvé');
 	assert.ok(blocSupplement.includes('{LIBELLE_SUPPLEMENT_TRAVAIL}'), 'libellé « +0,05 · travail de bureau »');
 	assert.ok(blocSupplement.includes('{phraseSupplementTravail()}'), 'phrase d’aide affichée en dessous');
-	assert.ok(blocSupplement.includes('calR.supplementTravail'), 'valeur du supplément = celle du module');
 	assert.ok(blocSupplement.includes('calibrageInputs.heuresTravail'), 'nombre d’heures dynamique');
+	/* C2c-3 : le champ « Ajustement du coach » est supprimé et le supplément
+	   n'affiche plus que « +0,05 · travail de bureau · X h » et la phrase d'aide. */
+	assert.ok(!adminPage.includes('Ajustement du coach'), 'champ d’ajustement supprimé');
+	assert.ok(!blocSupplement.includes('calR.supplementTravail'), 'plus de valeur chiffrée : le libellé et la phrase suffisent');
 
 	/* Aucun calcul modifié : les repères du barème sont inchangés. */
 	assert.equal(cal.supplementTravail({ heures: 0 }), 0.05);

@@ -167,8 +167,9 @@ test('MODES : messages cliente UNIQUEMENT en présentation, mention coach UNIQUE
 });
 
 test('MODE NORMAL INCHANGÉ : les avertissements coach existants sont toujours affichés', () => {
+	/* C2c-3 : `calR.avertissementDeficit` (« règle de 10 à 15 % ») est SUPPRIMÉ —
+	   les autres avertissements coach restent affichés. */
 	for (const avertissement of [
-		'calR.avertissementDeficit',
 		'calR.avertissementDeficitEleve',
 		'calR.alertePlafonds',
 		'calR.avertissementDisponibilite',
@@ -293,10 +294,9 @@ test('FORMATS : messages coach — décimales françaises et unités explicites'
 	assert.ok(r.alertePlafonds, 'perte au-dessus des plafonds sur ce profil');
 	assert.match(r.alertePlafonds, /Perte estimée de \d+(,\d+)? kg\/semaine/, 'décimales FR');
 	assert.match(r.alertePlafonds, /plafond Alpert \(\d+(,\d+)? kg\/semaine\)/, 'unité explicite');
-	assert.ok(r.avertissementDeficit, 'déficit 30 % : avertissement coach');
+	assert.ok(r.avertissementDeficitEleve, 'déficit 30 % : attention coach au-delà de 25 %');
 	const messages = [
 		r.alertePlafonds,
-		r.avertissementDeficit,
 		r.avertissementDeficitEleve,
 		r.macros.alerteGlucides,
 		r.avertissementDisponibilite?.message

@@ -959,8 +959,6 @@ export function objectifSemaineKcal(entree: {
 	return Math.round(budget * (1 - deficit / 100));
 }
 
-/** Déficit hebdomadaire au-delà duquel un avertissement est délivré (%). */
-export const DEFICIT_PCT_AVERTISSEMENT = 15;
 /** Déficit hebdomadaire au-delà duquel l'attention du coach est requise (%). */
 export const DEFICIT_PCT_ATTENTION = 25;
 
@@ -975,19 +973,14 @@ export type BilanObjectifSemaine = {
 	objectifSemaineKcal: number;
 	/** Perte de graisse estimée (kg/semaine) = déficit semaine / 7 700. */
 	perteGraisseKg: number;
-	/** Avertissement au-delà de 15 % de déficit (null sinon) — message NEUTRE :
-	 *  le rythme de perte n'est jamais jugé ici (il relève des plafonds
-	 *  Alpert / Macdonald, voir `alertePlafonds` dans `calibrageFiche`). */
-	avertissement: string | null;
-	/** Attention au-delà de 25 % de déficit (null sinon) — EN PLUS de
-	 *  `avertissement`, qui reste inchangé. */
+	/** Attention au-delà de 25 % de déficit (null sinon). */
 	avertissementDeficitEleve: string | null;
 };
 
 /**
  * Bilan complet de l'objectif hebdomadaire : objectif kcal, déficit de la
- * semaine, perte de graisse estimée ET avertissement au-delà de 15 % de
- * déficit — le coach voit ainsi l'objectif et le rythme de perte induit.
+ * semaine, perte de graisse estimée ET attention au-delà de 25 % de déficit —
+ * le coach voit ainsi l'objectif et le rythme de perte induit.
  *
  * Le déficit affiché est la différence RÉELLE entre budget et objectif (les
  * deux arrondis restent cohérents) ; la perte de graisse est arrondie à
@@ -1008,10 +1001,6 @@ export function bilanObjectifSemaine(entree: {
 		deficitSemaineKcal: deficitSemaine,
 		objectifSemaineKcal: objectif,
 		perteGraisseKg: arrondi(deficitSemaine / KCAL_PAR_KG_GRAISSE, 2),
-		avertissement:
-			deficitPct > DEFICIT_PCT_AVERTISSEMENT
-				? `Déficit supérieur à la règle de 10 à 15 % : décision du coach.`
-				: null,
 		avertissementDeficitEleve:
 			deficitPct > DEFICIT_PCT_ATTENTION ? `Déficit au-delà de 25 % à prendre en compte.` : null
 	};

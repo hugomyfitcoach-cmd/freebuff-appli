@@ -196,10 +196,7 @@ export type ResultatsFicheCalibrage = {
 	 * estimée dépasse le plafond Alpert ou Macdonald (null sinon).
 	 */
 	alertePlafonds: string | null;
-	/** Avertissement NEUTRE au-delà de 15 % de déficit (null sinon). */
-	avertissementDeficit: string | null;
-	/** Attention au-delà de 25 % de déficit (null sinon) — EN PLUS de l'avertissement
-	 *  au-delà de 15 %, qui reste inchangé. */
+	/** Attention au-delà de 25 % de déficit (null sinon). */
 	avertissementDeficitEleve: string | null;
 	/** Effet de l'adaptation métabolique (kcal/jour) = MB × A/100 (affiché « −X kcal/jour »). */
 	adaptationEffetKcal: number;
@@ -252,7 +249,6 @@ export type ImpactObjectifApplique = {
 	/** Comparaison lisible de la perte estimée aux deux plafonds. */
 	comparaisonPlafonds: string;
 	alertePlafonds: string | null;
-	avertissementDeficit: string | null;
 	avertissementDeficitEleve: string | null;
 	avertissementDisponibilite: AvertissementDisponibilite | null;
 };
@@ -336,6 +332,18 @@ export function phraseSupplementTravail(): string {
 export function perteGraisseKgSemaine(deficitSemaineKcal: number): number {
 	const perte = nombre(deficitSemaineKcal, 'Déficit de la semaine') / KCAL_PAR_KG_GRAISSE;
 	return Math.round(Math.round(perte / 0.05) * 0.05 * 100) / 100;
+}
+
+/**
+ * Format UNIQUE de la perte de graisse (kg/semaine) : arrondi au 0,05 kg le
+ * plus proche et TOUJOURS deux décimales (0,20 ; 0,30 ; 0,40) — la SEULE
+ * fonction de formatage de la perte, utilisée sous le déficit, dans l'encadré
+ * d'impact, dans le bandeau et dans la semaine type. Jamais un calcul.
+ */
+export function formatPerteGraisse(kg: number): string {
+	const grille = Math.round(nombre(kg, 'Perte de graisse') / 0.05) * 0.05;
+	const signe = grille < 0 ? '-' : '';
+	return `${signe}${Math.abs(grille).toFixed(2).replace('.', ',')}`;
 }
 
 /** Libellés et couleurs associés aux niveaux de disponibilité (UI CRM). */
@@ -498,7 +506,7 @@ export function resultatsFiche(entrees: EntreesFicheCalibrage): ResultatsFicheCa
 	});
 
 	/* Plafonds de vitesse de perte (Alpert < Macdonald) — SEULS cas où le
-	   « rythme conseillé » est jugé (le déficit au-delà de 15 % reste neutre). */
+	   « rythme conseillé » est jugé (le niveau de déficit reste neutre). */
 	const alpert = profil.vitesseMaxAlpertKgSemaine;
 	const macdonald = profil.vitesseMaxMacdonaldKgSemaine;
 	const perte = bilan.perteGraisseKg;
@@ -541,7 +549,6 @@ export function resultatsFiche(entrees: EntreesFicheCalibrage): ResultatsFicheCa
 		vitesseMaxAlpertKgSemaine: alpert,
 		vitesseMaxMacdonaldKgSemaine: macdonald,
 		alertePlafonds,
-		avertissementDeficit: bilan.avertissement,
 		avertissementDeficitEleve: bilan.avertissementDeficitEleve,
 		adaptationEffetKcal: adaptationEffetKcal({ poidsKg, mgPct, adaptationPct }),
 		avertissementAdaptation:
@@ -653,7 +660,7 @@ export function impactObjectifApplique(entree: {
 	const depasseAlpert = perteGraisseKg > alpert;
 	const depasseMacdonald = perteGraisseKg > macdonald;
 
-	/* Avertissements de déficit : MÊMES seuils et MÊMES messages que les
+	/* Attention de déficit au-delà de 25 % : MÊME seuil et MÊME message que les
 	   résultats, appliqués au déficit RÉEL de cet objectif (borné à la plage
 	   de saisie du déficit pour ne pas refuser un objectif très bas). */
 	const bilanSeuils = bilanObjectifSemaine({
@@ -683,7 +690,6 @@ export function impactObjectifApplique(entree: {
 		depasseMacdonald,
 		comparaisonPlafonds,
 		alertePlafonds: alertePlafondsPour(perteGraisseKg, alpert, macdonald),
-		avertissementDeficit: bilanSeuils.avertissement,
 		avertissementDeficitEleve: bilanSeuils.avertissementDeficitEleve,
 		avertissementDisponibilite: avertissementDisponibilitePour(disponibiliteKcal)
 	};
