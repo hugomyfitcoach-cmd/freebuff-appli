@@ -517,11 +517,9 @@
 		</div>
 		{#if foodSearch.state.searching}<p class="mt-2 text-[11px] text-mist">Recherche…</p>{/if}
 		<div class="mt-3 max-h-[50vh] space-y-1 overflow-y-auto">
-			{#if foodSearch.state.error}
-				<p class="py-6 text-center text-xs text-danger">{foodSearch.state.error}</p>
-			{:else if foodSearch.state.q.trim().length < 2}
+			{#if foodSearch.state.q.trim().length < 2}
 				<p class="py-6 text-center text-xs text-mist">Tape au moins 2 lettres pour chercher dans la base.</p>
-			{:else if foodSearch.state.products.length === 0 && foodSearch.state.ciqual.length === 0 && !foodSearch.state.searching}
+			{:else if foodSearch.state.products.length === 0 && foodSearch.state.ciqual.length === 0 && !foodSearch.state.searching && !foodSearch.state.productsUnavailable}
 				<p class="py-6 text-center text-xs text-mist">Aucun résultat pour « {foodSearch.state.q.trim()} ».</p>
 			{:else}
 				<!-- 1. CIQUAL : aliments de RÉFÉRENCE — bloc séparé, toujours en tête ;
@@ -540,8 +538,12 @@
 							>
 								<span class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-light"><Icon name="salad" size={18} class="text-brand" /></span>
 								<div class="min-w-0 flex-1">
-									<div class="truncate text-sm font-semibold text-ink">{hit.name}</div>
-									<div class="text-[11px] text-mist">{hit.kcal100} kcal/100 g · <span class="font-bold text-brand">Référence Ciqual – ANSES</span> · Idéal pour un suivi précis</div>
+									<div class="line-clamp-2 text-sm font-semibold leading-snug text-ink">{hit.name}</div>
+									<div class="mt-0.5 text-[11px] text-mist">{hit.kcal100} kcal/100 g</div>
+									<div class="mt-1 flex flex-col items-start gap-0.5">
+										<span class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>
+										{#if hit.cookLabel}<span data-cook-badge class="rounded-full bg-[#F1F0EC] px-2 py-0.5 text-[9px] font-semibold text-[#6E6A62]">{hit.cookLabel}</span>{/if}
+									</div>
 								</div>
 								<span class="text-brand">＋</span>
 							</button>
@@ -550,6 +552,9 @@
 				{/if}
 				<!-- 2. PRODUITS : Open Food Facts (moteur classé PWA, ranking identique
 				     côté cliente ; la liste reste affichée pendant une nouvelle frappe). -->
+				{#if foodSearch.state.productsUnavailable}
+					<p class="px-1 pt-3 text-[11px] text-mist">Produits indisponibles pour le moment.</p>
+				{/if}
 				{#if foodSearch.state.products.length > 0}
 					<p class="px-1 pb-1 pt-2 text-[10px] font-bold uppercase tracking-widest text-mist">Produits · Open Food Facts</p>
 					<div class="space-y-1 transition-opacity {foodSearch.state.searching ? 'opacity-50' : ''}">

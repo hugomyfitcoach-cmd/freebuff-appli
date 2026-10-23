@@ -21,9 +21,17 @@
  *     puis — après l'état — l'accord exact du mot tapé départage les faux
  *     amis au pluriel : « pâtes cuites » → « Pâtes sèches, cuites » avant
  *     « Pâte sablée, cuite » ;
- *  3. état de cuisson : s'il est tapé (cuit, cru, poêlé…), sa famille passe
- *     d'abord ; sinon ordre par défaut cru → poêlé/sauté → cuit à l'eau ;
- *  4. à égalité, le nom le plus court passe en premier (puis alphabétique).
+ *  3. mots CONSÉCUTIFS (Mission R1-bis) : à pertinence égale, les noms où
+ *     les mots tapés se suivent dans le même ordre passent avant les noms où
+ *     ils sont séparés (« pain complet » → « Pain complet ou intégral » avant
+ *     « Pain grillé au blé complet ») ;
+ *  4. REGROUPEMENT PAR VARIÉTÉ (Mission R1-bis) : les fiches sont regroupées
+ *     par variété (nom sans la mention de cuisson ni les précisions de
+ *     préparation — voir cookedState.ts) ; les variétés gardent l'ordre des
+ *     règles 1-2-3, puis la cuisson s'ordonne À L'INTÉRIEUR de chaque
+ *     variété : cru → cuit à l'eau/bouilli → vapeur → four → poêlé/sauté →
+ *     frit. Une cuisson tapée reste prioritaire sur le regroupement ;
+ *  5. à égalité, le nom le plus court passe en premier (puis alphabétique).
  * Bonus : les aliments déjà ajoutés par la cliente remontent en tête de la
  * section Ciqual (`usedLabels`, résolus côté serveur dans la query).
  * Normalisation partagée (foodRanking) : accents, majuscules, pluriels
@@ -37,13 +45,18 @@
 import { ciqualNutrients } from "./ciqualNutrients";
 import {
 	allWordsPresent,
-	cookStateOf,
-	cookStateRank,
 	norm,
+	phrasePresent,
 	queryCookState,
+	sameCookFamily,
 	tokenize,
-	type CookState,
 } from "./foodRanking";
+import {
+	cookingRank,
+	cookingStateOf,
+	cookingVarietyOf,
+	type CookingState,
+} from "../lib/cookedState";
 import { query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { getSessionUser } from "./helpers";
@@ -76,8 +89,14 @@ type Row = {
 	normed: string;
 	/** Premier token (règle 2 : « nom qui commence par le premier mot »). */
 	first: string;
-	/** Famille de cuisson du nom (premier état rencontré, « neutre » sinon). */
-	state: CookState;
+	/** État de cuisson du nom (dernière mention, « neutre » sinon). */
+	state: CookingState;
+	/** Variété = nom normalisé sans la mention de cuisson ni les précisions de préparation. */
+	variety: string;
+	/** Meilleur rang de cuisson de la variété (règle 3 appliquée au groupe). */
+	varietyRank: number;
+	/** Nom le plus court de la variété (règle 4 appliquée au groupe). */
+	groupLen: number;
 };
 
 const ROWS: Row[] = (() => {
@@ -90,8 +109,27 @@ const ROWS: Row[] = (() => {
 			toks,
 			normed: norm(r.name),
 			first: toks[0],
-			state: cookStateOf(toks),
+			state: cookingStateOf(r.name),
+			variety: cookingVarietyOf(r.name) || norm(r.name),
+			varietyRank: 9,
+			groupLen: 0,
 		});
+	}
+	// Règle 3 au niveau du GROUPE : une variété qui contient une fiche crue
+	// reste devant une variété qui n'existe que cuite (« riz » → un riz cru
+	// d'abord), quel que soit l'ordre des cuissons à l'intérieur.
+	const bestByVariety = new Map<string, number>();
+	const lenByVariety = new Map<string, number>();
+	for (const row of rows) {
+		const rank = cookingRank(row.state);
+		const cur = bestByVariety.get(row.variety);
+		if (cur === undefined || rank < cur) bestByVariety.set(row.variety, rank);
+		const len = lenByVariety.get(row.variety);
+		if (len === undefined || row.normed.length < len) lenByVariety.set(row.variety, row.normed.length);
+	}
+	for (const row of rows) {
+		row.varietyRank = bestByVariety.get(row.variety) ?? 9;
+		row.groupLen = lenByVariety.get(row.variety) ?? row.normed.length;
 	}
 	return rows;
 })();
@@ -163,34 +201,43 @@ export function rankCiqual(q: string, opts?: RankOpts): CiqualHit[] {
 		// Doublons de libellé : une seule fiche affichée (1re occurrence).
 		if (seen.has(row.ref.label)) continue;
 		seen.add(row.ref.label);
-		// Règle 3 — état de cuisson : tapé → prioritaire ; sinon ordre par
-		// défaut cru → poêlé/sauté → cuit à l'eau → neutre (sec, fumé, recettes).
-		const stateKey =
-			typedState !== undefined
-				? row.state === typedState
-					? 0
-					: 1 + cookStateRank(row.state)
-				: cookStateRank(row.state);
+		// Règle 4 — cuisson tapée → prioritaire (famille « cuit » incluse) ;
+		// sinon la cuisson s'ordonne À L'INTÉRIEUR de chaque variété.
+		const typedMatch =
+			typedState !== undefined ? (sameCookFamily(typedState, row.state) ? 0 : 1) : 0;
+		const varietyFirst = row.variety.split(" ")[0];
 		scored.push({
 			ref: row.ref,
 			key: [
 				used.has(row.normed) ? 0 : 1, // bonus aliments déjà ajoutés
 				egg ? eggStateRank(row.normed) : 0, // exception famille œuf
-				row.first.startsWith(qt[0]) ? 0 : 1, // règle 2 — aliment en tête du nom
-				stateKey, // règle 3 — état de cuisson
-				row.normed.startsWith(rawFirst) ? 0 : 1, // règle 2 (accord exact du mot tapé)
-				row.normed.length, // règle 4 — nom le plus court
+				typedMatch, // règle 4 — cuisson tapée prioritaire
+				varietyFirst.startsWith(qt[0]) ? 0 : 1, // règle 2 — aliment en tête du nom
+				phrasePresent(row.toks, qt) ? 0 : 1, // règle 3 — mots consécutifs
+				row.varietyRank, // règle 3 — état de la variété (cru d'abord)
+				row.variety.startsWith(rawFirst) ? 0 : 1, // règle 2 (accord exact du mot tapé)
+				row.groupLen, // règle 5 — variété la plus simple (nom le plus court)
+				row.variety, // variété (regroupement : les variantes restent adjacentes)
+				cookingRank(row.state), // règle 4 — cuisson DANS la variété
+				row.normed.length, // règle 5 — nom le plus court
 				row.normed, // départage alphabétique déterministe
 			],
 		});
 	}
 	scored.sort((a, b) => {
-		for (let i = 0; i < 6; i++) {
-			const ka = a.key[i] as number;
-			const kb = b.key[i] as number;
-			if (ka !== kb) return ka - kb;
+		// Comparaison champ par champ : nombres d'abord, puis chaînes (variété,
+		// nom) — aucune conversion implicite entre les deux.
+		for (let i = 0; i < a.key.length; i++) {
+			const ka = a.key[i];
+			const kb = b.key[i];
+			if (typeof ka === "number" && typeof kb === "number") {
+				if (ka !== kb) return ka - kb;
+			} else if (typeof ka === "string" && typeof kb === "string") {
+				const cmp = ka.localeCompare(kb, "fr");
+				if (cmp !== 0) return cmp;
+			}
 		}
-		return (a.key[6] as string).localeCompare(b.key[6] as string, "fr");
+		return 0;
 	});
 	return scored.map((s) => s.ref);
 }

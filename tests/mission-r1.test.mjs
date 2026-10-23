@@ -10,9 +10,13 @@
  *   1. tous les mots de la recherche présents (en début de mot) ;
  *   2. noms commençant par le premier mot recherché d'abord (format Ciqual :
  *      aliment, puis précisions) ;
- *   3. état de cuisson : tapé → prioritaire ; sinon cru → poêlé/sauté →
- *      cuit à l'eau ;
- *   4. à égalité, le nom le plus court passe en premier.
+ *   3. mots CONSÉCUTIFS à pertinence égale (« pain complet » : les mots qui
+ *      se suivent passent avant ceux qui sont séparés — Mission R1-bis) ;
+ *   4. regroupement par VARIÉTÉ (nom sans la mention de cuisson), la cuisson
+ *      s'ordonnant à l'intérieur de chaque variété : cru → cuit à l'eau →
+ *      vapeur → four → poêlé/sauté → frit (une cuisson tapée reste
+ *      prioritaire — Mission R1-bis) ;
+ *   5. à égalité, le nom le plus court passe en premier.
  * Bonus : les aliments déjà ajoutés par la cliente remontent en tête.
  *
  * Ces tests sont des tests de RÉFÉRENCE : leurs assertions sont écrites avec
@@ -25,8 +29,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { readFileSync } from 'node:fs';
+
 import { searchCiqualLocal, rankCiqual } from '../src/convex/ciqual.ts';
 import { rankFoods } from '../src/convex/foodRanking.ts';
+import { cookingBadgeOf } from '../src/lib/cookedState.ts';
+
+/** Source d'un fichier de l'app (tests d'affichage, sans DOM). */
+const source = (p) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
 
 /* ── Helpers de test (normalisation INDÉPENDANTE du code de ranking) ── */
 
@@ -55,12 +65,15 @@ const labels = (q, limit, opts) => searchCiqualLocal(q, limit, opts).map((h) => 
 
 /* ─── 1) riz → riz cru d'abord ─── */
 
-test('riz : un riz cru d\'abord (ordre par défaut cru → poêlé/sauté → cuit à l\'eau)', () => {
+test('riz : un riz cru d\'abord, puis la cuisson de SA variété (R1-bis : plus de cuisson globale)', () => {
 	const top = labels('riz');
 	assert.equal(top.length, 3, 'trois fiches par défaut');
 	assert.ok(top.every((l) => /^riz\b/.test(plain(l)), `uniquement la famille « riz » (obtenu : ${top.join(' | ')})`));
 	assert.equal(stateRank(top[0]), 0, `1er = riz cru (obtenu : ${top[0]})`);
-	assert.ok(top.every((l) => stateRank(l) === 0), `top 3 = crus avant cuits (obtenu : ${top.join(' | ')})`);
+	// Regroupement par variété : le cru et le cuit du MÊME riz se suivent
+	// (l'ancienne règle imposait « top 3 = crus » toutes variétés mêlées).
+	assert.equal(top[0], 'Riz blanc, cru');
+	assert.equal(top[1], 'Riz blanc, cuit, sans sel ajouté', `cru puis cuit de la variété « riz blanc » (obtenu : ${top.join(' | ')})`);
 });
 
 /* ─── 2) riz cuit → uniquement des riz cuits ─── */
@@ -77,24 +90,19 @@ test('riz cuit : uniquement des riz cuits (tous les mots présents — plus aucu
 
 /* ─── 3) haricots → crus, puis poêlés, puis cuits à l'eau ─── */
 
-test('haricots : d\'abord les crus, puis les poêlés/sautés, puis les cuits à l\'eau', () => {
+test('haricots : variétés regroupées, cuisson cru → cuit à l\'eau DANS chaque variété', () => {
 	const top = labels('haricots');
 	assert.equal(stateRank(top[0]), 0, `1er = haricot cru (obtenu : ${top[0]})`);
 	assert.ok(top.every((l) => /^haricot/.test(plain(l))), `famille haricot (obtenu : ${top.join(' | ')})`);
-	// Ordre des groupes dans la FAMILLE haricot (les préparations mêlées type
-	// « Printanière … haricots verts » restent derrière — règle 2 avant règle 3) :
-	// aucun cru après un poêlé, aucun poêlé après un cuit à l'eau.
-	const all = rankCiqual('haricots')
+	// R1-bis : l'ordre de cuisson s'applique à l'intérieur d'une variété, plus
+	// globalement à toute la famille (« haricot plat » puis « haricot vert »).
+	const verts = rankCiqual('haricots')
 		.map((h) => h.label)
-		.filter((l) => /^haricot\b/.test(plain(l)))
-		.map(stateRank);
-	const maxOf = (r) => all.lastIndexOf(r);
-	const minOf = (r) => all.indexOf(r);
-	if (minOf(1) !== -1) assert.ok(maxOf(0) < minOf(1), 'tous les crus avant les poêlés/sautés');
-	if (minOf(2) !== -1) {
-		assert.ok(maxOf(0) < minOf(2), 'tous les crus avant les cuits à l\'eau');
-		if (minOf(1) !== -1) assert.ok(maxOf(1) < minOf(2), 'tous les poêlés/sautés avant les cuits à l\'eau');
-	}
+		.filter((l) => /^haricot vert\b/i.test(l));
+	const firstEau = verts.findIndex((l) => stateRank(l) === 2);
+	const lastCru = verts.reduce((acc, l, i) => (stateRank(l) === 0 ? i : acc), -1);
+	assert.ok(firstEau !== -1, `un « haricot vert » cuit à l'eau est présent (obtenu : ${verts.join(' | ')})`);
+	assert.ok(lastCru !== -1 && lastCru < firstEau, 'dans la variété « haricot vert » : tous les crus avant le cuit à l’eau');
 });
 
 /* ─── 4) beurre → beurres (80 % MG) avant haricot beurre ─── */
@@ -255,6 +263,72 @@ test('Un aliment déjà ajouté par la cliente remonte en tête de la section Ci
 });
 
 /* ─── 14) Open Food Facts : même normalisation + règle « tous les mots présents » ─── */
+
+/* ─── 15) R1-bis : mots consécutifs ─── */
+
+test('pain complet : les mots CONSÉCUTIFS passent avant les mots séparés', () => {
+	const full = rankCiqual('pain complet').map((h) => h.label);
+	const phrase = full.indexOf('Pain complet ou intégral (à la farine T150)');
+	const separated = full.indexOf('Pain grillé au blé complet, tranches, préemballé');
+	assert.ok(phrase !== -1 && separated !== -1, `les deux fiches sont présentes (obtenu : ${full.slice(0, 6).join(' | ')})`);
+	assert.ok(phrase < separated, `« Pain complet ou intégral » (rang ${phrase}) avant « Pain grillé au blé complet » (rang ${separated})`);
+	// Même règle côté Open Food Facts, à pertinence égale.
+	const off = rankFoods(
+		[{ name: 'Pain grillé au blé complet' }, { name: 'Pain complet ou intégral' }],
+		'pain complet'
+	).map((f) => f.name);
+	assert.equal(off[0], 'Pain complet ou intégral');
+});
+
+/* ─── 16) R1-bis : regroupement par variété puis cuisson ─── */
+
+test('pâtes : une variété à la fois — crue puis cuite de la MÊME variété dans le top 2', () => {
+	const top = labels('pâtes');
+	assert.equal(top[0], 'Pâtes sèches, standard, crues');
+	assert.equal(top[1], 'Pâtes sèches, standard, cuites, sans sel ajouté', `crues puis cuites (obtenu : ${top.join(' | ')})`);
+	assert.match(top[2], /^Pâtes sèches, aux oeufs, crues$/, 'la variété suivante commence ensuite');
+});
+
+test('pomme de terre : crue, cuite à l\'eau, au four (même variété)', () => {
+	const top = labels('pomme de terre');
+	assert.deepEqual(top, [
+		'Pomme de terre, sans peau, crue',
+		'Pomme de terre, bouillie/cuite à l\'eau',
+		'Pomme de terre, rôtie/cuite au four',
+	]);
+});
+
+/* ─── 17) Badges de cuisson (source unique cookedState.ts) ─── */
+
+test('badges de cuisson : cru, cuit, dernier mot gagnant, aucun badge sans mention', () => {
+	assert.equal(cookingBadgeOf('Pomme de terre, sans peau, crue'), 'Cru');
+	assert.equal(cookingBadgeOf('Pâtes sèches, standard, cuites'), 'Cuit');
+	assert.equal(cookingBadgeOf("Pomme de terre, bouillie/cuite à l'eau"), "Cuit à l'eau");
+	assert.equal(cookingBadgeOf('Pomme de terre, appertisée, égouttée'), 'En conserve');
+	// Deux mentions de cuisson : la DERNIÈRE du nom gagne (rôtie → au four).
+	assert.equal(cookingBadgeOf('Pomme de terre, rôtie/cuite au four'), 'Au four');
+	assert.equal(cookingBadgeOf('Beurre à 80% MG, doux'), null);
+});
+
+/* ─── 18) Panne Open Food Facts : Ciqual jamais masqué ─── */
+
+test('panne Open Food Facts : Ciqual reste affiché, message discret sur les Produits', () => {
+	const engine = source('src/lib/foodSearch.svelte.ts');
+	const runBody = engine.slice(engine.indexOf('async function run(q'), engine.indexOf('function setQuery'));
+	assert.ok(/state\.productsUnavailable = true/.test(runBody), 'la panne OFF est signalée à la vue');
+	assert.ok(!/state\.ciqual\s*=\s*\[\]/.test(runBody), 'la panne OFF ne vide plus les fiches Ciqual');
+
+	const journal = source('src/routes/espace/journal/+page.svelte');
+	assert.ok(/searchError = 'Produits indisponibles pour le moment\.'/.test(journal), 'message discret côté PWA');
+	const searchBody = journal.slice(
+		journal.indexOf('async function runSearch'),
+		journal.indexOf('/**', journal.indexOf('async function runSearch'))
+	);
+	const errBody = searchBody.slice(searchBody.indexOf('if (err) {'), searchBody.indexOf('searching = false;'));
+	assert.ok(!/ciqualResults\s*=/.test(errBody), 'le bloc Ciqual survit à la panne');
+	const ciqualAt = journal.indexOf('Aliments de référence');
+	assert.ok(ciqualAt !== -1 && journal.indexOf('{searchError}', ciqualAt) > ciqualAt, 'le message est rendu APRÈS le bloc Ciqual');
+});
 
 test('OFF : même normalisation (accents, casse, pluriels, œuf)', () => {
 	const items = [{ name: 'Œuf entier, cru' }, { name: 'Pain de mie complet' }, { name: 'Yaourt nature' }];

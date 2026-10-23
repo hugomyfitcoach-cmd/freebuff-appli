@@ -5,6 +5,7 @@
 	import { startBarcodeScanner, CameraPermissionError, normalizeProductCode, type BarcodeScannerHandle, type TorchHandle } from '$lib/barcodeScanner';
 	import { compressImage, detectBarcodeInDataUrl } from '$lib/labelBarcode';
 	import { userErrMsg } from '$lib/errors';
+	import { cookingBadgeOf } from '$lib/cookedState';
 	import { currentLocalDay } from '$lib/currentDay.svelte';
 	import { appWarm, firstVisit, isFresh, noteSync, restoreScroll, saveScroll } from '$lib/navMemory';
 	import JournalDay from '$lib/components/JournalDay.svelte';
@@ -108,6 +109,8 @@ import { optimizeImageFile } from '$lib/media';
 		barcode?: string;
 		/** Fiche de RÉFÉRENCE Ciqual (ANSES) — _id = libellé officiel exact. */
 		ciqual?: boolean;
+		/** Badge de cuisson Ciqual (détection cookedState.ts, source unique). */
+		cookLabel?: string | null;
 		/** Fibres /100 g (aliments personnels, information d'étiquette). */
 		fiber100?: number;
 		/** Sel /100 g (aliments personnels, information d'étiquette). */
@@ -891,6 +894,7 @@ import { optimizeImageFile } from '$lib/media';
 			protein100: h.protein ?? 0,
 			fat100: h.fat ?? 0,
 			ciqual: true,
+			cookLabel: cookingBadgeOf(h.label),
 		};
 	}
 
@@ -939,7 +943,9 @@ import { optimizeImageFile } from '$lib/media';
 		await ciq;
 		if (guard !== searchSeq) return; // réponse périmée : une recherche plus récente a pris la main
 		if (err) {
-			searchError = err instanceof Error ? err.message : String(err);
+			// Panne Open Food Facts : les fiches Ciqual restent affichées (Mission
+			// R1-bis) ; seule la section Produits signale l'indisponibilité.
+			searchError = 'Produits indisponibles pour le moment.';
 			results = [];
 			hasMore = false;
 			nextOffset = 0;
@@ -1987,7 +1993,8 @@ import { optimizeImageFile } from '$lib/media';
 		await ciq;
 		if (guard !== mealSearchSeq) return; // réponse périmée : une recherche plus récente a pris la main
 		if (err) {
-			mealSearchError = err instanceof Error ? err.message : String(err);
+			// Panne OFF : Ciqual toujours affiché, message discret côté Produits.
+			mealSearchError = 'Produits indisponibles pour le moment.';
 			mealResults = [];
 			mealHasMore = false;
 			mealNextOffset = 0;
@@ -4571,11 +4578,6 @@ import { optimizeImageFile } from '$lib/media';
 							<p class="text-sm font-semibold text-ink">Recherche « {searchQ.trim()} »…</p>
 							<p class="mx-auto mt-1 max-w-xs text-xs text-mist">On fouille la base (780 000 aliments) — ça ne prend que quelques secondes.</p>
 						</div>
-					{:else if searchError}
-						<div class="rounded-xl border-2 border-danger bg-danger-light px-3 py-3 text-sm text-danger">
-							<p>{searchError}</p>
-							<button type="button" class="mt-2 w-full rounded-full bg-danger py-2 text-xs font-bold text-white transition hover:opacity-90" onclick={() => runSearch(searchQ.trim())}>Réessayer</button>
-						</div>
 					{:else if searchQ.trim().length < 2}
 						<!-- Suggestions avant toute saisie : HABITUDES APPRISES (score
 						     personnel : fréquence × récence × contexte repas) puis
@@ -4612,7 +4614,7 @@ import { optimizeImageFile } from '$lib/media';
 								<p class="mx-auto mt-1 max-w-xs text-xs text-mist">Base G-Flux (780 000 aliments), code-barres, ou « Mes aliments » pour un plat avec étiquette.</p>
 							</div>
 						{/if}
-					{:else if results.length === 0 && ciqualResults.length === 0}
+					{:else if results.length === 0 && ciqualResults.length === 0 && !searchError}
 						<p class="py-10 text-center text-sm text-mist">Aucun résultat pour « {searchQ.trim()} ».</p>
 					{:else}
 						<!-- ═══ ALIMENTS DE RÉFÉRENCE (Ciqual – ANSES) : toujours en tête,
@@ -4626,13 +4628,16 @@ import { optimizeImageFile } from '$lib/media';
 							<ul class="mb-2 flex flex-col gap-1.5">
 								{#each (ciqualExpanded ? ciqualResults : ciqualResults.slice(0, 3)) as cfood (cfood._id)}
 									<li>
-										<button type="button" class="flex w-full items-center gap-2.5 rounded-2xl border border-line bg-white p-2 text-left shadow-sm transition hover:border-brand" onclick={() => openQty(cfood)}>
+										<button type="button" class="flex w-full items-start gap-2.5 rounded-2xl border border-line bg-white p-2 text-left shadow-sm transition hover:border-brand" onclick={() => openQty(cfood)}>
 											<span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand-light"><Icon name="salad" size={20} class="text-brand" /></span>
-										<span class="min-w-0 flex-1">
-											<span class="block truncate text-[14px] font-semibold text-ink">{cfood.name}</span>
-											<span class="block text-[12px] text-mist tabular-nums"><strong class="font-bold text-brand">{fmt(cfood.kcal100)} kcal</strong> · 100 g · Idéal pour un suivi précis</span>
-										</span>
-											<span class="shrink-0 rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>
+											<span class="min-w-0 flex-1">
+												<span class="line-clamp-2 text-[14px] font-semibold leading-snug text-ink">{cfood.name}</span>
+												<span class="mt-0.5 block text-[12px] text-mist tabular-nums"><strong class="font-bold text-brand">{fmt(cfood.kcal100)} kcal</strong> · 100 g</span>
+												<span class="mt-1 flex flex-col items-start gap-0.5">
+													<span class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>
+													{#if cfood.cookLabel}<span data-cook-badge class="rounded-full bg-[#F1F0EC] px-2 py-0.5 text-[9px] font-semibold text-[#6E6A62]">{cfood.cookLabel}</span>{/if}
+												</span>
+											</span>
 										</button>
 									</li>
 								{/each}
@@ -4641,7 +4646,7 @@ import { optimizeImageFile } from '$lib/media';
 								<button type="button" class="mb-2 w-full rounded-full py-2 text-xs font-semibold text-brand transition hover:bg-brand-light" onclick={() => (ciqualExpanded = !ciqualExpanded)} aria-expanded={ciqualExpanded}>{ciqualExpanded ? 'Voir moins' : 'Voir plus'}</button>
 							{/if}
 						{/if}
-						{#if results.length > 0}
+						{#if results.length > 0 || searchError}
 							<div class="flex items-baseline justify-between px-1 pb-1 pt-1.5">
 								<h3 class="text-[11px] font-bold uppercase tracking-widest text-mist">Produits</h3>
 								<span class="text-[10px] text-mist">Open Food Facts</span>
@@ -4656,6 +4661,10 @@ import { optimizeImageFile } from '$lib/media';
 									{#if loadingMore}<p class="py-3 text-center text-xs text-mist">Chargement…</p>{/if}
 								{/if}
 							{/if}
+						{#if searchError}
+							<!-- Panne Open Food Facts : message discret, Ciqual reste au-dessus. -->
+							<p class="px-1 py-2 text-[12px] text-mist">{searchError}</p>
+						{/if}
 						{/if}
 					</div>
 					<!-- Indication de scroll : discrète, non cliquable, disparaît dès
@@ -5331,14 +5340,9 @@ import { optimizeImageFile } from '$lib/media';
 						<p class="flex items-center justify-center gap-2 py-10 text-sm text-mist" role="status">
 							<Icon name="search" size={16} class="animate-pulse text-mist" /> Recherche « {mealSearchQ.trim()} »…
 						</p>
-					{:else if mealSearchError}
-						<div class="rounded-xl border-2 border-danger bg-danger-light px-3 py-3 text-sm text-danger">
-							<p>{mealSearchError}</p>
-							<button type="button" class="mt-2 w-full rounded-full bg-danger py-2 text-xs font-bold text-white transition hover:opacity-90" onclick={() => runMealSearch(mealSearchQ.trim())}>Réessayer</button>
-						</div>
 					{:else if mealSearchQ.trim().length < 2}
 						<p class="py-10 text-center text-sm text-mist">Recherche un produit — base G-Flux (780 000 aliments) et ceux de « Mes aliments ».</p>
-					{:else if mealResults.length === 0 && mealCiqualResults.length === 0}
+					{:else if mealResults.length === 0 && mealCiqualResults.length === 0 && !mealSearchError}
 						<p class="py-10 text-center text-sm text-mist">Aucun résultat pour « {mealSearchQ.trim()} ».</p>
 					{:else}
 						{#if mealCiqualResults.length > 0}
@@ -5349,13 +5353,16 @@ import { optimizeImageFile } from '$lib/media';
 							<ul class="mb-2 flex flex-col gap-1.5">
 								{#each (mealCiqualExpanded ? mealCiqualResults : mealCiqualResults.slice(0, 3)) as cfood, ci (cfood._id)}
 									<li>
-										<button type="button" class="flex w-full items-center gap-2.5 rounded-[18px] border border-[#EEF1EF] bg-white p-2 text-left shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_22px_-14px_rgba(15,21,18,0.16)] transition hover:border-brand" onclick={() => openCiqualIngredientPortion(ci)}>
+										<button type="button" class="flex w-full items-start gap-2.5 rounded-[18px] border border-[#EEF1EF] bg-white p-2 text-left shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_22px_-14px_rgba(15,21,18,0.16)] transition hover:border-brand" onclick={() => openCiqualIngredientPortion(ci)}>
 											<span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand-light"><Icon name="salad" size={20} class="text-brand" /></span>
-										<span class="min-w-0 flex-1">
-											<span class="block truncate text-[14px] font-semibold text-ink">{cfood.name}</span>
-											<span class="block text-[12px] text-mist tabular-nums"><strong class="font-bold text-brand">{fmt(cfood.kcal100)} kcal</strong> · 100 g · Idéal pour un suivi précis</span>
-										</span>
-											<span class="shrink-0 rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>
+											<span class="min-w-0 flex-1">
+												<span class="line-clamp-2 text-[14px] font-semibold leading-snug text-ink">{cfood.name}</span>
+												<span class="mt-0.5 block text-[12px] text-mist tabular-nums"><strong class="font-bold text-brand">{fmt(cfood.kcal100)} kcal</strong> · 100 g</span>
+												<span class="mt-1 flex flex-col items-start gap-0.5">
+													<span class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>
+													{#if cfood.cookLabel}<span data-cook-badge class="rounded-full bg-[#F1F0EC] px-2 py-0.5 text-[9px] font-semibold text-[#6E6A62]">{cfood.cookLabel}</span>{/if}
+												</span>
+											</span>
 										</button>
 									</li>
 								{/each}
@@ -5364,7 +5371,7 @@ import { optimizeImageFile } from '$lib/media';
 									<button type="button" class="mb-2 w-full rounded-full py-2 text-xs font-semibold text-brand transition hover:bg-brand-light" onclick={() => (mealCiqualExpanded = !mealCiqualExpanded)} aria-expanded={mealCiqualExpanded}>{mealCiqualExpanded ? 'Voir moins' : 'Voir plus'}</button>
 								{/if}
 						{/if}
-						{#if mealResults.length > 0}
+						{#if mealResults.length > 0 || mealSearchError}
 							<div class="flex items-baseline justify-between px-1 pb-1 pt-1.5">
 								<h3 class="text-[11px] font-bold uppercase tracking-widest text-mist">Produits</h3>
 								<span class="text-[10px] text-mist">Open Food Facts</span>
@@ -5391,6 +5398,10 @@ import { optimizeImageFile } from '$lib/media';
 									<div bind:this={mealSentinelEl} class="h-px w-full"></div>
 									{#if mealLoadingMore}<p class="py-3 text-center text-xs text-mist">Chargement…</p>{/if}
 								{/if}
+						{/if}
+						{#if mealSearchError}
+							<!-- Panne Open Food Facts : message discret, Ciqual reste au-dessus. -->
+							<p class="px-1 py-2 text-[12px] text-mist">{mealSearchError}</p>
 						{/if}
 					{/if}
 				</div>

@@ -82,55 +82,51 @@ export function tokenize(s: string): string[] {
 
 /* ─── États de cuisson (normalisation partagée Ciqual + OFF) ───
  *
- * « cuit » couvre « bouilli/cuit à l'eau » : les trois familles de cuisson
- * servent (1) à reconnaître qu'un mot d'état de la REQUÊTE est présent dans un
- * nom (« riz cuit » → « Riz blanc, bouilli/cuit à l'eau »), (2) à ordonner les
- * résultats quand aucun état n'est tapé (ordre par défaut cru → poêlé/sauté →
- * cuit à l'eau). Les marqueurs de conservation (surgelé, appertisé, égoutté…)
- * et le fumé/sec ne sont PAS des états de cuisson → famille neutre.
+ * SOURCE UNIQUE : src/lib/cookedState.ts (détection, badge, rangs). Utilisée
+ * ici pour (1) reconnaître qu'un mot d'état de la REQUÊTE est présent dans un
+ * nom (« riz cuit » → « Riz blanc, bouilli/cuit à l'eau »), (2) ordonner la
+ * cuisson à l'intérieur d'une variété Ciqual (convex/ciqual.ts).
  */
-export type CookState = "cru" | "poele" | "cuit" | "neutre";
-
-const STATE_CLASS: Record<string, CookState> = {
-	// cru
-	cru: "cru", crue: "cru",
-	// poêlé / sauté / grillé / rôti (cuisson sèche)
-	poele: "poele", poelee: "poele", saute: "poele", sautee: "poele",
-	grille: "poele", grillee: "poele", roti: "poele", rotie: "poele",
-	frit: "poele", frite: "poele", pane: "poele", panee: "poele",
-	rissole: "poele", rissolee: "poele",
-	// cuit à l'eau (« cuit » couvre bouilli / vapeur — « étuvé » est une
-	// VARIÉTÉ dans « Riz blanc étuvé », pas un état de cuisson : exclu)
-	cuit: "cuit", cuite: "cuit", bouilli: "cuit", bouillie: "cuit",
-	vapeur: "cuit",
-};
+import {
+	cookingFamily,
+	cookingStateOfToken,
+	type CookingState,
+} from "../lib/cookedState";
 
 /** Famille de cuisson d'un token normalisé (undefined = ce n'est pas un état). */
-export function stateClassOf(tok: string): CookState | undefined {
-	return STATE_CLASS[tok];
-}
-
-/** État de cuisson d'un nom tokenisé : le PREMIER état rencontré, « neutre » sinon. */
-export function cookStateOf(toks: string[]): CookState {
-	for (const t of toks) {
-		const c = STATE_CLASS[t];
-		if (c) return c;
-	}
-	return "neutre";
+export function stateClassOf(tok: string): CookingState | undefined {
+	return cookingStateOfToken(tok);
 }
 
 /** État de cuisson tapé dans la requête (undefined = aucun état demandé). */
-export function queryCookState(qt: string[]): CookState | undefined {
+export function queryCookState(qt: string[]): CookingState | undefined {
 	for (const t of qt) {
-		const c = STATE_CLASS[t];
+		const c = cookingStateOfToken(t);
 		if (c) return c;
 	}
 	return undefined;
 }
 
-/** Rang de l'état dans l'ordre par défaut cru → poêlé/sauté → cuit à l'eau → neutre. */
-export function cookStateRank(s: CookState): number {
-	return s === "cru" ? 0 : s === "poele" ? 1 : s === "cuit" ? 2 : 3;
+/** Le nom porte-t-il un état de la même famille que l'état cherché ? */
+export function sameCookFamily(a: CookingState, b: CookingState): boolean {
+	return cookingFamily(a) === cookingFamily(b);
+}
+
+/**
+ * Les mots tapés se suivent-ils, dans le même ordre, dans le nom ?
+ * « pain complet » → vrai pour « Pain complet ou intégral »,
+ * faux pour « Pain grillé au blé complet » (Mission R1-bis, règle 1).
+ * Requête d'un seul mot : neutre (toujours vrai).
+ */
+export function phrasePresent(toks: string[], qt: string[]): boolean {
+	if (qt.length < 2) return true;
+	outer: for (let i = 0; i + qt.length <= toks.length; i++) {
+		for (let j = 0; j < qt.length; j++) {
+			if (toks[i + j] !== qt[j]) continue outer;
+		}
+		return true;
+	}
+	return false;
 }
 
 /* ─── Règle « tous les mots présents (en début de mot) » ───
@@ -142,10 +138,11 @@ export function cookStateRank(s: CookState): number {
  * absorbe le genre (« complet » ≈ « complètes »).
  */
 export function wordPresent(toks: string[], qTok: string): boolean {
-	const sc = STATE_CLASS[qTok];
+	const sc = cookingStateOfToken(qTok);
 	for (const t of toks) {
 		if (t.startsWith(qTok)) return true;
-		if (sc !== undefined && STATE_CLASS[t] === sc) return true;
+		const tc = sc !== undefined ? cookingStateOfToken(t) : undefined;
+		if (sc !== undefined && tc !== undefined && sameCookFamily(sc, tc)) return true;
 		if (qTok.length >= 4 && qTok.startsWith(t)) return true;
 	}
 	return false;
@@ -356,6 +353,8 @@ export function rankFoods<T extends RankableFood>(items: readonly T[], query: st
 				allWordsPresent(nt, qt) ? 0 : 1,
 				anchorKey,
 				tierOf(qt, nt),
+				// À pertinence égale : les mots tapés consécutifs d'abord.
+				phrasePresent(nt, qt) ? 0 : 1,
 				f.brand?.trim() ? 1 : 0,
 				isCiqualVocab(n) ? 0 : 1,
 				n.length,
@@ -366,10 +365,10 @@ export function rankFoods<T extends RankableFood>(items: readonly T[], query: st
 	scored.sort((a, b) => {
 		const ka = a.key;
 		const kb = b.key;
-		for (let i = 0; i < 7; i++) {
+		for (let i = 0; i < 8; i++) {
 			if (ka[i] !== kb[i]) return (ka[i] as number) - (kb[i] as number);
 		}
-		return ka[7].localeCompare(kb[7], "fr");
+		return ka[8].localeCompare(kb[8], "fr");
 	});
 	return scored.map((s) => s.f);
 }
