@@ -38,7 +38,7 @@
 		formatPerteGraisse,
 		perteGraisseKgSemaine,
 		resultatsFiche,
-		semaineAvecObjectif,
+		semaineAvecEcarts,
 		type EntreesFicheCalibrage,
 		type ImpactObjectifApplique,
 		type ResultatsFicheCalibrage,
@@ -1682,6 +1682,7 @@
 		calibrageError = '';
 		applyInitialise = false;
 		applyMsg = '';
+		ecartsSemaine = [0, 0, 0, 0, 0, 0, 0];
 		try {
 			const r = await fetch(`/api/coach/calibrage?userId=${encodeURIComponent(selectedId)}`);
 			const j = await r.json();
@@ -1764,12 +1765,16 @@
 		calibrageInputs.seances = p;
 	}
 
-	/* ── Semaine type : un apport par jour (journées hautes et basses) ──
-	   « Tous à l'objectif » repart de jours « type » (null) : ils suivent
-	   l'objectif du bloc « Appliquer à la fiche » (même modifié à la main) et
-	   restent synchronisés tant que le coach n'y saisit rien. */
+	/* ── Semaine type : SIMULATEUR indépendant du bloc « Appliquer à la fiche »
+	   (annule la liaison de C2c-1 point 2). Chaque jour est un ÉCART (kcal) à
+	   l'objectif journalier CALCULÉ (`calR.objectifJournalierKcal`) : 0 = jour à
+	   l'objectif, négatif = déficit, positif = surplus. Modifier un jour ne
+	   touche donc jamais l'objectif du bloc « Appliquer à la fiche ». */
+	let ecartsSemaine = $state<number[]>([0, 0, 0, 0, 0, 0, 0]);
+	/* « Tous à l'objectif » : tous les écarts reviennent à 0 (jours à
+	   l'objectif journalier calculé). */
 	function semaineVersObjectif() {
-		calibrageInputs.apportsSemaine = [null, null, null, null, null, null, null];
+		ecartsSemaine = [0, 0, 0, 0, 0, 0, 0];
 	}
 
 	/* ── « Appliquer à la fiche » : objectif + macros + date d'effet, puis
@@ -1826,18 +1831,37 @@
 	let refCarbs = $state(0);
 	let refProtein = $state(0);
 	let refFat = $state(0);
+	/** Signature des résultats qui alimentent le bloc « Appliquer à la fiche »
+	 *  (objectif, maintenance, macros) — la semaine type n'y figure PAS :
+	 *  modifier un jour ne doit jamais réinitialiser ce bloc. */
+	const calSignatureResultats = $derived(
+		calR
+			? [
+					calR.objectifJournalierKcal,
+					calR.maintenanceFiletKcal,
+					calR.macros.glucidesG,
+					calR.macros.proteinesG,
+					calR.macros.lipidesG
+				].join('|')
+			: ''
+	);
 	$effect(() => {
-		const r = calR;
-		if (!r) return;
+		/* SEULE dépendance suivie : la signature ci-dessus. */
+		const signature = calSignatureResultats;
+		if (!signature) return;
 		untrack(() => {
-			/* « LA DERNIÈRE ACTION GAGNE » : dès qu'une entrée du calibrage change,
-			   les champs du bloc « Appliquer à la fiche » sont RECALCULÉS depuis les
-			   résultats affichés — objectif = objectif journalier moyen · maintenance
-			   = filet de sécurité (budget ÷ 7, sport habituel inclus) · macros =
-			   macros du jour type — et les badges « modifié » disparaissent (chaque
-			   référence est réalignée sur la valeur recalculée). Les jours de la
-			   semaine type saisis à la main restent protégés : seuls les jours
-			   « type » (null) suivent l'objectif. */
+			const r = calR;
+			if (!r) return;
+			/* « LA DERNIÈRE ACTION GAGNE » : dès qu'une entrée du calibrage qui
+			   change les RÉSULTATS (poids, masse grasse, pas, sport, déficit…)
+			   change, les champs du bloc « Appliquer à la fiche » sont RECALCULÉS
+			   depuis les résultats affichés — objectif = objectif journalier moyen ·
+			   maintenance = filet de sécurité (budget ÷ 7, sport habituel inclus) ·
+			   macros = macros du jour type — et les badges « modifié »
+			   disparaissent (chaque référence est réalignée sur la valeur
+			   recalculée). La semaine type est un simulateur INDÉPENDANT : ses
+			   jours ne sont pas dans la signature, donc les modifier ne réinitialise
+			   jamais ce bloc. */
 			applyKcal = r.objectifJournalierKcal;
 			refKcal = applyKcal;
 			applyKcalReference = applyKcal;
@@ -1916,17 +1940,34 @@
 			return null;
 		}
 	});
-	/** Semaine type avec l'objectif du bloc d'application : les jours non
-	 *  modifiés à la main (`null`) le suivent, les jours saisis gardent leur
-	 *  valeur — jamais écrasés (même logique que les badges « modifié »). */
+	/** Semaine type SIMULÉE : chaque jour = objectif journalier CALCULÉ + écart
+	 *  saisi. Indépendante de l'objectif du bloc « Appliquer à la fiche » (même
+	 *  modifié à la main) : le déficit affiché est celui de la semaine simulée. */
 	const calSemaine = $derived.by((): SemaineCalibrage | null => {
 		if (!calR) return null;
-		if (!(applyKcal > 0)) return calR.semaine;
 		try {
-			return semaineAvecObjectif(calibrageInputs, calR, applyKcal);
+			return semaineAvecEcarts(calibrageInputs, calR, ecartsSemaine);
 		} catch {
 			return calR.semaine;
 		}
+	});
+	/* L'instantané serveur garde la semaine AFFICHÉE : recopie des apports de
+	   `calSemaine` dans les entrées (uniquement si les valeurs diffèrent, pour
+	   ne jamais boucler ni écraser inutilement). */
+	$effect(() => {
+		const semaine = calSemaine;
+		if (!semaine) return;
+		untrack(() => {
+			const actuels = calibrageInputs.apportsSemaine;
+			const suivants = semaine.apportsKcal;
+			if (
+				!Array.isArray(actuels) ||
+				actuels.length !== suivants.length ||
+				suivants.some((valeur, i) => actuels[i] !== valeur)
+			) {
+				calibrageInputs.apportsSemaine = [...suivants];
+			}
+		});
 	});
 	/** Déficit choisi (% du budget) → perte estimée, arrondie au 0,05 kg. */
 	const calPerteDeficit = $derived(calR ? perteGraisseKgSemaine(calR.deficitSemaineKcal) : null);
@@ -4865,14 +4906,17 @@
 											min="0"
 											max="20000"
 											step="10"
-											placeholder={applyKcal > 0 ? String(Math.round(applyKcal)) : '—'}
-											value={calibrageInputs.apportsSemaine[i] ?? ''}
-											oninput={(e) => {
-												const raw = (e.currentTarget as HTMLInputElement).value;
-												const next = [...calibrageInputs.apportsSemaine];
-												next[i] = raw === '' ? null : Number(raw);
-												calibrageInputs.apportsSemaine = next;
-											}}
+										placeholder={calR ? String(Math.round(calR.objectifJournalierKcal)) : '—'}
+										value={calSemaine ? calSemaine.apportsKcal[i] : ''}
+										oninput={(e) => {
+											// Saisie = ÉCART à l'objectif journalier calculé (champ vide → 0).
+											const raw = (e.currentTarget as HTMLInputElement).value;
+											const objectif = calR ? calR.objectifJournalierKcal : 0;
+											const valeur = raw === '' ? objectif : Number(raw);
+											const next = [...ecartsSemaine];
+											next[i] = Number.isFinite(valeur) ? valeur - objectif : 0;
+											ecartsSemaine = next;
+										}}
 											class="mt-1 w-full rounded-lg border-2 border-line px-1.5 py-1.5 text-center text-sm font-semibold outline-none focus:border-brand"
 										/>
 										{#if calSemaine}

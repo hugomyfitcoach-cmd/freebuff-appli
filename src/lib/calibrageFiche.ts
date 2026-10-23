@@ -642,6 +642,28 @@ export function semaineAvecObjectif(
 }
 
 /**
+ * Semaine type SIMULÉE, indépendante du bloc « Appliquer à la fiche » : les
+ * sept apports valent l'objectif journalier CALCULÉ
+ * (`resultats.objectifJournalierKcal`) plus l'écart saisi pour chaque jour
+ * (`ecarts[i]`, 0 = jour à l'objectif, négatif = déficit, positif = surplus).
+ * Aucune formule nouvelle : `semaineAvecObjectif` reçoit ces apports explicites
+ * et l'objectif calculé, si bien que le déficit affiché est celui de la
+ * semaine RÉELLEMENT simulée.
+ */
+export function semaineAvecEcarts(
+	entrees: EntreesFicheCalibrage,
+	resultats: ResultatsFicheCalibrage,
+	ecarts: number[]
+): SemaineCalibrage {
+	const objectif = resultats.objectifJournalierKcal;
+	return semaineAvecObjectif(
+		{ ...entrees, apportsSemaine: ecarts.map((ecart) => objectif + ecart) },
+		resultats,
+		objectif
+	);
+}
+
+/**
  * Impact de l'objectif appliqué — recalculé en direct à partir de CET objectif
  * (même modifié à la main, ex. 1 550 au lieu de 1 531) : déficit réel en % de
  * la maintenance totale, perte de graisse (7 700 kcal/kg), disponibilité en

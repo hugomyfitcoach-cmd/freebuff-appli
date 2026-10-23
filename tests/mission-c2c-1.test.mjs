@@ -195,9 +195,11 @@ test('SEMAINE TYPE : les jours non modifiés suivent l’objectif, les jours sai
 	assert.deepEqual(semaineType.disponibilitesKcal, rType.semaine.disponibilitesKcal);
 	assert.equal(semaineType.deficitSemaineKcal, rType.semaine.deficitSemaineKcal);
 
-	/* CRM : la semaine type lit l'objectif appliqué (placeholder + calculs). */
-	assert.ok(adminPage.includes('semaineAvecObjectif(calibrageInputs, calR, applyKcal)'), 'semaine recalculée avec l’objectif appliqué');
-	assert.ok(adminPage.includes('placeholder={applyKcal > 0 ? String(Math.round(applyKcal)) : \'—\'}'), 'placeholder = objectif appliqué');
+	/* CRM : depuis C2c-5b, la semaine type est un simulateur INDÉPENDANT bâti
+	   sur l'objectif CALCULÉ + les écarts saisis — plus aucune lecture de
+	   l'objectif du bloc d'application dans ce bloc. */
+	assert.ok(adminPage.includes('semaineAvecEcarts(calibrageInputs, calR, ecartsSemaine)'), 'semaine simulée depuis l’objectif calculé et les écarts');
+	assert.ok(!adminPage.slice(adminPage.indexOf('Semaine type</h3>'), adminPage.indexOf('<!-- APPLIQUER À LA FICHE')).includes('applyKcal'), 'la semaine type ne lit plus l’objectif appliqué');
 	assert.ok(adminPage.includes('calSemaine.disponibilitesKcal[i]'), 'disponibilités de la semaine appliquée');
 	assert.ok(!adminPage.slice(adminPage.indexOf('Semaine type</h3>'), adminPage.indexOf("<!-- APPLIQUER À LA FICHE")).includes('calR.semaine'), 'la semaine type ne lit plus l’ancien objectif calculé');
 });
@@ -209,7 +211,7 @@ test('BOUTON « Tous à l’objectif » : repart de jours « type » qui suivent
 		adminPage.indexOf('function semaineVersObjectif'),
 		adminPage.indexOf("/* ── « Appliquer à la fiche »")
 	);
-	assert.ok(handler.includes('calibrageInputs.apportsSemaine = [null, null, null, null, null, null, null];'));
+	assert.ok(handler.includes('ecartsSemaine = [0, 0, 0, 0, 0, 0, 0];'));
 
 	/* Tous les jours « type » prennent l'objectif appliqué — même quand il
 	   diffère de l'objectif calculé par les résultats. */

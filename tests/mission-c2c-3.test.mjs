@@ -128,7 +128,7 @@ test('FLÈCHES : +10 / −10 kcal par clic, +1 / −1 g pour les macros, mise à
 	/* Impact, bandeau et semaine type sont dérivés de l’objectif saisi : le clic
 	   les met à jour dans le même rendu. */
 	assert.ok(adminPage.includes('objectifKcal: applyKcal'), 'encadré d’impact recalculé depuis l’objectif saisi');
-	assert.ok(adminPage.includes('semaineAvecObjectif(calibrageInputs, calR, applyKcal)'), 'semaine type recalculée');
+	assert.ok(adminPage.includes('semaineAvecEcarts(calibrageInputs, calR, ecartsSemaine)'), 'semaine type recalculée');
 	const bandeau = adminPage.slice(adminPage.indexOf('BANDEAU DE SYNTHÈSE'), adminPage.indexOf('ENTRÉES : pré-remplies'));
 	assert.ok(bandeau.includes('calImpact.objectifKcal') && bandeau.includes('calImpact.perteGraisseKg'), 'bandeau alimenté par l’impact');
 
