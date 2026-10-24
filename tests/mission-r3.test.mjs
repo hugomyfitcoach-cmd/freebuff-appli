@@ -284,10 +284,10 @@ test('R3-ter : la gestion des aliments a quitté la page recettes', () => {
 });
 
 test('R3-ter : page « Aliments de référence » — accès coach, encadré, entrée de menu', () => {
-	const layout = source('src/routes/aliments-reference/+layout.server.ts');
-	assert.match(layout, /requireRole\(event, 'coach', \{ next: '\/aliments-reference' \}\)/, 'accès réservé au coach');
+	const guard = source('src/routes/admin/aliments-reference/+page.server.ts');
+	assert.match(guard, /requireRole\(event, 'coach', \{ next: '\/admin' \}\)/, 'accès réservé au coach');
 
-	const page = normText(source('src/routes/aliments-reference/+page.svelte'));
+	const page = normText(source('src/routes/admin/aliments-reference/+page.svelte'));
 	assert.ok(page.includes('Tes aliments de référence'), 'encadré : titre exact');
 	assert.ok(
 		page.includes(
@@ -316,9 +316,12 @@ test('R3-ter : page « Aliments de référence » — accès coach, encadré, en
 	const shell = source('src/lib/components/AppShell.svelte');
 	assert.match(
 		shell,
-		/\{ href: '\/aliments-reference', label: 'Aliments de référence', icon: 'salad' \}/,
+		/\{ href: '\/admin\/aliments-reference', label: 'Aliments de référence', icon: 'salad' \}/,
 		'entrée de menu COACHING présente'
 	);
+	// Ancienne adresse : redirigée vers la page de l'espace coach.
+	const legacy = source('src/routes/aliments-reference/+page.server.ts');
+	assert.match(legacy, /redirect\(308, '\/admin\/aliments-reference'\)/, 'ancienne adresse redirigée');
 	assert.ok(
 		shell.indexOf("label: 'Guide nutrition & recettes'") < shell.indexOf("label: 'Aliments de référence'"),
 		'entrée placée juste sous Guide nutrition & recettes'
