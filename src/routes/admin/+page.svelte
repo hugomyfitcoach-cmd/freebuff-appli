@@ -1934,13 +1934,24 @@
 	 *  modifié à la main) : recalculé en direct par le module pur — déficit réel,
 	 *  perte de graisse, disponibilité et plafonds, mêmes avertissements que les
 	 *  résultats. Rien n'est écrit : simple lecture du module. */
+	/** Maintenance TOTALE saisie dans le bloc « Appliquer à la fiche » : un
+	 *  nombre fini > 0 est retenu (c'est lui qui sera enregistré). Champ vidé ou
+	 *  invalide → `undefined` : l'encadré d'impact et le bandeau reprennent la
+	 *  maintenance calculée (comportement historique). */
+	const applyMaintenanceKcal = $derived.by((): number | undefined => {
+		const brut = String(applyMaintenance ?? '').trim();
+		if (brut === '') return undefined;
+		const valeur = Number(brut);
+		return Number.isFinite(valeur) && valeur > 0 ? valeur : undefined;
+	});
 	const calImpact = $derived.by((): ImpactObjectifApplique | null => {
 		if (!calR || !Number.isFinite(applyKcal) || applyKcal <= 0) return null;
 		try {
 			return impactObjectifApplique({
 				entrees: calibrageInputs,
 				resultats: calR,
-				objectifKcal: applyKcal
+				objectifKcal: applyKcal,
+				maintenanceTotaleKcal: applyMaintenanceKcal
 			});
 		} catch {
 			return null;

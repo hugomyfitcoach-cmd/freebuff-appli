@@ -676,9 +676,25 @@ export function impactObjectifApplique(entree: {
 	entrees: EntreesFicheCalibrage;
 	resultats: ResultatsFicheCalibrage;
 	objectifKcal: number;
+	/** Maintenance TOTALE retenue (sport inclus) : celle du champ « Maintenance »
+	 *  du bloc « Appliquer à la fiche » quand le coach y saisit un nombre\.
+	 *  Absente ou invalide → maintenance calculée (budget ÷ 7), comportement
+	 *  historique. */
+	maintenanceTotaleKcal?: number;
 }): ImpactObjectifApplique {
 	const objectifKcal = Math.round(nombre(entree.objectifKcal, 'Objectif appliqué'));
 	const r = entree.resultats;
+	/* Maintenance SAISIE (nombre fini > 0) — sinon `null` : la maintenance
+	   calculée est utilisée, comme avant. */
+	const maintenanceSaisie =
+		typeof entree.maintenanceTotaleKcal === 'number' &&
+		Number.isFinite(entree.maintenanceTotaleKcal) &&
+		entree.maintenanceTotaleKcal > 0
+			? entree.maintenanceTotaleKcal
+			: null;
+	const maintenanceTotale = maintenanceSaisie ?? r.budgetSemaineKcal / JOURS_SEMAINE;
+	const budgetSemaineKcal =
+		maintenanceSaisie === null ? r.budgetSemaineKcal : maintenanceSaisie * JOURS_SEMAINE;
 	const masseMaigre = masseMaigreBrute(
 		nombre(entree.entrees.poidsKg, 'Poids'),
 		nombre(entree.entrees.mgPct, 'Masse grasse')
@@ -689,13 +705,15 @@ export function impactObjectifApplique(entree: {
 	const semaine = bilanSemaine({
 		jours: Array.from({ length: JOURS_SEMAINE }, () => ({
 			apportKcal: objectifKcal,
-			exerciceKcal: r.exerciceJournalierKcal
+			/* Maintenance totale saisie : le sport habituel est DÉJÀ inclus dans
+			   la valeur ; sinon mêmes entrées que la semaine type. */
+			exerciceKcal: maintenanceSaisie === null ? r.exerciceJournalierKcal : 0
 		})),
-		maintenance: r.maintenanceKcal,
+		maintenance: maintenanceSaisie ?? r.maintenanceKcal,
 		masseMaigreKg: masseMaigre
 	});
 	const deficitSemaineKcal = -semaine.deficitSemaineKcal;
-	const deficitPct = Math.round((deficitSemaineKcal / r.budgetSemaineKcal) * 100 * 10) / 10;
+	const deficitPct = Math.round((deficitSemaineKcal / budgetSemaineKcal) * 100 * 10) / 10;
 	const perteGraisseKg = -semaine.graisseKg;
 
 	const disponibiliteKcal = disponibiliteEnergieKcal({
@@ -713,7 +731,7 @@ export function impactObjectifApplique(entree: {
 	   résultats, appliqués au déficit RÉEL de cet objectif (borné à la plage
 	   de saisie du déficit pour ne pas refuser un objectif très bas). */
 	const bilanSeuils = bilanObjectifSemaine({
-		budgetSemaineKcal: r.budgetSemaineKcal,
+		budgetSemaineKcal,
 		deficitPct: Math.min(BORNES.deficitPct.max, Math.max(BORNES.deficitPct.min, deficitPct))
 	});
 
@@ -725,8 +743,8 @@ export function impactObjectifApplique(entree: {
 
 	return {
 		objectifKcal,
-		maintenanceTotaleKcal: Math.round(r.budgetSemaineKcal / JOURS_SEMAINE),
-		budgetSemaineKcal: r.budgetSemaineKcal,
+		maintenanceTotaleKcal: Math.round(maintenanceTotale),
+		budgetSemaineKcal,
 		deficitSemaineKcal,
 		deficitPct,
 		perteGraisseKg,
