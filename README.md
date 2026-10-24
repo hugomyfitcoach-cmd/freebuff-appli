@@ -60,7 +60,7 @@ de navigation, accès au guide recettes et aux outils, et déconnexion en bas.
 Barre latérale gauche : **Mon suivi** (tableau de bord), **Journal**
 (tracking de calories), **Progression** (courbe de motivation, récap
 semaine par semaine, victoires, rappels mensurations / photos),
-**Mes bilans** (historique complet + retours de la coach),
+**Mes bilans** (historique complet + retours du coach),
 **Recettes & nutrition** (le guide) et **Outils & calibrage** (les
 petits outils de suivi). Le formulaire hebdo vit sur `/bilan` —
 identifié par la session, plus de saisie de prénom/nom. Un visiteur non
@@ -80,7 +80,7 @@ Barre latérale gauche : **Tableau de bord** + **Guide nutrition & recettes**
 - Gestion du compte : renommer, changer l'email, réinitialiser le mot de
   passe (ferme les sessions ouvertes), supprimer (avec confirmation).
 - **Objectifs journaliers** par client (kcal, glucides, protéines,
-  lipides) : définis par la coach, affichés dans le Journal du client.
+  lipides) : définis par le coach, affichés dans le Journal du client.
 
 ## 🔐 Premier démarrage d'une machine (compte coach)
 
@@ -172,7 +172,7 @@ variable ni règle ne déborde sur le reste de l'appli.
 Tracking de calories fidèle à l'appli de référence (FR) :
 
 - **Carte du jour** : calories restantes, barre de progression, objectif
-  (défini par la coach dans le CRM), badges macros (glucides / protéines /
+  (défini par le coach dans le CRM), badges macros (glucides / protéines /
   lipides en anneaux), astuce du jour.
 - **Navigation par jour** : chevrons ‹ ›, sélecteur de date natif et
   glissement gauche/droite (swipe) pour voir les jours précédents/suivants.
@@ -261,7 +261,7 @@ Tracking de calories fidèle à l'appli de référence (FR) :
   `searchLocal`). BFF : `src/routes/api/journal/+server.ts`,
   `api/journal/[id]`, `api/foods/search` — tout passe par la session
   cookie, jamais Convex depuis le navigateur.
-- **Objectifs** : définis par la coach dans le CRM (carte « 🎯 Objectifs
+- **Objectifs** : définis par le coach dans le CRM (carte « 🎯 Objectifs
   journaliers »), valeurs par défaut 2000 kcal / 250 g / 90 g / 65 g.
 
 ## 🚶 Pas (saisie manuelle)
@@ -270,7 +270,7 @@ La cliente renseigne elle-même ses pas sur l'écran « Mes pas » : valeur du
 jour, ou mode édition pour corriger les **7 derniers jours**. Les données
 vivent dans `dailySteps` (`count` = valeur du jour, une seule ligne par
 cliente et par date) et alimentent directement les statistiques, la moyenne,
-le graphique 7 jours, l'objectif de pas défini par la coach (`clientGoals`),
+le graphique 7 jours, l'objectif de pas défini par le coach (`clientGoals`),
 l'Accueil et le CRM coach. Une journée sans saisie n'est **jamais** comptée
 comme 0 pas. BFF : `src/routes/api/steps/+server.ts` → action Convex
 `steps.setSteps` ; lecture via `steps.myHistory` (page « Mes pas »).

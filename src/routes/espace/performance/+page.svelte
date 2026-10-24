@@ -21,7 +21,7 @@
 	import PerformanceWeekCard from '$lib/components/PerformanceWeekCard.svelte';
 	import { currentLocalDay } from '$lib/currentDay.svelte';
 
-	import type { PerfWeek } from '$lib/perf';
+	import { noteMaintenanceSport, type PerfWeek } from '$lib/perf';
 
 	let { data } = $props();
 
@@ -358,6 +358,15 @@
 					Estimation indicative calculée uniquement sur les jours renseignés de la semaine, selon le déficit calorique cumulé à l'instant T.
 				</p>
 			</div>
+		{/if}
+
+		<!-- Note « maintenance inclut le sport habituel » — UNIQUEMENT quand
+		     l'objectif en vigueur vient d'un calibrage dont le sport de la semaine
+		     est > 0 (jamais sur une saisie manuelle ni avec un sport à 0). -->
+		{#if week.sportHabituelKcal}
+			<p class="mt-3 rounded-2xl border border-line bg-soft px-3.5 py-3 text-[12px] font-semibold leading-relaxed text-mist">
+				{noteMaintenanceSport(week.sportHabituelKcal)}
+			</p>
 		{/if}
 
 		<p class="mt-3 flex items-start gap-1.5 px-1 text-xs leading-relaxed text-mist">

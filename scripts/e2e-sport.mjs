@@ -141,7 +141,8 @@ const weekStart = mondayOf(isoOf(new Date()));
 	const r = await client.mutation(api.sport.addActivity, {
 		sessionToken: clientToken,
 		date: isoOf(new Date()),
-		activityId: 'aquagym', // MET fixe 4.0 — pas d'intensité requise
+		activityId: 'aquagym', // activité DOUCE : intensité ressentie (ici légère → 2,2 kcal/kg/h)
+		intensity: 'legere',
 		durationMinutes: 45,
 	});
 	if (!r._id) fail('ajout aquagym sans poids impossible');
@@ -149,7 +150,8 @@ const weekStart = mondayOf(isoOf(new Date()));
 	const a = w.activities.find((x) => x._id === r._id);
 	if (!a) fail('activité introuvable après ajout');
 	if (a.estimatedCalories !== null) fail(`kcal devraient être absentes sans poids (reçu ${a.estimatedCalories})`);
-	if (a.metMinutes !== 180) fail(`metMinutes attendues 180 (4.0 × 45), reçu ${a.metMinutes}`);
+	// MET dérivé du barème doux : 2,2 ÷ 1,05 = 2,1 → 2,1 × 45 = 94,5 → 95
+	if (a.metMinutes !== 95) fail(`metMinutes attendues 95 (2,1 × 45), reçu ${a.metMinutes}`);
 	ok('cliente sans poids : ≈ kcal absent, MET-minutes conservées (jamais de poids inventé)');
 	var aquagymId = r._id;
 }
@@ -161,14 +163,15 @@ const weekStart = mondayOf(isoOf(new Date()));
 		sessionToken: clientToken,
 		date: isoOf(new Date()),
 		activityId: 'padel',
-		intensity: 'moderee',
+		intensity: '130-150', // zone cardio 130–150 BPM → 5,5 kcal/kg/h (barème)
 		durationMinutes: 60,
 	});
 	const w = await client.query(api.sport.myWeek, { sessionToken: clientToken });
 	const a = w.activities.find((x) => x._id === r._id);
-	// padel modérée = 5.5 MET → 5.5 × 67.8 × 1h = 372.9 → arrondi 373
-	if (a.estimatedCalories !== 373) fail(`padel 60 min modérée attendue ≈ 373 kcal, reçu ${a.estimatedCalories}`);
-	ok(`poids auto 67,8 kg → weightSnapshot gelé, padel 60 min ≈ ${a.estimatedCalories} kcal estimées`);
+	// padel zone 130–150 = 5,5 kcal/kg/h → 5,5 × 67,8 × 1 h = 372,9 → arrondi 373
+	if (a.estimatedCalories !== 373) fail(`padel 60 min zone 130–150 attendue ≈ 373 kcal, reçu ${a.estimatedCalories}`);
+	if (a.coefficientVersion !== '2') fail(`barème v2 attendu, reçu ${a.coefficientVersion}`);
+	ok(`poids auto 67,8 kg → weightSnapshot gelé, padel 60 min ≈ ${a.estimatedCalories} kcal (barème v2)`);
 	var padelId = r._id;
 }
 
@@ -187,8 +190,8 @@ const weekStart = mondayOf(isoOf(new Date()));
 	await client
 		.mutation(api.sport.addActivity, { sessionToken: clientToken, date: isoOf(new Date()), activityId: 'padel', durationMinutes: 60 })
 		.catch(() => (refused = true));
-	if (!refused) fail('padel sans intensité aurait dû être refusé');
-	ok('intensité requise quand le sport en a une (jamais de MET implicite)');
+	if (!refused) fail('padel sans zone aurait dû être refusé');
+	ok('zone/intensité requise (jamais de zone implicite)');
 }
 
 /* ── 8. Modification : sport/durée/intensité — snapshot poids CONSERVÉ ── */
@@ -197,12 +200,12 @@ const weekStart = mondayOf(isoOf(new Date()));
 		sessionToken: clientToken,
 		activityId: padelId,
 		durationMinutes: 30,
-		intensity: 'intense',
+		intensity: '160-180', // zone 160–180 BPM → 7,7 kcal/kg/h (barème)
 	});
 	const w = await client.query(api.sport.myWeek, { sessionToken: clientToken });
 	const a = w.activities.find((x) => x._id === padelId);
-	// padel intense = 7.0 MET × 67.8 kg × 0.5 h = 237.3 → 237
-	if (a.estimatedCalories !== 237) fail(`padel 30 min intense attendue ≈ 237 kcal (poids gelé 67.8), reçu ${a.estimatedCalories}`);
+	// padel zone 160–180 = 7,7 kcal/kg/h × 67,8 kg × 0,5 h = 261,03 → 261
+	if (a.estimatedCalories !== 261) fail(`padel 30 min zone 160–180 attendue ≈ 261 kcal (poids gelé 67.8), reçu ${a.estimatedCalories}`);
 	if (a.durationMinutes !== 30) fail('durée non mise à jour');
 	ok('modification : recalcul avec le weightSnapshot D’ORIGINE (67,8 kg, pas 62)');
 }
@@ -227,7 +230,7 @@ const weekStart = mondayOf(isoOf(new Date()));
 		sessionToken: clientToken,
 		date: addDays(prev, 2),
 		activityId: 'marche-inclinee-tapis',
-		intensity: 'legere',
+		intensity: 'sous-130',
 		durationMinutes: 40,
 	});
 	if (!r._id) fail('ajout semaine précédente impossible');

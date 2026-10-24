@@ -6,7 +6,7 @@
  * paginés) sur clic du bouton « Chercher », et le bloc Ciqual échouait
  * silencieusement : le BFF `/api/foods/ciqual` exigeait le rôle « client » et
  * `requireRole` répondait une REDIRECTION 303 vers `/admin` — avalée par le
- * `.catch(() => {})` du CRM. La coach ne voyait donc que des produits OFF.
+ * `.catch(() => {})` du CRM. Le coach ne voyait donc que des produits OFF.
  *
  * Après : le CRM utilise le MÊME moteur que la PWA (`foodSearch.svelte.ts`,
  * mêmes endpoints `/api/foods/search` + `/api/foods/ciqual`, mêmes repères

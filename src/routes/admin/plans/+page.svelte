@@ -39,6 +39,9 @@
 		custom?: boolean;
 		/** Fiche de RÉFÉRENCE Ciqual (ANSES) — _id = libellé officiel exact. */
 		ciqual?: boolean;
+		/** Fiche de RÉFÉRENCE G-FLUX (Mission R3) — badge distinct ; `_id` = fiche,
+		 *  transmise à l'ajout via `referenceFoodId` (jamais `ciqualLabel`). */
+		gflux?: boolean;
 	};
 	type DraftItem = {
 		key: string;
@@ -51,6 +54,10 @@
 			foodId?: string;
 			customFoodId?: string;
 			ciqualLabel?: string;
+			/** Provenance de la fiche de référence (R3-bis) : « ciqual » | « gflux ». */
+			referenceSource?: 'ciqual' | 'gflux';
+			/** Id de la fiche G-Flux d'origine (jamais affiché). */
+			referenceFoodId?: string;
 			name: string;
 			brand?: string;
 			imageUrl?: string;
@@ -155,7 +162,7 @@
 				meal: it.meal,
 				qty: it.qtyGrams,
 				food: {
-					_id: it.foodId ?? it.customFoodId ?? it.ciqualLabel ?? `x${i}`,
+					_id: it.referenceFoodId ?? it.foodId ?? it.customFoodId ?? it.ciqualLabel ?? `x${i}`,
 					name: it.name,
 					brand: it.brand,
 					kcal100: it.qtyGrams > 0 ? (it.kcal / it.qtyGrams) * 100 : 0,
@@ -165,6 +172,7 @@
 					imageUrl: it.imageUrl,
 					thumbUrl: it.thumbUrl,
 					ciqual: !!it.ciqualLabel,
+					...(it.referenceSource === 'gflux' ? { gflux: true } : {}),
 				},
 			}));
 			editorErr = '';
@@ -238,7 +246,9 @@
 				description: planDesc.trim() || undefined,
 			items: items.map((it) => ({
 				meal: it.meal,
-				...(it.food.ciqual
+				...(it.food.gflux
+					? { referenceSource: 'gflux' as const, referenceFoodId: it.food._id } // fiche G-Flux : jamais ciqualLabel
+					: it.food.ciqual
 					? { ciqualLabel: it.food._id } // fiche de référence Ciqual (ANSES)
 					: it.food.custom
 						? { customFoodId: it.food._id }
@@ -308,9 +318,12 @@
 
 <div class="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6">
 	<header class="mb-5 flex flex-wrap items-center justify-between gap-3">
-		<div>
-			<h1 class="font-display text-2xl font-semibold text-ink">Plans de repas</h1>
-			<p class="mt-0.5 text-sm text-mist">Bibliothèque de journées types — assignables à plusieurs clientes.</p>
+		<div class="min-w-0">
+			<h1 class="flex items-center gap-2.5 font-display text-2xl font-black tracking-tight text-ink">
+				<span class="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-brand-light text-brand-deep"><Icon name="utensils" size={20} /></span>
+				<span class="min-w-0">Plans de repas</span>
+			</h1>
+			<p class="mt-1.5 text-sm text-mist">Bibliothèque de journées types — assignables à plusieurs clientes.</p>
 		</div>
 		<button
 			type="button"
@@ -517,11 +530,9 @@
 		</div>
 		{#if foodSearch.state.searching}<p class="mt-2 text-[11px] text-mist">Recherche…</p>{/if}
 		<div class="mt-3 max-h-[50vh] space-y-1 overflow-y-auto">
-			{#if foodSearch.state.error}
-				<p class="py-6 text-center text-xs text-danger">{foodSearch.state.error}</p>
-			{:else if foodSearch.state.q.trim().length < 2}
+			{#if foodSearch.state.q.trim().length < 2}
 				<p class="py-6 text-center text-xs text-mist">Tape au moins 2 lettres pour chercher dans la base.</p>
-			{:else if foodSearch.state.products.length === 0 && foodSearch.state.ciqual.length === 0 && !foodSearch.state.searching}
+			{:else if foodSearch.state.products.length === 0 && foodSearch.state.ciqual.length === 0 && !foodSearch.state.searching && !foodSearch.state.productsUnavailable}
 				<p class="py-6 text-center text-xs text-mist">Aucun résultat pour « {foodSearch.state.q.trim()} ».</p>
 			{:else}
 				<!-- 1. CIQUAL : aliments de RÉFÉRENCE — bloc séparé, toujours en tête ;
@@ -540,8 +551,12 @@
 							>
 								<span class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-light"><Icon name="salad" size={18} class="text-brand" /></span>
 								<div class="min-w-0 flex-1">
-									<div class="truncate text-sm font-semibold text-ink">{hit.name}</div>
-									<div class="text-[11px] text-mist">{hit.kcal100} kcal/100 g · <span class="font-bold text-brand">Référence Ciqual – ANSES</span> · Idéal pour un suivi précis</div>
+									<div class="line-clamp-2 text-sm font-semibold leading-snug text-ink">{hit.name}</div>
+									<div class="mt-0.5 text-[11px] text-mist">{hit.kcal100} kcal/100 g</div>
+									<div class="mt-1 flex flex-wrap items-center gap-1.5">
+										{#if hit.gflux}<span data-gflux-badge class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence G-Flux</span>{:else}<span class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>{/if}
+										{#if hit.cookLabel}<span data-cook-badge class="rounded-full bg-[#F1F0EC] px-2 py-0.5 text-[9px] font-semibold text-[#6E6A62]">{hit.cookLabel}</span>{/if}
+									</div>
 								</div>
 								<span class="text-brand">＋</span>
 							</button>
@@ -550,6 +565,9 @@
 				{/if}
 				<!-- 2. PRODUITS : Open Food Facts (moteur classé PWA, ranking identique
 				     côté cliente ; la liste reste affichée pendant une nouvelle frappe). -->
+				{#if foodSearch.state.productsUnavailable}
+					<p class="px-1 pt-3 text-[11px] text-mist">Produits indisponibles pour le moment.</p>
+				{/if}
 				{#if foodSearch.state.products.length > 0}
 					<p class="px-1 pb-1 pt-2 text-[10px] font-bold uppercase tracking-widest text-mist">Produits · Open Food Facts</p>
 					<div class="space-y-1 transition-opacity {foodSearch.state.searching ? 'opacity-50' : ''}">

@@ -180,6 +180,7 @@
 	cursor: pointer;
 }
 .tools-root select,
+.tools-root input[type='text'],
 .tools-root input[type='number'] {
 	width: 100%;
 	background: var(--surface2);

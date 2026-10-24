@@ -9,7 +9,7 @@ import { sendPushToUser } from '$lib/server/push';
 /**
  * Une entrée du Dossier : PATCH pour modifier (titre, note, visibilité
  * « Privé coach ⇄ Partager avec la cliente »), DELETE pour supprimer
- * définitivement (fichier du storage inclus). Réservé à la coach.
+ * définitivement (fichier du storage inclus). Réservé au coach.
  */
 export const PATCH: RequestHandler = async (event) => {
 	await requireRole(event, 'coach');

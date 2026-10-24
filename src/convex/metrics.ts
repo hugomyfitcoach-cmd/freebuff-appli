@@ -38,7 +38,7 @@ async function resolveCoachTarget(
 ): Promise<import("./_generated/dataModel").Doc<"users">> {
 	const coach = await getSessionUser(ctx, sessionToken);
 	if (!coach) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
-	if (coach.role !== "coach") throw new ConvexError("Réservé à la coach (CRM).");
+	if (coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
 	const target = await ctx.db.get(userId);
 	if (!target || target.role !== "client") throw new ConvexError("Client introuvable.");
 	return target;
@@ -166,7 +166,7 @@ function mesuresDescription(m: { neckCm?: number; waistCm?: number; hipCm?: numb
  * Journalise les événements CRM « nouveau poids » / « nouvelles mensurations »
  * pour la cliente concernée — uniquement quand une valeur RÉELLE est écrite.
  * Appelé depuis les écritures de la cliente (l'espace de suivi) : une saisie
- * de la coach elle-même (upsertForCoach / updateOneForCoach) n'est pas de
+ * du coach lui-même (upsertForCoach / updateOneForCoach) n'est pas de
  * l'activité cliente et ne génère jamais de notification.
  */
 async function recordCoachNotifs(
@@ -205,7 +205,7 @@ function patchMetric(metric: MetricKey, value: number | undefined) {
 	return { hipCm: value };
 }
 
-/* Variantes coach (CRM) : la coach consulte et corrige les mensurations/
+/* Variantes coach (CRM) : le coach consulte et corrige les mensurations/
    poids d'un client, « en doublon » avec lui. */
 
 /** Toutes les prises d'un client donné (réservé coach) + masse grasse estimée. */

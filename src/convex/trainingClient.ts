@@ -19,9 +19,9 @@ import { v, ConvexError } from "convex/values";
 import { getSessionUser, localTodayISO, mondayISOof, addDaysISO } from "./helpers";
 import { lastKnownWeight } from "./sport";
 import {
-	GFLUX_SESSION_ACTIVITY_ID,
-	GFLUX_SESSION_INTENSITY,
-	estimateSportActivity,
+	SPORT_CATALOG_VERSION_LEGACY,
+	depenseLegacyMet,
+	estimateGfluxSportActivity,
 } from "./sportCatalog";
 
 /* ── Phases ── */
@@ -531,9 +531,8 @@ export const completeSession = mutation({
 					const minutes = Math.max(1, Math.round((patch.durationMin as number | undefined) ?? 0));
 					if (minutes > 0) {
 						const weight = await lastKnownWeight(ctx, user._id);
-						const est = estimateSportActivity({
-							activityId: GFLUX_SESSION_ACTIVITY_ID,
-							intensity: GFLUX_SESSION_INTENSITY,
+						// Barème G-FLUX : une séance du programme vaut 3,3 kcal/kg/heure.
+						const est = estimateGfluxSportActivity({
 							durationMinutes: minutes,
 							weightKg: weight,
 						});
@@ -547,8 +546,11 @@ export const completeSession = mutation({
 							activityId: est.activityId,
 							activityNameSnapshot: sesRow?.name ?? est.activityNameSnapshot,
 							durationMinutes: minutes,
-							intensity: GFLUX_SESSION_INTENSITY,
+							intensity: est.intensity,
 							metValue: est.metValue,
+							...(est.coutHoraireKcalKgH !== undefined
+								? { coutHoraireKcalKgH: est.coutHoraireKcalKgH }
+								: {}),
 							coefficientSource: est.coefficientSource,
 							coefficientVersion: est.coefficientVersion,
 							...(weight != null ? { weightSnapshot: weight, estimatedCalories: est.estimatedCalories } : {}),
@@ -658,19 +660,35 @@ export const updateSessionDuration = mutation({
 			.first();
 		if (dep) {
 			const weight = dep.weightSnapshot ?? (await lastKnownWeight(ctx, user._id));
-			const est = estimateSportActivity({
-				activityId: dep.activityId,
-				intensity: dep.intensity,
-				durationMinutes: minutes,
-				weightKg: weight,
-			});
-			await ctx.db.patch(dep._id, {
-				durationMinutes: minutes,
-				metValue: est.metValue,
-				metMinutes: est.metMinutes,
-				...(weight != null ? { estimatedCalories: est.estimatedCalories } : {}),
-				updatedAt: Date.now(),
-			});
+			/* Ligne ANTÉRIEURE au barème (MET du Compendium) : sa durée est
+			   corrigée avec SON modèle — jamais rebasculée en v2. */
+			if (dep.coutHoraireKcalKgH === undefined || dep.coefficientVersion === SPORT_CATALOG_VERSION_LEGACY) {
+				const volume = depenseLegacyMet({
+					metValue: dep.metValue,
+					durationMinutes: minutes,
+					weightKg: weight,
+				});
+				await ctx.db.patch(dep._id, {
+					durationMinutes: minutes,
+					metMinutes: volume.metMinutes,
+					...(volume.estimatedCalories !== undefined
+						? { estimatedCalories: volume.estimatedCalories }
+						: {}),
+					updatedAt: Date.now(),
+				});
+			} else {
+				const est = estimateGfluxSportActivity({ durationMinutes: minutes, weightKg: weight });
+				await ctx.db.patch(dep._id, {
+					durationMinutes: minutes,
+					metValue: est.metValue,
+					metMinutes: est.metMinutes,
+					...(est.coutHoraireKcalKgH !== undefined
+						? { coutHoraireKcalKgH: est.coutHoraireKcalKgH }
+						: {}),
+					...(weight != null ? { estimatedCalories: est.estimatedCalories } : {}),
+					updatedAt: Date.now(),
+				});
+			}
 		}
 		return { ok: true };
 	},

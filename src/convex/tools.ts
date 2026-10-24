@@ -12,7 +12,7 @@ import type { Doc } from "./_generated/dataModel";
  * lisent ici les vraies données déjà présentes dans G-FLUX — ils ne sont
  * jamais la source de vérité et ne modifient aucun objectif :
  *
- * - objectifs / maintenance / pas définis par la coach (clientGoals) ;
+ * - objectifs / maintenance / pas définis par le coach (clientGoals) ;
  * - kcal réellement consommées par jour (diaryEntries — le planifié n'impacte
  *   jamais les totaux) et pas enregistrés par jour (dailySteps) ; une journée
  *   sans ligne est ABSENTE de la réponse (jamais comptée comme 0) ;

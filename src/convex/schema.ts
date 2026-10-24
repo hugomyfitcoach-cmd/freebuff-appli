@@ -341,6 +341,14 @@ export default defineSchema({
 		customFoodId: v.optional(v.id("customFoods")),
 		/** Repas personnalisé du client (portion), quand l'entrée vient d'un repas. */
 		mealId: v.optional(v.id("meals")),
+		/**
+		 * PROVENANCE de la fiche de référence — champ ADDITIF facultatif.
+		 *  - « ciqual » : libellé officiel ANSES (`ciqualLabel` recalculé à la lecture) ;
+		 *  - « gflux » : aliment de référence créé par le coach (R3-bis) — le nom et
+		 *    les valeurs sont copiés à l'ajout, `ciqualLabel` n'est JAMAIS utilisé.
+		 * Aucune donnée existante n'est migrée ; absent = provenance historique.
+		 */
+		referenceSource: v.optional(v.union(v.literal("ciqual"), v.literal("gflux"))),
 		name: v.string(),
 		brand: v.optional(v.string()),
 		imageUrl: v.optional(v.string()),
@@ -368,16 +376,16 @@ export default defineSchema({
 		.index("by_user", ["userId"])
 		.index("by_group", ["mealGroup"]),
 
-	/** Objectifs journaliers d'un client (définis par la coach dans le CRM). */
+	/** Objectifs journaliers d'un client (définis par le coach dans le CRM). */
 	clientGoals: defineTable({
 		userId: v.id("users"),
 		kcal: v.number(),
 		carbs: v.number(),
 		protein: v.number(),
 		fat: v.number(),
-		/** Maintenance calorique (filet de sécurité) — saisie manuelle par la coach, optionnelle. */
+		/** Maintenance calorique (filet de sécurité) — saisie manuelle par le coach, optionnelle. */
 		maintenanceKcal: v.optional(v.number()),
-		/** Objectif quotidien de pas — saisi manuellement par la coach, optionnel (ex. 10 000). */
+		/** Objectif quotidien de pas — saisi manuellement par le coach, optionnel (ex. 10 000). */
 		stepGoal: v.optional(v.number()),
 	}).index("by_userId", ["userId"]),
 
@@ -390,7 +398,7 @@ export default defineSchema({
 	 * Règle de lecture : pour une date D, l'objectif applicable = la ligne avec
 	 * la plus grande `effectiveFrom` ≤ D (une seule définition, partagée
 	 * Journal / Vision 360 / garde-fou 60 %). Clé d'unicité fonctionnelle :
-	 * (userId, effectiveFrom) — la ligne est REPLACÉE si la coach modifie
+	 * (userId, effectiveFrom) — la ligne est REPLACÉE si le coach modifie
 	 * plusieurs fois l'objectif le même jour (pas de valeurs concurrentes).
 	 *
 	 * RÉTROCOMPATIBILITÉ : `clientGoals.kcal` reste la source de vérité de
@@ -414,6 +422,37 @@ export default defineSchema({
 	})
 		.index("by_user", ["userId"])
 		.index("by_user_from", ["userId", "effectiveFrom"]),
+
+	/**
+	 * INSTANTANÉS DE CALIBRAGE — une ligne par « Appliquer à la fiche » de
+	 * l'onglet Calibrage (CRM). Jamais d'écrasement : chaque application fige
+	 * les ENTRÉES du calibrage (poids, MG%, pas, travail, adaptation, profil
+	 * sportif, semaine type) et les RÉSULTATS produits par le module
+	 * `lib/calibrage.ts`, avec la version des formules, la date et l'auteur.
+	 *
+	 * Ajout rétrocompatible : table nouvelle, aucun champ existant touché.
+	 * L'objectif appliqué lui-même vit dans clientGoals + clientGoalHistory
+	 * (chemin existant, garde-fou du journal sur les jours passés conservé).
+	 */
+	calibrageSnapshots: defineTable({
+		/** Cliente concernée par le calibrage. */
+		userId: v.id("users"),
+		/** Entrées du calibrage (objet figé — l'UI et le module lisent les mêmes clés). */
+		inputs: v.record(v.string(), v.any()),
+		/** Résultats calculés par le module + valeurs réellement appliquées. */
+		results: v.record(v.string(), v.any()),
+		/** Version des formules du module calibrage.ts (traçabilité des recalculs). */
+		formulaVersion: v.string(),
+		/** Date d'effet "yyyy-mm-dd" de l'objectif appliqué. */
+		effectiveFrom: v.string(),
+		/** Date de l'instantané "yyyy-mm-dd" (Europe/Paris). */
+		date: v.string(),
+		/** Coach à l'origine de l'application (traçabilité). */
+		createdBy: v.id("users"),
+		createdAt: v.number(),
+	})
+		.index("by_user", ["userId"])
+		.index("by_user_date", ["userId", "date"]),
 
 	/** Pas quotidiens saisis par la cliente — une seule valeur par jour. */
 	dailySteps: defineTable({
@@ -547,12 +586,12 @@ export default defineSchema({
 
 	/* ═══ Suivi corporel (progression) ═══ */
 
-	/* ═══ Photos de suivi (envoyées par le client, visibles par la coach) ═══ */
+	/* ═══ Photos de suivi (envoyées par le client, visibles par le coach) ═══ */
 
 	/**
 	 * Une série de photos de suivi envoyée par un client à un moment donné
 	 * (démarrage, mois 1…6). Les images sont stockées dans le file storage
-	 * Convex (jamais accessibles au client après envoi) ; la coach les voit
+	 * Convex (jamais accessibles au client après envoi) ; le coach les voit
 	 * dans le CRM. Chaque série est conservée définitivement.
 	 */
 	progressPhotos: defineTable({
@@ -596,7 +635,7 @@ export default defineSchema({
 	/* ═══ Médias coach → cliente (retours audio, pièces jointes, message audio) ═══ */
 
 	/**
-	 * Fichiers envoyés par la coach à une cliente. Les gros fichiers (audio,
+	 * Fichiers envoyés par le coach à une cliente. Les gros fichiers (audio,
 	 * images optimisées, PDF) vivent dans le file storage Convex — cette table
 	 * ne conserve que les métadonnées + le cycle de vie (brouillon → publié →
 	 * expiré). Un brouillon n'est jamais visible côté cliente.
@@ -751,10 +790,39 @@ export default defineSchema({
 	})
 		.index("by_user", ["userId"]),
 
+	/**
+	 * ALIMENTS DE RÉFÉRENCE G-FLUX (Mission R3) — table ADDITIVE, aucune table
+	 * existante modifiée. Le coach crée ses propres aliments (valeurs /100 g) ;
+	 * ils apparaissent dans la section « Aliments de référence » des recherches
+	 * avec le badge « Référence G-Flux ».
+	 *
+	 * Le journal et les plans n'y font JAMAIS référence : à l'ajout, le nom et
+	 * les valeurs sont recopiés dans l'entrée (snapshot). Modifier ou supprimer
+	 * une fiche ne change donc jamais les entrées passées.
+	 */
+	referenceFoods: defineTable({
+		/** Coach propriétaire — seul habilité à créer / modifier / supprimer. */
+		coachId: v.id("users"),
+		/** Nom affiché (2 à 120 caractères), badge « Référence G-Flux ». */
+		name: v.string(),
+		/** Valeurs pour 100 g (kcal 0–900, macros 0–100). */
+		kcal: v.number(),
+		proteinG: v.number(),
+		carbsG: v.number(),
+		fatG: v.number(),
+		/** Mode de cuisson (valeurs de cookedState.ts : cru, eau, vapeur, four,
+		 *  grille, poele, frit, conserve, cuit, neutre) — FACULTATIF (ajout seul).
+		 *  Renseigné, il pilote le badge de cuisson et le classement ; sinon la
+		 *  cuisson est détectée d'après le nom. Validé par referenceFoodError. */
+		cookingState: v.optional(v.string()),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	}).index("by_coach", ["coachId"]),
+
 	/* ═══ Plans de repas coach + planification (client & coach) ═══ */
 
 	/**
-	 * TEMPLATE de plan de repas créé par la coach (bibliothèque globale CRM).
+	 * TEMPLATE de plan de repas créé par le coach (bibliothèque globale CRM).
 	 * Un template est indépendant des clientes : le même plan peut être assigné
 	 * à plusieurs clientes sans copie par cliente. Une seule journée type —
 	 * la répétition est faite par l'assignation (dates + jours concernés).
@@ -774,6 +842,10 @@ export default defineSchema({
 				customFoodId: v.optional(v.id("customFoods")),
 				/** Fiche de RÉFÉRENCE Ciqual (ANSES) — libellé officiel exact ; snapshot nutritionnel inchangé. */
 				ciqualLabel: v.optional(v.string()),
+				/** Provenance de la fiche de référence (R3-bis) : « ciqual » ou « gflux ». */
+				referenceSource: v.optional(v.union(v.literal("ciqual"), v.literal("gflux"))),
+				/** Fiche G-Flux d'origine (id `referenceFoods`) — facultatif, jamais affiché. */
+				referenceFoodId: v.optional(v.string()),
 				name: v.string(),
 				brand: v.optional(v.string()),
 				imageUrl: v.optional(v.string()),
@@ -799,7 +871,7 @@ export default defineSchema({
 	/**
 	 * Assignation d'un plan à une cliente : période + jours concernés.
 	 * Actif pour une date D ssi start ≤ D ≤ end ET weekday(D) ∈ weekdays ET
-	 * removedAt est vide (retrait par la coach). Retirer n'efface jamais les
+	 * removedAt est vide (retrait par le coach). Retirer n'efface jamais les
 	 * données passées : les overrides et consommations restent intacts.
 	 */
 	mealPlanAssignments: defineTable({
@@ -812,7 +884,7 @@ export default defineSchema({
 		endDate: v.string(),
 		/** Jours de semaine concernés : [1..7] = lundi..dimanche (tous par défaut). */
 		weekdays: v.optional(v.array(v.number())),
-		/** Retrait par la coach (ms) — l'historique consommé reste intact. */
+		/** Retrait par le coach (ms) — l'historique consommé reste intact. */
 		removedAt: v.optional(v.number()),
 		createdAt: v.number(),
 	})
@@ -859,6 +931,10 @@ export default defineSchema({
 		customFoodId: v.optional(v.id("customFoods")),
 		/** Fiche de RÉFÉRENCE Ciqual (ANSES) d'origine — info de source, valeurs en snapshot. */
 		ciqualLabel: v.optional(v.string()),
+		/** Provenance de la fiche de référence (R3-bis) : « ciqual » ou « gflux ». */
+		referenceSource: v.optional(v.union(v.literal("ciqual"), v.literal("gflux"))),
+		/** Fiche G-Flux d'origine (id `referenceFoods`) — facultatif, jamais affiché. */
+		referenceFoodId: v.optional(v.string()),
 		createdAt: v.number(),
 	})
 		.index("by_user_date", ["userId", "date"])
@@ -888,7 +964,7 @@ export default defineSchema({
 	}).index("by_coach", ["coachId"]),
 
 	/**
-	 * Système de rendez-vous — disponibilités de la coach (créneaux par jour
+	 * Système de rendez-vous — disponibilités du coach (créneaux par jour
 	 * de semaine). Le module de gestion vit dans le système de rendez-vous ;
 	 * la déclaration ici préserve la table et ses données existantes.
 	 */
@@ -900,18 +976,18 @@ export default defineSchema({
 	}).index("by_coach", ["coachId"]),
 
 	/**
-	 * Système de rendez-vous — rendez-vous entre la coach et une cliente.
+	 * Système de rendez-vous — rendez-vous entre le coach et une cliente.
 	 * Statuts : `on_book` (confirmé, événement Google créé) / `client_request`
 	 * (statut historique conservé pour les anciennes données — plus créé) /
 	 * `cancelled` (annulé, historique conservé).
 	 * `bookedBy` + `bookingSource` portent l'origine : coach ou cliente.
 	 * L'origine n'est JAMAIS un droit : une cliente peut replanifier un RDV
-	 * créé par elle ou par la coach (`lastModifiedBy` trace le dernier geste).
+	 * créé par elle ou par le coach (`lastModifiedBy` trace le dernier geste).
 	 */
 	appointments: defineTable({
 		coachId: v.id("users"),
 		clientId: v.id("users"),
-		/** Date "yyyy-mm-dd" (fuseau de la coach, Europe/Paris). */
+		/** Date "yyyy-mm-dd" (fuseau du coach, Europe/Paris). */
 		date: v.string(),
 		/** Heure de début "HH:mm". */
 		time: v.string(),
@@ -920,9 +996,9 @@ export default defineSchema({
 		/** Type de rendez-vous ("Suivi" 15 min, "Démarrage" 60 min ; anciens types conservés). */
 		kind: v.string(),
 		/**
-		 * Lien de visio du rendez-vous (optionnel, éditable par la coach).
+		 * Lien de visio du rendez-vous (optionnel, éditable par le coach).
 		 * Prérempli côté CRM quand le type est « Démarrage » (Meet par défaut),
-		 * mais JAMAIS imposé : la coach peut le modifier ou le vider. Affiché
+		 * mais JAMAIS imposé : le coach peut le modifier ou le vider. Affiché
 		 * côté cliente comme bouton « Rejoindre la visio » quand présent.
 		 */
 		meetingUrl: v.optional(v.string()),
@@ -1016,7 +1092,7 @@ export default defineSchema({
 	 * concernée doit être rafraîchie automatiquement (ex. plan de repas assigné
 	 * → propositions du Journal). Le poller relit les lignes créées depuis son
 	 * dernier check (?since=) et invalide la donnée concernée — aucune action
-	 * de la coach ne dépend plus d'une navigation. Purge : 7 jours (tick CRM).
+	 * du coach ne dépend plus d'une navigation. Purge : 7 jours (tick CRM).
 	 */
 	clientEvents: defineTable({
 		/** Cliente destinataire. */
@@ -1080,7 +1156,7 @@ export default defineSchema({
 	 * Deux familles coexistent :
 	 *  - `system: true`  → bibliothèque système (imports + futur dataset
 	 *    commercial) — l'import met à jour, ne supprime JAMAIS ;
-	 *  - `system: false` → exercices créés par la coach (`coachId`), sans
+	 *  - `system: false` → exercices créés par le coach (`coachId`), sans
 	 *    aucune source externe (`source: "gflux"`), jamais touchés par un
 	 *    import.
 	 *
@@ -1101,7 +1177,7 @@ export default defineSchema({
 		/** Identifiant G-FLUX portatif ("ex_" + hex déterministe) — stable même
 		 *  si la source externe change, référencé par les futurs programmes. */
 		gfluxExerciseId: v.string(),
-		/** Nom d'affichage G-FLUX (éditable par la coach, survit aux imports). */
+		/** Nom d'affichage G-FLUX (éditable par le coach, survit aux imports). */
 		name: v.string(),
 		/** Nom original dans la source externe (traçabilité, si renommé). */
 		sourceName: v.optional(v.string()),
@@ -1159,7 +1235,7 @@ export default defineSchema({
 		licenseNote: v.optional(v.string()),
 		/** Actif (prêt à être proposé) — l'import ne le touche jamais. */
 		active: v.boolean(),
-		/** Masqué manuellement par la coach — préservé par les imports. */
+		/** Masqué manuellement par le coach — préservé par les imports. */
 		hidden: v.optional(v.boolean()),
 		/** Bibliothèque système (imports) vs exercice personnalisé coach. */
 		system: v.boolean(),
@@ -1180,7 +1256,7 @@ export default defineSchema({
 	/* ═══ Module Entraînement — programmes, séances, prescription ═══ */
 
 	/**
-	 * PROGRAMME d'entraînement créé par la coach (CRM). Indépendant des
+	 * PROGRAMME d'entraînement créé par le coach (CRM). Indépendant des
 	 * clientes (l'assignation sera une table séparée, mission future) —
 	 * un même programme réutilisable plusieurs fois, comme les plans de
 	 * repas. Objectif et niveau : vocabulaire fermé FR affiché tel quel.
@@ -1304,7 +1380,7 @@ export default defineSchema({
 		endDate: v.string(),
 		/** Jours de semaine des séances : [1..7] = lundi..dimanche. */
 		weekdays: v.array(v.number()),
-		/** Retrait par la coach (ms) — l'historique réalisé reste intact. */
+		/** Retrait par le coach (ms) — l'historique réalisé reste intact. */
 		removedAt: v.optional(v.number()),
 		createdAt: v.number(),
 	})
@@ -1436,17 +1512,28 @@ export default defineSchema({
 		activityNameSnapshot: v.string(),
 		/** Durée en minutes (clamp 1–600). */
 		durationMinutes: v.number(),
-		/** "legere" | "moderee" | "intense" — absent pour les activités sans intensité. */
+		/** Choix de la saisie : zone cardio ("sous-130"…"plus-180"), intensité de
+		 *  musculation ("recreative"|"intensive"), intensité douce ("legere"|
+		 *  "moderee"|"elevee"), "gflux", ou "legere"|"moderee"|"intense" pour
+		 *  les lignes v1. */
 		intensity: v.optional(v.string()),
 		/** MET utilisé pour l'estimation (snapshot — jamais recalculé). */
 		metValue: v.number(),
+		/** FC moyenne RÉELLEMENT mesurée à la saisie (optionnelle) — snapshot.
+		 *  Quand elle existe, elle a choisi la zone cardio de la ligne, quelle que
+		 *  soit l'activité. */
+		bpmMoyen: v.optional(v.number()),
+		/** Coût horaire du barème G-FLUX kcal/kg/heure (v2) — absent des lignes v1. */
+		coutHoraireKcalKgH: v.optional(v.number()),
 		/** "gflux_table" | "compendium" — source du coefficient (traçabilité). */
 		coefficientSource: v.string(),
-		/** Version du catalogue au moment de l'enregistrement (ex. "1"). */
+		/** Version du catalogue au moment de l'enregistrement ("1" = MET du
+		 *  Compendium, "2" = barème G-FLUX kcal/kg/h). */
 		coefficientVersion: v.string(),
 		/** Poids (kg) au moment de l'enregistrement — historique gelé ; absent si aucune pesée connue. */
 		weightSnapshot: v.optional(v.number()),
-		/** Estimation kcal (MET × poids × durée/60) — absent si pas de poids connu. */
+		/** Estimation kcal (barème v2 : coût × poids × durée ; v1 : MET × poids × durée/60)
+		 *  — absent si pas de poids connu. */
 		estimatedCalories: v.optional(v.number()),
 		/** MET-minutes (MET × minutes) — suit le volume indépendamment du poids. */
 		metMinutes: v.number(),

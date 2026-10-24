@@ -19,7 +19,7 @@
  *   - les médias vivent dans le DÉPÔT (poster.webp / animation.mp4 servis
  *     par /exercises/<slug>/…) : aucun binaire en base, seules les URLs
  *     internes sont enregistrées ;
- *   - la coach garde la main : un masquage manuel (hidden) n'est jamais
+ *   - le coach garde la main : un masquage manuel (hidden) n'est jamais
  *     écrasé, un renommage (`name` édité) est signalé puis RESPECTÉ
  *     (l'officialName conserve la référence du registre).
  *

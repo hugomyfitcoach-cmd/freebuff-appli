@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { addDaysISO, dateISOInTimeZone, getSessionUser, localTodayISO } from "./helpers";
 import { kcalGoalForDate, withCurrentGoal } from "../lib/goalHistory";
+import { sportHabituelObjectifEnVigueur, type InstantaneCalibrageVigueur } from "../lib/perf";
 import { FOOD_SEARCH_CANDIDATES, rankFoods } from "./foodRanking";
 import { applyKcalGuard, guardedKcal100, kcalNeedsRecalc } from "../lib/nutritionGuard";
 import { resolveCoachPlanForDate } from "./mealPlans";
@@ -9,6 +10,7 @@ import { attachThumbs, attachThumbsForFoodIds } from "./foodImages";
 import { tagFoodImgUrl } from "../lib/foodImgTag";
 import { ciqualFoodSource } from "./ciqualSource";
 import { resolveCiqualLabel } from "./ciqual";
+import { resolveReferenceFood } from "./referenceFoods";
 import { foodFrequencyKey, rankFrequentFoods, type FreqEntry } from "../lib/foodFrequency";
 import { internal } from "./_generated/api";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
@@ -20,7 +22,7 @@ import type { Id, Doc } from "./_generated/dataModel";
  * - `foods`       : base alimentaire locale (export Open Food Facts trié,
  *   France/Europe, ~780k produits) + compléments OFF en cache (valeurs /100 g).
  * - `diaryEntries`: aliments consommés (un jour, un repas).
- * - `clientGoals` : objectifs journaliers définis par la coach dans le CRM.
+ * - `clientGoals` : objectifs journaliers définis par le coach dans le CRM.
  *
  * La recherche (action `searchFoods`) vit dans `off.ts` : base locale d'abord
  * (index plein texte `by_name`), Open Food Facts en secours.
@@ -29,7 +31,7 @@ import type { Id, Doc } from "./_generated/dataModel";
 export const MEALS = ["petit-dej", "dejeuner", "diner", "collation"] as const;
 export type Meal = (typeof MEALS)[number];
 
-/** Objectifs par défaut tant que la coach n'a pas défini le plan (CRM). */
+/** Objectifs par défaut tant que le coach n'a pas défini le plan (CRM). */
 export const DEFAULT_GOALS = { kcal: 2000, carbs: 250, protein: 90, fat: 65 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -62,13 +64,13 @@ async function resolveCoachTarget(
 ): Promise<Doc<"users">> {
 	const coach = await getSessionUser(ctx, sessionToken);
 	if (!coach) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
-	if (coach.role !== "coach") throw new ConvexError("Réservé à la coach (CRM).");
+	if (coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
 	const target = await ctx.db.get(userId);
 	if (!target || target.role !== "client") throw new ConvexError("Client introuvable.");
 	return target;
 }
 
-/* Variantes coach (CRM) : la coach peut consulter et compléter le journal
+/* Variantes coach (CRM) : le coach peut consulter et compléter le journal
    d'un client, « en doublon » avec lui. */
 
 /** Jour complet d'un client donné (réservé coach). */
@@ -82,8 +84,13 @@ async function resolveCoachTarget(
  * ANSES » reste visible à la réouverture de la fiche (cliente ET coach),
  * historique compris. Les libellés officiels sont uniques → détection
  * fiable ; tout ajout avec identité (OFF/perso/repas) est exclu.
+ *
+ * R3-bis : un aliment de référence G-Flux n'est JAMAIS une fiche Ciqual —
+ * même si son nom coïncide avec un libellé officiel, `referenceSource`
+ * ("gflux") prime : aucun badge Ciqual n'est calculé pour lui.
  */
 function withCiqualProvenance<T extends Doc<"diaryEntries">>(e: T): T & { ciqualLabel?: string } {
+	if (e.referenceSource === "gflux") return e;
 	if (e.foodId || e.customFoodId || e.mealId) return e;
 	return resolveCiqualLabel(e.name) ? { ...e, ciqualLabel: e.name } : e;
 }
@@ -134,7 +141,7 @@ export const searchForCoach = query({
 	args: { sessionToken: v.optional(v.string()), query: v.string() },
 	handler: async (ctx, { sessionToken, query }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
-		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (CRM).");
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
 		const term = query.trim().toLowerCase();
 		if (term.length < 2) return [] as FoodHit[];
 		// Candidats élargis puis re-tri (foodRanking) : l'aliment brut (« tomate »,
@@ -158,20 +165,32 @@ export const addEntryForCoach = mutation({
 		foodId: v.optional(v.id("foods")),
 		/** Fiche de RÉFÉRENCE Ciqual (ANSES) : libellé officiel exact — exclusif avec foodId. */
 		ciqualLabel: v.optional(v.string()),
+		/** Aliment de référence G-Flux : provenance explicite + identifiant de fiche. */
+		referenceSource: v.optional(v.union(v.literal("ciqual"), v.literal("gflux"))),
+		referenceFoodId: v.optional(v.string()),
 		qtyGrams: v.number(),
 	},
-	handler: async (ctx, { sessionToken, userId, date, meal, foodId, ciqualLabel, qtyGrams }) => {
+	handler: async (ctx, { sessionToken, userId, date, meal, foodId, ciqualLabel, referenceSource, referenceFoodId, qtyGrams }) => {
 		await resolveCoachTarget(ctx, sessionToken, userId);
+		const coach = await getSessionUser(ctx, sessionToken);
+		if (!coach) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
 		if (!isValidDateISO(date)) throw new ConvexError("Date invalide.");
 		if (!isMeal(meal)) throw new ConvexError("Repas invalide.");
 		if (!isFinite(qtyGrams) || qtyGrams <= 0 || qtyGrams > 5000) {
 			throw new ConvexError("Quantité invalide (entre 1 et 5000 g).");
 		}
+		// ALIMENT DE RÉFÉRENCE G-FLUX (R3-bis) : provenance EXPLICITE
+		// (`referenceSource: "gflux"` + `referenceFoodId`) — la fiche doit
+		// appartenir au coach connecté. `ciqualLabel` n'est pas utilisé et
+		// reste réservé aux fiches Ciqual. Valeurs copiées à l'ajout.
+		const gfluxRef =
+			referenceSource === "gflux" ? await resolveReferenceFood(ctx, coach, referenceFoodId) : null;
+		if (referenceSource === "gflux" && !gfluxRef) throw new ConvexError("Cette fiche G-Flux n'existe plus.");
 		// Fiche de référence Ciqual (additif) : valeurs résolues côté serveur,
 		// aucune donnée OFF lue ou fusionnée.
-		const ciqualRef = ciqualLabel ? ciqualFoodSource(ciqualLabel) : null;
-		if (ciqualLabel && !ciqualRef) throw new ConvexError("Cette référence Ciqual n'existe plus.");
-		if (!foodId && !ciqualRef) throw new ConvexError("Aucun aliment fourni.");
+		const ciqualRef = !gfluxRef && ciqualLabel ? ciqualFoodSource(ciqualLabel) : null;
+		if (!gfluxRef && ciqualLabel && !ciqualRef) throw new ConvexError("Cette référence Ciqual n'existe plus.");
+		if (!foodId && !ciqualRef && !gfluxRef) throw new ConvexError("Aucun aliment fourni.");
 
 		let name: string;
 		let brand: string | undefined;
@@ -180,7 +199,13 @@ export const addEntryForCoach = mutation({
 		let carbs100: number;
 		let protein100: number;
 		let fat100: number;
-		if (ciqualRef) {
+		if (gfluxRef) {
+			name = gfluxRef.name;
+			kcal100 = gfluxRef.kcal;
+			carbs100 = gfluxRef.carbsG;
+			protein100 = gfluxRef.proteinG;
+			fat100 = gfluxRef.fatG;
+		} else if (ciqualRef) {
 			name = ciqualRef.name;
 			kcal100 = ciqualRef.kcal100;
 			carbs100 = ciqualRef.carbs100;
@@ -204,7 +229,8 @@ export const addEntryForCoach = mutation({
 			userId,
 			date,
 			meal,
-			foodId: ciqualRef ? undefined : foodId,
+			foodId: ciqualRef || gfluxRef ? undefined : foodId,
+			referenceSource: gfluxRef ? "gflux" : ciqualRef ? "ciqual" : undefined,
 			name,
 			brand,
 			imageUrl,
@@ -632,15 +658,20 @@ export const freqFoods = query({
    réécrit plus jamais les journées passées. Lecture : dernier effectiveFrom
    ≤ date (module pur lib/goalHistory.ts partagé avec Vision 360). */
 
-async function loadGoalHistory(ctx: Pick<QueryCtx, "db">, userId: Id<"users">) {
+export async function loadGoalHistory(ctx: Pick<QueryCtx, "db">, userId: Id<"users">) {
 	return ctx.db
 		.query("clientGoalHistory")
 		.withIndex("by_user_from", (q) => q.eq("userId", userId))
 		.collect();
 }
 
-/** Écrit (replace) la ligne d'historique d'effet AUJOURD'HUI — idempotent. */
-async function upsertGoalHistoryToday(
+/**
+ * Écrit (replace) la ligne d'historique d'effet AUJOURD'HUI — idempotent.
+ * Partagée avec « Appliquer à la fiche » (onglet Calibrage, `calibrage.ts`) :
+ * le chemin d'écriture des objectifs reste UNIQUE (clientGoals +
+ * clientGoalHistory), y compris quand le coach choisit une date d'effet.
+ */
+export async function upsertGoalHistoryToday(
 	ctx: MutationCtx,
 	userId: Id<"users">,
 	kcal: number,
@@ -672,11 +703,11 @@ export const setClientGoals = mutation({
 		carbs: v.number(),
 		protein: v.number(),
 		fat: v.number(),
-		/** Maintenance calorique (filet de sécurité) — optionnelle, saisie manuelle par la coach. */
+		/** Maintenance calorique (filet de sécurité) — optionnelle, saisie manuelle par le coach. */
 		maintenanceKcal: v.optional(v.number()),
 		/** True pour effacer la maintenance enregistrée (champ vidé côté CRM). */
 		clearMaintenance: v.optional(v.boolean()),
-		/** Objectif quotidien de pas — optionnel, saisi manuellement par la coach (ex. 10 000). */
+		/** Objectif quotidien de pas — optionnel, saisi manuellement par le coach (ex. 10 000). */
 		stepGoal: v.optional(v.number()),
 		/** True pour retirer l'objectif de pas enregistré (champ vidé côté CRM). */
 		clearStepGoal: v.optional(v.boolean()),
@@ -684,7 +715,7 @@ export const setClientGoals = mutation({
 	handler: async (ctx, { sessionToken, userId, kcal, carbs, protein, fat, maintenanceKcal, clearMaintenance, stepGoal, clearStepGoal }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
 		if (!coach || coach.role !== "coach") {
-			throw new ConvexError("Seule la coach peut définir les objectifs.");
+			throw new ConvexError("Seul le coach peut définir les objectifs.");
 		}
 		const target = await ctx.db.get(userId);
 		if (!target || target.role !== "client") {
@@ -729,38 +760,10 @@ export const setClientGoals = mutation({
 		// leur objectif d'alors : plus jamais de réécriture rétroactive.
 		if (!existing || existing.kcal !== kcal) {
 			await upsertGoalHistoryToday(ctx, userId, kcal, coach._id, localTodayISO());
-			// BASELINE LEGACY (1re modification d'une cliente d'avant l'historisation) :
-			// l'ANCIEN objectif connu (existing.kcal) est la seule valeur dont on est
-			// certain pour le passé — sans cette ligne, les dates antérieures tombaient
-			// sur le repli « objectif courant » et hier se retrouvait réécrit avec le
-			// NOUVEL objectif. Ancre = date de CRÉATION de la ligne clientGoals
-			// (meilleure approximation non inventée : première trace horodatée de cet
-			// objectif). Jamais d'écriture si l'historique couvre déjà plus ancien,
-			// et aucune fausse date historique précise n'est fabriquée.
-			if (existing) {
-				const history = await loadGoalHistory(ctx, userId);
-				const earliestFrom = history.reduce<string | null>(
-					(min, h) => (min === null || h.effectiveFrom < min ? h.effectiveFrom : min),
-					null
-				);
-				const baselineFrom = localTodayISO(new Date(existing._creationTime));
-				if (earliestFrom === null || baselineFrom < earliestFrom) {
-					const sameDay = await ctx.db
-						.query("clientGoalHistory")
-						.withIndex("by_user_from", (q) => q.eq("userId", userId).eq("effectiveFrom", baselineFrom))
-						.collect();
-					if (!sameDay.some((row) => row.kcal === existing.kcal)) {
-						for (const row of sameDay) await ctx.db.delete(row._id);
-						await ctx.db.insert("clientGoalHistory", {
-							userId,
-							kcal: existing.kcal,
-							effectiveFrom: baselineFrom,
-							createdBy: coach._id,
-							createdAt: Date.now(),
-						});
-					}
-				}
-			}
+			// BASELINE LEGACY : l'ANCIEN objectif est historisé à la date de création
+			// de clientGoals — voir baselineLegacyGoalHistory ci-dessous (même
+			// fonction utilisée par « Appliquer à la fiche », onglet Calibrage).
+			await baselineLegacyGoalHistory(ctx, userId, existing, coach._id);
 		}
 
 		if (existing) {
@@ -777,7 +780,50 @@ export const setClientGoals = mutation({
 	},
 });
 
-/** Objectifs d'un client — réservé à la coach (CRM). */
+/* ── BASELINE LEGACY (1re modification d'une cliente d'avant l'historisation) :
+   l'ANCIEN objectif connu (existing.kcal) est la seule valeur dont on est
+   certain pour le passé — sans cette ligne, les dates antérieures tombaient
+   sur le repli « objectif courant » et hier se retrouvait réécrit avec le
+   NOUVEL objectif. Ancre = date de CRÉATION de la ligne clientGoals
+   (meilleure approximation non inventée : première trace horodatée de cet
+   objectif). Jamais d'écriture si l'historique couvre déjà plus ancien,
+   et aucune fausse date historique précise n'est fabriquée.
+
+   Chemin d'écriture UNIQUE des objectifs : partagée par setClientGoals et par
+   « Appliquer à la fiche » (onglet Calibrage, `calibrage.ts`). */
+export async function baselineLegacyGoalHistory(
+	ctx: Pick<MutationCtx, "db">,
+	userId: Id<"users">,
+	existing: Doc<"clientGoals"> | null,
+	coachId: Id<"users">
+): Promise<void> {
+	if (existing) {
+		const history = await loadGoalHistory(ctx, userId);
+		const earliestFrom = history.reduce<string | null>(
+			(min, h) => (min === null || h.effectiveFrom < min ? h.effectiveFrom : min),
+			null
+		);
+		const baselineFrom = localTodayISO(new Date(existing._creationTime));
+		if (earliestFrom === null || baselineFrom < earliestFrom) {
+			const sameDay = await ctx.db
+				.query("clientGoalHistory")
+				.withIndex("by_user_from", (q) => q.eq("userId", userId).eq("effectiveFrom", baselineFrom))
+				.collect();
+			if (!sameDay.some((row) => row.kcal === existing.kcal)) {
+				for (const row of sameDay) await ctx.db.delete(row._id);
+				await ctx.db.insert("clientGoalHistory", {
+					userId,
+					kcal: existing.kcal,
+					effectiveFrom: baselineFrom,
+					createdBy: coachId,
+					createdAt: Date.now(),
+				});
+			}
+		}
+	}
+}
+
+/** Objectifs d'un client — réservé au coach (CRM). */
 export const getClientGoals = query({
 	args: {
 		sessionToken: v.optional(v.string()),
@@ -786,7 +832,7 @@ export const getClientGoals = query({
 	handler: async (ctx, { sessionToken, userId }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
 		if (!coach || coach.role !== "coach") {
-			throw new ConvexError("Réservé à la coach.");
+			throw new ConvexError("Réservé au coach.");
 		}
 		const row = await ctx.db
 			.query("clientGoals")
@@ -946,13 +992,16 @@ export const getWeek = query({
 		if (!isValidDateISO(start)) throw new ConvexError("Date invalide.");
 		const end = addDaysISO(start, 7); // exclusif
 
-		const [entries, goalsRow, goalHistory] = await Promise.all([
+		const [entries, goalsRow, goalHistory, snapshotRows] = await Promise.all([
 			ctx.db
 				.query("diaryEntries")
 				.withIndex("by_user_date", (q) => q.eq("userId", user._id).gte("date", start).lt("date", end))
 				.collect(),
 			ctx.db.query("clientGoals").withIndex("by_userId", (q) => q.eq("userId", user._id)).first(),
 			loadGoalHistory(ctx, user._id),
+			// Instantanés de calibrage (LECTURE) : origine de l'objectif en vigueur
+			// pour la note « maintenance inclut déjà ton sport habituel ».
+			ctx.db.query("calibrageSnapshots").withIndex("by_user", (q) => q.eq("userId", user._id)).collect(),
 		]);
 
 		const byDay = new Map<string, { kcal: number; carbs: number; protein: number; fat: number }>();
@@ -1004,6 +1053,26 @@ export const getWeek = query({
 			/** Objectif calorique par date (Europe/Paris) — kcal pour today = goals.kcal. */
 			kcalGoalsByDate: Object.fromEntries(goalByDate),
 			goalsSet: !!goalsRow,
+			/* Sport habituel du calibrage à l'origine de l'objectif en VIGUEUR —
+			   null si l'objectif est manuel ou si ce sport vaut 0 (note masquée).
+			   Réutilise le dernier instantané `calibrageSnapshots` appliqué. */
+			sportHabituelKcal: sportHabituelObjectifEnVigueur(
+				goalHistory,
+				snapshotRows.map((s): InstantaneCalibrageVigueur => {
+					const appl = (s.results?.applique ?? {}) as Record<string, unknown>;
+					const snapSport = (s.results ?? {}) as Record<string, unknown>;
+					return {
+						effectiveFrom: s.effectiveFrom,
+						createdAt: s.createdAt,
+						kcalApplique: typeof appl.kcal === "number" && isFinite(appl.kcal) ? appl.kcal : null,
+						sportSemaineKcal:
+							typeof snapSport.sportSemaineKcal === "number" && isFinite(snapSport.sportSemaineKcal)
+								? snapSport.sportSemaineKcal
+								: null
+					};
+				}),
+				localTodayISO()
+			),
 			days,
 		};
 	},
@@ -1043,6 +1112,9 @@ export const addEntry = mutation({
 		foodId: v.optional(v.id("foods")),
 		customFoodId: v.optional(v.id("customFoods")),			/** Fiche de RÉFÉRENCE Ciqual (ANSES) : libellé officiel EXACT — exclusif avec foodId/customFoodId. */
 			ciqualLabel: v.optional(v.string()),
+			/** Aliment de référence G-Flux (R3-bis) : provenance explicite + identifiant. */
+			referenceSource: v.optional(v.union(v.literal("ciqual"), v.literal("gflux"))),
+			referenceFoodId: v.optional(v.string()),
 			qtyGrams: v.number(),
 			/** Date ISO locale du navigateur — frontière « futur » (fuseau client ≠ serveur UTC). */
 			clientDate: v.optional(v.string()),
@@ -1066,7 +1138,7 @@ export const addEntry = mutation({
 				)
 			),
 		},
-	handler: async (ctx, { sessionToken, date, meal, foodId, customFoodId, ciqualLabel, qtyGrams, clientDate, lastPortions }) => {
+	handler: async (ctx, { sessionToken, date, meal, foodId, customFoodId, ciqualLabel, referenceSource, referenceFoodId, qtyGrams, clientDate, lastPortions }) => {
 		const user = await requireClient(ctx, sessionToken);
 		if (!isValidDateISO(date)) throw new ConvexError("Date invalide.");
 		if (!isMeal(meal)) throw new ConvexError("Repas invalide.");
@@ -1078,11 +1150,17 @@ export const addEntry = mutation({
 		// /100 g depuis la table embarquée (jamais depuis le client). Aucune
 		// donnée OFF n'est lue, modifiée ou fusionnée : uniquement un snapshot
 		// journal comme pour tout autre aliment.
-		const ciqualRef = ciqualLabel ? ciqualFoodSource(ciqualLabel) : null;
-		if (ciqualLabel && !ciqualRef) {
-			throw new ConvexError("Cette référence Ciqual n'existe plus.");
-		}
-		if (!foodId && !customFoodId && !ciqualRef) {
+		// ALIMENT DE RÉFÉRENCE G-FLUX (R3-bis) : provenance EXPLICITE — les
+		// valeurs /100 g sont copiées depuis la fiche du coach de la cliente au
+		// moment de l'ajout, et `ciqualLabel` n'est JAMAIS renseigné (ce champ
+		// reste réservé à Ciqual). Aucune référence n'est conservée sur l'entrée :
+		// la modifier ou la supprimer ensuite ne change jamais le journal passé.
+		const gfluxRef =
+			referenceSource === "gflux" ? await resolveReferenceFood(ctx, user, referenceFoodId) : null;
+		if (referenceSource === "gflux" && !gfluxRef) throw new ConvexError("Cette fiche G-Flux n'existe plus.");
+		const ciqualRef = !gfluxRef && ciqualLabel ? ciqualFoodSource(ciqualLabel) : null;
+		if (!gfluxRef && ciqualLabel && !ciqualRef) throw new ConvexError("Cette référence Ciqual n'existe plus.");
+		if (!foodId && !customFoodId && !ciqualRef && !gfluxRef) {
 			throw new ConvexError("Aucun aliment fourni.");
 		}
 
@@ -1097,7 +1175,13 @@ export const addEntry = mutation({
 		let carbs100 = 0;
 		let protein100 = 0;
 		let fat100 = 0;
-		if (ciqualRef) {
+		if (gfluxRef) {
+			name = gfluxRef.name;
+			kcal100 = gfluxRef.kcal;
+			carbs100 = gfluxRef.carbsG;
+			protein100 = gfluxRef.proteinG;
+			fat100 = gfluxRef.fatG;
+		} else if (ciqualRef) {
 			name = ciqualRef.name;
 			kcal100 = ciqualRef.kcal100;
 			carbs100 = ciqualRef.carbs100;
@@ -1148,8 +1232,9 @@ export const addEntry = mutation({
 				carbs: Math.round(carbs100 * k * 10) / 10,
 				protein: Math.round(protein100 * k * 10) / 10,
 				fat: Math.round(fat100 * k * 10) / 10,
-				foodId: foodId ?? undefined,
-				customFoodId: customFoodId ?? undefined,
+				foodId: ciqualRef || gfluxRef ? undefined : (foodId ?? undefined),
+				customFoodId: ciqualRef || gfluxRef ? undefined : (customFoodId ?? undefined),
+				referenceSource: gfluxRef ? "gflux" : ciqualRef ? "ciqual" : undefined,
 				createdAt: Date.now(),
 			});
 			return { ok: true, entryId, planned: true };
@@ -1159,8 +1244,9 @@ export const addEntry = mutation({
 			userId: user._id,
 			date,
 			meal,
-			foodId: foodId ?? undefined,
-			customFoodId: customFoodId ?? undefined,
+			foodId: ciqualRef || gfluxRef ? undefined : (foodId ?? undefined),
+			customFoodId: ciqualRef || gfluxRef ? undefined : (customFoodId ?? undefined),
+			referenceSource: gfluxRef ? "gflux" : ciqualRef ? "ciqual" : undefined,
 			name,
 			brand,
 			imageUrl,
@@ -1188,6 +1274,9 @@ export const addEntry = mutation({
 		}[] = [];
 		if (ciqualRef) {
 			portions.push({ userId: user._id, ciqualLabel, qtyGrams, meal });
+		} else if (gfluxRef) {
+			// Fiche G-Flux : aucune portion mémorisée (choix simple — la fiche peut
+			// être supprimée par le coach, le journal n'en dépend jamais).
 		} else if (foodId) {
 			portions.push({ userId: user._id, foodId, qtyGrams, meal });
 		} else if (customFoodId) {
@@ -1344,6 +1433,7 @@ export const eatPlanned = mutation({
 			meal: p.meal,
 			foodId: p.foodId,
 			customFoodId: p.customFoodId,
+			referenceSource: p.referenceSource,
 			name: p.name,
 			brand: p.brand,
 			imageUrl: p.imageUrl,
@@ -1535,6 +1625,7 @@ export const eatManyPlanned = mutation({
 				meal: p.meal,
 				foodId: p.foodId,
 				customFoodId: p.customFoodId,
+				referenceSource: p.referenceSource,
 				name: p.name,
 				brand: p.brand,
 				imageUrl: p.imageUrl,
@@ -1613,6 +1704,7 @@ export const duplicateEntries = mutation({
 					fat: e.fat,
 					foodId: e.foodId,
 					customFoodId: e.customFoodId,
+					referenceSource: e.referenceSource,
 					createdAt: Date.now(),
 				});
 			} else {
@@ -1622,6 +1714,7 @@ export const duplicateEntries = mutation({
 					meal: e.meal,
 					foodId: e.foodId,
 					customFoodId: e.customFoodId,
+					referenceSource: e.referenceSource,
 					name: e.name,
 					brand: e.brand,
 					imageUrl: e.imageUrl,
@@ -1655,7 +1748,8 @@ export const duplicateEntries = mutation({
 					protein: p.protein,
 					fat: p.fat,				foodId: p.foodId,
 				customFoodId: p.customFoodId,
-				ciqualLabel: p.ciqualLabel,
+				ciqualLabel: p.referenceSource === "gflux" ? undefined : p.ciqualLabel,
+				referenceSource: p.referenceSource,
 				createdAt: Date.now(),
 			});
 			} else {
@@ -1665,6 +1759,7 @@ export const duplicateEntries = mutation({
 					meal: p.meal,
 					foodId: p.foodId,
 					customFoodId: p.customFoodId,
+					referenceSource: p.referenceSource,
 					name: p.name,
 					brand: p.brand,
 					imageUrl: p.imageUrl,

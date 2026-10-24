@@ -37,6 +37,10 @@ export const POST: RequestHandler = async (event) => {
 			foodId: body.foodId as never,
 			/** Fiche de référence Ciqual (ANSES) — libellé officiel exact. */
 			ciqualLabel: body.ciqualLabel ? String(body.ciqualLabel) : undefined,
+			/** Aliment de référence G-Flux — provenance explicite, jamais via ciqualLabel. */
+			referenceSource:
+				body.referenceSource === 'gflux' ? ('gflux' as const) : body.referenceSource === 'ciqual' ? ('ciqual' as const) : undefined,
+			referenceFoodId: body.referenceFoodId ? String(body.referenceFoodId) : undefined,
 			qtyGrams: Number(body.qtyGrams),
 		});
 		return json(res);
