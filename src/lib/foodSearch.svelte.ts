@@ -151,6 +151,16 @@ export function ciqualToFood(h: CiqualRaw): SearchFood {
 }
 
 /**
+ * Ingrédients de RECETTE — les aliments de référence G-Flux n'y sont JAMAIS
+ * proposés (Mission R3-quater) : ils restent disponibles dans le Journal et
+ * les plans de repas, jamais dans la composition d'une recette. Filtre PUR
+ * sur le seul drapeau `gflux` (aucune autre règle modifiée).
+ */
+export function recipeIngredientFoods<T extends { gflux?: boolean }>(foods: T[]): T[] {
+	return foods.filter((food) => !food.gflux);
+}
+
+/**
  * Crée un contrôleur de recherche réactive. À appeler à l'initialisation du
  * composant (jamais au niveau module : l'état est réactif).
  */

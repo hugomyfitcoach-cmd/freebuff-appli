@@ -282,6 +282,34 @@ export const CIQUAL_SOURCE_LABEL = "Référence Ciqual – ANSES";
 const USED_WINDOW = 120;
 
 /**
+ * Libellés Ciqual « déjà ajoutés » à partir des portions mémorisées et du
+ * journal récent (fenêtre bornée) — règle PURE, testable.
+ *
+ * Une entrée de provenance G-Flux n'est JAMAIS un libellé Ciqual, même si son
+ * nom est homonyme d'une fiche : elle ne doit donc pas faire remonter cette
+ * fiche dans le bloc « Aliments de référence » (Mission R3-quater).
+ */
+export function usedCiqualLabelsFrom(
+	portions: { ciqualLabel?: string | null }[],
+	recent: {
+		name: string;
+		foodId?: string | null;
+		customFoodId?: string | null;
+		mealId?: string | null;
+		referenceSource?: string | null;
+	}[]
+): Set<string> {
+	const used = new Set<string>();
+	for (const p of portions) if (p.ciqualLabel) used.add(p.ciqualLabel);
+	for (const e of recent) {
+		if (e.referenceSource === "gflux") continue; // aliment du coach : jamais Ciqual
+		if (e.foodId || e.customFoodId || e.mealId) continue;
+		if (resolveCiqualLabel(e.name)) used.add(e.name);
+	}
+	return used;
+}
+
+/**
  * Libellés Ciqual réellement AJOUTÉS par l'utilisateur — portions mémorisées
  * (validation « Ajouter au Journal ») + journal récent (fenêtre bornée, index
  * `by_user` existant — même philosophie que freqFoods). Lecture seule.
@@ -298,13 +326,7 @@ async function usedCiqualLabels(ctx: Pick<QueryCtx, "db">, userId: Id<"users">):
 			.order("desc")
 			.take(USED_WINDOW),
 	]);
-	const used = new Set<string>();
-	for (const p of portions) if (p.ciqualLabel) used.add(p.ciqualLabel);
-	for (const e of recent) {
-		if (e.foodId || e.customFoodId || e.mealId) continue;
-		if (resolveCiqualLabel(e.name)) used.add(e.name);
-	}
-	return used;
+	return usedCiqualLabelsFrom(portions, recent);
 }
 
 /**

@@ -27,7 +27,8 @@ import {
 	referenceFoodHit,
 	referenceFoodSnapshot,
 } from '../src/lib/referenceFoods.ts';
-import { searchCiqualLocal } from '../src/convex/ciqual.ts';
+import { searchCiqualLocal, usedCiqualLabelsFrom } from '../src/convex/ciqual.ts';
+import { ciqualToFood, recipeIngredientFoods } from '../src/lib/foodSearch.svelte.ts';
 
 const source = (p) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
 
@@ -357,6 +358,82 @@ test('R3-ter : badge G-Flux sans classe ambre (style vert Ciqual partout)', () =
 		assert.ok(!src.includes('FFF3D6'), `${page} : fond ambre retiré`);
 		assert.ok(!src.includes('8A5A00'), `${page} : texte ambre retiré`);
 	}
+});
+
+/* ─── 6) Mission R3-quater : G-Flux hors recettes, libellés Ciqual préservés ─── */
+
+test('R3-quater : la recherche d’ingrédient de recette exclut les aliments G-Flux', () => {
+	const foods = [
+		{ label: 'Poulet fermier G-Flux', kcal: 165, protein: 31, carbs: 0, fat: 4, source: 'gflux', id: 'ref-1' },
+		{ label: 'Poulet, blanc, cru', kcal: 105, protein: 23, carbs: 0, fat: 2 },
+	].map(ciqualToFood);
+	assert.equal(foods[0].gflux, true, 'fiche G-Flux marquée');
+	const recipe = recipeIngredientFoods(foods);
+	assert.deepEqual(recipe.map((f) => f.name), ['Poulet, blanc, cru'], 'aucun aliment G-Flux comme ingrédient');
+	assert.ok(recipe.every((f) => !f.gflux), 'aucun résultat G-Flux ne survit au filtre');
+
+	const journalPage = source('src/routes/espace/journal/+page.svelte');
+	assert.match(
+		journalPage,
+		/import \{ recipeIngredientFoods \} from '\$lib\/foodSearch\.svelte'/,
+		'filtre partagé importé par l’écran'
+	);
+	// Recherche du JOURNAL : inchangée, les fiches G-Flux restent proposées.
+	const journalSearch = journalPage.slice(
+		journalPage.indexOf('async function runSearch'),
+		journalPage.indexOf('async function runMealSearch')
+	);
+	assert.ok(journalSearch.length > 0, 'recherche du journal trouvée');
+	assert.ok(!journalSearch.includes('recipeIngredientFoods'), 'journal : fiches G-Flux toujours incluses');
+	assert.match(journalSearch, /ciqualResults = j\.error/, 'journal : mapping Ciqual/G-Flux inchangé');
+	// Recherche d'INGRÉDIENT de recette (création / modification) : filtrée.
+	const mealEditorSearch = journalPage.slice(
+		journalPage.indexOf('async function runMealSearch'),
+		journalPage.indexOf('function onMealSearchInput')
+	);
+	assert.match(
+		mealEditorSearch,
+		/mealCiqualResults = j\.error\s*\?\s*\[\]\s*:\s*recipeIngredientFoods\(/,
+		'éditeur de recette : bloc Ciqual filtré'
+	);
+	// Ajout / remplacement d'un ingrédient (recette importée ou enregistrée) : filtré.
+	const mealAddSearch = journalPage.slice(
+		journalPage.indexOf('async function runMealAddSearch'),
+		journalPage.indexOf('function pickMealAdd')
+	);
+	assert.match(
+		mealAddSearch,
+		/const ciqFoods: Food\[\] = recipeIngredientFoods\(/,
+		'ajout / remplacement d’ingrédient : bloc Ciqual filtré'
+	);
+});
+
+test('R3-quater : une entrée G-Flux homonyme ne fait pas remonter le libellé Ciqual', () => {
+	const homonym = searchCiqualLocal('poulet', 13)[0];
+	assert.ok(homonym, 'fiche Ciqual de référence disponible');
+
+	// Entrée de provenance G-Flux dont le nom est homonyme d'une fiche Ciqual :
+	// elle ne compte JAMAIS comme « déjà ajouté » côté Ciqual.
+	assert.equal(
+		usedCiqualLabelsFrom([], [{ name: homonym.label, referenceSource: 'gflux' }]).size,
+		0,
+		'entrée G-Flux homonyme ignorée'
+	);
+	// Les ajouts réellement Ciqual restent comptés (provenance explicite ou historique).
+	assert.ok(
+		usedCiqualLabelsFrom([], [{ name: homonym.label, referenceSource: 'ciqual' }]).has(homonym.label),
+		'ajout Ciqual compté'
+	);
+	assert.ok(usedCiqualLabelsFrom([], [{ name: homonym.label }]).has(homonym.label), 'entrée Ciqual historique comptée');
+	// Portions mémorisées : inchangées.
+	assert.ok(usedCiqualLabelsFrom([{ ciqualLabel: homonym.label }], []).has(homonym.label), 'portion mémorisée comptée');
+	// Entrées identifiées (produit OFF, aliment perso, repas) : toujours ignorées.
+	assert.equal(usedCiqualLabelsFrom([], [{ name: homonym.label, foodId: 'f1' }]).size, 0, 'produit OFF ignoré');
+	// La query serveur applique bien cette règle pure.
+	assert.ok(
+		source('src/convex/ciqual.ts').includes('return usedCiqualLabelsFrom(portions, recent);'),
+		'usedCiqualLabels délègue à la règle testée'
+	);
 });
 
 test('la table de référence reste additive et partage le moteur Ciqual', () => {

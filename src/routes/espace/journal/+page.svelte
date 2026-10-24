@@ -18,6 +18,7 @@ import { warmFoodImages } from '$lib/foodImageWarm';
 import { journalTipForDay } from '$lib/data/journalTips';
 import { optimizeImageFile } from '$lib/media';
 import { clearRecipeDraft, loadRecipeDraft, saveRecipeDraft } from '$lib/recipeDraft';
+import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 
 	type Goals = { kcal: number; carbs: number; protein: number; fat: number; maintenanceKcal?: number };
 	type Entry = {
@@ -2107,7 +2108,11 @@ import { clearRecipeDraft, loadRecipeDraft, saveRecipeDraft } from '$lib/recipeD
 		const ciq = fetch(`/api/foods/ciqual?q=${encodeURIComponent(q)}&limit=13`)
 			.then(async (r) => {
 				const j = await r.json();
-				mealCiqualResults = j.error ? [] : (j as { label: string; kcal: number; protein?: number; carbs?: number; fat?: number }[]).map(ciqualToFood);
+				// Recette (création / modification) : les aliments G-Flux ne sont jamais
+				// proposés comme ingrédient (Mission R3-quater) — le Journal, lui, les garde.
+				mealCiqualResults = j.error
+					? []
+					: recipeIngredientFoods((j as { label: string; kcal: number; protein?: number; carbs?: number; fat?: number; source?: 'gflux'; id?: string }[]).map(ciqualToFood));
 			})
 			.then(() => null, () => 'ciqual' as const);
 		const err = await req;
@@ -3336,7 +3341,8 @@ import { clearRecipeDraft, loadRecipeDraft, saveRecipeDraft } from '$lib/recipeD
 			]);
 			const prod = await prodR.json();
 			const ciq = ciqR.ok ? await ciqR.json() : [];
-			const ciqFoods: Food[] = (Array.isArray(ciq) ? ciq : []).map(ciqualToFood);
+			// Ingrédient ajouté / remplacé dans une recette : jamais un aliment G-Flux.
+			const ciqFoods: Food[] = recipeIngredientFoods((Array.isArray(ciq) ? ciq : []).map(ciqualToFood));
 			const prods: Food[] = Array.isArray(prod?.items) ? prod.items : [];
 			if (guard !== mealAddSeq) return; // réponse périmée
 			// La CIQUAL d'abord (génériques), puis les produits (déjà en base)
