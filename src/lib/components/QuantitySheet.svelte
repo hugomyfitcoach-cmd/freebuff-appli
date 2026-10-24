@@ -404,7 +404,7 @@
 						<span class="inline-flex items-center gap-1 rounded-full bg-brand-light px-2.5 py-1 text-[10px] font-bold text-brand">Référence Ciqual – ANSES</span>
 					{/if}
 					{#if food.gflux}
-						<span class="inline-flex items-center gap-1 rounded-full bg-[#FFF3D6] px-2.5 py-1 text-[10px] font-bold text-[#8A5A00]">Référence G-Flux</span>
+						<span class="inline-flex items-center gap-1 rounded-full bg-brand-light px-2.5 py-1 text-[10px] font-bold text-brand">Référence G-Flux</span>
 					{/if}
 					{#if source === 'ai'}
 						<span class="inline-flex items-center gap-1 rounded-full bg-[#eef2ff] px-2.5 py-1 text-[10px] font-bold text-[#4f46e5]">Estimation IA</span>

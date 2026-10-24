@@ -551,7 +551,7 @@
 									<div class="line-clamp-2 text-sm font-semibold leading-snug text-ink">{hit.name}</div>
 									<div class="mt-0.5 text-[11px] text-mist">{hit.kcal100} kcal/100 g</div>
 									<div class="mt-1 flex flex-col items-start gap-0.5">
-										{#if hit.gflux}<span data-gflux-badge class="rounded-full bg-[#FFF3D6] px-2 py-0.5 text-[9px] font-bold text-[#8A5A00]">Référence G-Flux</span>{:else}<span class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>{/if}
+										{#if hit.gflux}<span data-gflux-badge class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence G-Flux</span>{:else}<span class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>{/if}
 										{#if hit.cookLabel}<span data-cook-badge class="rounded-full bg-[#F1F0EC] px-2 py-0.5 text-[9px] font-semibold text-[#6E6A62]">{hit.cookLabel}</span>{/if}
 									</div>
 								</div>

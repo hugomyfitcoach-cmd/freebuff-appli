@@ -779,6 +779,11 @@ export default defineSchema({
 		proteinG: v.number(),
 		carbsG: v.number(),
 		fatG: v.number(),
+		/** Mode de cuisson (valeurs de cookedState.ts : cru, eau, vapeur, four,
+		 *  grille, poele, frit, conserve, cuit, neutre) — FACULTATIF (ajout seul).
+		 *  Renseigné, il pilote le badge de cuisson et le classement ; sinon la
+		 *  cuisson est détectée d'après le nom. Validé par referenceFoodError. */
+		cookingState: v.optional(v.string()),
 		createdAt: v.number(),
 		updatedAt: v.number(),
 	}).index("by_coach", ["coachId"]),

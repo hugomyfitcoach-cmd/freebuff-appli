@@ -135,6 +135,25 @@ export type CookingState =
 	| 'cuit'
 	| 'neutre';
 
+/** Les 10 valeurs de `CookingState` (source unique pour validation + formulaire). */
+export const COOKING_STATE_VALUES: readonly CookingState[] = [
+	'cru',
+	'eau',
+	'vapeur',
+	'four',
+	'grille',
+	'poele',
+	'frit',
+	'conserve',
+	'cuit',
+	'neutre',
+];
+
+/** Une valeur saisie est-elle un `CookingState` valide ? (validation serveur). */
+export function isCookingState(value: unknown): value is CookingState {
+	return typeof value === 'string' && (COOKING_STATE_VALUES as readonly string[]).includes(value);
+}
+
 /** Vocabulaire reconnu (tokens normalisés : accents retirés, minuscules). */
 const COOKING_TOKENS: Record<string, CookingState> = {
 	cru: 'cru', crue: 'cru', crus: 'cru', crues: 'cru',

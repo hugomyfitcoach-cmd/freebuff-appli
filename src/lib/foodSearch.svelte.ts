@@ -78,6 +78,8 @@ export type CiqualRaw = {
 	source?: 'gflux';
 	/** Identifiant de la fiche G-Flux (absent pour Ciqual) — jamais affiché. */
 	id?: string;
+	/** Badge de cuisson calculé côté serveur (cookedState.ts) — G-Flux uniquement. */
+	cookLabel?: string | null;
 };
 
 /** Réponse produits normalisée par le contrôleur (items + présence d'une suite). */
@@ -141,7 +143,10 @@ export function ciqualToFood(h: CiqualRaw): SearchFood {
 		fat100: h.fat ?? 0,
 		ciqual: !gflux,
 		...(gflux ? { gflux: true } : {}),
-		cookLabel: cookingBadgeOf(h.label),
+		// Badge de cuisson : calculé côté serveur pour les fiches G-Flux
+		// (champ cookingState prioritaire sur le nom) ; sinon détection par le
+		// nom (Ciqual, inchangée) — même source cookedState.ts.
+		cookLabel: h.cookLabel ?? cookingBadgeOf(h.label),
 	};
 }
 

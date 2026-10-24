@@ -22,11 +22,13 @@ import {
 	tokenize,
 } from '../convex/foodRanking';
 import {
-	cookingBadgeOf,
+	cookingBadge,
 	cookingRank,
 	cookingStateOf,
 	cookingVarietyOf,
+	isCookingState,
 } from './cookedState';
+import type { CookingState } from './cookedState';
 
 /* ─── Bornes de validation (serveur, ConvexError claire) ─── */
 export const REFERENCE_NAME_MIN = 2;
@@ -44,18 +46,26 @@ export type ReferenceFoodInput = {
 	proteinG: number;
 	carbsG: number;
 	fatG: number;
+	/** Mode de cuisson (valeurs de cookedState.ts : cru, eau, vapeur, four, grille,
+	 *  poele, frit, conserve, cuit, neutre) — FACULTATIF. Renseigné, il pilote le
+	 *  badge de cuisson et le classement ; sinon détection d'après le nom. */
+	cookingState?: string;
 };
 
 export type ReferenceFoodLike = ReferenceFoodInput & { _id?: string; coachId?: string };
 
-/** Trim + arrondi 0,1 g — la forme persistée (aucune autre transformation). */
+/** Trim + arrondi 0,1 g — la forme persistée (aucune autre transformation).
+ *  `cookingState` n'est présent que s'il est renseigné (« Non précisé » = champ
+ *  absent, jamais une valeur spéciale). */
 export function cleanReferenceFood(input: ReferenceFoodInput): ReferenceFoodInput {
+	const cookingState = String(input.cookingState ?? '').trim();
 	return {
 		name: String(input.name ?? '').trim(),
 		kcal: round1(Number(input.kcal)),
 		proteinG: round1(Number(input.proteinG)),
 		carbsG: round1(Number(input.carbsG)),
 		fatG: round1(Number(input.fatG)),
+		...(cookingState ? { cookingState } : {}),
 	};
 }
 
@@ -82,6 +92,12 @@ export function referenceFoodError(input: ReferenceFoodInput): string | null {
 	}
 	if ([input.proteinG, input.carbsG, input.fatG].some((v) => Number(v) > REFERENCE_MACRO_MAX)) {
 		return `Chaque macro (protéines, glucides, lipides) doit rester entre 0 et ${REFERENCE_MACRO_MAX} g pour 100 g.`;
+	}
+	// Mode de cuisson facultatif : valeur vide = non précisé (détection par le
+	// nom) ; toute autre valeur doit être un état de cookedState.ts.
+	const cookingState = String(input.cookingState ?? '').trim();
+	if (cookingState && !isCookingState(cookingState)) {
+		return 'Mode de cuisson invalide (valeurs acceptées : cru, eau, vapeur, four, grille, poele, frit, conserve, cuit, neutre).';
 	}
 	return null;
 }
@@ -141,6 +157,11 @@ export type ReferenceHit = {
 	source?: 'gflux';
 	/** Identifiant de la fiche G-Flux (`referenceFoods._id`, jamais affiché) — absent pour Ciqual. */
 	id?: string;
+	/** Mode de cuisson explicite de la fiche G-Flux (valeurs cookedState.ts) —
+	 *  absent pour Ciqual, dont l'état se détecte d'après le nom. */
+	cookingState?: CookingState;
+	/** Badge de cuisson calculé (cookedState.ts) — null = aucun badge. */
+	cookLabel?: string | null;
 };
 
 /**
@@ -151,13 +172,15 @@ export type ReferenceHit = {
  * La provenance (G-Flux avant Ciqual) est traitée séparément, à pertinence
  * égale, par `mergeReferenceHits`.
  */
-function relevanceKey(name: string, q: string): number[] | null {
+function relevanceKey(name: string, q: string, explicitState?: string): number[] | null {
 	const qt = tokenize(q);
 	if (qt.length === 0) return null;
 	const toks = tokenize(name);
 	if (!allWordsPresent(toks, qt)) return null;
 	const typed = queryCookState(qt);
-	const state = cookingStateOf(name);
+	// Cuisson EXPLICITE (champ cookingState de la fiche G-Flux) prioritaire sur
+	// la détection par le nom — sinon détection par le nom (inchangée).
+	const state = isCookingState(explicitState) ? explicitState : cookingStateOf(name);
 	const variety = cookingVarietyOf(name) || norm(name);
 	const typedMatch = typed !== undefined ? (sameCookFamily(typed, state) ? 0 : 1) : 0;
 	return [
@@ -178,6 +201,16 @@ function compareKeys(a: number[], b: number[]): number {
 	return 0;
 }
 
+/**
+ * Badge de cuisson d'une fiche : `cookingState` s'il est renseigné (valeurs de
+ * cookedState.ts), sinon détection d'après le nom (comportement Ciqual,
+ * inchangé). Source unique : cookedState.ts.
+ */
+export function referenceCookBadge(food: { name: string; cookingState?: string }): string | null {
+	const state = isCookingState(food.cookingState) ? food.cookingState : cookingStateOf(food.name);
+	return cookingBadge(state);
+}
+
 /** Fiche G-Flux → résultat de recherche (badge « Référence G-Flux »). */
 export function referenceFoodHit(food: ReferenceFoodLike): ReferenceHit {
 	return {
@@ -188,6 +221,8 @@ export function referenceFoodHit(food: ReferenceFoodLike): ReferenceHit {
 		fat: food.fatG,
 		source: 'gflux',
 		id: food._id,
+		...(isCookingState(food.cookingState) ? { cookingState: food.cookingState } : {}),
+		cookLabel: referenceCookBadge(food),
 	};
 }
 
@@ -198,7 +233,7 @@ export function referenceFoodHit(food: ReferenceFoodLike): ReferenceHit {
 export function rankReferenceFoods(query: string, foods: ReferenceFoodLike[]): ReferenceFoodLike[] {
 	const scored: { food: ReferenceFoodLike; key: number[] }[] = [];
 	for (const food of foods) {
-		const key = relevanceKey(food.name, query);
+		const key = relevanceKey(food.name, query, food.cookingState);
 		if (!key) continue;
 		scored.push({ food, key });
 	}
@@ -224,9 +259,9 @@ export function mergeReferenceHits(
 	const ranked = rankReferenceFoods(query, foods);
 	const out: ReferenceHit[] = [...ciqualHits];
 	for (const food of ranked) {
-		const key = relevanceKey(food.name, query) ?? [];
+		const key = relevanceKey(food.name, query, food.cookingState) ?? [];
 		let at = out.findIndex((hit) => {
-			const other = relevanceKey(hit.label, query);
+			const other = relevanceKey(hit.label, query, hit.cookingState);
 			return other !== null && compareKeys(other, key) < 0;
 		});
 		if (at === -1) at = out.length;
@@ -235,7 +270,4 @@ export function mergeReferenceHits(
 	return out;
 }
 
-/** Badge de cuisson (même source que Ciqual : cookedState.ts). */
-export function referenceCookBadge(name: string): string | null {
-	return cookingBadgeOf(name);
-}
+

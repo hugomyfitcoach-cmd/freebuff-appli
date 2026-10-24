@@ -116,6 +116,7 @@ export const list = query({
 				proteinG: r.proteinG,
 				carbsG: r.carbsG,
 				fatG: r.fatG,
+				cookingState: r.cookingState,
 				createdAt: r.createdAt,
 				updatedAt: r.updatedAt,
 			}))
@@ -129,6 +130,8 @@ const foodFields = {
 	proteinG: v.number(),
 	carbsG: v.number(),
 	fatG: v.number(),
+	/** Mode de cuisson facultatif — valeur validée par referenceFoodError. */
+	cookingState: v.optional(v.string()),
 };
 
 /** Crée une fiche de référence (coach propriétaire uniquement). */
@@ -162,7 +165,9 @@ export const update = mutation({
 		if (error) throw new ConvexError(error);
 		// Les entrées passées (journal, plans) portent leur propre copie du nom
 		// et des valeurs : cette modification ne les touche jamais.
-		await ctx.db.patch(referenceFoodId, { ...input, updatedAt: Date.now() });
+		// `cookingState` est réécrit EXPLICITEMENT (undefined = « Non précisé » →
+		// le champ est retiré, la cuisson redétectée d'après le nom).
+		await ctx.db.patch(referenceFoodId, { ...input, cookingState: input.cookingState, updatedAt: Date.now() });
 		return { ok: true, referenceFoodId };
 	},
 });

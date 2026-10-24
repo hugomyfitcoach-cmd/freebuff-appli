@@ -22,6 +22,7 @@ import {
 	kcalMismatchWarning,
 	mergeReferenceHits,
 	rankReferenceFoods,
+	referenceCookBadge,
 	referenceFoodError,
 	referenceFoodHit,
 	referenceFoodSnapshot,
@@ -137,9 +138,9 @@ test('« poulet » renvoie l’aliment G-Flux avec son badge, avant Ciqual à pe
 		assert.ok(src.includes('Référence G-Flux'), `${page} : badge G-Flux rendu`);
 		assert.ok(src.includes('Référence Ciqual – ANSES'), `${page} : badge Ciqual conservé`);
 	}
-	// Le badge G-Flux n'utilise ni la couleur Ciqual (brand) ni une couleur macro.
+	// Badge G-Flux : MÊME style vert que « Référence Ciqual – ANSES » (R3-ter).
 	const journal = source('src/routes/espace/journal/+page.svelte');
-	assert.match(journal, /data-gflux-badge[^>]*bg-\[#FFF3D6\]/, 'couleur G-Flux distincte');
+	assert.match(journal, /data-gflux-badge[^>]*bg-brand-light[^>]*text-brand/, 'badge G-Flux au style vert Ciqual');
 });
 
 test('règles de classement appliquées aux fiches G-Flux (tous les mots, consécutifs, cuisson)', () => {
@@ -267,6 +268,95 @@ test('aucune chaîne « gflux: » comme identité d’aliment dans le code sourc
 	const journal = source('src/convex/journal.ts');
 	assert.ok(/referenceFoodId: v\.optional\(v\.string\(\)\)/.test(journal), 'ajout par referenceFoodId');
 	assert.ok(/resolveReferenceFood\(ctx, user, referenceFoodId\)/.test(journal), 'résolution par identifiant');
+});
+
+/* ─── 5) Mission R3-ter : page dédiée, cuisson explicite, badge unifié ─── */
+
+/** Apostrophes typographiques normalisées (comparaison de texte insensible). */
+const normText = (s) => s.replace(/[\u2019']/g, "'");
+
+test('R3-ter : la gestion des aliments a quitté la page recettes', () => {
+	const recettes = source('src/routes/recettes/+page.svelte');
+	assert.ok(!recettes.includes('reference-foods'), 'page recettes : plus d’appel API des fiches');
+	assert.ok(!/refForm|refFoods|refSaving/.test(recettes), 'page recettes : plus de formulaire ni de liste');
+	assert.ok(!recettes.includes('Référence G-Flux'), 'page recettes : section entièrement retirée');
+});
+
+test('R3-ter : page « Aliments de référence » — accès coach, encadré, entrée de menu', () => {
+	const layout = source('src/routes/aliments-reference/+layout.server.ts');
+	assert.match(layout, /requireRole\(event, 'coach', \{ next: '\/aliments-reference' \}\)/, 'accès réservé au coach');
+
+	const page = normText(source('src/routes/aliments-reference/+page.svelte'));
+	assert.ok(page.includes('Tes aliments de référence'), 'encadré : titre exact');
+	assert.ok(
+		page.includes(
+			"Ajoute ici les aliments que tu recommandes souvent et qui manquent dans la base Ciqual (une préparation précise, un produit que tu utilises avec tes clientes)."
+		),
+		'encadré : paragraphe d’introduction exact'
+	);
+	assert.ok(
+		page.includes(
+			"Ce que voient tes clientes : quand elles cherchent un aliment dans leur journal, tes aliments apparaissent dans « Aliments de référence », avec le badge « Référence G-Flux ». À pertinence égale, ils passent avant les aliments Ciqual."
+		),
+		'encadré : explication côté cliente exacte'
+	);
+	assert.ok(page.includes('Les bonnes règles :'), 'encadré : titre des règles');
+	for (const rule of [
+		"Vérifie d'abord que l'aliment n'existe pas déjà dans Ciqual : cherche-le dans un journal.",
+		"Saisis toujours les valeurs pour 100 g, d'après une source fiable (étiquette, table nutritionnelle).",
+		"Donne un nom clair, l'aliment d'abord puis les précisions : « Poulet, blanc, sans peau ».",
+		"Choisis le mode de cuisson : il s'affiche sous le nom pour tes clientes.",
+		'Modifier ou supprimer un aliment ne change jamais ce que tes clientes ont déjà enregistré.',
+	]) {
+		assert.ok(page.includes(rule), `encadré : règle « ${rule.slice(0, 30)}… »`);
+	}
+	assert.match(page, /Aucun aliment pour l.instant\./, 'état vide présent');
+
+	const shell = source('src/lib/components/AppShell.svelte');
+	assert.match(
+		shell,
+		/\{ href: '\/aliments-reference', label: 'Aliments de référence', icon: 'salad' \}/,
+		'entrée de menu COACHING présente'
+	);
+	assert.ok(
+		shell.indexOf("label: 'Guide nutrition & recettes'") < shell.indexOf("label: 'Aliments de référence'"),
+		'entrée placée juste sous Guide nutrition & recettes'
+	);
+});
+
+test('R3-ter : cookingState pilote le badge de cuisson', () => {
+	// « four » → « Au four » même si le nom ne le dit pas.
+	assert.equal(referenceCookBadge({ name: 'Poulet blanc', cookingState: 'four' }), 'Au four');
+	assert.equal(referenceCookBadge({ name: 'Purée maison', cookingState: 'eau' }), "Cuit à l'eau");
+	assert.equal(referenceCookBadge({ name: 'Légumes', cookingState: 'vapeur' }), 'Vapeur');
+	// Sans cookingState : détection d'après le nom (inchangée).
+	assert.equal(referenceCookBadge({ name: 'Poulet rôti' }), 'Au four');
+	assert.equal(referenceCookBadge({ name: 'Haricots verts en conserve' }), 'En conserve');
+	assert.equal(referenceCookBadge({ name: 'Poulet blanc' }), null, 'aucune cuisson → aucun badge');
+});
+
+test('R3-ter : valeur de cuisson invalide refusée par la validation serveur', () => {
+	const bad = referenceFoodError({ ...valid, cookingState: 'micro-ondes' });
+	assert.ok(bad, 'valeur inconnue refusée');
+	assert.match(bad, /cuisson/i, 'message clair');
+	assert.equal(referenceFoodError({ ...valid, cookingState: 'four' }), null, 'valeur valide acceptée');
+	assert.equal(referenceFoodError({ ...valid, cookingState: '' }), null, 'vide = non précisé');
+	// Le serveur applique bien cette validation (create + update = 2 appels).
+	const convex = source('src/convex/referenceFoods.ts');
+	assert.equal((convex.match(/const error = referenceFoodError\(input\);/g) ?? []).length, 2, 'create + update');
+});
+
+test('R3-ter : badge G-Flux sans classe ambre (style vert Ciqual partout)', () => {
+	for (const page of [
+		'src/routes/espace/journal/+page.svelte',
+		'src/routes/admin/+page.svelte',
+		'src/routes/admin/plans/+page.svelte',
+		'src/lib/components/QuantitySheet.svelte',
+	]) {
+		const src = source(page);
+		assert.ok(!src.includes('FFF3D6'), `${page} : fond ambre retiré`);
+		assert.ok(!src.includes('8A5A00'), `${page} : texte ambre retiré`);
+	}
 });
 
 test('la table de référence reste additive et partage le moteur Ciqual', () => {

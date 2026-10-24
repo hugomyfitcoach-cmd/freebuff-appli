@@ -892,7 +892,7 @@ import { clearRecipeDraft, loadRecipeDraft, saveRecipeDraft } from '$lib/recipeD
 	/** Fiche de référence → Food (l'_id porté par les flux est le LIBELLÉ officiel
 	 *  exact pour Ciqual, l'identifiant de la fiche pour un aliment du coach ; à
 	 *  l'ajout, le serveur résout les valeurs — jamais le client). */
-	function ciqualToFood(h: { label: string; kcal: number; protein?: number; carbs?: number; fat?: number; source?: 'gflux'; id?: string }): Food {
+	function ciqualToFood(h: { label: string; kcal: number; protein?: number; carbs?: number; fat?: number; source?: 'gflux'; id?: string; cookLabel?: string | null }): Food {
 		const gflux = h.source === 'gflux';
 		return {
 			_id: h.id ?? h.label,
@@ -903,7 +903,10 @@ import { clearRecipeDraft, loadRecipeDraft, saveRecipeDraft } from '$lib/recipeD
 			fat100: h.fat ?? 0,
 			ciqual: !gflux,
 			...(gflux ? { gflux: true } : {}),
-			cookLabel: cookingBadgeOf(h.label),
+			// Badge de cuisson : calculé côté serveur pour une fiche G-Flux (champ
+			// cookingState prioritaire sur le nom) ; sinon détection par le nom —
+			// même source unique cookedState.ts.
+			cookLabel: h.cookLabel ?? cookingBadgeOf(h.label),
 		};
 	}
 
@@ -4770,7 +4773,7 @@ import { clearRecipeDraft, loadRecipeDraft, saveRecipeDraft } from '$lib/recipeD
 												<span class="line-clamp-2 text-[14px] font-semibold leading-snug text-ink">{cfood.name}</span>
 												<span class="mt-0.5 block text-[12px] text-mist tabular-nums"><strong class="font-bold text-brand">{fmt(cfood.kcal100)} kcal</strong> · 100 g</span>
 												<span class="mt-1 flex flex-col items-start gap-0.5">
-													{#if cfood.gflux}<span data-gflux-badge class="rounded-full bg-[#FFF3D6] px-2 py-0.5 text-[9px] font-bold text-[#8A5A00]">Référence G-Flux</span>{:else}<span class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>{/if}
+													{#if cfood.gflux}<span data-gflux-badge class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence G-Flux</span>{:else}<span class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>{/if}
 													{#if cfood.cookLabel}<span data-cook-badge class="rounded-full bg-[#F1F0EC] px-2 py-0.5 text-[9px] font-semibold text-[#6E6A62]">{cfood.cookLabel}</span>{/if}
 												</span>
 											</span>
@@ -5495,7 +5498,7 @@ import { clearRecipeDraft, loadRecipeDraft, saveRecipeDraft } from '$lib/recipeD
 												<span class="line-clamp-2 text-[14px] font-semibold leading-snug text-ink">{cfood.name}</span>
 												<span class="mt-0.5 block text-[12px] text-mist tabular-nums"><strong class="font-bold text-brand">{fmt(cfood.kcal100)} kcal</strong> · 100 g</span>
 												<span class="mt-1 flex flex-col items-start gap-0.5">
-													{#if cfood.gflux}<span data-gflux-badge class="rounded-full bg-[#FFF3D6] px-2 py-0.5 text-[9px] font-bold text-[#8A5A00]">Référence G-Flux</span>{:else}<span class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>{/if}
+													{#if cfood.gflux}<span data-gflux-badge class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence G-Flux</span>{:else}<span class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>{/if}
 													{#if cfood.cookLabel}<span data-cook-badge class="rounded-full bg-[#F1F0EC] px-2 py-0.5 text-[9px] font-semibold text-[#6E6A62]">{cfood.cookLabel}</span>{/if}
 												</span>
 											</span>

@@ -329,6 +329,7 @@
 				{ href: '/admin/rendez-vous', label: 'Rendez-vous', icon: 'calendarCheck' },
 				{ href: '/admin/templates', label: 'Templates', icon: 'messageCircle' },
 				{ href: '/recettes', label: 'Guide nutrition & recettes', icon: 'chefHat' },
+				{ href: '/aliments-reference', label: 'Aliments de référence', icon: 'salad' },
 				{ href: '/outils', label: 'Outils & calibrage', icon: 'wrench' },
 			],
 		},

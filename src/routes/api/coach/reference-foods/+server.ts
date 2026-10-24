@@ -10,8 +10,8 @@ import { errMsg } from '$lib/errors.js';
  * G-Flux » du Guide nutrition & recettes (coach uniquement).
  *
  * GET    : fiches du coach connecté.
- * POST   : création { name, kcal, proteinG, carbsG, fatG }.
- * PATCH  : modification { referenceFoodId, name, kcal, proteinG, carbsG, fatG }.
+ * POST   : création { name, kcal, proteinG, carbsG, fatG, cookingState? }.
+ * PATCH  : modification { referenceFoodId, name, kcal, proteinG, carbsG, fatG, cookingState? }.
  * DELETE : suppression ?id=<referenceFoodId>.
  *
  * Écriture réservée au coach PROPRIÉTAIRE (contrôle Convex, even if the BFF
@@ -21,12 +21,16 @@ import { errMsg } from '$lib/errors.js';
 const num = (value: unknown): number => (typeof value === 'number' ? value : Number(value));
 
 function fields(body: Record<string, unknown>) {
+	// Mode de cuisson facultatif (valeurs de cookedState.ts) — vide = non
+	// précisé (champ absent, cuisson détectée d'après le nom).
+	const cookingState = String(body.cookingState ?? '').trim();
 	return {
 		name: String(body.name ?? ''),
 		kcal: num(body.kcal),
 		proteinG: num(body.proteinG),
 		carbsG: num(body.carbsG),
 		fatG: num(body.fatG),
+		...(cookingState ? { cookingState } : {}),
 	};
 }
 

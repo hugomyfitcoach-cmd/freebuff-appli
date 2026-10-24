@@ -81,6 +81,10 @@ export type CiqualHit = {
 	source?: "gflux";
 	/** Identifiant de la fiche G-Flux (`referenceFoods._id`, jamais affiché) — absent pour Ciqual. */
 	id?: string;
+	/** Mode de cuisson explicite (fiche G-Flux, valeurs cookedState.ts) — absent pour Ciqual. */
+	cookingState?: CookingState;
+	/** Badge de cuisson calculé (G-Flux) — absent pour Ciqual (détection par le nom). */
+	cookLabel?: string | null;
 };
 
 /** Options de classement — `usedLabels` = libellés déjà journalisés par la cliente. */

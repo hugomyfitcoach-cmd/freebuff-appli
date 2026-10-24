@@ -5,128 +5,10 @@
 	import { recipes, newRecipes } from '$lib/data/recettes';
 	import { MEMO_HTML, PROTEINES_HTML } from '$lib/data/guides-html';
 	import Icon from '$lib/components/Icon.svelte';
-	import { kcalMismatchWarning } from '$lib/referenceFoods';
 
 	let { data } = $props();
 	/** Client connecté (les recettes sont aussi visibles par la coach, sans « Mes repas »). */
 	const isClient = $derived(data.user.role === 'client');
-	const isCoach = $derived(data.user.role === 'coach');
-
-	/* ————— ALIMENTS DE RÉFÉRENCE G-FLUX (Mission R3, coach uniquement) —————
-	 * Le coach crée ses propres aliments de référence (valeurs /100 g). Ils
-	 * apparaissent dans la section « Aliments de référence » des recherches
-	 * (journal cliente, fiche cliente, plans de repas) avec le badge
-	 * « Référence G-Flux ». Écriture réservée au coach propriétaire (Convex).
-	 */
-	type ReferenceFood = {
-		_id: string;
-		name: string;
-		kcal: number;
-		proteinG: number;
-		carbsG: number;
-		fatG: number;
-	};
-	let refFoods = $state<ReferenceFood[]>([]);
-	let refLoading = $state(false);
-	let refSaving = $state(false);
-	let refMsg = $state('');
-	let refMsgOk = $state(false);
-	let refConfirmId = $state<string | null>(null);
-	let refForm = $state({ id: '', name: '', kcal: '', proteinG: '', carbsG: '', fatG: '' });
-	/** Avertissement NON bloquant : kcal ≠ 4P + 4G + 9L à plus de 15 %. */
-	const refKcalWarning = $derived(
-		kcalMismatchWarning({
-			name: refForm.name,
-			kcal: Number(refForm.kcal) || 0,
-			proteinG: Number(refForm.proteinG) || 0,
-			carbsG: Number(refForm.carbsG) || 0,
-			fatG: Number(refForm.fatG) || 0,
-		})
-	);
-
-	async function loadReferenceFoods() {
-		if (!isCoach) return;
-		refLoading = true;
-		try {
-			const r = await fetch('/api/coach/reference-foods');
-			const j = await r.json();
-			if (j.error) throw new Error(j.error);
-			refFoods = Array.isArray(j.rows) ? j.rows : [];
-		} catch (e) {
-			refMsgOk = false;
-			refMsg = e instanceof Error ? e.message : String(e);
-		} finally {
-			refLoading = false;
-		}
-	}
-
-	function editReferenceFood(food: ReferenceFood) {
-		refConfirmId = null;
-		refForm = {
-			id: food._id,
-			name: food.name,
-			kcal: String(food.kcal),
-			proteinG: String(food.proteinG),
-			carbsG: String(food.carbsG),
-			fatG: String(food.fatG),
-		};
-	}
-
-	function resetReferenceForm() {
-		refForm = { id: '', name: '', kcal: '', proteinG: '', carbsG: '', fatG: '' };
-	}
-
-	async function saveReferenceFood() {
-		if (refSaving) return;
-		refSaving = true;
-		refMsg = '';
-		try {
-			const payload = {
-				...(refForm.id ? { referenceFoodId: refForm.id } : {}),
-				name: refForm.name,
-				kcal: Number(refForm.kcal) || 0,
-				proteinG: Number(refForm.proteinG) || 0,
-				carbsG: Number(refForm.carbsG) || 0,
-				fatG: Number(refForm.fatG) || 0,
-			};
-			const r = await fetch('/api/coach/reference-foods', {
-				method: refForm.id ? 'PATCH' : 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(payload),
-			});
-			const j = await r.json();
-			if (j.error) throw new Error(j.error);
-			refMsgOk = true;
-			refMsg = refForm.id ? '✓ Aliment modifié.' : '✓ Aliment de référence créé.';
-			resetReferenceForm();
-			await loadReferenceFoods();
-		} catch (e) {
-			refMsgOk = false;
-			refMsg = e instanceof Error ? e.message : String(e);
-		} finally {
-			refSaving = false;
-		}
-	}
-
-	async function removeReferenceFood(id: string) {
-		if (refSaving) return;
-		refSaving = true;
-		try {
-			const r = await fetch(`/api/coach/reference-foods?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
-			const j = await r.json();
-			if (j.error) throw new Error(j.error);
-			refConfirmId = null;
-			if (refForm.id === id) resetReferenceForm();
-			refMsgOk = true;
-			refMsg = '✓ Aliment supprimé — les entrées passées du journal gardent leurs valeurs.';
-			await loadReferenceFoods();
-		} catch (e) {
-			refMsgOk = false;
-			refMsg = e instanceof Error ? e.message : String(e);
-		} finally {
-			refSaving = false;
-		}
-	}
 
 	/* ————— Ajouter une recette à « Mes repas » (journal) ————— */
 	let savedRecipes = $state<Set<string>>(new Set());
@@ -136,7 +18,6 @@
 
 	onMount(async () => {
 		if (!browser) return;
-		if (isCoach) await loadReferenceFoods();
 		if (!isClient) return;
 		try {
 			const r = await fetch('/api/meals');
@@ -312,92 +193,6 @@
 						</div>
 					{/each}
 				</div>
-
-				{#if isCoach}
-					<!-- ═══ ALIMENTS DE RÉFÉRENCE G-FLUX (coach) — Mission R3 ═══
-					     Ces aliments apparaissent dans la section « Aliments de référence »
-					     des recherches avec le badge « Référence G-Flux ». -->
-					<section class="mt-8 rounded-2xl border border-line bg-white p-4" aria-labelledby="gflux-ref-title">
-						<h2 id="gflux-ref-title" class="text-sm font-black text-ink">Aliments de référence G-Flux</h2>
-						<p class="mt-1 text-xs text-mist">
-							Tes aliments de référence (valeurs pour 100 g). Ils apparaissent en tête des
-							« Aliments de référence » dans la recherche, avec le badge « Référence G-Flux ».
-						</p>
-
-						{#if refMsg}
-							<p class="mt-3 rounded-xl px-3 py-2 text-xs font-semibold {refMsgOk ? 'bg-brand-light text-brand' : 'bg-red-50 text-red-600'}" role="status">{refMsg}</p>
-						{/if}
-
-						<!-- Liste -->
-						{#if refLoading}
-							<p class="mt-3 text-xs text-mist">Chargement…</p>
-						{:else if refFoods.length === 0}
-							<p class="mt-3 text-xs text-mist">Aucun aliment de référence pour le moment.</p>
-						{:else}
-							<ul class="mt-3 flex flex-col divide-y divide-line/60">
-								{#each refFoods as food (food._id)}
-									<li class="flex flex-wrap items-center gap-2 py-2">
-										<div class="min-w-0 flex-1">
-											<p class="truncate text-sm font-semibold text-ink">{food.name}</p>
-											<p class="text-[11px] text-mist tabular-nums">{food.kcal} kcal · P {food.proteinG} g · G {food.carbsG} g · L {food.fatG} g / 100 g</p>
-										</div>
-										<span class="rounded-full bg-[#FFF3D6] px-2 py-0.5 text-[9px] font-bold text-[#8A5A00]">Référence G-Flux</span>
-										<button type="button" class="rounded-full border border-line px-2.5 py-1 text-[11px] font-semibold text-ink" onclick={() => editReferenceFood(food)}>Modifier</button>
-										{#if refConfirmId === food._id}
-											<button type="button" class="rounded-full bg-red-500 px-2.5 py-1 text-[11px] font-semibold text-white" onclick={() => removeReferenceFood(food._id)}>Confirmer la suppression</button>
-											<button type="button" class="rounded-full border border-line px-2.5 py-1 text-[11px] font-semibold text-mist" onclick={() => (refConfirmId = null)}>Annuler</button>
-										{:else}
-											<button type="button" class="rounded-full border border-red-200 px-2.5 py-1 text-[11px] font-semibold text-red-600" onclick={() => (refConfirmId = food._id)}>Supprimer</button>
-										{/if}
-									</li>
-								{/each}
-							</ul>
-						{/if}
-
-						<!-- Formulaire (création / modification) -->
-						<form
-							class="mt-4 grid grid-cols-2 gap-2"
-							onsubmit={(e) => {
-								e.preventDefault();
-								saveReferenceFood();
-							}}
-						>
-							<label class="col-span-2 text-[11px] font-semibold text-mist">
-								Nom de l'aliment
-								<input class="mt-1 w-full rounded-xl border border-line px-3 py-2 text-sm text-ink" bind:value={refForm.name} maxlength="120" required />
-							</label>
-							<label class="text-[11px] font-semibold text-mist">
-								kcal / 100 g
-								<input class="mt-1 w-full rounded-xl border border-line px-3 py-2 text-sm text-ink tabular-nums" type="number" min="0" max="900" step="0.1" bind:value={refForm.kcal} required />
-							</label>
-							<label class="text-[11px] font-semibold text-mist">
-								Protéines (g)
-								<input class="mt-1 w-full rounded-xl border border-line px-3 py-2 text-sm text-ink tabular-nums" type="number" min="0" max="100" step="0.1" bind:value={refForm.proteinG} required />
-							</label>
-							<label class="text-[11px] font-semibold text-mist">
-								Glucides (g)
-								<input class="mt-1 w-full rounded-xl border border-line px-3 py-2 text-sm text-ink tabular-nums" type="number" min="0" max="100" step="0.1" bind:value={refForm.carbsG} required />
-							</label>
-							<label class="text-[11px] font-semibold text-mist">
-								Lipides (g)
-								<input class="mt-1 w-full rounded-xl border border-line px-3 py-2 text-sm text-ink tabular-nums" type="number" min="0" max="100" step="0.1" bind:value={refForm.fatG} required />
-							</label>
-							{#if refKcalWarning}
-								<p class="col-span-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-700" role="status">
-									⚠️ Les kcal saisies s'écartent de plus de 15 % de 4P + 4G + 9L. Tu peux quand même enregistrer.
-								</p>
-							{/if}
-							<div class="col-span-2 mt-1 flex gap-2">
-								<button type="submit" class="rounded-full bg-brand px-4 py-2 text-xs font-bold text-white disabled:opacity-50" disabled={refSaving}>
-									{refForm.id ? 'Enregistrer la modification' : 'Créer l’aliment'}
-								</button>
-								{#if refForm.id}
-									<button type="button" class="rounded-full border border-line px-4 py-2 text-xs font-semibold text-mist" onclick={resetReferenceForm}>Annuler</button>
-								{/if}
-							</div>
-						</form>
-					</section>
-				{/if}
 
 				<div class="home-footer">105 recettes · 5 guides · G-Flux™ Coaching</div>
 			</div>
