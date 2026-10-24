@@ -160,7 +160,7 @@ async function buildSnapshot(ctx: QueryCtx, coach: Doc<"users">, items: ItemInpu
 			throw new ConvexError("Quantité invalide (entre 1 et 5000 g).");
 		}
 		// ALIMENT DE RÉFÉRENCE G-FLUX (R3-bis) : provenance EXPLICITE
-		// (`referenceSource: "gflux"` + `referenceFoodId`) résolue pour la coach
+		// (`referenceSource: "gflux"` + `referenceFoodId`) résolue pour le coach
 		// propriétaire — `ciqualLabel` reste réservé à Ciqual. Le plan reçoit une
 		// COPIE du nom et des valeurs (snapshot) : modifier ou supprimer la fiche
 		// ensuite ne change jamais les plans existants.

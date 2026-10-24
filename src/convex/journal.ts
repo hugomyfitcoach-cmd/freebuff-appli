@@ -181,7 +181,7 @@ export const addEntryForCoach = mutation({
 		}
 		// ALIMENT DE RÉFÉRENCE G-FLUX (R3-bis) : provenance EXPLICITE
 		// (`referenceSource: "gflux"` + `referenceFoodId`) — la fiche doit
-		// appartenir à la coach connectée. `ciqualLabel` n'est pas utilisé et
+		// appartenir au coach connecté. `ciqualLabel` n'est pas utilisé et
 		// reste réservé aux fiches Ciqual. Valeurs copiées à l'ajout.
 		const gfluxRef =
 			referenceSource === "gflux" ? await resolveReferenceFood(ctx, coach, referenceFoodId) : null;

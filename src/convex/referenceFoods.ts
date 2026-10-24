@@ -34,7 +34,7 @@ async function requireCoach(
 ): Promise<Doc<"users">> {
 	const user = await getSessionUser(ctx, sessionToken);
 	if (!user) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
-	if (user.role !== "coach") throw new ConvexError("Accès réservé à la coach (CRM).");
+	if (user.role !== "coach") throw new ConvexError("Accès réservé au coach (CRM).");
 	return user;
 }
 
@@ -50,7 +50,7 @@ async function requireUser(
 /**
  * Coach de référence d'un compte : le coach lui-même, sinon celui qui a créé
  * le compte cliente, sinon le compte coach unique (même règle que le Guide /
- * l'identité publique de la coach). `null` = aucun coach → aucune fiche.
+ * l'identité publique du coach). `null` = aucun coach → aucune fiche.
  */
 export async function coachIdForUser(
 	ctx: Pick<QueryCtx, "db">,
