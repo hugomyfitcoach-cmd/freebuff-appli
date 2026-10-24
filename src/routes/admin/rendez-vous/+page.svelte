@@ -279,7 +279,7 @@
 			clientId: '',
 		};
 		// PRÉREMPLISSAGE automatique du lien de visio pour « Démarrage » (mission) :
-		// le Meet par défaut est proposé, la coach garde la main pour l'éditer.
+		// le Meet par défaut est proposé, le coach garde la main pour l'éditer.
 		reservingUrl = defaultMeetingUrlFor(viewKind) ?? '';
 	}
 	async function book(clientId: string, clientName: string, date: string, time: string, endTime: string, kind: string, meetingUrl?: string) {

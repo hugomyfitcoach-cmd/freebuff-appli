@@ -711,7 +711,7 @@
 	   journal.getWeek) : jour courant = totaux consommés, objectifs = goals
 	   coach. Lecture pure — aucune écriture, aucune nouvelle source de vérité,
 	   mêmes chiffres que le Journal (qui affiche aussi les valeurs par défaut
-	   quand la coach n'a rien configuré). Dérivation RÉACTIVE : au changement
+	   quand le coach n'a rien configuré). Dérivation RÉACTIVE : au changement
 	   de jour local (minuit), les rings repartent du nouveau jour — jamais les
 	   valeurs de la veille. En cas d'échec réseau, la ligne disparaît proprement
 	   (la carte reste exactement celle d'avant). ————— */

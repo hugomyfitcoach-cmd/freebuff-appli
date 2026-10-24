@@ -424,7 +424,7 @@ export const globalCandidates = query({
 	handler: async (ctx, { sessionToken }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
 		if (!coach) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
-		if (coach.role !== "coach") throw new ConvexError("Réservé à la coach.");
+		if (coach.role !== "coach") throw new ConvexError("Réservé au coach.");
 		const rows = await ctx.db.query("customFoods").collect();
 		return rows.filter((r) => r.globalStatus === "candidate" && r.barcode);
 	},

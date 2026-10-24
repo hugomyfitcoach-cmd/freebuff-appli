@@ -31,11 +31,11 @@ const SLOT_GRID_STEP_MIN = 15;
  *
  * RÈGLE CENTRALE : booking réussi = rendez-vous CONFIRMÉ. Il n'existe plus
  * de « demande à valider » : la revérification serveur du créneau (dispo de
- * la coach − événements Google − RDV existants − buffers) est la seule
+ * le coach − événements Google − RDV existants − buffers) est la seule
  * validation. L'origine (`bookingSource`) ne donne jamais de droit : une
  * cliente peut replanifier un RDV créé par elle ou par son coach.
  *
- * Les dates sont "yyyy-mm-dd" et heures "HH:mm" dans le fuseau de la coach
+ * Les dates sont "yyyy-mm-dd" et heures "HH:mm" dans le fuseau du coach
  * (Europe/Paris). L'événement Google Calendar est créé/déplacé/supprimé par
  * le BFF SvelteKit (`googleCalendarFetch`), qui lit le googleEventId ici.
  */
@@ -237,7 +237,7 @@ export const getSettings = query({
 	},
 });
 
-/** Enregistre les disponibilités hebdo de la coach. */
+/** Enregistre les disponibilités hebdo du coach. */
 export const upsertSettings = mutation({
 	args: {
 		sessionToken: v.optional(v.string()),
@@ -271,7 +271,7 @@ export const upsertSettings = mutation({
 	},
 });
 
-/** Liste des rendez-vous gérés par la coach (toutes clientes, à venir + passés proches). */
+/** Liste des rendez-vous gérés par le coach (toutes clientes, à venir + passés proches). */
 export const listForCoach = query({
 	args: { sessionToken: v.optional(v.string()) },
 	handler: async (ctx, { sessionToken }) => {
@@ -624,7 +624,7 @@ export const getForUser = query({
 /**
  * MOTEUR DE RAPPEL 12 h — fenêtre à balayer, sans session (usage interne).
  * Source de vérité = appointment.confirmé (status on_book) + startAt calculé
- * dans le fuseau de la coach. Aucune donnée de rappel indépendante : le
+ * dans le fuseau du coach. Aucune donnée de rappel indépendante : le
  * rappel est DÉRIVÉ du rendez-vous (§29).
  */
 export const internalWindow = internalQuery({

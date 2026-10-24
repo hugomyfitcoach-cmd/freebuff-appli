@@ -5,7 +5,7 @@ import { api } from '../../../../convex/_generated/api.js';
 import { SESSION_COOKIE, requireRole } from '$lib/server/session';
 import { errMsg } from '$lib/errors.js';
 
-/** Recherche d'aliments (base locale) pour la coach — ?q=… */
+/** Recherche d'aliments (base locale) pour le coach — ?q=… */
 export const GET: RequestHandler = async (event) => {
 	await requireRole(event, 'coach');
 	const token = event.cookies.get(SESSION_COOKIE);

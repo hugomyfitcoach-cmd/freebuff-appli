@@ -299,7 +299,7 @@
 				class="w-full rounded-lg border-2 border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-brand"
 			/>
 			<textarea
-				placeholder="Contenu (réservé à la coach tant que tu ne partages pas l'entrée)"
+				placeholder="Contenu (réservé au coach tant que tu ne partages pas l'entrée)"
 				rows="3"
 				bind:value={noteBody}
 				class="w-full rounded-lg border-2 border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-brand"

@@ -4,7 +4,7 @@ import { convex } from '$lib/server/convex';
 import { api } from '../../../../convex/_generated/api.js';
 import { SESSION_COOKIE } from '$lib/server/session';
 
-/** GET /api/appointments/settings — disponibilités hebdo de la coach. */
+/** GET /api/appointments/settings — disponibilités hebdo du coach. */
 export const GET: RequestHandler = async (event) => {
 	const token = event.cookies.get(SESSION_COOKIE);
 	if (!token) return json({ error: 'Session requise.' }, { status: 401 });

@@ -11,7 +11,7 @@ import { errMsg } from '$lib/errors.js';
  * (lecture seule — jamais d'écriture d'objectifs depuis ces outils).
  *
  * - La cliente connectée lit ses propres données ;
- * - La coach peut viser une cliente précise via ?client=<userId> — sans
+ * - Le coach peut viser une cliente précise via ?client=<userId> — sans
  *   paramètre, la réponse est hors périmètre (simulateur sans données,
  *   rien n'est inventé).
  *

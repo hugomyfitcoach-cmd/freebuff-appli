@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { addDaysISO, dateISOInTimeZone, getSessionUser, localTodayISO } from "./helpers";
 import { kcalGoalForDate, withCurrentGoal } from "../lib/goalHistory";
+import { sportHabituelObjectifEnVigueur, type InstantaneCalibrageVigueur } from "../lib/perf";
 import { FOOD_SEARCH_CANDIDATES, rankFoods } from "./foodRanking";
 import { applyKcalGuard, guardedKcal100, kcalNeedsRecalc } from "../lib/nutritionGuard";
 import { resolveCoachPlanForDate } from "./mealPlans";
@@ -20,7 +21,7 @@ import type { Id, Doc } from "./_generated/dataModel";
  * - `foods`       : base alimentaire locale (export Open Food Facts trié,
  *   France/Europe, ~780k produits) + compléments OFF en cache (valeurs /100 g).
  * - `diaryEntries`: aliments consommés (un jour, un repas).
- * - `clientGoals` : objectifs journaliers définis par la coach dans le CRM.
+ * - `clientGoals` : objectifs journaliers définis par le coach dans le CRM.
  *
  * La recherche (action `searchFoods`) vit dans `off.ts` : base locale d'abord
  * (index plein texte `by_name`), Open Food Facts en secours.
@@ -29,7 +30,7 @@ import type { Id, Doc } from "./_generated/dataModel";
 export const MEALS = ["petit-dej", "dejeuner", "diner", "collation"] as const;
 export type Meal = (typeof MEALS)[number];
 
-/** Objectifs par défaut tant que la coach n'a pas défini le plan (CRM). */
+/** Objectifs par défaut tant que le coach n'a pas défini le plan (CRM). */
 export const DEFAULT_GOALS = { kcal: 2000, carbs: 250, protein: 90, fat: 65 };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -62,13 +63,13 @@ async function resolveCoachTarget(
 ): Promise<Doc<"users">> {
 	const coach = await getSessionUser(ctx, sessionToken);
 	if (!coach) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
-	if (coach.role !== "coach") throw new ConvexError("Réservé à la coach (CRM).");
+	if (coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
 	const target = await ctx.db.get(userId);
 	if (!target || target.role !== "client") throw new ConvexError("Client introuvable.");
 	return target;
 }
 
-/* Variantes coach (CRM) : la coach peut consulter et compléter le journal
+/* Variantes coach (CRM) : le coach peut consulter et compléter le journal
    d'un client, « en doublon » avec lui. */
 
 /** Jour complet d'un client donné (réservé coach). */
@@ -134,7 +135,7 @@ export const searchForCoach = query({
 	args: { sessionToken: v.optional(v.string()), query: v.string() },
 	handler: async (ctx, { sessionToken, query }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
-		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (CRM).");
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
 		const term = query.trim().toLowerCase();
 		if (term.length < 2) return [] as FoodHit[];
 		// Candidats élargis puis re-tri (foodRanking) : l'aliment brut (« tomate »,
@@ -632,15 +633,20 @@ export const freqFoods = query({
    réécrit plus jamais les journées passées. Lecture : dernier effectiveFrom
    ≤ date (module pur lib/goalHistory.ts partagé avec Vision 360). */
 
-async function loadGoalHistory(ctx: Pick<QueryCtx, "db">, userId: Id<"users">) {
+export async function loadGoalHistory(ctx: Pick<QueryCtx, "db">, userId: Id<"users">) {
 	return ctx.db
 		.query("clientGoalHistory")
 		.withIndex("by_user_from", (q) => q.eq("userId", userId))
 		.collect();
 }
 
-/** Écrit (replace) la ligne d'historique d'effet AUJOURD'HUI — idempotent. */
-async function upsertGoalHistoryToday(
+/**
+ * Écrit (replace) la ligne d'historique d'effet AUJOURD'HUI — idempotent.
+ * Partagée avec « Appliquer à la fiche » (onglet Calibrage, `calibrage.ts`) :
+ * le chemin d'écriture des objectifs reste UNIQUE (clientGoals +
+ * clientGoalHistory), y compris quand le coach choisit une date d'effet.
+ */
+export async function upsertGoalHistoryToday(
 	ctx: MutationCtx,
 	userId: Id<"users">,
 	kcal: number,
@@ -672,11 +678,11 @@ export const setClientGoals = mutation({
 		carbs: v.number(),
 		protein: v.number(),
 		fat: v.number(),
-		/** Maintenance calorique (filet de sécurité) — optionnelle, saisie manuelle par la coach. */
+		/** Maintenance calorique (filet de sécurité) — optionnelle, saisie manuelle par le coach. */
 		maintenanceKcal: v.optional(v.number()),
 		/** True pour effacer la maintenance enregistrée (champ vidé côté CRM). */
 		clearMaintenance: v.optional(v.boolean()),
-		/** Objectif quotidien de pas — optionnel, saisi manuellement par la coach (ex. 10 000). */
+		/** Objectif quotidien de pas — optionnel, saisi manuellement par le coach (ex. 10 000). */
 		stepGoal: v.optional(v.number()),
 		/** True pour retirer l'objectif de pas enregistré (champ vidé côté CRM). */
 		clearStepGoal: v.optional(v.boolean()),
@@ -684,7 +690,7 @@ export const setClientGoals = mutation({
 	handler: async (ctx, { sessionToken, userId, kcal, carbs, protein, fat, maintenanceKcal, clearMaintenance, stepGoal, clearStepGoal }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
 		if (!coach || coach.role !== "coach") {
-			throw new ConvexError("Seule la coach peut définir les objectifs.");
+			throw new ConvexError("Seul le coach peut définir les objectifs.");
 		}
 		const target = await ctx.db.get(userId);
 		if (!target || target.role !== "client") {
@@ -729,38 +735,10 @@ export const setClientGoals = mutation({
 		// leur objectif d'alors : plus jamais de réécriture rétroactive.
 		if (!existing || existing.kcal !== kcal) {
 			await upsertGoalHistoryToday(ctx, userId, kcal, coach._id, localTodayISO());
-			// BASELINE LEGACY (1re modification d'une cliente d'avant l'historisation) :
-			// l'ANCIEN objectif connu (existing.kcal) est la seule valeur dont on est
-			// certain pour le passé — sans cette ligne, les dates antérieures tombaient
-			// sur le repli « objectif courant » et hier se retrouvait réécrit avec le
-			// NOUVEL objectif. Ancre = date de CRÉATION de la ligne clientGoals
-			// (meilleure approximation non inventée : première trace horodatée de cet
-			// objectif). Jamais d'écriture si l'historique couvre déjà plus ancien,
-			// et aucune fausse date historique précise n'est fabriquée.
-			if (existing) {
-				const history = await loadGoalHistory(ctx, userId);
-				const earliestFrom = history.reduce<string | null>(
-					(min, h) => (min === null || h.effectiveFrom < min ? h.effectiveFrom : min),
-					null
-				);
-				const baselineFrom = localTodayISO(new Date(existing._creationTime));
-				if (earliestFrom === null || baselineFrom < earliestFrom) {
-					const sameDay = await ctx.db
-						.query("clientGoalHistory")
-						.withIndex("by_user_from", (q) => q.eq("userId", userId).eq("effectiveFrom", baselineFrom))
-						.collect();
-					if (!sameDay.some((row) => row.kcal === existing.kcal)) {
-						for (const row of sameDay) await ctx.db.delete(row._id);
-						await ctx.db.insert("clientGoalHistory", {
-							userId,
-							kcal: existing.kcal,
-							effectiveFrom: baselineFrom,
-							createdBy: coach._id,
-							createdAt: Date.now(),
-						});
-					}
-				}
-			}
+			// BASELINE LEGACY : l'ANCIEN objectif est historisé à la date de création
+			// de clientGoals — voir baselineLegacyGoalHistory ci-dessous (même
+			// fonction utilisée par « Appliquer à la fiche », onglet Calibrage).
+			await baselineLegacyGoalHistory(ctx, userId, existing, coach._id);
 		}
 
 		if (existing) {
@@ -777,7 +755,50 @@ export const setClientGoals = mutation({
 	},
 });
 
-/** Objectifs d'un client — réservé à la coach (CRM). */
+/* ── BASELINE LEGACY (1re modification d'une cliente d'avant l'historisation) :
+   l'ANCIEN objectif connu (existing.kcal) est la seule valeur dont on est
+   certain pour le passé — sans cette ligne, les dates antérieures tombaient
+   sur le repli « objectif courant » et hier se retrouvait réécrit avec le
+   NOUVEL objectif. Ancre = date de CRÉATION de la ligne clientGoals
+   (meilleure approximation non inventée : première trace horodatée de cet
+   objectif). Jamais d'écriture si l'historique couvre déjà plus ancien,
+   et aucune fausse date historique précise n'est fabriquée.
+
+   Chemin d'écriture UNIQUE des objectifs : partagée par setClientGoals et par
+   « Appliquer à la fiche » (onglet Calibrage, `calibrage.ts`). */
+export async function baselineLegacyGoalHistory(
+	ctx: Pick<MutationCtx, "db">,
+	userId: Id<"users">,
+	existing: Doc<"clientGoals"> | null,
+	coachId: Id<"users">
+): Promise<void> {
+	if (existing) {
+		const history = await loadGoalHistory(ctx, userId);
+		const earliestFrom = history.reduce<string | null>(
+			(min, h) => (min === null || h.effectiveFrom < min ? h.effectiveFrom : min),
+			null
+		);
+		const baselineFrom = localTodayISO(new Date(existing._creationTime));
+		if (earliestFrom === null || baselineFrom < earliestFrom) {
+			const sameDay = await ctx.db
+				.query("clientGoalHistory")
+				.withIndex("by_user_from", (q) => q.eq("userId", userId).eq("effectiveFrom", baselineFrom))
+				.collect();
+			if (!sameDay.some((row) => row.kcal === existing.kcal)) {
+				for (const row of sameDay) await ctx.db.delete(row._id);
+				await ctx.db.insert("clientGoalHistory", {
+					userId,
+					kcal: existing.kcal,
+					effectiveFrom: baselineFrom,
+					createdBy: coachId,
+					createdAt: Date.now(),
+				});
+			}
+		}
+	}
+}
+
+/** Objectifs d'un client — réservé au coach (CRM). */
 export const getClientGoals = query({
 	args: {
 		sessionToken: v.optional(v.string()),
@@ -786,7 +807,7 @@ export const getClientGoals = query({
 	handler: async (ctx, { sessionToken, userId }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
 		if (!coach || coach.role !== "coach") {
-			throw new ConvexError("Réservé à la coach.");
+			throw new ConvexError("Réservé au coach.");
 		}
 		const row = await ctx.db
 			.query("clientGoals")
@@ -946,13 +967,16 @@ export const getWeek = query({
 		if (!isValidDateISO(start)) throw new ConvexError("Date invalide.");
 		const end = addDaysISO(start, 7); // exclusif
 
-		const [entries, goalsRow, goalHistory] = await Promise.all([
+		const [entries, goalsRow, goalHistory, snapshotRows] = await Promise.all([
 			ctx.db
 				.query("diaryEntries")
 				.withIndex("by_user_date", (q) => q.eq("userId", user._id).gte("date", start).lt("date", end))
 				.collect(),
 			ctx.db.query("clientGoals").withIndex("by_userId", (q) => q.eq("userId", user._id)).first(),
 			loadGoalHistory(ctx, user._id),
+			// Instantanés de calibrage (LECTURE) : origine de l'objectif en vigueur
+			// pour la note « maintenance inclut déjà ton sport habituel ».
+			ctx.db.query("calibrageSnapshots").withIndex("by_user", (q) => q.eq("userId", user._id)).collect(),
 		]);
 
 		const byDay = new Map<string, { kcal: number; carbs: number; protein: number; fat: number }>();
@@ -1004,6 +1028,26 @@ export const getWeek = query({
 			/** Objectif calorique par date (Europe/Paris) — kcal pour today = goals.kcal. */
 			kcalGoalsByDate: Object.fromEntries(goalByDate),
 			goalsSet: !!goalsRow,
+			/* Sport habituel du calibrage à l'origine de l'objectif en VIGUEUR —
+			   null si l'objectif est manuel ou si ce sport vaut 0 (note masquée).
+			   Réutilise le dernier instantané `calibrageSnapshots` appliqué. */
+			sportHabituelKcal: sportHabituelObjectifEnVigueur(
+				goalHistory,
+				snapshotRows.map((s): InstantaneCalibrageVigueur => {
+					const appl = (s.results?.applique ?? {}) as Record<string, unknown>;
+					const snapSport = (s.results ?? {}) as Record<string, unknown>;
+					return {
+						effectiveFrom: s.effectiveFrom,
+						createdAt: s.createdAt,
+						kcalApplique: typeof appl.kcal === "number" && isFinite(appl.kcal) ? appl.kcal : null,
+						sportSemaineKcal:
+							typeof snapSport.sportSemaineKcal === "number" && isFinite(snapSport.sportSemaineKcal)
+								? snapSport.sportSemaineKcal
+								: null
+					};
+				}),
+				localTodayISO()
+			),
 			days,
 		};
 	},

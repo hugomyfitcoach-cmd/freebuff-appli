@@ -1212,7 +1212,7 @@ export const sport360 = query({
 /**
  * Journal CRM des messages du coach envoyés à une cliente (Vision 360) :
  * historique daté des publications (texte et/ou audio) avec état lu/non lu
- * réel et URL de réécoute pour les audios. Réservé à la coach.
+ * réel et URL de réécoute pour les audios. Réservé au coach.
  */
 export const messageLog = query({
 	args: { sessionToken: v.optional(v.string()), userId: v.id("users") },
