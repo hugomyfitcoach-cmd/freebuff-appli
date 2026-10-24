@@ -4778,7 +4778,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 											<span class="min-w-0 flex-1">
 												<span class="line-clamp-2 text-[14px] font-semibold leading-snug text-ink">{cfood.name}</span>
 												<span class="mt-0.5 block text-[12px] text-mist tabular-nums"><strong class="font-bold text-brand">{fmt(cfood.kcal100)} kcal</strong> · 100 g</span>
-												<span class="mt-1 flex flex-col items-start gap-0.5">
+												<span class="mt-1 flex flex-wrap items-center gap-1.5">
 													{#if cfood.gflux}<span data-gflux-badge class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence G-Flux</span>{:else}<span class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>{/if}
 													{#if cfood.cookLabel}<span data-cook-badge class="rounded-full bg-[#F1F0EC] px-2 py-0.5 text-[9px] font-semibold text-[#6E6A62]">{cfood.cookLabel}</span>{/if}
 												</span>
@@ -5503,7 +5503,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 											<span class="min-w-0 flex-1">
 												<span class="line-clamp-2 text-[14px] font-semibold leading-snug text-ink">{cfood.name}</span>
 												<span class="mt-0.5 block text-[12px] text-mist tabular-nums"><strong class="font-bold text-brand">{fmt(cfood.kcal100)} kcal</strong> · 100 g</span>
-												<span class="mt-1 flex flex-col items-start gap-0.5">
+												<span class="mt-1 flex flex-wrap items-center gap-1.5">
 													{#if cfood.gflux}<span data-gflux-badge class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence G-Flux</span>{:else}<span class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>{/if}
 													{#if cfood.cookLabel}<span data-cook-badge class="rounded-full bg-[#F1F0EC] px-2 py-0.5 text-[9px] font-semibold text-[#6E6A62]">{cfood.cookLabel}</span>{/if}
 												</span>

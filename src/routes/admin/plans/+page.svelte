@@ -318,9 +318,12 @@
 
 <div class="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6">
 	<header class="mb-5 flex flex-wrap items-center justify-between gap-3">
-		<div>
-			<h1 class="font-display text-2xl font-semibold text-ink">Plans de repas</h1>
-			<p class="mt-0.5 text-sm text-mist">Bibliothèque de journées types — assignables à plusieurs clientes.</p>
+		<div class="min-w-0">
+			<h1 class="flex items-center gap-2.5 font-display text-2xl font-black tracking-tight text-ink">
+				<span class="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-brand-light text-brand-deep"><Icon name="utensils" size={20} /></span>
+				<span class="min-w-0">Plans de repas</span>
+			</h1>
+			<p class="mt-1.5 text-sm text-mist">Bibliothèque de journées types — assignables à plusieurs clientes.</p>
 		</div>
 		<button
 			type="button"
@@ -550,7 +553,7 @@
 								<div class="min-w-0 flex-1">
 									<div class="line-clamp-2 text-sm font-semibold leading-snug text-ink">{hit.name}</div>
 									<div class="mt-0.5 text-[11px] text-mist">{hit.kcal100} kcal/100 g</div>
-									<div class="mt-1 flex flex-col items-start gap-0.5">
+									<div class="mt-1 flex flex-wrap items-center gap-1.5">
 										{#if hit.gflux}<span data-gflux-badge class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence G-Flux</span>{:else}<span class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>{/if}
 										{#if hit.cookLabel}<span data-cook-badge class="rounded-full bg-[#F1F0EC] px-2 py-0.5 text-[9px] font-semibold text-[#6E6A62]">{hit.cookLabel}</span>{/if}
 									</div>
