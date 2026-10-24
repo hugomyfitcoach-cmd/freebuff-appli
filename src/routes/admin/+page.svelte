@@ -705,6 +705,8 @@
 		thumbUrl?: string;
 		/** Fiche de RÉFÉRENCE Ciqual (ANSES) — _id = libellé officiel exact. */
 		ciqual?: boolean;
+		/** Fiche de RÉFÉRENCE G-FLUX (coach) — _id = fiche, ajout via referenceFoodId. */
+		gflux?: boolean;
 	};
 
 	let journalDate = $state(todayISO());
@@ -773,7 +775,11 @@
 					userId: selectedId,
 					date: journalDate,
 					meal: addMeal,
-					...(hit.ciqual ? { ciqualLabel: hit._id } : { foodId: hit._id }),
+					...(hit.gflux
+						? { referenceSource: 'gflux' as const, referenceFoodId: hit._id } // fiche G-Flux : jamais ciqualLabel
+						: hit.ciqual
+							? { ciqualLabel: hit._id }
+							: { foodId: hit._id }),
 					qtyGrams: Number(addQty) || 100,
 				}),
 			});

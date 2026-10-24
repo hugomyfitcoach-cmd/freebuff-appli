@@ -4,7 +4,6 @@ import { getSessionUser } from "./helpers";
 import {
 	canManageReferenceFood,
 	cleanReferenceFood,
-	gfluxIdFromLabel,
 	referenceFoodError,
 } from "../lib/referenceFoods";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -83,17 +82,18 @@ export async function listReferenceFoodsForUser(
 }
 
 /**
- * Résout un libellé d'ajout `gflux:<id>` pour un compte : la fiche doit
- * exister ET appartenir à son coach (ou au coach lui-même). `null` si le
- * libellé n'est pas une fiche G-Flux ou si elle n'est plus accessible — un
- * autre libellé reste une référence Ciqual (chemin inchangé).
+ * Résout une fiche de référence par son IDENTIFIANT (`referenceFoodId`) pour
+ * un compte : la fiche doit exister ET appartenir à son coach (ou au coach
+ * lui-même). `null` si l'identifiant est absent, introuvable ou hors périmètre.
+ * Le libellé Ciqual (`ciqualLabel`) n'est jamais consulté ici : ce champ reste
+ * réservé à Ciqual (R3-bis).
  */
-export async function resolveReferenceFoodLabel(
+export async function resolveReferenceFood(
 	ctx: Pick<QueryCtx, "db">,
 	user: Doc<"users">,
-	label: string | null | undefined
+	referenceFoodId: string | null | undefined
 ): Promise<Doc<"referenceFoods"> | null> {
-	const id = gfluxIdFromLabel(label);
+	const id = (referenceFoodId ?? "").trim();
 	if (!id) return null;
 	const food = await ctx.db.get(id as Id<"referenceFoods">);
 	if (!food) return null;

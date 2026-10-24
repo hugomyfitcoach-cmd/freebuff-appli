@@ -9,8 +9,7 @@ import { attachThumbs, attachThumbsForFoodIds } from "./foodImages";
 import { tagFoodImgUrl } from "../lib/foodImgTag";
 import { ciqualFoodSource } from "./ciqualSource";
 import { resolveCiqualLabel } from "./ciqual";
-import { resolveReferenceFoodLabel } from "./referenceFoods";
-import { gfluxIdFromLabel } from "../lib/referenceFoods";
+import { resolveReferenceFood } from "./referenceFoods";
 import { foodFrequencyKey, rankFrequentFoods, type FreqEntry } from "../lib/foodFrequency";
 import { internal } from "./_generated/api";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
@@ -84,8 +83,13 @@ async function resolveCoachTarget(
  * ANSES » reste visible à la réouverture de la fiche (cliente ET coach),
  * historique compris. Les libellés officiels sont uniques → détection
  * fiable ; tout ajout avec identité (OFF/perso/repas) est exclu.
+ *
+ * R3-bis : un aliment de référence G-Flux n'est JAMAIS une fiche Ciqual —
+ * même si son nom coïncide avec un libellé officiel, `referenceSource`
+ * ("gflux") prime : aucun badge Ciqual n'est calculé pour lui.
  */
 function withCiqualProvenance<T extends Doc<"diaryEntries">>(e: T): T & { ciqualLabel?: string } {
+	if (e.referenceSource === "gflux") return e;
 	if (e.foodId || e.customFoodId || e.mealId) return e;
 	return resolveCiqualLabel(e.name) ? { ...e, ciqualLabel: e.name } : e;
 }
@@ -160,9 +164,12 @@ export const addEntryForCoach = mutation({
 		foodId: v.optional(v.id("foods")),
 		/** Fiche de RÉFÉRENCE Ciqual (ANSES) : libellé officiel exact — exclusif avec foodId. */
 		ciqualLabel: v.optional(v.string()),
+		/** Aliment de référence G-Flux : provenance explicite + identifiant de fiche. */
+		referenceSource: v.optional(v.union(v.literal("ciqual"), v.literal("gflux"))),
+		referenceFoodId: v.optional(v.string()),
 		qtyGrams: v.number(),
 	},
-	handler: async (ctx, { sessionToken, userId, date, meal, foodId, ciqualLabel, qtyGrams }) => {
+	handler: async (ctx, { sessionToken, userId, date, meal, foodId, ciqualLabel, referenceSource, referenceFoodId, qtyGrams }) => {
 		await resolveCoachTarget(ctx, sessionToken, userId);
 		const coach = await getSessionUser(ctx, sessionToken);
 		if (!coach) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
@@ -171,15 +178,17 @@ export const addEntryForCoach = mutation({
 		if (!isFinite(qtyGrams) || qtyGrams <= 0 || qtyGrams > 5000) {
 			throw new ConvexError("Quantité invalide (entre 1 et 5000 g).");
 		}
-		// Fiche de RÉFÉRENCE G-FLUX (Mission R3) : libellé `gflux:<id>` — la fiche
-		// doit appartenir à la coach connectée. Valeurs copiées à l'ajout.
-		const gfluxRef = await resolveReferenceFoodLabel(ctx, coach, ciqualLabel);
+		// ALIMENT DE RÉFÉRENCE G-FLUX (R3-bis) : provenance EXPLICITE
+		// (`referenceSource: "gflux"` + `referenceFoodId`) — la fiche doit
+		// appartenir à la coach connectée. `ciqualLabel` n'est pas utilisé et
+		// reste réservé aux fiches Ciqual. Valeurs copiées à l'ajout.
+		const gfluxRef =
+			referenceSource === "gflux" ? await resolveReferenceFood(ctx, coach, referenceFoodId) : null;
+		if (referenceSource === "gflux" && !gfluxRef) throw new ConvexError("Cette fiche G-Flux n'existe plus.");
 		// Fiche de référence Ciqual (additif) : valeurs résolues côté serveur,
 		// aucune donnée OFF lue ou fusionnée.
 		const ciqualRef = !gfluxRef && ciqualLabel ? ciqualFoodSource(ciqualLabel) : null;
-		if (ciqualLabel && !ciqualRef && !gfluxRef) {
-			throw new ConvexError(gfluxIdFromLabel(ciqualLabel) ? "Cette fiche G-Flux n'existe plus." : "Cette référence Ciqual n'existe plus.");
-		}
+		if (!gfluxRef && ciqualLabel && !ciqualRef) throw new ConvexError("Cette référence Ciqual n'existe plus.");
 		if (!foodId && !ciqualRef && !gfluxRef) throw new ConvexError("Aucun aliment fourni.");
 
 		let name: string;
@@ -220,6 +229,7 @@ export const addEntryForCoach = mutation({
 			date,
 			meal,
 			foodId: ciqualRef || gfluxRef ? undefined : foodId,
+			referenceSource: gfluxRef ? "gflux" : ciqualRef ? "ciqual" : undefined,
 			name,
 			brand,
 			imageUrl,
@@ -1058,6 +1068,9 @@ export const addEntry = mutation({
 		foodId: v.optional(v.id("foods")),
 		customFoodId: v.optional(v.id("customFoods")),			/** Fiche de RÉFÉRENCE Ciqual (ANSES) : libellé officiel EXACT — exclusif avec foodId/customFoodId. */
 			ciqualLabel: v.optional(v.string()),
+			/** Aliment de référence G-Flux (R3-bis) : provenance explicite + identifiant. */
+			referenceSource: v.optional(v.union(v.literal("ciqual"), v.literal("gflux"))),
+			referenceFoodId: v.optional(v.string()),
 			qtyGrams: v.number(),
 			/** Date ISO locale du navigateur — frontière « futur » (fuseau client ≠ serveur UTC). */
 			clientDate: v.optional(v.string()),
@@ -1081,7 +1094,7 @@ export const addEntry = mutation({
 				)
 			),
 		},
-	handler: async (ctx, { sessionToken, date, meal, foodId, customFoodId, ciqualLabel, qtyGrams, clientDate, lastPortions }) => {
+	handler: async (ctx, { sessionToken, date, meal, foodId, customFoodId, ciqualLabel, referenceSource, referenceFoodId, qtyGrams, clientDate, lastPortions }) => {
 		const user = await requireClient(ctx, sessionToken);
 		if (!isValidDateISO(date)) throw new ConvexError("Date invalide.");
 		if (!isMeal(meal)) throw new ConvexError("Repas invalide.");
@@ -1093,19 +1106,16 @@ export const addEntry = mutation({
 		// /100 g depuis la table embarquée (jamais depuis le client). Aucune
 		// donnée OFF n'est lue, modifiée ou fusionnée : uniquement un snapshot
 		// journal comme pour tout autre aliment.
-		// Mission R3 — fiche G-FLUX (`gflux:<id>`) : valeurs /100 g copiées depuis
-		// la fiche du coach de la cliente au moment de l'ajout. Aucune référence
-		// n'est conservée sur l'entrée : la modifier ou la supprimer ensuite ne
-		// change jamais le journal passé.
-		const gfluxRef = await resolveReferenceFoodLabel(ctx, user, ciqualLabel);
+		// ALIMENT DE RÉFÉRENCE G-FLUX (R3-bis) : provenance EXPLICITE — les
+		// valeurs /100 g sont copiées depuis la fiche du coach de la cliente au
+		// moment de l'ajout, et `ciqualLabel` n'est JAMAIS renseigné (ce champ
+		// reste réservé à Ciqual). Aucune référence n'est conservée sur l'entrée :
+		// la modifier ou la supprimer ensuite ne change jamais le journal passé.
+		const gfluxRef =
+			referenceSource === "gflux" ? await resolveReferenceFood(ctx, user, referenceFoodId) : null;
+		if (referenceSource === "gflux" && !gfluxRef) throw new ConvexError("Cette fiche G-Flux n'existe plus.");
 		const ciqualRef = !gfluxRef && ciqualLabel ? ciqualFoodSource(ciqualLabel) : null;
-		if (ciqualLabel && !ciqualRef && !gfluxRef) {
-			throw new ConvexError(
-				gfluxIdFromLabel(ciqualLabel)
-					? "Cette fiche G-Flux n'existe plus."
-					: "Cette référence Ciqual n'existe plus."
-			);
-		}
+		if (!gfluxRef && ciqualLabel && !ciqualRef) throw new ConvexError("Cette référence Ciqual n'existe plus.");
 		if (!foodId && !customFoodId && !ciqualRef && !gfluxRef) {
 			throw new ConvexError("Aucun aliment fourni.");
 		}
@@ -1178,8 +1188,9 @@ export const addEntry = mutation({
 				carbs: Math.round(carbs100 * k * 10) / 10,
 				protein: Math.round(protein100 * k * 10) / 10,
 				fat: Math.round(fat100 * k * 10) / 10,
-				foodId: foodId ?? undefined,
-				customFoodId: customFoodId ?? undefined,
+				foodId: ciqualRef || gfluxRef ? undefined : (foodId ?? undefined),
+				customFoodId: ciqualRef || gfluxRef ? undefined : (customFoodId ?? undefined),
+				referenceSource: gfluxRef ? "gflux" : ciqualRef ? "ciqual" : undefined,
 				createdAt: Date.now(),
 			});
 			return { ok: true, entryId, planned: true };
@@ -1189,8 +1200,9 @@ export const addEntry = mutation({
 			userId: user._id,
 			date,
 			meal,
-			foodId: foodId ?? undefined,
-			customFoodId: customFoodId ?? undefined,
+			foodId: ciqualRef || gfluxRef ? undefined : (foodId ?? undefined),
+			customFoodId: ciqualRef || gfluxRef ? undefined : (customFoodId ?? undefined),
+			referenceSource: gfluxRef ? "gflux" : ciqualRef ? "ciqual" : undefined,
 			name,
 			brand,
 			imageUrl,
@@ -1377,6 +1389,7 @@ export const eatPlanned = mutation({
 			meal: p.meal,
 			foodId: p.foodId,
 			customFoodId: p.customFoodId,
+			referenceSource: p.referenceSource,
 			name: p.name,
 			brand: p.brand,
 			imageUrl: p.imageUrl,
@@ -1568,6 +1581,7 @@ export const eatManyPlanned = mutation({
 				meal: p.meal,
 				foodId: p.foodId,
 				customFoodId: p.customFoodId,
+				referenceSource: p.referenceSource,
 				name: p.name,
 				brand: p.brand,
 				imageUrl: p.imageUrl,
@@ -1646,6 +1660,7 @@ export const duplicateEntries = mutation({
 					fat: e.fat,
 					foodId: e.foodId,
 					customFoodId: e.customFoodId,
+					referenceSource: e.referenceSource,
 					createdAt: Date.now(),
 				});
 			} else {
@@ -1655,6 +1670,7 @@ export const duplicateEntries = mutation({
 					meal: e.meal,
 					foodId: e.foodId,
 					customFoodId: e.customFoodId,
+					referenceSource: e.referenceSource,
 					name: e.name,
 					brand: e.brand,
 					imageUrl: e.imageUrl,
@@ -1688,7 +1704,8 @@ export const duplicateEntries = mutation({
 					protein: p.protein,
 					fat: p.fat,				foodId: p.foodId,
 				customFoodId: p.customFoodId,
-				ciqualLabel: p.ciqualLabel,
+				ciqualLabel: p.referenceSource === "gflux" ? undefined : p.ciqualLabel,
+				referenceSource: p.referenceSource,
 				createdAt: Date.now(),
 			});
 			} else {
@@ -1698,6 +1715,7 @@ export const duplicateEntries = mutation({
 					meal: p.meal,
 					foodId: p.foodId,
 					customFoodId: p.customFoodId,
+					referenceSource: p.referenceSource,
 					name: p.name,
 					brand: p.brand,
 					imageUrl: p.imageUrl,

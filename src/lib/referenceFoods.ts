@@ -36,12 +36,6 @@ export const REFERENCE_MACRO_MAX = 100;
 /** Écart kcal toléré vs 4P + 4G + 9L (avertissement non bloquant, côté écran). */
 export const KCAL_WARN_RATIO = 0.15;
 
-/** Préfixe d'identité des fiches G-Flux dans les flux de recherche.
- *  Le libellé transmis à l'ajout (`ciqualLabel`) porte ce préfixe : le serveur
- *  résout alors la fiche `referenceFoods` au lieu d'un libellé Ciqual. Aucun
- *  nouvel identifiant n'est ajouté aux tables existantes. */
-export const GFX_LABEL_PREFIX = 'gflux:';
-
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
 export type ReferenceFoodInput = {
@@ -105,19 +99,6 @@ export function canManageReferenceFood(
 	return String(user._id) !== '' && String(food.coachId) === String(user._id);
 }
 
-/** Identifiant de fiche G-Flux porté par un libellé d'ajout (`gflux:<id>`). */
-export function gfluxIdFromLabel(label: string | null | undefined): string | undefined {
-	const value = (label ?? '').trim();
-	if (!value.startsWith(GFX_LABEL_PREFIX)) return undefined;
-	const id = value.slice(GFX_LABEL_PREFIX.length).trim();
-	return id || undefined;
-}
-
-/** Libellé de recherche d'une fiche (identité préfixée + nom affiché). */
-export function referenceFoodLabel(food: { _id?: string; name: string }): string {
-	return `${GFX_LABEL_PREFIX}${food._id ?? ''}`;
-}
-
 /**
  * Snapshot d'ajout (journal / plan) : nom et valeurs sont COPIÉS au moment de
  * l'ajout, comme pour Ciqual. Modifier ou supprimer la fiche ensuite ne change
@@ -158,7 +139,7 @@ export type ReferenceHit = {
 	fat?: number;
 	/** Provenance affichée (badge) : « gflux » remplace le badge Ciqual. */
 	source?: 'gflux';
-	/** Identité de fiche G-Flux (`gflux:<id>`) — absente pour Ciqual. */
+	/** Identifiant de la fiche G-Flux (`referenceFoods._id`, jamais affiché) — absent pour Ciqual. */
 	id?: string;
 };
 
@@ -206,7 +187,7 @@ export function referenceFoodHit(food: ReferenceFoodLike): ReferenceHit {
 		carbs: food.carbsG,
 		fat: food.fatG,
 		source: 'gflux',
-		id: referenceFoodLabel(food),
+		id: food._id,
 	};
 }
 

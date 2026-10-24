@@ -39,7 +39,8 @@
 		custom?: boolean;
 		/** Fiche de RÉFÉRENCE Ciqual (ANSES) — _id = libellé officiel exact. */
 		ciqual?: boolean;
-		/** Fiche de RÉFÉRENCE G-FLUX (Mission R3) — badge distinct, _id = `gflux:<id>`. */
+		/** Fiche de RÉFÉRENCE G-FLUX (Mission R3) — badge distinct ; `_id` = fiche,
+		 *  transmise à l'ajout via `referenceFoodId` (jamais `ciqualLabel`). */
 		gflux?: boolean;
 	};
 	type DraftItem = {
@@ -53,6 +54,10 @@
 			foodId?: string;
 			customFoodId?: string;
 			ciqualLabel?: string;
+			/** Provenance de la fiche de référence (R3-bis) : « ciqual » | « gflux ». */
+			referenceSource?: 'ciqual' | 'gflux';
+			/** Id de la fiche G-Flux d'origine (jamais affiché). */
+			referenceFoodId?: string;
 			name: string;
 			brand?: string;
 			imageUrl?: string;
@@ -157,7 +162,7 @@
 				meal: it.meal,
 				qty: it.qtyGrams,
 				food: {
-					_id: it.foodId ?? it.customFoodId ?? it.ciqualLabel ?? `x${i}`,
+					_id: it.referenceFoodId ?? it.foodId ?? it.customFoodId ?? it.ciqualLabel ?? `x${i}`,
 					name: it.name,
 					brand: it.brand,
 					kcal100: it.qtyGrams > 0 ? (it.kcal / it.qtyGrams) * 100 : 0,
@@ -167,6 +172,7 @@
 					imageUrl: it.imageUrl,
 					thumbUrl: it.thumbUrl,
 					ciqual: !!it.ciqualLabel,
+					...(it.referenceSource === 'gflux' ? { gflux: true } : {}),
 				},
 			}));
 			editorErr = '';
@@ -240,7 +246,9 @@
 				description: planDesc.trim() || undefined,
 			items: items.map((it) => ({
 				meal: it.meal,
-				...(it.food.ciqual
+				...(it.food.gflux
+					? { referenceSource: 'gflux' as const, referenceFoodId: it.food._id } // fiche G-Flux : jamais ciqualLabel
+					: it.food.ciqual
 					? { ciqualLabel: it.food._id } // fiche de référence Ciqual (ANSES)
 					: it.food.custom
 						? { customFoodId: it.food._id }

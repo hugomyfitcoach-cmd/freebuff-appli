@@ -2,7 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { getSessionUser } from "./helpers";
 import { ciqualFoodSource } from "./ciqualSource";
-import { resolveReferenceFoodLabel } from "./referenceFoods";
+import { resolveReferenceFood } from "./referenceFoods";
 import { applyKcalGuard } from "../lib/nutritionGuard";
 import { recordClientEvent, recordEvent } from "./notifications";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
@@ -124,6 +124,9 @@ type ItemInput = {
 	customFoodId?: Id<"customFoods">;
 	/** Fiche de RÉFÉRENCE Ciqual (ANSES) : libellé officiel exact — exclusif. */
 	ciqualLabel?: string;
+	/** Aliment de référence G-Flux (R3-bis) : provenance explicite + identifiant. */
+	referenceSource?: "ciqual" | "gflux";
+	referenceFoodId?: string;
 	qtyGrams: number;
 };
 
@@ -136,6 +139,8 @@ async function buildSnapshot(ctx: QueryCtx, coach: Doc<"users">, items: ItemInpu
 		foodId?: Id<"foods">;
 		customFoodId?: Id<"customFoods">;
 		ciqualLabel?: string;
+		referenceSource?: "ciqual" | "gflux";
+		referenceFoodId?: string;
 		name: string;
 		brand?: string;
 		imageUrl?: string;
@@ -154,15 +159,20 @@ async function buildSnapshot(ctx: QueryCtx, coach: Doc<"users">, items: ItemInpu
 		if (!isFinite(it.qtyGrams) || it.qtyGrams <= 0 || it.qtyGrams > 5000) {
 			throw new ConvexError("Quantité invalide (entre 1 et 5000 g).");
 		}
-		// Fiche de RÉFÉRENCE G-FLUX (Mission R3) : libellé `gflux:<id>` résolu
-		// pour la coach propriétaire. Le plan reçoit une COPIE du nom et des
-		// valeurs (aucun lien vers la fiche) : la modifier ou la supprimer
+		// ALIMENT DE RÉFÉRENCE G-FLUX (R3-bis) : provenance EXPLICITE
+		// (`referenceSource: "gflux"` + `referenceFoodId`) résolue pour la coach
+		// propriétaire — `ciqualLabel` reste réservé à Ciqual. Le plan reçoit une
+		// COPIE du nom et des valeurs (snapshot) : modifier ou supprimer la fiche
 		// ensuite ne change jamais les plans existants.
-		const gfluxFood = await resolveReferenceFoodLabel(ctx, coach, it.ciqualLabel);
+		const gfluxFood =
+			it.referenceSource === "gflux" ? await resolveReferenceFood(ctx, coach, it.referenceFoodId) : null;
+		if (it.referenceSource === "gflux" && !gfluxFood) {
+			throw new ConvexError("Une fiche de référence du plan n'existe plus.");
+		}
 		// Fiche de RÉFÉRENCE Ciqual (additif) : valeurs officielles /100 g résolues
 		// côté serveur — aucune donnée OFF lue, modifiée ou fusionnée.
 		const ciqualFood = !gfluxFood && it.ciqualLabel ? ciqualFoodSource(it.ciqualLabel) : null;
-		if (it.ciqualLabel && !ciqualFood && !gfluxFood) {
+		if (!gfluxFood && it.ciqualLabel && !ciqualFood) {
 			throw new ConvexError("Une fiche de référence du plan n'existe plus.");
 		}
 		const food = gfluxFood
@@ -182,6 +192,8 @@ async function buildSnapshot(ctx: QueryCtx, coach: Doc<"users">, items: ItemInpu
 			foodId: ciqualFood || gfluxFood ? undefined : (it.foodId ?? undefined),
 			customFoodId: ciqualFood || gfluxFood ? undefined : (it.customFoodId ?? undefined),
 			ciqualLabel: ciqualFood ? it.ciqualLabel : undefined,
+			referenceSource: gfluxFood ? ("gflux" as const) : ciqualFood ? ("ciqual" as const) : undefined,
+			referenceFoodId: gfluxFood ? it.referenceFoodId : undefined,
 			name: food.name,
 			brand: food.brand,
 			imageUrl: food.imageUrl,
@@ -218,6 +230,8 @@ export const createTemplate = mutation({
 				foodId: v.optional(v.id("foods")),
 				customFoodId: v.optional(v.id("customFoods")),
 				ciqualLabel: v.optional(v.string()),
+				referenceSource: v.optional(v.union(v.literal("ciqual"), v.literal("gflux"))),
+				referenceFoodId: v.optional(v.string()),
 				qtyGrams: v.number(),
 			})
 		),
@@ -258,6 +272,8 @@ export const updateTemplate = mutation({
 				foodId: v.optional(v.id("foods")),
 				customFoodId: v.optional(v.id("customFoods")),
 				ciqualLabel: v.optional(v.string()),
+				referenceSource: v.optional(v.union(v.literal("ciqual"), v.literal("gflux"))),
+				referenceFoodId: v.optional(v.string()),
 				qtyGrams: v.number(),
 			})
 		),
@@ -560,6 +576,8 @@ export async function resolveCoachPlanForDate(
 			foodId: item.foodId,
 			customFoodId: item.customFoodId,
 			ciqualLabel: item.ciqualLabel,
+			referenceSource: item.referenceSource,
+			referenceFoodId: item.referenceFoodId,
 			createdAt: Date.now(),
 		});
 	}

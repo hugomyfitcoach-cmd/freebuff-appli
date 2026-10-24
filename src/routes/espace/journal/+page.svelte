@@ -49,6 +49,8 @@ import { clearRecipeDraft, loadRecipeDraft, saveRecipeDraft } from '$lib/recipeD
 		foodId?: string;
 		customFoodId?: string;
 		ciqualLabel?: string;
+		/** Provenance de la fiche de référence (R3-bis) : jamais déduite de ciqualLabel. */
+		referenceSource?: 'ciqual' | 'gflux';
 	};
 	/** Item PLANIFIÉ — plan coach ou préparation cliente : grisé, 0 impact header. */
 	type PlannedItem = {
@@ -110,7 +112,8 @@ import { clearRecipeDraft, loadRecipeDraft, saveRecipeDraft } from '$lib/recipeD
 		barcode?: string;
 		/** Fiche de RÉFÉRENCE Ciqual (ANSES) — _id = libellé officiel exact. */
 		ciqual?: boolean;
-		/** Fiche de RÉFÉRENCE G-FLUX (Mission R3) — badge distinct, _id = `gflux:<id>`. */
+		/** Fiche de RÉFÉRENCE G-FLUX (Mission R3) — badge distinct ; `_id` = fiche,
+		 *  transmise à l'ajout via `referenceFoodId` (jamais `ciqualLabel`). */
 		gflux?: boolean;
 		/** Badge de cuisson Ciqual (détection cookedState.ts, source unique). */
 		cookLabel?: string | null;
@@ -887,8 +890,8 @@ import { clearRecipeDraft, loadRecipeDraft, saveRecipeDraft } from '$lib/recipeD
 	let searchSeq = 0;
 
 	/** Fiche de référence → Food (l'_id porté par les flux est le LIBELLÉ officiel
-	 *  exact pour Ciqual, `gflux:<id>` pour un aliment du coach ; à l'ajout, le
-	 *  serveur résout les valeurs — jamais le client). */
+	 *  exact pour Ciqual, l'identifiant de la fiche pour un aliment du coach ; à
+	 *  l'ajout, le serveur résout les valeurs — jamais le client). */
 	function ciqualToFood(h: { label: string; kcal: number; protein?: number; carbs?: number; fat?: number; source?: 'gflux'; id?: string }): Food {
 		const gflux = h.source === 'gflux';
 		return {
@@ -898,7 +901,7 @@ import { clearRecipeDraft, loadRecipeDraft, saveRecipeDraft } from '$lib/recipeD
 			carbs100: h.carbs ?? 0,
 			protein100: h.protein ?? 0,
 			fat100: h.fat ?? 0,
-			ciqual: true,
+			ciqual: !gflux,
 			...(gflux ? { gflux: true } : {}),
 			cookLabel: cookingBadgeOf(h.label),
 		};
@@ -2644,6 +2647,9 @@ import { clearRecipeDraft, loadRecipeDraft, saveRecipeDraft } from '$lib/recipeD
 	}
 	/** Clé de requête de la portion mémorisée (identifiant stable de la source). */
 	function qtyPortionKey(food: Food): string | null {
+		// Aliment de référence G-Flux : aucune portion mémorisée (le champ
+		// ciqualLabel n'est jamais utilisé pour une fiche du coach).
+		if (food.gflux) return null;
 		if (food.ciqual) return `ciqualLabel=${encodeURIComponent(food._id)}`;
 		if (food.custom) return `customFoodId=${encodeURIComponent(food._id)}`;
 		if (food._id) return `foodId=${encodeURIComponent(food._id)}`;
@@ -2670,7 +2676,9 @@ import { clearRecipeDraft, loadRecipeDraft, saveRecipeDraft } from '$lib/recipeD
 			body: JSON.stringify({
 				date,
 				meal,
-				...(qtyFood.ciqual
+				...(qtyFood.gflux
+					? { referenceSource: 'gflux' as const, referenceFoodId: qtyFood._id } // fiche G-Flux : jamais ciqualLabel
+					: qtyFood.ciqual
 					? { ciqualLabel: qtyFood._id } // fiche de référence : libellé officiel, valeurs résolues par le serveur
 					: qtyFood.custom
 						? { customFoodId: qtyFood._id }
@@ -2683,7 +2691,7 @@ import { clearRecipeDraft, loadRecipeDraft, saveRecipeDraft } from '$lib/recipeD
 				 *  le signal — le serveur l'enregistre comme repère personnel
 				 *  pour cet aliment (et les autres produits visibles du lot). */
 				lastPortions: uiPortionList()
-					.filter((f) => f._id !== qtyFood!._id)
+					.filter((f) => f._id !== qtyFood!._id && !f.gflux)
 					.slice(0, 50)
 					.map((f) =>
 						f.ciqual
@@ -3455,10 +3463,11 @@ import { clearRecipeDraft, loadRecipeDraft, saveRecipeDraft } from '$lib/recipeD
 					thumbUrl: editEntry.thumbUrl,
 					photoUrl: editEntry.photoUrl,
 					custom: !editEntry.foodId && !editEntry.ciqualLabel && !!editEntry.customFoodId,
-					// PROVENANCE CIQUAL conservée : getDay renvoie ciqualLabel calculé
+					// PROVENANCE conservée : getDay renvoie ciqualLabel calculé
 					// (résolution exacte du libellé officiel) → badge « Référence
-					// Ciqual – ANSES » visible à chaque réouverture depuis le Journal.
+					// Ciqual – ANSES » ; une fiche G-Flux garde SON badge (R3-bis).
 					ciqual: !!editEntry.ciqualLabel,
+					gflux: editEntry.referenceSource === 'gflux',
 					kcal100: editEntry.qtyGrams > 0 ? (editEntry.kcal / editEntry.qtyGrams) * 100 : 0,
 					carbs100: editEntry.qtyGrams > 0 ? (editEntry.carbs / editEntry.qtyGrams) * 100 : 0,
 					protein100: editEntry.qtyGrams > 0 ? (editEntry.protein / editEntry.qtyGrams) * 100 : 0,

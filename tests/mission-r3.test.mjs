@@ -19,13 +19,11 @@ import { readFileSync } from 'node:fs';
 import {
 	canManageReferenceFood,
 	cleanReferenceFood,
-	gfluxIdFromLabel,
 	kcalMismatchWarning,
 	mergeReferenceHits,
 	rankReferenceFoods,
 	referenceFoodError,
 	referenceFoodHit,
-	referenceFoodLabel,
 	referenceFoodSnapshot,
 } from '../src/lib/referenceFoods.ts';
 import { searchCiqualLocal } from '../src/convex/ciqual.ts';
@@ -117,7 +115,7 @@ test('« poulet » renvoie l’aliment G-Flux avec son badge, avant Ciqual à pe
 
 	assert.equal(merged[0].label, 'Poulet fermier G-Flux', 'fiche G-Flux en tête');
 	assert.equal(merged[0].source, 'gflux', 'provenance G-Flux (badge distinct)');
-	assert.equal(merged[0].id, 'gflux:ref-1', 'identité d’ajout résolue côté serveur');
+	assert.equal(merged[0].id, 'ref-1', 'identifiant brut de la fiche (aucun préfixe)');
 	assert.deepEqual(
 		{ kcal: merged[0].kcal, protein: merged[0].protein, carbs: merged[0].carbs, fat: merged[0].fat },
 		{ kcal: 165, protein: 31, carbs: 0, fat: 4 },
@@ -178,19 +176,100 @@ test('une entrée de journal garde ses valeurs après modification de l’alimen
 
 	// Le journal enregistre CE snapshot, sans lien vers la fiche.
 	const journal = source('src/convex/journal.ts');
-	assert.ok(/resolveReferenceFoodLabel\(ctx, user, ciqualLabel\)/.test(journal), 'addEntry résout la fiche côté serveur');
-	assert.ok(/resolveReferenceFoodLabel\(ctx, coach, ciqualLabel\)/.test(journal), 'addEntryForCoach résout la fiche côté serveur');
+	assert.ok(/resolveReferenceFood\(ctx, user, referenceFoodId\)/.test(journal), 'addEntry résout la fiche côté serveur');
+	assert.ok(/resolveReferenceFood\(ctx, coach, referenceFoodId\)/.test(journal), 'addEntryForCoach résout la fiche côté serveur');
 	assert.ok(/kcal: Math\.round\(kcal100 \* k\)/.test(journal), 'valeurs copiées à l’ajout');
 	const plans = source('src/convex/mealPlans.ts');
-	assert.ok(/resolveReferenceFoodLabel\(ctx, coach, it\.ciqualLabel\)/.test(plans), 'plans : fiche résolue à l’ajout');
+	assert.ok(/resolveReferenceFood\(ctx, coach, it\.referenceFoodId\)/.test(plans), 'plans : fiche résolue à l’ajout');
 	assert.ok(/ciqualLabel: ciqualFood \? it\.ciqualLabel : undefined/.test(plans), 'plans : copie, aucun lien G-Flux');
 });
 
-test('identité d’ajout : préfixe `gflux:` reconnu sans ambiguïté', () => {
-	assert.equal(gfluxIdFromLabel('gflux:abc123'), 'abc123');
-	assert.equal(gfluxIdFromLabel('gflux:'), undefined);
-	assert.equal(gfluxIdFromLabel('Poulet, cru'), undefined, 'un libellé Ciqual n’est jamais une fiche G-Flux');
-	assert.equal(referenceFoodLabel({ _id: 'abc123', name: 'Poulet' }), 'gflux:abc123');
+test('un ajout G-Flux enregistre referenceSource « gflux » et laisse ciqualLabel vide', () => {
+	// Identité d'ajout = identifiant BRUT de la fiche, jamais un libellé préfixé.
+	assert.equal(referenceFoodHit({ ...valid, _id: 'ref-1' }).id, 'ref-1', 'identifiant brut de la fiche');
+	assert.equal(referenceFoodHit({ ...valid, _id: 'ref-1' }).source, 'gflux', 'provenance explicite');
+
+	const journal = source('src/convex/journal.ts');
+	// La fiche est résolue par son IDENTIFIANT, uniquement quand la provenance
+	// déclarée est « gflux ».
+	assert.ok(
+		/referenceSource === "gflux" \? await resolveReferenceFood\(ctx, user, referenceFoodId\) : null/.test(journal),
+		'addEntry : fiche résolue par identifiant, seulement si referenceSource = gflux'
+	);
+	assert.ok(
+		/referenceSource === "gflux" \? await resolveReferenceFood\(ctx, coach, referenceFoodId\) : null/.test(journal),
+		'addEntryForCoach : idem côté coach'
+	);
+	// Chaque écriture porte referenceSource = « gflux » (planned, consommé, coach).
+	assert.equal(
+		(journal.match(/referenceSource: gfluxRef \? "gflux" : ciqualRef \? "ciqual" : undefined/g) ?? []).length,
+		3,
+		'planned + consommé + ajout coach écrivent la provenance'
+	);
+	// Aucune écriture de ciqualLabel depuis une fiche G-Flux.
+	assert.ok(!/ciqualLabel: gfluxRef/.test(journal), 'ciqualLabel jamais renseigné par une fiche G-Flux');
+	assert.ok(
+		/referenceSource: gfluxRef \? "gflux" : ciqualRef \? "ciqual" : undefined/.test(journal),
+		'provenance écrite, ciqualLabel réservé à Ciqual'
+	);
+
+	// Plans : même contrat (provenance + identifiant, jamais ciqualLabel).
+	const plans = source('src/convex/mealPlans.ts');
+	assert.ok(
+		/it\.referenceSource === "gflux" \? await resolveReferenceFood\(ctx, coach, it\.referenceFoodId\) : null/.test(plans),
+		'plans : fiche résolue par identifiant'
+	);
+	assert.ok(
+		/referenceSource: gfluxFood \? .*"gflux".* : ciqualFood \? .*"ciqual".* : undefined/.test(plans),
+		'plans : provenance écrite'
+	);
+
+	// Le schéma accepte le champ ADDITIF (aucune donnée existante migrée).
+	const schema = source('src/convex/schema.ts');
+	assert.ok(
+		/referenceSource: v\.optional\(v\.union\(v\.literal\("ciqual"\), v\.literal\("gflux"\)\)\)/.test(schema),
+		'referenceSource facultatif sur les tables d’entrées et de plans'
+	);
+});
+
+test('un ajout Ciqual garde son ciqualLabel', () => {
+	const journal = source('src/convex/journal.ts');
+	assert.ok(
+		/const ciqualRef = !gfluxRef && ciqualLabel \? ciqualFoodSource\(ciqualLabel\) : null/.test(journal),
+		'addEntry garde la résolution Ciqual'
+	);
+	const plans = source('src/convex/mealPlans.ts');
+	assert.ok(/ciqualLabel: ciqualFood \? it\.ciqualLabel : undefined/.test(plans), 'plans : ciqualLabel conservé');
+	// Le champ reste facultatif et inchangé dans le schéma.
+	const schema = source('src/convex/schema.ts');
+	assert.ok(/ciqualLabel: v\.optional\(v\.string\(\)\)/.test(schema), 'ciqualLabel inchangé');
+});
+
+test('aucune chaîne « gflux: » comme identité d’aliment dans le code source', () => {
+	const files = [
+		'src/lib/referenceFoods.ts',
+		'src/lib/foodSearch.svelte.ts',
+		'src/convex/referenceFoods.ts',
+		'src/convex/ciqual.ts',
+		'src/convex/journal.ts',
+		'src/convex/mealPlans.ts',
+		'src/routes/espace/journal/+page.svelte',
+		'src/routes/admin/+page.svelte',
+		'src/routes/admin/plans/+page.svelte',
+	];
+	for (const file of files) {
+		const src = source(file);
+		assert.ok(!/gflux:\$\{/.test(src), `${file} : aucun identifiant préfixé construit`);
+		assert.ok(!/GFX_LABEL_PREFIX|gfluxIdFromLabel|referenceFoodLabel/.test(src), `${file} : aucune logique de préfixe`);
+		assert.ok(!/['"`]gflux:['"`]\s*\+/.test(src), `${file} : aucun préfixe concaténé`);
+	}
+	// Le seul identifiant de fiche G-Flux transmis est `referenceFoodId`.
+	const journal = source('src/convex/journal.ts');
+	assert.ok(/referenceFoodId: v\.optional\(v\.string\(\)\)/.test(journal), 'ajout par referenceFoodId');
+	assert.ok(/resolveReferenceFood\(ctx, user, referenceFoodId\)/.test(journal), 'résolution par identifiant');
+});
+
+test('la table de référence reste additive et partage le moteur Ciqual', () => {
 	// La table est additive : aucune table existante n'est modifiée.
 	const schema = source('src/convex/schema.ts');
 	assert.ok(/\treferenceFoods: defineTable\(\{/.test(schema), 'table referenceFoods ajoutée');

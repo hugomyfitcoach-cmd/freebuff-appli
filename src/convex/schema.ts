@@ -341,6 +341,14 @@ export default defineSchema({
 		customFoodId: v.optional(v.id("customFoods")),
 		/** Repas personnalisé du client (portion), quand l'entrée vient d'un repas. */
 		mealId: v.optional(v.id("meals")),
+		/**
+		 * PROVENANCE de la fiche de référence — champ ADDITIF facultatif.
+		 *  - « ciqual » : libellé officiel ANSES (`ciqualLabel` recalculé à la lecture) ;
+		 *  - « gflux » : aliment de référence créé par le coach (R3-bis) — le nom et
+		 *    les valeurs sont copiés à l'ajout, `ciqualLabel` n'est JAMAIS utilisé.
+		 * Aucune donnée existante n'est migrée ; absent = provenance historique.
+		 */
+		referenceSource: v.optional(v.union(v.literal("ciqual"), v.literal("gflux"))),
 		name: v.string(),
 		brand: v.optional(v.string()),
 		imageUrl: v.optional(v.string()),
@@ -798,6 +806,10 @@ export default defineSchema({
 				customFoodId: v.optional(v.id("customFoods")),
 				/** Fiche de RÉFÉRENCE Ciqual (ANSES) — libellé officiel exact ; snapshot nutritionnel inchangé. */
 				ciqualLabel: v.optional(v.string()),
+				/** Provenance de la fiche de référence (R3-bis) : « ciqual » ou « gflux ». */
+				referenceSource: v.optional(v.union(v.literal("ciqual"), v.literal("gflux"))),
+				/** Fiche G-Flux d'origine (id `referenceFoods`) — facultatif, jamais affiché. */
+				referenceFoodId: v.optional(v.string()),
 				name: v.string(),
 				brand: v.optional(v.string()),
 				imageUrl: v.optional(v.string()),
@@ -883,6 +895,10 @@ export default defineSchema({
 		customFoodId: v.optional(v.id("customFoods")),
 		/** Fiche de RÉFÉRENCE Ciqual (ANSES) d'origine — info de source, valeurs en snapshot. */
 		ciqualLabel: v.optional(v.string()),
+		/** Provenance de la fiche de référence (R3-bis) : « ciqual » ou « gflux ». */
+		referenceSource: v.optional(v.union(v.literal("ciqual"), v.literal("gflux"))),
+		/** Fiche G-Flux d'origine (id `referenceFoods`) — facultatif, jamais affiché. */
+		referenceFoodId: v.optional(v.string()),
 		createdAt: v.number(),
 	})
 		.index("by_user_date", ["userId", "date"])

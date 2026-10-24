@@ -79,7 +79,7 @@ export type CiqualHit = {
 	/** Mission R3 : fiche G-Flux (badge « Référence G-Flux ») insérée dans le
 	 *  même bloc, à pertinence égale devant les fiches Ciqual. */
 	source?: "gflux";
-	/** Identité d'ajout `gflux:<id>` (absente pour une fiche Ciqual). */
+	/** Identifiant de la fiche G-Flux (`referenceFoods._id`, jamais affiché) — absent pour Ciqual. */
 	id?: string;
 };
 
