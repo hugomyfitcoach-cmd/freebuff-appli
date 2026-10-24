@@ -341,6 +341,14 @@ export default defineSchema({
 		customFoodId: v.optional(v.id("customFoods")),
 		/** Repas personnalisé du client (portion), quand l'entrée vient d'un repas. */
 		mealId: v.optional(v.id("meals")),
+		/**
+		 * PROVENANCE de la fiche de référence — champ ADDITIF facultatif.
+		 *  - « ciqual » : libellé officiel ANSES (`ciqualLabel` recalculé à la lecture) ;
+		 *  - « gflux » : aliment de référence créé par le coach (R3-bis) — le nom et
+		 *    les valeurs sont copiés à l'ajout, `ciqualLabel` n'est JAMAIS utilisé.
+		 * Aucune donnée existante n'est migrée ; absent = provenance historique.
+		 */
+		referenceSource: v.optional(v.union(v.literal("ciqual"), v.literal("gflux"))),
 		name: v.string(),
 		brand: v.optional(v.string()),
 		imageUrl: v.optional(v.string()),
@@ -782,6 +790,35 @@ export default defineSchema({
 	})
 		.index("by_user", ["userId"]),
 
+	/**
+	 * ALIMENTS DE RÉFÉRENCE G-FLUX (Mission R3) — table ADDITIVE, aucune table
+	 * existante modifiée. Le coach crée ses propres aliments (valeurs /100 g) ;
+	 * ils apparaissent dans la section « Aliments de référence » des recherches
+	 * avec le badge « Référence G-Flux ».
+	 *
+	 * Le journal et les plans n'y font JAMAIS référence : à l'ajout, le nom et
+	 * les valeurs sont recopiés dans l'entrée (snapshot). Modifier ou supprimer
+	 * une fiche ne change donc jamais les entrées passées.
+	 */
+	referenceFoods: defineTable({
+		/** Coach propriétaire — seul habilité à créer / modifier / supprimer. */
+		coachId: v.id("users"),
+		/** Nom affiché (2 à 120 caractères), badge « Référence G-Flux ». */
+		name: v.string(),
+		/** Valeurs pour 100 g (kcal 0–900, macros 0–100). */
+		kcal: v.number(),
+		proteinG: v.number(),
+		carbsG: v.number(),
+		fatG: v.number(),
+		/** Mode de cuisson (valeurs de cookedState.ts : cru, eau, vapeur, four,
+		 *  grille, poele, frit, conserve, cuit, neutre) — FACULTATIF (ajout seul).
+		 *  Renseigné, il pilote le badge de cuisson et le classement ; sinon la
+		 *  cuisson est détectée d'après le nom. Validé par referenceFoodError. */
+		cookingState: v.optional(v.string()),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	}).index("by_coach", ["coachId"]),
+
 	/* ═══ Plans de repas coach + planification (client & coach) ═══ */
 
 	/**
@@ -805,6 +842,10 @@ export default defineSchema({
 				customFoodId: v.optional(v.id("customFoods")),
 				/** Fiche de RÉFÉRENCE Ciqual (ANSES) — libellé officiel exact ; snapshot nutritionnel inchangé. */
 				ciqualLabel: v.optional(v.string()),
+				/** Provenance de la fiche de référence (R3-bis) : « ciqual » ou « gflux ». */
+				referenceSource: v.optional(v.union(v.literal("ciqual"), v.literal("gflux"))),
+				/** Fiche G-Flux d'origine (id `referenceFoods`) — facultatif, jamais affiché. */
+				referenceFoodId: v.optional(v.string()),
 				name: v.string(),
 				brand: v.optional(v.string()),
 				imageUrl: v.optional(v.string()),
@@ -890,6 +931,10 @@ export default defineSchema({
 		customFoodId: v.optional(v.id("customFoods")),
 		/** Fiche de RÉFÉRENCE Ciqual (ANSES) d'origine — info de source, valeurs en snapshot. */
 		ciqualLabel: v.optional(v.string()),
+		/** Provenance de la fiche de référence (R3-bis) : « ciqual » ou « gflux ». */
+		referenceSource: v.optional(v.union(v.literal("ciqual"), v.literal("gflux"))),
+		/** Fiche G-Flux d'origine (id `referenceFoods`) — facultatif, jamais affiché. */
+		referenceFoodId: v.optional(v.string()),
 		createdAt: v.number(),
 	})
 		.index("by_user_date", ["userId", "date"])

@@ -32,6 +32,8 @@
  * composant).
  */
 
+import { cookingBadgeOf } from './cookedState';
+
 /** Seuil minimal de caractères (règle PWA : aucune requête en dessous). */
 export const FOOD_SEARCH_MIN_CHARS = 2;
 /** Debounce après la dernière frappe (règle PWA, Journal cliente). */
@@ -57,10 +59,28 @@ export type SearchFood = {
 	custom?: boolean;
 	/** Fiche de RÉFÉRENCE Ciqual (ANSES) — _id = libellé officiel exact. */
 	ciqual?: boolean;
+	/** Fiche de RÉFÉRENCE G-FLUX (créée par le coach) — badge distinct de Ciqual.
+	 *  `_id` = identifiant de la fiche, transmis à l'ajout via `referenceFoodId`
+	 *  (jamais via `ciqualLabel`, réservé à Ciqual). */
+	gflux?: boolean;
+	/** Badge de cuisson Ciqual (détection cookedState.ts, source unique) — null = aucun. */
+	cookLabel?: string | null;
 };
 
-/** Fiche Ciqual brute renvoyée par le BFF `/api/foods/ciqual`. */
-export type CiqualRaw = { label: string; kcal: number; protein?: number; carbs?: number; fat?: number };
+/** Fiche brute renvoyée par le BFF `/api/foods/ciqual` (Ciqual ou G-Flux). */
+export type CiqualRaw = {
+	label: string;
+	kcal: number;
+	protein?: number;
+	carbs?: number;
+	fat?: number;
+	/** « gflux » = aliment de référence créé par le coach (Mission R3). */
+	source?: 'gflux';
+	/** Identifiant de la fiche G-Flux (absent pour Ciqual) — jamais affiché. */
+	id?: string;
+	/** Badge de cuisson calculé côté serveur (cookedState.ts) — G-Flux uniquement. */
+	cookLabel?: string | null;
+};
 
 /** Réponse produits normalisée par le contrôleur (items + présence d'une suite). */
 export type SearchPage = { items: SearchFood[]; hasMore: boolean };
@@ -86,6 +106,8 @@ export type FoodSearchState = {
 	loadingMore: boolean;
 	/** Indication « fais défiler » (PWA) — les écrans CRM peuvent l'ignorer. */
 	showScrollHint: boolean;
+	/** Panne Open Food Facts : la section Produits le signale, Ciqual reste affiché. */
+	productsUnavailable: boolean;
 };
 
 export type FoodSearchController = {
@@ -105,17 +127,37 @@ export type FoodSearchController = {
 };
 
 /** Fiche Ciqual → SearchFood (l'_id porté par les flux est le LIBELLÉ officiel
- *  exact ; à l'ajout, le serveur résout les valeurs — jamais le client). */
+ *  exact ; à l'ajout, le serveur résout les valeurs — jamais le client).
+ *  Le badge de cuisson vient de la MÊME fonction que le classement
+ *  (cookedState.ts) : une seule source, quelle que soit la carte. */
 export function ciqualToFood(h: CiqualRaw): SearchFood {
+	const gflux = h.source === 'gflux';
 	return {
-		_id: h.label,
+		// G-Flux : identifiant de la fiche (résolu côté serveur à l'ajout via
+		// `referenceFoodId`) — jamais un libellé Ciqual ; Ciqual : libellé officiel.
+		_id: h.id ?? h.label,
 		name: h.label,
 		kcal100: h.kcal,
 		carbs100: h.carbs ?? 0,
 		protein100: h.protein ?? 0,
 		fat100: h.fat ?? 0,
-		ciqual: true,
+		ciqual: !gflux,
+		...(gflux ? { gflux: true } : {}),
+		// Badge de cuisson : calculé côté serveur pour les fiches G-Flux
+		// (champ cookingState prioritaire sur le nom) ; sinon détection par le
+		// nom (Ciqual, inchangée) — même source cookedState.ts.
+		cookLabel: h.cookLabel ?? cookingBadgeOf(h.label),
 	};
+}
+
+/**
+ * Ingrédients de RECETTE — les aliments de référence G-Flux n'y sont JAMAIS
+ * proposés (Mission R3-quater) : ils restent disponibles dans le Journal et
+ * les plans de repas, jamais dans la composition d'une recette. Filtre PUR
+ * sur le seul drapeau `gflux` (aucune autre règle modifiée).
+ */
+export function recipeIngredientFoods<T extends { gflux?: boolean }>(foods: T[]): T[] {
+	return foods.filter((food) => !food.gflux);
 }
 
 /**
@@ -134,6 +176,7 @@ export function createFoodSearch(): FoodSearchController {
 		nextOffset: 0,
 		loadingMore: false,
 		showScrollHint: false,
+		productsUnavailable: false,
 	});
 
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -154,6 +197,7 @@ export function createFoodSearch(): FoodSearchController {
 		state.hasMore = false;
 		state.nextOffset = 0;
 		state.showScrollHint = false;
+		state.productsUnavailable = false;
 	}
 
 	/** Recherche effective (produits + Ciqual, en parallèle). */
@@ -165,6 +209,7 @@ export function createFoodSearch(): FoodSearchController {
 		state.q = q;
 		state.searching = true;
 		state.error = '';
+		state.productsUnavailable = false;
 		state.showScrollHint = false;
 		// Produits : moteur classé du CRM (MÊME ranking foodRanking que la PWA).
 		// Contrat : tableau FoodHit[] ; un payload inattendu est une ERREUR
@@ -188,33 +233,31 @@ export function createFoodSearch(): FoodSearchController {
 				return j.error ? [] : (j as CiqualRaw[]).map(ciqualToFood);
 			})
 			.catch(() => [] as SearchFood[]);
-		let page: SearchPage;
+		let page: SearchPage | null = null;
 		try {
 			page = await off;
-		} catch (e) {
-			// Contrat PWA : l'erreur est affichée, résultats vidés — sauf si une
-			// recherche plus récente a déjà pris la main (anti-course).
-			if (req === seq) {
-			state.error = e instanceof Error ? e.message : String(e);
-			state.products = [];
-			state.ciqual = [];
-			state.ciqualExpanded = false;
-				state.hasMore = false;
-				state.nextOffset = 0;
-				state.showScrollHint = false;
-				state.searching = false;
-				state.loadingMore = false;
-			}
-			return;
+		} catch {
+			// Panne Open Food Facts : jamais masquer Ciqual (Mission R1-bis).
+			// Les fiches de référence restent affichées, la section Produits
+			// signale simplement l'indisponibilité (message discret).
+			page = null;
 		}
 		const ciqual = await ciq;
 		// Garde-fou anti-course : une recherche plus récente a pris la main →
 		// cette réponse est jetée (elle n'écrase jamais les résultats affichés).
 		if (req !== seq) return;
-		state.products = page.items;
-		state.hasMore = !!page.hasMore;
-		state.nextOffset = page.items.length ? 25 : 0;
-		state.showScrollHint = state.hasMore;
+		if (page) {
+			state.products = page.items;
+			state.hasMore = !!page.hasMore;
+			state.nextOffset = page.items.length ? 25 : 0;
+			state.showScrollHint = state.hasMore;
+		} else {
+			state.products = [];
+			state.productsUnavailable = true;
+			state.hasMore = false;
+			state.nextOffset = 0;
+			state.showScrollHint = false;
+		}
 		state.ciqual = ciqual;
 		state.searching = false;
 		state.loadingMore = false;
@@ -232,6 +275,7 @@ export function createFoodSearch(): FoodSearchController {
 			state.error = '';
 			state.searching = false;
 			state.loadingMore = false;
+			state.productsUnavailable = false;
 			return;
 		}
 		// Frappe en cours : les résultats restent visibles (pas de flash),
@@ -253,6 +297,7 @@ export function createFoodSearch(): FoodSearchController {
 		resetResults();
 		state.searching = false;
 		state.loadingMore = false;
+		state.productsUnavailable = false;
 	}
 
 	async function loadMore() {

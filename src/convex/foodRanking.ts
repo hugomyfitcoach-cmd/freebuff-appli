@@ -28,6 +28,10 @@
  *     alphabétique. À score identique, l'ordre BM25 initial est conservé (tri
  *     stable) — il reste un bon départage.
  *
+ * Règle Mission R1 : les candidats qui portent TOUS les mots de la recherche
+ * (en début de mot — voir `allWordsPresent`) passent devant les autres, avant
+ * tous les critères ci-dessous (même normalisation que la recherche Ciqual).
+ *
  * Sans accents ni casse : « tomates », « TOMATE », « pêche » ≈ « peche ».
  */
 
@@ -58,9 +62,13 @@ function deaccent(s: string): string {
 		.replace(/[\u0300-\u036f]/g, "");
 }
 
-/** Normalisation pour comparaison : minuscules, sans accents, ponctuation → espace. */
+/** Normalisation pour comparaison : minuscules, sans accents, ponctuation →
+ *  espace. Les apostrophes droites ET typographiques SÉPARENT les mots :
+ *  « d'avoine » / « d’avoine » → « d » + « avoine » (jamais « davoine »),
+ *  pour qu'une recherche « avoine » trouve « Flocon d'avoine ». */
 export function norm(s: string): string {
 	return deaccent(s.toLowerCase())
+		.replace(/['\u2019]/g, " ")
 		.replace(/[^a-z0-9]+/g, " ")
 		.trim();
 }
@@ -74,6 +82,84 @@ function singularize(t: string): string {
 /** Tokens normalisés + singularisés d'un texte (« Tomates cerises » → ["tomate", "cerise"]). */
 export function tokenize(s: string): string[] {
 	return norm(s).split(" ").filter(Boolean).map(singularize);
+}
+
+/* ─── États de cuisson (normalisation partagée Ciqual + OFF) ───
+ *
+ * SOURCE UNIQUE : src/lib/cookedState.ts (détection, badge, rangs). Utilisée
+ * ici pour (1) reconnaître qu'un mot d'état de la REQUÊTE est présent dans un
+ * nom (« riz cuit » → « Riz blanc, bouilli/cuit à l'eau »), (2) ordonner la
+ * cuisson à l'intérieur d'une variété Ciqual (convex/ciqual.ts).
+ */
+import {
+	cookingFamily,
+	cookingStateOfToken,
+	type CookingState,
+} from "../lib/cookedState";
+
+/** Famille de cuisson d'un token normalisé (undefined = ce n'est pas un état). */
+export function stateClassOf(tok: string): CookingState | undefined {
+	return cookingStateOfToken(tok);
+}
+
+/** État de cuisson tapé dans la requête (undefined = aucun état demandé). */
+export function queryCookState(qt: string[]): CookingState | undefined {
+	for (const t of qt) {
+		const c = cookingStateOfToken(t);
+		if (c) return c;
+	}
+	return undefined;
+}
+
+/** Le nom porte-t-il un état de la même famille que l'état cherché ? */
+export function sameCookFamily(a: CookingState, b: CookingState): boolean {
+	return cookingFamily(a) === cookingFamily(b);
+}
+
+/**
+ * Les mots tapés se suivent-ils, dans le même ordre, dans le nom ?
+ * « pain complet » → vrai pour « Pain complet ou intégral »,
+ * faux pour « Pain grillé au blé complet » (Mission R1-bis, règle 1).
+ * Requête d'un seul mot : neutre (toujours vrai).
+ */
+export function phrasePresent(toks: string[], qt: string[]): boolean {
+	if (qt.length < 2) return true;
+	outer: for (let i = 0; i + qt.length <= toks.length; i++) {
+		for (let j = 0; j < qt.length; j++) {
+			if (toks[i + j] !== qt[j]) continue outer;
+		}
+		return true;
+	}
+	return false;
+}
+
+/* ─── Règle « tous les mots présents (en début de mot) » ───
+ *
+ * Un mot de la recherche est présent si un mot du nom le commence
+ * (« pâtes » ≈ « pâte », « cuite » ≈ « cuit »), ou — pour un mot d'ÉTAT —
+ * si le nom porte un état de la même famille (« cuit » couvre
+ * « bouilli/cuit à l'eau »). La réciproque (mot du nom préfixe du mot tapé)
+ * absorbe le genre (« complet » ≈ « complètes »).
+ */
+export function wordPresent(toks: string[], qTok: string): boolean {
+	const sc = cookingStateOfToken(qTok);
+	for (const t of toks) {
+		if (t.startsWith(qTok)) return true;
+		const tc = sc !== undefined ? cookingStateOfToken(t) : undefined;
+		if (sc !== undefined && tc !== undefined && sameCookFamily(sc, tc)) return true;
+		// Réciproque (genre : « complètes » ≈ « complet ») UNIQUEMENT sur un
+		// mot significatif : sans ce seuil, « avoine » matchait tous les noms
+		// contenant « a », « au », « d »… — 560 fiches hors sujet (Sole,
+		// Homard, Navet) présentées comme résultats. Les mots outils d'une
+		// fiche ne rendent jamais son nom pertinent.
+		if (t.length >= 4 && qTok.startsWith(t)) return true;
+	}
+	return false;
+}
+
+/** Tous les mots de la recherche sont-ils présents (en début de mot) dans le nom ? */
+export function allWordsPresent(toks: string[], qt: string[]): boolean {
+	return qt.every((q) => wordPresent(toks, q));
 }
 
 /* ─── Requête multi-mots : le PREMIER aliment est obligatoire ───
@@ -270,11 +356,14 @@ export function rankFoods<T extends RankableFood>(items: readonly T[], query: st
 			at.length === anchors.length ? 0 : hasMain ? 1 : 2 + (anchors.length - at.length);
 		return {
 			f,
-			// ABÉRANT < ANCHOR < tier < marque(0/1) < ciqual(0/1) < longueur < alpha
+			// ABÉRANT < TOUS LES MOTS < ANCHOR < tier < marque(0/1) < ciqual(0/1) < longueur < alpha
 			key: [
 				mismatch !== undefined && mismatch > ABERRATION_THRESHOLD ? 1 : 0,
+				allWordsPresent(nt, qt) ? 0 : 1,
 				anchorKey,
 				tierOf(qt, nt),
+				// À pertinence égale : les mots tapés consécutifs d'abord.
+				phrasePresent(nt, qt) ? 0 : 1,
 				f.brand?.trim() ? 1 : 0,
 				isCiqualVocab(n) ? 0 : 1,
 				n.length,
@@ -285,10 +374,10 @@ export function rankFoods<T extends RankableFood>(items: readonly T[], query: st
 	scored.sort((a, b) => {
 		const ka = a.key;
 		const kb = b.key;
-		for (let i = 0; i < 6; i++) {
+		for (let i = 0; i < 8; i++) {
 			if (ka[i] !== kb[i]) return (ka[i] as number) - (kb[i] as number);
 		}
-		return ka[6].localeCompare(kb[6], "fr");
+		return ka[8].localeCompare(kb[8], "fr");
 	});
 	return scored.map((s) => s.f);
 }

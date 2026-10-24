@@ -80,6 +80,8 @@
 			fat100: number;
 			servingQty?: number;
 			custom?: boolean;
+			/** Fiche de RÉFÉRENCE G-FLUX (badge distinct, jamais Ciqual). */
+			gflux?: boolean;
 			/** Garde-fou kcal↔macros : kcal OFF incohérentes, valeur recalculée affichée. */
 			kcalRecalculated?: boolean;
 		};
@@ -93,7 +95,8 @@
 		saving?: boolean;
 		error?: string;
 		saveLabel?: string;
-		/** « ciqual » : fiche de référence ANSES (badge officiel, pas de photo produit). */
+		/** « ciqual » : fiche de référence ANSES (badge officiel, pas de photo produit).
+		 *  L'aliment de référence G-Flux est signalé par `food.gflux` (badge distinct). */
 		source?: 'ciqual' | 'ai';
 		showFav?: boolean;
 		favActive?: boolean;
@@ -399,6 +402,9 @@
 					<div class="mt-1.5 flex flex-wrap items-center gap-1.5">
 					{#if source === 'ciqual'}
 						<span class="inline-flex items-center gap-1 rounded-full bg-brand-light px-2.5 py-1 text-[10px] font-bold text-brand">Référence Ciqual – ANSES</span>
+					{/if}
+					{#if food.gflux}
+						<span class="inline-flex items-center gap-1 rounded-full bg-brand-light px-2.5 py-1 text-[10px] font-bold text-brand">Référence G-Flux</span>
 					{/if}
 					{#if source === 'ai'}
 						<span class="inline-flex items-center gap-1 rounded-full bg-[#eef2ff] px-2.5 py-1 text-[10px] font-bold text-[#4f46e5]">Estimation IA</span>

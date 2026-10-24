@@ -66,18 +66,34 @@ export const PATCH: RequestHandler = async (event) => {
 	}
 };
 
-function sanitizeItems(raw: unknown): { meal: string; foodId?: string; customFoodId?: string; ciqualLabel?: string; qtyGrams: number }[] {
+type SanitizedItem = {
+	meal: string;
+	foodId?: string;
+	customFoodId?: string;
+	ciqualLabel?: string;
+	referenceSource?: 'ciqual' | 'gflux';
+	referenceFoodId?: string;
+	qtyGrams: number;
+};
+
+function sanitizeItems(raw: unknown): SanitizedItem[] {
 	if (!Array.isArray(raw)) return [];
 	return raw
 		.filter((it): it is Record<string, unknown> => !!it && typeof it === 'object')
 		.map((it) => {
-			const out: { meal: string; foodId?: string; customFoodId?: string; ciqualLabel?: string; qtyGrams: number } = {
+			const out: SanitizedItem = {
 				meal: String(it.meal ?? ''),
 				qtyGrams: Number(it.qtyGrams ?? 0),
 			};
 			if (it.foodId) out.foodId = String(it.foodId);
 			if (it.customFoodId) out.customFoodId = String(it.customFoodId);
-			if (typeof it.ciqualLabel === 'string' && it.ciqualLabel) out.ciqualLabel = it.ciqualLabel;
+			// Aliment de référence G-Flux : provenance explicite — `ciqualLabel`
+			// reste réservé aux fiches Ciqual (R3-bis).
+			if (it.referenceSource === 'gflux' || it.referenceSource === 'ciqual') out.referenceSource = it.referenceSource;
+			if (typeof it.referenceFoodId === 'string' && it.referenceFoodId) out.referenceFoodId = it.referenceFoodId;
+			if (it.referenceSource !== 'gflux' && typeof it.ciqualLabel === 'string' && it.ciqualLabel) {
+				out.ciqualLabel = it.ciqualLabel;
+			}
 			return out;
 		});
 }

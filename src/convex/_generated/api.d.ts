@@ -49,6 +49,7 @@ import type * as previewOffProducts from "../previewOffProducts.js";
 import type * as previewSeed from "../previewSeed.js";
 import type * as previewSeedVision360 from "../previewSeedVision360.js";
 import type * as push from "../push.js";
+import type * as referenceFoods from "../referenceFoods.js";
 import type * as reminderPush from "../reminderPush.js";
 import type * as resources from "../resources.js";
 import type * as sport from "../sport.js";
@@ -109,6 +110,7 @@ declare const fullApi: ApiFromModules<{
   previewSeed: typeof previewSeed;
   previewSeedVision360: typeof previewSeedVision360;
   push: typeof push;
+  referenceFoods: typeof referenceFoods;
   reminderPush: typeof reminderPush;
   resources: typeof resources;
   sport: typeof sport;

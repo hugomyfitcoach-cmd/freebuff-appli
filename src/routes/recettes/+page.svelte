@@ -17,7 +17,8 @@
 	let recipeMsgOk = $state(false);
 
 	onMount(async () => {
-		if (!browser || !isClient) return;
+		if (!browser) return;
+		if (!isClient) return;
 		try {
 			const r = await fetch('/api/meals');
 			const j = await r.json();
