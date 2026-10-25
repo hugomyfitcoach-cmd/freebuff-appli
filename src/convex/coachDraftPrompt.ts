@@ -251,11 +251,28 @@ export type CoachDraftPromptInput = {
  */
 export const PRENOM_PLACEHOLDER = "{{prenom}}";
 
-/** Remplace TOUTES les occurrences du prénom par le marqueur (appel). */
+/** Plie casse et accents : « LÉA » → « lea ». */
+function foldPrenom(value: string): string {
+	return value
+		.normalize("NFD")
+		.replace(/[\u0300-\u036f]/g, "")
+		.toLowerCase();
+}
+
+/**
+ * Remplace TOUTES les occurrences du prénom par le marqueur (appel).
+ *
+ * Comparaison PAR MOT, insensible à la casse ET aux accents : « Marie »,
+ * « marie » et « MARIE » sont remplacés ; « Mariette » reste intact (bornes de
+ * mot). Aucun prénom réel ne part donc vers le fournisseur, même écrit en
+ * minuscules ou en capitales dans un exemple ou une réponse du bilan.
+ */
 export function anonymizePrenom(text: string, prenom: string): string {
-	const name = typeof prenom === "string" ? prenom.trim() : "";
+	const name = foldPrenom(typeof prenom === "string" ? prenom.trim() : "");
 	if (name.length === 0) return text;
-	return text.split(name).join(PRENOM_PLACEHOLDER);
+	return text.replace(/[\p{L}\p{N}]+/gu, (word) =>
+		foldPrenom(word) === name ? PRENOM_PLACEHOLDER : word
+	);
 }
 
 /** Réinsère le prénom réel à la place du marqueur (brouillon, côté serveur). */
@@ -480,7 +497,7 @@ export function buildDraftPreview(context: CoachDraftContext): Record<string, un
 				isCurrent && context.stats.peseeRecenteAbsente ? NOT_TRANSMITTED_STALE : stats.weight.delta,
 		},
 	});
-	return {
+	const preview = {
 		...context,
 		stats: {
 			...context.stats,
@@ -507,6 +524,23 @@ export function buildDraftPreview(context: CoachDraftContext): Record<string, un
 			},
 		},
 	};
+	// Le panneau montre EXACTEMENT ce qui part au modèle : le prénom y est le
+	// marqueur, jamais le prénom réel — y compris dans les exemples repris et
+	// les réponses libres du bilan.
+	const anonymized = anonymizeDeep(preview, context.prenom) as Record<string, unknown>;
+	return { ...anonymized, prenom: PRENOM_PLACEHOLDER };
+}
+
+/** Anonymise récursivement toute chaîne d'une valeur (panneau de vérification). */
+function anonymizeDeep(value: unknown, prenom: string): unknown {
+	if (typeof value === "string") return anonymizePrenom(value, prenom);
+	if (Array.isArray(value)) return value.map((item) => anonymizeDeep(item, prenom));
+	if (value && typeof value === "object") {
+		return Object.fromEntries(
+			Object.entries(value).map(([key, item]) => [key, anonymizeDeep(item, prenom)])
+		);
+	}
+	return value;
 }
 
 function formatFoodLines(stats: CoachDraftWeekStats, prefix: string, withCompleteness = false): string[] {

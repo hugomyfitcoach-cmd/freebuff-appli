@@ -1587,8 +1587,14 @@ export default defineSchema({
 		status: v.union(v.literal("ok"), v.literal("error")),
 		/** Coût estimé en USD (tarifs publics, à date) — info de pilotage. */
 		estimatedCostUsd: v.optional(v.number()),
-		/** Raison d'échec courte (tracabilité, jamais de message utilisateur). */
+		/**
+		 * Raison d'échec COURTE : un code stable (`http_401`, `http_429`, `quota`,
+		 * `model`, `timeout`, `incomplete`, `disabled`, `consent`, `unknown`) —
+		 * jamais le message brut du fournisseur ni une valeur de clé.
+		 */
 		failReason: v.optional(v.string()),
+		/** Bilan concerné (brouillon coach) — anti-double génération. Aucun contenu. */
+		checkinId: v.optional(v.string()),
 		createdAt: v.number(),
 	}).index("by_kind", ["kind"]),
 

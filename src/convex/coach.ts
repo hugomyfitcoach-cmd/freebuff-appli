@@ -462,9 +462,15 @@ export const updateClient = mutation({
 		aiConsent: v.optional(v.boolean()),
 	},
 	handler: async (ctx, { sessionToken, userId, prenom, nom, email, birthDate, startDate, heightCm, onboardingEnabled, gsheetUrl, coachingMode, aiConsent }) => {
-		await requireCoach(ctx, sessionToken);
+		const coach = await requireCoach(ctx, sessionToken);
 		const target = await ctx.db.get(userId);
 		if (!target || target.role !== "client") throw new ConvexError("Client introuvable.");
+		// APPARTENANCE — chaque coach ne modifie QUE ses propres clientes
+		// (même contrôle que le calibrage et le brouillon IA) : un autre coach
+		// est refusé même avec l'identifiant de la fiche en main.
+		if (target.createdBy !== coach._id) {
+			throw new ConvexError("Accès réservé au coach de cette cliente.");
+		}
 		const patch: Partial<
 			Pick<UserRow, "prenom" | "nom" | "email" | "birthDate" | "startDate" | "heightCm" | "onboardingEnabled" | "gsheetUrl" | "coachingMode" | "aiConsentAt">
 		> = {};

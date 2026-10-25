@@ -18,7 +18,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import { updateClient } from '../src/convex/coach.ts';
-import { generate, hasAiConsent } from '../src/convex/coachDraft.ts';
+import { DRAFT_RATE_LIMIT_MS, generate, hasAiConsent, recentSuccessfulDraft } from '../src/convex/coachDraft.ts';
+import { anonymizePrenom, buildDraftPreview, PRENOM_PLACEHOLDER } from '../src/convex/coachDraftPrompt.ts';
 import { hashToken } from '../src/convex/helpers.ts';
 import {
 	COACH_DRAFT_CONSENT_MISSING,
@@ -29,7 +30,9 @@ import {
 	DRAFT_CAUSE_NO_CREDIT,
 	DRAFT_CAUSE_TIMEOUT,
 	DRAFT_CAUSE_UNEXPECTED,
+	DRAFT_RATE_LIMITED,
 	draftErrorCause,
+	draftFailReason,
 } from '../src/lib/coachDraftError.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -200,7 +203,7 @@ test('Une cliente ne peut PAS modifier son propre consentement IA', async () => 
  * consentement → contexte) + une trace des écritures. Les références Convex
  * générées sont des proxys : on ordonne donc les réponses.
  */
-function actionCtx(t, { consent }) {
+function actionCtx(t, { consent, recentDraft = false }) {
 	const logs = [];
 	let queryIndex = 0;
 	return {
@@ -210,7 +213,8 @@ function actionCtx(t, { consent }) {
 				queryIndex += 1;
 				if (queryIndex === 1) return { _id: 'coach1', role: 'coach' }; // checkSession
 				if (queryIndex === 2) return consent; // hasAiConsent
-				if (queryIndex === 3) return fixture; // loadContext
+				if (queryIndex === 3) return recentDraft; // recentSuccessfulDraft
+				if (queryIndex === 4) return fixture; // loadContext
 				throw new Error('query inattendue');
 			},
 			runMutation: async (_ref, args) => {
@@ -438,4 +442,180 @@ test('Paramètres cliente : lien « Politique de confidentialité » vers le sit
 	assert.ok(page.includes('https://myfit-coach.fr/confidentialite'), 'URL exacte');
 	assert.ok(page.includes('target="_blank"'), 'nouvel onglet');
 	assert.ok(page.includes('rel="noopener noreferrer"'), 'ouverture sûre');
+});
+
+/* ═════════════ 7) M5-ter — REVUE : CODES, CONFIDENTIALITÉ, APPARTENANCE ═════════════ */
+
+/** Fetch fournisseur simulé (statut et corps imposés) — aucun appel réseau. */
+async function withProviderResponse(status, payload, run) {
+	const saved = {
+		model: process.env.OPENAI_COACH_DRAFT_MODEL,
+		key: process.env.OPENAI_API_KEY,
+		disabled: process.env.AI_COACH_DRAFT_DISABLED,
+	};
+	const realFetch = globalThis.fetch;
+	process.env.OPENAI_COACH_DRAFT_MODEL = 'gpt-6.1-sol';
+	process.env.OPENAI_API_KEY = 'cle-de-test';
+	delete process.env.AI_COACH_DRAFT_DISABLED;
+	globalThis.fetch = async () =>
+		new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json' } });
+	try {
+		return await run();
+	} finally {
+		globalThis.fetch = realFetch;
+		for (const [key, value] of [
+			['OPENAI_COACH_DRAFT_MODEL', saved.model],
+			['OPENAI_API_KEY', saved.key],
+			['AI_COACH_DRAFT_DISABLED', saved.disabled],
+		]) {
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+	}
+}
+
+test('Erreur fournisseur : seul un code court est tracé, jamais le message ni la clé', async () => {
+	const t = await tables({ aiConsentAt: Date.now() });
+	const { ctx, logs } = actionCtx(t, { consent: true });
+	await withProviderResponse(
+		401,
+		{ error: { message: 'Incorrect API key provided: sk-abc' } },
+		async () => {
+			await assert.rejects(
+				() => generate._handler(ctx, { sessionToken: 'tok-coach', checkinId: 'checkin1' }),
+				/brouillon n'a pas pu être préparé/,
+				'aucun détail fournisseur renvoyé au coach'
+			);
+		}
+	);
+	assert.equal(logs.length, 1, 'une seule trace IA');
+	assert.equal(logs[0].failReason, 'http_401', 'code court stabilisé');
+	assert.ok(!logs[0].failReason.includes('sk-'), 'aucune clé dans failReason');
+	assert.ok(!logs[0].failReason.includes('Incorrect'), 'aucun message fournisseur dans failReason');
+	assert.equal(draftErrorCause(logs[0].failReason), DRAFT_CAUSE_INVALID_KEY);
+});
+
+test('Codes courts : traduction constante et classement sans message brut', () => {
+	const cases = [
+		['http_401', DRAFT_CAUSE_INVALID_KEY],
+		['http_429', DRAFT_CAUSE_NO_CREDIT],
+		['quota', DRAFT_CAUSE_NO_CREDIT],
+		['model', DRAFT_CAUSE_MODEL_REFUSED],
+		['timeout', DRAFT_CAUSE_TIMEOUT],
+		['incomplete', DRAFT_CAUSE_INCOMPLETE],
+		['disabled', DRAFT_CAUSE_DISABLED],
+		['consent', COACH_DRAFT_CONSENT_MISSING],
+		['unknown', DRAFT_CAUSE_UNEXPECTED],
+	];
+	for (const [code, expected] of cases) {
+		assert.equal(draftErrorCause(code), expected, `code ${code}`);
+	}
+	assert.equal(draftFailReason('Incorrect API key provided: sk-abc'), 'http_401');
+	assert.equal(draftFailReason('HTTP 429 — Rate limit reached.'), 'http_429');
+	assert.equal(draftFailReason('HTTP 429 — insufficient_quota'), 'quota');
+	assert.equal(draftFailReason('HTTP 404 — model gpt-x does not exist'), 'model');
+	assert.equal(draftFailReason("L'analyse IA a dépassé le délai."), 'timeout');
+	assert.equal(draftFailReason('Consentement IA non enregistré pour cette cliente.'), 'consent');
+	assert.equal(draftFailReason(''), 'unknown');
+	// Aucun message brut ne peut être persisté : la source le prouve aussi.
+	const draftSource = read('src/convex/coachDraft.ts');
+	assert.ok(draftSource.includes('draftFailReason('), 'classement par code');
+	assert.ok(!draftSource.includes('failReason: (error instanceof Error'), 'message brut interdit');
+});
+
+test('Prénom anonymisé sans tenir compte de la casse ni des accents, bornes de mot', () => {
+	assert.equal(
+		anonymizePrenom('marie, MARIE et Marie.', 'Marie'),
+		'{{prenom}}, {{prenom}} et {{prenom}}.',
+		'casse ignorée'
+	);
+	assert.equal(anonymizePrenom('Mariette écrit à marie', 'Marie'), 'Mariette écrit à {{prenom}}', 'bornes de mot');
+	assert.equal(anonymizePrenom('léa et LÉA', 'Léa'), '{{prenom}} et {{prenom}}', 'accents ignorés');
+	assert.equal(anonymizePrenom('Camille est là', ''), 'Camille est là', 'prénom vide : texte intact');
+});
+
+test('Panneau « données envoyées » : {{prenom}} partout, jamais le prénom réel', () => {
+	const preview = buildDraftPreview(fixture);
+	assert.equal(preview.prenom, PRENOM_PLACEHOLDER, 'champ prénom remplacé');
+	const serialized = JSON.stringify(preview);
+	assert.ok(serialized.includes(PRENOM_PLACEHOLDER), 'marqueur présent');
+	assert.ok(!serialized.toLowerCase().includes(fixture.prenom.toLowerCase()), 'aucune occurrence du prénom réel');
+});
+
+test('Un autre coach ne peut pas modifier la fiche d’une cliente', async () => {
+	const t = await tables();
+	t.users.push({ _id: 'coach2', _creationTime: 3, email: 'autre@coaching.test', prenom: 'Zoé', role: 'coach', passwordHash: 'x' });
+	t.sessions.push({
+		_id: 's-coach2',
+		_creationTime: 3,
+		tokenHash: await hashToken('tok-coach2'),
+		userId: 'coach2',
+		expiresAt: Date.now() + 86_400_000,
+	});
+	const ctx = { db: makeDb(t) };
+	await assert.rejects(
+		() => updateClient._handler(ctx, { sessionToken: 'tok-coach2', userId: 'client1', prenom: 'Piraté' }),
+		/coach de cette cliente/
+	);
+	assert.equal(t.users.find((u) => u._id === 'client1').prenom, 'Léa', 'fiche intacte');
+});
+
+test('Deuxième génération pour le même bilan en moins de 30 s : refusée côté serveur', async () => {
+	const t = await tables({ aiConsentAt: Date.now() });
+	const { ctx, logs } = actionCtx(t, { consent: true, recentDraft: true });
+	const realFetch = globalThis.fetch;
+	let fetched = false;
+	globalThis.fetch = async () => {
+		fetched = true;
+		throw new Error('aucun appel fournisseur attendu');
+	};
+	try {
+		await assert.rejects(
+			() => generate._handler(ctx, { sessionToken: 'tok-coach', checkinId: 'checkin1' }),
+			/vient d'être préparé/
+		);
+		assert.equal(fetched, false, 'fournisseur jamais appelé');
+		assert.equal(logs.length, 0, 'aucun coût tracé pour un refus');
+	} finally {
+		globalThis.fetch = realFetch;
+	}
+	// Fenêtre réelle : 30 secondes, et seuls les succès comptent.
+	assert.equal(DRAFT_RATE_LIMIT_MS, 30_000);
+	const now = Date.now();
+	const db = makeDb({
+		...t,
+		aiUsageLog: [
+			{ _id: 'log-old', _creationTime: 1, kind: 'coach_draft', status: 'ok', checkinId: 'checkin1', createdAt: now - 40_000 },
+			{ _id: 'log-err', _creationTime: 2, kind: 'coach_draft', status: 'error', checkinId: 'checkin1', createdAt: now - 5_000 },
+		],
+	});
+	assert.equal(
+		await recentSuccessfulDraft._handler({ db }, { sessionToken: 'tok-coach', checkinId: 'checkin1', since: now - DRAFT_RATE_LIMIT_MS }),
+		false,
+		'succès hors fenêtre et échec récent ignorés'
+	);
+	const dbFresh = makeDb({
+		...t,
+		aiUsageLog: [
+			{ _id: 'log-fresh', _creationTime: 3, kind: 'coach_draft', status: 'ok', checkinId: 'checkin1', createdAt: now - 2_000 },
+		],
+	});
+	assert.equal(
+		await recentSuccessfulDraft._handler({ db: dbFresh }, { sessionToken: 'tok-coach', checkinId: 'checkin1', since: now - DRAFT_RATE_LIMIT_MS }),
+		true,
+		'succès récent détecté'
+	);
+});
+
+test('Refus de consentement : 403 avec le code consent et le message dédié', async () => {
+	assert.equal(draftErrorCause('consent'), COACH_DRAFT_CONSENT_MISSING);
+	const route = read('src/routes/api/coach/draft/+server.ts');
+	assert.ok(route.includes('api.coachDraft.hasAiConsent'), 'consentement vérifié avant génération');
+	assert.ok(route.includes("code: 'consent'"), 'code consent renvoyé');
+	assert.ok(route.includes('status: 403'), 'statut 403');
+	assert.ok(route.includes('COACH_DRAFT_CONSENT_MISSING'), 'message dédié constant');
+	assert.equal(COACH_DRAFT_CONSENT_MISSING, 'Consentement IA non enregistré pour cette cliente');
+	assert.ok(DRAFT_RATE_LIMITED.includes('vient d’être préparé') || DRAFT_RATE_LIMITED.includes("vient d'être préparé"));
+	const card = read('src/lib/components/BilanCard.svelte');
+	assert.ok(card.includes('{draftError}'), 'bandeau affiche le message du serveur');
 });

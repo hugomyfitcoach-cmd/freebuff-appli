@@ -3,7 +3,12 @@ import type { RequestHandler } from './$types';
 import { convex } from '$lib/server/convex';
 import { api } from '../../../../convex/_generated/api.js';
 import { SESSION_COOKIE, requireRole } from '$lib/server/session';
-import { draftErrorCause, DRAFT_CAUSE_TIMEOUT } from '$lib/coachDraftError.js';
+import {
+	draftErrorCause,
+	COACH_DRAFT_CONSENT_MISSING,
+	DRAFT_CAUSE_TIMEOUT,
+	DRAFT_RATE_LIMITED,
+} from '$lib/coachDraftError.js';
 
 /**
  * PRÉPARATION D'UN BROUILLON DE RETOUR — BFF, coach uniquement.
@@ -17,8 +22,12 @@ import { draftErrorCause, DRAFT_CAUSE_TIMEOUT } from '$lib/coachDraftError.js';
  *
  * GARDE-FOUS :
  *  - `requireRole coach` : une autre session est renvoyée vers son espace ;
+ *  - consentement IA absent : 403 avec le code `consent` et le message dédié,
+ *    AVANT toute génération (l'action le revérifie de son côté) ;
  *  - arrêt d'urgence `AI_COACH_DRAFT_DISABLED` (lu côté Convex) : refus AVANT
  *    tout appel, le bouton est déjà masqué côté interface ;
+ *  - anti-double génération : un brouillon réussi pour ce bilan il y a moins
+ *    de 30 s → refus 429, message court ;
  *  - timeout de 40 s : l'appel rend la main, jamais un chargement infini ;
  *  - erreurs sobres et génériques : aucun message technique, aucun détail
  *    Convex/fournisseur, aucun identifiant dans la réponse. Le texte déjà
@@ -89,6 +98,19 @@ export const POST: RequestHandler = async (event) => {
 			return json({ error: DRAFT_DISABLED }, { status: 503 });
 		}
 
+		// CONSENTEMENT (M5-ter) — refus explicite AVANT l'action : 403 + code
+		// `consent`, message constant affiché dans le bandeau orange.
+		const consent = await withTimeout(
+			convex.query(api.coachDraft.hasAiConsent, {
+				sessionToken: token,
+				checkinId: checkinId as never,
+			}),
+			DRAFT_TIMEOUT_MS
+		);
+		if (!consent) {
+			return json({ error: COACH_DRAFT_CONSENT_MISSING, code: 'consent' }, { status: 403 });
+		}
+
 		const text = await withTimeout(
 			convex.action(api.coachDraft.generate, {
 				sessionToken: token,
@@ -109,6 +131,12 @@ export const POST: RequestHandler = async (event) => {
 		console.error('[coach-draft] échec de la préparation', e instanceof Error ? e.message : e);
 		const timedOut = e instanceof Error && e.message === 'draft-timeout';
 		if (timedOut) return json({ error: DRAFT_SLOW }, { status: 504 });
+
+		// Double génération refusée par l'action : message court, jamais le
+		// message Convex brut.
+		if (e instanceof Error && e.message.includes(DRAFT_RATE_LIMITED)) {
+			return json({ error: DRAFT_RATE_LIMITED }, { status: 429 });
+		}
 
 		// CAUSE EXPLICITE (M5) — raison courte déjà tracée par l'action dans
 		// `aiUsageLog.failReason`, traduite en libellé constant. Une cause
