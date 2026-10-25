@@ -11,6 +11,7 @@
 	import { onMount } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { displayExerciseName } from '$lib/exerciseFr';
+	import { parisTodayISO, trainingStatus, TRAINING_STATUS_LABELS, type TrainingStatusKey } from '$lib/trainingProgress';
 
 	let { userId }: { userId: string } = $props();
 
@@ -40,7 +41,33 @@
 		nextSession: { _id: string; date: string; name: string } | null;
 		recentNotes: { _id: string; date: string; name: string; difficulty: number | null; note: string | null }[];
 	};
-	type ScheduledRow = { _id: string; sessionId: string; sessionName?: string; date: string; status: string; completedAt: number | null; difficulty: number | null; note: string | null };
+	type ScheduledRow = {
+		_id: string;
+		sessionId: string;
+		sessionName?: string;
+		date: string;
+		status: string;
+		completedAt: number | null;
+		skippedAt: number | null;
+		startedAt: number | null;
+		difficulty: number | null;
+		note: string | null;
+	};
+
+	/** Statuts calculés (jamais stockés) — la refonte visuelle viendra en T3. */
+	const today = parisTodayISO();
+	const STATUS_TONE: Record<TrainingStatusKey, string> = {
+		done: 'bg-brand-light text-brand-dark',
+		notDone: 'bg-danger-light text-danger',
+		missed: 'bg-danger-light text-danger',
+		planned: 'bg-line/50 text-mist',
+		cancelled: 'bg-line/40 text-mist line-through',
+	};
+	function statusOf(s: ScheduledRow): TrainingStatusKey {
+		return trainingStatus(s, today);
+	}
+	/** Note dépliée depuis la liste (une seule à la fois). */
+	let openNote = $state<string | null>(null);
 
 	let loading = $state(true);
 	let err = $state('');
@@ -415,36 +442,76 @@
 			</div>
 		{/if}
 
+		<!-- ── Retours de la cliente (recentNotes) ── -->
+		{#if summary?.recentNotes?.length}
+			<details class="mt-3" open>
+				<summary class="cursor-pointer text-xs font-semibold text-mist hover:text-ink">Retours de la cliente ({summary.recentNotes.length})</summary>
+				<ul class="mt-2 flex flex-col gap-1.5">
+					{#each summary.recentNotes as n (n._id)}
+						<li class="rounded-lg border border-line px-3 py-2 text-xs">
+							<p class="flex flex-wrap items-center gap-1.5">
+								<span class="font-semibold capitalize text-ink">{fmtISO(n.date)}</span>
+								<span class="text-mist">· {n.name}</span>
+								{#if n.difficulty != null}
+									<span class="rounded-full bg-warn-light px-1.5 py-0.5 text-[10px] font-bold text-ink">Effort {n.difficulty}/5</span>
+								{/if}
+							</p>
+							{#if n.note}<p class="mt-1 whitespace-pre-line text-ink">💬 {n.note}</p>{/if}
+						</li>
+					{/each}
+				</ul>
+			</details>
+		{/if}
+
 		<!-- ── Planning détaillé (avec •••) ── -->
 		{#if scheduled.length > 0}
 			<details class="mt-3" open>
 				<summary class="cursor-pointer text-xs font-semibold text-mist hover:text-ink">Séances planifiées ({scheduled.length}) — déplacer / dupliquer / annuler</summary>
 				<div class="mt-2 max-h-72 space-y-1 overflow-y-auto pr-1">
 					{#each scheduled as s (s._id)}
-						<div class="relative flex items-center justify-between gap-2 rounded-lg border border-line px-3 py-2 text-xs">
-							<span class="font-semibold capitalize text-ink">{fmtISO(s.date)}</span>
-							<span class="min-w-0 flex-1 truncate text-mist">
-								{s.sessionName ?? 'Séance'} ·
-								{#if s.status === 'completed'}✓ réalisée{#if s.note} · 💬{/if}{:else if s.status === 'cancelled'}annulée{:else}prévue{/if}
-							</span>
-							{#if s.status !== 'completed'}
-								<button
-									type="button"
-									onclick={() => (menuFor = menuFor === s._id ? null : s._id)}
-									class="shrink-0 rounded-md px-1.5 py-0.5 font-bold text-mist transition hover:bg-line/60 hover:text-ink"
-									aria-label="Actions"
-								>•••</button>
-								{#if menuFor === s._id}
-									<div class="absolute right-2 top-8 z-20 w-44 overflow-hidden rounded-xl border border-line bg-white shadow-lg">
-										<button type="button" onclick={() => { moveFor = s; moveDate = s.date; menuFor = null; }} class="block w-full px-3 py-2 text-left text-xs font-semibold text-ink hover:bg-line/40">Déplacer</button>
-										<button type="button" onclick={() => { dupFor = s; dupDate = s.date; menuFor = null; }} class="block w-full px-3 py-2 text-left text-xs font-semibold text-ink hover:bg-line/40">Dupliquer</button>
-										{#if s.status === 'planned'}
-											<button type="button" onclick={() => cancelOccurrence(s, true)} class="block w-full px-3 py-2 text-left text-xs font-semibold text-danger hover:bg-danger-light">Annuler</button>
-										{:else}
-											<button type="button" onclick={() => cancelOccurrence(s, false)} class="block w-full px-3 py-2 text-left text-xs font-semibold text-ink hover:bg-line/40">Restaurer</button>
-										{/if}
-									</div>
+						<div class="rounded-lg border border-line px-3 py-2 text-xs">
+							<div class="relative flex items-center justify-between gap-2">
+								<span class="font-semibold capitalize text-ink">{fmtISO(s.date)}</span>
+								<span class="min-w-0 flex-1 truncate text-mist">{s.sessionName ?? 'Séance'}</span>
+								<span class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold {STATUS_TONE[statusOf(s)]}" data-status={statusOf(s)}>
+									{TRAINING_STATUS_LABELS[statusOf(s)]}
+								</span>
+								{#if s.note}
+									<button
+										type="button"
+										onclick={() => (openNote = openNote === s._id ? null : s._id)}
+										aria-expanded={openNote === s._id}
+										aria-label="Voir la note de la cliente"
+										class="shrink-0 rounded-md px-1 py-0.5 transition hover:bg-warn-light"
+									>💬</button>
 								{/if}
+								{#if s.status !== 'completed'}
+									<button
+										type="button"
+										onclick={() => (menuFor = menuFor === s._id ? null : s._id)}
+										class="shrink-0 rounded-md px-1.5 py-0.5 font-bold text-mist transition hover:bg-line/60 hover:text-ink"
+										aria-label="Actions"
+									>•••</button>
+									{#if menuFor === s._id}
+										<div class="absolute right-2 top-8 z-20 w-44 overflow-hidden rounded-xl border border-line bg-white shadow-lg">
+											<button type="button" onclick={() => { moveFor = s; moveDate = s.date; menuFor = null; }} class="block w-full px-3 py-2 text-left text-xs font-semibold text-ink hover:bg-line/40">Déplacer</button>
+											<button type="button" onclick={() => { dupFor = s; dupDate = s.date; menuFor = null; }} class="block w-full px-3 py-2 text-left text-xs font-semibold text-ink hover:bg-line/40">Dupliquer</button>
+											{#if s.status === 'planned'}
+												<button type="button" onclick={() => cancelOccurrence(s, true)} class="block w-full px-3 py-2 text-left text-xs font-semibold text-danger hover:bg-danger-light">Annuler</button>
+											{:else}
+												<button type="button" onclick={() => cancelOccurrence(s, false)} class="block w-full px-3 py-2 text-left text-xs font-semibold text-ink hover:bg-line/40">Restaurer</button>
+											{/if}
+										</div>
+									{/if}
+								{/if}
+							</div>
+							{#if openNote === s._id}
+								<div class="mt-1.5 rounded-lg bg-warn-light px-2.5 py-1.5 text-[11px] text-ink">
+									{#if s.difficulty != null}
+										<p class="font-semibold">Effort {s.difficulty}/5</p>
+									{/if}
+									{#if s.note}<p class="mt-0.5 whitespace-pre-line">{s.note}</p>{/if}
+								</div>
 							{/if}
 						</div>
 					{/each}
