@@ -25,6 +25,13 @@ export const DRAFT_CAUSE_MODEL_REFUSED = 'Modèle refusé par OpenAI';
 /** Cause : délai dépassé (timeout réseau ou délai de l'appel). */
 export const DRAFT_CAUSE_TIMEOUT = 'Délai dépassé, réessaie';
 
+/**
+ * Cause : réponse coupée par la limite de sortie du modèle (statut
+ * `incomplete` ou `finish_reason` « length »). Le texte tronqué n'est jamais
+ * affiché — on invite à réessayer.
+ */
+export const DRAFT_CAUSE_INCOMPLETE = "Réponse incomplète de l'IA, réessaie";
+
 /** Cause : arrêt d'urgence `AI_COACH_DRAFT_DISABLED` actif. */
 export const DRAFT_CAUSE_DISABLED = 'Assistant désactivé';
 
@@ -47,6 +54,9 @@ export function draftErrorCause(failReason: string | null | undefined): string {
 
 	// Délai dépassé : timeout du client, abort, ou message « a dépassé le délai ».
 	if (/timeout|timed out|abort|d[ée]lai|draft-timeout/i.test(reason)) return DRAFT_CAUSE_TIMEOUT;
+
+	// Réponse coupée (limite de sortie) : cause tracée « incomplete ».
+	if (/\bincomplete\b|incompl[èe]te/i.test(reason)) return DRAFT_CAUSE_INCOMPLETE;
 
 	// Clé refusée / expirée (OpenAI répond 401).
 	if (/\b401\b|invalid[_\s-]?api[_\s-]?key|incorrect api key|unauthori[sz]ed/i.test(reason)) {

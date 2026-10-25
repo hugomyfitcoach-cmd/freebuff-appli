@@ -23,6 +23,7 @@ import { hashToken } from '../src/convex/helpers.ts';
 import {
 	COACH_DRAFT_CONSENT_MISSING,
 	DRAFT_CAUSE_DISABLED,
+	DRAFT_CAUSE_INCOMPLETE,
 	DRAFT_CAUSE_INVALID_KEY,
 	DRAFT_CAUSE_MODEL_REFUSED,
 	DRAFT_CAUSE_NO_CREDIT,
@@ -317,6 +318,99 @@ test('Le bandeau coach affiche la cause du serveur, sans jamais de contenu clien
 	assert.ok(card.includes('{draftError}'), 'bandeau affiché');
 	assert.ok(card.includes('bg-warn-light'), 'bandeau orange conservé');
 	assert.ok(card.includes('Ton texte actuel est conservé'));
+});
+
+/* ═════════════ 4 bis) RÉPONSE INCOMPLÈTE (JAMAIS DE TEXTE TRONQUÉ) ═════════════ */
+
+/**
+ * Réponse OpenAI simulée : un fetch factice renvoie le JSON fourni et on
+ * garde le corps de la requête pour vérifier la limite de sortie envoyée.
+ * Aucun appel réseau réel.
+ */
+async function withOpenAiStub(payload, run) {
+	const saved = {
+		model: process.env.OPENAI_COACH_DRAFT_MODEL,
+		key: process.env.OPENAI_API_KEY,
+		disabled: process.env.AI_COACH_DRAFT_DISABLED,
+	};
+	const requests = [];
+	const realFetch = globalThis.fetch;
+	process.env.OPENAI_COACH_DRAFT_MODEL = 'gpt-6.1-sol';
+	process.env.OPENAI_API_KEY = 'cle-de-test';
+	delete process.env.AI_COACH_DRAFT_DISABLED;
+	globalThis.fetch = async (_url, init) => {
+		requests.push(JSON.parse(init.body));
+		return new Response(JSON.stringify(payload), {
+			status: 200,
+			headers: { 'Content-Type': 'application/json' },
+		});
+	};
+	try {
+		return await run(requests);
+	} finally {
+		globalThis.fetch = realFetch;
+		for (const [key, value] of [
+			['OPENAI_COACH_DRAFT_MODEL', saved.model],
+			['OPENAI_API_KEY', saved.key],
+			['AI_COACH_DRAFT_DISABLED', saved.disabled],
+		]) {
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+	}
+}
+
+test('Réponse incomplète : aucun texte affiché, cause « incomplete » tracée', async () => {
+	const t = await tables({ aiConsentAt: Date.now() });
+	const { ctx, logs } = actionCtx(t, { consent: true });
+	await withOpenAiStub(
+		{
+			status: 'incomplete',
+			incomplete_details: { reason: 'max_output_tokens' },
+			// Texte bien présent mais COUPÉ en pleine phrase : il ne doit jamais
+			// ressortir, même partiellement.
+			output_text: 'Camille, cette semaine tu as été très régulière sur tes pas et',
+			usage: { input_tokens: 900, output_tokens: 2000 },
+		},
+		async () => {
+			await assert.rejects(
+				() => generate._handler(ctx, { sessionToken: 'tok-coach', checkinId: 'checkin1' }),
+				/brouillon n'a pas pu être préparé/,
+				'aucun texte renvoyé au coach'
+			);
+		}
+	);
+	assert.equal(logs.length, 1, 'une seule trace IA');
+	assert.equal(logs[0].status, 'error');
+	assert.equal(logs[0].failReason, 'incomplete', 'cause courte tracée dans aiUsageLog');
+	// Le bandeau orange reçoit le libellé exact via la cause traduite.
+	assert.equal(draftErrorCause(logs[0].failReason), "Réponse incomplète de l'IA, réessaie");
+	assert.equal(DRAFT_CAUSE_INCOMPLETE, "Réponse incomplète de l'IA, réessaie");
+	assert.equal(draftErrorCause('incomplete'), DRAFT_CAUSE_INCOMPLETE);
+});
+
+test('Réponse complète : le texte est affiché et la limite envoyée vaut 2 000 tokens', async () => {
+	const t = await tables({ aiConsentAt: Date.now() });
+	const { ctx, logs } = actionCtx(t, { consent: true });
+	const complet = 'Camille, merci pour ce bilan : tu as tenu ta régularité sur les repas. On garde une seule priorité simple pour la semaine prochaine.';
+	let requests;
+	await withOpenAiStub(
+		{
+			status: 'completed',
+			output_text: complet,
+			usage: { input_tokens: 900, output_tokens: 320 },
+		},
+		async (seen) => {
+			const text = await generate._handler(ctx, { sessionToken: 'tok-coach', checkinId: 'checkin1' });
+			requests = seen;
+			assert.equal(text, complet, 'texte complet affiché tel quel');
+		}
+	);
+	assert.equal(logs.length, 1);
+	assert.equal(logs[0].status, 'ok', 'aucune erreur tracée pour une réponse complète');
+	assert.equal(requests.length, 1, 'un seul appel fournisseur');
+	assert.equal(requests[0].max_output_tokens, 2000, 'limite de sortie portée à 2 000 tokens');
+	assert.equal(requests[0].reasoning.effort, 'minimal', 'effort de raisonnement au minimum');
 });
 
 /* ═════════════ 5) BOUTON DÉSACTIVÉ SANS CONSENTEMENT ═════════════ */

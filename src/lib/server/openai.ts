@@ -68,6 +68,29 @@ export type AiUsage = {
 
 export class OpenAiUnavailableError extends Error {}
 
+/**
+ * Réponse COUPÉE par le fournisseur (limite de sortie atteinte, statut
+ * `incomplete` ou `finish_reason: "length"`). Jamais affichée à l'utilisateur :
+ * un texte tronqué en pleine phrase n'est pas un brouillon.
+ */
+export class OpenAiIncompleteError extends Error {}
+
+/**
+ * Réponse tronquée ? Statut `incomplete` (Responses API), détail
+ * `max_output_tokens` / `length`, ou `finish_reason: "length"` sur un item.
+ * Tout autre statut (y compris absent) est considéré comme complet.
+ */
+function isIncompleteResponse(raw: {
+	status?: string;
+	incomplete_details?: { reason?: string };
+	output?: { finish_reason?: string }[];
+}): boolean {
+	if (raw.status === 'incomplete') return true;
+	const reason = raw.incomplete_details?.reason;
+	if (typeof reason === 'string' && /max[_\s-]?tokens|length/i.test(reason)) return true;
+	return (raw.output ?? []).some((o) => o.finish_reason === 'length');
+}
+
 /** dataURL → data:URI OpenAI (image_url). Borne la taille en mémoire. */
 function assertImageDataUrl(dataUrl: string): void {
 	if (typeof dataUrl !== 'string' || !/^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/.test(dataUrl.slice(0, 64) === dataUrl ? dataUrl : dataUrl.slice(0, 64))) {
@@ -96,7 +119,7 @@ export type OpenAiMessage = {
 async function callOpenAiCore(
 	input: OpenAiMessage[],
 	maxOutputTokens: number,
-	options: { model?: string; json?: boolean; temperature?: number } = {}
+	options: { model?: string; json?: boolean; temperature?: number; reasoningEffort?: 'minimal' | 'low' } = {}
 ): Promise<{ text: string; json: unknown; usage: AiUsage }> {
 	const key = aiEnv().OPENAI_API_KEY;
 	if (!key) throw new OpenAiUnavailableError("Analyse IA non configurée sur le serveur.");
@@ -117,6 +140,11 @@ async function callOpenAiCore(
 				// Température transmise seulement si l'appelant la demande (brouillon
 				// coach) — les analyses JSON historiques gardent le réglage du modèle.
 				...(options.temperature === undefined ? {} : { temperature: options.temperature }),
+				// Effort de raisonnement : les modèles qui raisonnent consomment des
+				// tokens de sortie avant d'écrire — au minimum, le texte a la place.
+				...(options.reasoningEffort === undefined
+					? {}
+					: { reasoning: { effort: options.reasoningEffort } }),
 				...(options.json === false ? {} : { text: { format: { type: 'json_object' } } }),
 				input,
 			}),
@@ -141,7 +169,9 @@ async function callOpenAiCore(
 	}
 	const raw = (await res.json()) as {
 		output_text?: string;
-		output?: { type: string; content?: { type: string; text?: string }[] }[];
+		output?: { type: string; finish_reason?: string; content?: { type: string; text?: string }[] }[];
+		status?: string;
+		incomplete_details?: { reason?: string };
 		usage?: {
 			input_tokens?: number;
 			output_tokens?: number;
@@ -149,6 +179,11 @@ async function callOpenAiCore(
 		};
 	};
 	const text = raw.output_text ?? (raw.output ?? []).flatMap((o) => (o.content ?? []).map((c) => c.text ?? '')).join('');
+	// STATUT DE FIN lu AVANT tout renvoi de texte : une réponse coupée
+	// (limite de sortie) n'est jamais rendue, même partiellement.
+	if (isIncompleteResponse(raw)) {
+		throw new OpenAiIncompleteError('Réponse incomplète (limite de sortie atteinte).');
+	}
 	const durationMs = Date.now() - started;
 	const inputTokens = raw.usage?.input_tokens;
 	const outputTokens = raw.usage?.output_tokens;
@@ -219,12 +254,28 @@ async function callOpenAiText(
 /** Température basse du brouillon : régularité des retours d'un appel à l'autre. */
 export const COACH_DRAFT_TEMPERATURE = 0.3;
 
+/**
+ * Effort de raisonnement demandé au brouillon : le MINIMUM accepté par le
+ * fournisseur. Le texte attendu est court ; les tokens de raisonnement ne
+ * doivent pas manger la limite de sortie.
+ */
+export const COACH_DRAFT_REASONING_EFFORT = 'minimal' as const;
+
 /** Un refus HTTP 400 qui cite explicitement le réglage de température. */
 function isTemperatureRejected(error: unknown): boolean {
 	return (
 		error instanceof OpenAiUnavailableError &&
 		/\bHTTP 400\b/.test(error.message) &&
 		/temperature/i.test(error.message)
+	);
+}
+
+/** Un refus HTTP 400 qui cite explicitement le réglage d'effort de raisonnement. */
+function isReasoningRejected(error: unknown): boolean {
+	return (
+		error instanceof OpenAiUnavailableError &&
+		/\bHTTP 400\b/.test(error.message) &&
+		/reasoning|effort/i.test(error.message)
 	);
 }
 export async function generateCoachDraftText(args: {
@@ -242,13 +293,26 @@ export async function generateCoachDraftText(args: {
 	];
 	const temperature = args.temperature ?? COACH_DRAFT_TEMPERATURE;
 	try {
-		return await callOpenAiCore(messages, args.maxOutputTokens, { model, json: false, temperature });
+		return await callOpenAiCore(messages, args.maxOutputTokens, {
+			model,
+			json: false,
+			temperature,
+			reasoningEffort: COACH_DRAFT_REASONING_EFFORT,
+		});
 	} catch (error) {
-		// Certains modèles refusent tout réglage de température : on réessaie
-		// sans le réglage, soit la valeur par défaut — la plus proche qu'ils
-		// acceptent. Jamais de repli sur un autre modèle ni sur un autre texte.
-		if (!isTemperatureRejected(error)) throw error;
-		return await callOpenAiCore(messages, args.maxOutputTokens, { model, json: false });
+		// Certains modèles refusent un réglage optionnel (température, effort de
+		// raisonnement) : on réessaie sans CELUI qu'ils refusent, avec la valeur
+		// par défaut — la plus proche qu'ils acceptent. Jamais de repli sur un
+		// autre modèle ni sur un autre texte.
+		const withoutTemperature = isTemperatureRejected(error);
+		const withoutReasoning = isReasoningRejected(error);
+		if (!withoutTemperature && !withoutReasoning) throw error;
+		return await callOpenAiCore(messages, args.maxOutputTokens, {
+			model,
+			json: false,
+			...(withoutTemperature ? {} : { temperature }),
+			...(withoutReasoning ? {} : { reasoningEffort: COACH_DRAFT_REASONING_EFFORT }),
+		});
 	}
 }
 
