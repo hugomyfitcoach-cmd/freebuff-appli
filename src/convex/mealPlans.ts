@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { getSessionUser } from "./helpers";
 import { ciqualFoodSource } from "./ciqualSource";
+import { resolveReferenceFood } from "./referenceFoods";
 import { applyKcalGuard } from "../lib/nutritionGuard";
 import { recordClientEvent, recordEvent } from "./notifications";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
@@ -10,7 +11,7 @@ import type { Id, Doc } from "./_generated/dataModel";
 /**
  * Plans de repas (coach) + planification (cliente).
  *
- * - `mealPlanTemplates`    : bibliothèque de plans de la coach (1 journée type,
+ * - `mealPlanTemplates`    : bibliothèque de plans du coach (1 journée type,
  *   indépendante des clientes — le même plan sert à plusieurs clientes).
  * - `mealPlanAssignments`  : plan ↔ cliente (période + jours concernés).
  * - `plannedEntries`       : aliment planifié d'une journée précise
@@ -42,13 +43,13 @@ const round1 = (n: number) => Math.round(n * 10) / 10;
 async function requireCoach(ctx: Pick<QueryCtx, "db">, sessionToken: string | undefined | null) {
 	const user = await getSessionUser(ctx, sessionToken);
 	if (!user) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
-	if (user.role !== "coach") throw new ConvexError("Réservé à la coach (CRM).");
+	if (user.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
 	return user;
 }
 
 /* ───────────────────────── Bibliothèque (coach) ───────────────────────── */
 
-/** Liste compacte des plans de la coach (sans les items — léger). */
+/** Liste compacte des plans du coach (sans les items — léger). */
 export const listTemplates = query({
 	args: { sessionToken: v.optional(v.string()) },
 	handler: async (ctx, { sessionToken }) => {
@@ -123,11 +124,14 @@ type ItemInput = {
 	customFoodId?: Id<"customFoods">;
 	/** Fiche de RÉFÉRENCE Ciqual (ANSES) : libellé officiel exact — exclusif. */
 	ciqualLabel?: string;
+	/** Aliment de référence G-Flux (R3-bis) : provenance explicite + identifiant. */
+	referenceSource?: "ciqual" | "gflux";
+	referenceFoodId?: string;
 	qtyGrams: number;
 };
 
 /** Construit le snapshot des items + totaux (source unique pour create/update). */
-async function buildSnapshot(ctx: QueryCtx, items: ItemInput[]) {
+async function buildSnapshot(ctx: QueryCtx, coach: Doc<"users">, items: ItemInput[]) {
 	if (items.length === 0) throw new ConvexError("Ajoute au moins un aliment au plan.");
 	if (items.length > 60) throw new ConvexError("Maximum 60 aliments par plan.");
 	const snapshot: {
@@ -135,6 +139,8 @@ async function buildSnapshot(ctx: QueryCtx, items: ItemInput[]) {
 		foodId?: Id<"foods">;
 		customFoodId?: Id<"customFoods">;
 		ciqualLabel?: string;
+		referenceSource?: "ciqual" | "gflux";
+		referenceFoodId?: string;
 		name: string;
 		brand?: string;
 		imageUrl?: string;
@@ -153,19 +159,41 @@ async function buildSnapshot(ctx: QueryCtx, items: ItemInput[]) {
 		if (!isFinite(it.qtyGrams) || it.qtyGrams <= 0 || it.qtyGrams > 5000) {
 			throw new ConvexError("Quantité invalide (entre 1 et 5000 g).");
 		}
+		// ALIMENT DE RÉFÉRENCE G-FLUX (R3-bis) : provenance EXPLICITE
+		// (`referenceSource: "gflux"` + `referenceFoodId`) résolue pour le coach
+		// propriétaire — `ciqualLabel` reste réservé à Ciqual. Le plan reçoit une
+		// COPIE du nom et des valeurs (snapshot) : modifier ou supprimer la fiche
+		// ensuite ne change jamais les plans existants.
+		const gfluxFood =
+			it.referenceSource === "gflux" ? await resolveReferenceFood(ctx, coach, it.referenceFoodId) : null;
+		if (it.referenceSource === "gflux" && !gfluxFood) {
+			throw new ConvexError("Une fiche de référence du plan n'existe plus.");
+		}
 		// Fiche de RÉFÉRENCE Ciqual (additif) : valeurs officielles /100 g résolues
 		// côté serveur — aucune donnée OFF lue, modifiée ou fusionnée.
-		const ciqualFood = it.ciqualLabel ? ciqualFoodSource(it.ciqualLabel) : null;
-		if (it.ciqualLabel && !ciqualFood) {
-			throw new ConvexError("Une référence Ciqual du plan n'existe plus.");
+		const ciqualFood = !gfluxFood && it.ciqualLabel ? ciqualFoodSource(it.ciqualLabel) : null;
+		if (!gfluxFood && it.ciqualLabel && !ciqualFood) {
+			throw new ConvexError("Une fiche de référence du plan n'existe plus.");
 		}
-		const food = ciqualFood ?? (await resolveItemFood(ctx, it.foodId, it.customFoodId));
+		const food = gfluxFood
+			? {
+					name: gfluxFood.name,
+					brand: undefined,
+					imageUrl: undefined,
+					kcal100: gfluxFood.kcal,
+					carbs100: gfluxFood.carbsG,
+					protein100: gfluxFood.proteinG,
+					fat100: gfluxFood.fatG,
+				}
+			: (ciqualFood ?? (await resolveItemFood(ctx, it.foodId, it.customFoodId)));
 		const k = it.qtyGrams / 100;
 		const row = {
 			meal: it.meal,
-			foodId: ciqualFood ? undefined : (it.foodId ?? undefined),
-			customFoodId: ciqualFood ? undefined : (it.customFoodId ?? undefined),
+			foodId: ciqualFood || gfluxFood ? undefined : (it.foodId ?? undefined),
+			customFoodId: ciqualFood || gfluxFood ? undefined : (it.customFoodId ?? undefined),
 			ciqualLabel: ciqualFood ? it.ciqualLabel : undefined,
+			referenceSource: gfluxFood ? ("gflux" as const) : ciqualFood ? ("ciqual" as const) : undefined,
+			referenceFoodId: gfluxFood ? it.referenceFoodId : undefined,
 			name: food.name,
 			brand: food.brand,
 			imageUrl: food.imageUrl,
@@ -202,6 +230,8 @@ export const createTemplate = mutation({
 				foodId: v.optional(v.id("foods")),
 				customFoodId: v.optional(v.id("customFoods")),
 				ciqualLabel: v.optional(v.string()),
+				referenceSource: v.optional(v.union(v.literal("ciqual"), v.literal("gflux"))),
+				referenceFoodId: v.optional(v.string()),
 				qtyGrams: v.number(),
 			})
 		),
@@ -215,7 +245,7 @@ export const createTemplate = mutation({
 		if (description && description.trim().length > 300) {
 			throw new ConvexError("Description trop longue (300 caractères max).");
 		}
-		const snap = await buildSnapshot(ctx, items);
+		const snap = await buildSnapshot(ctx, coach, items);
 		const now = Date.now();
 		const templateId = await ctx.db.insert("mealPlanTemplates", {
 			coachId: coach._id,
@@ -242,6 +272,8 @@ export const updateTemplate = mutation({
 				foodId: v.optional(v.id("foods")),
 				customFoodId: v.optional(v.id("customFoods")),
 				ciqualLabel: v.optional(v.string()),
+				referenceSource: v.optional(v.union(v.literal("ciqual"), v.literal("gflux"))),
+				referenceFoodId: v.optional(v.string()),
 				qtyGrams: v.number(),
 			})
 		),
@@ -257,7 +289,7 @@ export const updateTemplate = mutation({
 		if (description && description.trim().length > 300) {
 			throw new ConvexError("Description trop longue (300 caractères max).");
 		}
-		const snap = await buildSnapshot(ctx, items);
+		const snap = await buildSnapshot(ctx, coach, items);
 		await ctx.db.patch(templateId, {
 			name: clean,
 			description: description?.trim() || undefined,
@@ -486,7 +518,7 @@ export const ensurePlanForDate = mutation({
  * - l'assignation doit couvrir la date (start/end/weekday, non retirée) ;
  * - une date PASSÉE n'est jamais résolue (l'historique n'est jamais reconstruit) ;
  * - items déjà matérialisés pour la même clé template → aucun doublon ;
- * - un template modifié par la coach n'affecte que les dates PAS ENCORE matérialisées.
+ * - un template modifié par le coach n'affecte que les dates PAS ENCORE matérialisées.
  */
 export async function resolveCoachPlanForDate(
 	ctx: MutationCtx,
@@ -544,6 +576,8 @@ export async function resolveCoachPlanForDate(
 			foodId: item.foodId,
 			customFoodId: item.customFoodId,
 			ciqualLabel: item.ciqualLabel,
+			referenceSource: item.referenceSource,
+			referenceFoodId: item.referenceFoodId,
 			createdAt: Date.now(),
 		});
 	}
@@ -554,7 +588,7 @@ function templateItemKey(item: { meal: string; name: string }, index: number): s
 	return `${index}:${item.meal}:${item.name}`;
 }
 
-/** Jour ISO local d'un timestamp (le serveur vit dans le fuseau de la coach —
+/** Jour ISO local d'un timestamp (le serveur vit dans le fuseau du coach —
  *  la résolution ne sert qu'à borner « pas de résolution dans le passé »). */
 function localTodayOfTs(ts: number): string {
 	const d = new Date(ts);

@@ -4,7 +4,7 @@ import { api } from '../../../convex/_generated/api.js';
 import { SESSION_COOKIE, requireRole } from '$lib/server/session';
 
 /**
- * Rendez-vous (coach) — authentifie la coach et fournit la liste des clientes
+ * Rendez-vous (coach) — authentifie le coach et fournit la liste des clientes
  * (modale de réservation). La liste des RDV et les disponibilités sont
  * chargées côté client (fetch) pour rester fraîches après chaque action.
  */

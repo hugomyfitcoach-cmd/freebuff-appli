@@ -67,7 +67,7 @@ function isoWeekday(iso: string): number {
 
 async function requireCoach(ctx: Pick<MutationCtx, "db">, sessionToken?: string | null) {
 	const coach = await getSessionUser(ctx, sessionToken);
-	if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (CRM).");
+	if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
 	return coach;
 }
 
@@ -89,7 +89,7 @@ export const SUGGESTED_WEEKDAYS: Record<number, number[]> = {
 /**
  * Dates des occurrences : les séances (dans l'ordre du programme) se posent
  * en boucle sur les jours cochés, à partir de la date de début incluse.
- * Plusieurs séances peuvent tomber le même jour si la coach coche plus de
+ * Plusieurs séances peuvent tomber le même jour si le coach coche plus de
  * jours qu'il n'y a de séances… non : en boucle, chaque jour coché porte la
  * séance suivante, et après la dernière on recommence à la première.
  */
@@ -107,7 +107,7 @@ function plannedDates(startDate: string, endDate: string, weekdays: number[]): s
 /* ═══════════ Lectures coach ═══════════ */
 
 /**
- * Liste des assignations de la coach (toutes clientes), avec un résumé par
+ * Liste des assignations du coach (toutes clientes), avec un résumé par
  * cliente : programme, période, séances prévues/réalisées, prochaine séance.
  * Sert à l'onglet Entraînement du tableau de bord ET aux Vision 360.
  */
@@ -119,7 +119,7 @@ export const listAssignments = query({
 	},
 	handler: async (ctx, { sessionToken, userId }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
-		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (CRM).");
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
 
 		const rows = await ctx.db.query("trainingAssignments").withIndex("by_coach", (q) => q.eq("coachId", coach._id)).collect();
 		const today = new Date().toISOString().slice(0, 10);
@@ -164,7 +164,7 @@ export const assignmentDetail = query({
 	args: { sessionToken: v.optional(v.string()), assignmentId: v.id("trainingAssignments") },
 	handler: async (ctx, { sessionToken, assignmentId }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
-		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (CRM).");
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
 		const a = await ctx.db.get(assignmentId);
 		if (!a || a.coachId !== coach._id) throw new ConvexError("Assignation introuvable.");
 		const [program, client, sessions] = await Promise.all([
@@ -224,7 +224,7 @@ export const assignProgram = mutation({
 		/** Programme MODÈLE (sans clientId) à copier. */
 		sourceProgramId: v.id("trainingPrograms"),
 		startDate: v.string(),
-		/** Durée en semaines — OBLIGATOIRE, choisie explicitement par la coach. */
+		/** Durée en semaines — OBLIGATOIRE, choisie explicitement par le coach. */
 		weeks: v.number(),
 		/** Jours de semaine cochés (1..7 = lundi..dimanche). */
 		weekdays: v.array(v.number()),
@@ -474,7 +474,7 @@ export const clientTrainingSummary = query({
 	args: { sessionToken: v.optional(v.string()), userId: v.id("users") },
 	handler: async (ctx, { sessionToken, userId }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
-		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (CRM).");
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
 		const target = await ctx.db.get(userId);
 		if (!target || target.role !== "client") throw new ConvexError("Cliente introuvable.");
 
@@ -602,7 +602,7 @@ export const clientExerciseHistory = query({
 	},
 	handler: async (ctx, { sessionToken, userId, exerciseId }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
-		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (CRM).");
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
 
 		if (!exerciseId) {
 			// Index des exercices tracés (distincts, avec compte de séries).

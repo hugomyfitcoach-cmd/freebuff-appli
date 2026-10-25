@@ -24,7 +24,7 @@ type UserDoc = Doc<"users">;
 async function requireCoach(ctx: { db: import("./_generated/server").QueryCtx["db"] }, sessionToken: string | undefined | null): Promise<UserDoc> {
 	const user = await getSessionUser(ctx, sessionToken);
 	if (!user) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
-	if (user.role !== "coach") throw new ConvexError("Accès réservé à la coach (CRM).");
+	if (user.role !== "coach") throw new ConvexError("Accès réservé au coach (CRM).");
 	return user;
 }
 
@@ -247,7 +247,7 @@ export const markResourcesSeen = mutation({
 	},
 });
 
-/** Supprime définitivement une entrée (fichiers du storage inclus) — réservé à la coach. */
+/** Supprime définitivement une entrée (fichiers du storage inclus) — réservé au coach. */
 export const deleteResource = mutation({
 	args: { sessionToken: v.optional(v.string()), resourceId: v.id("coachResources") },
 	handler: async (ctx, { sessionToken, resourceId }) => {

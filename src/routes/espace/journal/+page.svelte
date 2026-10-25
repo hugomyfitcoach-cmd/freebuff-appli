@@ -5,6 +5,7 @@
 	import { startBarcodeScanner, CameraPermissionError, normalizeProductCode, type BarcodeScannerHandle, type TorchHandle } from '$lib/barcodeScanner';
 	import { compressImage, detectBarcodeInDataUrl } from '$lib/labelBarcode';
 	import { userErrMsg } from '$lib/errors';
+	import { cookingBadgeOf } from '$lib/cookedState';
 	import { currentLocalDay } from '$lib/currentDay.svelte';
 	import { appWarm, firstVisit, isFresh, noteSync, restoreScroll, saveScroll } from '$lib/navMemory';
 	import JournalDay from '$lib/components/JournalDay.svelte';
@@ -16,6 +17,8 @@ import { FRONTEND_API_VERSION } from '$lib/apiVersion';
 import { warmFoodImages } from '$lib/foodImageWarm';
 import { journalTipForDay } from '$lib/data/journalTips';
 import { optimizeImageFile } from '$lib/media';
+import { clearRecipeDraft, loadRecipeDraft, saveRecipeDraft } from '$lib/recipeDraft';
+import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 
 	type Goals = { kcal: number; carbs: number; protein: number; fat: number; maintenanceKcal?: number };
 	type Entry = {
@@ -47,6 +50,8 @@ import { optimizeImageFile } from '$lib/media';
 		foodId?: string;
 		customFoodId?: string;
 		ciqualLabel?: string;
+		/** Provenance de la fiche de référence (R3-bis) : jamais déduite de ciqualLabel. */
+		referenceSource?: 'ciqual' | 'gflux';
 	};
 	/** Item PLANIFIÉ — plan coach ou préparation cliente : grisé, 0 impact header. */
 	type PlannedItem = {
@@ -108,6 +113,11 @@ import { optimizeImageFile } from '$lib/media';
 		barcode?: string;
 		/** Fiche de RÉFÉRENCE Ciqual (ANSES) — _id = libellé officiel exact. */
 		ciqual?: boolean;
+		/** Fiche de RÉFÉRENCE G-FLUX (Mission R3) — badge distinct ; `_id` = fiche,
+		 *  transmise à l'ajout via `referenceFoodId` (jamais `ciqualLabel`). */
+		gflux?: boolean;
+		/** Badge de cuisson Ciqual (détection cookedState.ts, source unique). */
+		cookLabel?: string | null;
 		/** Fibres /100 g (aliments personnels, information d'étiquette). */
 		fiber100?: number;
 		/** Sel /100 g (aliments personnels, information d'étiquette). */
@@ -880,17 +890,24 @@ import { optimizeImageFile } from '$lib/media';
 	 *  anciennes — jamais de résultats d'une recherche périmée). */
 	let searchSeq = 0;
 
-	/** Fiche Ciqual → Food (l'_id porté par les flux est le LIBELLÉ officiel exact ;
-	 *  à l'ajout, le serveur résout les valeurs — jamais le client). */
-	function ciqualToFood(h: { label: string; kcal: number; protein?: number; carbs?: number; fat?: number }): Food {
+	/** Fiche de référence → Food (l'_id porté par les flux est le LIBELLÉ officiel
+	 *  exact pour Ciqual, l'identifiant de la fiche pour un aliment du coach ; à
+	 *  l'ajout, le serveur résout les valeurs — jamais le client). */
+	function ciqualToFood(h: { label: string; kcal: number; protein?: number; carbs?: number; fat?: number; source?: 'gflux'; id?: string; cookLabel?: string | null }): Food {
+		const gflux = h.source === 'gflux';
 		return {
-			_id: h.label,
+			_id: h.id ?? h.label,
 			name: h.label,
 			kcal100: h.kcal,
 			carbs100: h.carbs ?? 0,
 			protein100: h.protein ?? 0,
 			fat100: h.fat ?? 0,
-			ciqual: true,
+			ciqual: !gflux,
+			...(gflux ? { gflux: true } : {}),
+			// Badge de cuisson : calculé côté serveur pour une fiche G-Flux (champ
+			// cookingState prioritaire sur le nom) ; sinon détection par le nom —
+			// même source unique cookedState.ts.
+			cookLabel: h.cookLabel ?? cookingBadgeOf(h.label),
 		};
 	}
 
@@ -939,7 +956,9 @@ import { optimizeImageFile } from '$lib/media';
 		await ciq;
 		if (guard !== searchSeq) return; // réponse périmée : une recherche plus récente a pris la main
 		if (err) {
-			searchError = err instanceof Error ? err.message : String(err);
+			// Panne Open Food Facts : les fiches Ciqual restent affichées (Mission
+			// R1-bis) ; seule la section Produits signale l'indisponibilité.
+			searchError = 'Produits indisponibles pour le moment.';
 			results = [];
 			hasMore = false;
 			nextOffset = 0;
@@ -1873,6 +1892,13 @@ import { optimizeImageFile } from '$lib/media';
 	let mealSearchMode = $state<'search' | 'barcode'>('search');
 	let mealSaving = $state(false);
 	let mealError = $state('');
+	/** Cliente connectée (clé de brouillon PAR compte). */
+	const recipeUserId = $derived(data.user?._id ?? '');
+	/** Un brouillon local existe pour cette nouvelle recette (proposé à l'ouverture). */
+	let recipeDraftFound = $state(false);
+	/** Confirmation de sortie du formulaire (brouillon gardé). */
+	let mealLeaveConfirm = $state(false);
+	let recipeDraftTimer: ReturnType<typeof setTimeout> | undefined;
 
 	function openMealEditor() {
 		leaveBarcodeForEditor();
@@ -1887,7 +1913,9 @@ import { optimizeImageFile } from '$lib/media';
 			mealShowScrollHint = false;
 			mealCiqualResults = [];
 			mealError = '';
-		}
+		recipeDraftFound = !!loadRecipeDraft(recipeUserId);
+		mealLeaveConfirm = false;
+	}
 	/** Édition : pré-remplit l'éditeur avec le repas existant (ingrédients « reconstruits »
 	 *  depuis le snapshot — mêmes valeurs /100 g, le serveur recalcule à l'enregistrement). */
 	function openMealEditorFor(meal: Meal) {
@@ -1924,10 +1952,110 @@ import { optimizeImageFile } from '$lib/media';
 			mealCiqualResults = [];
 			mealError = '';
 		}
-	function closeMealEditor() {
+	/* ————— Brouillon de recette (NOUVELLE recette uniquement) —————
+	   La saisie survit à une sortie de l'écran (localStorage, par cliente).
+	   Jamais de photo dans le brouillon : nom, description, ingrédients. */
+	function recipeHasContent(): boolean {
+		return mealName.trim().length > 0 || mealDesc.trim().length > 0 || mealItems.length > 0;
+	}
+	function draftIngredients() {
+		return mealItems.map((it) => ({
+			foodId: it.food._id,
+			name: it.food.name,
+			...(it.food.brand ? { brand: it.food.brand } : {}),
+			kcal100: it.food.kcal100,
+			carbs100: it.food.carbs100,
+			protein100: it.food.protein100,
+			fat100: it.food.fat100,
+			qty: it.qty,
+			...(it.customFoodId ? { customFoodId: it.customFoodId } : {}),
+			...(it.ciqualLabel ? { ciqualLabel: it.ciqualLabel } : {}),
+			...(it.aiEstimate ? { aiEstimate: true } : {}),
+		}));
+	}
+	/** Écrit tout de suite le brouillon (sortie volontaire : rien ne se perd). */
+	function persistRecipeDraftNow() {
+		if (!mealEditor || mealEditingId || !recipeHasContent()) return;
+		if (!recipeUserId) return;
+		if (recipeDraftTimer) clearTimeout(recipeDraftTimer);
+		recipeDraftTimer = undefined;
+		saveRecipeDraft(recipeUserId, { name: mealName, description: mealDesc, ingredients: draftIngredients() });
+	}
+	/** Sauvegarde automatique (500 ms après la dernière frappe), nouvelle recette seulement. */
+	$effect(() => {
+		const open = mealEditor;
+		const editingId = mealEditingId;
+		const name = mealName;
+		const description = mealDesc;
+		const items = mealItems;
+		const userId = recipeUserId;
+		if (!open || editingId || !userId) return;
+		if (!name.trim() && !description.trim() && items.length === 0) return;
+		if (recipeDraftTimer) clearTimeout(recipeDraftTimer);
+		recipeDraftTimer = setTimeout(() => {
+			recipeDraftTimer = undefined;
+			saveRecipeDraft(userId, { name, description, ingredients: draftIngredients() });
+		}, 500);
+		return () => {
+			if (recipeDraftTimer) clearTimeout(recipeDraftTimer);
+			recipeDraftTimer = undefined;
+		};
+	});
+	/** Reprise : remplit le formulaire avec le brouillon. */
+	function resumeRecipeDraft() {
+		const draft = loadRecipeDraft(recipeUserId);
+		recipeDraftFound = false;
+		if (!draft) return;
+		mealName = draft.name;
+		mealDesc = draft.description;
+		mealItems = draft.ingredients.map((ing) => ({
+			food: {
+				_id: ing.foodId,
+				name: ing.name,
+				brand: ing.brand,
+				kcal100: ing.kcal100,
+				carbs100: ing.carbs100,
+				protein100: ing.protein100,
+				fat100: ing.fat100,
+				custom: !!ing.customFoodId,
+				ciqual: !!ing.ciqualLabel,
+			},
+			qty: ing.qty,
+			custom: !!ing.customFoodId,
+			customFoodId: ing.customFoodId,
+			ciqualLabel: ing.ciqualLabel,
+			aiEstimate: ing.aiEstimate,
+		}));
+	}
+	/** Recommencer : le brouillon est supprimé, le formulaire reste vierge. */
+	function restartRecipeDraft() {
+		clearRecipeDraft(recipeUserId);
+		recipeDraftFound = false;
+	}
+	/** Fermeture immédiate (enregistrement réussi, changement d'onglet, abandon confirmé). */
+	function closeMealEditorNow() {
+		persistRecipeDraftNow();
 		void closeMealSearch(); // fenêtre produit refermée + scanner éventuellement arrêté
 		mealEditor = false;
 		mealEditingId = null;
+		mealLeaveConfirm = false;
+		recipeDraftFound = false;
+	}
+	/** Bouton retour du formulaire : confirme si une saisie non enregistrée existe. */
+	function closeMealEditor() {
+		if (!mealEditingId && recipeHasContent()) {
+			persistRecipeDraftNow();
+			mealLeaveConfirm = true;
+			return;
+		}
+		closeMealEditorNow();
+	}
+	function keepEditingRecipe() {
+		mealLeaveConfirm = false;
+	}
+	function quitRecipeEditor() {
+		mealLeaveConfirm = false;
+		closeMealEditorNow();
 	}
 
 	/**
@@ -1940,7 +2068,7 @@ import { optimizeImageFile } from '$lib/media';
 	 */
 	function switchTab(tab: 'produits' | 'repas' | 'crees') {
 		if (tab === searchTab) return;
-		if (mealEditor) closeMealEditor();
+		if (mealEditor) closeMealEditorNow();
 		if (customEditor) closeCustomEditor();
 		searchTab = tab;
 		if (tab !== 'produits') favOnly = false;
@@ -1980,14 +2108,19 @@ import { optimizeImageFile } from '$lib/media';
 		const ciq = fetch(`/api/foods/ciqual?q=${encodeURIComponent(q)}&limit=13`)
 			.then(async (r) => {
 				const j = await r.json();
-				mealCiqualResults = j.error ? [] : (j as { label: string; kcal: number; protein?: number; carbs?: number; fat?: number }[]).map(ciqualToFood);
+				// Recette (création / modification) : les aliments G-Flux ne sont jamais
+				// proposés comme ingrédient (Mission R3-quater) — le Journal, lui, les garde.
+				mealCiqualResults = j.error
+					? []
+					: recipeIngredientFoods((j as { label: string; kcal: number; protein?: number; carbs?: number; fat?: number; source?: 'gflux'; id?: string }[]).map(ciqualToFood));
 			})
 			.then(() => null, () => 'ciqual' as const);
 		const err = await req;
 		await ciq;
 		if (guard !== mealSearchSeq) return; // réponse périmée : une recherche plus récente a pris la main
 		if (err) {
-			mealSearchError = err instanceof Error ? err.message : String(err);
+			// Panne OFF : Ciqual toujours affiché, message discret côté Produits.
+			mealSearchError = 'Produits indisponibles pour le moment.';
 			mealResults = [];
 			mealHasMore = false;
 			mealNextOffset = 0;
@@ -2165,7 +2298,8 @@ import { optimizeImageFile } from '$lib/media';
 			const j = await r.json();
 			if (j.error) throw new Error(j.error);
 			await loadMeals();
-			closeMealEditor();
+			closeMealEditorNow();
+			clearRecipeDraft(recipeUserId); // recette enregistrée : plus de brouillon
 			searchTab = 'repas';
 		} catch (e) {
 			mealError = e instanceof Error ? e.message : String(e);
@@ -2521,6 +2655,9 @@ import { optimizeImageFile } from '$lib/media';
 	}
 	/** Clé de requête de la portion mémorisée (identifiant stable de la source). */
 	function qtyPortionKey(food: Food): string | null {
+		// Aliment de référence G-Flux : aucune portion mémorisée (le champ
+		// ciqualLabel n'est jamais utilisé pour une fiche du coach).
+		if (food.gflux) return null;
 		if (food.ciqual) return `ciqualLabel=${encodeURIComponent(food._id)}`;
 		if (food.custom) return `customFoodId=${encodeURIComponent(food._id)}`;
 		if (food._id) return `foodId=${encodeURIComponent(food._id)}`;
@@ -2547,7 +2684,9 @@ import { optimizeImageFile } from '$lib/media';
 			body: JSON.stringify({
 				date,
 				meal,
-				...(qtyFood.ciqual
+				...(qtyFood.gflux
+					? { referenceSource: 'gflux' as const, referenceFoodId: qtyFood._id } // fiche G-Flux : jamais ciqualLabel
+					: qtyFood.ciqual
 					? { ciqualLabel: qtyFood._id } // fiche de référence : libellé officiel, valeurs résolues par le serveur
 					: qtyFood.custom
 						? { customFoodId: qtyFood._id }
@@ -2560,7 +2699,7 @@ import { optimizeImageFile } from '$lib/media';
 				 *  le signal — le serveur l'enregistre comme repère personnel
 				 *  pour cet aliment (et les autres produits visibles du lot). */
 				lastPortions: uiPortionList()
-					.filter((f) => f._id !== qtyFood!._id)
+					.filter((f) => f._id !== qtyFood!._id && !f.gflux)
 					.slice(0, 50)
 					.map((f) =>
 						f.ciqual
@@ -3202,7 +3341,8 @@ import { optimizeImageFile } from '$lib/media';
 			]);
 			const prod = await prodR.json();
 			const ciq = ciqR.ok ? await ciqR.json() : [];
-			const ciqFoods: Food[] = (Array.isArray(ciq) ? ciq : []).map(ciqualToFood);
+			// Ingrédient ajouté / remplacé dans une recette : jamais un aliment G-Flux.
+			const ciqFoods: Food[] = recipeIngredientFoods((Array.isArray(ciq) ? ciq : []).map(ciqualToFood));
 			const prods: Food[] = Array.isArray(prod?.items) ? prod.items : [];
 			if (guard !== mealAddSeq) return; // réponse périmée
 			// La CIQUAL d'abord (génériques), puis les produits (déjà en base)
@@ -3332,10 +3472,11 @@ import { optimizeImageFile } from '$lib/media';
 					thumbUrl: editEntry.thumbUrl,
 					photoUrl: editEntry.photoUrl,
 					custom: !editEntry.foodId && !editEntry.ciqualLabel && !!editEntry.customFoodId,
-					// PROVENANCE CIQUAL conservée : getDay renvoie ciqualLabel calculé
+					// PROVENANCE conservée : getDay renvoie ciqualLabel calculé
 					// (résolution exacte du libellé officiel) → badge « Référence
-					// Ciqual – ANSES » visible à chaque réouverture depuis le Journal.
+					// Ciqual – ANSES » ; une fiche G-Flux garde SON badge (R3-bis).
 					ciqual: !!editEntry.ciqualLabel,
+					gflux: editEntry.referenceSource === 'gflux',
 					kcal100: editEntry.qtyGrams > 0 ? (editEntry.kcal / editEntry.qtyGrams) * 100 : 0,
 					carbs100: editEntry.qtyGrams > 0 ? (editEntry.carbs / editEntry.qtyGrams) * 100 : 0,
 					protein100: editEntry.qtyGrams > 0 ? (editEntry.protein / editEntry.qtyGrams) * 100 : 0,
@@ -4223,6 +4364,17 @@ import { optimizeImageFile } from '$lib/media';
 						<div>
 							<h2 class="mt-4 mb-3 text-[30px] font-black leading-[1.1] tracking-[-0.03em] text-ink">{mealEditingId ? 'Modifier la recette' : 'Nouvelle recette'}</h2>
 
+							{#if recipeDraftFound && !mealEditingId}
+								<!-- Brouillon local retrouvé : reprendre la saisie ou repartir de zéro. -->
+								<div class="mb-3 rounded-2xl border border-brand/30 bg-brand-light/60 p-3">
+									<p class="text-sm font-bold text-ink">Tu as une recette en cours</p>
+									<div class="mt-2 flex items-center gap-2">
+										<button type="button" class="rounded-full bg-brand px-4 py-2 text-sm font-bold text-white transition hover:bg-brand-dark" onclick={resumeRecipeDraft}>Reprendre</button>
+										<button type="button" class="rounded-full border border-line bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:bg-cream" onclick={restartRecipeDraft}>Recommencer</button>
+									</div>
+								</div>
+							{/if}
+
 							<input
 								type="text"
 								class="w-full rounded-xl border-2 border-line bg-cream px-3 py-2.5 text-sm font-semibold text-ink outline-none focus:border-brand"
@@ -4571,11 +4723,6 @@ import { optimizeImageFile } from '$lib/media';
 							<p class="text-sm font-semibold text-ink">Recherche « {searchQ.trim()} »…</p>
 							<p class="mx-auto mt-1 max-w-xs text-xs text-mist">On fouille la base (780 000 aliments) — ça ne prend que quelques secondes.</p>
 						</div>
-					{:else if searchError}
-						<div class="rounded-xl border-2 border-danger bg-danger-light px-3 py-3 text-sm text-danger">
-							<p>{searchError}</p>
-							<button type="button" class="mt-2 w-full rounded-full bg-danger py-2 text-xs font-bold text-white transition hover:opacity-90" onclick={() => runSearch(searchQ.trim())}>Réessayer</button>
-						</div>
 					{:else if searchQ.trim().length < 2}
 						<!-- Suggestions avant toute saisie : HABITUDES APPRISES (score
 						     personnel : fréquence × récence × contexte repas) puis
@@ -4612,7 +4759,7 @@ import { optimizeImageFile } from '$lib/media';
 								<p class="mx-auto mt-1 max-w-xs text-xs text-mist">Base G-Flux (780 000 aliments), code-barres, ou « Mes aliments » pour un plat avec étiquette.</p>
 							</div>
 						{/if}
-					{:else if results.length === 0 && ciqualResults.length === 0}
+					{:else if results.length === 0 && ciqualResults.length === 0 && !searchError}
 						<p class="py-10 text-center text-sm text-mist">Aucun résultat pour « {searchQ.trim()} ».</p>
 					{:else}
 						<!-- ═══ ALIMENTS DE RÉFÉRENCE (Ciqual – ANSES) : toujours en tête,
@@ -4626,13 +4773,16 @@ import { optimizeImageFile } from '$lib/media';
 							<ul class="mb-2 flex flex-col gap-1.5">
 								{#each (ciqualExpanded ? ciqualResults : ciqualResults.slice(0, 3)) as cfood (cfood._id)}
 									<li>
-										<button type="button" class="flex w-full items-center gap-2.5 rounded-2xl border border-line bg-white p-2 text-left shadow-sm transition hover:border-brand" onclick={() => openQty(cfood)}>
+										<button type="button" class="flex w-full items-start gap-2.5 rounded-2xl border border-line bg-white p-2 text-left shadow-sm transition hover:border-brand" onclick={() => openQty(cfood)}>
 											<span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand-light"><Icon name="salad" size={20} class="text-brand" /></span>
-										<span class="min-w-0 flex-1">
-											<span class="block truncate text-[14px] font-semibold text-ink">{cfood.name}</span>
-											<span class="block text-[12px] text-mist tabular-nums"><strong class="font-bold text-brand">{fmt(cfood.kcal100)} kcal</strong> · 100 g · Idéal pour un suivi précis</span>
-										</span>
-											<span class="shrink-0 rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>
+											<span class="min-w-0 flex-1">
+												<span class="line-clamp-2 text-[14px] font-semibold leading-snug text-ink">{cfood.name}</span>
+												<span class="mt-0.5 block text-[12px] text-mist tabular-nums"><strong class="font-bold text-brand">{fmt(cfood.kcal100)} kcal</strong> · 100 g</span>
+												<span class="mt-1 flex flex-wrap items-center gap-1.5">
+													{#if cfood.gflux}<span data-gflux-badge class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence G-Flux</span>{:else}<span class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>{/if}
+													{#if cfood.cookLabel}<span data-cook-badge class="rounded-full bg-[#F1F0EC] px-2 py-0.5 text-[9px] font-semibold text-[#6E6A62]">{cfood.cookLabel}</span>{/if}
+												</span>
+											</span>
 										</button>
 									</li>
 								{/each}
@@ -4641,7 +4791,7 @@ import { optimizeImageFile } from '$lib/media';
 								<button type="button" class="mb-2 w-full rounded-full py-2 text-xs font-semibold text-brand transition hover:bg-brand-light" onclick={() => (ciqualExpanded = !ciqualExpanded)} aria-expanded={ciqualExpanded}>{ciqualExpanded ? 'Voir moins' : 'Voir plus'}</button>
 							{/if}
 						{/if}
-						{#if results.length > 0}
+						{#if results.length > 0 || searchError}
 							<div class="flex items-baseline justify-between px-1 pb-1 pt-1.5">
 								<h3 class="text-[11px] font-bold uppercase tracking-widest text-mist">Produits</h3>
 								<span class="text-[10px] text-mist">Open Food Facts</span>
@@ -4656,6 +4806,10 @@ import { optimizeImageFile } from '$lib/media';
 									{#if loadingMore}<p class="py-3 text-center text-xs text-mist">Chargement…</p>{/if}
 								{/if}
 							{/if}
+						{#if searchError}
+							<!-- Panne Open Food Facts : message discret, Ciqual reste au-dessus. -->
+							<p class="px-1 py-2 text-[12px] text-mist">{searchError}</p>
+						{/if}
 						{/if}
 					</div>
 					<!-- Indication de scroll : discrète, non cliquable, disparaît dès
@@ -5331,14 +5485,9 @@ import { optimizeImageFile } from '$lib/media';
 						<p class="flex items-center justify-center gap-2 py-10 text-sm text-mist" role="status">
 							<Icon name="search" size={16} class="animate-pulse text-mist" /> Recherche « {mealSearchQ.trim()} »…
 						</p>
-					{:else if mealSearchError}
-						<div class="rounded-xl border-2 border-danger bg-danger-light px-3 py-3 text-sm text-danger">
-							<p>{mealSearchError}</p>
-							<button type="button" class="mt-2 w-full rounded-full bg-danger py-2 text-xs font-bold text-white transition hover:opacity-90" onclick={() => runMealSearch(mealSearchQ.trim())}>Réessayer</button>
-						</div>
 					{:else if mealSearchQ.trim().length < 2}
 						<p class="py-10 text-center text-sm text-mist">Recherche un produit — base G-Flux (780 000 aliments) et ceux de « Mes aliments ».</p>
-					{:else if mealResults.length === 0 && mealCiqualResults.length === 0}
+					{:else if mealResults.length === 0 && mealCiqualResults.length === 0 && !mealSearchError}
 						<p class="py-10 text-center text-sm text-mist">Aucun résultat pour « {mealSearchQ.trim()} ».</p>
 					{:else}
 						{#if mealCiqualResults.length > 0}
@@ -5349,13 +5498,16 @@ import { optimizeImageFile } from '$lib/media';
 							<ul class="mb-2 flex flex-col gap-1.5">
 								{#each (mealCiqualExpanded ? mealCiqualResults : mealCiqualResults.slice(0, 3)) as cfood, ci (cfood._id)}
 									<li>
-										<button type="button" class="flex w-full items-center gap-2.5 rounded-[18px] border border-[#EEF1EF] bg-white p-2 text-left shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_22px_-14px_rgba(15,21,18,0.16)] transition hover:border-brand" onclick={() => openCiqualIngredientPortion(ci)}>
+										<button type="button" class="flex w-full items-start gap-2.5 rounded-[18px] border border-[#EEF1EF] bg-white p-2 text-left shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_22px_-14px_rgba(15,21,18,0.16)] transition hover:border-brand" onclick={() => openCiqualIngredientPortion(ci)}>
 											<span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-brand-light"><Icon name="salad" size={20} class="text-brand" /></span>
-										<span class="min-w-0 flex-1">
-											<span class="block truncate text-[14px] font-semibold text-ink">{cfood.name}</span>
-											<span class="block text-[12px] text-mist tabular-nums"><strong class="font-bold text-brand">{fmt(cfood.kcal100)} kcal</strong> · 100 g · Idéal pour un suivi précis</span>
-										</span>
-											<span class="shrink-0 rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>
+											<span class="min-w-0 flex-1">
+												<span class="line-clamp-2 text-[14px] font-semibold leading-snug text-ink">{cfood.name}</span>
+												<span class="mt-0.5 block text-[12px] text-mist tabular-nums"><strong class="font-bold text-brand">{fmt(cfood.kcal100)} kcal</strong> · 100 g</span>
+												<span class="mt-1 flex flex-wrap items-center gap-1.5">
+													{#if cfood.gflux}<span data-gflux-badge class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence G-Flux</span>{:else}<span class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>{/if}
+													{#if cfood.cookLabel}<span data-cook-badge class="rounded-full bg-[#F1F0EC] px-2 py-0.5 text-[9px] font-semibold text-[#6E6A62]">{cfood.cookLabel}</span>{/if}
+												</span>
+											</span>
 										</button>
 									</li>
 								{/each}
@@ -5364,7 +5516,7 @@ import { optimizeImageFile } from '$lib/media';
 									<button type="button" class="mb-2 w-full rounded-full py-2 text-xs font-semibold text-brand transition hover:bg-brand-light" onclick={() => (mealCiqualExpanded = !mealCiqualExpanded)} aria-expanded={mealCiqualExpanded}>{mealCiqualExpanded ? 'Voir moins' : 'Voir plus'}</button>
 								{/if}
 						{/if}
-						{#if mealResults.length > 0}
+						{#if mealResults.length > 0 || mealSearchError}
 							<div class="flex items-baseline justify-between px-1 pb-1 pt-1.5">
 								<h3 class="text-[11px] font-bold uppercase tracking-widest text-mist">Produits</h3>
 								<span class="text-[10px] text-mist">Open Food Facts</span>
@@ -5391,6 +5543,10 @@ import { optimizeImageFile } from '$lib/media';
 									<div bind:this={mealSentinelEl} class="h-px w-full"></div>
 									{#if mealLoadingMore}<p class="py-3 text-center text-xs text-mist">Chargement…</p>{/if}
 								{/if}
+						{/if}
+						{#if mealSearchError}
+							<!-- Panne Open Food Facts : message discret, Ciqual reste au-dessus. -->
+							<p class="px-1 py-2 text-[12px] text-mist">{mealSearchError}</p>
 						{/if}
 					{/if}
 				</div>
@@ -5711,6 +5867,20 @@ import { optimizeImageFile } from '$lib/media';
 		}}
 		onClose={() => { if (!portionSaving) qtyMealSel = null; }}
 	/>
+{/if}
+
+<!-- ═══════════ Quitter la recette (brouillon gardé) ═══════════ -->
+{#if mealLeaveConfirm}
+	<div class="fixed inset-0 z-[80] grid place-items-center bg-ink/40 p-5" role="dialog" aria-modal="true" aria-labelledby="recipe-leave-title" aria-describedby="recipe-leave-body">
+		<div class="w-full max-w-[360px] rounded-3xl bg-white p-5 shadow-2xl">
+			<p id="recipe-leave-title" class="text-[17px] font-bold text-ink">Quitter la recette ?</p>
+			<p id="recipe-leave-body" class="mt-1 text-sm text-mist">Ton brouillon est gardé sur ce téléphone.</p>
+			<div class="mt-4 flex items-center justify-end gap-2">
+				<button type="button" class="rounded-full border border-line bg-white px-4 py-2 text-[14px] font-semibold text-ink transition hover:bg-cream" onclick={keepEditingRecipe}>Continuer</button>
+				<button type="button" class="rounded-full bg-brand px-5 py-2 text-[14px] font-bold text-white transition hover:bg-brand-dark" onclick={quitRecipeEditor}>Quitter</button>
+			</div>
+		</div>
+	</div>
 {/if}
 
 <!-- ═══════════ Feuille quantité (aliment) — édition ═══════════ -->

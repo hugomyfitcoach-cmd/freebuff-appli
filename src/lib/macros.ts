@@ -18,6 +18,11 @@ export const MACRO_DEFS = [
 
 export type MacroKey = (typeof MACRO_DEFS)[number]['key'];
 
+/** Couleur d'une macro (codes G-FLUX du Journal) — ex. P / G / L colorés. */
+export function macroColor(key: MacroKey): string {
+	return MACRO_DEFS.find((def) => def.key === key)?.color ?? '#66716B';
+}
+
 /** Macros consommées du jour (totaux Journal, un seul objet, jamais null). */
 export type MacroTotals = { carbs: number; protein: number; fat: number };
 /** Objectifs macros de la cliente (valeur absente = objectif non configuré). */

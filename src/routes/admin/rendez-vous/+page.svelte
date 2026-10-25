@@ -279,7 +279,7 @@
 			clientId: '',
 		};
 		// PRÉREMPLISSAGE automatique du lien de visio pour « Démarrage » (mission) :
-		// le Meet par défaut est proposé, la coach garde la main pour l'éditer.
+		// le Meet par défaut est proposé, le coach garde la main pour l'éditer.
 		reservingUrl = defaultMeetingUrlFor(viewKind) ?? '';
 	}
 	async function book(clientId: string, clientName: string, date: string, time: string, endTime: string, kind: string, meetingUrl?: string) {
@@ -639,13 +639,20 @@
 										<button
 											type="button"
 											onclick={() => (previewRdv = r)}
-											title={`${clientNameOf(r)} · ${r.kind} · ${r.time}–${r.endTime} — cliquer pour le détail`}
-											class="absolute left-1 right-1.5 z-10 overflow-hidden rounded-lg px-2 py-1 text-left shadow-sm transition {r.status === 'client_request' ? 'border border-warn/60 bg-warn-light text-warn hover:bg-warn hover:text-white' : 'bg-brand text-white hover:bg-brand-dark'}"
+											title={`${r.time}–${r.endTime} · ${clientNameOf(r)} · ${r.kind} — cliquer pour le détail`}
+											class="absolute left-1 right-1.5 z-10 overflow-hidden rounded-lg px-2 text-left shadow-sm transition {rdvDuration(r) <= 30 ? 'py-0.5' : 'py-1'} {r.status === 'client_request' ? 'border border-warn/60 bg-warn-light text-warn hover:bg-warn hover:text-white' : 'bg-brand text-white hover:bg-brand-dark'}"
 											style={`top: ${topPx(toMin(r.time)) + 1}px; height: ${Math.max(rdvDuration(r) * PX_PER_MIN - 2, 20)}px`}
 										>
-											<span class="block text-[9.5px] font-bold tabular-nums leading-tight opacity-90">{r.time}–{r.endTime}</span>
-											<span class="block truncate text-[11.5px] font-bold leading-tight">{clientNameOf(r)}</span>
-											{#if rdvDuration(r) >= 30}<span class="block truncate text-[10px] leading-tight opacity-85">{r.kind}</span>{/if}
+											{#if rdvDuration(r) <= 30}
+												<!-- Créneau court (15 / 30 min) : une seule ligne lisible,
+												     heure de début · nom complet, tronquée avec « … ». -->
+												<span class="block truncate text-[10.5px] font-bold leading-tight tabular-nums">{r.time} · {clientNameOf(r)}</span>
+											{:else}
+												<!-- Créneau plus long : affichage historique (horaire, nom, type). -->
+												<span class="block text-[9.5px] font-bold tabular-nums leading-tight opacity-90">{r.time}–{r.endTime}</span>
+												<span class="block truncate text-[11.5px] font-bold leading-tight">{clientNameOf(r)}</span>
+												<span class="block truncate text-[10px] leading-tight opacity-85">{r.kind}</span>
+											{/if}
 										</button>
 									{/each}
 									<!-- Couche réservation (créneaux 15 min, moteur serveur) -->

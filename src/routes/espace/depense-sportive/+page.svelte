@@ -24,10 +24,16 @@
 		name: string;
 		durationMinutes: number;
 		intensity: string | null;
+		/** FC moyenne réellement mesurée à la saisie (optionnelle). */
+		bpmMoyen: number | null;
 		estimatedCalories: number | null;
 		metMinutes: number;
 		source: 'manual' | 'gflux_training';
 		trainingSessionId: string | null;
+		/** "2" = barème G-FLUX kcal/kg/h, "1" = MET (ligne historique). */
+		coefficientVersion: string;
+		/** Ligne antérieure au barème : son calcul d'origine est conservé. */
+		legacy: boolean;
 	};
 	type WeekData = {
 		weekStart: string;
@@ -36,11 +42,23 @@
 		activities: Activity[];
 		totals: { count: number; durationMin: number; kcal: number; metMinutes: number };
 	};
-	type CatalogActivity = { id: string; name: string; category: string; hasIntensity: boolean };
+	type CatalogChoice = { id: string; label: string; hint: string };
+	type CatalogActivity = {
+		id: string;
+		name: string;
+		category: string;
+		/** Musculation (récréative / intensive), douce (intensité ressentie,
+		 *  hors zones cardio) ou cardio & mixte (zones). */
+		bareme: 'musculation' | 'douce' | 'cardio';
+		choix: string[];
+	};
 	type Catalog = {
 		version: string;
 		categories: { id: string; label: string }[];
 		activities: CatalogActivity[];
+		choixMusculation: CatalogChoice[];
+		choixDouces: CatalogChoice[];
+		zonesCardio: CatalogChoice[];
 		walking: { message: string; suggestionId: string };
 		intensityLabels: Record<string, string>;
 	};
@@ -128,17 +146,61 @@
 	/** editing : _id de l'activité modifiée · duplicating : _id copié · null = ajout. */
 	let editingId = $state<string | null>(null);
 	let duplicatingId = $state<string | null>(null);
+	/** Choix d'origine de la ligne modifiée (jamais basculé tout seul). */
+	let editingOriginal = $state<{ activityId: string; intensity: string | null } | null>(null);
+	/** Ligne v1 en édition : jamais recalculée sans choix explicite. */
+	let editingLegacy = $state(false);
 	let formDate = $state('');
 	let formActivityId = $state('');
 	let formIntensity = $state<string | null>(null);
 	let formDuration = $state<number | null>(60);
 	let formCustomDuration = $state('');
+	/** FC moyenne réellement mesurée (optionnelle) — choisit la zone elle-même. */
+	let formBpm = $state('');
 	let search = $state('');
 	let sheetStep = $state<'sport' | 'details'>('sport');
 	let saving = $state(false);
 	let confirmDeleteId = $state<string | null>(null);
 
 	const formEntry = $derived(catalog?.activities.find((a) => a.id === formActivityId) ?? null);
+	/** Choix proposés : musculation, intensités douces ou zones cardio. */
+	const formChoices = $derived(
+		formEntry?.bareme === 'musculation'
+			? (catalog?.choixMusculation ?? [])
+			: formEntry?.bareme === 'douce'
+				? (catalog?.choixDouces ?? [])
+				: formEntry
+					? (catalog?.zonesCardio ?? [])
+					: []
+	);
+	/** FC moyenne plausible (mêmes bornes que le barème : 40 à 240 BPM). */
+	const bpmValide = $derived(
+		formBpm.trim() !== '' && Number(formBpm) >= 40 && Number(formBpm) <= 240
+	);
+	/** Choix stocké qui n'est plus proposé (ligne v1, ou activité passée au barème doux). */
+	const choixHorsBareme = $derived(
+		!!formIntensity && !(formEntry?.choix.includes(formIntensity) ?? false)
+	);
+	/* Ligne NON modifiée (sport + choix identiques) : son calcul d'origine reste
+	   acceptable tel quel — la modifier n'est jamais obligatoire. */
+	const saisieInchangee = $derived(
+		!!editingOriginal &&
+			formActivityId === editingOriginal.activityId &&
+			formIntensity === editingOriginal.intensity
+	);
+	const choixValide = $derived(
+		bpmValide ||
+			(!!formIntensity && (formEntry?.choix.includes(formIntensity) ?? false)) ||
+			saisieInchangee
+	);
+	/* Bascule de barème AVANT enregistrement : changer l'activité ou
+	   l'intensité d'une ligne v1 la fait passer au barème actuel — la ligne
+	   reste sinon intacte (son MET et ses kcal d'origine). */
+	const basculeBareme = $derived(
+		editingLegacy &&
+			!!editingOriginal &&
+			(formActivityId !== editingOriginal.activityId || formIntensity !== editingOriginal.intensity)
+	);
 
 	const filteredCatalog = $derived.by(() => {
 		if (!catalog || !Array.isArray(catalog.activities)) return [];
@@ -160,24 +222,30 @@
 	function openAdd(prefillActivityId?: string, prefillIntensity?: string | null) {
 		editingId = null;
 		duplicatingId = null;
+		editingOriginal = null;
+		editingLegacy = false;
 		sheetStep = prefillActivityId ? 'details' : 'sport';
 		formActivityId = prefillActivityId ?? '';
 		formIntensity = prefillIntensity ?? null;
 		formDate = isoOf(new Date());
 		formDuration = 60;
 		formCustomDuration = '';
+		formBpm = '';
 		search = '';
 		sheetOpen = true;
 	}
 	function openEdit(a: Activity) {
 		editingId = a._id;
 		duplicatingId = null;
+		editingOriginal = { activityId: a.activityId, intensity: a.intensity };
+		editingLegacy = a.legacy;
 		sheetStep = 'details';
 		formActivityId = a.activityId;
 		formIntensity = a.intensity;
 		formDate = a.date;
 		formDuration = a.durationMinutes;
 		formCustomDuration = '';
+		formBpm = a.bpmMoyen != null ? String(a.bpmMoyen) : '';
 		search = '';
 		sheetOpen = true;
 	}
@@ -226,6 +294,7 @@
 						date: formDate,
 						activityId: formActivityId,
 						...(formIntensity ? { intensity: formIntensity } : {}),
+						...(bpmValide ? { bpmMoyen: Number(formBpm) } : {}),
 						durationMinutes: formDuration,
 					}),
 				}).then((x) => x.json());
@@ -238,6 +307,7 @@
 						date: formDate,
 						activityId: formActivityId,
 						...(formIntensity ? { intensity: formIntensity } : {}),
+						...(bpmValide ? { bpmMoyen: Number(formBpm) } : {}),
 						durationMinutes: formDuration,
 					}),
 				}).then((x) => x.json());
@@ -550,19 +620,66 @@
 				/>
 			</div>
 
-			{#if formEntry.hasIntensity}
-				<p class="mt-3 text-[10px] font-bold uppercase tracking-wider text-mist">Intensité</p>
-				<div class="mt-1 grid grid-cols-3 gap-1.5">
-					{#each ['legere', 'moderee', 'intense'] as it (it)}
+			<label class="mt-3 block">
+				<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist"
+					>FC moyenne mesurée (optionnel)</span
+				>
+				<input
+					type="number"
+					inputmode="numeric"
+					min="40"
+					max="240"
+					bind:value={formBpm}
+					placeholder="ex. 138 BPM"
+					class="w-full rounded-xl border-2 border-line px-3 py-2 text-sm tabular-nums outline-none focus:border-brand {bpmValide ? 'border-brand' : ''}"
+				/>
+				<span class="mt-1 block text-[11px] text-mist">
+					Renseignée, elle choisit la zone cardio à ta place — quelle que soit l'activité.
+				</span>
+			</label>
+
+			{#if formEntry && !bpmValide}
+				<p class="mt-3 text-[10px] font-bold uppercase tracking-wider text-mist">
+					{formEntry.bareme === 'musculation'
+						? 'Intensité'
+						: formEntry.bareme === 'douce'
+							? 'Intensité ressentie'
+							: 'Zone / intensité ressentie'}
+				</p>
+				<div
+					class="mt-1 {formChoices.length > 3
+						? 'space-y-1.5'
+						: formChoices.length === 3
+							? 'grid grid-cols-3 gap-1.5'
+							: 'grid grid-cols-2 gap-1.5'}"
+				>
+					{#each formChoices as c (c.id)}
 						<button
 							type="button"
-							onclick={() => (formIntensity = it)}
-							class="rounded-xl border-2 py-2 text-sm font-bold transition {formIntensity === it ? 'border-brand bg-brand text-white' : 'border-line text-ink hover:border-brand'}"
+							onclick={() => (formIntensity = c.id)}
+							class="w-full rounded-xl border-2 px-3 py-2 text-left transition {formIntensity === c.id ? 'border-brand bg-brand-light/50' : 'border-line hover:border-brand'}"
 						>
-							{catalog?.intensityLabels[it] ?? it}
+							<span class="block text-sm font-bold text-ink">{c.label}</span>
+							<span class="block text-[11px] text-mist">{c.hint}</span>
 						</button>
 					{/each}
 				</div>
+				{#if saisieInchangee && choixHorsBareme}
+					<p class="mt-2 rounded-xl bg-cream/70 px-3 py-2 text-[11px] leading-snug text-ink">
+						Saisie d'origine conservée ({catalog?.intensityLabels[formIntensity ?? ''] ?? formIntensity}). Choisir une nouvelle intensité ou zone met à jour l'estimation.
+					</p>
+				{/if}
+			{/if}
+			{#if bpmValide}
+				<p class="mt-2 rounded-xl bg-cream/70 px-3 py-2 text-[11px] leading-snug text-ink">
+					La FC moyenne de {formBpm} BPM définit la zone : aucun choix d'intensité n'est nécessaire.
+				</p>
+			{/if}
+
+			{#if basculeBareme}
+				<p class="mt-2 rounded-xl bg-danger-light px-3 py-2 text-[11px] leading-snug text-ink">
+					En modifiant l'activité ou l'intensité, cette ligne d'origine sera recalculée avec le barème actuel : son MET et ses kcal seront mis à jour. Sans ce choix, elle reste telle quelle.
+				</p>
 			{/if}
 
 			{#if err}
@@ -570,8 +687,7 @@
 			{/if}
 
 			<button
-				type="button"
-				disabled={saving || !formDuration || (formEntry.hasIntensity && !formIntensity)}
+				type="button"				disabled={saving || !formDuration || !choixValide}
 				onclick={saveSheet}
 				class="mt-4 w-full rounded-xl bg-brand px-5 py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
 			>

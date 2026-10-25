@@ -699,8 +699,8 @@ export const myCoachMessages = query({
 });
 
 /**
- * Identité publique de la coach pour la cliente (prénom + photo de profil du
- * CRM). Lecture seule : aucune donnée de la coach n'est modifiée, et la photo
+ * Identité publique du coach pour la cliente (prénom + photo de profil du
+ * CRM). Lecture seule : aucune donnée du coach n'est modifiée, et la photo
  * est celle déjà configurée dans son profil (même stockage que les clientes).
  *
  * Le coach RATTACHÉ à la cliente (compte créé par ce coach — `createdBy`)
@@ -728,7 +728,7 @@ export const myCoachProfile = query({
 
 /**
  * Message du coach visible par la cliente sur son dashboard.
- * Réservé à la coach : un message vide supprime le message courant.
+ * Réservé au coach : un message vide supprime le message courant.
  * Le message est associé au jour courant et expire le lendemain.
  */
 export const setCoachMessage = mutation({
@@ -742,7 +742,7 @@ export const setCoachMessage = mutation({
 	handler: async (ctx, { sessionToken, userId, message, audioId, removeAudio }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
 		if (!coach || coach.role !== "coach") {
-			throw new ConvexError("Réservé à la coach (CRM).");
+			throw new ConvexError("Réservé au coach (CRM).");
 		}
 		const target = await ctx.db.get(userId);
 		if (!target || target.role !== "client") throw new ConvexError("Client introuvable.");
@@ -926,7 +926,7 @@ async function lastBroadcast(ctx: QueryCtx) {
 
 /**
  * Envoie le message global à TOUTES les clientes actives (activité des
- * 5 derniers jours). Réservé à la coach. Retourne les destinataires
+ * 5 derniers jours). Réservé au coach. Retourne les destinataires
  * réellement servis : côté SvelteKit, chacun reçoit LA MÊME notification
  * push qu'un message classique.
  */
@@ -935,7 +935,7 @@ export const sendCoachBroadcast = mutation({
 	handler: async (ctx, { sessionToken, message }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
 		if (!coach || coach.role !== "coach") {
-			throw new ConvexError("Réservé à la coach (CRM).");
+			throw new ConvexError("Réservé au coach (CRM).");
 		}
 		// Slicing puis assainissement : un emoji coupé à la limite des 500
 		// caractères laissait un surrogate orphelin qui faisait planter l'insert
@@ -1008,7 +1008,7 @@ export const withdrawCoachBroadcast = mutation({
 	handler: async (ctx, { sessionToken }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
 		if (!coach || coach.role !== "coach") {
-			throw new ConvexError("Réservé à la coach (CRM).");
+			throw new ConvexError("Réservé au coach (CRM).");
 		}
 		const current = await lastBroadcast(ctx);
 		if (!current || current.withdrawnAt != null) return { ok: true, removed: 0 };

@@ -59,7 +59,7 @@ type AnyCtx = QueryCtx | MutationCtx;
 
 async function requireCoach(ctx: AnyCtx, sessionToken?: string): Promise<Doc<"users">> {
 	const coach = await getSessionUser(ctx, sessionToken);
-	if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach (CRM).");
+	if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
 	return coach;
 }
 
@@ -841,7 +841,7 @@ export const updateSessionExercise = mutation({
 		if (techniqueNote !== undefined) patch.techniqueNote = techniqueNote?.trim() || undefined;
 		await ctx.db.patch(sessionExerciseId, patch as never);
 		// Changement de mode : complète les séries existantes avec le défaut du
-		// nouveau mode (durée 60 s / reps 10) SANS écraser ce que la coach a
+		// nouveau mode (durée 60 s / reps 10) SANS écraser ce que le coach a
 		// déjà réglé (le repos, notamment, est conservé).
 		if (mode !== undefined && se.mode !== mode) {
 			const sets = await ctx.db

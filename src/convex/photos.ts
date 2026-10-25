@@ -11,7 +11,7 @@ import type { Doc, Id } from "./_generated/dataModel";
  *
  * - Le client ne peut que déposer des photos et voir la confirmation d'envoi
  *   (jamais les images après coup : `mySubmissions` ne renvoie aucun URL).
- * - La coach voit toutes les photos (avec URL) dans le CRM (`listForCoach`).
+ * - Le coach voit toutes les photos (avec URL) dans le CRM (`listForCoach`).
  */
 
 export const PHOTO_STEPS = ["demarrage", "mois1", "mois2", "mois3", "mois4", "mois5", "mois6"] as const;
@@ -149,7 +149,7 @@ export const coachTimeline = query({
 	args: { sessionToken: v.optional(v.string()) },
 	handler: async (ctx, { sessionToken }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
-		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach.");
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach.");
 
 		// Fenêtre large : tout l'historique existant jusqu'à la limite de lecture.
 		const rows = await ctx.db.query("progressPhotos").withIndex("by_creation_time").order("desc").take(2000);
@@ -197,7 +197,7 @@ export const coachTimeline = query({
 	},
 });
 
-/** Toutes les photos d'un client avec leurs URL — réservé à la coach (CRM). */
+/** Toutes les photos d'un client avec leurs URL — réservé au coach (CRM). */
 export const listForCoach = query({
 	args: {
 		sessionToken: v.optional(v.string()),
@@ -205,7 +205,7 @@ export const listForCoach = query({
 	},
 	handler: async (ctx, { sessionToken, userId }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
-		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé à la coach.");
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach.");
 		const target = await ctx.db.get(userId);
 		if (!target || target.role !== "client") throw new ConvexError("Client introuvable.");
 		const rows = await ctx.db

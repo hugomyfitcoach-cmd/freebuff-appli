@@ -1,18 +1,32 @@
 /**
  * Module Dépense sportive — CATALOGUE CENTRALISÉ des sports + calcul.
  *
- * SOURCE UNIQUE des coefficients : ce module est le SEUL endroit du dépôt
- * qui connaît les MET (le frontend ne fait qu'afficher ce que le backend
- * calcule — jamais une table dispersée côté client).
+ * SOURCE UNIQUE des coefficients : ce module est le SEUL endroit du dépôt qui
+ * connaît les coûts du sport, et il les tient du module de calibrage
+ * (`../lib/calibrage`, le même que `$lib/calibrage`) — donc du BARÈME G-FLUX :
  *
- * Sources des coefficients :
- * - `gflux_table`  : tableau G-FLUX coach (kcal/kg/heure) — conversion
- *   documentée MET ≈ kcal/kg/h ÷ 1,05 (1 MET ≈ 3,5 ml O₂/kg/min). Les
- *   valeurs intermédiaires « modérée » sont interpolées géométriquement
- *   entre les deux bornes G-FLUX (jamais inventées arbitrairement).
- * - `compendium`   : Compendium of Physical Activities (Ainsworth et al.) —
- *   valeurs MET standard par activité/intensité. Les quelques estimations
- *   (padel, HIIT) portent une note explicite ci-dessous.
+ *   musculation récréative 2,2 kcal/kg/h · musculation intensive 4,4 ·
+ *   séance du programme G-FLUX 3,3 · activité douce 2,2 (légère et modérée)
+ *   et 3,3 (élevée) · cardio par zone :
+ *   moins de 130 BPM 3,8 · 130–150 BPM 5,5 · 150–160 BPM 6,6 ·
+ *   160–180 BPM 7,7 · plus de 180 BPM 8,8 (plafond).
+ *
+ * Les activités DOUCES (yoga, Pilates, aquagym, étirements, mobilité) ne
+ * passent PAS par les zones cardio : leur coût ne dépend pas de la FC mais de
+ * l'intensité ressentie. Les zones cardio restent réservées aux activités
+ * cardio et aux sports. Une FC moyenne RÉELLE saisie choisit en revanche la
+ * zone pour TOUTES les activités (`bpmMoyen`).
+ *
+ * Le choix de zone cardio (`sous-130` … `plus-180`) porte l'intensité
+ * RESSENTIE équivalente, pour les activités sans cardiofréquencemètre.
+ *
+ * MET dérivé (MET-minutes du CRM) : MET = kcal/kg/h ÷ 1,05 — conversion
+ * documentée du tableau coach (1 MET ≈ 3,5 ml O₂/kg/min ≈ 1,05 kcal/kg/h).
+ *
+ * VERSION 2 : les NOUVELLES saisies passent au barème (coefficientVersion
+ * « 2 », coût horaire stocké sur la ligne). Les lignes déjà enregistrées
+ * (v1 = MET du Compendium par intensité) restent recalculées par leur propre
+ * modèle (`depenseLegacyMet`) — AUCUNE entrée existante n'est recalculée.
  *
  * RÈGLE ANTI DOUBLE COMPTAGE : la marche quotidienne (pas, déplacements,
  * promenades) est déjà couverte par `dailySteps` + le niveau de marche du
@@ -21,30 +35,100 @@
  */
 
 import { ConvexError } from "convex/values";
+import {
+	BANDES_CARDIO,
+	BPM_MAX,
+	BPM_MIN,
+	COUT_SPORT,
+	CalibrageError,
+	INTENSITES_DOUCES,
+	INTENSITES_MUSCULATION,
+	ZONES_CARDIO_IDS,
+	coutSportif,
+	decimalFr,
+	depenseSeanceKcal,
+	zoneCardioParId,
+	type IntensiteDouce,
+	type IntensiteMusculation,
+} from "../lib/calibrage";
+
+/**
+ * Les erreurs du module calibrage (bornes, valeurs hors barème) deviennent des
+ * `ConvexError` avec le message lisible d'origine : la cliente voit « Poids
+ * invalide : 20 à 400 kg attendu… », jamais « Server Error ».
+ */
+function enConvexError<T>(calcul: () => T): T {
+	try {
+		return calcul();
+	} catch (e) {
+		if (e instanceof CalibrageError) throw new ConvexError(e.message);
+		throw e;
+	}
+}
+
+/**
+ * FC moyenne : bornes du barème (40 à 240 BPM) — refus explicite et message
+ * clair, côté Convex comme côté API.
+ */
+export function verifieBpmMoyen(bpm: number): number {
+	if (typeof bpm !== "number" || !Number.isFinite(bpm) || bpm < BPM_MIN || bpm > BPM_MAX) {
+		throw new ConvexError(
+			`Fréquence cardiaque invalide : ${BPM_MIN} à ${BPM_MAX} BPM attendu (reçu ${String(bpm)}).`
+		);
+	}
+	return bpm;
+}
+
+/** Anciennes valeurs d'intensité (v1) envoyées par une PWA en cache. */
+export const SPORT_INTENSITIES_LEGACY = ["legere", "moderee", "intense"] as const;
+
+/**
+ * Compatibilité pendant le déploiement : une PWA en cache peut encore envoyer
+ * les anciennes valeurs d'intensité (« legere », « moderee », « intense »).
+ * Le serveur les CONVERTIT vers les choix v2 de l'activité — aucune cliente
+ * n'a d'erreur avant d'avoir rechargé l'application.
+ */
+export function intensiteLegacyVersV2(entry: SportCatalogEntry, valeur: string): string {
+	if (!(SPORT_INTENSITIES_LEGACY as readonly string[]).includes(valeur)) return valeur;
+	if (entry.bareme === "musculation") {
+		/* « moderee » désigne désormais l'intensité v2 « Modérée » (3,3) — les
+		   anciennes LIGNES (v1) ne passent jamais ici (recalculées par
+		   `depenseLegacyMet` avec leur MET d'origine). */
+		if (valeur === "intense") return "intensive";
+		if (valeur === "moderee") return "moderee";
+		return "recreative";
+	}
+	if (entry.bareme === "douce") return valeur === "intense" ? "elevee" : valeur;
+	const zones: Record<string, string> = { legere: "sous-130", moderee: "130-150", intense: "160-180" };
+	return zones[valeur];
+}
 
 /** Version du catalogue — stockée sur chaque dépense (coefficientVersion). */
-export const SPORT_CATALOG_VERSION = "1";
-
-/** Intensités fermées côté cliente — le mot MET n'est JAMAIS affiché. */
-export type SportIntensity = "legere" | "moderee" | "intense";
-export const SPORT_INTENSITIES: SportIntensity[] = ["legere", "moderee", "intense"];
-export const SPORT_INTENSITY_LABELS: Record<SportIntensity, string> = {
-	legere: "Légère",
-	moderee: "Modérée",
-	intense: "Intense",
-};
+export const SPORT_CATALOG_VERSION = "2";
+/** Version des lignes dont la dépense reste au modèle MET du Compendium. */
+export const SPORT_CATALOG_VERSION_LEGACY = "1";
+/** Conversion documentée : kcal/kg/h ≈ MET × 1,05 (MET ≈ 3,5 ml O₂/kg/min). */
+export const KCAL_PAR_H_PAR_MET = 1.05;
 
 export type SportCoefficientSource = "gflux_table" | "compendium";
+
+/**
+ * Barème appliqué à une activité :
+ *  - `musculation` : choix récréative (2,2) / intensive (4,4) ;
+ *  - `douce` : intensité ressentie légère/modérée (2,2) ou élevée (3,3),
+ *    SANS zone cardio (yoga, Pilates, aquagym, étirements, mobilité) ;
+ *  - `cardio` : choix de zone (`sous-130` … `plus-180`) ou intensité ressentie.
+ */
+export type SportBareme = "musculation" | "douce" | "cardio";
 
 export type SportCatalogEntry = {
 	/** Identifiant stable (slug) référencé par les dépenses. */
 	id: string;
 	name: string;
 	category: string;
-	/** MET par intensité — ou nombre fixe pour les activités sans intensité. */
-	met: Partial<Record<SportIntensity, number>> | number;
-	source: SportCoefficientSource;
-	/** Note de traçabilité (estimation signalée, conversion…). */
+	/** Barème de l'activité (détermine les choix proposés). */
+	bareme: SportBareme;
+	/** Note de traçabilité (activité volontaire, estimation signalée…). */
 	note?: string;
 };
 
@@ -65,190 +149,124 @@ export const SPORT_CATEGORIES: { id: string; label: string }[] = [
  * Catalogue V1 — sans Marche / Marche rapide / Promenade / Balade (déjà
  * comptées par les pas) et sans Randonnée (validé : exclue en V1, approche
  * conservatrice anti double comptage).
+ *
+ * Les activités CARDIO ou MIXTES relèvent du barème cardio (zones) : leur
+ * coût dépend de l'intensité réellement tenue — pas d'une table par sport.
+ * Les activités DOUCES (yoga, Pilates, aquagym, étirements, mobilité) ont
+ * leur propre barème (2,2 / 2,2 / 3,3), hors zones cardio.
  */
 export const SPORT_CATALOG: SportCatalogEntry[] = [
-	// ── Musculation — tableau G-FLUX (récréative 2,2 · intensive 4,4 kcal/kg/h →
-	//    MET 2,1 · 4,2 ; « modérée » interpolée ≈ 3,0) ──
-	{
-		id: "musculation",
-		name: "Musculation",
-		category: "musculation",
-		met: { legere: 2.1, moderee: 3.0, intense: 4.2 },
-		source: "gflux_table",
-		note: "G-FLUX 2,2/4,4 kcal/kg/h ÷ 1,05 ; modérée = interpolation géométrique",
-	},
-	// ── Cardio & salle — Compendium (Marche inclinée = séance cardio VOLONTAIRE) ──
+	{ id: "musculation", name: "Musculation", category: "musculation", bareme: "musculation" },
+	// ── Cardio & salle (Marche inclinée = séance cardio VOLONTAIRE) ──
 	{
 		id: "marche-inclinee-tapis",
 		name: "Marche inclinée sur tapis",
 		category: "cardio",
-		met: { legere: 4.3, moderee: 5.3, intense: 6.3 },
-		source: "compendium",
-		note: "Marche rapide → montée ; effort cardio volontaire ≠ marche quotidienne",
+		bareme: "cardio",
+		note: "Séance cardio volontaire ≠ marche quotidienne (déjà couverte par les pas)",
 	},
-	{
-		id: "course-tapis",
-		name: "Course (tapis)",
-		category: "cardio",
-		met: { legere: 6.0, moderee: 8.3, intense: 9.8 },
-		source: "compendium",
-	},
-	{
-		id: "velo-exterieur",
-		name: "Vélo (extérieur)",
-		category: "cardio",
-		met: { legere: 3.5, moderee: 6.8, intense: 10.0 },
-		source: "compendium",
-	},
-	{
-		id: "velo-indoor",
-		name: "Vélo indoor / spinning",
-		category: "cardio",
-		met: { legere: 4.5, moderee: 7.0, intense: 9.5 },
-		source: "compendium",
-	},
-	{
-		id: "elliptique",
-		name: "Elliptique",
-		category: "cardio",
-		met: { legere: 4.5, moderee: 5.0, intense: 6.5 },
-		source: "compendium",
-	},
-	{
-		id: "rameur",
-		name: "Rameur",
-		category: "cardio",
-		met: { legere: 4.0, moderee: 7.0, intense: 8.5 },
-		source: "compendium",
-	},
-	{
-		id: "escalier",
-		name: "StairMaster / escalier",
-		category: "cardio",
-		met: { legere: 4.5, moderee: 7.0, intense: 9.0 },
-		source: "compendium",
-	},
+	{ id: "course-tapis", name: "Course (tapis)", category: "cardio", bareme: "cardio" },
+	{ id: "velo-exterieur", name: "Vélo (extérieur)", category: "cardio", bareme: "cardio" },
+	{ id: "velo-indoor", name: "Vélo indoor / spinning", category: "cardio", bareme: "cardio" },
+	{ id: "elliptique", name: "Elliptique", category: "cardio", bareme: "cardio" },
+	{ id: "rameur", name: "Rameur", category: "cardio", bareme: "cardio" },
+	{ id: "escalier", name: "StairMaster / escalier", category: "cardio", bareme: "cardio" },
 	// ── Natation & eau ──
-	{
-		id: "natation",
-		name: "Natation",
-		category: "eau",
-		met: { legere: 5.8, moderee: 7.0, intense: 9.8 },
-		source: "compendium",
-	},
-	{
-		id: "aquagym",
-		name: "Aquagym",
-		category: "eau",
-		met: 4.0,
-		source: "compendium",
-	},
-	// ── Cours & douceurs ──
-	{
-		id: "pilates",
-		name: "Pilates",
-		category: "collectifs",
-		met: { legere: 2.5, moderee: 3.8, intense: 4.5 },
-		source: "compendium",
-	},
-	{
-		id: "yoga",
-		name: "Yoga",
-		category: "collectifs",
-		met: { legere: 2.5, moderee: 3.0, intense: 4.0 },
-		source: "compendium",
-	},
-	{
-		id: "danse",
-		name: "Danse",
-		category: "collectifs",
-		met: { legere: 3.5, moderee: 5.0, intense: 7.3 },
-		source: "compendium",
-	},
+	{ id: "natation", name: "Natation", category: "eau", bareme: "cardio" },
+	/* Aquagym : activité DOUCE — son coût ne suit pas les zones cardio. */
+	{ id: "aquagym", name: "Aquagym", category: "eau", bareme: "douce" },
+	// ── Cours & douceurs (yoga / Pilates / étirements / mobilité = douces) ──
+	{ id: "pilates", name: "Pilates", category: "collectifs", bareme: "douce" },
+	{ id: "yoga", name: "Yoga", category: "collectifs", bareme: "douce" },
+	{ id: "etirements", name: "Étirements", category: "collectifs", bareme: "douce" },
+	{ id: "mobilite", name: "Mobilité", category: "collectifs", bareme: "douce" },
+	{ id: "danse", name: "Danse", category: "collectifs", bareme: "cardio" },
 	// ── HIIT & circuits ──
-	{
-		id: "hiit",
-		name: "HIIT",
-		category: "hiit",
-		met: { legere: 6.0, moderee: 7.5, intense: 9.0 },
-		source: "compendium",
-		note: "Estimation HIIT — variable selon format et récupérations",
-	},
-	{
-		id: "circuit-training",
-		name: "Circuit training",
-		category: "hiit",
-		met: { legere: 4.5, moderee: 6.0, intense: 8.0 },
-		source: "compendium",
-	},
-	{
-		id: "cross-training",
-		name: "Cross training",
-		category: "hiit",
-		met: { legere: 5.0, moderee: 6.5, intense: 8.0 },
-		source: "compendium",
-	},
+	{ id: "hiit", name: "HIIT", category: "hiit", bareme: "cardio" },
+	{ id: "circuit-training", name: "Circuit training", category: "hiit", bareme: "cardio" },
+	{ id: "cross-training", name: "Cross training", category: "hiit", bareme: "cardio" },
 	// ── Sports de raquette ──
-	{
-		id: "tennis",
-		name: "Tennis",
-		category: "raquette",
-		met: { legere: 5.0, moderee: 6.5, intense: 8.0 },
-		source: "compendium",
-		note: "Double (léger) → simple (intense)",
-	},
-	{
-		id: "padel",
-		name: "Padel",
-		category: "raquette",
-		met: { legere: 4.5, moderee: 5.5, intense: 7.0 },
-		source: "compendium",
-		note: "Estimation entre badminton et tennis (absent du Compendium 2011)",
-	},
-	{
-		id: "badminton",
-		name: "Badminton",
-		category: "raquette",
-		met: { legere: 4.5, moderee: 5.0, intense: 5.5 },
-		source: "compendium",
-	},
+	{ id: "tennis", name: "Tennis", category: "raquette", bareme: "cardio" },
+	{ id: "padel", name: "Padel", category: "raquette", bareme: "cardio" },
+	{ id: "badminton", name: "Badminton", category: "raquette", bareme: "cardio" },
 	// ── Sports collectifs ──
-	{
-		id: "football",
-		name: "Football",
-		category: "equipe",
-		met: { legere: 5.5, moderee: 7.0, intense: 10.0 },
-		source: "compendium",
-	},
-	{
-		id: "basket",
-		name: "Basket",
-		category: "equipe",
-		met: { legere: 4.5, moderee: 6.0, intense: 8.0 },
-		source: "compendium",
-	},
+	{ id: "football", name: "Football", category: "equipe", bareme: "cardio" },
+	{ id: "basket", name: "Basket", category: "equipe", bareme: "cardio" },
 	// ── Glisse & hiver ──
-	{
-		id: "ski",
-		name: "Ski",
-		category: "glisse",
-		met: { legere: 4.5, moderee: 6.0, intense: 8.0 },
-		source: "compendium",
-	},
+	{ id: "ski", name: "Ski", category: "glisse", bareme: "cardio" },
 	// ── Autres ──
+	{ id: "corde-a-sauter", name: "Corde à sauter", category: "autres", bareme: "cardio" },
+];
+
+/**
+ * Choix de musculation (saisie manuelle) — coûts du barème affichés, dans
+ * l'ordre : Récréative 2,2 · Modérée 3,3 · Intensive 4,4. Source unique partagée
+ * par l'onglet Calibrage (CRM) et l'outil Dépense sportive (cliente) :
+ * « Modérée · 3,3 kcal/kg/h » est un AJOUT, les valeurs existantes sont
+ * inchangées (décimales françaises à l'affichage).
+ */
+export const SPORT_CHOIX_MUSCULATION: { id: string; label: string; hint: string }[] = [
 	{
-		id: "corde-a-sauter",
-		name: "Corde à sauter",
-		category: "autres",
-		met: { legere: 8.8, moderee: 11.8, intense: 12.3 },
-		source: "compendium",
+		id: INTENSITES_MUSCULATION[0],
+		label: "Récréative",
+		hint: `${decimalFr(COUT_SPORT.musculationRecreative)} kcal/kg/h`,
+	},
+	{
+		id: INTENSITES_MUSCULATION[1],
+		label: "Modérée",
+		hint: `${decimalFr(COUT_SPORT.musculationModeree)} kcal/kg/h`,
+	},
+	{
+		id: INTENSITES_MUSCULATION[2],
+		label: "Intensive",
+		hint: `${decimalFr(COUT_SPORT.musculationIntensive)} kcal/kg/h`,
 	},
 ];
 
-/** Activité sans intensité (MET fixe) ? */
-export function sportHasIntensity(entry: SportCatalogEntry): boolean {
-	return typeof entry.met !== "number";
-}
+/** Choix d'intensité des activités douces — coûts du barème affichés. */
+export const SPORT_CHOIX_DOUCES: { id: string; label: string; hint: string }[] = [
+	{ id: INTENSITES_DOUCES[0], label: "Légère", hint: `${decimalFr(COUT_SPORT.activiteDouce)} kcal/kg/h` },
+	{ id: INTENSITES_DOUCES[1], label: "Modérée", hint: `${decimalFr(COUT_SPORT.activiteDouce)} kcal/kg/h` },
+	{ id: INTENSITES_DOUCES[2], label: "Élevée", hint: `${decimalFr(COUT_SPORT.activiteDouceElevee)} kcal/kg/h` },
+];
+
+/**
+ * Zones cardio proposées à la saisie : libellé = intensité RESSENTIE, `hint` =
+ * plage de fréquence cardiaque et coût horaire du barème (le mot MET n'est
+ * JAMAIS affiché côté cliente).
+ */
+export const SPORT_ZONES_CARDIO: { id: string; label: string; hint: string }[] = BANDES_CARDIO.map(
+	(z) => ({
+		id: z.id,
+		label: z.intensite,
+		hint: `${z.libelle} · ${decimalFr(z.defaut)} kcal/kg/h`,
+	})
+);
+
+/** Choix de la séance G-FLUX automatique (trainingClient). */
+export const GFLUX_SESSION_CHOIX = "gflux";
+/** Activité de catalogue utilisée comme PORTEUR de la séance G-FLUX. */
+export const GFLUX_SESSION_ACTIVITY_ID = "musculation";
+
+/**
+ * Libellés des intensités/zones, v1 ET v2 — les lignes enregistrées gardent
+ * leur libellé même après bascule du catalogue.
+ */
+export const SPORT_INTENSITY_LABELS: Record<string, string> = {
+	// v1 — lignes existantes (MET du Compendium par intensité)
+	legere: "Légère",
+	moderee: "Modérée",
+	intense: "Intense",
+	// v2 — musculation à la main
+	recreative: "Récréative",
+	intensive: "Intensive",
+	// v2 — activités douces
+	elevee: "Élevée",
+	// v2 — séances G-FLUX créées automatiquement
+	gflux: "Séance G-FLUX",
+	// v2 — zones cardio (intensité ressentie)
+	...Object.fromEntries(BANDES_CARDIO.map((z) => [z.id, z.intensite])),
+};
 
 /** Terme recherché → message pédagogique marche (jamais de Marche standard). */
 export const WALKING_BLOCKED_RE =
@@ -283,12 +301,98 @@ function requireSportEntry(activityId: string): SportCatalogEntry {
 	return entry;
 }
 
-function metOf(entry: SportCatalogEntry, intensity?: string): number {
-	if (typeof entry.met === "number") return entry.met;
-	const key = (intensity ?? "moderee") as SportIntensity;
-	const met = entry.met[key];
-	if (met == null) throw new ConvexError("Intensité invalide pour cette activité.");
-	return met;
+/** Identifiants de choix acceptés pour une activité (zone ou intensité). */
+export function choixValides(entry: SportCatalogEntry): string[] {
+	if (entry.bareme === "musculation") return [...INTENSITES_MUSCULATION];
+	if (entry.bareme === "douce") return [...INTENSITES_DOUCES];
+	return [...ZONES_CARDIO_IDS];
+}
+
+/** MET signé pour les MET-minutes : MET = kcal/kg/h ÷ 1,05 (2 décimales). */
+function metDeKcalKgH(coefficientKcalKgH: number): number {
+	return Math.round((coefficientKcalKgH / KCAL_PAR_H_PAR_MET) * 100) / 100;
+}
+
+export type CoutSportifResolu = {
+	/** Choix recopié sur la ligne (zone cardio ou intensité). */
+	intensity: string;
+	/** Coût horaire du barème (kcal/kg/heure). */
+	coefficientKcalKgH: number;
+	/** MET dérivé (MET-minutes du CRM). */
+	metValue: number;
+	/** Libellé lisible de la règle appliquée. */
+	libelle: string;
+	/** FC moyenne réellement saisie (absente si l'intensité a été choisie). */
+	bpmMoyen?: number;
+};
+
+/**
+ * Coût horaire d'une activité + de son choix (barème G-FLUX, v2). Un choix
+ * absent ou hors barème est REFUSÉ (jamais de zone implicite silencieuse).
+ *
+ * Si `bpmMoyen` (FC moyenne RÉELLEMENT mesurée) est fournie, elle choisit la
+ * zone pour TOUTES les activités — musculation, activité douce comme cardio —
+ * et le choix d'intensité n'est alors pas requis.
+ */
+export function resolveSportCoefficient(
+	activityId: string,
+	choix?: string | null,
+	bpmMoyen?: number | null
+): CoutSportifResolu {
+	return enConvexError(() => resolveSportCoefficientBrut(activityId, choix, bpmMoyen));
+}
+
+function resolveSportCoefficientBrut(
+	activityId: string,
+	choix?: string | null,
+	bpmMoyen?: number | null
+): CoutSportifResolu {
+	const entry = requireSportEntry(activityId);
+	if (bpmMoyen !== undefined && bpmMoyen !== null) {
+		const cout = coutSportif({ sport: "cardio", bpm: bpmMoyen });
+		const zone = cout.bande;
+		return {
+			intensity: zone ? zone.id : "",
+			coefficientKcalKgH: cout.coefficientKcalKgH,
+			metValue: metDeKcalKgH(cout.coefficientKcalKgH),
+			libelle: cout.libelle,
+			bpmMoyen,
+		};
+	}
+	if (choix === undefined || choix === null || choix === "") {
+		throw new ConvexError("Zone ou intensité requise pour cette activité.");
+	}
+	if (!choixValides(entry).includes(choix)) {
+		throw new ConvexError("Zone ou intensité invalide pour cette activité.");
+	}
+	if (entry.bareme === "musculation") {
+		const cout = coutSportif({
+			sport: "musculation",
+			intensite: choix as IntensiteMusculation,
+		});
+		return {
+			intensity: choix,
+			coefficientKcalKgH: cout.coefficientKcalKgH,
+			metValue: metDeKcalKgH(cout.coefficientKcalKgH),
+			libelle: cout.libelle,
+		};
+	}
+	if (entry.bareme === "douce") {
+		const cout = coutSportif({ sport: "douce", intensite: choix as IntensiteDouce });
+		return {
+			intensity: choix,
+			coefficientKcalKgH: cout.coefficientKcalKgH,
+			metValue: metDeKcalKgH(cout.coefficientKcalKgH),
+			libelle: cout.libelle,
+		};
+	}
+	const zone = zoneCardioParId(choix);
+	return {
+		intensity: zone.id,
+		coefficientKcalKgH: zone.defaut,
+		metValue: metDeKcalKgH(zone.defaut),
+		libelle: `Cardio ${zone.libelle} (${zone.intensite}) · ${zone.defaut} kcal/kg/h`,
+	};
 }
 
 /** Clamp durée (1–600 min) — même borne haute que les séances G-FLUX. */
@@ -300,47 +404,110 @@ export function clampSportDuration(minutes: number): number {
 export type SportEstimation = {
 	activityId: string;
 	activityNameSnapshot: string;
+	/** Choix recopié tel quel sur la ligne (zone cardio, intensité, gflux). */
+	intensity: string;
 	metValue: number;
+	/** Coût horaire du barème (kcal/kg/heure) — absent des lignes v1. */
+	coutHoraireKcalKgH?: number;
+	/** FC moyenne réellement mesurée — absente si l'intensité a été choisie. */
+	bpmMoyen?: number;
 	coefficientSource: SportCoefficientSource;
 	coefficientVersion: string;
-	/** kcal estimées — absent si aucune pesée connue (jamais de poids inventé). */
+	/** kcal estimées — absentes si aucune pesée connue (jamais de poids inventé). */
 	estimatedCalories?: number;
 	metMinutes: number;
 };
 
+/** Dépense (kcal) du barème : coût horaire × poids × durée. */
+function caloriesBareme(
+	coefficientKcalKgH: number,
+	minutes: number,
+	weightKg?: number | null
+): number | undefined {
+	if (weightKg == null || weightKg <= 0) return undefined;
+	return enConvexError(() =>
+		depenseSeanceKcal({ coefficientKcalKgH, poidsKg: weightKg, heures: minutes / 60 })
+	);
+}
+
 /**
- * Calcul unique de la dépense : MET × poids × durée/60 (kcal) + MET-minutes.
- * `weightKg` absent → estimatedCalories absent (repère impossible sans
- * poids), les MET-minutes restent stockées (volume indépendant du poids).
+ * Calcul unique d'une NOUVELLE dépense (barème v2) : coût horaire (kcal/kg/h)
+ * × poids × durée + MET-minutes dérivés. `weightKg` absent → estimatedCalories
+ * absentes (repère impossible sans poids) ; les MET-minutes restent stockées.
  */
 export function estimateSportActivity(args: {
 	activityId: string;
-	intensity?: string;
+	intensity?: string | null;
+	/** FC moyenne réellement mesurée : choisit la zone pour toutes les activités. */
+	bpmMoyen?: number | null;
 	durationMinutes: number;
 	weightKg?: number | null;
 }): SportEstimation {
 	const entry = requireSportEntry(args.activityId);
 	const minutes = clampSportDuration(args.durationMinutes);
-	const metValue = metOf(entry, args.intensity);
-	const metMinutes = Math.round(metValue * minutes);
-	const out: SportEstimation = {
+	/* PWA en cache : les anciennes valeurs d'intensité (legere/moderee/intense)
+	   sont converties vers les choix v2 — jamais de refus au déploiement. */
+	const intensite =
+		args.intensity != null && args.intensity !== ""
+			? intensiteLegacyVersV2(entry, args.intensity)
+			: args.intensity;
+	const cout = resolveSportCoefficient(args.activityId, intensite, args.bpmMoyen);
+	const estimatedCalories = caloriesBareme(cout.coefficientKcalKgH, minutes, args.weightKg);
+	return {
 		activityId: entry.id,
 		activityNameSnapshot: entry.name,
-		metValue,
-		coefficientSource: entry.source,
+		intensity: cout.intensity,
+		...(cout.bpmMoyen !== undefined ? { bpmMoyen: cout.bpmMoyen } : {}),
+		metValue: cout.metValue,
+		coutHoraireKcalKgH: cout.coefficientKcalKgH,
+		coefficientSource: "gflux_table",
 		coefficientVersion: SPORT_CATALOG_VERSION,
-		metMinutes,
+		metMinutes: Math.round(cout.metValue * minutes),
+		...(estimatedCalories !== undefined ? { estimatedCalories } : {}),
 	};
-	if (args.weightKg != null && args.weightKg > 0) {
-		out.estimatedCalories = Math.round(metValue * args.weightKg * (minutes / 60));
-	}
-	return out;
 }
 
 /**
- * MET de référence d'une SÉANCE G-FLUX terminée (musculation) — intensité
- * modérée du tableau G-FLUX (validé en audit). L'estimation reste un repère :
- * la dépense réelle est déjà couverte par le calibrage.
+ * Dépense d'une SÉANCE G-FLUX terminée (créée automatiquement par
+ * trainingClient) : barème G-FLUX 3,3 kcal/kg/heure, quelle que soit
+ * l'intensité ressentie de la musculation à la main.
  */
-export const GFLUX_SESSION_ACTIVITY_ID = "musculation";
-export const GFLUX_SESSION_INTENSITY: SportIntensity = "moderee";
+export function estimateGfluxSportActivity(args: {
+	durationMinutes: number;
+	weightKg?: number | null;
+}): SportEstimation {
+	const minutes = clampSportDuration(args.durationMinutes);
+	const coefficient = COUT_SPORT.seanceGflux;
+	const estimatedCalories = caloriesBareme(coefficient, minutes, args.weightKg);
+	const entry = requireSportEntry(GFLUX_SESSION_ACTIVITY_ID);
+	return {
+		activityId: entry.id,
+		activityNameSnapshot: entry.name,
+		intensity: GFLUX_SESSION_CHOIX,
+		metValue: metDeKcalKgH(coefficient),
+		coutHoraireKcalKgH: coefficient,
+		coefficientSource: "gflux_table",
+		coefficientVersion: SPORT_CATALOG_VERSION,
+		metMinutes: Math.round(metDeKcalKgH(coefficient) * minutes),
+		...(estimatedCalories !== undefined ? { estimatedCalories } : {}),
+	};
+}
+
+/**
+ * Recalcul d'une ligne V1 (MET du Compendium) : `metValue` et
+ * `coefficientSource` de la ligne sont RÉUTILISÉS tels quels — seul le volume
+ * (durée, poids gelé) bouge. Aucune bascule de barème sur l'historique.
+ */
+export function depenseLegacyMet(args: {
+	metValue: number;
+	durationMinutes: number;
+	weightKg?: number | null;
+}): { metMinutes: number; estimatedCalories?: number } {
+	const minutes = clampSportDuration(args.durationMinutes);
+	const metMinutes = Math.round(args.metValue * minutes);
+	if (args.weightKg == null || args.weightKg <= 0) return { metMinutes };
+	return {
+		metMinutes,
+		estimatedCalories: Math.round(args.metValue * args.weightKg * (minutes / 60)),
+	};
+}
