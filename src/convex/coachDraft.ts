@@ -46,7 +46,7 @@ import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { generateText, isAiFeatureDisabled, resolveGenerationConfig } from "./ai/provider";
-import { OpenAiIncompleteError } from "../lib/server/openai";
+import { OpenAiIncompleteError, OpenAiUnavailableError } from "../lib/server/openai";
 import { DRAFT_RATE_LIMITED, draftFailReason, type DraftFailReasonCode } from "../lib/coachDraftError";
 import { COACH_DRAFT_STYLE_GUIDE } from "../lib/data/coachDraftStyleGuide";
 import { COACH_DRAFT_METHOD_REFERENCE } from "./ai/methodeGflux";
@@ -750,6 +750,9 @@ export const generate = action({
 				error instanceof OpenAiIncompleteError
 					? "incomplete"
 					: draftFailReason(error instanceof Error ? error.message : String(error));
+			// DIAGNOSTIC SANS FUITE : uniquement le paramètre refusé (`reasoning.effort`),
+			// déjà borné et nettoyé par le client OpenAI — jamais le message.
+			const failParam = error instanceof OpenAiUnavailableError ? error.failParam : undefined;
 			// Erreur ou délai dépassé : on trace la cause technique courte (jamais
 			// le prompt ni le contenu) puis on renvoie un message clair — le coach
 			// écrit à la main comme avant.
@@ -759,6 +762,7 @@ export const generate = action({
 				durationMs: Date.now() - started,
 				status: "error",
 				failReason,
+				...(failParam ? { failParam } : {}),
 			} as never);
 			throw new ConvexError(
 				"Le brouillon n'a pas pu être préparé. Tu peux écrire ton retour à la main comme avant, ou réessayer dans un instant."

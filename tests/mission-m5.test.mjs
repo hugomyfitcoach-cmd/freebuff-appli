@@ -21,6 +21,7 @@ import { updateClient } from '../src/convex/coach.ts';
 import { DRAFT_RATE_LIMIT_MS, generate, hasAiConsent, recentSuccessfulDraft } from '../src/convex/coachDraft.ts';
 import { anonymizePrenom, buildDraftPreview, PRENOM_PLACEHOLDER } from '../src/convex/coachDraftPrompt.ts';
 import { hashToken } from '../src/convex/helpers.ts';
+import { FAIL_PARAM_MAX_LENGTH, sanitizeFailParam } from '../src/lib/server/openai.ts';
 import {
 	COACH_DRAFT_CONSENT_MISSING,
 	DRAFT_CAUSE_DISABLED,
@@ -605,6 +606,156 @@ test('Deuxième génération pour le même bilan en moins de 30 s : refusée cô
 		true,
 		'succès récent détecté'
 	);
+});
+
+/* ═════════════ 8) M5-quater — REPLI DE PARAMÈTRES ET failParam ═════════════ */
+
+/**
+ * Fetch fournisseur simulé sur une SÉQUENCE de réponses : chaque appel
+ * consomme la suivante (la dernière est répétée). Corps capturés dans l'ordre.
+ * Aucun réseau, aucune clé réelle.
+ */
+async function withProviderSequence(responses, run) {
+	const saved = {
+		model: process.env.OPENAI_COACH_DRAFT_MODEL,
+		key: process.env.OPENAI_API_KEY,
+		disabled: process.env.AI_COACH_DRAFT_DISABLED,
+	};
+	const requests = [];
+	const realFetch = globalThis.fetch;
+	process.env.OPENAI_COACH_DRAFT_MODEL = 'gpt-6.1-sol';
+	process.env.OPENAI_API_KEY = 'cle-de-test';
+	delete process.env.AI_COACH_DRAFT_DISABLED;
+	let index = 0;
+	globalThis.fetch = async (_url, init) => {
+		requests.push(JSON.parse(init.body));
+		const next = responses[Math.min(index, responses.length - 1)];
+		index += 1;
+		return new Response(JSON.stringify(next.body), {
+			status: next.status,
+			headers: { 'Content-Type': 'application/json' },
+		});
+	};
+	try {
+		return await run(requests);
+	} finally {
+		globalThis.fetch = realFetch;
+		for (const [key, value] of [
+			['OPENAI_COACH_DRAFT_MODEL', saved.model],
+			['OPENAI_API_KEY', saved.key],
+			['AI_COACH_DRAFT_DISABLED', saved.disabled],
+		]) {
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+	}
+}
+
+/** Refus OpenAI typique d'un réglage non supporté par le modèle. */
+const REASONING_400 = {
+	status: 400,
+	body: {
+		error: {
+			message: "Unsupported value: 'minimal' is not supported with this model.",
+			type: 'invalid_request_error',
+			param: 'reasoning.effort',
+			code: 'unsupported_value',
+		},
+	},
+};
+
+test('HTTP 400 sur reasoning : UN réessai sans reasoning renvoie le texte', async () => {
+	const t = await tables({ aiConsentAt: Date.now() });
+	const { ctx, logs } = actionCtx(t, { consent: true });
+	const complet =
+		'Camille, merci pour ce bilan : ta régularité sur les repas est là. On garde une priorité simple pour la semaine prochaine.';
+	await withProviderSequence(
+		[
+			REASONING_400,
+			{ status: 200, body: { status: 'completed', output_text: complet, usage: { input_tokens: 900, output_tokens: 320 } } },
+		],
+		async (requests) => {
+			const text = await generate._handler(ctx, { sessionToken: 'tok-coach', checkinId: 'checkin1' });
+			assert.equal(text, complet, 'texte réel renvoyé après repli');
+			assert.equal(requests.length, 2, 'un seul réessai');
+			assert.equal(requests[0].reasoning.effort, 'minimal', 'premier essai : effort demandé');
+			assert.equal(requests[1].reasoning, undefined, 'second essai : reasoning retiré');
+			assert.equal(requests[1].temperature, 0.3, 'température conservée au second essai');
+			assert.equal(requests[1].max_output_tokens, 2000, 'limite de sortie conservée (2 000)');
+		}
+	);
+	assert.equal(logs.length, 1, 'une seule trace IA');
+	assert.equal(logs[0].status, 'ok', 'génération réussie tracée');
+});
+
+test('Deux HTTP 400 : TROIS tentatives maximum, code « model » et failParam tracé', async () => {
+	const t = await tables({ aiConsentAt: Date.now() });
+	const { ctx, logs } = actionCtx(t, { consent: true });
+	await withProviderSequence([REASONING_400, REASONING_400, REASONING_400, REASONING_400], async (requests) => {
+		await assert.rejects(
+			() => generate._handler(ctx, { sessionToken: 'tok-coach', checkinId: 'checkin1' }),
+			/brouillon n'a pas pu être préparé/
+		);
+		assert.equal(requests.length, 3, 'trois tentatives au maximum — aucune autre boucle');
+		assert.deepEqual(
+			requests.map((r) => [r.reasoning !== undefined, r.temperature !== undefined]),
+			[
+				[true, true],
+				[false, true],
+				[false, false],
+			],
+			'ordre : nominal → sans reasoning → sans température'
+		);
+		for (const request of requests) {
+			assert.equal(request.max_output_tokens, 2000, 'limite de sortie inchangée à chaque essai');
+		}
+	});
+	assert.equal(logs.length, 1, 'une seule trace d’échec');
+	assert.equal(logs[0].status, 'error');
+	assert.equal(logs[0].failReason, 'model', 'code court stable');
+	assert.equal(draftErrorCause(logs[0].failReason), DRAFT_CAUSE_MODEL_REFUSED);
+	assert.equal(logs[0].failParam, 'reasoning.effort', 'paramètre refusé conservé pour le diagnostic');
+});
+
+test('failParam : jamais de clé ni de message libre, borné à 40 caractères', async () => {
+	// Source unique du champ : le nettoyeur du client OpenAI.
+	assert.equal(sanitizeFailParam('reasoning.effort'), 'reasoning.effort', 'nom de paramètre accepté');
+	assert.equal(sanitizeFailParam('x'.repeat(80)).length, FAIL_PARAM_MAX_LENGTH, 'tronqué à 40');
+	assert.equal(FAIL_PARAM_MAX_LENGTH, 40);
+	assert.equal(sanitizeFailParam('sk-abc123'), undefined, 'jamais une clé');
+	assert.equal(sanitizeFailParam('Incorrect API key provided: sk-abc'), undefined, 'jamais un message');
+	assert.equal(sanitizeFailParam('some free text'), undefined, 'aucun texte libre');
+	assert.equal(sanitizeFailParam(undefined), undefined);
+	assert.equal(sanitizeFailParam(42), undefined);
+
+	// 401 : le message porte une clé — seul le code technique est persisté.
+	const t = await tables({ aiConsentAt: Date.now() });
+	const { ctx, logs } = actionCtx(t, { consent: true });
+	await withProviderSequence(
+		[{ status: 401, body: { error: { message: 'Incorrect API key provided: sk-abc123', code: 'invalid_api_key' } } }],
+		async () => {
+			await assert.rejects(
+				() => generate._handler(ctx, { sessionToken: 'tok-coach', checkinId: 'checkin1' }),
+				/brouillon n'a pas pu être préparé/
+			);
+		}
+	);
+	assert.equal(logs[0].failReason, 'http_401');
+	assert.equal(logs[0].failParam, 'invalid_api_key', 'code OpenAI conservé');
+	assert.ok(!logs[0].failParam.includes('sk-'), 'aucune clé dans failParam');
+	assert.ok(!/Incorrect|provided|cle/i.test(logs[0].failParam), 'aucun message libre dans failParam');
+	assert.ok(logs[0].failParam.length <= 40, 'failParam borné');
+
+	// Aucun paramètre ni code renvoyé : le champ reste absent (rien d’inventé).
+	const t2 = await tables({ aiConsentAt: Date.now() });
+	const second = actionCtx(t2, { consent: true });
+	await withProviderSequence([{ status: 400, body: { error: { message: 'Bad request.' } } }], async () => {
+		await assert.rejects(
+			() => generate._handler(second.ctx, { sessionToken: 'tok-coach', checkinId: 'checkin1' }),
+			/brouillon n'a pas pu être préparé/
+		);
+	});
+	assert.equal(second.logs[0].failParam, undefined, 'aucun failParam inventé');
 });
 
 test('Refus de consentement : 403 avec le code consent et le message dédié', async () => {

@@ -66,7 +66,39 @@ export type AiUsage = {
 	estimatedCostUsd?: number;
 };
 
-export class OpenAiUnavailableError extends Error {}
+export class OpenAiUnavailableError extends Error {
+	/** Statut HTTP du refus fournisseur — sert UNIQUEMENT au repli de réglages. */
+	readonly status?: number;
+	/**
+	 * Paramètre/champ refusé (`error.param` ou `error.code` d'OpenAI), déjà
+	 * borné par `sanitizeFailParam`. JAMAIS `error.message` (il peut citer une
+	 * clé ou du contenu libre).
+	 */
+	readonly failParam?: string;
+
+	constructor(message: string, options: { status?: number; failParam?: string } = {}) {
+		super(message);
+		this.status = options.status;
+		this.failParam = options.failParam;
+	}
+}
+
+/** Longueur maximale du paramètre refusé conservé pour le diagnostic. */
+export const FAIL_PARAM_MAX_LENGTH = 40;
+
+/**
+ * SEULE valeur de diagnostic conservée d'un refus fournisseur : le nom du
+ * paramètre (`error.param`) ou le code (`error.code`) — jamais `error.message`.
+ * Un nom de paramètre est technique (`reasoning.effort`) : tout texte libre,
+ * espace ou valeur ressemblant à une clé est écarté, et la valeur est bornée à
+ * 40 caractères.
+ */
+export function sanitizeFailParam(value: unknown): string | undefined {
+	if (typeof value !== 'string') return undefined;
+	const clean = value.trim().slice(0, FAIL_PARAM_MAX_LENGTH);
+	if (!clean || /sk-|bearer|-----|\s/i.test(clean)) return undefined;
+	return clean;
+}
 
 /**
  * Réponse COUPÉE par le fournisseur (limite de sortie atteinte, statut
@@ -159,13 +191,21 @@ async function callOpenAiCore(
 		// distingue quota insuffisant (à régler côté compte) d'un rate limit
 		// passager (à réessayer) — sinon l'UI affiche une erreur générique.
 		let detail = '';
+		// Diagnostic SANS FUITE : le nom du paramètre refusé, jamais le message.
+		let failParam: string | undefined;
 		try {
-			const j = (await res.json()) as { error?: { message?: string } };
+			const j = (await res.json()) as {
+				error?: { message?: string; param?: unknown; code?: unknown };
+			};
 			detail = typeof j.error?.message === 'string' ? ` — ${j.error.message.slice(0, 140)}` : '';
+			failParam = sanitizeFailParam(j.error?.param) ?? sanitizeFailParam(j.error?.code);
 		} catch {
 			// corps non JSON : on reste générique
 		}
-		throw new OpenAiUnavailableError(`Service IA indisponible (HTTP ${res.status})${detail}.`);
+		throw new OpenAiUnavailableError(`Service IA indisponible (HTTP ${res.status})${detail}.`, {
+			status: res.status,
+			failParam,
+		});
 	}
 	const raw = (await res.json()) as {
 		output_text?: string;
@@ -245,8 +285,8 @@ async function callOpenAiText(
  *  - consignes système en tête d'appel (`role: 'system'`), puis le prompt :
  *    le préfixe identique à chaque appel profite du cache de prompt ;
  *  - température basse (`COACH_DRAFT_TEMPERATURE`) pour la régularité des
- *    retours ; si le modèle refuse ce réglage, un second appel sans
- *    température prend la valeur par défaut — la plus proche qu'il accepte ;
+ *    retours ; un HTTP 400 déclenche une escalade BORNÉE de repli (sans effort
+ *    de raisonnement, puis sans température), jamais un changement de modèle ;
  *  - usages complets renvoyés : modèle, tokens lus/écrits, tokens mis en
  *    cache (`input_tokens_details.cached_tokens`), durée et coût estimé.
  */
@@ -261,22 +301,14 @@ export const COACH_DRAFT_TEMPERATURE = 0.3;
  */
 export const COACH_DRAFT_REASONING_EFFORT = 'minimal' as const;
 
-/** Un refus HTTP 400 qui cite explicitement le réglage de température. */
-function isTemperatureRejected(error: unknown): boolean {
-	return (
-		error instanceof OpenAiUnavailableError &&
-		/\bHTTP 400\b/.test(error.message) &&
-		/temperature/i.test(error.message)
-	);
-}
-
-/** Un refus HTTP 400 qui cite explicitement le réglage d'effort de raisonnement. */
-function isReasoningRejected(error: unknown): boolean {
-	return (
-		error instanceof OpenAiUnavailableError &&
-		/\bHTTP 400\b/.test(error.message) &&
-		/reasoning|effort/i.test(error.message)
-	);
+/**
+ * Refus HTTP 400 du fournisseur : un réglage optionnel est en cause. On ne
+ * dépend PAS du texte du message (M5-bis régressait là : le refus de
+ * `reasoning.effort` arrivait sans citer « reasoning » et le repli ne partait
+ * pas) — le statut seul déclenche l'escalade des réglages.
+ */
+function isBadRequest(error: unknown): boolean {
+	return error instanceof OpenAiUnavailableError && error.status === 400;
 }
 export async function generateCoachDraftText(args: {
 	system: string;
@@ -292,6 +324,13 @@ export async function generateCoachDraftText(args: {
 		{ role: 'user', content: [{ type: 'input_text', text: args.prompt }] },
 	];
 	const temperature = args.temperature ?? COACH_DRAFT_TEMPERATURE;
+	// ÉCHELLE DE REPLI BORNÉE — trois tentatives au maximum, dans cet ordre :
+	//   1. réglages nominaux (température basse + effort de raisonnement) ;
+	//   2. sans effort de raisonnement (le suspect n° 1 d'un HTTP 400) ;
+	//   3. sans température (dernier réglage optionnel restant).
+	// `max_output_tokens` est conservé tel quel à chaque tentative, et aucun
+	// repli ne change de modèle ni de texte. Toute erreur qui n'est PAS un
+	// HTTP 400 remonte immédiatement : aucune boucle, aucun réessai inutile.
 	try {
 		return await callOpenAiCore(messages, args.maxOutputTokens, {
 			model,
@@ -300,20 +339,21 @@ export async function generateCoachDraftText(args: {
 			reasoningEffort: COACH_DRAFT_REASONING_EFFORT,
 		});
 	} catch (error) {
-		// Certains modèles refusent un réglage optionnel (température, effort de
-		// raisonnement) : on réessaie sans CELUI qu'ils refusent, avec la valeur
-		// par défaut — la plus proche qu'ils acceptent. Jamais de repli sur un
-		// autre modèle ni sur un autre texte.
-		const withoutTemperature = isTemperatureRejected(error);
-		const withoutReasoning = isReasoningRejected(error);
-		if (!withoutTemperature && !withoutReasoning) throw error;
+		if (!isBadRequest(error)) throw error;
+	}
+	try {
 		return await callOpenAiCore(messages, args.maxOutputTokens, {
 			model,
 			json: false,
-			...(withoutTemperature ? {} : { temperature }),
-			...(withoutReasoning ? {} : { reasoningEffort: COACH_DRAFT_REASONING_EFFORT }),
+			temperature,
 		});
+	} catch (error) {
+		if (!isBadRequest(error)) throw error;
 	}
+	return await callOpenAiCore(messages, args.maxOutputTokens, {
+		model,
+		json: false,
+	});
 }
 
 /* ─────────────── ÉTIQUETTE NUTRITIONNELLE ─────────────── */

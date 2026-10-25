@@ -1593,6 +1593,12 @@ export default defineSchema({
 		 * jamais le message brut du fournisseur ni une valeur de clé.
 		 */
 		failReason: v.optional(v.string()),
+		/**
+		 * Paramètre/champ refusé par le fournisseur (`error.param` ou `error.code`,
+		 * ex. « reasoning.effort »), tronqué à 40 caractères et nettoyé. Sert au
+		 * diagnostic d'un HTTP 400 sans jamais stocker `error.message`.
+		 */
+		failParam: v.optional(v.string()),
 		/** Bilan concerné (brouillon coach) — anti-double génération. Aucun contenu. */
 		checkinId: v.optional(v.string()),
 		createdAt: v.number(),

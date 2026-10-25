@@ -19,6 +19,11 @@ export const record = internalMutation({
 		estimatedCostUsd: v.optional(v.number()),
 		failReason: v.optional(v.string()),
 		/**
+		 * Paramètre/champ refusé par OpenAI (`error.param` ou `error.code`), borné
+		 * à 40 caractères — jamais `error.message`. Diagnostic d'un HTTP 400.
+		 */
+		failParam: v.optional(v.string()),
+		/**
 		 * Identifiant technique du bilan concerné (brouillon coach) — borne la
 		 * double génération en 30 s. Jamais un contenu, jamais un prénom.
 		 */
