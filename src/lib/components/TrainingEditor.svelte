@@ -17,6 +17,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import ExerciseMedia from '$lib/components/ExerciseMedia.svelte';
 	import ExerciseLibraryBrowser from '$lib/components/ExerciseLibraryBrowser.svelte';
+	import { displayExerciseName, exerciseInstructions } from '$lib/exerciseFr';
 	import {
 		type SessionView,
 		type SessionExerciseView,
@@ -540,7 +541,7 @@
 									<ExerciseMedia media={ex.exercise ?? undefined} class="h-full w-full object-cover" />
 								</span>
 								<span class="min-w-0">
-									<span class="block truncate text-[13px] font-semibold text-ink">{ex.exercise?.name ?? 'Exercice supprimé'}</span>
+									<span class="block truncate text-[13px] font-semibold text-ink">{displayExerciseName(ex.exercise?.name) || 'Exercice supprimé'}</span>
 									<span class="block truncate text-[11px] text-mist">{exercisePreview(ex)}</span>
 								</span>
 							</button>
@@ -655,7 +656,7 @@
 						/>
 						</span>
 						<div class="min-w-0">
-							<h3 class="font-display text-base font-bold leading-tight text-ink">{selectedExercise.exercise?.name ?? 'Exercice supprimé'}</h3>
+							<h3 class="font-display text-base font-bold leading-tight text-ink">{displayExerciseName(selectedExercise.exercise?.name) || 'Exercice supprimé'}</h3>
 							<p class="mt-0.5 text-[11px] text-mist">
 								{selectedExercise.exercise?.muscleGroup ?? '—'}{selectedExercise.exercise?.equipment ? ` · ${selectedExercise.exercise.equipment}` : ''}
 							</p>
@@ -889,11 +890,11 @@
 						></textarea>
 					</label>
 
-					{#if selectedExercise.exercise?.instructions?.length}
+					{#if exerciseInstructions(selectedExercise.exercise).length}
 						<details class="mt-4 border-t border-line pt-3">
 							<summary class="cursor-pointer text-[10px] font-bold uppercase tracking-widest text-mist">Exécution (bibliothèque)</summary>
 							<ol class="mt-2 list-decimal space-y-1 pl-5 text-xs text-ink">
-								{#each selectedExercise.exercise.instructions as step}
+								{#each exerciseInstructions(selectedExercise.exercise) as step}
 									<li>{step}</li>
 								{/each}
 							</ol>

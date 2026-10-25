@@ -15,6 +15,7 @@
 	 */
 	import { onMount, onDestroy } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import { displayExerciseName, exerciseInstructions } from '$lib/exerciseFr';
 	import { loadScheduledSession, SESSION_LOAD_ERROR_MESSAGE } from '$lib/sessionLoad';
 	import { supersetBlocks, supersetLabel } from '$lib/training';
 
@@ -47,6 +48,7 @@
 			posterUrl: string | null;
 			animationUrl: string | null;
 			instructions: string[] | null;
+			instructionsFr?: string[] | null;
 		} | null;
 		sets: ExSet[];
 		lastPerformance: { date: string; reps: number | null; weightKg: number | null; durationSeconds: number | null } | null;
@@ -525,7 +527,7 @@
 				0
 			);
 			if (best > ex.lastPerformance.weightKg) {
-				progression = `${ex.exercise?.name ?? 'Un exercice'} : ${best} kg — de mieux en mieux !`;
+				progression = `${displayExerciseName(ex.exercise?.name) || 'Un exercice'} : ${best} kg — de mieux en mieux !`;
 				break;
 			}
 		}
@@ -940,7 +942,7 @@
 										type="button"
 										onclick={() => (previewEx = ex)}
 										class="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-line/40"
-										aria-label={`Voir le mouvement : ${ex.exercise?.name ?? 'exercice'}`}
+										aria-label={`Voir le mouvement : ${displayExerciseName(ex.exercise?.name) || 'exercice'}`}
 									>
 										{#if mediaVideo(ex)}
 											<video src={mediaVideo(ex)!} autoplay muted loop playsinline poster={ex.exercise?.posterUrl ?? ''} class="h-full w-full object-cover"></video>
@@ -957,7 +959,7 @@
 									</div>
 								{/if}
 								<div class="min-w-0 flex-1">
-									<h3 class="truncate text-sm font-bold text-ink">{ex.exercise?.name ?? 'Exercice'}</h3>
+									<h3 class="truncate text-sm font-bold text-ink">{displayExerciseName(ex.exercise?.name) || 'Exercice'}</h3>
 									<p class="text-xs text-mist">
 										{ex.mode === 'time'
 											? `${ex.sets.length} × ${ex.sets[0]?.durationSeconds ?? '?'} s`
@@ -1100,7 +1102,7 @@
 
 			<!-- Progression -->
 			<p class="mb-2 text-center text-xs font-semibold text-mist">
-				Exercice {gExIdx + 1}/{data.exercises.length}{#if gEx.exercise} · {gEx.exercise.name}{/if}
+				Exercice {gExIdx + 1}/{data.exercises.length}{#if gEx.exercise} · {displayExerciseName(gEx.exercise.name)}{/if}
 			</p>
 
 			<div class="rounded-3xl border border-line bg-card p-5 shadow-sm">
@@ -1133,7 +1135,7 @@
 						type="button"
 						onclick={() => (previewEx = gEx)}
 						class="mx-auto mb-4 block h-28 w-28 overflow-hidden rounded-2xl bg-line/30"
-						aria-label={`Voir le mouvement : ${gEx.exercise?.name ?? 'exercice'}`}
+						aria-label={`Voir le mouvement : ${displayExerciseName(gEx.exercise?.name) || 'exercice'}`}
 					>
 						{#if mediaVideo(gEx)}
 							<video src={mediaVideo(gEx)!} autoplay muted loop playsinline poster={gEx.exercise?.posterUrl ?? ''} class="h-full w-full object-cover"></video>
@@ -1143,7 +1145,7 @@
 							<span class="grid h-full w-full place-items-center"><Icon name="dumbbell" size={26} class="text-mist" /></span>
 						{/if}
 					</button>
-					<h2 class="text-center font-display text-xl font-bold text-ink">{gEx.exercise?.name ?? 'Exercice'}</h2>
+					<h2 class="text-center font-display text-xl font-bold text-ink">{displayExerciseName(gEx.exercise?.name) || 'Exercice'}</h2>
 					<p class="mt-1 text-center text-sm font-semibold text-brand-dark">
 						Série {gSetIdx + 1}/{gEx.sets.length}
 						{#if gEx.mode === 'time'}
@@ -1259,7 +1261,7 @@
 		role="dialog"
 		aria-modal="true"
 		tabindex="-1"
-		aria-label={previewEx.exercise?.name ?? 'Aperçu du mouvement'}
+		aria-label={displayExerciseName(previewEx.exercise?.name) || 'Aperçu du mouvement'}
 		onclick={(e) => {
 			if (e.target === e.currentTarget) previewEx = null;
 		}}
@@ -1268,7 +1270,7 @@
 		}}
 	>
 		<div class="flex items-center justify-between px-4 pt-4">
-			<p class="min-w-0 truncate font-display text-lg font-semibold text-white">{previewEx.exercise?.name ?? 'Exercice'}</p>
+			<p class="min-w-0 truncate font-display text-lg font-semibold text-white">{displayExerciseName(previewEx.exercise?.name) || 'Exercice'}</p>
 			<button
 				type="button"
 				onclick={() => (previewEx = null)}
@@ -1299,10 +1301,10 @@
 				{/if}
 			</div>
 		</button>
-		{#if previewEx.exercise?.instructions?.length}
+		{#if previewEx.exercise?.instructions?.length || previewEx.exercise?.instructionsFr?.length}
 			<div class="max-h-32 overflow-y-auto px-6 pb-6">
 				<ul class="space-y-1 text-xs leading-relaxed text-white/80">
-					{#each previewEx.exercise.instructions as line, i (i)}
+					{#each exerciseInstructions(previewEx.exercise) as line, i (i)}
 						<li>{i + 1}. {line}</li>
 					{/each}
 				</ul>

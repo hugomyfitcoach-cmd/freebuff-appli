@@ -108,6 +108,8 @@ export type ExerciseView = {
 	equipment?: string;
 	category?: string;
 	instructions?: string[];
+	/** Traduction française des instructions (facultative — repli sur l'original). */
+	instructionsFr?: string[];
 	cues?: string[];
 	mistakes?: string[];
 	levels?: string[];
@@ -148,6 +150,7 @@ function toView(e: {
 	equipment?: string;
 	category?: string;
 	instructions?: string[];
+	instructionsFr?: string[];
 	cues?: string[];
 	mistakes?: string[];
 	levels?: string[];
@@ -180,6 +183,7 @@ function toView(e: {
 		equipment: e.equipment,
 		category: e.category,
 		instructions: e.instructions,
+		instructionsFr: e.instructionsFr,
 		cues: e.cues,
 		mistakes: e.mistakes,
 		levels: e.levels,

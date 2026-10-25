@@ -10,6 +10,7 @@
 	import { onMount } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import ExerciseMedia from '$lib/components/ExerciseMedia.svelte';
+	import { displayExerciseName, exerciseInstructions } from '$lib/exerciseFr';
 
 	type ExerciseView = {
 		_id: string;
@@ -22,6 +23,8 @@
 		equipment?: string;
 		category?: string;
 		instructions?: string[];
+		/** Traduction française des instructions (repli : `instructions`). */
+		instructionsFr?: string[];
 		mediaUrl?: string;
 		thumbnailUrl?: string;
 		sourceMediaUrl?: string;
@@ -313,7 +316,7 @@
 						{/if}
 					</div>
 					<div class="flex min-w-0 flex-1 flex-col gap-0.5 p-2.5">
-						<span class="line-clamp-2 text-[13px] font-semibold leading-tight text-ink">{ex.name}</span>
+						<span class="line-clamp-2 text-[13px] font-semibold leading-tight text-ink">{displayExerciseName(ex.name)}</span>
 						<span class="text-[11px] text-mist">{ex.muscleGroup ?? '—'}{ex.equipment ? ` · ${ex.equipment}` : ''}</span>
 					</div>
 				</button>
@@ -344,8 +347,8 @@
 		{:else if detail}
 			<div class="flex items-start justify-between gap-3">
 				<div class="min-w-0">
-					<h3 class="font-display text-lg font-semibold text-ink">{detail.name}</h3>
-					{#if detail.sourceName && detail.sourceName !== detail.name}
+					<h3 class="font-display text-lg font-semibold text-ink">{displayExerciseName(detail.name)}</h3>
+					{#if detail.sourceName && displayExerciseName(detail.sourceName) !== displayExerciseName(detail.name)}
 						<p class="text-xs text-mist">Nom source : {detail.sourceName}</p>
 					{/if}
 				</div>
@@ -360,8 +363,7 @@
 			</div>
 
 			<ExerciseMedia
-				media={detail}
-				alt={`Illustration ${detail.name}`}
+				media={detail}				 alt={`Illustration ${displayExerciseName(detail.name)}`}
 				loading="eager"
 				class="mt-3 max-h-64 w-full rounded-xl border border-line object-cover"
 			/>
@@ -371,10 +373,10 @@
 				<p class="text-sm text-ink">{detail.secondaryMuscles.join(', ')}</p>
 			{/if}
 
-			{#if detail.instructions && detail.instructions.length > 0}
+			{#if exerciseInstructions(detail).length > 0}
 				<p class="mt-3 text-[11px] font-bold uppercase tracking-widest text-mist">Instructions</p>
 				<ol class="mt-1 list-decimal space-y-1.5 pl-4 text-sm text-ink">
-					{#each detail.instructions as step, i (i)}
+					{#each exerciseInstructions(detail) as step, i (i)}
 						<li>{step}</li>
 					{/each}
 				</ol>

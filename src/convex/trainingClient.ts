@@ -208,6 +208,7 @@ export const scheduledSession = query({
 								posterUrl: ex.posterUrl ?? null,
 								animationUrl: ex.animationUrl ?? null,
 								instructions: ex.instructions ?? null,
+								instructionsFr: ex.instructionsFr ?? null,
 							}
 						: null,
 					sets: sets.map((st) => ({

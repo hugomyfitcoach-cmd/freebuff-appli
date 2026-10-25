@@ -10,6 +10,7 @@
 	 */
 	import { onMount } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import { displayExerciseName } from '$lib/exerciseFr';
 
 	let { userId }: { userId: string } = $props();
 
@@ -301,7 +302,7 @@
 		exLoading = ex.exerciseId;
 		try {
 			const r = await fetch(`/api/coach/training/exercise-history?userId=${userId}&exerciseId=${ex.exerciseId}`).then((x) => x.json());
-			exDetail = { exerciseId: ex.exerciseId, name: ex.name, last: r.last ?? null, best: r.best ?? null, timeline: r.timeline ?? [] };
+			exDetail = { exerciseId: ex.exerciseId, name: displayExerciseName(ex.name), last: r.last ?? null, best: r.best ?? null, timeline: r.timeline ?? [] };
 		} finally {
 			exLoading = '';
 		}
@@ -462,7 +463,7 @@
 							onclick={() => openExercise(ex)}
 							class="flex w-full items-center justify-between gap-2 rounded-lg border border-line px-3 py-2 text-left text-xs transition hover:border-brand/60"
 						>
-							<span class="min-w-0 truncate font-semibold text-ink">{ex.name}</span>
+							<span class="min-w-0 truncate font-semibold text-ink">{displayExerciseName(ex.name)}</span>
 							<span class="shrink-0 text-mist tabular-nums">
 								{#if ex.lastWeight != null}{fmtKg(ex.lastWeight)} kg{:else}—{/if}
 								{#if ex.bestWeight != null && ex.bestWeight !== ex.lastWeight} · max {fmtKg(ex.bestWeight)}{/if}
