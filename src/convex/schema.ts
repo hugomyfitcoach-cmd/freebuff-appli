@@ -219,6 +219,14 @@ export default defineSchema({
 		stripeCancelAtPeriodEnd: v.optional(v.boolean()),
 		/** Fin de la grâce de 24 h après un échec de paiement (ms UTC) — jamais repoussée par un webhook dupliqué. */
 		stripeGraceUntil: v.optional(v.number()),
+		/**
+		 * CONSENTEMENT ASSISTANT IA — date (ms UTC) à laquelle le coach a
+		 * enregistré l'accord de la cliente pour la préparation de brouillons de
+		 * retour par l'assistant. Champ OPTIONNEL et ADDITIF : absent = pas de
+		 * consentement (l'action de génération refuse alors sans appeler l'IA).
+		 * Aucune migration, aucun backfill : les fiches existantes restent valides.
+		 */
+		aiConsentAt: v.optional(v.number()),
 		/** Suivi de cycle (carte Accueil cliente + Vision 360 coach) — mêmes questions et formule que l'outil historique. */
 		cycle: v.optional(
 			v.object({

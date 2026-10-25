@@ -3,6 +3,7 @@ import type { RequestHandler } from './$types';
 import { convex } from '$lib/server/convex';
 import { api } from '../../../../convex/_generated/api.js';
 import { SESSION_COOKIE, requireRole } from '$lib/server/session';
+import { draftErrorCause, DRAFT_CAUSE_TIMEOUT } from '$lib/coachDraftError.js';
 
 /**
  * PRÉPARATION D'UN BROUILLON DE RETOUR — BFF, coach uniquement.
@@ -29,18 +30,17 @@ import { SESSION_COOKIE, requireRole } from '$lib/server/session';
 const DRAFT_TIMEOUT_MS = 40_000;
 
 /**
- * Message unique côté coach en cas d'échec — sobre, sans détail technique,
- * et explicite sur la suite : le coach écrit à la main comme avant.
+ * Cause lisible en cas d'échec — constante issue du module pur
+ * `coachDraftError` (jamais un message de fournisseur ni un contenu client).
+ * La cause précise est déduite de `aiUsageLog.failReason`, tracée par l'action.
  */
-const DRAFT_ERROR =
-	"Le brouillon n'a pas pu être préparé. Tu peux écrire ton retour à la main comme avant, ou réessayer dans un instant.";
+const DRAFT_ERROR = draftErrorCause(null);
 
-/** Délai dépassé : même message clair, même repli manuel. */
-const DRAFT_SLOW =
-	"La préparation a pris trop de temps et a été interrompue. Tu peux écrire ton retour à la main comme avant, ou réessayer.";
+/** Délai dépassé, côté BFF : l'appel a rendu la main avant la réponse. */
+const DRAFT_SLOW = DRAFT_CAUSE_TIMEOUT;
 
 /** Message quand le kill switch est actif. */
-const DRAFT_DISABLED = 'La préparation de brouillon est momentanément désactivée.';
+const DRAFT_DISABLED = draftErrorCause('AI_COACH_DRAFT_DISABLED');
 
 /** Borne une promesse sans laisser de minuteur actif derrière elle. */
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -74,6 +74,10 @@ export const POST: RequestHandler = async (event) => {
 		return json({ error: 'Bilan introuvable.' }, { status: 400 });
 	}
 
+	// Instant du lancement : seules les causes tracées APRÈS ce point sont
+	// prises en compte (aucun échec antérieur ne fuit dans le bandeau).
+	const startedAt = Date.now();
+
 	try {
 		// Kill switch vérifié AVANT l'appel : la route refuse, même si le
 		// bouton a été affiché avant l'activation de la variable.
@@ -104,6 +108,21 @@ export const POST: RequestHandler = async (event) => {
 		// jamais de stack, de code Convex ni de message de fournisseur.
 		console.error('[coach-draft] échec de la préparation', e instanceof Error ? e.message : e);
 		const timedOut = e instanceof Error && e.message === 'draft-timeout';
-		return json({ error: timedOut ? DRAFT_SLOW : DRAFT_ERROR }, { status: timedOut ? 504 : 502 });
+		if (timedOut) return json({ error: DRAFT_SLOW }, { status: 504 });
+
+		// CAUSE EXPLICITE (M5) — raison courte déjà tracée par l'action dans
+		// `aiUsageLog.failReason`, traduite en libellé constant. Une cause
+		// illisible ou absente retombe sur « Erreur inattendue ».
+		let failReason: string | null = null;
+		try {
+			const last = await withTimeout(
+				convex.query(api.coachDraft.lastDraftFailure, { sessionToken: token, since: startedAt }),
+				5_000
+			);
+			failReason = typeof last === 'string' ? last : null;
+		} catch {
+			// Lecture de la cause impossible : le message reste générique.
+		}
+		return json({ error: draftErrorCause(failReason) }, { status: 502 });
 	}
 };

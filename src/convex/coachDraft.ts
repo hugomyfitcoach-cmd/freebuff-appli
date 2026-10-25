@@ -554,6 +554,51 @@ export const loadContext = internalQuery({
 /* ═══════════════════════════ M1 — PLOMBERIE ═══════════════════════════ */
 
 /**
+ * CONSENTEMENT ASSISTANT IA (M5) — query INTERNE, LECTURE SEULE.
+ *
+ * Répond à une seule question : le coach a-t-il enregistré l'accord de CETTE
+ * cliente pour l'assistant ? Mêmes gardes que `loadContext` (coach + bilan +
+ * appartenance), donc un autre coach est refusé même avec l'identifiant.
+ * Aucune donnée de la fiche ne sort : un booléen, rien d'autre.
+ */
+export const hasAiConsent = internalQuery({
+	args: { sessionToken: v.optional(v.string()), checkinId: v.id("checkins") },
+	handler: async (ctx, { sessionToken, checkinId }): Promise<boolean> => {
+		const coach = await requireCoach(ctx, sessionToken);
+		const checkin = await ctx.db.get(checkinId);
+		if (!checkin) throw new ConvexError("Bilan introuvable.");
+		const target = await ctx.db.get(checkin.userId);
+		if (!target || target.role !== "client") throw new ConvexError("Cliente introuvable.");
+		if (!target.createdBy || target.createdBy !== coach._id) throw new ConvexError("Accès refusé.");
+		return typeof target.aiConsentAt === "number";
+	},
+});
+
+/**
+ * DERNIÈRE CAUSE D'ÉCHEC DU BROUILLON — query coach, LECTURE SEULE.
+ *
+ * Renvoie UNIQUEMENT la raison courte déjà tracée dans `aiUsageLog`
+ * (`failReason`) pour un échec postérieur à `since` (l'instant où le coach a
+ * lancé la génération), et `null` sinon. Aucun contenu, aucun identifiant :
+ * le BFF la traduit en cause lisible, jamais en message technique.
+ */
+export const lastDraftFailure = query({
+	args: { sessionToken: v.optional(v.string()), since: v.optional(v.number()) },
+	handler: async (ctx, { sessionToken, since }): Promise<string | null> => {
+		await requireCoach(ctx, sessionToken);
+		const sinceMs = typeof since === "number" ? since : 0;
+		const rows = await ctx.db
+			.query("aiUsageLog")
+			.withIndex("by_kind", (q) => q.eq("kind", "coach_draft"))
+			.collect();
+		const failures = rows
+			.filter((row) => row.status === "error" && row.createdAt >= sinceMs)
+			.sort((a, b) => b.createdAt - a.createdAt);
+		return failures[0]?.failReason ?? null;
+	},
+});
+
+/**
  * ÉTAT du brouillon assisté pour l'interface coach : uniquement le kill
  * switch. Une query (et non une variable côté client) pour que le bouton
  * disparaisse dès que `AI_COACH_DRAFT_DISABLED` est actif, sans redéploiement
@@ -599,6 +644,17 @@ export const generate = action({
 		} | null;
 		if (!session) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
 		if (session.role !== "coach") throw new ConvexError("Accès réservé au coach.");
+
+		// CONSENTEMENT (M5) — refus AVANT tout appel au fournisseur : sans
+		// consentement enregistré par le coach, aucun prompt n'est construit et
+		// OpenAI n'est jamais appelé (aucun coût, aucune donnée transmise).
+		const consent = (await ctx.runQuery(internal.coachDraft.hasAiConsent, {
+			sessionToken,
+			checkinId,
+		})) as boolean;
+		if (!consent) {
+			throw new ConvexError("Consentement IA non enregistré pour cette cliente.");
+		}
 
 		// loadContext vérifie de nouveau le coach et renvoie un contexte sans
 		// identifiant, e-mail ni nom de famille (prénom seul).

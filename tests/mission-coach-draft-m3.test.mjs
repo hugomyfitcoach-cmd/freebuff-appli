@@ -372,10 +372,12 @@ test('Erreur fournisseur → message clair, sans détail technique ni clé', asy
 		down.restore();
 	}
 
-	// Côté coach : le message du BFF annonce le repli manuel, sans jargon.
+	// Côté coach (M5) : la cause lisible est déduite du failReason tracé ;
+	// aucun message de fournisseur ni valeur de clé n’est renvoyé tel quel.
 	const route = read('src/routes/api/coach/draft/+server.ts');
-	assert.ok(route.includes('écrire ton retour à la main comme avant'), 'repli manuel annoncé');
-	assert.ok(route.includes('trop de temps'), 'délai dépassé expliqué en clair');
+	assert.ok(route.includes('draftErrorCause(failReason)'), 'cause lisible depuis aiUsageLog.failReason');
+	assert.ok(route.includes('DRAFT_SLOW'), 'délai dépassé traité à part');
+	assert.ok(!route.includes('error: e.message'), 'jamais le message brut dans la réponse');
 });
 
 /* ═════════════════ 6) SUIVI DES COÛTS — JAMAIS LE CONTENU ═════════════════ */

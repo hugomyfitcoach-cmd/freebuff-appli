@@ -6,14 +6,17 @@
 	import ConfirmDialog from './ConfirmDialog.svelte';
 	import type { CoachMediaItem } from '../media.js';
 	import { aiDraftActive, aiDraftBadgeFromCheckin, aiDraftFormFlag } from '../coachDraftUi.js';
+	import { COACH_DRAFT_CONSENT_MISSING } from '../coachDraftError.js';
 
-	let { checkin, clientName, clientId, media = [], draftEnabled = false } = $props<{
+	let { checkin, clientName, clientId, media = [], draftEnabled = false, draftConsent = false } = $props<{
 		checkin: Doc<'checkins'>;
 		clientName: string;
 		clientId: string;
 		media?: CoachMediaItem[];
 		/** Bouton « Préparer un brouillon » — masqué si AI_COACH_DRAFT_DISABLED. */
 		draftEnabled?: boolean;
+		/** Consentement assistant IA enregistré sur la fiche (M5) — sinon bouton désactivé. */
+		draftConsent?: boolean;
 	}>();
 
 	const lines = $derived(answerLines(checkin));
@@ -53,6 +56,9 @@
 	let feedback = $state(checkin.feedback ?? '');
 	let draftLoading = $state(false);
 	let draftError = $state('');
+	/* Cause lisible renvoyée par le BFF (clé invalide, crédit épuisé, modèle
+	   refusé, délai dépassé, assistant désactivé, erreur inattendue). */
+	let draftServerMessage = '';
 	// Confirmation G-FLUX (jamais `window.confirm`) : le texte existant reste
 	// intact tant que « Remplacer » n'a pas été cliqué.
 	let replaceOpen = $state(false);
@@ -121,6 +127,7 @@
 		if (draftLoading) return;
 		draftLoading = true;
 		draftError = '';
+		draftServerMessage = '';
 		try {
 			const res = await fetch('/api/coach/draft', {
 				method: 'POST',
@@ -129,6 +136,8 @@
 			});
 			const data = (await res.json().catch(() => ({}))) as { text?: unknown; error?: unknown };
 			if (!res.ok || typeof data.text !== 'string' || !data.text.trim()) {
+				// Le serveur renvoie déjà une cause en clair, jamais un détail technique.
+				draftServerMessage = typeof data.error === 'string' ? data.error.trim() : '';
 				throw new Error('draft-failed');
 			}
 			// Seul point qui remplace le texte — uniquement après un succès.
@@ -138,7 +147,9 @@
 			aiDraftSource = feedback;
 			aiDraftTouched = false;
 		} catch {
-			draftError = "Le brouillon n'a pas pu être préparé. Ton texte actuel est conservé.";
+			draftError = draftServerMessage
+				? `${draftServerMessage} Ton texte actuel est conservé.`
+				: "Le brouillon n'a pas pu être préparé. Ton texte actuel est conservé.";
 		} finally {
 			draftLoading = false;
 		}
@@ -232,18 +243,35 @@
 				{/if}
 			</div>
 			{#if draftEnabled}
-				<button
-					type="button"
-					onclick={requestDraft}
-					disabled={draftLoading}
-					aria-busy={draftLoading}
-					class="inline-flex items-center gap-1.5 rounded-lg border-2 border-brand/40 bg-brand-light/60 px-3 py-1.5 text-xs font-bold text-brand-dark transition hover:border-brand disabled:cursor-wait disabled:opacity-60"
-				>
-					<Icon name="sparkles" size={13} />
-					{draftLoading ? 'Préparation du brouillon…' : aiDraftSource !== null ? 'Régénérer' : 'Préparer un brouillon'}
-				</button>
+				{#if draftConsent}
+					<button
+						type="button"
+						onclick={requestDraft}
+						disabled={draftLoading}
+						aria-busy={draftLoading}
+						class="inline-flex items-center gap-1.5 rounded-lg border-2 border-brand/40 bg-brand-light/60 px-3 py-1.5 text-xs font-bold text-brand-dark transition hover:border-brand disabled:cursor-wait disabled:opacity-60"
+					>
+						<Icon name="sparkles" size={13} />
+						{draftLoading ? 'Préparation du brouillon…' : aiDraftSource !== null ? 'Régénérer' : 'Préparer un brouillon'}
+					</button>
+				{:else}
+					<!-- Consentement non enregistré : bouton présent mais DÉSACTIVÉ,
+						 avec le texte exact exigé — aucune génération possible. -->
+					<button
+						type="button"
+						disabled
+						aria-disabled="true"
+						title={COACH_DRAFT_CONSENT_MISSING}
+						class="inline-flex items-center gap-1.5 rounded-lg border-2 border-line bg-cream px-3 py-1.5 text-xs font-bold text-mist disabled:cursor-not-allowed disabled:opacity-60"
+					>
+						<Icon name="sparkles" size={13} /> Préparer un brouillon
+					</button>
+				{/if}
 			{/if}
 		</div>
+		{#if draftEnabled && !draftConsent}
+			<p class="mb-2 rounded-lg border border-warn/40 bg-warn-light/60 px-3 py-1.5 text-xs font-semibold text-warn">{COACH_DRAFT_CONSENT_MISSING}</p>
+		{/if}
 		{#if draftError}
 			<p class="mb-2 rounded-lg border border-warn/40 bg-warn-light/60 px-3 py-1.5 text-xs font-semibold text-warn">{draftError}</p>
 		{/if}

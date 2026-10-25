@@ -98,6 +98,8 @@ function publicUser(user: UserRow) {
 		cycle: user.cycle ?? null,
 		/** Mode d'accompagnement (fallback "coaching" = comportement historique). */
 		coachingMode: user.coachingMode ?? "coaching",
+		/** Consentement assistant IA (date ms) — null tant qu'il n'est pas enregistré. */
+		aiConsentAt: user.aiConsentAt ?? null,
 		/** FACTURATION — accès offert + état abonnement Stripe (bloc « Accès G-FLUX »). */
 		billingAccessOverride: user.billingAccessOverride ?? null,
 		stripeSubscriptionStatus: user.stripeSubscriptionStatus ?? null,
@@ -456,14 +458,22 @@ export const updateClient = mutation({
 		gsheetUrl: v.optional(v.string()),
 		/** Mode d'accompagnement : "coaching" (défaut) ou "autonomy" ; null = retour au coaching. */
 		coachingMode: v.optional(v.union(coachingModeKind, v.null())),
+		/** Consentement assistant IA : true = accord daté du jour, false = retiré. */
+		aiConsent: v.optional(v.boolean()),
 	},
-	handler: async (ctx, { sessionToken, userId, prenom, nom, email, birthDate, startDate, heightCm, onboardingEnabled, gsheetUrl, coachingMode }) => {
+	handler: async (ctx, { sessionToken, userId, prenom, nom, email, birthDate, startDate, heightCm, onboardingEnabled, gsheetUrl, coachingMode, aiConsent }) => {
 		await requireCoach(ctx, sessionToken);
 		const target = await ctx.db.get(userId);
 		if (!target || target.role !== "client") throw new ConvexError("Client introuvable.");
 		const patch: Partial<
-			Pick<UserRow, "prenom" | "nom" | "email" | "birthDate" | "startDate" | "heightCm" | "onboardingEnabled" | "gsheetUrl" | "coachingMode">
+			Pick<UserRow, "prenom" | "nom" | "email" | "birthDate" | "startDate" | "heightCm" | "onboardingEnabled" | "gsheetUrl" | "coachingMode" | "aiConsentAt">
 		> = {};
+		if (aiConsent !== undefined) {
+			// Coché → date du jour ; déjà accordé → date d'origine conservée (la
+			// case reste cochée sans repousser la date à chaque enregistrement).
+			// Décoché → consentement retiré (champ supprimé, aucune donnée perdue).
+			patch.aiConsentAt = aiConsent ? (target.aiConsentAt ?? Date.now()) : undefined;
+		}
 		if (coachingMode !== undefined) {
 			// null = retour au mode Coaching : on retire le champ (le fallback
 			// global "coaching" reprend la main, aucune donnée n'est perdue).

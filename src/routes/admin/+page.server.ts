@@ -190,6 +190,10 @@ export const actions: Actions = {
 		const heightRaw = String(form.get('heightCm') ?? '');
 		// Checkbox + jumeau caché (0) : présent dans tous les cas → vrai toggle.
 		const onboardingEnabled = String(form.get('onboardingEnabled') ?? '0') === '1';
+		// CONSENTEMENT ASSISTANT IA (M5) — champ absent = inchangé (aucun autre
+		// formulaire ne le porte), coché = date du jour, décoché = retiré.
+		const aiConsentRaw = form.get('aiConsent');
+		const aiConsent = aiConsentRaw === null ? undefined : String(aiConsentRaw) === '1';
 		// Statut d'accompagnement : "coaching" → null (retire le champ, fallback
 		// coaching global), "autonomy" → "autonomy", vide → inchangé.
 		const coachingModeRaw = String(form.get('coachingMode') ?? '');
@@ -209,6 +213,7 @@ export const actions: Actions = {
 				heightCm: heightRaw ? Number(heightRaw) : undefined,
 				onboardingEnabled,
 				coachingMode,
+				...(aiConsent === undefined ? {} : { aiConsent }),
 			});
 			return { action: 'updateFiche', ok: 'Fiche client mise à jour.', clientId: userId };
 		} catch (e) {
