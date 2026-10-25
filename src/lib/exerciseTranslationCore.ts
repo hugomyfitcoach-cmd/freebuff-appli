@@ -19,6 +19,19 @@
  * d'exercice, jamais une consigne, jamais un prompt.
  */
 
+/**
+ * SOURCES traduisibles — uniquement les bibliothèques anglaises importées.
+ * La bibliothèque officielle G-FLUX (`gflux-official`) est déjà rédigée en
+ * français, et les exercices créés par un coach (`gflux`) aussi : ils ne sont
+ * JAMAIS envoyés au fournisseur.
+ */
+export const TRANSLATABLE_SOURCES = ['exercisedb-v1', 'free-exercise-db'] as const;
+
+/** Vrai si l'exercice vient d'une source anglophone à traduire. */
+export function isTranslatableSource(source: string | null | undefined): boolean {
+	return source === 'exercisedb-v1' || source === 'free-exercise-db';
+}
+
 /** Taille d'un lot d'appel fournisseur. */
 export const TRANSLATION_BATCH_SIZE = 20;
 /** Plafond d'exercices traités par exécution (marge sous les 10 min Convex). */
@@ -29,6 +42,8 @@ export type ExerciseToTranslate = {
 	id: string;
 	/** Nom anglais — fourni comme CONTEXTE, jamais traduit ni journalisé. */
 	name: string;
+	/** Source de la fiche (`exercisedb-v1`, `free-exercise-db`, `gflux-official`, `gflux`…). */
+	source: string;
 	/** Consignes d'origine (anglais). */
 	instructions: string[];
 	/** Traduction déjà présente : l'exercice est alors ignoré (relançable). */
@@ -139,9 +154,12 @@ export async function runExerciseTranslation(
 
 	// Le plafond par exécution est fini : `cap` l'est toujours.
 	const queue = await deps.listUntranslated(cap);
-	// Garde-fou : une fiche déjà traduite n'est jamais renvoyée au fournisseur,
-	// même si l'appelant l'a laissée passer.
-	const pending = queue.filter((item) => !(item.instructionsFr && item.instructionsFr.length > 0)).slice(0, cap);
+	// Garde-fous : une fiche déjà traduite ou issue d'une source non anglophone
+	// n'est jamais renvoyée au fournisseur, même si l'appelant l'a laissée passer.
+	const pending = queue
+		.filter((item) => isTranslatableSource(item.source))
+		.filter((item) => !(item.instructionsFr && item.instructionsFr.length > 0))
+		.slice(0, cap);
 	const more = queue.length >= cap;
 
 	const translations: ExerciseTranslation[] = [];

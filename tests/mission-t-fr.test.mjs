@@ -14,7 +14,13 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { displayExerciseName, exerciseInstructions } from '../src/lib/exerciseFr.ts';
-import { MAX_PER_RUN, TRANSLATION_BATCH_SIZE, runExerciseTranslation } from '../src/lib/exerciseTranslationCore.ts';
+import {
+	MAX_PER_RUN,
+	TRANSLATABLE_SOURCES,
+	TRANSLATION_BATCH_SIZE,
+	isTranslatableSource,
+	runExerciseTranslation,
+} from '../src/lib/exerciseTranslationCore.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -53,6 +59,7 @@ test('nom : jamais réécrit en base (la vue exercice recopie le nom tel quel)',
 	assert.ok(!/name:\s*(e|ex)\.name\.(toLowerCase|toUpperCase|trim)\(/.test(source), 'aucune réécriture du nom');
 	const translation = readFileSync(join(root, 'src/convex/exerciseTranslation.ts'), 'utf8');
 	assert.match(translation, /name: ex\.name/, 'le nom part comme contexte, sans transformation');
+	assert.match(translation, /isTranslatableSource\(ex\.source\)/, 'la requête filtre les sources anglaises');
 	assert.ok(!/patch\([^)]*name/.test(translation), 'la traduction ne patche jamais le nom');
 });
 
@@ -62,6 +69,7 @@ function exercise(i, overrides = {}) {
 	return {
 		id: `ex_${i}`,
 		name: `exercise ${i}`,
+		source: 'exercisedb-v1',
 		instructions: [`Step one of exercise ${i}.`, `Step two of exercise ${i}.`],
 		...overrides,
 	};
@@ -157,6 +165,23 @@ test('un exercice déjà traduit n’est jamais renvoyé au fournisseur', async 
 	assert.equal(out.nextLimit, 0, 'plus rien à traduire : pas de relance');
 });
 
+test('sources : un exercice gflux-official (ou créé par un coach) n’est jamais envoyé au fournisseur', async () => {
+	assert.equal(isTranslatableSource('exercisedb-v1'), true);
+	assert.equal(isTranslatableSource('free-exercise-db'), true);
+	assert.equal(isTranslatableSource('gflux-official'), false);
+	assert.equal(isTranslatableSource('gflux'), false);
+	const pool = [
+		exercise(1, { source: 'gflux-official' }),
+		exercise(2, { source: 'exercisedb-v1' }),
+		exercise(3, { source: 'gflux' }),
+		exercise(4, { source: 'free-exercise-db' }),
+	];
+	const { deps, calls } = makeHarness(pool);
+	const out = await runExerciseTranslation(deps, { limit: 0 });
+	assert.deepEqual(calls.translate.flat(), ['ex_2', 'ex_4'], 'seules les sources anglaises partent au fournisseur');
+	assert.equal(out.processed, 2);
+});
+
 test('dryRun : renvoie les traductions sans rien écrire et sans se replanifier', async () => {
 	const pool = Array.from({ length: 30 }, (_, i) => exercise(i));
 	const { deps, calls } = makeHarness(pool);
@@ -215,6 +240,10 @@ test('action interne exposée : translateExerciseDescriptions({ limit, dryRun })
 	assert.match(source, /internal\.exerciseTranslation\.translateExerciseDescriptions/, 'replanification automatique');
 	assert.match(source, /internal\.aiLog\.record/, 'journalisation');
 	assert.match(source, /exercise_translation/);
+});
+
+test('sources traduisibles : exercisedb-v1 et free-exercise-db seulement', () => {
+	assert.deepEqual([...TRANSLATABLE_SOURCES], ['exercisedb-v1', 'free-exercise-db']);
 });
 
 test('schéma : champs additifs seulement (instructionsFr, kind exercise_translation)', () => {

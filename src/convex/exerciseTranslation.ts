@@ -31,6 +31,7 @@ import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import {
+	isTranslatableSource,
 	runExerciseTranslation,
 	type ExerciseToTranslate,
 	type ExerciseTranslation,
@@ -65,8 +66,10 @@ const SYSTEM_PROMPT = [
 ].join("\n");
 
 /**
- * Exercices de la bibliothèque À TRADUIRE : consignes présentes, pas encore de
- * version française. Les exercices créés par le coach (`system: false`) sont
+ * Exercices de la bibliothèque À TRADUIRE : sources ANGLAISES uniquement
+ * (`exercisedb-v1`, `free-exercise-db`), consignes présentes, pas encore de
+ * version française. La bibliothèque officielle G-FLUX (`gflux-official`) et
+ * les exercices créés par un coach (`system: false`, source `gflux`) sont
  * exclus : ils sont déjà rédigés en français.
  */
 export const listUntranslated = internalQuery({
@@ -78,9 +81,10 @@ export const listUntranslated = internalQuery({
 		const out: ExerciseToTranslate[] = [];
 		for (const ex of rows) {
 			if (!ex.system) continue;
+			if (!isTranslatableSource(ex.source)) continue;
 			if (ex.instructionsFr?.length) continue;
 			if (!ex.instructions?.length) continue;
-			out.push({ id: ex._id, name: ex.name, instructions: ex.instructions });
+			out.push({ id: ex._id, name: ex.name, source: ex.source, instructions: ex.instructions });
 			if (out.length >= max) break;
 		}
 		return out;
