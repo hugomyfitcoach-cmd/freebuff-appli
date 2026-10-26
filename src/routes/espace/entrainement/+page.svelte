@@ -33,6 +33,14 @@
 	/** Jour sélectionné dans la semaine ("yyyy-mm-dd") — ses séances, ou Repos. */
 	let selectedDay = $state('');
 
+	/** Détail d'affichage par occurrence (programme, durée estimée, exercices). */
+	type DayDetail = {
+		programName: string | null;
+		estimatedMin: number;
+		exercises: { name: string }[];
+	};
+	let dayDetail = $state<Record<string, DayDetail>>({});
+
 	/** Vue séance ouverte (session runner plein écran). */
 	let openScheduledId = $state<string | null>(null);
 	let openSessionId = $state('');
@@ -84,6 +92,30 @@
 	function sessionsOn(iso: string): DaySession[] {
 		return days.filter((d) => d.date === iso);
 	}
+	function shortDay(iso: string): string {
+		return new Date(iso + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+	}
+	function statusLabel(s: DaySession): string {
+		if (s.status === 'completed') return s.skippedAt != null ? 'Non réalisée' : 'Faite';
+		if (s.startedAt != null) return 'En cours';
+		return 'Prévue';
+	}
+	function statusPill(s: DaySession): string {
+		if (s.status === 'completed') return s.skippedAt != null ? 'bg-line text-mist' : 'bg-brand text-white';
+		return 'bg-soft text-ink';
+	}
+	const weekLabel = $derived(weekStart ? `${shortDay(weekStart)} – ${shortDay(addDays(weekStart, 6))}` : '');
+	const weekDoneCount = $derived(days.filter((d) => d.status === 'completed').length);
+	/** Nom du programme pour la ligne d'en-tête (détail d'une séance du jour). */
+	const headerProgram = $derived(
+		sessionsOn(selectedDay)
+			.map((s) => dayDetail[s._id]?.programName)
+			.find((p): p is string => !!p) ?? null
+	);
+	/** Séances réalisées de la semaine affichée (cartes compactes). */
+	const weekCompleted = $derived(
+		weekStart ? history.filter((h) => h.date >= weekStart && h.date <= addDays(weekStart, 6)) : []
+	);
 
 	async function loadWeek(ws?: string) {
 		const target = ws ?? mondayOf(new Date());
@@ -100,10 +132,33 @@
 		// Sélection par défaut : AUJOURD'HUI (ou le lundi de la semaine affichée
 		// si aujourd'hui n'y est pas). Cliquer un jour affiche SES séances.
 		selectedDay = today >= weekStart && today <= addDays(weekStart, 6) ? today : weekStart;
+		for (const s of sessionsOn(selectedDay)) void loadDayDetail(s);
 	}
 
 	async function shiftWeek(delta: number) {
 		await loadWeek(addDays(weekStart, delta * 7));
+	}
+
+	/** Charge l'affichage d'une occurrence via la route existante (lecture seule). */
+	async function loadDayDetail(s: DaySession) {
+		if (dayDetail[s._id]) return;
+		try {
+			const r = await fetch(`/api/training/session/${s._id}`).then((x) => x.json());
+			if (r.error) return;
+			dayDetail[s._id] = {
+				programName: (r.programName as string | null) ?? null,
+				estimatedMin: Number(r.estimatedMin ?? 0),
+				exercises: (r.exercises ?? []).map((e: { exercise?: { name?: string } | null; name?: string }) => ({
+					name: e.exercise?.name ?? e.name ?? 'Exercice',
+				})),
+			};
+		} catch {
+			/* affichage seulement : en cas d'échec, la carte reste sans détail */
+		}
+	}
+	function pickDay(iso: string) {
+		selectedDay = iso;
+		for (const s of sessionsOn(iso)) void loadDayDetail(s);
 	}
 
 	async function loadSessions() {
@@ -238,10 +293,10 @@
 	<div class="mx-auto w-full max-w-md pb-6 pt-1">
 		<BackToHome label="Entraînement" />
 		<header class="mb-4">
-			<h1 class="flex items-center gap-2 text-ink page-title">
-				<Icon name="dumbbell" size={22} class="text-brand" /> Entraînement
-			</h1>
-			<p class="mt-0.5 text-sm text-mist">Ta séance, tu la fais, c'est noté.</p>
+			<p class="text-[11px] font-black uppercase tracking-widest text-brand-deep">
+				Programme{#if headerProgram} · {headerProgram}{/if}
+			</p>
+			<h1 class="mt-0.5 text-ink page-title">Entraînement</h1>
 		</header>
 
 		{#if err}
@@ -259,7 +314,8 @@
 				<p class="font-display text-lg font-semibold text-ink">Aucune séance programmée pour le moment</p>
 				<p class="mx-auto mt-1 max-w-xs text-sm text-mist">Ton coach ajoutera ici tes séances si ton accompagnement en prévoit.</p>
 			</div>
-		{:else if toFinalize}
+		{:else}
+			{#if toFinalize}
 			<!-- ── Séance à finaliser : discret, jamais bloquant ── -->
 			<button
 				type="button"
@@ -273,47 +329,21 @@
 				</span>
 				<Icon name="chevronRight" size={16} class="shrink-0 text-mist" />
 			</button>
-		{:else}
-			<!-- ── Prochaine séance ── -->
-			{#if nextSession}
-				<button
-					type="button"
-					onclick={() => {
-						const s = days.find((d) => d._id === nextSession!._id);
-						if (s) openSession(s);
-						else
-							openSession({
-								_id: nextSession!._id,
-								date: nextSession!.date,
-								status: 'planned',
-								startedAt: null,
-								skippedAt: null,
-								name: nextSession!.name,
-							});
-					}}
-					class="mb-5 w-full overflow-hidden rounded-3xl border border-brand/40 bg-gradient-to-br from-brand-light via-brand-light/60 to-white p-5 text-left shadow-sm transition hover:shadow"
-				>
-					<p class="text-[11px] font-bold uppercase tracking-widest text-brand-dark">Prochaine séance</p>
-					<p class="mt-1.5 font-display text-xl font-semibold text-ink">{nextSession.name}</p>
-					<p class="mt-0.5 text-sm font-semibold capitalize text-ink">{nextLabel(nextSession.date)}</p>
-					<span class="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-brand px-4 py-2 text-sm font-bold text-white">
-						<Icon name="play" size={14} /> Faire cette séance
-					</span>
-				</button>
 			{/if}
 
 			<!-- ── Semaine (L M M J V S D) ── -->
 			<section class="mb-5 rounded-3xl border border-line bg-card p-4 shadow-sm">
-				<div class="mb-3 flex items-center justify-between">
-					<h2 class="font-display text-base font-semibold text-ink">Cette semaine</h2>
-					<div class="flex items-center gap-1">
-						<button type="button" onclick={() => shiftWeek(-1)} class="rounded-lg p-1.5 text-mist transition hover:bg-line/50 hover:text-ink" aria-label="Semaine précédente">
-							<Icon name="chevronLeft" size={16} />
-						</button>
-						<button type="button" onclick={() => shiftWeek(1)} class="rounded-lg p-1.5 text-mist transition hover:bg-line/50 hover:text-ink" aria-label="Semaine suivante">
-							<Icon name="chevronRight" size={16} />
-						</button>
+				<div class="mb-3 flex items-center justify-between gap-1">
+					<button type="button" onclick={() => shiftWeek(-1)} class="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-mist transition hover:bg-line/50 hover:text-ink" aria-label="Semaine précédente">
+						<Icon name="chevronLeft" size={18} />
+					</button>
+					<div class="min-w-0 text-center">
+						<p class="text-base font-black text-ink">{weekLabel}</p>
+						<p class="text-[11px] font-bold text-mist">{weekDoneCount} / {days.length} faites</p>
 					</div>
+					<button type="button" onclick={() => shiftWeek(1)} class="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-mist transition hover:bg-line/50 hover:text-ink" aria-label="Semaine suivante">
+						<Icon name="chevronRight" size={18} />
+					</button>
 				</div>
 				<div class="grid grid-cols-7 gap-1">
 					{#each [0, 1, 2, 3, 4, 5, 6] as i (i)}
@@ -322,93 +352,100 @@
 						{@const hasPlanned = daySessions.some((s) => s.status === 'planned')}
 						{@const hasDone = daySessions.some((s) => s.status === 'completed')}
 						{@const isToday = iso === today}
+						{@const isSelected = selectedDay === iso}
 						<button
 							type="button"
-							onclick={() => (selectedDay = iso)}
-							class="flex flex-col items-center rounded-xl px-0.5 pb-1.5 pt-2 transition {selectedDay === iso
+							onclick={() => pickDay(iso)}
+							aria-pressed={isSelected}
+							class="flex h-16 flex-col items-center justify-center gap-0.5 rounded-2xl px-0.5 transition {isSelected
 								? 'bg-ink text-white'
 								: isToday
 									? 'bg-brand-light text-ink'
 									: 'text-ink hover:bg-line/40'}"
 						>
-							<span class="text-[10px] font-bold uppercase tracking-wide {selectedDay === iso ? 'text-white/70' : 'text-mist'}">
+							<span class="text-[11px] font-bold {isSelected ? 'text-white/70' : 'text-mist'}">
 								{DAY_LETTERS[i]}
 							</span>
-							<span class="mt-0.5 text-sm font-bold tabular-nums">{dateNum(iso)}</span>
-							<!-- Indicateur : point (prévue) / point plein vert (faite) -->
-							<span class="mt-1 h-1.5 w-1.5 rounded-full {hasDone ? 'bg-brand' : hasPlanned ? 'bg-ink/30' : 'bg-transparent'} {selectedDay === iso && !hasDone && !hasPlanned ? 'bg-white/40' : ''}"></span>
+							<span class="text-[17px] font-black tabular-nums leading-tight">{dateNum(iso)}</span>
+							<!-- Faite = point vert plein, prévue = cercle -->
+							<span class="mt-0.5 h-1.5 w-1.5 rounded-full {hasDone ? 'bg-brand' : hasPlanned ? (isSelected ? 'border border-white' : 'border border-mist') : ''}"></span>
 						</button>
 					{/each}
 				</div>
+				<div class="mt-3 flex items-center gap-4 text-xs text-mist">
+					<span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-brand"></span>Faite</span>
+					<span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full border border-mist"></span>Prévue</span>
+				</div>
 
-				<!-- Séances du jour sélectionné — ou Repos (jamais une autre journée) -->
-				{#if selectedDay}
-					<div class="mt-3 border-t border-line/70 pt-3">
-						{#if sessionsOn(selectedDay).length === 0}
-							<p class="rounded-2xl bg-line/30 px-4 py-4 text-center text-sm font-semibold text-mist">Repos — aucune séance prévue ce jour-là.</p>
-						{:else}
-							{#each sessionsOn(selectedDay) as s (s._id)}
-							<div class="mb-2 flex w-full items-center justify-between gap-3 rounded-2xl border border-line bg-white px-4 py-3 text-left last:mb-0">
-								<span class="min-w-0">
-									<span class="block truncate text-sm font-bold text-ink">{s.name}</span>
-									<span class="text-xs text-mist">{s.status === 'completed' ? (s.skippedAt != null ? 'Non réalisée' : 'Séance réalisée ✓') : s.startedAt != null ? 'Séance en cours' : 'À faire'}</span>
-								</span>
-								{#if s.status === 'completed'}
-									<button
-										type="button"
-										onclick={() => openSession(s)}
-										class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brand text-white"
-										aria-label="Revoir la séance réalisée"
-									>
-										<Icon name="check" size={15} strokeWidth={2.5} />
-									</button>
-								{:else}
-									<div class="flex shrink-0 items-center gap-1">
-										<button
-											type="button"
-											onclick={(ev) => openMenuFor(s, ev)}
-											class="rounded-full px-1.5 py-1 font-bold text-mist transition hover:bg-line/60 hover:text-ink"
-											aria-label="Options de la séance"
-										>•••</button>
-										<button
-											type="button"
-											onclick={() => openSession(s)}
-											class="rounded-xl bg-ink px-3 py-1.5 text-xs font-bold text-white transition hover:bg-brand"
-										>
-											Faire cette séance
-										</button>
-									</div>
-								{/if}
-							</div>
-						{/each}
-						{/if}
-					</div>
-				{/if}
 			</section>
 
-			<!-- ── Historique des séances ── -->
-			<section class="rounded-3xl border border-line bg-card p-4 shadow-sm">
-				<h2 class="mb-2 flex items-center gap-2 font-display text-base font-semibold text-ink">
-					<Icon name="listChecks" size={16} class="text-brand" /> Mes séances réalisées
-				</h2>
-				{#if history.length === 0}
-					<p class="py-2 text-sm text-mist">Ta première séance apparaîtra ici.</p>
+			<!-- ── Carte du jour sélectionné (ou Repos) ── -->
+			{#if selectedDay}
+				{#if sessionsOn(selectedDay).length === 0}
+					<div class="mb-4 rounded-3xl border-2 border-brand bg-card p-5 text-center shadow-sm">
+						<p class="font-display text-xl font-black text-ink">Repos</p>
+						<p class="mt-1 text-sm text-mist">Aucune séance prévue ce jour-là.</p>
+					</div>
 				{:else}
-					{#each history as h (h._id)}
-						<div class="flex items-center justify-between gap-3 border-b border-line/60 py-2.5 text-sm last:border-0">
-							<div class="min-w-0">
-								<p class="truncate font-semibold text-ink">{h.name}</p>
-								<p class="text-xs text-mist capitalize">
-									{prettyDate(h.date)}
-									{#if h.durationMin} · {h.durationMin} min{/if}
-									{#if h.volumeKg} · {Math.round(h.volumeKg).toLocaleString('fr-FR')} kg au total{/if}
-								</p>
+					{#each sessionsOn(selectedDay) as s (s._id)}
+						{@const detail = dayDetail[s._id]}
+						<div class="mb-4 rounded-3xl border-2 border-brand bg-card p-4 shadow-sm">
+							<div class="flex items-start justify-between gap-3">
+								<div class="min-w-0">
+									<p class="text-[11px] font-bold uppercase tracking-widest text-mist">{prettyDate(s.date)}</p>
+									<h2 class="mt-1 break-words font-display text-2xl font-black leading-tight text-ink">{s.name}</h2>
+									{#if detail}
+										<p class="mt-1 text-sm text-mist">{detail.exercises.length} exercices · ≈ {detail.estimatedMin} min</p>
+									{/if}
+								</div>
+								<span class="shrink-0 rounded-full px-2.5 py-1 text-xs font-bold {statusPill(s)}">{statusLabel(s)}</span>
 							</div>
-							<span class="shrink-0 rounded-full bg-brand-light px-2.5 py-1 text-xs font-bold text-brand-dark">{h.setsDone} séries</span>
+							{#if detail && detail.exercises.length > 0}
+								<div class="mt-3 flex flex-col gap-1.5 text-sm text-ink">
+									{#each detail.exercises.slice(0, 2) as e, i (i)}
+										<span class="truncate">{e.name}</span>
+									{/each}
+									{#if detail.exercises.length > 2}
+										<span class="text-mist">+ {detail.exercises.length - 2} autres exercices</span>
+									{/if}
+								</div>
+							{/if}
+							{#if s.status === 'completed'}
+								<button type="button" onclick={() => openSession(s)} class="mt-4 min-h-11 w-full rounded-xl border border-line text-sm font-bold text-mist transition hover:text-ink">Revoir la séance</button>
+							{:else}
+								<button type="button" onclick={() => openSession(s)} class="mt-4 min-h-[54px] w-full rounded-2xl bg-brand px-5 text-[17px] font-black text-white shadow-sm transition hover:bg-brand-dark">Faire cette séance</button>
+								{#if s.date !== today}
+									<p class="mt-2 text-center text-xs text-mist">Tu peux la faire aujourd'hui : elle sera comptée à sa date réelle.</p>
+								{/if}
+							{/if}
+							{#if s.status !== 'completed'}
+								<div class="mt-2 text-center">
+									<button type="button" onclick={(ev) => openMenuFor(s, ev)} class="min-h-11 px-2 text-xs font-semibold text-mist transition hover:text-ink" aria-label="Options de la séance">Déplacer / dupliquer / supprimer</button>
+								</div>
+							{/if}
 						</div>
 					{/each}
 				{/if}
-			</section>
+			{/if}
+
+			<!-- ── Séances réalisées de la semaine ── -->
+			{#if weekCompleted.length > 0}
+				<section class="flex flex-col gap-2">
+					{#each weekCompleted as h (h._id)}
+						<div class="flex items-center justify-between gap-3 rounded-2xl border border-line bg-card px-4 py-3">
+							<div class="min-w-0">
+								<p class="truncate text-[15px] font-black text-ink">{h.name} · {new Date(h.date + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric' })}</p>
+								<p class="text-[13px] text-mist">
+									{#if h.durationMin}{h.durationMin} min · {/if}{h.setsDone} séries{#if h.difficulty != null} · effort {h.difficulty}/5{/if}
+								</p>
+							</div>
+							<span class="shrink-0 rounded-full bg-brand px-2.5 py-1 text-xs font-bold text-white">Faite</span>
+						</div>
+					{/each}
+				</section>
+			{:else}
+				<p class="py-2 text-center text-xs text-mist">Aucune séance réalisée cette semaine.</p>
+			{/if}
 		{/if}
 	</div>
 {/if}

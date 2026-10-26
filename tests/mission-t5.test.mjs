@@ -38,7 +38,7 @@ test('1 · un jour sélectionné affiche ses séances (ou Repos), pas la prochai
 	assert.ok(page.includes('let selectedDay = $state('), 'état = jour sélectionné');
 	assert.ok(page.includes('selectedDay = iso'), 'cliquer un jour sélectionne CE jour');
 	assert.ok(/sessionsOn\(selectedDay\)/.test(page), 'la liste du jour est bornée au jour sélectionné');
-	assert.ok(page.includes('Repos — aucune séance prévue ce jour-là.'), 'jour vide → Repos');
+	assert.ok(page.includes('>Repos</p>') && page.includes('Aucune séance prévue ce jour-là.'), 'jour vide → carte Repos');
 	assert.ok(!/selected = daySessions\[0\]/.test(page), 'plus de sélection « première séance du jour »');
 	assert.ok(!page.includes('selectedIso'), 'aucun reste de l’ancien état');
 	assert.ok(page.includes('Faire cette séance'), 'chaque séance a son bouton « Faire cette séance »');
@@ -62,7 +62,7 @@ test('3 · logSet sans startedAt le pose, et le renvoie au front', () => {
 	assert.ok(/return \{ logId, startedAt \}/.test(body), 'startedAt renvoyé à la création');
 	assert.ok(runner.includes("if (done && r?.startedAt && !sessionStarted)"), 'le front reprend l’horodatage serveur');
 	assert.ok(!runner.includes('> Commencer la séance') && !runner.includes('Commencer la séance\n'), 'bouton « Commencer la séance » retiré');
-	assert.ok(runner.includes('Commencer en mode guidé'), '« Commencer en mode guidé » conservé');
+	assert.ok(runner.includes('Passer en mode guidé'), 'lien vers le mode guidé conservé');
 	assert.ok(/sessionStarted \|\| hasCheckedSet/.test(runner), '« Terminer » visible dès une série cochée');
 });
 

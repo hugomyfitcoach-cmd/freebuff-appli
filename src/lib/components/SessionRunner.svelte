@@ -155,12 +155,17 @@
 	let timerLeft = $state(0);
 	let timerPaused = $state(false);
 	let interval: ReturnType<typeof setInterval> | null = null;
+	/** Exercice dont la série vient de déclencher le repos (bandeau dans SA carte). */
+	let restExId = $state('');
+	/** Cartes d'exercices dépliées manuellement (affichage seul). */
+	let expandedEx = $state<Record<string, boolean>>({});
 
 	function stopTimer() {
 		if (interval) clearInterval(interval);
 		interval = null;
 		timerKind = null;
 		timerPaused = false;
+		restExId = '';
 	}
 	function startTimer(kind: Exclude<TimerKind, null>, seconds: number, onDone?: () => void) {
 		stopTimer();
@@ -353,6 +358,12 @@
 
 	/** Au moins une série cochée : la séance est lancée, « Terminer » est visible. */
 	const hasCheckedSet = $derived(data?.exercises.some((e) => e.loggedSets.some((l) => l.done)) ?? false);
+	/** Exercices commencés (au moins une série cochée) — en-tête de progression. */
+	const exercisesStarted = $derived(data?.exercises.filter((e) => e.loggedSets.some((l) => l.done)).length ?? 0);
+	/** Séries cochées — en-tête de progression. */
+	const setsChecked = $derived(
+		data?.exercises.reduce((n, e) => n + e.loggedSets.filter((l) => l.done).length, 0) ?? 0
+	);
 
 	/** Valeurs saisies d'une série libre (kg omis pour poids du corps / élastiques). */
 	function draftPayload(ex: Ex, d: Draft, setOrder: number): { reps?: number; weightKg?: number; durationSeconds?: number } {
@@ -428,7 +439,10 @@
 				const exIdx = data?.exercises.findIndex((e) => e._id === ex._id) ?? -1;
 				const isLastEx = exIdx === (data?.exercises.length ?? 1) - 1;
 				const rest = ex.sets[setOrder]?.restSeconds ?? 0;
-				if (!(isLastSet && isLastEx) && rest > 0) startTimer('rest', rest);
+				if (!(isLastSet && isLastEx) && rest > 0) {
+					restExId = ex._id;
+					startTimer('rest', rest);
+				}
 			}
 		} catch {
 			d.done = !next;
@@ -773,7 +787,7 @@
 	let previewEx = $state<Ex | null>(null);
 </script>
 
-<div class="mx-auto w-full max-w-md px-4 pb-8 pt-3">
+<div class="mx-auto w-full max-w-md px-4 pt-3 {mode === 'libre' && data ? 'pb-40' : 'pb-8'}">
 	<!-- ═══════════ RECAP (résumé de fin / séance déjà réalisée) ═══════════ -->
 	{#if mode === 'recap' && recap}
 		<div class="pt-2 text-center">
@@ -916,55 +930,48 @@
 			<button type="button" onclick={closeRunner} class="mt-2 w-full rounded-xl border-2 border-line px-5 py-2.5 text-sm font-semibold text-ink">Retour</button>
 		</div>
 	{:else if data}
-		<!-- ═══════════ HEADER séance ═══════════ -->
-		<div class="mb-4 flex items-start justify-between gap-3">
-			<div class="min-w-0">
-				<h1 class="truncate font-display text-2xl font-semibold text-ink">{data.session.name}</h1>
-				<p class="mt-0.5 flex items-center gap-2 text-sm text-mist">
-					<span class="flex items-center gap-1"><Icon name="clock" size={13} /> ≈ {data.estimatedMin} min</span>
-					{#if data.programName}<span class="truncate">· {data.programName}</span>{/if}
-				</p>
-				{#if sessionStarted && elapsedLabel}
-					<!-- Séance en cours : chrono global visible en permanence + accès direct à la fin -->
-					<div class="mt-2 flex items-center gap-2">
-						<span class="inline-flex items-center gap-1.5 rounded-full bg-brand-light px-2.5 py-1 text-[11px] font-bold text-brand-dark">
-							<span class="h-1.5 w-1.5 animate-pulse rounded-full bg-brand"></span>
-							Séance en cours · {elapsedLabel}
-						</span>
-						<button
-							type="button"
-							onclick={requestFinish}
-							class="rounded-full bg-ink px-3 py-1 text-[11px] font-bold text-white transition hover:bg-brand"
-						>
-							Terminer
-						</button>
-					</div>
-				{/if}
+		<!-- ═══════════ EN-TÊTE séance ═══════════ -->
+		<div class="mb-3 rounded-3xl border border-line bg-card p-4 shadow-sm">
+			<div class="flex items-center justify-between gap-3">
+				<button
+					type="button"
+					onclick={closeRunner}
+					class="grid h-11 w-11 place-items-center rounded-full border border-line bg-card text-ink transition hover:bg-line/50"
+					aria-label="Fermer"
+				>
+					<Icon name="x" size={18} />
+				</button>
+				<span class="inline-flex items-center gap-1.5 rounded-full bg-brand-light px-3.5 py-2 text-sm font-bold tabular-nums text-brand-deep">
+					<Icon name="clock" size={15} />
+					{sessionStarted && elapsedLabel ? elapsedLabel : '0:00'}
+				</span>
 			</div>
-			<button
-				type="button"
-				onclick={closeRunner}
-				class="rounded-full p-1.5 text-mist transition hover:bg-line/50 hover:text-ink"
-				aria-label="Fermer"
-			>
-				<Icon name="x" size={18} />
-			</button>
+			<div class="mt-3">
+				<h1 class="font-display text-2xl font-black leading-tight tracking-tight text-ink">{data.session.name}</h1>
+				<p class="mt-0.5 text-sm text-mist">
+					{#if data.programName}{data.programName} · {/if}≈ {data.estimatedMin} min
+				</p>
+			</div>
+			<div class="mt-3">
+				<div class="flex items-center justify-between gap-2 text-[13px] font-bold text-mist">
+					<span>{exercisesStarted} exercices sur {data.exercises.length}</span>
+					<span>{setsChecked} / {totalSets} séries</span>
+				</div>
+				<div class="mt-1.5 h-2 overflow-hidden rounded-full bg-line">
+					<div class="h-2 rounded-full bg-brand transition-all" style="width: {totalSets > 0 ? Math.round((setsChecked / totalSets) * 100) : 0}%"></div>
+				</div>
+			</div>
 		</div>
 
 		{#if err}
 			<p class="mb-3 rounded-xl border-2 border-danger bg-danger-light px-3 py-2 text-xs font-semibold text-danger">{err}</p>
 		{/if}
 
-		{#if mode === 'libre' && timerKind === 'rest'}
-			<!-- ── Repos (mode manuel) : compte à rebours de la série validée — Passer/fermer, jamais bloquant ── -->
-			<div class="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-brand/40 bg-brand-light/60 px-4 py-3">
-				<p class="flex items-center gap-2 text-sm font-bold text-ink">
-					<span class="h-2 w-2 animate-pulse rounded-full bg-brand"></span>
-					Repos · <span class="tabular-nums">{fmtTimer(timerLeft)}</span>
-				</p>
-				<button type="button" onclick={stopTimer} class="rounded-full bg-ink px-3 py-1 text-[11px] font-bold text-white transition hover:bg-brand">
-					Passer
-				</button>
+		{#if mode === 'libre'}
+			<!-- UNE seule astuce, discrète (plus de bandeau vert répété par exercice). -->
+			<div class="mb-3 flex items-center gap-2.5 rounded-2xl border border-line bg-card px-3.5 py-2.5 text-[13px] text-mist">
+				<Icon name="info" size={17} class="shrink-0 text-brand" />
+				<span>Coche chaque série terminée. Tes charges sont gardées pour la prochaine fois.</span>
 			</div>
 		{/if}
 
@@ -980,8 +987,17 @@
 					{/if}
 					{#snippet FreeEx(ex: Ex)}
 						{@const doneCount = ex.loggedSets.filter((l) => l.done).length}
-						<article class="mb-3 overflow-hidden rounded-2xl border border-line bg-card shadow-sm {doneCount === ex.sets.length && ex.sets.length > 0 ? 'opacity-70' : ''}">
-							<div class="flex items-start gap-3 p-3.5">
+						{@const complete = doneCount === ex.sets.length && ex.sets.length > 0}
+						{@const inProgress = doneCount > 0 && !complete}
+						{@const expanded = doneCount > 0 || expandedEx[ex._id] === true}
+						<article class="mb-3 overflow-hidden rounded-2xl border bg-card shadow-sm {inProgress ? 'border-brand' : 'border-line'}">
+							<div
+								class="flex items-start gap-3 p-3.5 {expanded ? '' : 'cursor-pointer'}"
+								role={expanded ? undefined : 'button'}
+								tabindex={expanded ? undefined : 0}
+								onclick={expanded ? undefined : () => (expandedEx[ex._id] = true)}
+								onkeydown={expanded ? undefined : (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); expandedEx[ex._id] = true; } }}
+							>
 								{#if mediaFor(ex)}
 									<!-- Vignette cliquable → aperçu plein écran du mouvement -->
 									<button
@@ -1005,91 +1021,109 @@
 									</div>
 								{/if}
 								<div class="min-w-0 flex-1">
-									<h3 class="truncate text-sm font-bold text-ink">{displayExerciseName(ex.exercise?.name) || 'Exercice'}</h3>
-									<p class="text-xs text-mist">
+									<div class="flex items-start justify-between gap-2">
+										<h3 class="min-w-0 text-base font-bold leading-snug text-ink line-clamp-2">{displayExerciseName(ex.exercise?.name) || 'Exercice'}</h3>
+										<span class="shrink-0 rounded-full px-2.5 py-1 text-xs font-bold {complete ? 'bg-brand text-white' : 'bg-soft text-ink'}">
+											{doneCount}/{ex.sets.length}
+										</span>
+									</div>
+									<p class="mt-0.5 text-[13px] text-mist">
 										{ex.mode === 'time'
 											? `${ex.sets.length} × ${ex.sets[0]?.durationSeconds ?? '?'} s`
 											: `${ex.sets.length} × ${repsLabel(ex.sets[0])} reps`}
 										{#if ex.sets[0]?.restSeconds} · repos {ex.sets[0].restSeconds} s{/if}
 									</p>
-									{#if lastPerfLabel(ex)}
-										<p class="mt-0.5 text-[11px] font-semibold text-brand-dark">{lastPerfLabel(ex)}</p>
-									{/if}
-									{#if mediaFor(ex)}
-										<button type="button" onclick={() => (previewEx = ex)} class="mt-1 inline-flex items-center gap-1 text-[11px] font-bold text-brand-dark transition hover:text-ink">
-											<Icon name="play" size={10} /> Voir le mouvement
-										</button>
-									{/if}
+									<div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+										{#if lastPerfLabel(ex)}
+											<span class="rounded-full bg-soft px-2.5 py-1 text-xs font-bold text-ink">{lastPerfLabel(ex)}</span>
+										{:else}
+											<span class="rounded-full bg-soft px-2.5 py-1 text-xs font-bold text-mist">Première fois</span>
+										{/if}
+										{#if mediaFor(ex)}
+											<button type="button" onclick={() => (previewEx = ex)} class="inline-flex min-h-11 items-center gap-1 text-[13px] font-bold text-brand-deep transition hover:text-ink">
+												<Icon name="play" size={11} /> Voir le mouvement
+											</button>
+										{/if}
+									</div>
 								</div>
-								<span class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold {doneCount === ex.sets.length && ex.sets.length > 0 ? 'bg-brand text-white' : 'bg-line/70 text-mist'}">
-									{doneCount}/{ex.sets.length}
-								</span>
 							</div>
 
-							{#if ex.isFirstTime}
-								<p class="mx-3.5 mb-2 rounded-lg bg-brand-light px-3 py-1.5 text-[11px] font-medium text-brand-dark">
-									Indique la charge utilisée aujourd'hui. Elle sera mémorisée pour ta prochaine séance.
-								</p>
-							{/if}
 							{#if ex.coachNote}
 								<p class="mx-3.5 mb-2 rounded-lg bg-warn-light px-3 py-1.5 text-[11px] text-ink">💬 {ex.coachNote}</p>
 							{/if}
 
+							{#if restExId === ex._id && timerKind === 'rest'}
+								<div class="mx-3.5 mb-2 flex items-center justify-between gap-3 rounded-2xl bg-ink px-4 py-2.5 text-white">
+									<span class="text-sm font-bold">Repos · <span class="tabular-nums">{fmtTimer(timerLeft)}</span></span>
+									<button type="button" onclick={stopTimer} class="h-11 rounded-full border border-white/40 px-3 text-[13px] font-bold text-white transition hover:bg-white/10">
+										Passer
+									</button>
+								</div>
+							{/if}
+
+							{#if expanded}
 							<!-- Séries : saisie directe -->
-							<div class="border-t border-line/60">
+							<div class="border-t border-line/60 px-3 pb-3 pt-2">
+								<div class="grid items-center gap-2 px-0.5 pb-1 text-[10px] font-bold uppercase tracking-[0.08em] text-mist {showWeight(ex) ? 'grid-cols-[2rem_minmax(0,1fr)_minmax(0,1fr)_2.75rem]' : 'grid-cols-[2rem_minmax(0,1fr)_2.75rem]'}">
+									<span>Série</span>
+									<span>{ex.mode === 'time' ? 'Durée' : 'Reps'}</span>
+									{#if showWeight(ex)}<span>Kg</span>{/if}
+									<span></span>
+								</div>
 								{#each ex.sets as st (st.order)}
 									{@const d = getDraft(ex, st.order)}
-									<div class="flex items-center gap-2 px-3.5 py-2 {st.order > 0 ? 'border-t border-line/40' : ''}">
-										<button
-											type="button"
-											onclick={() => toggleFreeSet(ex, st.order)}
-											class="grid h-8 w-8 shrink-0 place-items-center rounded-full border-2 transition {d.done
-												? 'border-brand bg-brand text-white'
-												: 'border-line text-mist hover:border-brand'}"
-											aria-label={d.done ? 'Série validée' : 'Valider la série'}
-										>
-											{#if d.done}<Icon name="check" size={14} strokeWidth={2.5} />{/if}
-										</button>
-										<span class="w-12 shrink-0 text-xs font-bold text-ink">Série {st.order + 1}</span>
-										{#if ex.mode === 'time'}
-											<div class="flex flex-1 items-center gap-1.5">
+									{@const missingWeight = d.done && showWeight(ex) && !d.weight.trim()}
+									<div class="rounded-xl {d.done ? 'bg-brand-light/60' : ''}">
+										<div class="grid items-center gap-2 px-0.5 py-1.5 {showWeight(ex) ? 'grid-cols-[2rem_minmax(0,1fr)_minmax(0,1fr)_2.75rem]' : 'grid-cols-[2rem_minmax(0,1fr)_2.75rem]'}">
+											<span class="text-sm font-black tabular-nums {d.done ? 'text-brand-deep' : 'text-mist'}">{st.order + 1}</span>
+											{#if ex.mode === 'time'}
 												<input
 													type="number"
 													inputmode="numeric"
 													bind:value={d.duration}
 													onchange={() => updateFreeSet(ex, st.order)}
-													class="w-full rounded-lg border border-line bg-white px-2 py-1.5 text-sm tabular-nums outline-none focus:border-brand"
-													placeholder="{st.durationSeconds ?? 60}s"
+													aria-label={`Durée série ${st.order + 1}`}
+													class="h-11 w-full rounded-lg border border-line bg-white px-2 text-center text-base font-semibold tabular-nums outline-none focus:border-brand"
+													placeholder="{st.durationSeconds ?? 60} s"
 												/>
-												<span class="text-xs font-semibold text-mist">s</span>
-											</div>
-										{:else}
-											<div class="flex flex-1 items-center gap-1.5">
+											{:else}
 												<input
 													type="number"
 													inputmode="numeric"
 													bind:value={d.reps}
 													onchange={() => updateFreeSet(ex, st.order)}
-													class="w-full min-w-0 rounded-lg border border-line bg-white px-2 py-1.5 text-sm tabular-nums outline-none focus:border-brand"
+													aria-label={`Répétitions série ${st.order + 1}`}
+													class="h-11 w-full rounded-lg border border-line bg-white px-2 text-center text-base font-semibold tabular-nums outline-none focus:border-brand"
 													placeholder="{repsLabel(st)}"
 												/>
-												<span class="text-xs font-semibold text-mist">reps</span>
 												{#if showWeight(ex)}
 													<input
 														type="text"
 														inputmode="decimal"
 														bind:value={d.weight}
 														onchange={() => updateFreeSet(ex, st.order)}
-														class="w-full min-w-0 rounded-lg border border-line bg-white px-2 py-1.5 text-sm tabular-nums outline-none focus:border-brand"
-														placeholder="kg"
+														aria-label={`Charge série ${st.order + 1}`}
+														class="h-11 w-full rounded-lg border bg-white px-2 text-center text-base font-semibold tabular-nums outline-none focus:border-brand {missingWeight ? 'border-warn bg-warn-light' : 'border-line'}"
+														placeholder="—"
 													/>
-													<span class="text-xs font-semibold text-mist">kg</span>
 												{/if}
-											</div>
+											{/if}
+											<button
+												type="button"
+												onclick={() => toggleFreeSet(ex, st.order)}
+												class="grid h-11 w-11 place-items-center rounded-full border-2 transition {d.done ? 'border-brand bg-brand text-white' : 'border-line bg-white text-transparent'}"
+												aria-label={d.done ? `Série ${st.order + 1} terminée, toucher pour annuler` : `Valider la série ${st.order + 1}`}
+											>
+												<Icon name="check" size={18} strokeWidth={2.5} />
+											</button>
+										</div>
+										{#if missingWeight}
+											<p class="px-0.5 pb-1.5 text-xs font-bold text-warn">Charge manquante sur la série {st.order + 1} : tu peux encore la saisir.</p>
 										{/if}
 									</div>
 								{/each}
 							</div>
+							{/if}
 						</article>
 					{/snippet}
 					<!-- Supersets : les exercices liés s'affichent dans une même carte
@@ -1112,26 +1146,27 @@
 				</section>
 			{/each}
 
-			<!-- Barre d'actions mode libre — plus de bouton « Commencer » :
-			     la première série cochée démarre la séance (startedAt serveur). -->
-			<div class="sticky bottom-3 z-10 mt-2 grid gap-2">
-				{#if sessionStarted || hasCheckedSet}
+			<!-- Barre fixe : UN seul bouton vert (dès la première série) + lien guidé. -->
+			<div class="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-card px-4 pb-[max(16px,env(safe-area-inset-bottom))] pt-3">
+				<div class="mx-auto grid w-full max-w-md gap-1">
+					{#if sessionStarted || hasCheckedSet}
+						<button
+							type="button"
+							disabled={saving}
+							onclick={requestFinish}
+							class="min-h-[54px] w-full rounded-2xl bg-brand px-5 text-[17px] font-black text-white shadow-lg transition hover:bg-brand-dark disabled:opacity-60"
+						>
+							Terminer la séance
+						</button>
+					{/if}
 					<button
 						type="button"
-						disabled={saving}
-						onclick={requestFinish}
-						class="w-full rounded-2xl bg-brand px-5 py-3.5 text-sm font-bold text-white shadow-lg transition hover:bg-brand-dark disabled:opacity-60"
+						onclick={startGuided}
+						class="flex min-h-11 w-full items-center justify-center text-sm font-bold text-brand-deep transition hover:text-ink"
 					>
-						Terminer la séance
+						Passer en mode guidé
 					</button>
-				{/if}
-				<button
-					type="button"
-					onclick={startGuided}
-					class="w-full rounded-2xl border-2 border-line bg-card px-5 py-3 text-sm font-semibold text-ink transition hover:border-brand"
-				>
-					<Icon name="play" size={14} class="mr-1 inline" /> Commencer en mode guidé
-				</button>
+				</div>
 			</div>
 		{/if}
 
