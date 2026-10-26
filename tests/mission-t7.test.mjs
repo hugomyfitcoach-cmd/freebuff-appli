@@ -34,21 +34,40 @@ const abandon = convexClient.slice(convexClient.indexOf('export const abandonMyS
 
 /* ─── 1) Menu ••• en feuille, au-dessus de la navigation ─── */
 
-test('1 · menu ••• en feuille basse au-dessus de la barre de navigation', () => {
-	assert.ok(page.includes("import { fade, fly } from 'svelte/transition'"), 'transitions Svelte réutilisées');
-	assert.ok(page.includes("import { sheetFade, sheetFly } from '$lib/sheetMotion'"), 'même animation que la carte Poids');
-	assert.ok(/transition:fade=\{sheetFade\(\)\}/.test(page), 'fond assombri en fondu (carte Poids)');
-	assert.ok(/transition:fly=\{sheetFly\(\)\}/.test(page), 'feuille qui monte du bas (carte Poids)');
-	assert.ok(page.includes('flex items-end justify-center bg-ink/45 backdrop-blur-sm'), 'feuille ancrée en bas + fond sombre');
+test('1 · menu ••• compact ancré au bouton, jamais sur la barre de navigation', () => {
+	assert.ok(page.includes('getBoundingClientRect()'), 'ancrage calculé sur le bouton •••');
 	assert.ok(
-		page.includes('margin-bottom: calc(env(safe-area-inset-bottom) + 5.25rem)'),
-		'la feuille se pose AU-DESSUS de la barre de navigation'
+		/if \(menuFor === s\._id\) \{[\s\S]*?closeMenu\(\);/.test(page),
+		'un second toucher sur ••• referme le menu'
 	);
-	assert.ok(/if \(e\.target === e\.currentTarget\) menuFor = null/.test(page), 'fermeture au toucher extérieur');
-	assert.ok(page.includes('role="dialog"') && page.includes('aria-modal="true"'), 'feuille accessible');
+	assert.ok(page.includes('right: Math.max(8, window.innerWidth - rect.right)'), 'aligné sur le bord droit du bouton');
+	assert.ok(page.includes('top: {menuAnchor.top}px; right: {menuAnchor.right}px'), 'positionné au pixel du bouton');
+	assert.ok(page.includes('style="top: {menuAnchor.top}px; right: {menuAnchor.right}px; width: {MENU_WIDTH}px;"'), 'carte compacte (220 px)');
+	assert.ok(/const MENU_WIDTH = 220;/.test(page), 'largeur ~220 px');
+	assert.ok(page.includes('origin-top-right') && page.includes('origin-bottom-right'), 'agrandissement depuis le coin du bouton');
+	assert.ok(
+		/spaceBelow < MENU_HEIGHT \+ 16 && rect\.top > MENU_HEIGHT \+ 24/.test(page),
+		'place insuffisante en bas → ouverture AU-DESSUS du bouton'
+	);
+	assert.ok(
+		/top: Math\.max\(8, Math\.min\(rawTop, window\.innerHeight - NAV_RESERVED - MENU_HEIGHT\)\)/.test(page),
+		'jamais hors écran ni au-dessus de la barre de navigation'
+	);
+	assert.ok(/class="flex h-11 w-full items-center gap-2\.5/.test(page), 'lignes de 44 px : icône + libellé');
+	assert.ok(/text-\[15px\]/.test(page), 'texte 15 px');
+	assert.ok(page.includes('divide') || page.includes('border-t border-line/60'), 'séparateurs fins');
+	assert.ok(page.includes('bg-ink/10') && !page.includes('backdrop-blur'), 'fond très légèrement assombri, sans flou');
+	assert.ok(page.includes('onclick={closeMenu}'), 'fermeture au toucher extérieur');
+	assert.ok(page.includes("if (e.key === 'Escape' && menuFor) closeMenu();"), 'fermeture avec la touche Échap');
+	assert.ok(page.includes('firstMenuAction?.focus()'), 'focus sur la première action à l’ouverture');
+	assert.ok(page.includes('@media (prefers-reduced-motion: reduce)'), 'règle prefers-reduced-motion présente');
+	assert.ok(page.includes('prefersReducedMotion()'), 'animation réduite respectée (fondu seul)');
+	assert.ok(/duration: reduced \? 120 : direction === 'in' \? 160 : 120/.test(page), 'ouverture 160 ms, fermeture 120 ms');
 	for (const label of ['Déplacer', 'Dupliquer', 'Supprimer']) {
 		assert.ok(page.includes(label), `action ${label} conservée`);
 	}
+	assert.ok(!/>\s*Fermer\s*</.test(page), 'plus de bouton « Fermer »');
+	assert.ok(!page.includes('margin-bottom: calc(env(safe-area-inset-bottom) + 5.25rem)'), 'plus de feuille basse pleine largeur');
 	assert.ok(!page.includes('bottom-24'), 'plus de menu flottant masquant la navigation');
 });
 

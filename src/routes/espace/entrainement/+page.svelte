@@ -7,9 +7,9 @@
 	 * programme. La vue séance (libre/guidé) vit dans SessionRunner.svelte.
 	 * Déplacer / dupliquer une séance : côté coach (Vue 360) en V1.
 	 */
-	import { onMount } from 'svelte';
-	import { fade, fly } from 'svelte/transition';
-	import { sheetFade, sheetFly } from '$lib/sheetMotion';
+	import { onMount, tick } from 'svelte';
+	import { cubicOut } from 'svelte/easing';
+	import { prefersReducedMotion } from '$lib/sheetMotion';
 	import Icon from '$lib/components/Icon.svelte';
 	import BackToHome from '$lib/components/BackToHome.svelte';
 	import SessionRunner from '$lib/components/SessionRunner.svelte';
@@ -197,8 +197,40 @@
 		days.find((d) => d.status === 'planned' && d.startedAt != null && d.date <= today) ?? null
 	);
 
-	/* ── Menu ••• d'une séance programmée (déplacer / dupliquer / supprimer) ── */
+	/* ── Menu ••• d'une séance programmée (déplacer / dupliquer / supprimer) ──
+	   Menu flottant compact ancré sous le bouton, aligné sur son bord droit.
+	   Affichage seul : les actions ci-dessous sont inchangées. */
 	let menuFor = $state<string | null>(null);
+	/** Coin d'ancrage calculé sur le bouton ••• (px viewport). */
+	let menuAnchor = $state<{ top: number; right: number; above: boolean } | null>(null);
+	/** Première action du menu — focus posé à l'ouverture. */
+	let firstMenuAction = $state<HTMLButtonElement | undefined>(undefined);
+	const MENU_WIDTH = 220;
+	/** 3 lignes de 44 px + les deux séparateurs fins. */
+	const MENU_HEIGHT = 3 * 44 + 2;
+	/** Hauteur réservée à la barre de navigation (capsule 5,25 rem + marge). */
+	const NAV_RESERVED = 84 + 12;
+
+	function closeMenu() {
+		menuFor = null;
+		menuAnchor = null;
+	}
+
+	/* Animation du menu : fondu + agrandissement 0,92 → 1 depuis le coin du
+	   bouton (160 ms, courbe douce), fermeture en fondu 120 ms. Sous
+	   prefers-reduced-motion : fondu seul, sans agrandissement. */
+	function menuMotion(_node: Element, reduced: boolean) {
+		// Svelte passe { direction } à la fermeture/ouverture ; le défaut garde
+		// la signature compatible avec le typage des transitions (0 argument).
+		return ({ direction }: { direction: 'in' | 'out' } = { direction: 'in' }) => ({
+			duration: reduced ? 120 : direction === 'in' ? 160 : 120,
+			easing: cubicOut,
+			css: (t: number) =>
+				reduced || direction === 'out'
+					? `opacity: ${t};`
+					: `opacity: ${t}; transform: scale(${(0.92 + 0.08 * t).toFixed(3)});`,
+		});
+	}
 	let sheetFor = $state<DaySession | null>(null);
 	let sheetMode = $state<'move' | 'duplicate'>('move');
 	let sheetDate = $state('');
@@ -207,19 +239,36 @@
 
 	function openMenuFor(s: DaySession, ev: MouseEvent) {
 		ev.stopPropagation();
-		menuFor = menuFor === s._id ? null : s._id;
+		if (menuFor === s._id) {
+			closeMenu();
+			return;
+		}
+		const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+		const spaceBelow = window.innerHeight - NAV_RESERVED - rect.bottom;
+		// Place insuffisante en bas → le menu s'ouvre AU-DESSUS du bouton.
+		const above = spaceBelow < MENU_HEIGHT + 16 && rect.top > MENU_HEIGHT + 24;
+		const rawTop = above ? rect.top - MENU_HEIGHT - 6 : rect.bottom + 6;
+		menuAnchor = {
+			// Jamais hors écran, jamais au-dessus de la barre de navigation.
+			top: Math.max(8, Math.min(rawTop, window.innerHeight - NAV_RESERVED - MENU_HEIGHT)),
+			// Aligné sur le bord droit du bouton •••.
+			right: Math.max(8, window.innerWidth - rect.right),
+			above,
+		};
+		menuFor = s._id;
+		void tick().then(() => firstMenuAction?.focus());
 	}
 	function askMove(s: DaySession) {
 		sheetMode = 'move';
 		sheetFor = s;
 		sheetDate = s.date;
-		menuFor = null;
+		closeMenu();
 	}
 	function askDuplicate(s: DaySession) {
 		sheetMode = 'duplicate';
 		sheetFor = s;
 		sheetDate = s.date;
-		menuFor = null;
+		closeMenu();
 	}
 	async function confirmSheet() {
 		if (!sheetFor) return;
@@ -252,7 +301,7 @@
 		}
 	}
 	async function confirmDelete(s: DaySession) {
-		menuFor = null;
+		closeMenu();
 		if (!confirm(`Supprimer la séance « ${s.name} » de ton planning ?`)) return;
 		err = '';
 		try {
@@ -281,6 +330,13 @@
 </script>
 
 <svelte:head><title>Entraînement — G-Flux</title></svelte:head>
+
+<!-- Échap ferme le menu ••• (toucher extérieur déjà géré par le fond). -->
+<svelte:window
+	onkeydown={(e) => {
+		if (e.key === 'Escape' && menuFor) closeMenu();
+	}}
+/>
 
 {#if openScheduledId}
 	<!-- ═══ Séance ouverte : runner plein écran (libre OU guidé) ═══ -->
@@ -452,42 +508,54 @@
 	</div>
 {/if}
 
-<!-- Menu ••• en feuille basse (même animation que la carte « Poids » de
-     l'Accueil) : fond assombri, fermeture au toucher extérieur, et la feuille
-     se pose AU-DESSUS de la barre de navigation (jamais derrière elle). -->
-{#if menuFor && selectedDay}
+<!-- Menu ••• compact ancré sous le bouton (aligné sur son bord droit, ou
+     au-dessus si la place manque en bas) : jamais hors écran, jamais sur la
+     barre de navigation. Fermeture au toucher extérieur ou avec Échap. -->
+{#if menuFor && selectedDay && menuAnchor}
 	{#each sessionsOn(selectedDay) as ms (ms._id)}
 		{#if ms._id === menuFor && ms.status !== 'completed'}
+			<!-- Fond très légèrement assombri (sans flou) -->
+			<button
+				type="button"
+				class="menu-backdrop fixed inset-0 z-[55] cursor-default bg-ink/10"
+				aria-label="Fermer le menu"
+				transition:menuMotion={prefersReducedMotion()}
+				onclick={closeMenu}
+			></button>
 			<div
-				role="presentation"
-				transition:fade={sheetFade()}
-				class="fixed inset-0 z-[55] flex items-end justify-center bg-ink/45 backdrop-blur-sm"
-				onclick={(e) => {
-					if (e.target === e.currentTarget) menuFor = null;
-				}}
+				role="menu"
+				aria-label={`Options de la séance ${ms.name}`}
+				transition:menuMotion={prefersReducedMotion()}
+				style="top: {menuAnchor.top}px; right: {menuAnchor.right}px; width: {MENU_WIDTH}px;"
+				class="menu-anchored fixed z-[56] overflow-hidden rounded-2xl border border-line bg-white shadow-xl {menuAnchor.above
+					? 'origin-bottom-right'
+					: 'origin-top-right'}"
 			>
-				<div
-					role="dialog"
-					aria-modal="true"
-					aria-label={`Options de la séance ${ms.name}`}
-					transition:fly={sheetFly()}
-					style="margin-bottom: calc(env(safe-area-inset-bottom) + 5.25rem);"
-					class="w-full max-w-md overflow-hidden rounded-[28px] bg-white p-2 shadow-2xl"
+				<button
+					type="button"
+					role="menuitem"
+					bind:this={firstMenuAction}
+					onclick={() => askMove(ms)}
+					class="flex h-11 w-full items-center gap-2.5 px-4 text-left text-[15px] font-semibold text-ink transition hover:bg-line/40"
 				>
-					<p class="truncate px-3 pb-1 pt-2 text-[11px] font-bold uppercase tracking-widest text-mist">{ms.name}</p>
-					<button type="button" onclick={() => askMove(ms)} class="block min-h-11 w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold text-ink transition hover:bg-line/40">
-						<Icon name="calendarDays" size={15} class="mr-2 inline text-mist" /> Déplacer
-					</button>
-					<button type="button" onclick={() => askDuplicate(ms)} class="block min-h-11 w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold text-ink transition hover:bg-line/40">
-						<Icon name="copy" size={15} class="mr-2 inline text-mist" /> Dupliquer
-					</button>
-					<button type="button" onclick={() => confirmDelete(ms)} class="block min-h-11 w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold text-danger transition hover:bg-danger-light">
-						<Icon name="trash" size={15} class="mr-2 inline" /> Supprimer
-					</button>
-					<button type="button" onclick={() => (menuFor = null)} class="mt-1 block min-h-11 w-full rounded-2xl px-4 py-3 text-center text-sm font-bold text-mist transition hover:bg-line/40">
-						Fermer
-					</button>
-				</div>
+					<Icon name="calendarDays" size={16} class="shrink-0 text-mist" /> Déplacer
+				</button>
+				<button
+					type="button"
+					role="menuitem"
+					onclick={() => askDuplicate(ms)}
+					class="flex h-11 w-full items-center gap-2.5 border-t border-line/60 px-4 text-left text-[15px] font-semibold text-ink transition hover:bg-line/40"
+				>
+					<Icon name="copy" size={16} class="shrink-0 text-mist" /> Dupliquer
+				</button>
+				<button
+					type="button"
+					role="menuitem"
+					onclick={() => confirmDelete(ms)}
+					class="flex h-11 w-full items-center gap-2.5 border-t border-line/60 px-4 text-left text-[15px] font-semibold text-danger transition hover:bg-danger-light"
+				>
+					<Icon name="trash" size={16} class="shrink-0" /> Supprimer
+				</button>
 			</div>
 		{/if}
 	{/each}
@@ -523,4 +591,14 @@
 
 <style>
 	/* Les styles restent dans les classes utilitaires — aucune règle globale. */
+
+	/* Mouvement réduit : fondu seul, sans agrandissement (l'animation JS
+	   reçoit déjà prefersReducedMotion() ; ceinture et bretelles CSS). */
+	@media (prefers-reduced-motion: reduce) {
+		.menu-anchored,
+		.menu-backdrop {
+			animation: none;
+			transition: none;
+		}
+	}
 </style>
