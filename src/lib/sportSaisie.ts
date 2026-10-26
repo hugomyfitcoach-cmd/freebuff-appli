@@ -83,6 +83,32 @@ export function validerSaisieSport(input: {
 	return { ok: true, saisie: { dureeMinutes: duree.dureeMinutes, bpmMoyen: bpm.bpm } };
 }
 
+/** Boutons de durée proposés en premier — le champ « Libre » couvre le reste. */
+export const DUREES_PROPOSEES: number[] = [30, 45, 60];
+
+/**
+ * Pré-remplissage « Modifier » : la durée enregistrée est TOUJOURS visible —
+ * bouton 30/45/60 si la durée correspond, sinon valeur placée dans le champ
+ * « Libre » (jamais une durée invisible).
+ */
+export function dureeVersSaisie(duree: string | number | null | undefined): {
+	dureeMinutes: number | null;
+	libre: string;
+} {
+	const valide = validerDuree(duree);
+	if (!valide.ok) return { dureeMinutes: null, libre: '' };
+	return {
+		dureeMinutes: valide.dureeMinutes,
+		libre: DUREES_PROPOSEES.includes(valide.dureeMinutes) ? '' : String(valide.dureeMinutes)
+	};
+}
+
+/** Pré-remplissage « Modifier » : FC reprise normalisée, ou champ vide. */
+export function bpmVersSaisie(v: string | number | null | undefined): string {
+	const n = nombreSaisi(v);
+	return n !== null ? String(n) : '';
+}
+
 /**
  * Message destiné à la cliente : jamais un message technique (TypeError,
  * « x.trim is not a function », « … is undefined »…). Les messages serveur

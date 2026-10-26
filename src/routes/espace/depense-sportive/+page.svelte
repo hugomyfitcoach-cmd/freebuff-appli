@@ -17,8 +17,11 @@
 	import BackToHome from '$lib/components/BackToHome.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import {
+		DUREES_PROPOSEES,
 		ERREUR_BPM,
 		ERREUR_DUREE,
+		bpmVersSaisie,
+		dureeVersSaisie,
 		messageErreurSport,
 		nombreSaisi,
 		validerBpm,
@@ -260,9 +263,13 @@
 		formActivityId = a.activityId;
 		formIntensity = a.intensity;
 		formDate = a.date;
-		formDuration = a.durationMinutes;
-		formCustomDuration = '';
-		formBpm = a.bpmMoyen != null ? String(a.bpmMoyen) : '';
+		/* Durée reprise : bouton 30/45/60 si elle correspond, sinon champ
+		   « Libre » pré-rempli avec la valeur enregistrée. */
+		const d = dureeVersSaisie(a.durationMinutes);
+		formDuration = d.dureeMinutes;
+		formCustomDuration = d.libre;
+		/* FC reprise (normalisée) — champ vide si elle n'était pas renseignée. */
+		formBpm = bpmVersSaisie(a.bpmMoyen);
 		search = '';
 		sheetOpen = true;
 	}
@@ -371,6 +378,11 @@
 		}
 	});
 
+	/** Sans poids connu : aucune activité de la semaine n'a de kcal estimée. */
+	const sansPoids = $derived(
+		(week?.activities.length ?? 0) > 0 && (week?.activities ?? []).every((a) => a.estimatedCalories == null)
+	);
+
 	/** Groupe la liste par jour (avec libellés). */
 	const daysGrouped = $derived.by(() => {
 		if (!week) return [];
@@ -440,8 +452,13 @@
 				<p class="text-[11px] font-semibold uppercase tracking-wide text-mist">de sport</p>
 			</div>
 			<div class="rounded-2xl border border-line bg-card p-3 text-center">
-				<p class="font-display text-xl font-bold text-ink tabular-nums">≈ {week?.totals.kcal ?? 0}</p>
-				<p class="text-[11px] font-semibold uppercase tracking-wide text-mist">kcal estimées</p>
+				{#if sansPoids}
+					<p class="font-display text-xl font-bold text-ink tabular-nums">—</p>
+					<p class="text-[11px] font-semibold leading-snug text-mist">Ajoute ton poids pour estimer tes calories</p>
+				{:else}
+					<p class="font-display text-xl font-bold text-ink tabular-nums">≈ {week?.totals.kcal ?? 0}</p>
+					<p class="text-[11px] font-semibold uppercase tracking-wide text-mist">kcal estimées</p>
+				{/if}
 			</div>
 		</section>
 
@@ -600,12 +617,18 @@
 
 			<label class="mt-3 block">
 				<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Date</span>
-				<input type="date" bind:value={formDate} max={isoOf(new Date())} class="w-full rounded-xl border-2 border-line px-3 py-2.5 text-sm outline-none focus:border-brand" />
+				<input
+					type="date"
+					bind:value={formDate}
+					max={isoOf(new Date())}
+					class="w-full box-border rounded-xl border-2 border-line px-3 py-2.5 text-left text-sm outline-none appearance-none focus:border-brand"
+					style="-webkit-appearance: none"
+				/>
 			</label>
 
 			<p class="mt-3 text-[10px] font-bold uppercase tracking-wider text-mist">Durée</p>
 			<div class="mt-1 flex gap-1.5">
-				{#each [30, 45, 60] as m (m)}
+				{#each DUREES_PROPOSEES as m (m)}
 					<button
 						type="button"
 						onclick={() => pickDuration(m)}

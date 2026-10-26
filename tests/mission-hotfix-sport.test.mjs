@@ -25,6 +25,7 @@ import { dirname, join } from 'node:path';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const saisie = await import(new URL('../src/lib/sportSaisie.ts', import.meta.url).href);
+const sport = await import(new URL('../src/convex/sportCatalog.ts', import.meta.url).href);
 const page = readFileSync(join(root, 'src/routes/espace/depense-sportive/+page.svelte'), 'utf8');
 
 /* ── 1 · Normalisation unique (texte OU nombre → nombre fini ou absent) ── */
@@ -129,4 +130,90 @@ test('Erreur technique (« n(q).trim is not a function ») : remplacée par un m
 	assert.ok(!page.includes('err = e instanceof Error ? e.message : String(e)'), 'plus d’affectation brute de e.message');
 	assert.ok(!/err = String\(e\)/.test(page));
 	assert.ok(page.includes('messageErreurSport(e'), 'sanitisation systématique des erreurs');
+});
+
+/* ── HOTFIX-SPORT-2 · 1 · Modification : durée et FC reprises ── */
+
+test('Modifier : durée reprise (bouton 30/45/60 ou champ Libre) et FC reprise', () => {
+	/* Durée 30/45/60 → bouton présélectionné, champ Libre vide. */
+	assert.deepEqual(saisie.dureeVersSaisie(30), { dureeMinutes: 30, libre: '' });
+	assert.deepEqual(saisie.dureeVersSaisie(45), { dureeMinutes: 45, libre: '' });
+	assert.deepEqual(saisie.dureeVersSaisie('60'), { dureeMinutes: 60, libre: '' });
+	/* Autre durée (50) → champ « Libre » pré-rempli avec la valeur. */
+	assert.deepEqual(saisie.dureeVersSaisie(50), { dureeMinutes: 50, libre: '50' });
+	assert.deepEqual(saisie.dureeVersSaisie('50'), { dureeMinutes: 50, libre: '50' });
+	/* FC reprise (nombre ou texte), champ vide si elle n'était pas renseignée. */
+	assert.equal(saisie.bpmVersSaisie(140), '140');
+	assert.equal(saisie.bpmVersSaisie('140'), '140');
+	assert.equal(saisie.bpmVersSaisie(null), '');
+	assert.equal(saisie.bpmVersSaisie(undefined), '');
+	/* Le formulaire « Modifier » branche bien ces reprises. */
+	const openEdit = page.slice(page.indexOf('function openEdit'), page.indexOf('async function openDuplicate'));
+	assert.ok(openEdit.includes('const d = dureeVersSaisie(a.durationMinutes);'), 'durée reprise via le helper');
+	assert.ok(openEdit.includes('formDuration = d.dureeMinutes;'));
+	assert.ok(openEdit.includes('formCustomDuration = d.libre;'), 'champ Libre rempli si aucun bouton ne correspond');
+	assert.ok(openEdit.includes('formBpm = bpmVersSaisie(a.bpmMoyen);'), 'FC reprise');
+	/* Boutons de durée et champ Libre partagent la même liste de présélections. */
+	assert.ok(page.includes('{#each DUREES_PROPOSEES as m (m)}'));
+});
+
+/* ── HOTFIX-SPORT-2 · 2 · « Running extérieur » au catalogue ── */
+
+test('Running extérieur : présent juste après Course (tapis), mêmes zones, seuils BPM et coûts', () => {
+	const ids = sport.SPORT_CATALOG.map((a) => a.id);
+	assert.ok(ids.includes('running-exterieur'), 'activité ajoutée au catalogue');
+	assert.equal(ids.indexOf('running-exterieur'), ids.indexOf('course-tapis') + 1, 'juste après Course (tapis)');
+	const running = sport.getSportEntry('running-exterieur');
+	const tapis = sport.getSportEntry('course-tapis');
+	assert.equal(running?.name, 'Running extérieur');
+	assert.equal(running?.category, tapis?.category, 'même catégorie');
+	assert.equal(running?.bareme, tapis?.bareme, 'même barème → mêmes zones et seuils BPM');
+	assert.deepEqual([...sport.choixValides(running)], [...sport.choixValides(tapis)], 'mêmes zones proposées');
+	/* Mêmes coûts kcal/kg/h sur chaque zone. */
+	for (const zone of sport.choixValides(tapis)) {
+		assert.equal(
+			sport.resolveSportCoefficient('running-exterieur', zone).coefficientKcalKgH,
+			sport.resolveSportCoefficient('course-tapis', zone).coefficientKcalKgH,
+			`zone ${zone} : même coût`
+		);
+	}
+	/* Même estimation pour une même saisie (aucun calcul modifié). */
+	const params = { durationMinutes: 45, weightKg: 60, bpmMoyen: 140 };
+	assert.equal(
+		sport.estimateSportActivity({ activityId: 'running-exterieur', ...params }).estimatedCalories,
+		sport.estimateSportActivity({ activityId: 'course-tapis', ...params }).estimatedCalories
+	);
+	/* Ajout seul : version du catalogue inchangée, comme les ajouts précédents. */
+	assert.equal(sport.SPORT_CATALOG_VERSION, '2');
+	assert.equal(sport.SPORT_CATALOG_VERSION_LEGACY, '1');
+});
+
+/* ── HOTFIX-SPORT-2 · 3 · Champ Date sans débordement ── */
+
+test('Champ Date : largeur et style identiques aux autres champs (pas de débordement à 320 px)', () => {
+	const i = page.indexOf('type="date"');
+	assert.ok(i > 0, 'champ Date présent');
+	const dateInput = page.slice(page.lastIndexOf('<input', i), page.indexOf('/>', i) + 2);
+	assert.match(dateInput, /\bw-full\b/, 'width: 100 %');
+	assert.match(dateInput, /\bbox-border\b/, 'box-sizing: border-box');
+	assert.match(dateInput, /\bappearance-none\b/, 'apparence iOS neutralisée (classes)');
+	assert.match(dateInput, /-webkit-appearance:\s*none/, 'apparence iOS neutralisée (préfixe webkit)');
+	assert.match(dateInput, /\btext-left\b/, 'texte aligné à gauche');
+	assert.match(dateInput, /rounded-xl border-2 border-line/, 'même style que les autres champs');
+	/* Le reste de la fenêtre : conteneur fluide, aucune largeur fixe hors viewport. */
+	assert.ok(page.includes('fixed inset-x-0 bottom-0'), 'fenêtre fluide en largeur');
+	assert.ok(!/w-\[[0-9]{3}px\]/.test(page), 'aucune largeur fixe en px dans la fenêtre');
+});
+
+/* ── HOTFIX-SPORT-2 · 4 · Sans poids connu ── */
+
+test('Sans poids connu : « — » avec la mention « Ajoute ton poids… » au lieu de « ≈ 0 »', () => {
+	assert.ok(page.includes('const sansPoids = $derived('), 'détecte l’absence de poids');
+	const bloc = page.slice(page.indexOf('{#if sansPoids}'), page.indexOf('{:else}', page.indexOf('{#if sansPoids}')));
+	assert.ok(bloc.includes('—'), '« — » affiché');
+	assert.ok(bloc.includes('Ajoute ton poids pour estimer tes calories'), 'mention affichée');
+	assert.ok(!bloc.includes('≈'), 'jamais « ≈ 0 » quand le poids est inconnu');
+	assert.ok(!/kcal estimées<\/p>/.test(bloc), 'le libellé « kcal estimées » ne s’affiche pas non plus');
+	/* Aucun calcul modifié : le total reste la somme des estimations serveur. */
+	assert.ok(page.includes('≈ {week?.totals.kcal ?? 0}'));
 });

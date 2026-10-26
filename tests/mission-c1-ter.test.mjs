@@ -37,6 +37,7 @@ const REFERENCE = {
 	// ── Cardio & salle ──
 	'marche-inclinee-tapis': { bareme: 'cardio', kcal: CARDIO },
 	'course-tapis': { bareme: 'cardio', kcal: CARDIO },
+	'running-exterieur': { bareme: 'cardio', kcal: CARDIO },
 	'velo-exterieur': { bareme: 'cardio', kcal: CARDIO },
 	'velo-indoor': { bareme: 'cardio', kcal: CARDIO },
 	elliptique: { bareme: 'cardio', kcal: CARDIO },
