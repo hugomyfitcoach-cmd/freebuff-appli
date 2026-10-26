@@ -93,6 +93,7 @@
 		rdv_annule: { icon: 'calendarX', tile: 'bg-danger-light text-danger' },
 		onboarding_termine: { icon: 'rocket', tile: 'bg-brand-light text-brand-deep' },
 		inactivite: { icon: 'bellOff', tile: 'bg-warn-light text-warn' },
+		programme_fin_proche: { icon: 'dumbbell', tile: 'bg-brand-light text-brand-deep' },
 	};
 	const uiStyle = (kind: CoachNotifKind) => UI_STYLE[kind] ?? { icon: 'bell', tile: 'bg-soft text-ink' };
 	/**

@@ -104,7 +104,9 @@ export const coachNotifKind = v.union(
 	v.literal("rdv_annule"),
 	v.literal("rdv_replanifie"),
 	v.literal("onboarding_termine"),
-	v.literal("inactivite")
+	v.literal("inactivite"),
+	/** Fin d'un programme d'entraînement dans 5 jours ou moins (tick). */
+	v.literal("programme_fin_proche")
 );
 
 export default defineSchema({
