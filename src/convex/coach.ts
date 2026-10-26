@@ -29,6 +29,7 @@ import {
 	parisTodayISO,
 	visionWindow,
 	weightVision,
+	weightTrendFacts,
 	stepsAverages,
 	foodAverages,
 	sportVision,
@@ -36,6 +37,7 @@ import {
 	exploitabilityThresholdKcal,
 } from "../lib/vision360";
 import { kcalGoalForDate, hasChangeWithin, withCurrentGoal } from "../lib/goalHistory";
+import { nextFeedbackAiDraft } from "../lib/coachDraftUi";
 
 /**
  * CRM réservé au coach. Chaque fonction vérifie le rôle « coach » depuis
@@ -96,6 +98,8 @@ function publicUser(user: UserRow) {
 		cycle: user.cycle ?? null,
 		/** Mode d'accompagnement (fallback "coaching" = comportement historique). */
 		coachingMode: user.coachingMode ?? "coaching",
+		/** Consentement assistant IA (date ms) — null tant qu'il n'est pas enregistré. */
+		aiConsentAt: user.aiConsentAt ?? null,
 		/** FACTURATION — accès offert + état abonnement Stripe (bloc « Accès G-FLUX »). */
 		billingAccessOverride: user.billingAccessOverride ?? null,
 		stripeSubscriptionStatus: user.stripeSubscriptionStatus ?? null,
@@ -294,8 +298,15 @@ export const setFeedback = mutation({
 		checkinId: v.id("checkins"),
 		feedback: v.string(),
 		status: checkinStatus,
+		/**
+		 * Le texte enregistré est encore EXACTEMENT le brouillon préparé par
+		 * l'IA (envoyé par le CRM au moment du clic). La décision finale reste
+		 * serveur : `nextFeedbackAiDraft` ne persiste jamais ce drapeau sur un
+		 * retour publié ni sur un texte vide.
+		 */
+		aiDraft: v.optional(v.boolean()),
 	},
-	handler: async (ctx, { sessionToken, checkinId, feedback, status }) => {
+	handler: async (ctx, { sessionToken, checkinId, feedback, status, aiDraft }) => {
 		await requireCoach(ctx, sessionToken);
 		const checkin = await ctx.db.get(checkinId);
 		if (!checkin) throw new ConvexError("Bilan introuvable.");
@@ -305,7 +316,16 @@ export const setFeedback = mutation({
 			status: "nouveau" | "retour_envoye";
 			feedbackAt?: number;
 			feedbackReadAt?: number;
+			feedbackAiDraft?: boolean;
 		} = { status };
+		// Badge « Brouillon IA — à relire » : conservé avec le brouillon tant
+		// que le texte n'a pas été modifié ; retiré à la publication. Le champ
+		// est optionnel (undefined) → aucun impact sur les bilans existants.
+		patch.feedbackAiDraft = nextFeedbackAiDraft({
+			status,
+			feedback,
+			aiDraft: aiDraft === true,
+		});
 		if (trimmed) patch.feedback = trimmed;
 		if (status === "retour_envoye") {
 			patch.feedbackAt = Date.now();
@@ -438,14 +458,28 @@ export const updateClient = mutation({
 		gsheetUrl: v.optional(v.string()),
 		/** Mode d'accompagnement : "coaching" (défaut) ou "autonomy" ; null = retour au coaching. */
 		coachingMode: v.optional(v.union(coachingModeKind, v.null())),
+		/** Consentement assistant IA : true = accord daté du jour, false = retiré. */
+		aiConsent: v.optional(v.boolean()),
 	},
-	handler: async (ctx, { sessionToken, userId, prenom, nom, email, birthDate, startDate, heightCm, onboardingEnabled, gsheetUrl, coachingMode }) => {
-		await requireCoach(ctx, sessionToken);
+	handler: async (ctx, { sessionToken, userId, prenom, nom, email, birthDate, startDate, heightCm, onboardingEnabled, gsheetUrl, coachingMode, aiConsent }) => {
+		const coach = await requireCoach(ctx, sessionToken);
 		const target = await ctx.db.get(userId);
 		if (!target || target.role !== "client") throw new ConvexError("Client introuvable.");
+		// APPARTENANCE — chaque coach ne modifie QUE ses propres clientes
+		// (même contrôle que le calibrage et le brouillon IA) : un autre coach
+		// est refusé même avec l'identifiant de la fiche en main.
+		if (target.createdBy !== coach._id) {
+			throw new ConvexError("Accès réservé au coach de cette cliente.");
+		}
 		const patch: Partial<
-			Pick<UserRow, "prenom" | "nom" | "email" | "birthDate" | "startDate" | "heightCm" | "onboardingEnabled" | "gsheetUrl" | "coachingMode">
+			Pick<UserRow, "prenom" | "nom" | "email" | "birthDate" | "startDate" | "heightCm" | "onboardingEnabled" | "gsheetUrl" | "coachingMode" | "aiConsentAt">
 		> = {};
+		if (aiConsent !== undefined) {
+			// Coché → date du jour ; déjà accordé → date d'origine conservée (la
+			// case reste cochée sans repousser la date à chaque enregistrement).
+			// Décoché → consentement retiré (champ supprimé, aucune donnée perdue).
+			patch.aiConsentAt = aiConsent ? (target.aiConsentAt ?? Date.now()) : undefined;
+		}
 		if (coachingMode !== undefined) {
 			// null = retour au mode Coaching : on retire le champ (le fallback
 			// global "coaching" reprend la main, aucune donnée n'est perdue).
@@ -843,6 +877,10 @@ export const client360 = query({
 		const weightTrend = metricsByDate
 			.filter((m) => m.weightKg !== undefined)
 			.map((m) => ({ date: m.date, weightKg: m.weightKg as number }));
+		// Dernière pesée et écart de la carte du bilan : les DEUX pesées les plus
+		// récentes, toutes dates confondues, aujourd'hui inclus — même fonction
+		// que le contexte du brouillon (aucun calcul parallèle).
+		const latestWeights = weightTrendFacts(weightTrend, null);
 		const firstWeight = weightTrend.length > 0 ? weightTrend[0].weightKg : null;
 		const lastWeight = weightTrend.length > 0 ? weightTrend[weightTrend.length - 1].weightKg : null;
 
@@ -924,11 +962,11 @@ export const client360 = query({
 				avg: number | null;
 				/** Nombre de pesées sur la période. */
 				count: number;
-				/** Dernière pesée de la période — jamais un 0 kg inventé. */
+				/** Pesée la plus récente, toutes dates confondues (aujourd'hui inclus). */
 				last: { date: string; weightKg: number } | null;
-				/** Dernière pesée de la période précédente (J-14 → J-8). */
+				/** Pesée immédiatement précédente, toutes dates confondues. */
 				prevLast: { date: string; weightKg: number } | null;
-				/** Delta last − prevLast — null si incomparable (période sans pesée). */
+				/** Delta last − prevLast — null si moins de deux pesées. */
 				delta: number | null;
 			};
 			calories: {
@@ -1085,9 +1123,9 @@ export const client360 = query({
 				weight: {
 					avg: weight360.avg,
 					count: weight360.count,
-					last: weight360.last,
-					prevLast: weight360.prevLast,
-					delta: weight360.delta,
+					last: latestWeights.last,
+					prevLast: latestWeights.previous,
+					delta: latestWeights.gapKg,
 				},
 				calories: {
 					avg: food360.kcalAvg,

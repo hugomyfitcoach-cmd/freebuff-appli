@@ -15,6 +15,7 @@
 
 import {
 	allWordsPresent,
+	headTokenCount,
 	norm,
 	phrasePresent,
 	queryCookState,
@@ -176,7 +177,7 @@ function relevanceKey(name: string, q: string, explicitState?: string): number[]
 	const qt = tokenize(q);
 	if (qt.length === 0) return null;
 	const toks = tokenize(name);
-	if (!allWordsPresent(toks, qt)) return null;
+	if (!allWordsPresent(toks, qt, headTokenCount(name))) return null;
 	const typed = queryCookState(qt);
 	// Cuisson EXPLICITE (champ cookingState de la fiche G-Flux) prioritaire sur
 	// la détection par le nom — sinon détection par le nom (inchangée).

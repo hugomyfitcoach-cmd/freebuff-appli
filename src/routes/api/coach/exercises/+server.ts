@@ -8,7 +8,7 @@ import { errMsg } from '$lib/errors.js';
 /**
  * Bibliothèque d'exercices (module Entraînement — socle de validation) :
  * recherche + filtres (groupe musculaire / équipement / source) + pagination.
- * ?q=&muscleGroup=&equipment=&source=&includeHidden=1&offset=&limit=
+ * ?q=&muscleGroup=&equipment=&equipmentFamily=&source=&includeHidden=1&offset=&limit=
  */
 export const GET: RequestHandler = async (event) => {
 	await requireRole(event, 'coach');
@@ -20,6 +20,7 @@ export const GET: RequestHandler = async (event) => {
 			query: url.get('q') ?? undefined,
 			muscleGroup: url.get('muscleGroup') || undefined,
 			equipment: url.get('equipment') || undefined,
+			equipmentFamily: url.get('equipmentFamily') || undefined,
 			bodyPart: url.get('bodyPart') || undefined,
 			source: url.get('source') || undefined,
 			includeHidden: url.get('includeHidden') === '1',

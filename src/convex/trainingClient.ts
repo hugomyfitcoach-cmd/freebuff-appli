@@ -153,18 +153,22 @@ export const scheduledSession = query({
 			.withIndex("by_session", (q) => q.eq("scheduledSessionId", scheduledId))
 			.collect();
 
-		// Dernière performance réelle par exercice (toutes séances confondues).
+		// Dernière performance réelle par exercice (toutes séances confondues) :
+		// la série COCHÉE la plus récente par DATE puis setOrder — jamais l'ordre
+		// d'itération de la base, jamais une série non validée.
 		const lastByExercise = new Map<
 			string,
 			{ date: string; reps: number | null; weightKg: number | null; durationSeconds: number | null }
 		>();
 		for (const se of sesEx) {
-			const prev = await ctx.db
+			const rows = await ctx.db
 				.query("trainingSetLogs")
 				.withIndex("by_user_exercise", (q) => q.eq("userId", user._id).eq("exerciseId", se.exerciseId))
-				.order("desc")
-				.first();
-			if (prev && prev.done) {
+				.collect();
+			const prev = rows
+				.filter((r) => r.done)
+				.sort((a, b) => b.date.localeCompare(a.date) || b.setOrder - a.setOrder || b._creationTime - a._creationTime)[0];
+			if (prev) {
 				lastByExercise.set(se._id, {
 					date: prev.date,
 					reps: prev.reps ?? null,
@@ -208,6 +212,7 @@ export const scheduledSession = query({
 								posterUrl: ex.posterUrl ?? null,
 								animationUrl: ex.animationUrl ?? null,
 								instructions: ex.instructions ?? null,
+								instructionsFr: ex.instructionsFr ?? null,
 							}
 						: null,
 					sets: sets.map((st) => ({
@@ -296,6 +301,11 @@ export const logSet = mutation({
 		const s = await ctx.db.get(scheduledId);
 		if (!s || s.userId !== user._id) throw new ConvexError("Séance introuvable.");
 		if (s.status === "completed") throw new ConvexError("Séance déjà terminée — l'historique est verrouillé.");
+		// La première série COCHÉE démarre la séance : plus de bouton « Commencer »
+		// obligatoire. startedAt est persisté backend (durée mesurée qui survit au
+		// verrouillage iPhone / arrière-plan), jamais un chrono JavaScript.
+		const startedAt = s.startedAt ?? (done ? Date.now() : null);
+		if (done && s.startedAt == null) await ctx.db.patch(scheduledId, { startedAt: startedAt as number });
 		const se = await ctx.db.get(sessionExerciseId);
 		if (!se) throw new ConvexError("Exercice introuvable.");
 		// L'exercice appartient bien à la séance planifiée (via la copie du programme).
@@ -348,15 +358,15 @@ export const logSet = mutation({
 		const prev = existing.find((l) => l.exerciseId === se.exerciseId && l.setOrder === setOrder);
 		if (prev) {
 			await ctx.db.patch(prev._id, {
-				reps: base.reps,
-				weightKg: base.weightKg,
-				durationSeconds: base.durationSeconds,
+				...(base.reps !== undefined ? { reps: base.reps } : {}),
+				...(base.weightKg !== undefined ? { weightKg: base.weightKg } : {}),
+				...(base.durationSeconds !== undefined ? { durationSeconds: base.durationSeconds } : {}),
 				done: base.done,
 			});
-			return { logId: prev._id };
+			return { logId: prev._id, startedAt };
 		}
 		const logId = await ctx.db.insert("trainingSetLogs", base);
-		return { logId };
+		return { logId, startedAt };
 	},
 });
 
@@ -816,5 +826,44 @@ export const mySessionHistory = query({
 			})
 		);
 		return { sessions: out };
+	},
+});
+
+/* ═══════════ Séance commencée par erreur (annulation) ═══════════ */
+
+/**
+ * ANNULE une séance commencée par erreur — la séance redevient « Prévue ».
+ *
+ * - Réservé à la PROPRIÉTAIRE de l'occurrence (userId vérifié, comme toutes
+ *   les mutations cliente) : une autre cliente ne peut jamais l'annuler ;
+ * - une séance TERMINÉE n'est jamais concernée (historique verrouillé) ;
+ * - AUCUNE ligne n'est supprimée : les séries de cette occurrence repassent
+ *   simplement à done:false ;
+ * - startedAt est retiré (le chrono et l'état « En cours » disparaissent) et
+ *   le statut reste « planned » → la séance réapparaît comme Prévue.
+ * Idempotent : sans startedAt ni série cochée, l'appel ne change rien.
+ */
+export const abandonMySession = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		scheduledId: v.id("trainingScheduledSessions"),
+	},
+	handler: async (ctx, { sessionToken, scheduledId }) => {
+		const user = await requireClient(ctx, sessionToken);
+		const s = await ctx.db.get(scheduledId);
+		if (!s || s.userId !== user._id) throw new ConvexError("Séance introuvable.");
+		if (s.status === "completed") throw new ConvexError("Une séance terminée ne peut pas être annulée.");
+		const logs = await ctx.db
+			.query("trainingSetLogs")
+			.withIndex("by_session", (q) => q.eq("scheduledSessionId", scheduledId))
+			.collect();
+		let unchecked = 0;
+		for (const l of logs) {
+			if (!l.done) continue;
+			await ctx.db.patch(l._id, { done: false });
+			unchecked += 1;
+		}
+		await ctx.db.patch(scheduledId, { status: "planned", startedAt: undefined });
+		return { ok: true, unchecked };
 	},
 });

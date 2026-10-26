@@ -166,6 +166,9 @@ export const SPORT_CATALOG: SportCatalogEntry[] = [
 		note: "Séance cardio volontaire ≠ marche quotidienne (déjà couverte par les pas)",
 	},
 	{ id: "course-tapis", name: "Course (tapis)", category: "cardio", bareme: "cardio" },
+	/* Running extérieur : mêmes zones, seuils BPM et coûts kcal/kg/h que
+	   Course (tapis) (barème cardio partagé) — AUCUNE autre activité touchée. */
+	{ id: "running-exterieur", name: "Running extérieur", category: "cardio", bareme: "cardio" },
 	{ id: "velo-exterieur", name: "Vélo (extérieur)", category: "cardio", bareme: "cardio" },
 	{ id: "velo-indoor", name: "Vélo indoor / spinning", category: "cardio", bareme: "cardio" },
 	{ id: "elliptique", name: "Elliptique", category: "cardio", bareme: "cardio" },

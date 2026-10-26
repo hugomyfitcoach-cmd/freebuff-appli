@@ -272,6 +272,22 @@
 	</section>
 	{/if}
 
+	<!-- ═══ CONFIDENTIALITÉ — lien public, nouvel onglet ═══ -->
+	<section class="mt-4 rounded-2xl border border-line bg-card p-5 shadow-sm">
+		<p class="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-mist">
+			<Icon name="shieldCheck" size={13} /> Confidentialité
+		</p>
+		<a
+			href="https://myfit-coach.fr/confidentialite"
+			target="_blank"
+			rel="noopener noreferrer"
+			class="mt-2.5 flex items-center justify-between gap-2 rounded-xl border-2 border-line bg-white px-3.5 py-2.5 text-[14px] font-semibold text-ink transition hover:border-brand hover:text-brand"
+		>
+			Politique de confidentialité
+			<Icon name="externalLink" size={14} class="shrink-0 text-mist" />
+		</a>
+	</section>
+
 	<!-- ═══ DÉCONNEXION ═══ -->
 	<section class="mt-4 rounded-2xl border border-line bg-card p-5 shadow-sm">
 		<form method="POST" action="?/logout">

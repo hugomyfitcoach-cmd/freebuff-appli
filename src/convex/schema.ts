@@ -104,7 +104,9 @@ export const coachNotifKind = v.union(
 	v.literal("rdv_annule"),
 	v.literal("rdv_replanifie"),
 	v.literal("onboarding_termine"),
-	v.literal("inactivite")
+	v.literal("inactivite"),
+	/** Fin d'un programme d'entraînement dans 5 jours ou moins (tick). */
+	v.literal("programme_fin_proche")
 );
 
 export default defineSchema({
@@ -219,6 +221,14 @@ export default defineSchema({
 		stripeCancelAtPeriodEnd: v.optional(v.boolean()),
 		/** Fin de la grâce de 24 h après un échec de paiement (ms UTC) — jamais repoussée par un webhook dupliqué. */
 		stripeGraceUntil: v.optional(v.number()),
+		/**
+		 * CONSENTEMENT ASSISTANT IA — date (ms UTC) à laquelle le coach a
+		 * enregistré l'accord de la cliente pour la préparation de brouillons de
+		 * retour par l'assistant. Champ OPTIONNEL et ADDITIF : absent = pas de
+		 * consentement (l'action de génération refuse alors sans appeler l'IA).
+		 * Aucune migration, aucun backfill : les fiches existantes restent valides.
+		 */
+		aiConsentAt: v.optional(v.number()),
 		/** Suivi de cycle (carte Accueil cliente + Vision 360 coach) — mêmes questions et formule que l'outil historique. */
 		cycle: v.optional(
 			v.object({
@@ -254,6 +264,13 @@ export default defineSchema({
 		feedbackAt: v.optional(v.number()),
 		/** Horodatage de lecture du retour par la cliente — une publication relance l'état « non lu ». */
 		feedbackReadAt: v.optional(v.number()),
+		/**
+		 * Brouillon préparé par l'IA et PAS ENCORE modifié par le coach.
+		 * Optionnel et additif : les bilans existants restent valides (aucune
+		 * migration). Information de travail du CRM — jamais renvoyée à la
+		 * cliente (voir checkins.myCheckins / lib/coachDraftUi).
+		 */
+		feedbackAiDraft: v.optional(v.boolean()),
 	})
 		.index("by_user_week", ["userId", "weekStart"])
 		.index("by_weekStart", ["weekStart"]),
@@ -1193,6 +1210,13 @@ export default defineSchema({
 		category: v.optional(v.string()),
 		/** Instructions d'exécution (étapes), si fournies par la source. */
 		instructions: v.optional(v.array(v.string())),
+		/**
+		 * Traduction FRANÇAISE des instructions ci-dessus (même découpage en
+		 * étapes), écrite par l'action interne `translateExerciseDescriptions`.
+		 * Champ ADDITIF facultatif : absent = on affiche `instructions` tel quel.
+		 * Le NOM de l'exercice n'est jamais traduit ni modifié.
+		 */
+		instructionsFr: v.optional(v.array(v.string())),
 		/** Repères techniques courts (bloc pédagogique G-FLUX officiel). */
 		cues: v.optional(v.array(v.string())),
 		/** Erreurs classiques à éviter (bloc pédagogique G-FLUX officiel). */
@@ -1551,26 +1575,48 @@ export default defineSchema({
 		.index("by_trainingSession", ["trainingSessionId"]),
 
 	/**
-	 * TRAÇABILITÉ IA — une ligne par appel à OpenAI réussi (étiquette ou repas).
-	 * JAMAIS de données personnelles : la photo n'est PAS stockée, seuls les
-	 * compteurs techniques (modèle, tokens, durée, coût estimé) permettent de
+	 * TRAÇABILITÉ IA — une ligne par appel à OpenAI réussi (étiquette, repas ou
+	 * brouillon de retour coach). JAMAIS de données personnelles : la photo, le
+	 * prompt et le brouillon ne sont PAS stockés, seuls les compteurs techniques
+	 * (modèle, tokens lus/écrits/mis en cache, durée, coût estimé) permettent de
 	 * suivre la consommation. Table bornée par nature (un appel = une ligne).
 	 */
 	aiUsageLog: defineTable({
-		/** "label" (étiquette nutritionnelle) | "meal" (photo de repas). */
-		kind: v.union(v.literal("label"), v.literal("meal")),
+		/** "label" (étiquette nutritionnelle) | "meal" (photo de repas)
+		 *  | "coach_draft" (brouillon de retour coach) | "exercise_translation"
+		 *  (traduction FR des consignes d'exercices). */
+		kind: v.union(
+			v.literal("label"),
+			v.literal("meal"),
+			v.literal("coach_draft"),
+			v.literal("exercise_translation")
+		),
 		/** Modèle exact appelé (ex. "gpt-4o-mini"). */
 		model: v.string(),
 		inputTokens: v.optional(v.number()),
 		outputTokens: v.optional(v.number()),
+		/** Tokens d'entrée servis depuis le cache de prompt (input_tokens_details). */
+		cachedInputTokens: v.optional(v.number()),
 		/** Durée totale de l'appel (ms). */
 		durationMs: v.number(),
 		/** Statut : "ok" | "error" (timeout, JSON invalide, panne…). */
 		status: v.union(v.literal("ok"), v.literal("error")),
 		/** Coût estimé en USD (tarifs publics, à date) — info de pilotage. */
 		estimatedCostUsd: v.optional(v.number()),
-		/** Raison d'échec courte (tracabilité, jamais de message utilisateur). */
+		/**
+		 * Raison d'échec COURTE : un code stable (`http_401`, `http_429`, `quota`,
+		 * `model`, `timeout`, `incomplete`, `disabled`, `consent`, `unknown`) —
+		 * jamais le message brut du fournisseur ni une valeur de clé.
+		 */
 		failReason: v.optional(v.string()),
+		/**
+		 * Paramètre/champ refusé par le fournisseur (`error.param` ou `error.code`,
+		 * ex. « reasoning.effort »), tronqué à 40 caractères et nettoyé. Sert au
+		 * diagnostic d'un HTTP 400 sans jamais stocker `error.message`.
+		 */
+		failParam: v.optional(v.string()),
+		/** Bilan concerné (brouillon coach) — anti-double génération. Aucun contenu. */
+		checkinId: v.optional(v.string()),
 		createdAt: v.number(),
 	}).index("by_kind", ["kind"]),
 

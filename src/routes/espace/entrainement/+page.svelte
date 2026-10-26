@@ -7,7 +7,9 @@
 	 * programme. La vue séance (libre/guidé) vit dans SessionRunner.svelte.
 	 * Déplacer / dupliquer une séance : côté coach (Vue 360) en V1.
 	 */
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
+	import { cubicOut } from 'svelte/easing';
+	import { prefersReducedMotion } from '$lib/sheetMotion';
 	import Icon from '$lib/components/Icon.svelte';
 	import BackToHome from '$lib/components/BackToHome.svelte';
 	import SessionRunner from '$lib/components/SessionRunner.svelte';
@@ -30,7 +32,16 @@
 	let today = $state('');
 	let days = $state<DaySession[]>([]);
 	let nextSession = $state<NextSession>(null);
-	let selected = $state<DaySession | null>(null);
+	/** Jour sélectionné dans la semaine ("yyyy-mm-dd") — ses séances, ou Repos. */
+	let selectedDay = $state('');
+
+	/** Détail d'affichage par occurrence (programme, durée estimée, exercices). */
+	type DayDetail = {
+		programName: string | null;
+		estimatedMin: number;
+		exercises: { name: string }[];
+	};
+	let dayDetail = $state<Record<string, DayDetail>>({});
 
 	/** Vue séance ouverte (session runner plein écran). */
 	let openScheduledId = $state<string | null>(null);
@@ -80,11 +91,33 @@
 		return prettyDate(iso);
 	}
 
-	/** Jour courant de la semaine affichée (0-6) — l'aujourd'hui est surligné. */
-	const selectedIso = $derived(selected?.date ?? '');
 	function sessionsOn(iso: string): DaySession[] {
 		return days.filter((d) => d.date === iso);
 	}
+	function shortDay(iso: string): string {
+		return new Date(iso + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+	}
+	function statusLabel(s: DaySession): string {
+		if (s.status === 'completed') return s.skippedAt != null ? 'Non réalisée' : 'Faite';
+		if (s.startedAt != null) return 'En cours';
+		return 'Prévue';
+	}
+	function statusPill(s: DaySession): string {
+		if (s.status === 'completed') return s.skippedAt != null ? 'bg-line text-mist' : 'bg-brand text-white';
+		return 'bg-soft text-ink';
+	}
+	const weekLabel = $derived(weekStart ? `${shortDay(weekStart)} – ${shortDay(addDays(weekStart, 6))}` : '');
+	const weekDoneCount = $derived(days.filter((d) => d.status === 'completed').length);
+	/** Nom du programme pour la ligne d'en-tête (détail d'une séance du jour). */
+	const headerProgram = $derived(
+		sessionsOn(selectedDay)
+			.map((s) => dayDetail[s._id]?.programName)
+			.find((p): p is string => !!p) ?? null
+	);
+	/** Séances réalisées de la semaine affichée (cartes compactes). */
+	const weekCompleted = $derived(
+		weekStart ? history.filter((h) => h.date >= weekStart && h.date <= addDays(weekStart, 6)) : []
+	);
 
 	async function loadWeek(ws?: string) {
 		const target = ws ?? mondayOf(new Date());
@@ -98,16 +131,36 @@
 			skippedAt: (d.skippedAt as number | null) ?? null,
 		}));
 		nextSession = (r.nextSession ?? null) as NextSession;
-		// Sélection par défaut : la prochaine séance si elle est dans la semaine,
-		// sinon aujourd'hui (même sans séance), sinon le 1er jour.
-		const upcoming = days.find((d) => d.status === 'planned');
-		if (upcoming) selected = upcoming;
-		else if (today >= weekStart && today <= addDays(weekStart, 6)) selected = null;
-		else selected = null;
+		// Sélection par défaut : AUJOURD'HUI (ou le lundi de la semaine affichée
+		// si aujourd'hui n'y est pas). Cliquer un jour affiche SES séances.
+		selectedDay = today >= weekStart && today <= addDays(weekStart, 6) ? today : weekStart;
+		for (const s of sessionsOn(selectedDay)) void loadDayDetail(s);
 	}
 
 	async function shiftWeek(delta: number) {
 		await loadWeek(addDays(weekStart, delta * 7));
+	}
+
+	/** Charge l'affichage d'une occurrence via la route existante (lecture seule). */
+	async function loadDayDetail(s: DaySession) {
+		if (dayDetail[s._id]) return;
+		try {
+			const r = await fetch(`/api/training/session/${s._id}`).then((x) => x.json());
+			if (r.error) return;
+			dayDetail[s._id] = {
+				programName: (r.programName as string | null) ?? null,
+				estimatedMin: Number(r.estimatedMin ?? 0),
+				exercises: (r.exercises ?? []).map((e: { exercise?: { name?: string } | null; name?: string }) => ({
+					name: e.exercise?.name ?? e.name ?? 'Exercice',
+				})),
+			};
+		} catch {
+			/* affichage seulement : en cas d'échec, la carte reste sans détail */
+		}
+	}
+	function pickDay(iso: string) {
+		selectedDay = iso;
+		for (const s of sessionsOn(iso)) void loadDayDetail(s);
 	}
 
 	async function loadSessions() {
@@ -134,7 +187,6 @@
 
 	let runnerKey = $state(0);
 	function openSession(s: DaySession) {
-		selected = s;
 		openScheduledId = s._id;
 		openSessionId = s._id;
 		runnerKey += 1;
@@ -145,8 +197,40 @@
 		days.find((d) => d.status === 'planned' && d.startedAt != null && d.date <= today) ?? null
 	);
 
-	/* ── Menu ••• d'une séance programmée (déplacer / dupliquer / supprimer) ── */
+	/* ── Menu ••• d'une séance programmée (déplacer / dupliquer / supprimer) ──
+	   Menu flottant compact ancré sous le bouton, aligné sur son bord droit.
+	   Affichage seul : les actions ci-dessous sont inchangées. */
 	let menuFor = $state<string | null>(null);
+	/** Coin d'ancrage calculé sur le bouton ••• (px viewport). */
+	let menuAnchor = $state<{ top: number; right: number; above: boolean } | null>(null);
+	/** Première action du menu — focus posé à l'ouverture. */
+	let firstMenuAction = $state<HTMLButtonElement | undefined>(undefined);
+	const MENU_WIDTH = 220;
+	/** 3 lignes de 44 px + les deux séparateurs fins. */
+	const MENU_HEIGHT = 3 * 44 + 2;
+	/** Hauteur réservée à la barre de navigation (capsule 5,25 rem + marge). */
+	const NAV_RESERVED = 84 + 12;
+
+	function closeMenu() {
+		menuFor = null;
+		menuAnchor = null;
+	}
+
+	/* Animation du menu : fondu + agrandissement 0,92 → 1 depuis le coin du
+	   bouton (160 ms, courbe douce), fermeture en fondu 120 ms. Sous
+	   prefers-reduced-motion : fondu seul, sans agrandissement. */
+	function menuMotion(_node: Element, reduced: boolean) {
+		// Svelte passe { direction } à la fermeture/ouverture ; le défaut garde
+		// la signature compatible avec le typage des transitions (0 argument).
+		return ({ direction }: { direction: 'in' | 'out' } = { direction: 'in' }) => ({
+			duration: reduced ? 120 : direction === 'in' ? 160 : 120,
+			easing: cubicOut,
+			css: (t: number) =>
+				reduced || direction === 'out'
+					? `opacity: ${t};`
+					: `opacity: ${t}; transform: scale(${(0.92 + 0.08 * t).toFixed(3)});`,
+		});
+	}
 	let sheetFor = $state<DaySession | null>(null);
 	let sheetMode = $state<'move' | 'duplicate'>('move');
 	let sheetDate = $state('');
@@ -155,19 +239,36 @@
 
 	function openMenuFor(s: DaySession, ev: MouseEvent) {
 		ev.stopPropagation();
-		menuFor = menuFor === s._id ? null : s._id;
+		if (menuFor === s._id) {
+			closeMenu();
+			return;
+		}
+		const rect = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+		const spaceBelow = window.innerHeight - NAV_RESERVED - rect.bottom;
+		// Place insuffisante en bas → le menu s'ouvre AU-DESSUS du bouton.
+		const above = spaceBelow < MENU_HEIGHT + 16 && rect.top > MENU_HEIGHT + 24;
+		const rawTop = above ? rect.top - MENU_HEIGHT - 6 : rect.bottom + 6;
+		menuAnchor = {
+			// Jamais hors écran, jamais au-dessus de la barre de navigation.
+			top: Math.max(8, Math.min(rawTop, window.innerHeight - NAV_RESERVED - MENU_HEIGHT)),
+			// Aligné sur le bord droit du bouton •••.
+			right: Math.max(8, window.innerWidth - rect.right),
+			above,
+		};
+		menuFor = s._id;
+		void tick().then(() => firstMenuAction?.focus());
 	}
 	function askMove(s: DaySession) {
 		sheetMode = 'move';
 		sheetFor = s;
 		sheetDate = s.date;
-		menuFor = null;
+		closeMenu();
 	}
 	function askDuplicate(s: DaySession) {
 		sheetMode = 'duplicate';
 		sheetFor = s;
 		sheetDate = s.date;
-		menuFor = null;
+		closeMenu();
 	}
 	async function confirmSheet() {
 		if (!sheetFor) return;
@@ -200,14 +301,13 @@
 		}
 	}
 	async function confirmDelete(s: DaySession) {
-		menuFor = null;
+		closeMenu();
 		if (!confirm(`Supprimer la séance « ${s.name} » de ton planning ?`)) return;
 		err = '';
 		try {
 			const r = await fetch(`/api/training/session/manage?scheduledId=${s._id}`, { method: 'DELETE' });
 			const j = await r.json();
 			if (j.error) throw new Error(j.error);
-			if (selected?._id === s._id) selected = null;
 			await loadWeek(weekStart);
 		} catch (e) {
 			err = e instanceof Error ? e.message : 'Suppression impossible.';
@@ -231,6 +331,13 @@
 
 <svelte:head><title>Entraînement — G-Flux</title></svelte:head>
 
+<!-- Échap ferme le menu ••• (toucher extérieur déjà géré par le fond). -->
+<svelte:window
+	onkeydown={(e) => {
+		if (e.key === 'Escape' && menuFor) closeMenu();
+	}}
+/>
+
 {#if openScheduledId}
 	<!-- ═══ Séance ouverte : runner plein écran (libre OU guidé) ═══ -->
 	<div class="fixed inset-0 z-50 overflow-y-auto bg-soft">
@@ -244,10 +351,10 @@
 	<div class="mx-auto w-full max-w-md pb-6 pt-1">
 		<BackToHome label="Entraînement" />
 		<header class="mb-4">
-			<h1 class="flex items-center gap-2 text-ink page-title">
-				<Icon name="dumbbell" size={22} class="text-brand" /> Entraînement
-			</h1>
-			<p class="mt-0.5 text-sm text-mist">Ta séance, tu la fais, c'est noté.</p>
+			<p class="text-[11px] font-black uppercase tracking-widest text-brand-deep">
+				{headerProgram ? `Programme · ${headerProgram}` : 'Programme'}
+			</p>
+			<h1 class="mt-0.5 text-ink page-title">Entraînement</h1>
 		</header>
 
 		{#if err}
@@ -265,7 +372,8 @@
 				<p class="font-display text-lg font-semibold text-ink">Aucune séance programmée pour le moment</p>
 				<p class="mx-auto mt-1 max-w-xs text-sm text-mist">Ton coach ajoutera ici tes séances si ton accompagnement en prévoit.</p>
 			</div>
-		{:else if toFinalize}
+		{:else}
+			{#if toFinalize}
 			<!-- ── Séance à finaliser : discret, jamais bloquant ── -->
 			<button
 				type="button"
@@ -279,47 +387,21 @@
 				</span>
 				<Icon name="chevronRight" size={16} class="shrink-0 text-mist" />
 			</button>
-		{:else}
-			<!-- ── Prochaine séance ── -->
-			{#if nextSession}
-				<button
-					type="button"
-					onclick={() => {
-						const s = days.find((d) => d._id === nextSession!._id);
-						if (s) openSession(s);
-						else
-							openSession({
-								_id: nextSession!._id,
-								date: nextSession!.date,
-								status: 'planned',
-								startedAt: null,
-								skippedAt: null,
-								name: nextSession!.name,
-							});
-					}}
-					class="mb-5 w-full overflow-hidden rounded-3xl border border-brand/40 bg-gradient-to-br from-brand-light via-brand-light/60 to-white p-5 text-left shadow-sm transition hover:shadow"
-				>
-					<p class="text-[11px] font-bold uppercase tracking-widest text-brand-dark">Prochaine séance</p>
-					<p class="mt-1.5 font-display text-xl font-semibold text-ink">{nextSession.name}</p>
-					<p class="mt-0.5 text-sm font-semibold capitalize text-ink">{nextLabel(nextSession.date)}</p>
-					<span class="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-brand px-4 py-2 text-sm font-bold text-white">
-						<Icon name="play" size={14} /> Voir la séance
-					</span>
-				</button>
 			{/if}
 
 			<!-- ── Semaine (L M M J V S D) ── -->
 			<section class="mb-5 rounded-3xl border border-line bg-card p-4 shadow-sm">
-				<div class="mb-3 flex items-center justify-between">
-					<h2 class="font-display text-base font-semibold text-ink">Cette semaine</h2>
-					<div class="flex items-center gap-1">
-						<button type="button" onclick={() => shiftWeek(-1)} class="rounded-lg p-1.5 text-mist transition hover:bg-line/50 hover:text-ink" aria-label="Semaine précédente">
-							<Icon name="chevronLeft" size={16} />
-						</button>
-						<button type="button" onclick={() => shiftWeek(1)} class="rounded-lg p-1.5 text-mist transition hover:bg-line/50 hover:text-ink" aria-label="Semaine suivante">
-							<Icon name="chevronRight" size={16} />
-						</button>
+				<div class="mb-3 flex items-center justify-between gap-1">
+					<button type="button" onclick={() => shiftWeek(-1)} class="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-mist transition hover:bg-line/50 hover:text-ink" aria-label="Semaine précédente">
+						<Icon name="chevronLeft" size={18} />
+					</button>
+					<div class="min-w-0 text-center">
+						<p class="text-base font-black text-ink">{weekLabel}</p>
+						<p class="text-[11px] font-bold text-mist">{weekDoneCount} / {days.length} faites</p>
 					</div>
+					<button type="button" onclick={() => shiftWeek(1)} class="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-mist transition hover:bg-line/50 hover:text-ink" aria-label="Semaine suivante">
+						<Icon name="chevronRight" size={18} />
+					</button>
 				</div>
 				<div class="grid grid-cols-7 gap-1">
 					{#each [0, 1, 2, 3, 4, 5, 6] as i (i)}
@@ -328,113 +410,151 @@
 						{@const hasPlanned = daySessions.some((s) => s.status === 'planned')}
 						{@const hasDone = daySessions.some((s) => s.status === 'completed')}
 						{@const isToday = iso === today}
+						{@const isSelected = selectedDay === iso}
 						<button
 							type="button"
-							onclick={() => (selected = daySessions[0] ?? null)}
-							class="flex flex-col items-center rounded-xl px-0.5 pb-1.5 pt-2 transition {selectedIso === iso
+							onclick={() => pickDay(iso)}
+							aria-pressed={isSelected}
+							class="flex h-16 flex-col items-center justify-center gap-0.5 rounded-2xl px-0.5 transition {isSelected
 								? 'bg-ink text-white'
 								: isToday
 									? 'bg-brand-light text-ink'
 									: 'text-ink hover:bg-line/40'}"
 						>
-							<span class="text-[10px] font-bold uppercase tracking-wide {selectedIso === iso ? 'text-white/70' : 'text-mist'}">
+							<span class="text-[11px] font-bold {isSelected ? 'text-white/70' : 'text-mist'}">
 								{DAY_LETTERS[i]}
 							</span>
-							<span class="mt-0.5 text-sm font-bold tabular-nums">{dateNum(iso)}</span>
-							<!-- Indicateur : point (prévue) / point plein vert (faite) -->
-							<span class="mt-1 h-1.5 w-1.5 rounded-full {hasDone ? 'bg-brand' : hasPlanned ? 'bg-ink/30' : 'bg-transparent'} {selectedIso === iso && !hasDone && !hasPlanned ? (selectedIso === iso ? 'bg-white/40' : '') : ''}"></span>
+							<span class="text-[17px] font-black tabular-nums leading-tight">{dateNum(iso)}</span>
+							<!-- Faite = point vert plein, prévue = cercle -->
+							<span class="mt-0.5 h-1.5 w-1.5 rounded-full {hasDone ? 'bg-brand' : hasPlanned ? (isSelected ? 'border border-white' : 'border border-mist') : ''}"></span>
 						</button>
 					{/each}
 				</div>
+				<div class="mt-3 flex items-center gap-4 text-xs text-mist">
+					<span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-brand"></span>Faite</span>
+					<span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full border border-mist"></span>Prévue</span>
+				</div>
 
-				<!-- Séances du jour sélectionné -->
-				{#if selectedIso}
-					<div class="mt-3 border-t border-line/70 pt-3">
-						{#if sessionsOn(selectedIso).length === 0}
-							<p class="py-1 text-center text-sm text-mist">Pas de séance ce jour-là.</p>
-						{:else}
-							{#each sessionsOn(selectedIso) as s (s._id)}
-							<div
-								role="button"
-								tabindex="0"
-								onclick={() => openSession(s)}
-								onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSession(s); } }}
-								class="mb-2 flex w-full cursor-pointer items-center justify-between gap-3 rounded-2xl border border-line bg-white px-4 py-3 text-left transition hover:border-brand/60 last:mb-0"
-							>
-								<span class="min-w-0">
-									<span class="block truncate text-sm font-bold text-ink">{s.name}</span>
-									<span class="text-xs text-mist">{s.status === 'completed' ? (s.skippedAt != null ? 'Non réalisée' : 'Séance réalisée ✓') : s.startedAt != null ? 'Séance en cours' : 'À faire'}</span>
-								</span>
-								{#if s.status === 'completed'}
-									<span class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brand text-white">
-										<Icon name="check" size={15} strokeWidth={2.5} />
-									</span>
-								{:else}
-									<div class="flex shrink-0 items-center gap-1">
-										<button
-											type="button"
-											onclick={(ev) => openMenuFor(s, ev)}
-											class="rounded-full px-1.5 py-1 font-bold text-mist transition hover:bg-line/60 hover:text-ink"
-											aria-label="Options de la séance"
-										>•••</button>
-										<button
-											type="button"
-											onclick={() => openSession(s)}
-											class="grid h-8 w-8 place-items-center rounded-full bg-ink text-white"
-											aria-label="Commencer la séance"
-										>
-											<Icon name="play" size={13} />
-										</button>
-									</div>
-								{/if}
-							</div>
-						{/each}
-						{/if}
-					</div>
-				{/if}
 			</section>
 
-			<!-- ── Historique des séances ── -->
-			<section class="rounded-3xl border border-line bg-card p-4 shadow-sm">
-				<h2 class="mb-2 flex items-center gap-2 font-display text-base font-semibold text-ink">
-					<Icon name="listChecks" size={16} class="text-brand" /> Mes séances réalisées
-				</h2>
-				{#if history.length === 0}
-					<p class="py-2 text-sm text-mist">Ta première séance apparaîtra ici.</p>
+			<!-- ── Carte du jour sélectionné (ou Repos) ── -->
+			{#if selectedDay}
+				{#if sessionsOn(selectedDay).length === 0}
+					<div class="mb-4 rounded-3xl border-2 border-brand bg-card p-5 text-center shadow-sm">
+						<p class="font-display text-xl font-black text-ink">Repos</p>
+						<p class="mt-1 text-sm text-mist">Aucune séance prévue ce jour-là.</p>
+					</div>
 				{:else}
-					{#each history as h (h._id)}
-						<div class="flex items-center justify-between gap-3 border-b border-line/60 py-2.5 text-sm last:border-0">
-							<div class="min-w-0">
-								<p class="truncate font-semibold text-ink">{h.name}</p>
-								<p class="text-xs text-mist capitalize">
-									{prettyDate(h.date)}
-									{#if h.durationMin} · {h.durationMin} min{/if}
-									{#if h.volumeKg} · {Math.round(h.volumeKg).toLocaleString('fr-FR')} kg au total{/if}
-								</p>
+					{#each sessionsOn(selectedDay) as s (s._id)}
+						{@const detail = dayDetail[s._id]}
+						<div class="mb-4 rounded-3xl border-2 border-brand bg-card p-4 shadow-sm">
+							<div class="flex items-start justify-between gap-3">
+								<div class="min-w-0">
+									<p class="text-[11px] font-bold uppercase tracking-widest text-mist">{prettyDate(s.date)}</p>
+									<h2 class="mt-1 break-words font-display text-2xl font-black leading-tight text-ink">{s.name}</h2>
+									{#if detail}
+										<p class="mt-1 text-sm text-mist">{detail.exercises.length} exercices · ≈ {detail.estimatedMin} min</p>
+									{/if}
+								</div>
+								<span class="shrink-0 rounded-full px-2.5 py-1 text-xs font-bold {statusPill(s)}">{statusLabel(s)}</span>
 							</div>
-							<span class="shrink-0 rounded-full bg-brand-light px-2.5 py-1 text-xs font-bold text-brand-dark">{h.setsDone} séries</span>
+							{#if detail && detail.exercises.length > 0}
+								<div class="mt-3 flex flex-col gap-1.5 text-sm text-ink">
+									{#each detail.exercises.slice(0, 2) as e, i (i)}
+										<span class="truncate">{e.name}</span>
+									{/each}
+									{#if detail.exercises.length > 2}
+										<span class="text-mist">+ {detail.exercises.length - 2} autres exercices</span>
+									{/if}
+								</div>
+							{/if}
+							{#if s.status === 'completed'}
+								<button type="button" onclick={() => openSession(s)} class="mt-4 min-h-11 w-full rounded-xl border border-line text-sm font-bold text-mist transition hover:text-ink">Revoir la séance</button>
+							{:else}
+								<button type="button" onclick={() => openSession(s)} class="mt-4 min-h-[54px] w-full rounded-2xl bg-brand px-5 text-[17px] font-black text-white shadow-sm transition hover:bg-brand-dark">Faire cette séance</button>
+								{#if s.date !== today}
+									<p class="mt-2 text-center text-xs text-mist">Tu peux la faire aujourd'hui : elle sera comptée à sa date réelle.</p>
+								{/if}
+							{/if}
+							{#if s.status !== 'completed'}
+								<div class="mt-2 text-center">
+									<button type="button" onclick={(ev) => openMenuFor(s, ev)} class="min-h-11 px-2 text-xs font-semibold text-mist transition hover:text-ink" aria-label="Options de la séance">Déplacer / dupliquer / supprimer</button>
+								</div>
+							{/if}
 						</div>
 					{/each}
 				{/if}
-			</section>
+			{/if}
+
+			<!-- ── Séances réalisées de la semaine ── -->
+			{#if weekCompleted.length > 0}
+				<section class="flex flex-col gap-2">
+					{#each weekCompleted as h (h._id)}
+						<div class="flex items-center justify-between gap-3 rounded-2xl border border-line bg-card px-4 py-3">
+							<div class="min-w-0">
+								<p class="truncate text-[15px] font-black text-ink">{h.name} · {new Date(h.date + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric' })}</p>
+								<p class="text-[13px] text-mist">
+									{#if h.durationMin}{h.durationMin} min · {/if}{h.setsDone} séries{#if h.difficulty != null} · effort {h.difficulty}/5{/if}
+								</p>
+							</div>
+							<span class="shrink-0 rounded-full bg-brand px-2.5 py-1 text-xs font-bold text-white">Faite</span>
+						</div>
+					{/each}
+				</section>
+			{:else}
+				<p class="py-2 text-center text-xs text-mist">Aucune séance réalisée cette semaine.</p>
+			{/if}
 		{/if}
 	</div>
 {/if}
 
-<!-- Menus ••• (déplacer / dupliquer / supprimer) -->
-{#if menuFor && selectedIso}
-	<button type="button" class="fixed inset-0 z-[55] cursor-default" aria-label="Fermer le menu" onclick={() => (menuFor = null)}></button>
-	{#each sessionsOn(selectedIso) as ms (ms._id)}
+<!-- Menu ••• compact ancré sous le bouton (aligné sur son bord droit, ou
+     au-dessus si la place manque en bas) : jamais hors écran, jamais sur la
+     barre de navigation. Fermeture au toucher extérieur ou avec Échap. -->
+{#if menuFor && selectedDay && menuAnchor}
+	{#each sessionsOn(selectedDay) as ms (ms._id)}
 		{#if ms._id === menuFor && ms.status !== 'completed'}
-			<div class="fixed inset-x-4 bottom-24 z-[56] mx-auto max-w-xs overflow-hidden rounded-2xl border border-line bg-white shadow-xl">
-				<button type="button" onclick={() => askMove(ms)} class="block w-full px-4 py-3 text-left text-sm font-semibold text-ink hover:bg-line/40">
-					<Icon name="calendarDays" size={15} class="mr-2 inline text-mist" /> Déplacer
+			<!-- Fond très légèrement assombri (sans flou) -->
+			<button
+				type="button"
+				class="menu-backdrop fixed inset-0 z-[55] cursor-default bg-ink/10"
+				aria-label="Fermer le menu"
+				transition:menuMotion={prefersReducedMotion()}
+				onclick={closeMenu}
+			></button>
+			<div
+				role="menu"
+				aria-label={`Options de la séance ${ms.name}`}
+				transition:menuMotion={prefersReducedMotion()}
+				style="top: {menuAnchor.top}px; right: {menuAnchor.right}px; width: {MENU_WIDTH}px;"
+				class="menu-anchored fixed z-[56] overflow-hidden rounded-2xl border border-line bg-white shadow-xl {menuAnchor.above
+					? 'origin-bottom-right'
+					: 'origin-top-right'}"
+			>
+				<button
+					type="button"
+					role="menuitem"
+					bind:this={firstMenuAction}
+					onclick={() => askMove(ms)}
+					class="flex h-11 w-full items-center gap-2.5 px-4 text-left text-[15px] font-semibold text-ink transition hover:bg-line/40"
+				>
+					<Icon name="calendarDays" size={16} class="shrink-0 text-mist" /> Déplacer
 				</button>
-				<button type="button" onclick={() => askDuplicate(ms)} class="block w-full border-t border-line/60 px-4 py-3 text-left text-sm font-semibold text-ink hover:bg-line/40">
-					<Icon name="copy" size={15} class="mr-2 inline text-mist" /> Dupliquer
+				<button
+					type="button"
+					role="menuitem"
+					onclick={() => askDuplicate(ms)}
+					class="flex h-11 w-full items-center gap-2.5 border-t border-line/60 px-4 text-left text-[15px] font-semibold text-ink transition hover:bg-line/40"
+				>
+					<Icon name="copy" size={16} class="shrink-0 text-mist" /> Dupliquer
 				</button>
-				<button type="button" onclick={() => confirmDelete(ms)} class="block w-full border-t border-line/60 px-4 py-3 text-left text-sm font-semibold text-danger hover:bg-danger-light">
-					<Icon name="trash" size={15} class="mr-2 inline" /> Supprimer
+				<button
+					type="button"
+					role="menuitem"
+					onclick={() => confirmDelete(ms)}
+					class="flex h-11 w-full items-center gap-2.5 border-t border-line/60 px-4 text-left text-[15px] font-semibold text-danger transition hover:bg-danger-light"
+				>
+					<Icon name="trash" size={16} class="shrink-0" /> Supprimer
 				</button>
 			</div>
 		{/if}
@@ -471,4 +591,14 @@
 
 <style>
 	/* Les styles restent dans les classes utilitaires — aucune règle globale. */
+
+	/* Mouvement réduit : fondu seul, sans agrandissement (l'animation JS
+	   reçoit déjà prefersReducedMotion() ; ceinture et bretelles CSS). */
+	@media (prefers-reduced-motion: reduce) {
+		.menu-anchored,
+		.menu-backdrop {
+			animation: none;
+			transition: none;
+		}
+	}
 </style>

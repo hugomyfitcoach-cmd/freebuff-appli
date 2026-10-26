@@ -16,8 +16,9 @@ import { query, mutation } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
-import { getSessionUser, addDaysISO, mondayISOof } from "./helpers";
+import { getSessionUser, addDaysISO, mondayISOof, localTodayISO } from "./helpers";
 import { copyProgramInto } from "./training";
+import { trainingAdherence, lastLoad, groupSessionSets, exerciseProgressions } from "../lib/trainingProgress";
 
 /* ── Phases (partagées avec training.ts, libellés FR affichables) ── */
 
@@ -122,7 +123,7 @@ export const listAssignments = query({
 		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
 
 		const rows = await ctx.db.query("trainingAssignments").withIndex("by_coach", (q) => q.eq("coachId", coach._id)).collect();
-		const today = new Date().toISOString().slice(0, 10);
+		const today = localTodayISO();
 		const out = [];
 		for (const a of rows) {
 			if (userId && a.userId !== userId) continue;
@@ -131,7 +132,8 @@ export const listAssignments = query({
 				ctx.db.query("trainingScheduledSessions").withIndex("by_assignment", (q) => q.eq("assignmentId", a._id)).collect(),
 			]);
 			const planned = scheduled.filter((s) => s.status !== "cancelled");
-			const completed = planned.filter((s) => s.status === "completed");
+			// « Réalisée » = terminée SANS skippedAt : une « Non réalisée » ne compte pas.
+			const completed = planned.filter((s) => s.status === "completed" && s.skippedAt == null);
 			const next = planned
 				.filter((s) => s.status === "planned" && s.date >= today)
 				.sort((x, y) => x.date.localeCompare(y.date))[0];
@@ -148,7 +150,7 @@ export const listAssignments = query({
 				createdAt: a.createdAt,
 				plannedCount: planned.length,
 				completedCount: completed.length,
-				adherence: planned.length > 0 ? Math.round((completed.length / planned.length) * 100) : null,
+				adherence: trainingAdherence(planned, today).percent,
 				nextDate: next?.date ?? null,
 				nextScheduledId: next?._id ?? null,
 			});
@@ -201,9 +203,55 @@ export const assignmentDetail = query({
 					date: s.date,
 					status: s.status,
 					completedAt: s.completedAt ?? null,
+					skippedAt: s.skippedAt ?? null,
+					startedAt: s.startedAt ?? null,
+					/** Durée enregistrée par la cliente (corrigée si elle existe) — même valeur qu'elle. */
+					durationMin: s.durationMin ?? null,
 					difficulty: s.difficulty ?? null,
 					note: s.note ?? null,
 				})),
+		};
+	},
+});
+
+/**
+ * Détail d'une séance réalisée (LECTURE seule) : séries enregistrées de cette
+ * occurrence (`trainingSetLogs`), groupées par exercice, avec le volume.
+ * Réservé au coach DE la cliente : rôle coach + `createdBy` de la cliente.
+ */
+export const sessionDetail = query({
+	args: {
+		sessionToken: v.optional(v.string()),
+		scheduledSessionId: v.id("trainingScheduledSessions"),
+	},
+	handler: async (ctx, { sessionToken, scheduledSessionId }) => {
+		const coach = await getSessionUser(ctx, sessionToken);
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
+		const occurrence = await ctx.db.get(scheduledSessionId);
+		if (!occurrence) throw new ConvexError("Séance planifiée introuvable.");
+		const target = await ctx.db.get(occurrence.userId);
+		if (!target || target.createdBy !== coach._id) {
+			throw new ConvexError("Accès réservé au coach de cette cliente.");
+		}
+		const [session, logs] = await Promise.all([
+			ctx.db.get(occurrence.sessionId),
+			ctx.db
+				.query("trainingSetLogs")
+				.withIndex("by_session", (q) => q.eq("scheduledSessionId", scheduledSessionId))
+				.collect(),
+		]);
+		const exercises = groupSessionSets(logs);
+		const volume = exercises.reduce((sum, e) => sum + (e.volumeKg ?? 0), 0);
+		return {
+			_id: occurrence._id,
+			date: occurrence.date,
+			status: occurrence.status,
+			sessionName: session?.name ?? "Séance",
+			note: occurrence.note ?? null,
+			difficulty: occurrence.difficulty ?? null,
+			durationMin: occurrence.durationMin ?? null,
+			exercises,
+			volumeKg: exercises.some((e) => e.volumeKg != null) ? Math.round(volume * 10) / 10 : null,
 		};
 	},
 });
@@ -478,7 +526,7 @@ export const clientTrainingSummary = query({
 		const target = await ctx.db.get(userId);
 		if (!target || target.role !== "client") throw new ConvexError("Cliente introuvable.");
 
-		const today = new Date().toISOString().slice(0, 10);
+		const today = localTodayISO();
 		const weekStart = mondayISOof(today);
 
 		const assignments = await ctx.db
@@ -528,15 +576,15 @@ export const clientTrainingSummary = query({
 			.withIndex("by_user", (q) => q.eq("userId", userId))
 			.collect();
 		const live = sched.filter((s) => s.status !== "cancelled");
-		const completed = live.filter((s) => s.status === "completed").sort((x, y) => y.date.localeCompare(x.date));
+		// « Réalisée » = terminée SANS skippedAt : « Non réalisée » ne compte jamais comme faite.
+		const completed = live.filter((s) => s.status === "completed" && s.skippedAt == null).sort((x, y) => y.date.localeCompare(x.date));
+		// Retours de la cliente : toute séance terminée peut porter un avis (même « Non réalisée »).
+		const feedback = live.filter((s) => s.status === "completed").sort((x, y) => y.date.localeCompare(x.date));
 		const next = live
 			.filter((s) => s.status === "planned" && s.date >= today)
 			.sort((x, y) => x.date.localeCompare(y.date))[0];
 		const thisWeek = live.filter((s) => s.date >= weekStart && s.date <= addDaysISO(weekStart, 6));
-		const adherence =
-			live.length > 0
-				? Math.round((completed.filter((c) => c.date < today).length / Math.max(live.filter((s) => s.date < today).length, 1)) * 100)
-				: null;
+		const adherence = trainingAdherence(live, today).percent;
 
 		// Noms des séances (une seule lecture par séance distincte).
 		const sessionNames = new Map<string, string>();
@@ -573,7 +621,7 @@ export const clientTrainingSummary = query({
 			nextSession: next
 				? { _id: next._id, date: next.date, name: sessionNames.get(next.sessionId) ?? "Séance" }
 				: null,
-			recentNotes: completed
+			recentNotes: feedback
 				.filter((c) => c.note || c.difficulty)
 				.slice(0, 5)
 				.map((c) => ({
@@ -599,40 +647,45 @@ export const clientExerciseHistory = query({
 		userId: v.id("users"),
 		/** Exercice précis (bibliothèque) — sinon liste des exercices tracés. */
 		exerciseId: v.optional(v.id("exercises")),
+		/** Fenêtre du programme ("yyyy-mm-dd") — bornes optionnelles incluses. */
+		from: v.optional(v.string()),
+		to: v.optional(v.string()),
 	},
-	handler: async (ctx, { sessionToken, userId, exerciseId }) => {
+	handler: async (ctx, { sessionToken, userId, exerciseId, from, to }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
 		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
 
 		if (!exerciseId) {
-			// Index des exercices tracés (distincts, avec compte de séries).
-			const rows = await ctx.db
+			// Exercices travaillés (bornés au programme quand une fenêtre est passée).
+			const all = await ctx.db
 				.query("trainingSetLogs")
 				.withIndex("by_user", (q) => q.eq("userId", userId))
 				.collect();
-			const map = new Map<
-				string,
-				{ exerciseId: string; name: string; sets: number; lastDate: string; lastWeight: number | null; bestWeight: number | null }
-			>();
+			const rows = all.filter((r) => (!from || r.date >= from) && (!to || r.date <= to));
+			// Progression : départ = première séance, actuel = dernière (tri explicite
+			// par date puis setOrder, jamais l'ordre d'itération de la base).
+			const byExercise = new Map<string, { exerciseId: string; name: string; rows: typeof rows }>();
 			for (const r of rows) {
 				if (!r.done) continue;
-				const cur = map.get(r.exerciseId) ?? {
-					exerciseId: r.exerciseId,
-					name: r.exerciseName,
-					sets: 0,
-					lastDate: r.date,
-					lastWeight: null as number | null,
-					bestWeight: null as number | null,
-				};
-				cur.sets += 1;
-				if (r.date > cur.lastDate) cur.lastDate = r.date;
-				if (r.weightKg != null) {
-					cur.lastWeight = r.weightKg; // ordre de création ≈ chronologique
-					if (cur.bestWeight == null || r.weightKg > cur.bestWeight) cur.bestWeight = r.weightKg;
-				}
-				map.set(r.exerciseId, cur);
+				const cur = byExercise.get(r.exerciseId) ?? { exerciseId: r.exerciseId, name: r.exerciseName, rows: [] };
+				cur.rows.push(r);
+				byExercise.set(r.exerciseId, cur);
 			}
-			return { exercises: [...map.values()].sort((a, b) => b.lastDate.localeCompare(a.lastDate)) };
+			const exercises = exerciseProgressions(rows).map((p) => {
+				const e = byExercise.get(p.exerciseId) ?? { exerciseId: p.exerciseId, name: p.name, rows: [] as typeof rows };
+				let bestWeight: number | null = null;
+				for (const r of e.rows) {
+					if (r.weightKg != null && (bestWeight == null || r.weightKg > bestWeight)) bestWeight = r.weightKg;
+				}
+				return {
+					...p,
+					sets: e.rows.length,
+					lastDate: p.currentDate,
+					lastWeight: lastLoad(e.rows)?.weightKg ?? null,
+					bestWeight,
+				};
+			});
+			return { exercises };
 		}
 
 		// Détail d'un exercice : toutes les séries chronologiques.
@@ -640,7 +693,9 @@ export const clientExerciseHistory = query({
 			.query("trainingSetLogs")
 			.withIndex("by_user_exercise", (q) => q.eq("userId", userId).eq("exerciseId", exerciseId))
 			.collect();
-		const done = rows.filter((r) => r.done).sort((a, b) => a.date.localeCompare(b.date) || a._creationTime - b._creationTime);
+		const done = rows
+			.filter((r) => r.done)
+			.sort((a, b) => a.date.localeCompare(b.date) || a.setOrder - b.setOrder || a._creationTime - b._creationTime);
 		let last: (typeof done)[number] | null = null;
 		let best: (typeof done)[number] | null = null;
 		for (const r of done) {

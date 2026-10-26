@@ -33,7 +33,7 @@ import { readFileSync } from 'node:fs';
 
 import { searchCiqualLocal, rankCiqual } from '../src/convex/ciqual.ts';
 import { rankFoods } from '../src/convex/foodRanking.ts';
-import { cookingBadgeOf } from '../src/lib/cookedState.ts';
+import { cookingBadgeOf, cookingRank } from '../src/lib/cookedState.ts';
 
 /** Source d'un fichier de l'app (tests d'affichage, sans DOM). */
 const source = (p) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
@@ -308,6 +308,56 @@ test('badges de cuisson : cru, cuit, dernier mot gagnant, aucun badge sans menti
 	// Deux mentions de cuisson : la DERNIÈRE du nom gagne (rôtie → au four).
 	assert.equal(cookingBadgeOf('Pomme de terre, rôtie/cuite au four'), 'Au four');
 	assert.equal(cookingBadgeOf('Beurre à 80% MG, doux'), null);
+});
+
+/* ─── 17-bis) R1-quater : mentions de PRÉPARATION → état « À cuire » ─── */
+
+test('« pour cuisson … » / « à cuire » : produit non cuit → badge « À cuire », jamais le mode cité', () => {
+	assert.equal(
+		cookingBadgeOf('Frites de pommes de terre, surgelées, préfrites, pour cuisson au four'),
+		'À cuire',
+		'l’air fryer n’est pas un badge « Au four »'
+	);
+	assert.equal(
+		cookingBadgeOf('Frites de pommes de terre, surgelées, préfrites, pour cuisson en friteuse'),
+		'À cuire',
+		'la friteuse annoncée ne rend pas les frites « Frit »'
+	);
+	assert.equal(cookingBadgeOf('Gnocchi à la pomme de terre, à cuire'), 'À cuire');
+	assert.equal(cookingBadgeOf('Saucisse fumée à cuire'), 'À cuire');
+	assert.equal(cookingBadgeOf('Pomme de terre, sautée/poêlée/rissolée, préfrite, surgelée, à cuire'), 'À cuire');
+	// Fiche réellement cuite : le mode reste le badge (inchangé).
+	assert.equal(cookingBadgeOf('Frites de pommes de terre, surgelées, rôties/cuites au four'), 'Au four');
+	assert.equal(cookingBadgeOf('Sole, frite'), 'Frit');
+	// « À cuire » se range avec « Cru » dans l'ordre de cuisson.
+	assert.equal(cookingRank('acuire'), cookingRank('cru'), '« À cuire » classé avec « Cru »');
+});
+
+/* ─── 17-ter) R1-quater : cuisson tapée seulement APRÈS l'aliment ─── */
+
+test('frites : le premier mot est l’ALIMENT, jamais un mode de cuisson', () => {
+	const top = labels('frites');
+	assert.equal(top.length, 3, 'trois fiches par défaut');
+	assert.ok(
+		top.every((l) => /^frites de pommes de terre/i.test(l)),
+		`top 3 = frites de pommes de terre (obtenu : ${top.join(' | ')})`
+	);
+	assert.ok(
+		top.every((l) => !/sole|hareng|merlan|maquereau|poisson/i.test(l)),
+		`aucun poisson frit pour « frites » (obtenu : ${top.join(' | ')})`
+	);
+});
+
+test('poisson frit : « frit » APRÈS l’aliment reste une cuisson tapée', () => {
+	const full = rankCiqual('poisson frit').map((h) => h.label);
+	assert.equal(full[0], 'Poisson pané, frit', `les poissons frits en tête (obtenu : ${full.slice(0, 4).join(' | ')})`);
+	const lastFrit = full.reduce((acc, l, i) => (cookingBadgeOf(l) === 'Frit' ? i : acc), -1);
+	const firstRaw = full.findIndex((l) => cookingBadgeOf(l) === 'Cru');
+	assert.ok(lastFrit !== -1, `au moins un poisson frit (obtenu : ${full.slice(0, 4).join(' | ')})`);
+	assert.ok(
+		firstRaw === -1 || lastFrit < firstRaw,
+		`aucun poisson cru devant un poisson frit (obtenu : ${full.slice(0, 4).join(' | ')})`
+	);
 });
 
 /* ─── 18) Panne Open Food Facts : Ciqual jamais masqué ─── */

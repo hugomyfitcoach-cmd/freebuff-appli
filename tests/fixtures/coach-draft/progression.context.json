@@ -1,0 +1,134 @@
+{
+	"prenom": "Camille",
+	"weekStart": "2026-09-14",
+	"weekLabel": "S38 - 14 sept. 2026",
+	"answers": {
+		"motivation": 5,
+		"adherence": "oui",
+		"faim": "non",
+		"hydratation": "suffisante",
+		"digestion": "ok",
+		"pas": "plus10000",
+		"cycle": "folliculaire",
+		"evolution": "baisse",
+		"mensurations": "oui",
+		"photos": "non",
+		"besoin_retour": "ecrit",
+		"categorie_retour": ["alimentation", "sport"],
+		"point_retour": "Je me sens plus régulière et j'ai réussi à préparer mes repas du midi.",
+		"victoire": "Quatre séances terminées sans sauter le petit-déjeuner."
+	},
+	"goals": { "kcal": 1600, "protein": 110, "stepGoal": 10000 },
+	"formule": "coaching",
+	"cycle": { "kind": "tracked", "phaseLabel": "Phase folliculaire", "cycleDay": 12 },
+	"appointments": { "lastCallDate": "2026-09-30", "daysSinceLastCall": 15, "nextAppointmentDate": "2026-10-07" },
+	"stats": {
+		"week": {
+			"start": "2026-09-14",
+			"end": "2026-09-20",
+			"days": [
+				"2026-09-14",
+				"2026-09-15",
+				"2026-09-16",
+				"2026-09-17",
+				"2026-09-18",
+				"2026-09-19",
+				"2026-09-20"
+			],
+			"food": {
+				"kcalAvg": 1580,
+				"proteinAvg": 108,
+				"goalKcal": 1600,
+				"goalProtein": 110,
+				"thresholdKcal": 960,
+				"exploitableDays": 6,
+				"partialDays": 1,
+				"absentDays": 0,
+				"daysWithData": 7,
+				"completeness": "partial"
+			},
+			"weight": {
+				"avg": 61.8,
+				"count": 3,
+				"last": { "date": "2026-09-20", "weightKg": 61.6 },
+				"prevLast": { "date": "2026-09-13", "weightKg": 62.2 },
+				"delta": -0.6
+			},
+			"steps": { "avg": 10400, "goal": 10000, "trackedDays": 7, "completeness": "complete" },
+			"sport": { "activities": 4, "durationMin": 220, "kcal": 1350, "metMinutes": 1500 },
+			"photoAi": { "kcalSharePct": 38, "aiKcal": 4190, "totalKcal": 11020, "mealsWithAi": 9, "mealsLogged": 24 }
+		},
+		"previousWeek": {
+			"start": "2026-09-07",
+			"end": "2026-09-13",
+			"days": [
+				"2026-09-07",
+				"2026-09-08",
+				"2026-09-09",
+				"2026-09-10",
+				"2026-09-11",
+				"2026-09-12",
+				"2026-09-13"
+			],
+			"food": {
+				"kcalAvg": 1710,
+				"proteinAvg": 95,
+				"goalKcal": 1600,
+				"goalProtein": 110,
+				"thresholdKcal": 960,
+				"exploitableDays": 5,
+				"partialDays": 2,
+				"absentDays": 0,
+				"daysWithData": 7,
+				"completeness": "partial"
+			},
+			"weight": {
+				"avg": 62.3,
+				"count": 2,
+				"last": { "date": "2026-09-13", "weightKg": 62.2 },
+				"prevLast": null,
+				"delta": null
+			},
+			"steps": { "avg": 8700, "goal": 10000, "trackedDays": 6, "completeness": "partial" },
+			"sport": { "activities": 2, "durationMin": 110, "kcal": 650, "metMinutes": 720 },
+			"photoAi": { "kcalSharePct": 30, "aiKcal": 3200, "totalKcal": 10670, "mealsWithAi": 7, "mealsLogged": 23 }
+		},
+		"deltas": {
+			"kcalAvg": -130,
+			"proteinAvg": 13,
+			"weightAvg": -0.5,
+			"stepsAvg": 1700,
+			"sportDurationMin": 110,
+			"sportKcal": 700
+		},
+		"mensurationsAttenduesNonSaisies": false,
+		"mensurationsHorsFenetre": false,
+		"ouvertureFactuelle": true,
+		"peseeRecenteAbsente": false,
+		"mensurations": {
+			"date": "2026-09-20",
+			"prevDate": "2026-09-06",
+			"daysAgo": 14,
+			"waistCm": 71.5,
+			"hipCm": 97,
+			"neckCm": 31,
+			"deltas": { "waistCm": -1.5, "hipCm": -1, "neckCm": -0.5 }
+		},
+		"weightTrend": {
+			"last": { "date": "2026-09-20", "weightKg": 61.6 },
+			"previous": { "date": "2026-09-16", "weightKg": 61.9 },
+			"gapKg": -0.3,
+			"prevCheckin": { "weekLabel": "S37 - 07 septembre 2026", "avgKg": 62.3, "count": 2 }
+		}
+	},
+	"examples": [
+		{
+			"weekLabel": "S36 - 31 août 2026",
+			"text": "Cette semaine, tu as posé une base solide : les repas du midi ont été préparés à l'avance et tu as marché tous les jours, même les plus chargés. C'est exactement le genre de régularité qui compte sur la durée. On garde ça et on ajoute une seule chose : une collation protéinée l'après-midi, pour éviter le creux de 17 h. Rien d'autre ne change."
+		},
+		{
+			"weekLabel": "S37 - 07 septembre 2026",
+			"text": "On a ajusté le dîner cette semaine et ça se voit : tu as mieux dormi et tu n'as pas grignoté après le repas. Ton poids commence à suivre, sans que tu aies eu besoin de te restreindre davantage. On continue avec la même structure et on garde les séances que tu aimes. Tu es sur une très bonne dynamique."
+		}
+	]
+}

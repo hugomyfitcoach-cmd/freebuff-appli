@@ -60,11 +60,68 @@ export type AiUsage = {
 	model: string;
 	inputTokens?: number;
 	outputTokens?: number;
+	/** Tokens d'entrée servis depuis le cache de prompt (input_tokens_details). */
+	cachedInputTokens?: number;
 	durationMs: number;
 	estimatedCostUsd?: number;
 };
 
-export class OpenAiUnavailableError extends Error {}
+export class OpenAiUnavailableError extends Error {
+	/** Statut HTTP du refus fournisseur — sert UNIQUEMENT au repli de réglages. */
+	readonly status?: number;
+	/**
+	 * Paramètre/champ refusé (`error.param` ou `error.code` d'OpenAI), déjà
+	 * borné par `sanitizeFailParam`. JAMAIS `error.message` (il peut citer une
+	 * clé ou du contenu libre).
+	 */
+	readonly failParam?: string;
+
+	constructor(message: string, options: { status?: number; failParam?: string } = {}) {
+		super(message);
+		this.status = options.status;
+		this.failParam = options.failParam;
+	}
+}
+
+/** Longueur maximale du paramètre refusé conservé pour le diagnostic. */
+export const FAIL_PARAM_MAX_LENGTH = 40;
+
+/**
+ * SEULE valeur de diagnostic conservée d'un refus fournisseur : le nom du
+ * paramètre (`error.param`) ou le code (`error.code`) — jamais `error.message`.
+ * Un nom de paramètre est technique (`reasoning.effort`) : tout texte libre,
+ * espace ou valeur ressemblant à une clé est écarté, et la valeur est bornée à
+ * 40 caractères.
+ */
+export function sanitizeFailParam(value: unknown): string | undefined {
+	if (typeof value !== 'string') return undefined;
+	const clean = value.trim().slice(0, FAIL_PARAM_MAX_LENGTH);
+	if (!clean || /sk-|bearer|-----|\s/i.test(clean)) return undefined;
+	return clean;
+}
+
+/**
+ * Réponse COUPÉE par le fournisseur (limite de sortie atteinte, statut
+ * `incomplete` ou `finish_reason: "length"`). Jamais affichée à l'utilisateur :
+ * un texte tronqué en pleine phrase n'est pas un brouillon.
+ */
+export class OpenAiIncompleteError extends Error {}
+
+/**
+ * Réponse tronquée ? Statut `incomplete` (Responses API), détail
+ * `max_output_tokens` / `length`, ou `finish_reason: "length"` sur un item.
+ * Tout autre statut (y compris absent) est considéré comme complet.
+ */
+function isIncompleteResponse(raw: {
+	status?: string;
+	incomplete_details?: { reason?: string };
+	output?: { finish_reason?: string }[];
+}): boolean {
+	if (raw.status === 'incomplete') return true;
+	const reason = raw.incomplete_details?.reason;
+	if (typeof reason === 'string' && /max[_\s-]?tokens|length/i.test(reason)) return true;
+	return (raw.output ?? []).some((o) => o.finish_reason === 'length');
+}
 
 /** dataURL → data:URI OpenAI (image_url). Borne la taille en mémoire. */
 function assertImageDataUrl(dataUrl: string): void {
@@ -78,15 +135,28 @@ function assertImageDataUrl(dataUrl: string): void {
 	}
 }
 
-/** Appel générique Responses API en mode JSON strict — entrée message(s) libre. */
+/** Message d'entrée Responses API — texte ou image, rôle utilisateur ou système. */
+export type OpenAiMessage = {
+	role: 'user' | 'system';
+	content: ({ type: 'input_text'; text: string } | { type: 'input_image'; image_url: string; detail: 'high' })[];
+};
+
+/**
+ * Appel générique Responses API — entrée message(s) libre.
+ *  - `options.json` (défaut true) : format JSON strict + parse de la sortie ;
+ *  - `options.model` : modèle fourni par l'appelant (jamais de nom en dur) —
+ *    défaut : modèle vision des analyses (OPENAI_MODEL, borné) ;
+ *  - la sortie TEXTE brute est toujours renvoyée (`text`), en plus du JSON.
+ */
 async function callOpenAiCore(
-	input: { role: 'user'; content: ({ type: 'input_text'; text: string } | { type: 'input_image'; image_url: string; detail: 'high' })[] }[],
-	maxOutputTokens: number
-): Promise<{ json: unknown; usage: AiUsage }> {
+	input: OpenAiMessage[],
+	maxOutputTokens: number,
+	options: { model?: string; json?: boolean; temperature?: number; reasoningEffort?: 'minimal' | 'low' } = {}
+): Promise<{ text: string; json: unknown; usage: AiUsage }> {
 	const key = aiEnv().OPENAI_API_KEY;
 	if (!key) throw new OpenAiUnavailableError("Analyse IA non configurée sur le serveur.");
 
-	const m = model();
+	const m = options.model ?? model();
 	const started = Date.now();
 	let res: Response;
 	try {
@@ -99,7 +169,15 @@ async function callOpenAiCore(
 			body: JSON.stringify({
 				model: m,
 				max_output_tokens: maxOutputTokens,
-				text: { format: { type: 'json_object' } },
+				// Température transmise seulement si l'appelant la demande (brouillon
+				// coach) — les analyses JSON historiques gardent le réglage du modèle.
+				...(options.temperature === undefined ? {} : { temperature: options.temperature }),
+				// Effort de raisonnement : les modèles qui raisonnent consomment des
+				// tokens de sortie avant d'écrire — au minimum, le texte a la place.
+				...(options.reasoningEffort === undefined
+					? {}
+					: { reasoning: { effort: options.reasoningEffort } }),
+				...(options.json === false ? {} : { text: { format: { type: 'json_object' } } }),
 				input,
 			}),
 			signal: AbortSignal.timeout(40_000),
@@ -113,36 +191,59 @@ async function callOpenAiCore(
 		// distingue quota insuffisant (à régler côté compte) d'un rate limit
 		// passager (à réessayer) — sinon l'UI affiche une erreur générique.
 		let detail = '';
+		// Diagnostic SANS FUITE : le nom du paramètre refusé, jamais le message.
+		let failParam: string | undefined;
 		try {
-			const j = (await res.json()) as { error?: { message?: string } };
+			const j = (await res.json()) as {
+				error?: { message?: string; param?: unknown; code?: unknown };
+			};
 			detail = typeof j.error?.message === 'string' ? ` — ${j.error.message.slice(0, 140)}` : '';
+			failParam = sanitizeFailParam(j.error?.param) ?? sanitizeFailParam(j.error?.code);
 		} catch {
 			// corps non JSON : on reste générique
 		}
-		throw new OpenAiUnavailableError(`Service IA indisponible (HTTP ${res.status})${detail}.`);
+		throw new OpenAiUnavailableError(`Service IA indisponible (HTTP ${res.status})${detail}.`, {
+			status: res.status,
+			failParam,
+		});
 	}
 	const raw = (await res.json()) as {
 		output_text?: string;
-		output?: { type: string; content?: { type: string; text?: string }[] }[];
-		usage?: { input_tokens?: number; output_tokens?: number };
+		output?: { type: string; finish_reason?: string; content?: { type: string; text?: string }[] }[];
+		status?: string;
+		incomplete_details?: { reason?: string };
+		usage?: {
+			input_tokens?: number;
+			output_tokens?: number;
+			input_tokens_details?: { cached_tokens?: number };
+		};
 	};
 	const text = raw.output_text ?? (raw.output ?? []).flatMap((o) => (o.content ?? []).map((c) => c.text ?? '')).join('');
+	// STATUT DE FIN lu AVANT tout renvoi de texte : une réponse coupée
+	// (limite de sortie) n'est jamais rendue, même partiellement.
+	if (isIncompleteResponse(raw)) {
+		throw new OpenAiIncompleteError('Réponse incomplète (limite de sortie atteinte).');
+	}
 	const durationMs = Date.now() - started;
 	const inputTokens = raw.usage?.input_tokens;
 	const outputTokens = raw.usage?.output_tokens;
+	const cachedInputTokens = raw.usage?.input_tokens_details?.cached_tokens;
 	const prices = PRICES[m] ?? PRICES['gpt-4o-mini'];
 	const estimatedCostUsd =
 		inputTokens !== undefined && outputTokens !== undefined
 			? Math.round(((inputTokens * prices.input + outputTokens * prices.output) / 1_000_000) * 100000) / 100000
 			: undefined;
 	if (!text) throw new OpenAiUnavailableError('Réponse IA vide.');
+	if (options.json === false) {
+		return { text, json: undefined, usage: { model: m, inputTokens, outputTokens, cachedInputTokens, durationMs, estimatedCostUsd } };
+	}
 	let json: unknown;
 	try {
 		json = JSON.parse(text);
 	} catch {
 		throw new OpenAiUnavailableError('Réponse IA illisible.');
 	}
-	return { json, usage: { model: m, inputTokens, outputTokens, durationMs, estimatedCostUsd } };
+	return { text, json, usage: { model: m, inputTokens, outputTokens, cachedInputTokens, durationMs, estimatedCostUsd } };
 }
 
 /** Appel AVEC IMAGE (étiquette, repas, recette) — signature historique inchangée. */
@@ -172,6 +273,87 @@ async function callOpenAiText(
 	maxOutputTokens: number
 ): Promise<{ json: unknown; usage: AiUsage }> {
 	return callOpenAiCore([{ role: 'user', content: [{ type: 'input_text', text: prompt }] }], maxOutputTokens);
+}
+
+/**
+ * GÉNÉRATION DE TEXTE BRUT (brouillons de retour coach) — MÊME cœur d'appel,
+ * MÊME clé que l'analyse des repas, aucun SDK ni moteur parallèle.
+ *
+ *  - `model` fourni par l'appelant : variable OPENAI_COACH_DRAFT_MODEL, aucun
+ *    nom de modèle écrit en dur et aucune borne de liste blanche ici ;
+ *  - sortie TEXTE (pas de format JSON) : c'est le brouillon lui-même ;
+ *  - consignes système en tête d'appel (`role: 'system'`), puis le prompt :
+ *    le préfixe identique à chaque appel profite du cache de prompt ;
+ *  - température basse (`COACH_DRAFT_TEMPERATURE`) pour la régularité des
+ *    retours ; un HTTP 400 déclenche une escalade BORNÉE de repli (sans effort
+ *    de raisonnement, puis sans température), jamais un changement de modèle ;
+ *  - usages complets renvoyés : modèle, tokens lus/écrits, tokens mis en
+ *    cache (`input_tokens_details.cached_tokens`), durée et coût estimé.
+ */
+
+/** Température basse du brouillon : régularité des retours d'un appel à l'autre. */
+export const COACH_DRAFT_TEMPERATURE = 0.3;
+
+/**
+ * Effort de raisonnement demandé au brouillon : le MINIMUM accepté par le
+ * fournisseur. Le texte attendu est court ; les tokens de raisonnement ne
+ * doivent pas manger la limite de sortie.
+ */
+export const COACH_DRAFT_REASONING_EFFORT = 'minimal' as const;
+
+/**
+ * Refus HTTP 400 du fournisseur : un réglage optionnel est en cause. On ne
+ * dépend PAS du texte du message (M5-bis régressait là : le refus de
+ * `reasoning.effort` arrivait sans citer « reasoning » et le repli ne partait
+ * pas) — le statut seul déclenche l'escalade des réglages.
+ */
+function isBadRequest(error: unknown): boolean {
+	return error instanceof OpenAiUnavailableError && error.status === 400;
+}
+export async function generateCoachDraftText(args: {
+	system: string;
+	prompt: string;
+	model: string;
+	maxOutputTokens: number;
+	temperature?: number;
+}): Promise<{ text: string; usage: AiUsage }> {
+	const model = args.model.trim();
+	if (!model) throw new OpenAiUnavailableError('Modèle IA non configuré sur le serveur.');
+	const messages: OpenAiMessage[] = [
+		{ role: 'system', content: [{ type: 'input_text', text: args.system }] },
+		{ role: 'user', content: [{ type: 'input_text', text: args.prompt }] },
+	];
+	const temperature = args.temperature ?? COACH_DRAFT_TEMPERATURE;
+	// ÉCHELLE DE REPLI BORNÉE — trois tentatives au maximum, dans cet ordre :
+	//   1. réglages nominaux (température basse + effort de raisonnement) ;
+	//   2. sans effort de raisonnement (le suspect n° 1 d'un HTTP 400) ;
+	//   3. sans température (dernier réglage optionnel restant).
+	// `max_output_tokens` est conservé tel quel à chaque tentative, et aucun
+	// repli ne change de modèle ni de texte. Toute erreur qui n'est PAS un
+	// HTTP 400 remonte immédiatement : aucune boucle, aucun réessai inutile.
+	try {
+		return await callOpenAiCore(messages, args.maxOutputTokens, {
+			model,
+			json: false,
+			temperature,
+			reasoningEffort: COACH_DRAFT_REASONING_EFFORT,
+		});
+	} catch (error) {
+		if (!isBadRequest(error)) throw error;
+	}
+	try {
+		return await callOpenAiCore(messages, args.maxOutputTokens, {
+			model,
+			json: false,
+			temperature,
+		});
+	} catch (error) {
+		if (!isBadRequest(error)) throw error;
+	}
+	return await callOpenAiCore(messages, args.maxOutputTokens, {
+		model,
+		json: false,
+	});
 }
 
 /* ─────────────── ÉTIQUETTE NUTRITIONNELLE ─────────────── */

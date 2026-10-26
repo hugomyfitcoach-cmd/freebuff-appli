@@ -10,6 +10,23 @@
 	 */
 	import { onMount } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import { displayExerciseName } from '$lib/exerciseFr';
+	import {
+		parisTodayISO,
+		trainingStatus,
+		trainingAdherence,
+		TRAINING_STATUS_LABELS,
+		formatLoggedSet,
+		progressionDeltaLabel,
+		type TrainingStatusKey,
+	} from '$lib/trainingProgress';
+	import {
+		defaultOpenWeekIndex,
+		groupSessionsByWeek,
+		programEndBadge,
+		programWeekCount,
+		sessionDurationMin,
+	} from '$lib/trainingWeeks';
 
 	let { userId }: { userId: string } = $props();
 
@@ -39,7 +56,37 @@
 		nextSession: { _id: string; date: string; name: string } | null;
 		recentNotes: { _id: string; date: string; name: string; difficulty: number | null; note: string | null }[];
 	};
-	type ScheduledRow = { _id: string; sessionId: string; sessionName?: string; date: string; status: string; completedAt: number | null; difficulty: number | null; note: string | null };
+	type ScheduledRow = {
+		_id: string;
+		sessionId: string;
+		sessionName?: string;
+		date: string;
+		status: string;
+		completedAt: number | null;
+		skippedAt: number | null;
+		startedAt: number | null;
+		/** Durée enregistrée par la cliente — prioritaire sur le chrono. */
+		durationMin: number | null;
+		difficulty: number | null;
+		note: string | null;
+	};
+
+	/** Statuts calculés (jamais stockés) — la refonte visuelle viendra en T3. */
+	const today = parisTodayISO();
+	const STATUS_TONE: Record<TrainingStatusKey, string> = {
+		done: 'bg-brand-light text-brand-dark',
+		notDone: 'bg-danger-light text-danger',
+		missed: 'bg-danger-light text-danger',
+		planned: 'bg-line/50 text-mist',
+		cancelled: 'bg-line/40 text-mist line-through',
+	};
+	function statusOf(s: ScheduledRow): TrainingStatusKey {
+		return trainingStatus(s, today);
+	}
+	/** Note dépliée depuis la liste (une seule à la fois). */
+	let openNote = $state<string | null>(null);
+	/** Semaine dépliée (une seule à la fois) — la semaine en cours par défaut. */
+	let openWeek = $state<number | null>(null);
 
 	let loading = $state(true);
 	let err = $state('');
@@ -49,6 +96,15 @@
 	let assignments = $state<AssignmentRow[]>([]);
 	let activeAssignment = $state<AssignmentRow | null>(null);
 	let scheduled = $state<ScheduledRow[]>([]);
+
+	/* ── Vue par semaine + en-tête du programme (T3) ──
+	   Tout est DÉRIVÉ : adhérence (trainingAdherence) et statuts (trainingStatus)
+	   viennent de src/lib/trainingProgress.ts — aucun nouveau calcul stocké. */
+	const adherence = $derived(trainingAdherence(scheduled, today));
+	const weekGroups = $derived(
+		groupSessionsByWeek(scheduled, summary?.active?.startDate ?? '', summary?.active?.endDate ?? '', today)
+	);
+	const endBadge = $derived(summary?.active ? programEndBadge(summary.active.endDate, today) : null);
 
 	/* ── Programmes modèles (bibliothèque coach) ── */
 	type ProgramRow = { _id: string; name: string; sessionCount: number; sessionsPerWeek?: number | null };
@@ -73,8 +129,7 @@
 	let extendWeeks = $state('4');
 	let extendBusy = $state(false);
 
-	/* ── ••• occurrence ── */
-	let menuFor = $state<string | null>(null);
+	/* ── Actions d'une occurrence (détail déplié) ── */
 	let moveFor = $state<ScheduledRow | null>(null);
 	let moveDate = $state('');
 	let dupFor = $state<ScheduledRow | null>(null);
@@ -89,10 +144,64 @@
 	let replaceBusy = $state(false);
 
 	/* ── Historique par exercice ── */
-	type ExRow = { exerciseId: string; name: string; sets: number; lastDate: string; lastWeight: number | null; bestWeight: number | null };
+	/** Ligne « Charges & progression » : départ (1re séance) → actuel (dernière). */
+	type ExRow = {
+		exerciseId: string;
+		name: string;
+		sessions: number;
+		unit: 'kg' | 'reps' | 's';
+		startDate: string;
+		startValue: number | null;
+		currentDate: string;
+		currentValue: number | null;
+		delta: number | null;
+	};
 	let tracked = $state<ExRow[]>([]);
 	let exDetail = $state<null | { exerciseId: string; name: string; last: { date: string; reps: number | null; weightKg: number | null; durationSeconds: number | null; mode: string } | null; best: { date: string; reps: number | null; weightKg: number | null; durationSeconds: number | null; mode: string } | null; timeline: { date: string; weightKg: number | null }[] }>(null);
 	let exLoading = $state('');
+
+	/* ── Détail des séries d'une séance réalisée (lecture seule) ── */
+	type SessionDetail = {
+		_id: string;
+		date: string;
+		sessionName: string;
+		note: string | null;
+		difficulty: number | null;
+		durationMin: number | null;
+		exercises: {
+			exerciseId: string;
+			name: string;
+			mode: string;
+			sets: { setOrder: number; reps: number | null; weightKg: number | null; durationSeconds: number | null; mode: string }[];
+			volumeKg: number | null;
+		}[];
+		volumeKg: number | null;
+	};
+	let sessionDetail = $state<SessionDetail | null>(null);
+	let sessionDetailBusy = $state(false);
+
+	async function loadSessionDetail(scheduledSessionId: string) {
+		sessionDetailBusy = true;
+		try {
+			const r = await fetch(`/api/coach/training/session-detail?scheduledSessionId=${scheduledSessionId}`).then((x) => x.json());
+			sessionDetail = r?.error ? null : (r as SessionDetail);
+		} catch {
+			sessionDetail = null;
+		} finally {
+			sessionDetailBusy = false;
+		}
+	}
+
+	// Une pastille ouverte sur une « Réalisée » charge ses séries (jamais pour les autres).
+	$effect(() => {
+		const id = openNote;
+		const row = id ? scheduled.find((x) => x._id === id) : null;
+		if (!row || trainingStatus(row, today) !== 'done') {
+			sessionDetail = null;
+			return;
+		}
+		void loadSessionDetail(row._id);
+	});
 
 	async function loadAll() {
 		loading = true;
@@ -114,7 +223,12 @@
 			} else {
 				scheduled = [];
 			}
-			const t = await fetch(`/api/coach/training/exercise-history?userId=${userId}`).then((r) => r.json());
+			// La semaine en cours s'ouvre par défaut, les autres restent repliées.
+			openWeek = defaultOpenWeekIndex(
+				groupSessionsByWeek(scheduled, summary?.active?.startDate ?? '', summary?.active?.endDate ?? '', today)
+			);
+			const window = summary?.active ? `&from=${summary.active.startDate}&to=${summary.active.endDate}` : '';
+			const t = await fetch(`/api/coach/training/exercise-history?userId=${userId}${window}`).then((r) => r.json());
 			tracked = (t.exercises ?? []) as ExRow[];
 		} catch (e) {
 			err = e instanceof Error ? e.message : 'Chargement impossible.';
@@ -127,8 +241,29 @@
 	function fmtISO(iso: string): string {
 		return new Date(iso + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
 	}
+	/** Jour court de la pastille : « lun. 5 ». */
+	function fmtDay(iso: string): string {
+		return new Date(iso + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' });
+	}
+	/** Durée réelle d'une séance terminée (« 42 min »), null si inconnue. */
+	function durationLabel(s: ScheduledRow): string | null {
+		const min = sessionDurationMin(s);
+		return min == null ? null : `${min} min`;
+	}
 	function fmtKg(n: number): string {
 		return String(Number.isInteger(n) ? n : Math.round(n * 10) / 10).replace('.', ',');
+	}
+	/** Valeur d'une progression dans l'unité de l'exercice (kg, reps ou secondes). */
+	function valueLabel(value: number | null, unit: string): string {
+		if (value == null) return '—';
+		if (unit === 's') return `${value} s`;
+		if (unit === 'reps') return `${value} reps`;
+		return `${fmtKg(value)} kg`;
+	}
+	/** Vert si hausse, gris si stable, orange si baisse. */
+	function deltaTone(delta: number | null): string {
+		if (delta == null || delta === 0) return 'text-mist';
+		return delta > 0 ? 'text-brand-dark' : 'text-warn';
 	}
 
 	function toggleDay(list: number[], d: number): number[] {
@@ -289,7 +424,6 @@
 			});
 			const j = await r.json();
 			if (j.error) throw new Error(j.error);
-			menuFor = null;
 			await loadAll();
 		} catch (e) {
 			err = e instanceof Error ? e.message : 'Action impossible.';
@@ -301,7 +435,7 @@
 		exLoading = ex.exerciseId;
 		try {
 			const r = await fetch(`/api/coach/training/exercise-history?userId=${userId}&exerciseId=${ex.exerciseId}`).then((x) => x.json());
-			exDetail = { exerciseId: ex.exerciseId, name: ex.name, last: r.last ?? null, best: r.best ?? null, timeline: r.timeline ?? [] };
+			exDetail = { exerciseId: ex.exerciseId, name: displayExerciseName(ex.name), last: r.last ?? null, best: r.best ?? null, timeline: r.timeline ?? [] };
 		} finally {
 			exLoading = '';
 		}
@@ -345,42 +479,47 @@
 			{/if}
 		</div>
 	{:else}
-		<!-- ── Programme actif ── -->
+		<!-- ── En-tête du programme (carte blanche) ── -->
 		{#if summary?.active}
-			<div class="mt-4 rounded-xl border border-brand/40 bg-brand-light/30 p-4">
+			<div class="mt-4 min-w-0 rounded-2xl border border-line bg-white p-4 shadow-sm">
 				<div class="flex flex-wrap items-center justify-between gap-2">
-					<p class="text-[10px] font-bold uppercase tracking-widest text-brand-dark">Programme actif</p>
-					<span class="rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold text-white">Semaine {summary.active.weekNumber}</span>
+					<p class="text-[10px] font-bold uppercase tracking-widest text-mist">Programme actif</p>
+					<span class="rounded-full bg-brand-light px-2 py-0.5 text-[10px] font-bold text-brand-dark">
+						Semaine {weekGroups.find((w) => w.isCurrent)?.index ?? weekGroups.length} sur {weekGroups.length || programWeekCount(summary.active.startDate, summary.active.endDate)}
+					</span>
 				</div>
-				<p class="mt-1 font-display text-lg font-semibold text-ink">{summary.active.programName}</p>
+				<p class="mt-1 break-words font-display text-lg font-semibold text-ink">{summary.active.programName}</p>
 				<p class="mt-0.5 text-xs text-ink">
 					Du <strong>{fmtISO(summary.active.startDate)}</strong> au <strong>{fmtISO(summary.active.endDate)}</strong>
 					· {summary.active.weekdays.map((d) => DAY_LABELS[d - 1]).join(' ')}
 				</p>
-				<div class="mt-3 grid grid-cols-3 gap-2 text-center">
-					<div class="rounded-lg bg-white/70 px-2 py-2">
-						<p class="font-display text-base font-bold text-ink">{summary.completedCount}<span class="text-xs font-semibold text-mist">/{summary.plannedCount}</span></p>
-						<p class="text-[10px] font-semibold uppercase tracking-wide text-mist">séances faites</p>
+				<div class="mt-3 grid grid-cols-3 gap-1.5 text-center">
+					<div class="min-w-0 rounded-lg bg-cream/70 px-1.5 py-2">
+						<p class="font-display text-base font-bold text-ink">{adherence.done}<span class="text-xs font-semibold text-mist">/{adherence.past}</span></p>
+						<p class="text-[10px] font-semibold uppercase leading-tight tracking-wide text-mist">réalisées / passées</p>
 					</div>
-					<div class="rounded-lg bg-white/70 px-2 py-2">
-						<p class="font-display text-base font-bold {summary.adherence == null ? 'text-mist' : summary.adherence >= 80 ? 'text-brand-dark' : 'text-warn'}">
-							{summary.adherence == null ? '—' : `${summary.adherence} %`}
+					<div class="min-w-0 rounded-lg bg-cream/70 px-1.5 py-2">
+						<p class="font-display text-base font-bold {adherence.percent == null ? 'text-mist' : adherence.percent >= 80 ? 'text-brand-dark' : 'text-warn'}">
+							{adherence.percent == null ? '—' : `${adherence.percent} %`}
 						</p>
-						<p class="text-[10px] font-semibold uppercase tracking-wide text-mist">adhérence</p>
+						<p class="text-[10px] font-semibold uppercase leading-tight tracking-wide text-mist">adhérence</p>
 					</div>
-					<div class="rounded-lg bg-white/70 px-2 py-2">
-						<p class="font-display text-base font-bold text-ink">
-							{#if summary.lastCompleted}{fmtISO(summary.lastCompleted.date)}{:else}—{/if}
+					<div class="min-w-0 rounded-lg bg-cream/70 px-1.5 py-2">
+						<p class="break-words font-display text-[13px] font-bold leading-tight {endBadge?.tone === 'warn' ? 'text-warn' : endBadge?.tone === 'over' ? 'text-mist' : 'text-ink'}">
+							{endBadge?.label ?? '—'}
 						</p>
-						<p class="text-[10px] font-semibold uppercase tracking-wide text-mist">dernière séance</p>
+						<p class="text-[10px] font-semibold uppercase leading-tight tracking-wide text-mist">fin de programme</p>
 					</div>
 				</div>
 
-				<!-- Prolonger -->
+				<!-- Durée de la prolongation + Prolonger (contrôles existants) -->
 				<div class="mt-3 flex flex-wrap items-center gap-2">
-					<select bind:value={extendWeeks} class="rounded-lg border-2 border-line bg-white px-2 py-1.5 text-xs font-semibold outline-none focus:border-brand">
-						{#each [2, 4, 6, 8, 12] as w (w)}<option value={String(w)}>{w} semaines</option>{/each}
-					</select>
+					<label class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-mist">
+						Durée
+						<select bind:value={extendWeeks} class="rounded-lg border-2 border-line bg-white px-2 py-1.5 text-xs font-semibold text-ink outline-none focus:border-brand">
+							{#each [2, 4, 6, 8, 12] as w (w)}<option value={String(w)}>{w} semaines</option>{/each}
+						</select>
+					</label>
 					<button type="button" onclick={extend} disabled={extendBusy} class="rounded-lg border-2 border-line px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-brand disabled:opacity-50">
 						{extendBusy ? 'Prolongation…' : 'Prolonger'}
 					</button>
@@ -414,44 +553,130 @@
 			</div>
 		{/if}
 
-		<!-- ── Planning détaillé (avec •••) ── -->
-		{#if scheduled.length > 0}
+		<!-- ── Retours de la cliente (recentNotes) ── -->
+		{#if summary?.recentNotes?.length}
 			<details class="mt-3" open>
-				<summary class="cursor-pointer text-xs font-semibold text-mist hover:text-ink">Séances planifiées ({scheduled.length}) — déplacer / dupliquer / annuler</summary>
-				<div class="mt-2 max-h-72 space-y-1 overflow-y-auto pr-1">
-					{#each scheduled as s (s._id)}
-						<div class="relative flex items-center justify-between gap-2 rounded-lg border border-line px-3 py-2 text-xs">
-							<span class="font-semibold capitalize text-ink">{fmtISO(s.date)}</span>
-							<span class="min-w-0 flex-1 truncate text-mist">
-								{s.sessionName ?? 'Séance'} ·
-								{#if s.status === 'completed'}✓ réalisée{#if s.note} · 💬{/if}{:else if s.status === 'cancelled'}annulée{:else}prévue{/if}
-							</span>
-							{#if s.status !== 'completed'}
-								<button
-									type="button"
-									onclick={() => (menuFor = menuFor === s._id ? null : s._id)}
-									class="shrink-0 rounded-md px-1.5 py-0.5 font-bold text-mist transition hover:bg-line/60 hover:text-ink"
-									aria-label="Actions"
-								>•••</button>
-								{#if menuFor === s._id}
-									<div class="absolute right-2 top-8 z-20 w-44 overflow-hidden rounded-xl border border-line bg-white shadow-lg">
-										<button type="button" onclick={() => { moveFor = s; moveDate = s.date; menuFor = null; }} class="block w-full px-3 py-2 text-left text-xs font-semibold text-ink hover:bg-line/40">Déplacer</button>
-										<button type="button" onclick={() => { dupFor = s; dupDate = s.date; menuFor = null; }} class="block w-full px-3 py-2 text-left text-xs font-semibold text-ink hover:bg-line/40">Dupliquer</button>
-										{#if s.status === 'planned'}
-											<button type="button" onclick={() => cancelOccurrence(s, true)} class="block w-full px-3 py-2 text-left text-xs font-semibold text-danger hover:bg-danger-light">Annuler</button>
-										{:else}
-											<button type="button" onclick={() => cancelOccurrence(s, false)} class="block w-full px-3 py-2 text-left text-xs font-semibold text-ink hover:bg-line/40">Restaurer</button>
-										{/if}
-									</div>
+				<summary class="cursor-pointer text-xs font-semibold text-mist hover:text-ink">Retours de la cliente ({summary.recentNotes.length})</summary>
+				<ul class="mt-2 flex flex-col gap-1.5">
+					{#each summary.recentNotes as n (n._id)}
+						<li class="rounded-lg border border-line px-3 py-2 text-xs">
+							<p class="flex flex-wrap items-center gap-1.5">
+								<span class="font-semibold capitalize text-ink">{fmtISO(n.date)}</span>
+								<span class="text-mist">· {n.name}</span>
+								{#if n.difficulty != null}
+									<span class="rounded-full bg-warn-light px-1.5 py-0.5 text-[10px] font-bold text-ink">Effort {n.difficulty}/5</span>
 								{/if}
+							</p>
+							{#if n.note}<p class="mt-1 whitespace-pre-line text-ink">💬 {n.note}</p>{/if}
+						</li>
+					{/each}
+				</ul>
+			</details>
+		{/if}
+
+		<!-- ── Vue par semaine (une ligne par semaine du programme) ── -->
+		{#if weekGroups.length > 0}
+			<div class="mt-3">
+				<p class="text-[10px] font-bold uppercase tracking-widest text-mist">Vue par semaine</p>
+				<div class="mt-2 space-y-1.5">
+					{#each weekGroups as w (w.index)}
+						<div class="min-w-0 overflow-hidden rounded-xl border {w.isCurrent ? 'border-brand/50 bg-brand-light/20' : 'border-line bg-white'}">
+							<button
+								type="button"
+								onclick={() => (openWeek = openWeek === w.index ? null : w.index)}
+								aria-expanded={openWeek === w.index}
+								class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+							>
+								<span class="min-w-0 truncate text-xs font-semibold {w.isCurrent ? 'text-brand-dark' : 'text-ink'}">
+									Semaine {w.index} · {w.label}
+									{#if w.isCurrent}<span class="ml-1 rounded-full bg-brand px-1.5 py-0.5 text-[9px] font-bold text-white">en cours</span>{/if}
+								</span>
+								<span class="shrink-0 text-[10px] font-semibold tabular-nums text-mist">{w.done}/{w.sessions.length}</span>
+							</button>
+							{#if openWeek === w.index}
+								<div class="space-y-1 border-t border-line/70 px-2 py-2">
+									{#each w.sessions as s (s._id)}
+										<div class="min-w-0">
+											<button
+												type="button"
+												onclick={() => (openNote = openNote === s._id ? null : s._id)}
+												aria-expanded={openNote === s._id}
+												aria-label="Voir le détail de la séance"
+												data-status={statusOf(s)}
+												class="flex w-full min-w-0 flex-col gap-1 rounded-lg border border-line bg-white px-2.5 py-2 text-left text-xs transition hover:border-brand/50"
+											>
+												<span class="flex min-w-0 items-baseline justify-between gap-2">
+													<span class="min-w-0 flex-1 truncate font-bold uppercase tracking-wide text-ink">{s.sessionName ?? 'Séance'}</span>
+													<span class="shrink-0 text-[10px] font-semibold capitalize text-mist">{fmtDay(s.date)}</span>
+												</span>
+												<span class="flex flex-wrap items-center gap-1.5">
+													<span class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold {STATUS_TONE[statusOf(s)]}">{TRAINING_STATUS_LABELS[statusOf(s)]}</span>
+													{#if statusOf(s) === 'done'}
+														{#if durationLabel(s)}<span class="text-[10px] font-semibold text-mist">{durationLabel(s)}</span>{/if}
+														{#if s.difficulty != null}<span class="text-[10px] font-semibold text-mist">Effort {s.difficulty}/5</span>{/if}
+													{/if}
+												</span>
+											</button>
+											{#if openNote === s._id}
+												<div class="mt-1 rounded-lg bg-brand-light/40 px-2.5 py-2 text-[11px] text-ink">
+													{#if s.difficulty != null}
+														<p class="font-semibold">Effort {s.difficulty}/5</p>
+													{/if}
+													{#if s.note}
+														<p class="mt-0.5 whitespace-pre-line">💬 {s.note}</p>
+													{:else}
+														<p class="mt-0.5 text-mist">Aucune note de la cliente.</p>
+													{/if}
+													{#if statusOf(s) === 'done'}
+														<div class="mt-1.5 border-t border-brand/20 pt-1.5">
+															{#if sessionDetailBusy}
+																<p class="text-mist">Chargement des séries…</p>
+															{:else if sessionDetail && sessionDetail._id === s._id}
+																{#if sessionDetail.exercises.length === 0}
+																	<p class="text-mist">Aucune série enregistrée.</p>
+																{:else}
+																	<ul class="space-y-1">
+																		{#each sessionDetail.exercises as ex (ex.exerciseId)}
+																			<li class="min-w-0">
+																				<p class="break-words font-semibold">{displayExerciseName(ex.name)}</p>
+																				<p class="break-words text-mist">
+																					{ex.sets.map(formatLoggedSet).join(' · ')}{#if ex.volumeKg != null}<span class="whitespace-nowrap"> · {fmtKg(ex.volumeKg)} kg</span>{/if}
+																				</p>
+																			</li>
+																		{/each}
+																	</ul>
+																	{#if sessionDetail.volumeKg != null}
+																		<p class="mt-1 font-semibold">Volume total : {fmtKg(sessionDetail.volumeKg)} kg</p>
+																	{/if}
+																{/if}
+															{/if}
+														</div>
+													{/if}
+													<div class="mt-2 flex flex-wrap gap-1.5">
+														<button type="button" onclick={() => { moveFor = s; moveDate = s.date; }} class="rounded-lg border border-line bg-white px-2 py-1 text-[10px] font-semibold text-ink transition hover:border-brand">Déplacer</button>
+														<button type="button" onclick={() => { dupFor = s; dupDate = s.date; }} class="rounded-lg border border-line bg-white px-2 py-1 text-[10px] font-semibold text-ink transition hover:border-brand">Dupliquer</button>
+														{#if s.status === 'planned'}
+															<button type="button" onclick={() => cancelOccurrence(s, true)} class="rounded-lg border border-danger/40 bg-white px-2 py-1 text-[10px] font-semibold text-danger transition hover:border-danger">Annuler</button>
+														{:else}
+															<button type="button" onclick={() => cancelOccurrence(s, false)} class="rounded-lg border border-line bg-white px-2 py-1 text-[10px] font-semibold text-ink transition hover:border-brand">Restaurer</button>
+														{/if}
+													</div>
+												</div>
+											{/if}
+										</div>
+									{/each}
+									{#if w.sessions.length === 0}
+										<p class="px-1 py-1 text-[11px] text-mist">Aucune séance cette semaine.</p>
+									{/if}
+								</div>
 							{/if}
 						</div>
 					{/each}
 				</div>
-			</details>
+			</div>
 		{/if}
 
-		<!-- ── Historique par exercice ── -->
+		<!-- ── Charges & progression (départ → actuel, écart, séances) ── -->
 		{#if tracked.length > 0}
 			<details class="mt-3">
 				<summary class="cursor-pointer text-xs font-semibold text-mist hover:text-ink">Charges & progression par exercice ({tracked.length})</summary>
@@ -460,13 +685,19 @@
 						<button
 							type="button"
 							onclick={() => openExercise(ex)}
-							class="flex w-full items-center justify-between gap-2 rounded-lg border border-line px-3 py-2 text-left text-xs transition hover:border-brand/60"
+							class="flex w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-line px-2.5 py-2 text-left text-xs transition hover:border-brand/60"
 						>
-							<span class="min-w-0 truncate font-semibold text-ink">{ex.name}</span>
-							<span class="shrink-0 text-mist tabular-nums">
-								{#if ex.lastWeight != null}{fmtKg(ex.lastWeight)} kg{:else}—{/if}
-								{#if ex.bestWeight != null && ex.bestWeight !== ex.lastWeight} · max {fmtKg(ex.bestWeight)}{/if}
+							<span class="min-w-0 flex-1">
+								<span class="block truncate font-semibold text-ink">{displayExerciseName(ex.name)}</span>
+								<span class="mt-0.5 block text-[10px] leading-snug text-mist">
+									{valueLabel(ex.startValue, ex.unit)}
+									<span class="capitalize">({fmtISO(ex.startDate)})</span>
+									→ {valueLabel(ex.currentValue, ex.unit)}
+									<span class="capitalize">({fmtISO(ex.currentDate)})</span>
+									· {ex.sessions} séance{ex.sessions > 1 ? 's' : ''}
+								</span>
 							</span>
+							<span class="shrink-0 text-[11px] font-bold tabular-nums {deltaTone(ex.delta)}">{progressionDeltaLabel(ex)}</span>
 						</button>
 					{/each}
 				</div>

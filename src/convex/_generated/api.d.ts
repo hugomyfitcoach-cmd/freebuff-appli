@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as ai_provider from "../ai/provider.js";
 import type * as aiAnalysis from "../aiAnalysis.js";
 import type * as aiLog from "../aiLog.js";
 import type * as answers from "../answers.js";
@@ -22,9 +23,12 @@ import type * as ciqualNames from "../ciqualNames.js";
 import type * as ciqualNutrients from "../ciqualNutrients.js";
 import type * as ciqualSource from "../ciqualSource.js";
 import type * as coach from "../coach.js";
+import type * as coachDraft from "../coachDraft.js";
+import type * as coachDraftPrompt from "../coachDraftPrompt.js";
 import type * as crons from "../crons.js";
 import type * as customFoods from "../customFoods.js";
 import type * as dashboard from "../dashboard.js";
+import type * as exerciseTranslation from "../exerciseTranslation.js";
 import type * as exercises from "../exercises.js";
 import type * as exercisesSeedData from "../exercisesSeedData.js";
 import type * as foodImages from "../foodImages.js";
@@ -69,6 +73,9 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  ai: {
+    provider: typeof ai_provider;
+  };
   aiAnalysis: typeof aiAnalysis;
   aiLog: typeof aiLog;
   answers: typeof answers;
@@ -83,9 +90,12 @@ declare const fullApi: ApiFromModules<{
   ciqualNutrients: typeof ciqualNutrients;
   ciqualSource: typeof ciqualSource;
   coach: typeof coach;
+  coachDraft: typeof coachDraft;
+  coachDraftPrompt: typeof coachDraftPrompt;
   crons: typeof crons;
   customFoods: typeof customFoods;
   dashboard: typeof dashboard;
+  exerciseTranslation: typeof exerciseTranslation;
   exercises: typeof exercises;
   exercisesSeedData: typeof exercisesSeedData;
   foodImages: typeof foodImages;

@@ -11,6 +11,7 @@
 	import ExerciseLibraryBrowser from '$lib/components/ExerciseLibraryBrowser.svelte';
 	import CountUp from '$lib/components/CountUp.svelte';
 	import TrainingEditor from '$lib/components/TrainingEditor.svelte';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { type ProgramRow } from '$lib/training';
 
 	const GOALS: { value: string; label: string }[] = [
@@ -201,13 +202,20 @@
 			busyId = null;
 		}
 	}
-	async function deleteProgram(p: ProgramRow) {
-		if (!confirm(`Supprimer définitivement « ${p.name} » et toutes ses séances ?`)) return;
+	/** Suppression : dialogue G-FLUX (aucune boîte native). */
+	let deleteProgramFor = $state<ProgramRow | null>(null);
+	function deleteProgram(p: ProgramRow) {
+		deleteProgramFor = p;
+	}
+	async function confirmDeleteProgram() {
+		const p = deleteProgramFor;
+		if (!p) return;
 		busyId = p._id;
 		try {
 			const r = await fetch(`/api/coach/training/programs/${p._id}`, { method: 'DELETE' });
 			const j = await r.json();
 			if (j.error) throw new Error(j.error);
+			deleteProgramFor = null;
 			await loadPrograms();
 		} catch (e) {
 			listErr = e instanceof Error ? e.message : 'Erreur de suppression.';
@@ -507,3 +515,15 @@
 		</div>
 	</div>
 {/if}
+
+<!-- ── Confirmation de suppression (dialogue G-FLUX, aucune boîte native) ── -->
+<ConfirmDialog
+	open={!!deleteProgramFor}
+	title="Supprimer le programme ?"
+	message={deleteProgramFor ? `« ${deleteProgramFor.name} » et toutes ses séances seront définitivement supprimés.` : ''}
+	confirmLabel="Supprimer"
+	danger
+	busy={busyId === deleteProgramFor?._id}
+	onconfirm={confirmDeleteProgram}
+	oncancel={() => (deleteProgramFor = null)}
+/>
