@@ -153,18 +153,22 @@ export const scheduledSession = query({
 			.withIndex("by_session", (q) => q.eq("scheduledSessionId", scheduledId))
 			.collect();
 
-		// Dernière performance réelle par exercice (toutes séances confondues).
+		// Dernière performance réelle par exercice (toutes séances confondues) :
+		// la série COCHÉE la plus récente par DATE puis setOrder — jamais l'ordre
+		// d'itération de la base, jamais une série non validée.
 		const lastByExercise = new Map<
 			string,
 			{ date: string; reps: number | null; weightKg: number | null; durationSeconds: number | null }
 		>();
 		for (const se of sesEx) {
-			const prev = await ctx.db
+			const rows = await ctx.db
 				.query("trainingSetLogs")
 				.withIndex("by_user_exercise", (q) => q.eq("userId", user._id).eq("exerciseId", se.exerciseId))
-				.order("desc")
-				.first();
-			if (prev && prev.done) {
+				.collect();
+			const prev = rows
+				.filter((r) => r.done)
+				.sort((a, b) => b.date.localeCompare(a.date) || b.setOrder - a.setOrder || b._creationTime - a._creationTime)[0];
+			if (prev) {
 				lastByExercise.set(se._id, {
 					date: prev.date,
 					reps: prev.reps ?? null,
@@ -297,6 +301,11 @@ export const logSet = mutation({
 		const s = await ctx.db.get(scheduledId);
 		if (!s || s.userId !== user._id) throw new ConvexError("Séance introuvable.");
 		if (s.status === "completed") throw new ConvexError("Séance déjà terminée — l'historique est verrouillé.");
+		// La première série COCHÉE démarre la séance : plus de bouton « Commencer »
+		// obligatoire. startedAt est persisté backend (durée mesurée qui survit au
+		// verrouillage iPhone / arrière-plan), jamais un chrono JavaScript.
+		const startedAt = s.startedAt ?? (done ? Date.now() : null);
+		if (done && s.startedAt == null) await ctx.db.patch(scheduledId, { startedAt: startedAt as number });
 		const se = await ctx.db.get(sessionExerciseId);
 		if (!se) throw new ConvexError("Exercice introuvable.");
 		// L'exercice appartient bien à la séance planifiée (via la copie du programme).
@@ -349,15 +358,15 @@ export const logSet = mutation({
 		const prev = existing.find((l) => l.exerciseId === se.exerciseId && l.setOrder === setOrder);
 		if (prev) {
 			await ctx.db.patch(prev._id, {
-				reps: base.reps,
-				weightKg: base.weightKg,
-				durationSeconds: base.durationSeconds,
+				...(base.reps !== undefined ? { reps: base.reps } : {}),
+				...(base.weightKg !== undefined ? { weightKg: base.weightKg } : {}),
+				...(base.durationSeconds !== undefined ? { durationSeconds: base.durationSeconds } : {}),
 				done: base.done,
 			});
-			return { logId: prev._id };
+			return { logId: prev._id, startedAt };
 		}
 		const logId = await ctx.db.insert("trainingSetLogs", base);
-		return { logId };
+		return { logId, startedAt };
 	},
 });
 

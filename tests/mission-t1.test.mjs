@@ -63,21 +63,21 @@ test('Fuseau : « aujourd\u2019hui » est la date Europe/Paris, jamais l\u2019ho
 
 /* ─── 2) Adhérence ─── */
 
-test('Adhérence : 2 réalisées sur 4 séances passées = 50 % (skipped et manquées non faites)', () => {
+test('Adhérence : 3 réalisées sur 5 séances attendues = 60 % (T5 : une séance faite en avance compte)', () => {
 	const sessions = [
 		s({ status: 'completed', date: '2026-10-01' }), // réalisée
 		s({ status: 'completed', date: '2026-10-05', skippedAt: 123 }), // non réalisée → non comptée
 		s({ status: 'planned', date: '2026-10-08' }), // manquée → non comptée
 		s({ status: 'completed', date: '2026-10-12' }), // réalisée
-		// Hors dénominateur : annulée, aujourd'hui, future.
+		// Hors dénominateur : annulée, aujourd'hui (prévue) ; la future RÉALISÉE compte.
 		s({ status: 'cancelled', date: '2026-10-02' }),
 		s({ status: 'planned', date: TODAY }),
-		s({ status: 'completed', date: '2026-11-05' }),
+		s({ status: 'completed', date: '2026-11-05' }), // faite en avance → numérateur + dénominateur
 	];
 	const a = trainingAdherence(sessions, TODAY);
-	assert.equal(a.past, 4, '4 séances passées hors annulées');
-	assert.equal(a.done, 2, '2 « Réalisée » seulement');
-	assert.equal(a.percent, 50);
+	assert.equal(a.past, 5, '5 séances attendues hors annulées (dont la future réalisée)');
+	assert.equal(a.done, 3, '3 « Réalisée » (dont la future réalisée)');
+	assert.equal(a.percent, 60);
 });
 
 test('Adhérence : « Non réalisée » n\u2019est jamais comptée comme faite, même seule séance passée', () => {

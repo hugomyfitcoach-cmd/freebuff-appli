@@ -205,6 +205,8 @@ export const assignmentDetail = query({
 					completedAt: s.completedAt ?? null,
 					skippedAt: s.skippedAt ?? null,
 					startedAt: s.startedAt ?? null,
+					/** Durée enregistrée par la cliente (corrigée si elle existe) — même valeur qu'elle. */
+					durationMin: s.durationMin ?? null,
 					difficulty: s.difficulty ?? null,
 					note: s.note ?? null,
 				})),

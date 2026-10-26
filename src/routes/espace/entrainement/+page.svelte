@@ -30,7 +30,8 @@
 	let today = $state('');
 	let days = $state<DaySession[]>([]);
 	let nextSession = $state<NextSession>(null);
-	let selected = $state<DaySession | null>(null);
+	/** Jour sélectionné dans la semaine ("yyyy-mm-dd") — ses séances, ou Repos. */
+	let selectedDay = $state('');
 
 	/** Vue séance ouverte (session runner plein écran). */
 	let openScheduledId = $state<string | null>(null);
@@ -80,8 +81,6 @@
 		return prettyDate(iso);
 	}
 
-	/** Jour courant de la semaine affichée (0-6) — l'aujourd'hui est surligné. */
-	const selectedIso = $derived(selected?.date ?? '');
 	function sessionsOn(iso: string): DaySession[] {
 		return days.filter((d) => d.date === iso);
 	}
@@ -98,12 +97,9 @@
 			skippedAt: (d.skippedAt as number | null) ?? null,
 		}));
 		nextSession = (r.nextSession ?? null) as NextSession;
-		// Sélection par défaut : la prochaine séance si elle est dans la semaine,
-		// sinon aujourd'hui (même sans séance), sinon le 1er jour.
-		const upcoming = days.find((d) => d.status === 'planned');
-		if (upcoming) selected = upcoming;
-		else if (today >= weekStart && today <= addDays(weekStart, 6)) selected = null;
-		else selected = null;
+		// Sélection par défaut : AUJOURD'HUI (ou le lundi de la semaine affichée
+		// si aujourd'hui n'y est pas). Cliquer un jour affiche SES séances.
+		selectedDay = today >= weekStart && today <= addDays(weekStart, 6) ? today : weekStart;
 	}
 
 	async function shiftWeek(delta: number) {
@@ -134,7 +130,6 @@
 
 	let runnerKey = $state(0);
 	function openSession(s: DaySession) {
-		selected = s;
 		openScheduledId = s._id;
 		openSessionId = s._id;
 		runnerKey += 1;
@@ -207,7 +202,6 @@
 			const r = await fetch(`/api/training/session/manage?scheduledId=${s._id}`, { method: 'DELETE' });
 			const j = await r.json();
 			if (j.error) throw new Error(j.error);
-			if (selected?._id === s._id) selected = null;
 			await loadWeek(weekStart);
 		} catch (e) {
 			err = e instanceof Error ? e.message : 'Suppression impossible.';
@@ -303,7 +297,7 @@
 					<p class="mt-1.5 font-display text-xl font-semibold text-ink">{nextSession.name}</p>
 					<p class="mt-0.5 text-sm font-semibold capitalize text-ink">{nextLabel(nextSession.date)}</p>
 					<span class="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-brand px-4 py-2 text-sm font-bold text-white">
-						<Icon name="play" size={14} /> Voir la séance
+						<Icon name="play" size={14} /> Faire cette séance
 					</span>
 				</button>
 			{/if}
@@ -330,45 +324,44 @@
 						{@const isToday = iso === today}
 						<button
 							type="button"
-							onclick={() => (selected = daySessions[0] ?? null)}
-							class="flex flex-col items-center rounded-xl px-0.5 pb-1.5 pt-2 transition {selectedIso === iso
+							onclick={() => (selectedDay = iso)}
+							class="flex flex-col items-center rounded-xl px-0.5 pb-1.5 pt-2 transition {selectedDay === iso
 								? 'bg-ink text-white'
 								: isToday
 									? 'bg-brand-light text-ink'
 									: 'text-ink hover:bg-line/40'}"
 						>
-							<span class="text-[10px] font-bold uppercase tracking-wide {selectedIso === iso ? 'text-white/70' : 'text-mist'}">
+							<span class="text-[10px] font-bold uppercase tracking-wide {selectedDay === iso ? 'text-white/70' : 'text-mist'}">
 								{DAY_LETTERS[i]}
 							</span>
 							<span class="mt-0.5 text-sm font-bold tabular-nums">{dateNum(iso)}</span>
 							<!-- Indicateur : point (prévue) / point plein vert (faite) -->
-							<span class="mt-1 h-1.5 w-1.5 rounded-full {hasDone ? 'bg-brand' : hasPlanned ? 'bg-ink/30' : 'bg-transparent'} {selectedIso === iso && !hasDone && !hasPlanned ? (selectedIso === iso ? 'bg-white/40' : '') : ''}"></span>
+							<span class="mt-1 h-1.5 w-1.5 rounded-full {hasDone ? 'bg-brand' : hasPlanned ? 'bg-ink/30' : 'bg-transparent'} {selectedDay === iso && !hasDone && !hasPlanned ? 'bg-white/40' : ''}"></span>
 						</button>
 					{/each}
 				</div>
 
-				<!-- Séances du jour sélectionné -->
-				{#if selectedIso}
+				<!-- Séances du jour sélectionné — ou Repos (jamais une autre journée) -->
+				{#if selectedDay}
 					<div class="mt-3 border-t border-line/70 pt-3">
-						{#if sessionsOn(selectedIso).length === 0}
-							<p class="py-1 text-center text-sm text-mist">Pas de séance ce jour-là.</p>
+						{#if sessionsOn(selectedDay).length === 0}
+							<p class="rounded-2xl bg-line/30 px-4 py-4 text-center text-sm font-semibold text-mist">Repos — aucune séance prévue ce jour-là.</p>
 						{:else}
-							{#each sessionsOn(selectedIso) as s (s._id)}
-							<div
-								role="button"
-								tabindex="0"
-								onclick={() => openSession(s)}
-								onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSession(s); } }}
-								class="mb-2 flex w-full cursor-pointer items-center justify-between gap-3 rounded-2xl border border-line bg-white px-4 py-3 text-left transition hover:border-brand/60 last:mb-0"
-							>
+							{#each sessionsOn(selectedDay) as s (s._id)}
+							<div class="mb-2 flex w-full items-center justify-between gap-3 rounded-2xl border border-line bg-white px-4 py-3 text-left last:mb-0">
 								<span class="min-w-0">
 									<span class="block truncate text-sm font-bold text-ink">{s.name}</span>
 									<span class="text-xs text-mist">{s.status === 'completed' ? (s.skippedAt != null ? 'Non réalisée' : 'Séance réalisée ✓') : s.startedAt != null ? 'Séance en cours' : 'À faire'}</span>
 								</span>
 								{#if s.status === 'completed'}
-									<span class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brand text-white">
+									<button
+										type="button"
+										onclick={() => openSession(s)}
+										class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brand text-white"
+										aria-label="Revoir la séance réalisée"
+									>
 										<Icon name="check" size={15} strokeWidth={2.5} />
-									</span>
+									</button>
 								{:else}
 									<div class="flex shrink-0 items-center gap-1">
 										<button
@@ -380,10 +373,9 @@
 										<button
 											type="button"
 											onclick={() => openSession(s)}
-											class="grid h-8 w-8 place-items-center rounded-full bg-ink text-white"
-											aria-label="Commencer la séance"
+											class="rounded-xl bg-ink px-3 py-1.5 text-xs font-bold text-white transition hover:bg-brand"
 										>
-											<Icon name="play" size={13} />
+											Faire cette séance
 										</button>
 									</div>
 								{/if}
@@ -422,9 +414,9 @@
 {/if}
 
 <!-- Menus ••• (déplacer / dupliquer / supprimer) -->
-{#if menuFor && selectedIso}
+{#if menuFor && selectedDay}
 	<button type="button" class="fixed inset-0 z-[55] cursor-default" aria-label="Fermer le menu" onclick={() => (menuFor = null)}></button>
-	{#each sessionsOn(selectedIso) as ms (ms._id)}
+	{#each sessionsOn(selectedDay) as ms (ms._id)}
 		{#if ms._id === menuFor && ms.status !== 'completed'}
 			<div class="fixed inset-x-4 bottom-24 z-[56] mx-auto max-w-xs overflow-hidden rounded-2xl border border-line bg-white shadow-xl">
 				<button type="button" onclick={() => askMove(ms)} class="block w-full px-4 py-3 text-left text-sm font-semibold text-ink hover:bg-line/40">

@@ -64,17 +64,21 @@ export type Adherence = {
 };
 
 /**
- * Adhérence : séances « Réalisée » ÷ séances passées non annulées.
- * « Non réalisée » et « Manquée » sont bien présentes au dénominateur sans
- * être au numérateur — elles comptent comme non faites.
+ * Adhérence : séances « Réalisée » ÷ séances attendues non annulées.
+ * Une séance réalisée compte IMMÉDIATEMENT, même si sa date prévue est
+ * future (faite en avance) : elle entre au numérateur ET au dénominateur.
+ * « Non réalisée » et « Manquée » restent au dénominateur sans être au
+ * numérateur — elles comptent comme non faites.
  */
 export function trainingAdherence(sessions: readonly SessionProgressLike[], todayISO: string): Adherence {
-	const past = sessions.filter((s) => s.status !== 'cancelled' && s.date < todayISO);
-	const done = past.filter((s) => trainingStatus(s, todayISO) === 'done');
+	const expected = sessions.filter(
+		(s) => s.status !== 'cancelled' && (s.date < todayISO || trainingStatus(s, todayISO) === 'done')
+	);
+	const done = expected.filter((s) => trainingStatus(s, todayISO) === 'done');
 	return {
 		done: done.length,
-		past: past.length,
-		percent: past.length > 0 ? Math.round((done.length / past.length) * 100) : null,
+		past: expected.length,
+		percent: expected.length > 0 ? Math.round((done.length / expected.length) * 100) : null,
 	};
 }
 

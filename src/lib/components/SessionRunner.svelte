@@ -18,6 +18,7 @@
 	import { displayExerciseName, exerciseInstructions } from '$lib/exerciseFr';
 	import { loadScheduledSession, SESSION_LOAD_ERROR_MESSAGE } from '$lib/sessionLoad';
 	import { supersetBlocks, supersetLabel } from '$lib/training';
+	import { equipmentFamily } from '$lib/exerciseEquipment';
 
 	type ExSet = {
 		order: number;
@@ -342,13 +343,34 @@
 	});
 
 	/* ── Écriture d'une série (LES DEUX MODES) ── */
+
+	/** Familles sans charge : le champ kg n'a pas de sens (sauf charge cible coach). */
+	function showWeight(ex: Ex): boolean {
+		const family = equipmentFamily(ex.exercise?.equipment);
+		if (family !== 'Poids du corps' && family !== 'Élastiques') return true;
+		return ex.sets.some((st) => st.targetWeight != null);
+	}
+
+	/** Au moins une série cochée : la séance est lancée, « Terminer » est visible. */
+	const hasCheckedSet = $derived(data?.exercises.some((e) => e.loggedSets.some((l) => l.done)) ?? false);
+
+	/** Valeurs saisies d'une série libre (kg omis pour poids du corps / élastiques). */
+	function draftPayload(ex: Ex, d: Draft, setOrder: number): { reps?: number; weightKg?: number; durationSeconds?: number } {
+		if (ex.mode === 'time') {
+			return { durationSeconds: Number(d.duration) || ex.sets[setOrder]?.durationSeconds || undefined };
+		}
+		const payload: { reps?: number; weightKg?: number } = { reps: Number(d.reps) || undefined };
+		if (showWeight(ex) && d.weight.trim()) payload.weightKg = Number(d.weight.replace(',', '.'));
+		return payload;
+	}
+
 	async function saveSet(
 		ex: Ex,
 		setOrder: number,
 		payload: { reps?: number; weightKg?: number; durationSeconds?: number },
 		done: boolean
 	) {
-		await fetch('/api/training/log', {
+		const r = await fetch('/api/training/log', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({
@@ -360,8 +382,32 @@
 				...(payload.durationSeconds !== undefined ? { durationSeconds: payload.durationSeconds } : {}),
 				done,
 			}),
-		});
+		}).then((x) => x.json()).catch(() => null);
+		if (r?.error) {
+			err = r.error;
+			return;
+		}
 		markLocal(ex, setOrder, payload, done);
+		// La première série cochée démarre la séance : le serveur a posé
+		// startedAt (persisté) → le chrono global repart de cet horodatage.
+		if (done && r?.startedAt && !sessionStarted) {
+			sessionStarted = true;
+			startedAt = r.startedAt;
+			startElapsed();
+		}
+	}
+
+	/** Série libre déjà cochée : modifier reps / kg / durée met à jour l'enregistrement. */
+	async function updateFreeSet(ex: Ex, setOrder: number) {
+		const d = ensureDraft(ex, setOrder);
+		if (!d.done) return;
+		saving = true;
+		err = '';
+		try {
+			await saveSet(ex, setOrder, draftPayload(ex, d, setOrder), true);
+		} finally {
+			saving = false;
+		}
 	}
 
 	/** Mode libre : coche/valide une série avec les valeurs du brouillon. */
@@ -372,17 +418,7 @@
 		saving = true;
 		err = '';
 		try {
-			await saveSet(
-				ex,
-				setOrder,
-				ex.mode === 'time'
-					? { durationSeconds: Number(d.duration) || ex.sets[setOrder]?.durationSeconds || undefined }
-					: {
-							reps: Number(d.reps) || undefined,
-							weightKg: d.weight.trim() ? Number(d.weight.replace(',', '.')) : undefined,
-						},
-				next
-			);
+			await saveSet(ex, setOrder, draftPayload(ex, d, setOrder), next);
 			// Série VALIDÉE → repos automatique comme en guidé (même moteur de
 			// timer, jamais en chevauchant une durée de série en cours) : sauf
 			// toute dernière série de la séance, et seulement si un repos est
@@ -450,22 +486,32 @@
 		}
 		// Dernière étape : reste sur place — « Terminer la séance » prend le relais.
 	}
+	/** Valeurs saisies de la série guidée courante. */
+	function guidedPayload(): { reps?: number; weightKg?: number; durationSeconds?: number } {
+		if (!gEx) return {};
+		if (gEx.mode === 'time') return { durationSeconds: Number(gDuration) || gSet?.durationSeconds || undefined };
+		const payload: { reps?: number; weightKg?: number } = { reps: Number(gReps) || undefined };
+		if (showWeight(gEx) && gWeight.trim()) payload.weightKg = Number(gWeight.replace(',', '.'));
+		return payload;
+	}
+	/** Série guidée déjà validée (revue via ← Précédent) : la décocher. */
+	async function unvalidateGuidedSet() {
+		if (!gEx) return;
+		saving = true;
+		err = '';
+		try {
+			await saveSet(gEx, gSetIdx, guidedPayload(), false);
+			guidedDone = Math.max(0, guidedDone - 1);
+		} finally {
+			saving = false;
+		}
+	}
 	async function validateGuidedSet() {
 		if (!gEx) return;
 		saving = true;
 		err = '';
 		try {
-			await saveSet(
-				gEx,
-				gSetIdx,
-				gEx.mode === 'time'
-					? { durationSeconds: Number(gDuration) || gSet?.durationSeconds || undefined }
-					: {
-							reps: Number(gReps) || undefined,
-							weightKg: gWeight.trim() ? Number(gWeight.replace(',', '.')) : undefined,
-						},
-				true
-			);
+			await saveSet(gEx, gSetIdx, guidedPayload(), true);
 			guidedDone += 1;
 			stopTimer();
 			// Repos automatique (sil on n'est pas à la toute fin), puis série suivante.
@@ -1011,8 +1057,9 @@
 													type="number"
 													inputmode="numeric"
 													bind:value={d.duration}
-													disabled={d.done}
-													class="w-full rounded-lg border border-line bg-white px-2 py-1.5 text-sm tabular-nums outline-none focus:border-brand disabled:opacity-60"														placeholder="{st.durationSeconds ?? 60}s"
+													onchange={() => updateFreeSet(ex, st.order)}
+													class="w-full rounded-lg border border-line bg-white px-2 py-1.5 text-sm tabular-nums outline-none focus:border-brand"
+													placeholder="{st.durationSeconds ?? 60}s"
 												/>
 												<span class="text-xs font-semibold text-mist">s</span>
 											</div>
@@ -1022,20 +1069,22 @@
 													type="number"
 													inputmode="numeric"
 													bind:value={d.reps}
-													disabled={d.done}
-													class="w-full min-w-0 rounded-lg border border-line bg-white px-2 py-1.5 text-sm tabular-nums outline-none focus:border-brand disabled:opacity-60"
+													onchange={() => updateFreeSet(ex, st.order)}
+													class="w-full min-w-0 rounded-lg border border-line bg-white px-2 py-1.5 text-sm tabular-nums outline-none focus:border-brand"
 													placeholder="{repsLabel(st)}"
 												/>
 												<span class="text-xs font-semibold text-mist">reps</span>
-												<input
-													type="text"
-													inputmode="decimal"
-													bind:value={d.weight}
-													disabled={d.done}
-													class="w-full min-w-0 rounded-lg border border-line bg-white px-2 py-1.5 text-sm tabular-nums outline-none focus:border-brand disabled:opacity-60"
-													placeholder="kg"
-												/>
-												<span class="text-xs font-semibold text-mist">kg</span>
+												{#if showWeight(ex)}
+													<input
+														type="text"
+														inputmode="decimal"
+														bind:value={d.weight}
+														onchange={() => updateFreeSet(ex, st.order)}
+														class="w-full min-w-0 rounded-lg border border-line bg-white px-2 py-1.5 text-sm tabular-nums outline-none focus:border-brand"
+														placeholder="kg"
+													/>
+													<span class="text-xs font-semibold text-mist">kg</span>
+												{/if}
 											</div>
 										{/if}
 									</div>
@@ -1063,9 +1112,10 @@
 				</section>
 			{/each}
 
-			<!-- Barre d'actions mode libre -->
+			<!-- Barre d'actions mode libre — plus de bouton « Commencer » :
+			     la première série cochée démarre la séance (startedAt serveur). -->
 			<div class="sticky bottom-3 z-10 mt-2 grid gap-2">
-				{#if sessionStarted}
+				{#if sessionStarted || hasCheckedSet}
 					<button
 						type="button"
 						disabled={saving}
@@ -1073,16 +1123,6 @@
 						class="w-full rounded-2xl bg-brand px-5 py-3.5 text-sm font-bold text-white shadow-lg transition hover:bg-brand-dark disabled:opacity-60"
 					>
 						Terminer la séance
-					</button>
-				{:else}
-					<!-- Démarrage RÉEL : un tap explicite (consulter ne démarre rien) →
-					     startedAt persisté backend (survit au verrouillage/fond). -->
-					<button
-						type="button"
-						onclick={startRealSession}
-						class="w-full rounded-2xl bg-brand px-5 py-3.5 text-sm font-bold text-white shadow-lg transition hover:bg-brand-dark"
-					>
-						<Icon name="play" size={14} class="mr-1 inline" /> Commencer la séance
 					</button>
 				{/if}
 				<button
@@ -1169,7 +1209,7 @@
 						</div>
 					{:else}
 						<!-- Saisie reps / charge (préremplies) -->
-						<div class="mx-auto mt-6 grid max-w-xs grid-cols-2 gap-3">
+						<div class="mx-auto mt-6 grid max-w-xs gap-3 {showWeight(gEx) ? 'grid-cols-2' : 'grid-cols-1'}">
 							<label class="text-center">
 								<span class="block text-[10px] font-bold uppercase tracking-widest text-mist">Reps faites</span>
 								<input
@@ -1179,15 +1219,17 @@
 									class="mt-1 w-full rounded-xl border-2 border-line bg-white px-3 py-3 text-center font-display text-2xl font-bold tabular-nums outline-none focus:border-brand"
 								/>
 							</label>
-							<label class="text-center">
-								<span class="block text-[10px] font-bold uppercase tracking-widest text-mist">Charge (kg)</span>
-								<input
-									type="text"
-									inputmode="decimal"
-									bind:value={gWeight}
-									class="mt-1 w-full rounded-xl border-2 border-line bg-white px-3 py-3 text-center font-display text-2xl font-bold tabular-nums outline-none focus:border-brand"
-								/>
-							</label>
+							{#if showWeight(gEx)}
+								<label class="text-center">
+									<span class="block text-[10px] font-bold uppercase tracking-widest text-mist">Charge (kg)</span>
+									<input
+										type="text"
+										inputmode="decimal"
+										bind:value={gWeight}
+										class="mt-1 w-full rounded-xl border-2 border-line bg-white px-3 py-3 text-center font-display text-2xl font-bold tabular-nums outline-none focus:border-brand"
+									/>
+								</label>
+							{/if}
 						</div>
 					{/if}
 
@@ -1228,25 +1270,27 @@
 							<button type="button" onclick={prevStep} class="rounded-xl border-2 border-line px-4 py-2.5 text-sm font-semibold text-ink transition hover:border-brand">← Précédent</button>
 							<button type="button" onclick={nextStep} class="rounded-xl border-2 border-line px-4 py-2.5 text-sm font-semibold text-ink transition hover:border-brand">Passer →</button>
 						</div>
+						{#if gEx.loggedSets.find((l) => l.setOrder === gSetIdx)?.done}
+							<button
+								type="button"
+								disabled={saving}
+								onclick={unvalidateGuidedSet}
+								class="w-full rounded-xl border-2 border-line px-4 py-2.5 text-xs font-semibold text-mist transition hover:border-danger hover:text-danger disabled:opacity-60"
+							>
+								Décocher cette série
+							</button>
+						{/if}
 					</div>
 				{/if}
 			</div>
 
-			{#if sessionStarted}
+			{#if sessionStarted || hasCheckedSet}
 				<button
 					type="button"
 					onclick={requestFinish}
 					class="mt-4 w-full rounded-xl border-2 border-line bg-card px-5 py-3 text-sm font-semibold text-ink transition hover:border-brand"
 				>
 					Terminer la séance
-				</button>
-			{:else}
-				<button
-					type="button"
-					onclick={startRealSession}
-					class="mt-4 w-full rounded-xl border-2 border-brand bg-brand px-5 py-3 text-sm font-bold text-white transition hover:bg-brand-dark"
-				>
-					<Icon name="play" size={14} class="mr-1 inline" /> Commencer la séance
 				</button>
 			{/if}
 			<p class="mt-2 text-center text-[11px] text-mist">{guidedDone}/{guidedTotal} séries validées en mode guidé</p>

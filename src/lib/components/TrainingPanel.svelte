@@ -65,6 +65,8 @@
 		completedAt: number | null;
 		skippedAt: number | null;
 		startedAt: number | null;
+		/** Durée enregistrée par la cliente — prioritaire sur le chrono. */
+		durationMin: number | null;
 		difficulty: number | null;
 		note: string | null;
 	};

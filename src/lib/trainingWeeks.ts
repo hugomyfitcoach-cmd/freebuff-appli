@@ -118,8 +118,17 @@ export function programEndBadge(endDate: string, todayISO: string): { label: str
 	return { label: `Se termine dans ${days} jours`, tone: days <= 5 ? 'warn' : 'calm' };
 }
 
-/** Durée réelle d'une séance (min) — null si les horodatages manquent. */
-export function sessionDurationMin(s: { startedAt?: number | null; completedAt?: number | null }): number | null {
-	if (!s.startedAt || !s.completedAt || s.completedAt <= s.startedAt) return null;
+/**
+ * Durée réelle d'une séance (min) — la MÊME que celle vue par la cliente :
+ * durée enregistrée/corrigée par elle si elle existe, sinon chronométrée
+ * (completedAt − startedAt). null si aucune information.
+ */
+export function sessionDurationMin(s: {
+	durationMin?: number | null;
+	startedAt?: number | null;
+	completedAt?: number | null;
+}): number | null {
+	if (s.durationMin != null && s.durationMin > 0) return Math.round(s.durationMin);
+	if (s.startedAt == null || s.completedAt == null || s.completedAt <= s.startedAt) return null;
 	return Math.max(1, Math.round((s.completedAt - s.startedAt) / 60000));
 }

@@ -1563,7 +1563,9 @@
 		{:else if trainingWeek?.nextSession}
 			<p class="mt-2 font-display text-lg font-bold leading-tight tracking-tight text-ink">Prochaine séance</p>
 			<p class="mt-1 min-w-0 truncate text-xs font-semibold text-mist">
-				{new Date(trainingWeek.nextSession.date + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long' })}{#if trainingWeek.nextSession.name} · {trainingWeek.nextSession.name}{/if}
+				{new Date(trainingWeek.nextSession.date + 'T12:00:00')
+					.toLocaleDateString('fr-FR', { weekday: 'long' })
+					.replace(/^./, (c) => c.toUpperCase())}{#if trainingWeek.nextSession.name} · {trainingWeek.nextSession.name}{/if}
 			</p>
 		{:else if trainingWeek && !trainingWeek.hasAnySession}
 			<!-- Aucun programme : empty state premium (pas une erreur, pas de gros
