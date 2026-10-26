@@ -104,20 +104,30 @@ export const POST: RequestHandler = async (event) => {
 		const body = await event.request.json();
 		log('convex-start POST', rid);
 		const tConvex = Date.now();
-		if (body.reopen === true) {
-			// Réouverture d'une séance terminée par erreur : completed → planned,
-			// séries conservées, dépense sportive liée neutralisée (aucun doublon).
-			const reopened = await withTimeout(
-				convex.mutation(api.trainingClient.reopenSession, {
-					sessionToken: token,
-					scheduledId: id as never,
-				}),
-				CONVEX_TIMEOUT_MS,
-				rid
-			);
+		if (body.abandon === true || body.reopen === true) {
+			// Deux issues d'une séance mal engagée, un seul appel borné :
+			// - abandon : démarrage par erreur → séries décochées (aucune ligne
+			//   supprimée) + startedAt retiré → la séance redevient « Prévue » ;
+			// - reopen : faux « Terminer » → completed → planned, séries
+			//   conservées, dépense sportive liée neutralisée (aucun doublon).
+			const special = (body.abandon === true
+				? convex.mutation(api.trainingClient.abandonMySession, {
+						sessionToken: token,
+						scheduledId: id as never,
+					})
+				: convex.mutation(api.trainingClient.reopenSession, {
+						sessionToken: token,
+						scheduledId: id as never,
+					})) as Promise<{ unchecked?: number; accumulatedMin?: number }>;
+			const res = await withTimeout(special, CONVEX_TIMEOUT_MS, rid);
+			if (body.abandon === true) {
+				log('respond POST', rid, { status: 200, totalMs: Date.now() - t0, abandon: true });
+				return json({ ok: true, abandoned: true, unchecked: res?.unchecked ?? 0 });
+			}
 			log('respond POST', rid, { status: 200, totalMs: Date.now() - t0, reopen: true });
 			// accumulatedMin : temps réellement travaillé avant l'erreur — le
 			// front l'ajoutera à la nouvelle fenêtre au moment de re-terminer.
+			const reopened = res;
 			return json({ ok: true, reopened: true, startedAt: Date.now(), accumulatedMin: reopened?.accumulatedMin ?? 0 });
 		}
 		await withTimeout(

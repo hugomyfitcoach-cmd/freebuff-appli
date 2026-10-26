@@ -15,6 +15,7 @@
 	 */
 	import { onMount, onDestroy } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { displayExerciseName, exerciseInstructions } from '$lib/exerciseFr';
 	import { loadScheduledSession, SESSION_LOAD_ERROR_MESSAGE } from '$lib/sessionLoad';
 	import { supersetBlocks, supersetLabel } from '$lib/training';
@@ -157,8 +158,25 @@
 	let interval: ReturnType<typeof setInterval> | null = null;
 	/** Exercice dont la série vient de déclencher le repos (bandeau dans SA carte). */
 	let restExId = $state('');
-	/** Cartes d'exercices dépliées manuellement (affichage seul). */
+	/** Cartes d'exercices repliées/dépliées manuellement (affichage seul). */
 	let expandedEx = $state<Record<string, boolean>>({});
+
+	/** Exercice « en cours » = premier dont une série n'est pas encore cochée. */
+	const currentExId = $derived(
+		data?.exercises.find((e) => e.sets.some((st) => !(e.loggedSets.find((l) => l.setOrder === st.order)?.done))) ?._id ?? ''
+	);
+	/**
+	 * Carte dépliée ? Par défaut : l'exercice en cours et ceux déjà commencés.
+	 * Un toucher sur l'en-tête impose l'inverse (dans les DEUX sens).
+	 */
+	function isExpanded(ex: Ex): boolean {
+		const override = expandedEx[ex._id];
+		if (override !== undefined) return override;
+		return ex._id === currentExId || ex.loggedSets.some((l) => l.done);
+	}
+	function toggleCard(ex: Ex) {
+		expandedEx[ex._id] = !isExpanded(ex);
+	}
 
 	function stopTimer() {
 		if (interval) clearInterval(interval);
@@ -425,24 +443,34 @@
 	async function toggleFreeSet(ex: Ex, setOrder: number) {
 		const d = ensureDraft(ex, setOrder);
 		const next = !d.done;
-		d.done = next;
-		saving = true;
+		d.done = next;			saving = true;
 		err = '';
 		try {
 			await saveSet(ex, setOrder, draftPayload(ex, d, setOrder), next);
 			// Série VALIDÉE → repos automatique comme en guidé (même moteur de
 			// timer, jamais en chevauchant une durée de série en cours) : sauf
 			// toute dernière série de la séance, et seulement si un repos est
-			// prescrit. Décocher ne relance rien.
+			// prescrit. Décocher ne relance rien — mais décocher la dernière
+			// série cochée rend la séance « Prévue » (startedAt retiré).
 			if (next) {
 				const isLastSet = setOrder >= ex.sets.length - 1;
 				const exIdx = data?.exercises.findIndex((e) => e._id === ex._id) ?? -1;
 				const isLastEx = exIdx === (data?.exercises.length ?? 1) - 1;
 				const rest = ex.sets[setOrder]?.restSeconds ?? 0;
 				if (!(isLastSet && isLastEx) && rest > 0) {
-					restExId = ex._id;
+					// startTimer remet restExId à zéro : on le pose APRÈS pour que
+					// le bandeau s'affiche vraiment dans la carte de l'exercice.
 					startTimer('rest', rest);
+					restExId = ex._id;
+					expandedEx[ex._id] = true;
+				} else {
+					// Une autre série cochée sans repos prescrit : le bandeau en
+					// cours n'a plus lieu d'être.
+					stopTimer();
 				}
+			} else {
+				const anyLeft = data?.exercises.some((e) => e.loggedSets.some((l) => l.done)) ?? false;
+				if (!anyLeft) await abandonSession();
 			}
 		} catch {
 			d.done = !next;
@@ -736,6 +764,65 @@
 		onFinished?.();
 	}
 
+	/* ── Séance commencée PAR ERREUR : retour à « Prévue » ──
+	   Aucune ligne n'est supprimée : les séries de CETTE occurrence repassent
+	   à done:false et startedAt est retiré — la séance redevient « Prévue »,
+	   prête à être refaite. Une séance terminée n'est JAMAIS concernée
+	   (l'historique est verrouillé côté backend). */
+	let abandoning = $state(false);
+	let quitConfirm = $state(false);
+
+	async function abandonSession(): Promise<boolean> {
+		if (abandoning) return false;
+		abandoning = true;
+		err = '';
+		try {
+			const r = await fetch(`/api/training/session/${scheduledId}`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ abandon: true }),
+			}).then((x) => x.json());
+			if (r?.error) throw new Error(r.error);
+			// État local aligné sur le serveur : séries décochées, séance Prévue.
+			for (const ex of data?.exercises ?? []) for (const l of ex.loggedSets) l.done = false;
+			for (const k of Object.keys(drafts)) drafts[k].done = false;
+			sessionStarted = false;
+			stopTimer();
+			stopElapsed();
+			return true;
+		} catch (e) {
+			err = e instanceof Error ? e.message : 'Annulation impossible — réessaie.';
+			return false;
+		} finally {
+			abandoning = false;
+		}
+	}
+
+	/** « Garder en cours » : comportement actuel — la séance reste commencée. */
+	function keepRunning() {
+		quitConfirm = false;
+		onFinished?.();
+	}
+	/** « Annuler la séance » : série décochées, aucune ligne supprimée. */
+	async function cancelSession() {
+		quitConfirm = false;
+		if (await abandonSession()) onFinished?.();
+	}
+
+	/** Fermeture (croix) : 0 série cochée → Prévue ; sinon confirmation. */
+	async function requestClose() {
+		if (!data || alreadyCompleted || mode === 'recap') {
+			closeRunner();
+			return;
+		}
+		if (setsChecked === 0) {
+			const ok = await abandonSession();
+			if (ok) onFinished?.();
+			return;
+		}
+		quitConfirm = true;
+	}
+
 	/* ── Affichage helpers ── */
 	const PHASE_LABELS: Record<string, string> = {
 		echauffement: 'Échauffement',
@@ -934,10 +1021,11 @@
 		<div class="mb-3 rounded-3xl border border-line bg-card p-4 shadow-sm">
 			<div class="flex items-center justify-between gap-3">
 				<button
-					type="button"
-					onclick={closeRunner}
-					class="grid h-11 w-11 place-items-center rounded-full border border-line bg-card text-ink transition hover:bg-line/50"
-					aria-label="Fermer"
+				type="button"
+				onclick={requestClose}
+				disabled={abandoning}
+				class="grid h-11 w-11 place-items-center rounded-full border border-line bg-card text-ink transition hover:bg-line/50 disabled:opacity-60"
+				aria-label="Fermer"
 				>
 					<Icon name="x" size={18} />
 				</button>
@@ -954,7 +1042,7 @@
 			</div>
 			<div class="mt-3">
 				<div class="flex items-center justify-between gap-2 text-[13px] font-bold text-mist">
-					<span>{exercisesStarted} exercices sur {data.exercises.length}</span>
+					<span>{exercisesStarted} exercice{exercisesStarted > 1 ? 's' : ''} sur {data.exercises.length}</span>
 					<span>{setsChecked} / {totalSets} séries</span>
 				</div>
 				<div class="mt-1.5 h-2 overflow-hidden rounded-full bg-line">
@@ -989,20 +1077,25 @@
 						{@const doneCount = ex.loggedSets.filter((l) => l.done).length}
 						{@const complete = doneCount === ex.sets.length && ex.sets.length > 0}
 						{@const inProgress = doneCount > 0 && !complete}
-						{@const expanded = doneCount > 0 || expandedEx[ex._id] === true}
+						{@const expanded = isExpanded(ex)}
 						<article class="mb-3 overflow-hidden rounded-2xl border bg-card shadow-sm {inProgress ? 'border-brand' : 'border-line'}">
+							<!-- En-tête = bouton de repli/dépli (miniature + nom), dans les DEUX sens -->
 							<div
-								class="flex items-start gap-3 p-3.5 {expanded ? '' : 'cursor-pointer'}"
-								role={expanded ? undefined : 'button'}
-								tabindex={expanded ? undefined : 0}
-								onclick={expanded ? undefined : () => (expandedEx[ex._id] = true)}
-								onkeydown={expanded ? undefined : (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); expandedEx[ex._id] = true; } }}
+								class="flex cursor-pointer items-start gap-3 p-3.5"
+								role="button"
+								tabindex="0"
+								aria-expanded={expanded}
+								onclick={() => toggleCard(ex)}
+								onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCard(ex); } }}
 							>
 								{#if mediaFor(ex)}
 									<!-- Vignette cliquable → aperçu plein écran du mouvement -->
 									<button
 										type="button"
-										onclick={() => (previewEx = ex)}
+										onclick={(ev) => {
+											ev.stopPropagation();
+											previewEx = ex;
+										}}
 										class="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-line/40"
 										aria-label={`Voir le mouvement : ${displayExerciseName(ex.exercise?.name) || 'exercice'}`}
 									>
@@ -1023,9 +1116,12 @@
 								<div class="min-w-0 flex-1">
 									<div class="flex items-start justify-between gap-2">
 										<h3 class="min-w-0 text-base font-bold leading-snug text-ink line-clamp-2">{displayExerciseName(ex.exercise?.name) || 'Exercice'}</h3>
-										<span class="shrink-0 rounded-full px-2.5 py-1 text-xs font-bold {complete ? 'bg-brand text-white' : 'bg-soft text-ink'}">
-											{doneCount}/{ex.sets.length}
-										</span>
+										<div class="flex shrink-0 items-center gap-1">
+											<span class="rounded-full px-2.5 py-1 text-xs font-bold {complete ? 'bg-brand text-white' : 'bg-soft text-ink'}">
+												{doneCount}/{ex.sets.length}
+											</span>
+											<Icon name={expanded ? 'chevronUp' : 'chevronDown'} size={16} class="text-mist" />
+										</div>
 									</div>
 									<p class="mt-0.5 text-[13px] text-mist">
 										{ex.mode === 'time'
@@ -1040,7 +1136,7 @@
 											<span class="rounded-full bg-soft px-2.5 py-1 text-xs font-bold text-mist">Première fois</span>
 										{/if}
 										{#if mediaFor(ex)}
-											<button type="button" onclick={() => (previewEx = ex)} class="inline-flex min-h-11 items-center gap-1 text-[13px] font-bold text-brand-deep transition hover:text-ink">
+											<button type="button" onclick={(ev) => { ev.stopPropagation(); previewEx = ex; }} class="inline-flex min-h-11 items-center gap-1 text-[13px] font-bold text-brand-deep transition hover:text-ink">
 												<Icon name="play" size={11} /> Voir le mouvement
 											</button>
 										{/if}
@@ -1054,7 +1150,7 @@
 
 							{#if restExId === ex._id && timerKind === 'rest'}
 								<div class="mx-3.5 mb-2 flex items-center justify-between gap-3 rounded-2xl bg-ink px-4 py-2.5 text-white">
-									<span class="text-sm font-bold">Repos · <span class="tabular-nums">{fmtTimer(timerLeft)}</span></span>
+									<span class="text-sm font-bold">Repos · <span class="tabular-nums">{fmtTimer(timerLeft)}</span> <span class="text-white/60">→ 0:00</span></span>
 									<button type="button" onclick={stopTimer} class="h-11 rounded-full border border-white/40 px-3 text-[13px] font-bold text-white transition hover:bg-white/10">
 										Passer
 									</button>
@@ -1392,6 +1488,23 @@
 	</div>
 {/if}
 
+<!-- ═══ Quitter une séance déjà commencée (≥ 1 série cochée) : confirmation
+     explicite. « Garder en cours » = comportement actuel (la séance reste
+     commencée) ; « Annuler la séance » = séries décochées côté serveur
+     (aucune ligne supprimée) + startedAt retiré → la séance redevient
+     « Prévue ». Une séance terminée n'ouvre jamais ce dialogue. ═══ -->
+<ConfirmDialog
+	open={quitConfirm}
+	title="Quitter la séance ?"
+	message="Ta séance peut rester en cours : tu la reprendras tout à l'heure. Tu peux aussi l'annuler — tes séries seront décochées et la séance redeviendra « Prévue »."
+	confirmLabel="Annuler la séance"
+	cancelLabel="Garder en cours"
+	danger
+	busy={abandoning}
+	onconfirm={cancelSession}
+	oncancel={keepRunning}
+/>
+
 <!-- ═══ Confirmation de durée (uniquement après « Terminer la séance », si durée étrange). Panneau léger : fermable, ne bloque JAMAIS l'app, aucune perte de données, jamais une notification globale. ═══ -->
 {#if durationConfirm}
 	<div
@@ -1448,7 +1561,7 @@
 			{:else}
 				<h3 class="font-display text-lg font-semibold text-ink">Terminer quand même ?</h3>
 				<p class="mt-1 text-sm text-mist">
-					{completionStatus().exDone} exercices sur {completionStatus().exTotal} renseignés · {completionStatus().setsDone}/{completionStatus().setsTotal} séries. Ta séance sera enregistrée telle quelle.
+					{completionStatus().exDone} exercice{completionStatus().exDone > 1 ? 's' : ''} sur {completionStatus().exTotal} renseignés · {completionStatus().setsDone}/{completionStatus().setsTotal} séries. Ta séance sera enregistrée telle quelle.
 				</p>
 			{/if}
 			<div class="mt-4 grid gap-2">

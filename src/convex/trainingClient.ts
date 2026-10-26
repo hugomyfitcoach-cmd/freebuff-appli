@@ -828,3 +828,42 @@ export const mySessionHistory = query({
 		return { sessions: out };
 	},
 });
+
+/* ═══════════ Séance commencée par erreur (annulation) ═══════════ */
+
+/**
+ * ANNULE une séance commencée par erreur — la séance redevient « Prévue ».
+ *
+ * - Réservé à la PROPRIÉTAIRE de l'occurrence (userId vérifié, comme toutes
+ *   les mutations cliente) : une autre cliente ne peut jamais l'annuler ;
+ * - une séance TERMINÉE n'est jamais concernée (historique verrouillé) ;
+ * - AUCUNE ligne n'est supprimée : les séries de cette occurrence repassent
+ *   simplement à done:false ;
+ * - startedAt est retiré (le chrono et l'état « En cours » disparaissent) et
+ *   le statut reste « planned » → la séance réapparaît comme Prévue.
+ * Idempotent : sans startedAt ni série cochée, l'appel ne change rien.
+ */
+export const abandonMySession = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		scheduledId: v.id("trainingScheduledSessions"),
+	},
+	handler: async (ctx, { sessionToken, scheduledId }) => {
+		const user = await requireClient(ctx, sessionToken);
+		const s = await ctx.db.get(scheduledId);
+		if (!s || s.userId !== user._id) throw new ConvexError("Séance introuvable.");
+		if (s.status === "completed") throw new ConvexError("Une séance terminée ne peut pas être annulée.");
+		const logs = await ctx.db
+			.query("trainingSetLogs")
+			.withIndex("by_session", (q) => q.eq("scheduledSessionId", scheduledId))
+			.collect();
+		let unchecked = 0;
+		for (const l of logs) {
+			if (!l.done) continue;
+			await ctx.db.patch(l._id, { done: false });
+			unchecked += 1;
+		}
+		await ctx.db.patch(scheduledId, { status: "planned", startedAt: undefined });
+		return { ok: true, unchecked };
+	},
+});

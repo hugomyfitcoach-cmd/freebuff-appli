@@ -8,6 +8,8 @@
 	 * Déplacer / dupliquer une séance : côté coach (Vue 360) en V1.
 	 */
 	import { onMount } from 'svelte';
+	import { fade, fly } from 'svelte/transition';
+	import { sheetFade, sheetFly } from '$lib/sheetMotion';
 	import Icon from '$lib/components/Icon.svelte';
 	import BackToHome from '$lib/components/BackToHome.svelte';
 	import SessionRunner from '$lib/components/SessionRunner.svelte';
@@ -294,7 +296,7 @@
 		<BackToHome label="Entraînement" />
 		<header class="mb-4">
 			<p class="text-[11px] font-black uppercase tracking-widest text-brand-deep">
-				Programme{#if headerProgram} · {headerProgram}{/if}
+				{headerProgram ? `Programme · ${headerProgram}` : 'Programme'}
 			</p>
 			<h1 class="mt-0.5 text-ink page-title">Entraînement</h1>
 		</header>
@@ -450,21 +452,42 @@
 	</div>
 {/if}
 
-<!-- Menus ••• (déplacer / dupliquer / supprimer) -->
+<!-- Menu ••• en feuille basse (même animation que la carte « Poids » de
+     l'Accueil) : fond assombri, fermeture au toucher extérieur, et la feuille
+     se pose AU-DESSUS de la barre de navigation (jamais derrière elle). -->
 {#if menuFor && selectedDay}
-	<button type="button" class="fixed inset-0 z-[55] cursor-default" aria-label="Fermer le menu" onclick={() => (menuFor = null)}></button>
 	{#each sessionsOn(selectedDay) as ms (ms._id)}
 		{#if ms._id === menuFor && ms.status !== 'completed'}
-			<div class="fixed inset-x-4 bottom-24 z-[56] mx-auto max-w-xs overflow-hidden rounded-2xl border border-line bg-white shadow-xl">
-				<button type="button" onclick={() => askMove(ms)} class="block w-full px-4 py-3 text-left text-sm font-semibold text-ink hover:bg-line/40">
-					<Icon name="calendarDays" size={15} class="mr-2 inline text-mist" /> Déplacer
-				</button>
-				<button type="button" onclick={() => askDuplicate(ms)} class="block w-full border-t border-line/60 px-4 py-3 text-left text-sm font-semibold text-ink hover:bg-line/40">
-					<Icon name="copy" size={15} class="mr-2 inline text-mist" /> Dupliquer
-				</button>
-				<button type="button" onclick={() => confirmDelete(ms)} class="block w-full border-t border-line/60 px-4 py-3 text-left text-sm font-semibold text-danger hover:bg-danger-light">
-					<Icon name="trash" size={15} class="mr-2 inline" /> Supprimer
-				</button>
+			<div
+				role="presentation"
+				transition:fade={sheetFade()}
+				class="fixed inset-0 z-[55] flex items-end justify-center bg-ink/45 backdrop-blur-sm"
+				onclick={(e) => {
+					if (e.target === e.currentTarget) menuFor = null;
+				}}
+			>
+				<div
+					role="dialog"
+					aria-modal="true"
+					aria-label={`Options de la séance ${ms.name}`}
+					transition:fly={sheetFly()}
+					style="margin-bottom: calc(env(safe-area-inset-bottom) + 5.25rem);"
+					class="w-full max-w-md overflow-hidden rounded-[28px] bg-white p-2 shadow-2xl"
+				>
+					<p class="truncate px-3 pb-1 pt-2 text-[11px] font-bold uppercase tracking-widest text-mist">{ms.name}</p>
+					<button type="button" onclick={() => askMove(ms)} class="block min-h-11 w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold text-ink transition hover:bg-line/40">
+						<Icon name="calendarDays" size={15} class="mr-2 inline text-mist" /> Déplacer
+					</button>
+					<button type="button" onclick={() => askDuplicate(ms)} class="block min-h-11 w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold text-ink transition hover:bg-line/40">
+						<Icon name="copy" size={15} class="mr-2 inline text-mist" /> Dupliquer
+					</button>
+					<button type="button" onclick={() => confirmDelete(ms)} class="block min-h-11 w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold text-danger transition hover:bg-danger-light">
+						<Icon name="trash" size={15} class="mr-2 inline" /> Supprimer
+					</button>
+					<button type="button" onclick={() => (menuFor = null)} class="mt-1 block min-h-11 w-full rounded-2xl px-4 py-3 text-center text-sm font-bold text-mist transition hover:bg-line/40">
+						Fermer
+					</button>
+				</div>
 			</div>
 		{/if}
 	{/each}
