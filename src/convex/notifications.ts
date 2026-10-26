@@ -2,7 +2,8 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { getSessionUser } from "./helpers";
+import { getSessionUser, localTodayISO } from "./helpers";
+import { programEndAlerts, programEndDescription } from "../lib/programEnd";
 
 /**
  * NOTIFICATIONS COACH (CRM) — journal centralisé de l'activité cliente.
@@ -12,8 +13,9 @@ import { getSessionUser } from "./helpers";
  *     de démarrage envoyé) : enregistrés directement dans les mutations qui
  *     les produisent (metrics, photos, appointments, onboarding.save) —
  *     jamais déduits à postériori, donc jamais ratés.
- *  2) Alerte DÉRIVÉE UNIQUE (aucune connexion depuis 4 jours), posée par le
- *     cron `notifications-tick` toutes les 30 minutes.
+ *  2) Alertes DÉRIVÉES, posées par le cron `notifications-tick` toutes les
+ *     30 minutes : inactivité (aucune connexion depuis 4 jours) et fin de
+ *     programme d'entraînement proche (≤ 5 jours).
  *
  * L'ancien type « bilan_manquant » a été retiré — le tick purge les lignes
  * historiques correspondantes. « bilan_envoye » est RÉINTRODUIT : un bilan
@@ -65,7 +67,8 @@ export async function recordEvent(
 		| "rdv_pris"
 		| "rdv_annule"
 		| "rdv_replanifie"
-		| "onboarding_termine",
+		| "onboarding_termine"
+		| "programme_fin_proche",
 	description: string,
 	opts?: {
 		checkinId?: Id<"checkins">;
@@ -74,6 +77,8 @@ export async function recordEvent(
 		/** « nouveau_poids » : poids de la nouvelle pesée + pesée précédente (kg). */
 		poids?: string;
 		poidsPrecedent?: string;
+		/** Garde anti-doublon (ex. « programme_fin_proche:<id>:<endDate> »). */
+		dedupKey?: string;
 	}
 ): Promise<void> {
 	await ctx.db.insert("coachNotifications", {
@@ -86,6 +91,7 @@ export async function recordEvent(
 		...(opts?.weekStart ? { weekStart: opts.weekStart } : {}),
 		...(opts?.poids ? { poids: opts.poids } : {}),
 		...(opts?.poidsPrecedent ? { poidsPrecedent: opts.poidsPrecedent } : {}),
+		...(opts?.dedupKey ? { dedupKey: opts.dedupKey } : {}),
 	});
 	// Signal temps réel : toute nouvelle notification fait avancer le compteur
 	// meta que le poller CRM relit toutes les 5 s (badge live sans refresh).
@@ -303,7 +309,38 @@ export const tick = internalMutation({
 			}
 		}
 
-		/* ── 2) Purge : notifications trop anciennes + types retirés ─────── */
+		/* ── 2) Fin de programme d'entraînement proche (≤ 5 jours) ───────── */
+		// Assignations NON retirées d'une cliente active : alerte coach seule,
+		// aucun envoi à la cliente. Une seule alerte par programme ET par date
+		// de fin — une prolongation change la date, donc la clé, et une nouvelle
+		// alerte naît le moment venu.
+		const today = localTodayISO();
+		const allAssignments = await ctx.db.query("trainingAssignments").collect();
+		const liveAssignments: { assignment: (typeof allAssignments)[number]; prenom: string }[] = [];
+		for (const a of allAssignments) {
+			if (a.removedAt) continue;
+			const client = await ctx.db.get(a.userId);
+			if (!client || client.role !== "client" || client.disabled) continue;
+			liveAssignments.push({ assignment: a, prenom: client.prenom });
+		}
+		const notified: string[] = [];
+		for (const alert of programEndAlerts(liveAssignments.map((l) => l.assignment), today)) {
+			const existing = await ctx.db
+				.query("coachNotifications")
+				.withIndex("by_dedup", (q) => q.eq("dedupKey", alert.dedupKey))
+				.first();
+			if (existing) notified.push(alert.dedupKey);
+		}
+		const targetByAssignment = new Map(liveAssignments.map((l) => [l.assignment._id as string, l]));
+		for (const alert of programEndAlerts(liveAssignments.map((l) => l.assignment), today, notified)) {
+			const target = targetByAssignment.get(alert.assignmentId);
+			if (!target) continue;
+			await recordEvent(ctx, target.assignment.userId, "programme_fin_proche", programEndDescription(target.prenom, alert.endDate), {
+				dedupKey: alert.dedupKey,
+			});
+		}
+
+		/* ── 3) Purge : notifications trop anciennes + types retirés ─────── */
 		const all = await ctx.db.query("coachNotifications").collect();
 		for (const r of all) {
 			// Type « bilan_manquant » retiré : les lignes historiques déjà en base
@@ -313,12 +350,12 @@ export const tick = internalMutation({
 				await ctx.db.delete(r._id);
 				continue;
 			}
-			const isDerived = r.kind === "inactivite";
+			const isDerived = r.kind === "inactivite" || r.kind === "programme_fin_proche";
 			const ttl = isDerived ? RETENTION_DERIVED_MS : RETENTION_EVENTS_MS;
 			if (now - r._creationTime > ttl) await ctx.db.delete(r._id);
 		}
 
-		/* ── 3) Purge des événements cliente du poller (7 jours) ───────── */
+		/* ── 4) Purge des événements cliente du poller (7 jours) ───────── */
 		const oldEvents = await ctx.db
 			.query("clientEvents")
 			.withIndex("by_user")

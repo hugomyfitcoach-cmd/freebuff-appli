@@ -28,6 +28,7 @@ import type * as coachDraftPrompt from "../coachDraftPrompt.js";
 import type * as crons from "../crons.js";
 import type * as customFoods from "../customFoods.js";
 import type * as dashboard from "../dashboard.js";
+import type * as exerciseTranslation from "../exerciseTranslation.js";
 import type * as exercises from "../exercises.js";
 import type * as exercisesSeedData from "../exercisesSeedData.js";
 import type * as foodImages from "../foodImages.js";
@@ -94,6 +95,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   customFoods: typeof customFoods;
   dashboard: typeof dashboard;
+  exerciseTranslation: typeof exerciseTranslation;
   exercises: typeof exercises;
   exercisesSeedData: typeof exercisesSeedData;
   foodImages: typeof foodImages;

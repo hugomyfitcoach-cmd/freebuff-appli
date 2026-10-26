@@ -104,7 +104,9 @@ export const coachNotifKind = v.union(
 	v.literal("rdv_annule"),
 	v.literal("rdv_replanifie"),
 	v.literal("onboarding_termine"),
-	v.literal("inactivite")
+	v.literal("inactivite"),
+	/** Fin d'un programme d'entraînement dans 5 jours ou moins (tick). */
+	v.literal("programme_fin_proche")
 );
 
 export default defineSchema({
@@ -1200,6 +1202,13 @@ export default defineSchema({
 		category: v.optional(v.string()),
 		/** Instructions d'exécution (étapes), si fournies par la source. */
 		instructions: v.optional(v.array(v.string())),
+		/**
+		 * Traduction FRANÇAISE des instructions ci-dessus (même découpage en
+		 * étapes), écrite par l'action interne `translateExerciseDescriptions`.
+		 * Champ ADDITIF facultatif : absent = on affiche `instructions` tel quel.
+		 * Le NOM de l'exercice n'est jamais traduit ni modifié.
+		 */
+		instructionsFr: v.optional(v.array(v.string())),
 		/** Repères techniques courts (bloc pédagogique G-FLUX officiel). */
 		cues: v.optional(v.array(v.string())),
 		/** Erreurs classiques à éviter (bloc pédagogique G-FLUX officiel). */
@@ -1565,8 +1574,15 @@ export default defineSchema({
 	 * suivre la consommation. Table bornée par nature (un appel = une ligne).
 	 */
 	aiUsageLog: defineTable({
-		/** "label" (étiquette) | "meal" (photo de repas) | "coach_draft" (brouillon). */
-		kind: v.union(v.literal("label"), v.literal("meal"), v.literal("coach_draft")),
+		/** "label" (étiquette nutritionnelle) | "meal" (photo de repas)
+		 *  | "coach_draft" (brouillon de retour coach) | "exercise_translation"
+		 *  (traduction FR des consignes d'exercices). */
+		kind: v.union(
+			v.literal("label"),
+			v.literal("meal"),
+			v.literal("coach_draft"),
+			v.literal("exercise_translation")
+		),
 		/** Modèle exact appelé (ex. "gpt-4o-mini"). */
 		model: v.string(),
 		inputTokens: v.optional(v.number()),

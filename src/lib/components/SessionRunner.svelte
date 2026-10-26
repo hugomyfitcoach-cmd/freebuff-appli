@@ -15,8 +15,11 @@
 	 */
 	import { onMount, onDestroy } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+	import { displayExerciseName, exerciseInstructions } from '$lib/exerciseFr';
 	import { loadScheduledSession, SESSION_LOAD_ERROR_MESSAGE } from '$lib/sessionLoad';
 	import { supersetBlocks, supersetLabel } from '$lib/training';
+	import { equipmentFamily } from '$lib/exerciseEquipment';
 
 	type ExSet = {
 		order: number;
@@ -47,6 +50,7 @@
 			posterUrl: string | null;
 			animationUrl: string | null;
 			instructions: string[] | null;
+			instructionsFr?: string[] | null;
 		} | null;
 		sets: ExSet[];
 		lastPerformance: { date: string; reps: number | null; weightKg: number | null; durationSeconds: number | null } | null;
@@ -152,12 +156,34 @@
 	let timerLeft = $state(0);
 	let timerPaused = $state(false);
 	let interval: ReturnType<typeof setInterval> | null = null;
+	/** Exercice dont la série vient de déclencher le repos (bandeau dans SA carte). */
+	let restExId = $state('');
+	/** Cartes d'exercices repliées/dépliées manuellement (affichage seul). */
+	let expandedEx = $state<Record<string, boolean>>({});
+
+	/** Exercice « en cours » = premier dont une série n'est pas encore cochée. */
+	const currentExId = $derived(
+		data?.exercises.find((e) => e.sets.some((st) => !(e.loggedSets.find((l) => l.setOrder === st.order)?.done))) ?._id ?? ''
+	);
+	/**
+	 * Carte dépliée ? Par défaut : l'exercice en cours et ceux déjà commencés.
+	 * Un toucher sur l'en-tête impose l'inverse (dans les DEUX sens).
+	 */
+	function isExpanded(ex: Ex): boolean {
+		const override = expandedEx[ex._id];
+		if (override !== undefined) return override;
+		return ex._id === currentExId || ex.loggedSets.some((l) => l.done);
+	}
+	function toggleCard(ex: Ex) {
+		expandedEx[ex._id] = !isExpanded(ex);
+	}
 
 	function stopTimer() {
 		if (interval) clearInterval(interval);
 		interval = null;
 		timerKind = null;
 		timerPaused = false;
+		restExId = '';
 	}
 	function startTimer(kind: Exclude<TimerKind, null>, seconds: number, onDone?: () => void) {
 		stopTimer();
@@ -340,13 +366,40 @@
 	});
 
 	/* ── Écriture d'une série (LES DEUX MODES) ── */
+
+	/** Familles sans charge : le champ kg n'a pas de sens (sauf charge cible coach). */
+	function showWeight(ex: Ex): boolean {
+		const family = equipmentFamily(ex.exercise?.equipment);
+		if (family !== 'Poids du corps' && family !== 'Élastiques') return true;
+		return ex.sets.some((st) => st.targetWeight != null);
+	}
+
+	/** Au moins une série cochée : la séance est lancée, « Terminer » est visible. */
+	const hasCheckedSet = $derived(data?.exercises.some((e) => e.loggedSets.some((l) => l.done)) ?? false);
+	/** Exercices commencés (au moins une série cochée) — en-tête de progression. */
+	const exercisesStarted = $derived(data?.exercises.filter((e) => e.loggedSets.some((l) => l.done)).length ?? 0);
+	/** Séries cochées — en-tête de progression. */
+	const setsChecked = $derived(
+		data?.exercises.reduce((n, e) => n + e.loggedSets.filter((l) => l.done).length, 0) ?? 0
+	);
+
+	/** Valeurs saisies d'une série libre (kg omis pour poids du corps / élastiques). */
+	function draftPayload(ex: Ex, d: Draft, setOrder: number): { reps?: number; weightKg?: number; durationSeconds?: number } {
+		if (ex.mode === 'time') {
+			return { durationSeconds: Number(d.duration) || ex.sets[setOrder]?.durationSeconds || undefined };
+		}
+		const payload: { reps?: number; weightKg?: number } = { reps: Number(d.reps) || undefined };
+		if (showWeight(ex) && d.weight.trim()) payload.weightKg = Number(d.weight.replace(',', '.'));
+		return payload;
+	}
+
 	async function saveSet(
 		ex: Ex,
 		setOrder: number,
 		payload: { reps?: number; weightKg?: number; durationSeconds?: number },
 		done: boolean
 	) {
-		await fetch('/api/training/log', {
+		const r = await fetch('/api/training/log', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({
@@ -358,39 +411,66 @@
 				...(payload.durationSeconds !== undefined ? { durationSeconds: payload.durationSeconds } : {}),
 				done,
 			}),
-		});
+		}).then((x) => x.json()).catch(() => null);
+		if (r?.error) {
+			err = r.error;
+			return;
+		}
 		markLocal(ex, setOrder, payload, done);
+		// La première série cochée démarre la séance : le serveur a posé
+		// startedAt (persisté) → le chrono global repart de cet horodatage.
+		if (done && r?.startedAt && !sessionStarted) {
+			sessionStarted = true;
+			startedAt = r.startedAt;
+			startElapsed();
+		}
+	}
+
+	/** Série libre déjà cochée : modifier reps / kg / durée met à jour l'enregistrement. */
+	async function updateFreeSet(ex: Ex, setOrder: number) {
+		const d = ensureDraft(ex, setOrder);
+		if (!d.done) return;
+		saving = true;
+		err = '';
+		try {
+			await saveSet(ex, setOrder, draftPayload(ex, d, setOrder), true);
+		} finally {
+			saving = false;
+		}
 	}
 
 	/** Mode libre : coche/valide une série avec les valeurs du brouillon. */
 	async function toggleFreeSet(ex: Ex, setOrder: number) {
 		const d = ensureDraft(ex, setOrder);
 		const next = !d.done;
-		d.done = next;
-		saving = true;
+		d.done = next;			saving = true;
 		err = '';
 		try {
-			await saveSet(
-				ex,
-				setOrder,
-				ex.mode === 'time'
-					? { durationSeconds: Number(d.duration) || ex.sets[setOrder]?.durationSeconds || undefined }
-					: {
-							reps: Number(d.reps) || undefined,
-							weightKg: d.weight.trim() ? Number(d.weight.replace(',', '.')) : undefined,
-						},
-				next
-			);
+			await saveSet(ex, setOrder, draftPayload(ex, d, setOrder), next);
 			// Série VALIDÉE → repos automatique comme en guidé (même moteur de
 			// timer, jamais en chevauchant une durée de série en cours) : sauf
 			// toute dernière série de la séance, et seulement si un repos est
-			// prescrit. Décocher ne relance rien.
+			// prescrit. Décocher ne relance rien — mais décocher la dernière
+			// série cochée rend la séance « Prévue » (startedAt retiré).
 			if (next) {
 				const isLastSet = setOrder >= ex.sets.length - 1;
 				const exIdx = data?.exercises.findIndex((e) => e._id === ex._id) ?? -1;
 				const isLastEx = exIdx === (data?.exercises.length ?? 1) - 1;
 				const rest = ex.sets[setOrder]?.restSeconds ?? 0;
-				if (!(isLastSet && isLastEx) && rest > 0) startTimer('rest', rest);
+				if (!(isLastSet && isLastEx) && rest > 0) {
+					// startTimer remet restExId à zéro : on le pose APRÈS pour que
+					// le bandeau s'affiche vraiment dans la carte de l'exercice.
+					startTimer('rest', rest);
+					restExId = ex._id;
+					expandedEx[ex._id] = true;
+				} else {
+					// Une autre série cochée sans repos prescrit : le bandeau en
+					// cours n'a plus lieu d'être.
+					stopTimer();
+				}
+			} else {
+				const anyLeft = data?.exercises.some((e) => e.loggedSets.some((l) => l.done)) ?? false;
+				if (!anyLeft) await abandonSession();
 			}
 		} catch {
 			d.done = !next;
@@ -448,22 +528,32 @@
 		}
 		// Dernière étape : reste sur place — « Terminer la séance » prend le relais.
 	}
+	/** Valeurs saisies de la série guidée courante. */
+	function guidedPayload(): { reps?: number; weightKg?: number; durationSeconds?: number } {
+		if (!gEx) return {};
+		if (gEx.mode === 'time') return { durationSeconds: Number(gDuration) || gSet?.durationSeconds || undefined };
+		const payload: { reps?: number; weightKg?: number } = { reps: Number(gReps) || undefined };
+		if (showWeight(gEx) && gWeight.trim()) payload.weightKg = Number(gWeight.replace(',', '.'));
+		return payload;
+	}
+	/** Série guidée déjà validée (revue via ← Précédent) : la décocher. */
+	async function unvalidateGuidedSet() {
+		if (!gEx) return;
+		saving = true;
+		err = '';
+		try {
+			await saveSet(gEx, gSetIdx, guidedPayload(), false);
+			guidedDone = Math.max(0, guidedDone - 1);
+		} finally {
+			saving = false;
+		}
+	}
 	async function validateGuidedSet() {
 		if (!gEx) return;
 		saving = true;
 		err = '';
 		try {
-			await saveSet(
-				gEx,
-				gSetIdx,
-				gEx.mode === 'time'
-					? { durationSeconds: Number(gDuration) || gSet?.durationSeconds || undefined }
-					: {
-							reps: Number(gReps) || undefined,
-							weightKg: gWeight.trim() ? Number(gWeight.replace(',', '.')) : undefined,
-						},
-				true
-			);
+			await saveSet(gEx, gSetIdx, guidedPayload(), true);
 			guidedDone += 1;
 			stopTimer();
 			// Repos automatique (sil on n'est pas à la toute fin), puis série suivante.
@@ -525,7 +615,7 @@
 				0
 			);
 			if (best > ex.lastPerformance.weightKg) {
-				progression = `${ex.exercise?.name ?? 'Un exercice'} : ${best} kg — de mieux en mieux !`;
+				progression = `${displayExerciseName(ex.exercise?.name) || 'Un exercice'} : ${best} kg — de mieux en mieux !`;
 				break;
 			}
 		}
@@ -674,6 +764,65 @@
 		onFinished?.();
 	}
 
+	/* ── Séance commencée PAR ERREUR : retour à « Prévue » ──
+	   Aucune ligne n'est supprimée : les séries de CETTE occurrence repassent
+	   à done:false et startedAt est retiré — la séance redevient « Prévue »,
+	   prête à être refaite. Une séance terminée n'est JAMAIS concernée
+	   (l'historique est verrouillé côté backend). */
+	let abandoning = $state(false);
+	let quitConfirm = $state(false);
+
+	async function abandonSession(): Promise<boolean> {
+		if (abandoning) return false;
+		abandoning = true;
+		err = '';
+		try {
+			const r = await fetch(`/api/training/session/${scheduledId}`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ abandon: true }),
+			}).then((x) => x.json());
+			if (r?.error) throw new Error(r.error);
+			// État local aligné sur le serveur : séries décochées, séance Prévue.
+			for (const ex of data?.exercises ?? []) for (const l of ex.loggedSets) l.done = false;
+			for (const k of Object.keys(drafts)) drafts[k].done = false;
+			sessionStarted = false;
+			stopTimer();
+			stopElapsed();
+			return true;
+		} catch (e) {
+			err = e instanceof Error ? e.message : 'Annulation impossible — réessaie.';
+			return false;
+		} finally {
+			abandoning = false;
+		}
+	}
+
+	/** « Garder en cours » : comportement actuel — la séance reste commencée. */
+	function keepRunning() {
+		quitConfirm = false;
+		onFinished?.();
+	}
+	/** « Annuler la séance » : série décochées, aucune ligne supprimée. */
+	async function cancelSession() {
+		quitConfirm = false;
+		if (await abandonSession()) onFinished?.();
+	}
+
+	/** Fermeture (croix) : 0 série cochée → Prévue ; sinon confirmation. */
+	async function requestClose() {
+		if (!data || alreadyCompleted || mode === 'recap') {
+			closeRunner();
+			return;
+		}
+		if (setsChecked === 0) {
+			const ok = await abandonSession();
+			if (ok) onFinished?.();
+			return;
+		}
+		quitConfirm = true;
+	}
+
 	/* ── Affichage helpers ── */
 	const PHASE_LABELS: Record<string, string> = {
 		echauffement: 'Échauffement',
@@ -725,7 +874,7 @@
 	let previewEx = $state<Ex | null>(null);
 </script>
 
-<div class="mx-auto w-full max-w-md px-4 pb-8 pt-3">
+<div class="mx-auto w-full max-w-md px-4 pt-3 {mode === 'libre' && data ? 'pb-40' : 'pb-8'}">
 	<!-- ═══════════ RECAP (résumé de fin / séance déjà réalisée) ═══════════ -->
 	{#if mode === 'recap' && recap}
 		<div class="pt-2 text-center">
@@ -868,55 +1017,49 @@
 			<button type="button" onclick={closeRunner} class="mt-2 w-full rounded-xl border-2 border-line px-5 py-2.5 text-sm font-semibold text-ink">Retour</button>
 		</div>
 	{:else if data}
-		<!-- ═══════════ HEADER séance ═══════════ -->
-		<div class="mb-4 flex items-start justify-between gap-3">
-			<div class="min-w-0">
-				<h1 class="truncate font-display text-2xl font-semibold text-ink">{data.session.name}</h1>
-				<p class="mt-0.5 flex items-center gap-2 text-sm text-mist">
-					<span class="flex items-center gap-1"><Icon name="clock" size={13} /> ≈ {data.estimatedMin} min</span>
-					{#if data.programName}<span class="truncate">· {data.programName}</span>{/if}
-				</p>
-				{#if sessionStarted && elapsedLabel}
-					<!-- Séance en cours : chrono global visible en permanence + accès direct à la fin -->
-					<div class="mt-2 flex items-center gap-2">
-						<span class="inline-flex items-center gap-1.5 rounded-full bg-brand-light px-2.5 py-1 text-[11px] font-bold text-brand-dark">
-							<span class="h-1.5 w-1.5 animate-pulse rounded-full bg-brand"></span>
-							Séance en cours · {elapsedLabel}
-						</span>
-						<button
-							type="button"
-							onclick={requestFinish}
-							class="rounded-full bg-ink px-3 py-1 text-[11px] font-bold text-white transition hover:bg-brand"
-						>
-							Terminer
-						</button>
-					</div>
-				{/if}
-			</div>
-			<button
+		<!-- ═══════════ EN-TÊTE séance ═══════════ -->
+		<div class="mb-3 rounded-3xl border border-line bg-card p-4 shadow-sm">
+			<div class="flex items-center justify-between gap-3">
+				<button
 				type="button"
-				onclick={closeRunner}
-				class="rounded-full p-1.5 text-mist transition hover:bg-line/50 hover:text-ink"
+				onclick={requestClose}
+				disabled={abandoning}
+				class="grid h-11 w-11 place-items-center rounded-full border border-line bg-card text-ink transition hover:bg-line/50 disabled:opacity-60"
 				aria-label="Fermer"
-			>
-				<Icon name="x" size={18} />
-			</button>
+				>
+					<Icon name="x" size={18} />
+				</button>
+				<span class="inline-flex items-center gap-1.5 rounded-full bg-brand-light px-3.5 py-2 text-sm font-bold tabular-nums text-brand-deep">
+					<Icon name="clock" size={15} />
+					{sessionStarted && elapsedLabel ? elapsedLabel : '0:00'}
+				</span>
+			</div>
+			<div class="mt-3">
+				<h1 class="font-display text-2xl font-black leading-tight tracking-tight text-ink">{data.session.name}</h1>
+				<p class="mt-0.5 text-sm text-mist">
+					{#if data.programName}{data.programName} · {/if}≈ {data.estimatedMin} min
+				</p>
+			</div>
+			<div class="mt-3">
+				<div class="flex items-center justify-between gap-2 text-[13px] font-bold text-mist">
+					<span>{exercisesStarted} exercice{exercisesStarted > 1 ? 's' : ''} sur {data.exercises.length}</span>
+					<span>{setsChecked} / {totalSets} séries</span>
+				</div>
+				<div class="mt-1.5 h-2 overflow-hidden rounded-full bg-line">
+					<div class="h-2 rounded-full bg-brand transition-all" style="width: {totalSets > 0 ? Math.round((setsChecked / totalSets) * 100) : 0}%"></div>
+				</div>
+			</div>
 		</div>
 
 		{#if err}
 			<p class="mb-3 rounded-xl border-2 border-danger bg-danger-light px-3 py-2 text-xs font-semibold text-danger">{err}</p>
 		{/if}
 
-		{#if mode === 'libre' && timerKind === 'rest'}
-			<!-- ── Repos (mode manuel) : compte à rebours de la série validée — Passer/fermer, jamais bloquant ── -->
-			<div class="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-brand/40 bg-brand-light/60 px-4 py-3">
-				<p class="flex items-center gap-2 text-sm font-bold text-ink">
-					<span class="h-2 w-2 animate-pulse rounded-full bg-brand"></span>
-					Repos · <span class="tabular-nums">{fmtTimer(timerLeft)}</span>
-				</p>
-				<button type="button" onclick={stopTimer} class="rounded-full bg-ink px-3 py-1 text-[11px] font-bold text-white transition hover:bg-brand">
-					Passer
-				</button>
+		{#if mode === 'libre'}
+			<!-- UNE seule astuce, discrète (plus de bandeau vert répété par exercice). -->
+			<div class="mb-3 flex items-center gap-2.5 rounded-2xl border border-line bg-card px-3.5 py-2.5 text-[13px] text-mist">
+				<Icon name="info" size={17} class="shrink-0 text-brand" />
+				<span>Coche chaque série terminée. Tes charges sont gardées pour la prochaine fois.</span>
 			</div>
 		{/if}
 
@@ -932,15 +1075,29 @@
 					{/if}
 					{#snippet FreeEx(ex: Ex)}
 						{@const doneCount = ex.loggedSets.filter((l) => l.done).length}
-						<article class="mb-3 overflow-hidden rounded-2xl border border-line bg-card shadow-sm {doneCount === ex.sets.length && ex.sets.length > 0 ? 'opacity-70' : ''}">
-							<div class="flex items-start gap-3 p-3.5">
+						{@const complete = doneCount === ex.sets.length && ex.sets.length > 0}
+						{@const inProgress = doneCount > 0 && !complete}
+						{@const expanded = isExpanded(ex)}
+						<article class="mb-3 overflow-hidden rounded-2xl border bg-card shadow-sm {inProgress ? 'border-brand' : 'border-line'}">
+							<!-- En-tête = bouton de repli/dépli (miniature + nom), dans les DEUX sens -->
+							<div
+								class="flex cursor-pointer items-start gap-3 p-3.5"
+								role="button"
+								tabindex="0"
+								aria-expanded={expanded}
+								onclick={() => toggleCard(ex)}
+								onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCard(ex); } }}
+							>
 								{#if mediaFor(ex)}
 									<!-- Vignette cliquable → aperçu plein écran du mouvement -->
 									<button
 										type="button"
-										onclick={() => (previewEx = ex)}
+										onclick={(ev) => {
+											ev.stopPropagation();
+											previewEx = ex;
+										}}
 										class="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-line/40"
-										aria-label={`Voir le mouvement : ${ex.exercise?.name ?? 'exercice'}`}
+										aria-label={`Voir le mouvement : ${displayExerciseName(ex.exercise?.name) || 'exercice'}`}
 									>
 										{#if mediaVideo(ex)}
 											<video src={mediaVideo(ex)!} autoplay muted loop playsinline poster={ex.exercise?.posterUrl ?? ''} class="h-full w-full object-cover"></video>
@@ -957,88 +1114,112 @@
 									</div>
 								{/if}
 								<div class="min-w-0 flex-1">
-									<h3 class="truncate text-sm font-bold text-ink">{ex.exercise?.name ?? 'Exercice'}</h3>
-									<p class="text-xs text-mist">
+									<div class="flex items-start justify-between gap-2">
+										<h3 class="min-w-0 text-base font-bold leading-snug text-ink line-clamp-2">{displayExerciseName(ex.exercise?.name) || 'Exercice'}</h3>
+										<div class="flex shrink-0 items-center gap-1">
+											<span class="rounded-full px-2.5 py-1 text-xs font-bold {complete ? 'bg-brand text-white' : 'bg-soft text-ink'}">
+												{doneCount}/{ex.sets.length}
+											</span>
+											<Icon name={expanded ? 'chevronUp' : 'chevronDown'} size={16} class="text-mist" />
+										</div>
+									</div>
+									<p class="mt-0.5 text-[13px] text-mist">
 										{ex.mode === 'time'
 											? `${ex.sets.length} × ${ex.sets[0]?.durationSeconds ?? '?'} s`
 											: `${ex.sets.length} × ${repsLabel(ex.sets[0])} reps`}
 										{#if ex.sets[0]?.restSeconds} · repos {ex.sets[0].restSeconds} s{/if}
 									</p>
-									{#if lastPerfLabel(ex)}
-										<p class="mt-0.5 text-[11px] font-semibold text-brand-dark">{lastPerfLabel(ex)}</p>
-									{/if}
-									{#if mediaFor(ex)}
-										<button type="button" onclick={() => (previewEx = ex)} class="mt-1 inline-flex items-center gap-1 text-[11px] font-bold text-brand-dark transition hover:text-ink">
-											<Icon name="play" size={10} /> Voir le mouvement
-										</button>
-									{/if}
+									<div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+										{#if lastPerfLabel(ex)}
+											<span class="rounded-full bg-soft px-2.5 py-1 text-xs font-bold text-ink">{lastPerfLabel(ex)}</span>
+										{:else}
+											<span class="rounded-full bg-soft px-2.5 py-1 text-xs font-bold text-mist">Première fois</span>
+										{/if}
+										{#if mediaFor(ex)}
+											<button type="button" onclick={(ev) => { ev.stopPropagation(); previewEx = ex; }} class="inline-flex min-h-11 items-center gap-1 text-[13px] font-bold text-brand-deep transition hover:text-ink">
+												<Icon name="play" size={11} /> Voir le mouvement
+											</button>
+										{/if}
+									</div>
 								</div>
-								<span class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold {doneCount === ex.sets.length && ex.sets.length > 0 ? 'bg-brand text-white' : 'bg-line/70 text-mist'}">
-									{doneCount}/{ex.sets.length}
-								</span>
 							</div>
 
-							{#if ex.isFirstTime}
-								<p class="mx-3.5 mb-2 rounded-lg bg-brand-light px-3 py-1.5 text-[11px] font-medium text-brand-dark">
-									Indique la charge utilisée aujourd'hui. Elle sera mémorisée pour ta prochaine séance.
-								</p>
-							{/if}
 							{#if ex.coachNote}
 								<p class="mx-3.5 mb-2 rounded-lg bg-warn-light px-3 py-1.5 text-[11px] text-ink">💬 {ex.coachNote}</p>
 							{/if}
 
+							{#if restExId === ex._id && timerKind === 'rest'}
+								<div class="mx-3.5 mb-2 flex items-center justify-between gap-3 rounded-2xl bg-ink px-4 py-2.5 text-white">
+									<span class="text-sm font-bold">Repos · <span class="tabular-nums">{fmtTimer(timerLeft)}</span> <span class="text-white/60">→ 0:00</span></span>
+									<button type="button" onclick={stopTimer} class="h-11 rounded-full border border-white/40 px-3 text-[13px] font-bold text-white transition hover:bg-white/10">
+										Passer
+									</button>
+								</div>
+							{/if}
+
+							{#if expanded}
 							<!-- Séries : saisie directe -->
-							<div class="border-t border-line/60">
+							<div class="border-t border-line/60 px-3 pb-3 pt-2">
+								<div class="grid items-center gap-2 px-0.5 pb-1 text-[10px] font-bold uppercase tracking-[0.08em] text-mist {showWeight(ex) ? 'grid-cols-[2rem_minmax(0,1fr)_minmax(0,1fr)_2.75rem]' : 'grid-cols-[2rem_minmax(0,1fr)_2.75rem]'}">
+									<span>Série</span>
+									<span>{ex.mode === 'time' ? 'Durée' : 'Reps'}</span>
+									{#if showWeight(ex)}<span>Kg</span>{/if}
+									<span></span>
+								</div>
 								{#each ex.sets as st (st.order)}
 									{@const d = getDraft(ex, st.order)}
-									<div class="flex items-center gap-2 px-3.5 py-2 {st.order > 0 ? 'border-t border-line/40' : ''}">
-										<button
-											type="button"
-											onclick={() => toggleFreeSet(ex, st.order)}
-											class="grid h-8 w-8 shrink-0 place-items-center rounded-full border-2 transition {d.done
-												? 'border-brand bg-brand text-white'
-												: 'border-line text-mist hover:border-brand'}"
-											aria-label={d.done ? 'Série validée' : 'Valider la série'}
-										>
-											{#if d.done}<Icon name="check" size={14} strokeWidth={2.5} />{/if}
-										</button>
-										<span class="w-12 shrink-0 text-xs font-bold text-ink">Série {st.order + 1}</span>
-										{#if ex.mode === 'time'}
-											<div class="flex flex-1 items-center gap-1.5">
+									{@const missingWeight = d.done && showWeight(ex) && !d.weight.trim()}
+									<div class="rounded-xl {d.done ? 'bg-brand-light/60' : ''}">
+										<div class="grid items-center gap-2 px-0.5 py-1.5 {showWeight(ex) ? 'grid-cols-[2rem_minmax(0,1fr)_minmax(0,1fr)_2.75rem]' : 'grid-cols-[2rem_minmax(0,1fr)_2.75rem]'}">
+											<span class="text-sm font-black tabular-nums {d.done ? 'text-brand-deep' : 'text-mist'}">{st.order + 1}</span>
+											{#if ex.mode === 'time'}
 												<input
 													type="number"
 													inputmode="numeric"
 													bind:value={d.duration}
-													disabled={d.done}
-													class="w-full rounded-lg border border-line bg-white px-2 py-1.5 text-sm tabular-nums outline-none focus:border-brand disabled:opacity-60"														placeholder="{st.durationSeconds ?? 60}s"
+													onchange={() => updateFreeSet(ex, st.order)}
+													aria-label={`Durée série ${st.order + 1}`}
+													class="h-11 w-full rounded-lg border border-line bg-white px-2 text-center text-base font-semibold tabular-nums outline-none focus:border-brand"
+													placeholder="{st.durationSeconds ?? 60} s"
 												/>
-												<span class="text-xs font-semibold text-mist">s</span>
-											</div>
-										{:else}
-											<div class="flex flex-1 items-center gap-1.5">
+											{:else}
 												<input
 													type="number"
 													inputmode="numeric"
 													bind:value={d.reps}
-													disabled={d.done}
-													class="w-full min-w-0 rounded-lg border border-line bg-white px-2 py-1.5 text-sm tabular-nums outline-none focus:border-brand disabled:opacity-60"
+													onchange={() => updateFreeSet(ex, st.order)}
+													aria-label={`Répétitions série ${st.order + 1}`}
+													class="h-11 w-full rounded-lg border border-line bg-white px-2 text-center text-base font-semibold tabular-nums outline-none focus:border-brand"
 													placeholder="{repsLabel(st)}"
 												/>
-												<span class="text-xs font-semibold text-mist">reps</span>
-												<input
-													type="text"
-													inputmode="decimal"
-													bind:value={d.weight}
-													disabled={d.done}
-													class="w-full min-w-0 rounded-lg border border-line bg-white px-2 py-1.5 text-sm tabular-nums outline-none focus:border-brand disabled:opacity-60"
-													placeholder="kg"
-												/>
-												<span class="text-xs font-semibold text-mist">kg</span>
-											</div>
+												{#if showWeight(ex)}
+													<input
+														type="text"
+														inputmode="decimal"
+														bind:value={d.weight}
+														onchange={() => updateFreeSet(ex, st.order)}
+														aria-label={`Charge série ${st.order + 1}`}
+														class="h-11 w-full rounded-lg border bg-white px-2 text-center text-base font-semibold tabular-nums outline-none focus:border-brand {missingWeight ? 'border-warn bg-warn-light' : 'border-line'}"
+														placeholder="—"
+													/>
+												{/if}
+											{/if}
+											<button
+												type="button"
+												onclick={() => toggleFreeSet(ex, st.order)}
+												class="grid h-11 w-11 place-items-center rounded-full border-2 transition {d.done ? 'border-brand bg-brand text-white' : 'border-line bg-white text-transparent'}"
+												aria-label={d.done ? `Série ${st.order + 1} terminée, toucher pour annuler` : `Valider la série ${st.order + 1}`}
+											>
+												<Icon name="check" size={18} strokeWidth={2.5} />
+											</button>
+										</div>
+										{#if missingWeight}
+											<p class="px-0.5 pb-1.5 text-xs font-bold text-warn">Charge manquante sur la série {st.order + 1} : tu peux encore la saisir.</p>
 										{/if}
 									</div>
 								{/each}
 							</div>
+							{/if}
 						</article>
 					{/snippet}
 					<!-- Supersets : les exercices liés s'affichent dans une même carte
@@ -1061,35 +1242,27 @@
 				</section>
 			{/each}
 
-			<!-- Barre d'actions mode libre -->
-			<div class="sticky bottom-3 z-10 mt-2 grid gap-2">
-				{#if sessionStarted}
+			<!-- Barre fixe : UN seul bouton vert (dès la première série) + lien guidé. -->
+			<div class="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-card px-4 pb-[max(16px,env(safe-area-inset-bottom))] pt-3">
+				<div class="mx-auto grid w-full max-w-md gap-1">
+					{#if sessionStarted || hasCheckedSet}
+						<button
+							type="button"
+							disabled={saving}
+							onclick={requestFinish}
+							class="min-h-[54px] w-full rounded-2xl bg-brand px-5 text-[17px] font-black text-white shadow-lg transition hover:bg-brand-dark disabled:opacity-60"
+						>
+							Terminer la séance
+						</button>
+					{/if}
 					<button
 						type="button"
-						disabled={saving}
-						onclick={requestFinish}
-						class="w-full rounded-2xl bg-brand px-5 py-3.5 text-sm font-bold text-white shadow-lg transition hover:bg-brand-dark disabled:opacity-60"
+						onclick={startGuided}
+						class="flex min-h-11 w-full items-center justify-center text-sm font-bold text-brand-deep transition hover:text-ink"
 					>
-						Terminer la séance
+						Passer en mode guidé
 					</button>
-				{:else}
-					<!-- Démarrage RÉEL : un tap explicite (consulter ne démarre rien) →
-					     startedAt persisté backend (survit au verrouillage/fond). -->
-					<button
-						type="button"
-						onclick={startRealSession}
-						class="w-full rounded-2xl bg-brand px-5 py-3.5 text-sm font-bold text-white shadow-lg transition hover:bg-brand-dark"
-					>
-						<Icon name="play" size={14} class="mr-1 inline" /> Commencer la séance
-					</button>
-				{/if}
-				<button
-					type="button"
-					onclick={startGuided}
-					class="w-full rounded-2xl border-2 border-line bg-card px-5 py-3 text-sm font-semibold text-ink transition hover:border-brand"
-				>
-					<Icon name="play" size={14} class="mr-1 inline" /> Commencer en mode guidé
-				</button>
+				</div>
 			</div>
 		{/if}
 
@@ -1100,7 +1273,7 @@
 
 			<!-- Progression -->
 			<p class="mb-2 text-center text-xs font-semibold text-mist">
-				Exercice {gExIdx + 1}/{data.exercises.length}{#if gEx.exercise} · {gEx.exercise.name}{/if}
+				Exercice {gExIdx + 1}/{data.exercises.length}{#if gEx.exercise} · {displayExerciseName(gEx.exercise.name)}{/if}
 			</p>
 
 			<div class="rounded-3xl border border-line bg-card p-5 shadow-sm">
@@ -1133,7 +1306,7 @@
 						type="button"
 						onclick={() => (previewEx = gEx)}
 						class="mx-auto mb-4 block h-28 w-28 overflow-hidden rounded-2xl bg-line/30"
-						aria-label={`Voir le mouvement : ${gEx.exercise?.name ?? 'exercice'}`}
+						aria-label={`Voir le mouvement : ${displayExerciseName(gEx.exercise?.name) || 'exercice'}`}
 					>
 						{#if mediaVideo(gEx)}
 							<video src={mediaVideo(gEx)!} autoplay muted loop playsinline poster={gEx.exercise?.posterUrl ?? ''} class="h-full w-full object-cover"></video>
@@ -1143,7 +1316,7 @@
 							<span class="grid h-full w-full place-items-center"><Icon name="dumbbell" size={26} class="text-mist" /></span>
 						{/if}
 					</button>
-					<h2 class="text-center font-display text-xl font-bold text-ink">{gEx.exercise?.name ?? 'Exercice'}</h2>
+					<h2 class="text-center font-display text-xl font-bold text-ink">{displayExerciseName(gEx.exercise?.name) || 'Exercice'}</h2>
 					<p class="mt-1 text-center text-sm font-semibold text-brand-dark">
 						Série {gSetIdx + 1}/{gEx.sets.length}
 						{#if gEx.mode === 'time'}
@@ -1167,7 +1340,7 @@
 						</div>
 					{:else}
 						<!-- Saisie reps / charge (préremplies) -->
-						<div class="mx-auto mt-6 grid max-w-xs grid-cols-2 gap-3">
+						<div class="mx-auto mt-6 grid max-w-xs gap-3 {showWeight(gEx) ? 'grid-cols-2' : 'grid-cols-1'}">
 							<label class="text-center">
 								<span class="block text-[10px] font-bold uppercase tracking-widest text-mist">Reps faites</span>
 								<input
@@ -1177,15 +1350,17 @@
 									class="mt-1 w-full rounded-xl border-2 border-line bg-white px-3 py-3 text-center font-display text-2xl font-bold tabular-nums outline-none focus:border-brand"
 								/>
 							</label>
-							<label class="text-center">
-								<span class="block text-[10px] font-bold uppercase tracking-widest text-mist">Charge (kg)</span>
-								<input
-									type="text"
-									inputmode="decimal"
-									bind:value={gWeight}
-									class="mt-1 w-full rounded-xl border-2 border-line bg-white px-3 py-3 text-center font-display text-2xl font-bold tabular-nums outline-none focus:border-brand"
-								/>
-							</label>
+							{#if showWeight(gEx)}
+								<label class="text-center">
+									<span class="block text-[10px] font-bold uppercase tracking-widest text-mist">Charge (kg)</span>
+									<input
+										type="text"
+										inputmode="decimal"
+										bind:value={gWeight}
+										class="mt-1 w-full rounded-xl border-2 border-line bg-white px-3 py-3 text-center font-display text-2xl font-bold tabular-nums outline-none focus:border-brand"
+									/>
+								</label>
+							{/if}
 						</div>
 					{/if}
 
@@ -1226,25 +1401,27 @@
 							<button type="button" onclick={prevStep} class="rounded-xl border-2 border-line px-4 py-2.5 text-sm font-semibold text-ink transition hover:border-brand">← Précédent</button>
 							<button type="button" onclick={nextStep} class="rounded-xl border-2 border-line px-4 py-2.5 text-sm font-semibold text-ink transition hover:border-brand">Passer →</button>
 						</div>
+						{#if gEx.loggedSets.find((l) => l.setOrder === gSetIdx)?.done}
+							<button
+								type="button"
+								disabled={saving}
+								onclick={unvalidateGuidedSet}
+								class="w-full rounded-xl border-2 border-line px-4 py-2.5 text-xs font-semibold text-mist transition hover:border-danger hover:text-danger disabled:opacity-60"
+							>
+								Décocher cette série
+							</button>
+						{/if}
 					</div>
 				{/if}
 			</div>
 
-			{#if sessionStarted}
+			{#if sessionStarted || hasCheckedSet}
 				<button
 					type="button"
 					onclick={requestFinish}
 					class="mt-4 w-full rounded-xl border-2 border-line bg-card px-5 py-3 text-sm font-semibold text-ink transition hover:border-brand"
 				>
 					Terminer la séance
-				</button>
-			{:else}
-				<button
-					type="button"
-					onclick={startRealSession}
-					class="mt-4 w-full rounded-xl border-2 border-brand bg-brand px-5 py-3 text-sm font-bold text-white transition hover:bg-brand-dark"
-				>
-					<Icon name="play" size={14} class="mr-1 inline" /> Commencer la séance
 				</button>
 			{/if}
 			<p class="mt-2 text-center text-[11px] text-mist">{guidedDone}/{guidedTotal} séries validées en mode guidé</p>
@@ -1259,7 +1436,7 @@
 		role="dialog"
 		aria-modal="true"
 		tabindex="-1"
-		aria-label={previewEx.exercise?.name ?? 'Aperçu du mouvement'}
+		aria-label={displayExerciseName(previewEx.exercise?.name) || 'Aperçu du mouvement'}
 		onclick={(e) => {
 			if (e.target === e.currentTarget) previewEx = null;
 		}}
@@ -1268,7 +1445,7 @@
 		}}
 	>
 		<div class="flex items-center justify-between px-4 pt-4">
-			<p class="min-w-0 truncate font-display text-lg font-semibold text-white">{previewEx.exercise?.name ?? 'Exercice'}</p>
+			<p class="min-w-0 truncate font-display text-lg font-semibold text-white">{displayExerciseName(previewEx.exercise?.name) || 'Exercice'}</p>
 			<button
 				type="button"
 				onclick={() => (previewEx = null)}
@@ -1299,10 +1476,10 @@
 				{/if}
 			</div>
 		</button>
-		{#if previewEx.exercise?.instructions?.length}
+		{#if previewEx.exercise?.instructions?.length || previewEx.exercise?.instructionsFr?.length}
 			<div class="max-h-32 overflow-y-auto px-6 pb-6">
 				<ul class="space-y-1 text-xs leading-relaxed text-white/80">
-					{#each previewEx.exercise.instructions as line, i (i)}
+					{#each exerciseInstructions(previewEx.exercise) as line, i (i)}
 						<li>{i + 1}. {line}</li>
 					{/each}
 				</ul>
@@ -1310,6 +1487,23 @@
 		{/if}
 	</div>
 {/if}
+
+<!-- ═══ Quitter une séance déjà commencée (≥ 1 série cochée) : confirmation
+     explicite. « Garder en cours » = comportement actuel (la séance reste
+     commencée) ; « Annuler la séance » = séries décochées côté serveur
+     (aucune ligne supprimée) + startedAt retiré → la séance redevient
+     « Prévue ». Une séance terminée n'ouvre jamais ce dialogue. ═══ -->
+<ConfirmDialog
+	open={quitConfirm}
+	title="Quitter la séance ?"
+	message="Ta séance peut rester en cours : tu la reprendras tout à l'heure. Tu peux aussi l'annuler — tes séries seront décochées et la séance redeviendra « Prévue »."
+	confirmLabel="Annuler la séance"
+	cancelLabel="Garder en cours"
+	danger
+	busy={abandoning}
+	onconfirm={cancelSession}
+	oncancel={keepRunning}
+/>
 
 <!-- ═══ Confirmation de durée (uniquement après « Terminer la séance », si durée étrange). Panneau léger : fermable, ne bloque JAMAIS l'app, aucune perte de données, jamais une notification globale. ═══ -->
 {#if durationConfirm}
@@ -1367,7 +1561,7 @@
 			{:else}
 				<h3 class="font-display text-lg font-semibold text-ink">Terminer quand même ?</h3>
 				<p class="mt-1 text-sm text-mist">
-					{completionStatus().exDone} exercices sur {completionStatus().exTotal} renseignés · {completionStatus().setsDone}/{completionStatus().setsTotal} séries. Ta séance sera enregistrée telle quelle.
+					{completionStatus().exDone} exercice{completionStatus().exDone > 1 ? 's' : ''} sur {completionStatus().exTotal} renseignés · {completionStatus().setsDone}/{completionStatus().setsTotal} séries. Ta séance sera enregistrée telle quelle.
 				</p>
 			{/if}
 			<div class="mt-4 grid gap-2">

@@ -8,7 +8,12 @@ import { v } from "convex/values";
  */
 export const record = internalMutation({
 	args: {
-		kind: v.union(v.literal("label"), v.literal("meal"), v.literal("coach_draft")),
+		kind: v.union(
+			v.literal("label"),
+			v.literal("meal"),
+			v.literal("coach_draft"),
+			v.literal("exercise_translation")
+		),
 		model: v.string(),
 		inputTokens: v.optional(v.number()),
 		outputTokens: v.optional(v.number()),

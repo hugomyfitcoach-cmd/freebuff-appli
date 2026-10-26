@@ -12,6 +12,8 @@
 	import { onMount } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import ExerciseMedia from '$lib/components/ExerciseMedia.svelte';
+	import { displayExerciseName, exerciseInstructions } from '$lib/exerciseFr';
+	import { equipmentFacets, equipmentFamily } from '$lib/exerciseEquipment';
 
 	type ExerciseView = {
 		_id: string;
@@ -24,6 +26,8 @@
 		equipment?: string;
 		category?: string;
 		instructions?: string[];
+		/** Traduction française des instructions (repli : `instructions`). */
+		instructionsFr?: string[];
 		cues?: string[];
 		mistakes?: string[];
 		levels?: string[];
@@ -81,10 +85,13 @@
 
 	let q = $state('');
 	let muscleGroup = $state('');
-	let equipment = $state('');
+	/** Filtre par FAMILLE de matériel (jamais le libellé brut de la base). */
+	let equipmentFam = $state('');
 	let bodyPart = $state('');
 	let source = $state('');
-	let applied = $state({ q: '', muscleGroup: '', equipment: '', bodyPart: '', source: '' });
+	let applied = $state({ q: '', muscleGroup: '', equipmentFamily: '', bodyPart: '', source: '' });
+	/** Facettes brutes → familles (somme des comptes, « Autre » comprise). */
+	const equipmentChips = $derived(stats ? equipmentFacets(stats.byEquipment) : []);
 
 	let detail = $state<ExerciseView | null>(null);
 
@@ -96,7 +103,7 @@
 
 	function toggleFilter(kind: 'muscle' | 'equipment' | 'bodyPart' | 'source', value: string) {
 		if (kind === 'muscle') muscleGroup = muscleGroup === value ? '' : value;
-		else if (kind === 'equipment') equipment = equipment === value ? '' : value;
+		else if (kind === 'equipment') equipmentFam = equipmentFam === value ? '' : value;
 		else if (kind === 'bodyPart') bodyPart = bodyPart === value ? '' : value;
 		else source = source === value ? '' : value;
 		search(true);
@@ -113,13 +120,13 @@
 		pageErr = '';
 		try {
 			if (reset) {
-				applied = { q: q.trim(), muscleGroup, equipment, bodyPart, source };
+				applied = { q: q.trim(), muscleGroup, equipmentFamily: equipmentFam, bodyPart, source };
 				offset = 0;
 			}
 			const params = new URLSearchParams();
 			if (applied.q) params.set('q', applied.q);
 			if (applied.muscleGroup) params.set('muscleGroup', applied.muscleGroup);
-			if (applied.equipment) params.set('equipment', applied.equipment);
+			if (applied.equipmentFamily) params.set('equipmentFamily', applied.equipmentFamily);
 			if (applied.bodyPart) params.set('bodyPart', applied.bodyPart);
 			if (applied.source) params.set('source', applied.source);
 			params.set('offset', String(offset));
@@ -155,7 +162,7 @@
 	});
 
 	const activeFilters = $derived(
-		[applied.muscleGroup, applied.equipment, applied.bodyPart, applied.source].filter(Boolean).length
+		[applied.muscleGroup, applied.equipmentFamily, applied.bodyPart, applied.source].filter(Boolean).length
 	);
 </script>
 
@@ -176,7 +183,7 @@
 				onclick={() => {
 					q = '';
 					muscleGroup = '';
-					equipment = '';
+					equipmentFam = '';
 					bodyPart = '';
 					source = '';
 					search(true);
@@ -206,15 +213,15 @@
 				{/each}
 			</div>
 			<div class="flex flex-wrap gap-1.5">
-				{#each stats.byEquipment.slice(0, 10) as [name, count] (name)}
+				{#each equipmentChips as { family, count } (family)}
 					<button
 						type="button"
-						onclick={() => toggleFilter('equipment', name)}
-						class="rounded-full border px-2.5 py-1 text-xs font-semibold transition {equipment === name
+						onclick={() => toggleFilter('equipment', family)}
+						class="rounded-full border px-2.5 py-1 text-xs font-semibold transition {equipmentFam === family
 							? 'border-brand bg-brand text-white'
 							: 'border-line bg-white text-ink hover:border-brand'}"
 					>
-						{name} <span class="tabular-nums opacity-70">{count}</span>
+						{family} <span class="tabular-nums opacity-70">{count}</span>
 					</button>
 				{/each}
 			</div>
@@ -259,8 +266,8 @@
 								<ExerciseMedia media={ex} class="h-full w-full object-cover" />
 							</span>
 						<span class="min-w-0">
-							<span class="block truncate text-[13px] font-semibold text-ink">{ex.name}</span>
-							<span class="block truncate text-[11px] text-mist">{ex.muscleGroup ?? '—'}{ex.equipment ? ` · ${ex.equipment}` : ''}</span>
+							<span class="block truncate text-[13px] font-semibold text-ink">{displayExerciseName(ex.name)}</span>
+							<span class="block truncate text-[11px] text-mist">{ex.muscleGroup ?? '—'} · {equipmentFamily(ex.equipment)}</span>
 						</span>
 					</button>
 					<button
@@ -292,8 +299,8 @@
 						<ExerciseMedia media={ex} class="h-full w-full object-cover" />
 					</div>
 					<div class="flex min-w-0 flex-1 flex-col gap-0.5 p-2.5">
-						<span class="line-clamp-2 text-[13px] font-semibold leading-tight text-ink">{ex.name}</span>
-						<span class="text-[11px] text-mist">{ex.muscleGroup ?? '—'}{ex.equipment ? ` · ${ex.equipment}` : ''}</span>
+						<span class="line-clamp-2 text-[13px] font-semibold leading-tight text-ink">{displayExerciseName(ex.name)}</span>
+						<span class="text-[11px] text-mist">{ex.muscleGroup ?? '—'} · {equipmentFamily(ex.equipment)}</span>
 					</div>
 				</button>
 			{/each}
@@ -328,7 +335,7 @@
 	>
 		<div class="max-h-[88vh] w-full max-w-lg overflow-y-auto rounded-3xl bg-card p-5 shadow-xl">
 			<div class="mb-3 flex items-start justify-between gap-3">
-				<h3 class="font-display text-lg font-bold text-ink">{detail.name}</h3>
+				<h3 class="font-display text-lg font-bold text-ink">{displayExerciseName(detail.name)}</h3>
 				<button type="button" onclick={() => (detail = null)} class="shrink-0 rounded-full p-1 text-mist transition hover:bg-line/50 hover:text-ink">
 					<Icon name="x" size={18} />
 				</button>
@@ -337,13 +344,13 @@
 			     (ou GIF ExerciseDB) — même média que la recherche, aucun doublon. -->
 			<ExerciseMedia
 				media={detail}
-				alt={`Animation ${detail.name}`}
+				alt={`Animation ${displayExerciseName(detail.name)}`}
 				loading="eager"
 				class="mb-3 max-h-72 w-full rounded-2xl bg-line/30 object-cover"
 			/>
 			<div class="mb-3 flex flex-wrap gap-1.5">
 				{#if detail.muscleGroup}<span class="rounded-full bg-brand-light px-2.5 py-1 text-[11px] font-semibold text-brand">{detail.muscleGroup}</span>{/if}
-				{#if detail.equipment}<span class="rounded-full bg-line/50 px-2.5 py-1 text-[11px] font-semibold text-ink">{detail.equipment}</span>{/if}
+				{#if detail.equipment}<span class="rounded-full bg-line/50 px-2.5 py-1 text-[11px] font-semibold text-ink">{equipmentFamily(detail.equipment)}</span>{/if}
 				{#if detail.bodyPart}<span class="rounded-full bg-line/50 px-2.5 py-1 text-[11px] font-semibold text-ink">{detail.bodyPart}</span>{/if}
 				{#if detail.category}<span class="rounded-full bg-line/50 px-2.5 py-1 text-[11px] font-semibold text-ink">{detail.category}</span>{/if}
 			</div>
@@ -377,10 +384,10 @@
 					{#if detail.breathing.concentric} expiration — {detail.breathing.concentric}{/if}
 				</p>
 			{/if}
-			{#if detail.instructions?.length}
+			{#if exerciseInstructions(detail).length}
 				<p class="mb-1 text-[10px] font-bold uppercase tracking-widest text-mist">Exécution</p>
 				<ol class="mb-3 list-decimal space-y-1 pl-5 text-sm text-ink">
-					{#each detail.instructions as step}
+					{#each exerciseInstructions(detail) as step}
 						<li>{step}</li>
 					{/each}
 				</ol>

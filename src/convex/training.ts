@@ -277,6 +277,7 @@ export const programFull = query({
 										posterUrl: ex.posterUrl,
 										animationUrl: ex.animationUrl,
 										instructions: ex.instructions,
+										instructionsFr: ex.instructionsFr,
 									}
 								: null, // exercice supprimé de la bibliothèque : la ligne reste éditable/supprimable
 							sets: sets.map((st) => ({

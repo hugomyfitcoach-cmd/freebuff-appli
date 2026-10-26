@@ -14,7 +14,8 @@ export type CoachNotifKind =
 	| 'rdv_annule'
 	| 'rdv_replanifie'
 	| 'onboarding_termine'
-	| 'inactivite';
+	| 'inactivite'
+	| 'programme_fin_proche';
 
 /** Section de la Vision 360 ouverte par chaque type d'événement. */
 const SECTION_BY_KIND: Record<CoachNotifKind, string> = {
@@ -28,6 +29,8 @@ const SECTION_BY_KIND: Record<CoachNotifKind, string> = {
 	rdv_replanifie: 'rdv',
 	onboarding_termine: 'demarrage',
 	inactivite: 'apercu',
+	// Fin de programme : ouvre l'onglet Entraînement de la fiche cliente.
+	programme_fin_proche: 'entrainement',
 };
 
 /** Libellé court de l'événement (le titre de la notification). */
@@ -42,6 +45,7 @@ const LABEL_BY_KIND: Record<CoachNotifKind, string> = {
 	rdv_replanifie: 'Rendez-vous replanifié',
 	onboarding_termine: 'Formulaire de démarrage complété',
 	inactivite: 'Aucune connexion depuis 4 jours',
+	programme_fin_proche: 'Fin de programme proche',
 };
 
 /** Icône Lucide (registre Icon.svelte) + couleur Tailwind de l'accent. */
@@ -56,6 +60,7 @@ const STYLE_BY_KIND: Record<CoachNotifKind, { icon: string; text: string; bg: st
 	rdv_replanifie: { icon: 'calendarClock', text: 'text-warn', bg: 'bg-warn-light' },
 	onboarding_termine: { icon: 'rocket', text: 'text-brand-dark', bg: 'bg-brand-light' },
 	inactivite: { icon: 'bellOff', text: 'text-warn', bg: 'bg-warn-light' },
+	programme_fin_proche: { icon: 'dumbbell', text: 'text-brand-dark', bg: 'bg-brand-light' },
 };
 
 /** URL du Vision 360 de la cliente, ouvert directement sur la bonne section. */

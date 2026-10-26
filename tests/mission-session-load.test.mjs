@@ -228,16 +228,16 @@ test('UX 2 : repos automatique en mode manuel après validation d\u2019une séri
 	assert.ok(toggle.includes('isLastSet && isLastEx'), 'pas de repos après la toute dernière série');
 	assert.ok(toggle.includes('rest > 0'), 'repos uniquement s\u2019il est prescrit');
 	// UI : bandeau repos visible dans le mode libre avec compte à rebours + Passer.
-	assert.ok(/mode === 'libre' && timerKind === 'rest'/.test(runner), 'bandeau repos dédié au mode manuel');
+	assert.ok(/restExId === ex\._id && timerKind === 'rest'/.test(runner), 'bandeau repos dans la carte de l’exercice (mode manuel)');
 	assert.ok(runner.includes('Repos · '), 'compte à rebours affiché');
-	const restBanner = runner.slice(runner.indexOf("mode === 'libre' && timerKind === 'rest'"), runner.indexOf('<!-- ═══════════ MODE LIBRE'));
+	const restBanner = runner.slice(runner.indexOf("restExId === ex._id && timerKind === 'rest'"), runner.indexOf('{#if expanded}'));
 	assert.ok(restBanner.includes('onclick={stopTimer}'), 'bouton « Passer » arrête le timer (fermeture possible)');
 });
 
 test('UX 3 : chrono global de séance basé sur startedAt persisté', () => {
 	assert.ok(runner.includes('startElapsed()'), 'chrono démarré au début réel + à la reprise');
 	assert.ok(runner.includes('stopElapsed()'), 'chrono arrêté à l\u2019ouverture du récap + au démontage');
-	assert.ok(runner.includes('Séance en cours · '), 'chrono visible dans le header');
+	assert.ok(/sessionStarted && elapsedLabel \? elapsedLabel : '0:00'/.test(runner), 'chrono visible dans le header');
 	assert.ok(runner.includes('elapsedLabel'), 'label dérivé horodaté');
 });
 
@@ -296,11 +296,11 @@ test('UX 5d : durée à la reprise — chrono réarmé, le temps inter-ouverture
 	assert.ok(runner.includes('sessionStarted ? Date.now() - startedAt : Date.now() - startedAt'), 'durée détectée = fenêtre en cours uniquement');
 });
 
-test('UX 4 : « Terminer » accessible depuis le header + confirmation existante réutilisée', () => {
-	assert.ok(/Terminer\s*</.test(runner), 'bouton court dans le header');
-	const header = runner.slice(runner.indexOf('HEADER séance'), runner.indexOf('<!-- ═══════════ MODE LIBRE'));
-	assert.ok(header.includes('requestFinish'), 'le header passe par le flux existant (confirm partiel → récap)');
-	assert.ok(header.includes('elapsedLabel'), 'header : « Séance en cours · mm:ss »');
+test('UX 4 : « Terminer » accessible depuis la barre fixe + confirmation existante réutilisée', () => {
+	const libreBlock = runner.slice(runner.indexOf('<!-- ═══════════ MODE LIBRE'), runner.indexOf('<!-- ═══════════ MODE GUIDÉ'));
+	assert.ok(libreBlock.includes('fixed inset-x-0 bottom-0') && libreBlock.includes('onclick={requestFinish}'), 'barre fixe : bouton Terminer');
+	assert.ok(libreBlock.includes('Passer en mode guidé'), 'lien guidé conservé sous le bouton');
+	assert.ok(runner.slice(runner.indexOf('EN-TÊTE séance'), runner.indexOf('<!-- ═══════════ MODE LIBRE')).includes('elapsedLabel'), 'header : chrono persistant');
 });
 
 /* ─── 4) BFF : observabilité requestId + anti-hang Convex ─── */

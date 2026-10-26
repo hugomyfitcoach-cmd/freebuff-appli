@@ -41,6 +41,8 @@ export type SessionExerciseView = {
 		posterUrl?: string;
 		animationUrl?: string;
 		instructions?: string[];
+		/** Traduction française des instructions (repli : `instructions`). */
+		instructionsFr?: string[];
 	} | null;
 	sets: TrainingSetView[];
 };
