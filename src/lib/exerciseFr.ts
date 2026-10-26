@@ -36,12 +36,38 @@ export function hasFrenchInstructions(ex: ExerciseTextFields | null | undefined)
 }
 
 /**
- * Nom affiché : première lettre en majuscule, RESTE INCHANGÉ (jamais de
- * minuscule forcée — les sigles et noms propres anglais restent intacts).
- * Ne modifie pas la valeur reçue (aucun write en base).
+ * Séquences d'encodage corrompues repérées dans les noms importés
+ * (« sled 45в° leg press ») — corrigées À L'AFFICHAGE uniquement, la base
+ * n'est JAMAIS réécrite. Liste volontairement limitée aux séquences
+ * non ambiguës (mojibake UTF-8 relu en latin-1/cyrillique).
+ */
+const ENCODING_FIXES: readonly (readonly [RegExp, string])[] = [
+	[/в°/g, '°'], // « в » cyrillique + degré
+	[/Â°/g, '°'],
+	[/â€™/g, '’'],
+	[/â€“/g, '–'],
+	[/â€”/g, '—'],
+	[/Ã©/g, 'é'],
+	[/Ã¨/g, 'è'],
+	[/Ã§/g, 'ç'],
+	[/Ã /g, 'à'],
+];
+
+/** Corrige les séquences d'encodage évidentes d'un texte affiché (jamais la base). */
+export function fixExerciseEncoding(value: string): string {
+	let out = value;
+	for (const [pattern, replacement] of ENCODING_FIXES) out = out.replace(pattern, replacement);
+	return out;
+}
+
+/**
+ * Nom affiché : séquences d'encodage corrigées, première lettre en majuscule,
+ * RESTE INCHANGÉ (jamais de minuscule forcée — les sigles et noms propres
+ * anglais restent intacts). Ne modifie pas la valeur reçue (aucun write).
  */
 export function displayExerciseName(name: string | null | undefined): string {
-	const value = typeof name === 'string' ? name.trim() : '';
-	if (!value) return '';
+	const raw = typeof name === 'string' ? name.trim() : '';
+	if (!raw) return '';
+	const value = fixExerciseEncoding(raw);
 	return value.charAt(0).toLocaleUpperCase('fr-FR') + value.slice(1);
 }

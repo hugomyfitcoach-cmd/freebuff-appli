@@ -17,6 +17,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import ExerciseMedia from '$lib/components/ExerciseMedia.svelte';
 	import ExerciseLibraryBrowser from '$lib/components/ExerciseLibraryBrowser.svelte';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { displayExerciseName, exerciseInstructions } from '$lib/exerciseFr';
 	import {
 		type SessionView,
@@ -48,6 +49,15 @@
 	let pickerOpen = $state(false);
 	let addedIds = $state(new Set<string>());
 	let actionErr = $state('');
+
+	/* ── Dialogues G-FLUX — AUCUNE boîte native (prompt / confirm / alert) ── */
+	let renameSessionFor = $state<SessionView | null>(null);
+	let renameValue = $state('');
+	let deleteSessionFor = $state<SessionView | null>(null);
+	let removeExerciseFor = $state<SessionExerciseView | null>(null);
+	let dialogBusy = $state(false);
+	/** Noms renommés localement : visibles IMMÉDIATEMENT (liste + titre), sans reload. */
+	let sessionNames = $state<Record<string, string>>({});
 
 	/* Champs du programme en édition (init une fois par programme) */
 	let programKey = $state('');
@@ -150,8 +160,22 @@
 			if (res.sessionId) selectSession(res.sessionId);
 		}
 	}
-	function renameSessionDebounced(id: string, name: string) {
-		debounced(`sess-${id}`, () => send('PATCH', `/api/coach/training/sessions/${id}`, { name }));
+	/** Nom affiché d'une séance (renommage optimiste si en cours). */
+	function sessionName(s: SessionView): string {
+		return sessionNames[s._id] ?? s.name;
+	}
+	function openRenameSession(s: SessionView) {
+		renameSessionFor = s;
+		renameValue = sessionName(s);
+	}
+	/** Renommer : mise à jour LOCALE immédiate puis PATCH debouncé (aucun reload). */
+	function confirmRenameSession() {
+		const target = renameSessionFor;
+		const name = renameValue.trim();
+		renameSessionFor = null;
+		if (!target || !name) return;
+		sessionNames[target._id] = name;
+		debounced(`sess-${target._id}`, () => send('PATCH', `/api/coach/training/sessions/${target._id}`, { name }));
 	}
 	async function duplicateSession(id: string) {
 		const res = (await send('POST', `/api/coach/training/sessions/${id}`)) as { sessionId?: string } | null;
@@ -160,16 +184,24 @@
 			if (res.sessionId) selectSession(res.sessionId);
 		}
 	}
-	async function deleteSession(id: string) {
-		const s = sessions.find((x) => x._id === id);
-		const label = s ? `« ${s.name} »` : 'cette séance';
-		if (!confirm(`Supprimer ${label} et tous ses exercices ?`)) return;
-		if (await send('DELETE', `/api/coach/training/sessions/${id}`)) {
-			if (selectedSessionId === id) {
-				selectedSessionId = null;
-				selectedExerciseId = null;
+	function deleteSession(id: string) {
+		deleteSessionFor = sessions.find((x) => x._id === id) ?? null;
+	}
+	async function confirmDeleteSession() {
+		const target = deleteSessionFor;
+		if (!target) return;
+		dialogBusy = true;
+		try {
+			if (await send('DELETE', `/api/coach/training/sessions/${target._id}`)) {
+				if (selectedSessionId === target._id) {
+					selectedSessionId = null;
+					selectedExerciseId = null;
+				}
+				deleteSessionFor = null;
+				await onReload();
 			}
-			await onReload();
+		} finally {
+			dialogBusy = false;
 		}
 	}
 
@@ -219,10 +251,22 @@
 	async function duplicateExercise(id: string) {
 		if (await send('POST', `/api/coach/training/session-exercises/${id}`)) await onReload();
 	}
-	async function removeExercise(id: string) {
-		if (!confirm('Retirer cet exercice de la séance ?')) return;
-		if (selectedExerciseId === id) selectedExerciseId = null;
-		if (await send('DELETE', `/api/coach/training/session-exercises/${id}`)) await onReload();
+	function removeExercise(id: string) {
+		removeExerciseFor = selectedSession?.exercises.find((x) => x._id === id) ?? null;
+	}
+	async function confirmRemoveExercise() {
+		const target = removeExerciseFor;
+		if (!target) return;
+		dialogBusy = true;
+		try {
+			if (selectedExerciseId === target._id) selectedExerciseId = null;
+			if (await send('DELETE', `/api/coach/training/session-exercises/${target._id}`)) {
+				removeExerciseFor = null;
+				await onReload();
+			}
+		} finally {
+			dialogBusy = false;
+		}
 	}
 
 	/* ── Supersets / trisets : sélection multiple + liaison ──
@@ -436,17 +480,14 @@
 						<div class="flex items-center gap-1 px-2 py-2">
 							<Icon name="rows3" size={13} class="cursor-grab shrink-0 text-mist" />
 							<button type="button" class="min-w-0 flex-1 text-left" onclick={() => selectSession(s._id)}>
-								<span class="block truncate text-[13px] font-bold text-ink">{s.name}</span>
+								<span class="block truncate text-[13px] font-bold text-ink">{sessionName(s)}</span>
 								<span class="block text-[10px] text-mist">{s.exercises.length} exercice{s.exercises.length > 1 ? 's' : ''}</span>
 							</button>								<span class="flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
 									<button
 										type="button"
 										title="Renommer"
 										class="rounded-lg p-1 text-mist transition hover:bg-white hover:text-brand"
-										onclick={() => {
-											const name = prompt('Nom de la séance :', s.name);
-											if (name && name.trim()) renameSessionDebounced(s._id, name.trim());
-										}}
+										onclick={() => openRenameSession(s)}
 									>
 										<Icon name="pencil" size={13} />
 									</button>
@@ -480,7 +521,7 @@
 		<section class="overflow-hidden rounded-2xl border border-line bg-card shadow-sm">
 			<header class="flex items-center justify-between border-b border-line bg-line/30 px-3 py-2.5">
 				<h2 class="min-w-0 truncate text-[11px] font-bold uppercase tracking-widest text-mist">
-					{selectedSession ? selectedSession.name : 'Exercices'}
+					{selectedSession ? sessionName(selectedSession) : 'Exercices'}
 				</h2>
 				<button
 					type="button"
@@ -920,7 +961,7 @@
 	>
 		<div class="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl bg-card shadow-xl">
 			<header class="flex items-center justify-between border-b border-line px-5 py-3">
-				<h3 class="font-display text-lg font-bold text-ink">Ajouter un exercice — {selectedSession?.name}</h3>
+				<h3 class="font-display text-lg font-bold text-ink">Ajouter un exercice — {selectedSession ? sessionName(selectedSession) : ''}</h3>
 				<button type="button" onclick={() => (pickerOpen = false)} class="rounded-full p-1 text-mist transition hover:bg-line/50 hover:text-ink">
 					<Icon name="x" size={18} />
 				</button>
@@ -931,3 +972,45 @@
 		</div>
 	</div>
 {/if}
+
+<!-- ── Dialogues G-FLUX (remplacent prompt / confirm natifs) ── -->
+<ConfirmDialog
+	open={!!renameSessionFor}
+	title="Renommer la séance"
+	message="Le nouveau nom apparaît immédiatement dans la liste et le titre."
+	confirmLabel="Renommer"
+	onconfirm={confirmRenameSession}
+	oncancel={() => (renameSessionFor = null)}
+>
+	<input
+		type="text"
+		bind:value={renameValue}
+		aria-label="Nom de la séance"
+		class="w-full rounded-xl border-2 border-line px-3 py-2 text-sm font-semibold text-ink outline-none focus:border-brand"
+		onkeydown={(e) => {
+			if (e.key === 'Enter') confirmRenameSession();
+		}}
+	/>
+</ConfirmDialog>
+
+<ConfirmDialog
+	open={!!deleteSessionFor}
+	title="Supprimer la séance ?"
+	message={deleteSessionFor ? `« ${sessionName(deleteSessionFor)} » et tous ses exercices seront supprimés.` : ''}
+	confirmLabel="Supprimer"
+	danger
+	busy={dialogBusy}
+	onconfirm={confirmDeleteSession}
+	oncancel={() => (deleteSessionFor = null)}
+/>
+
+<ConfirmDialog
+	open={!!removeExerciseFor}
+	title="Retirer cet exercice ?"
+	message={removeExerciseFor ? `${displayExerciseName(removeExerciseFor.exercise?.name) || 'Cet exercice'} sera retiré de la séance.` : ''}
+	confirmLabel="Retirer"
+	danger
+	busy={dialogBusy}
+	onconfirm={confirmRemoveExercise}
+	oncancel={() => (removeExerciseFor = null)}
+/>

@@ -18,6 +18,7 @@ import { query, mutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
 import { getSessionUser } from "./helpers";
+import { isEquipmentFamily } from "../lib/exerciseEquipment";
 
 /** Identifiant de la source gratuite de prototypage (ExerciseDB open data). */
 export const FREE_SOURCE_ID = "free-exercise-db";
@@ -257,6 +258,8 @@ export const searchExercises = query({
 		query: v.optional(v.string()),
 		muscleGroup: v.optional(v.string()),
 		equipment: v.optional(v.string()),
+		/** Famille d'affichage (« Machine », « Poulies »…) — filtre de la bibliothèque. */
+		equipmentFamily: v.optional(v.string()),
 		bodyPart: v.optional(v.string()),
 		source: v.optional(v.string()),
 		includeHidden: v.optional(v.boolean()),
@@ -265,7 +268,7 @@ export const searchExercises = query({
 	},
 	handler: async (
 		ctx,
-		{ sessionToken, query, muscleGroup, equipment, bodyPart, source, includeHidden, offset = 0, limit = 24 }
+		{ sessionToken, query, muscleGroup, equipment, equipmentFamily, bodyPart, source, includeHidden, offset = 0, limit = 24 }
 	) => {
 		const coach = await getSessionUser(ctx, sessionToken);
 		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
@@ -293,6 +296,8 @@ export const searchExercises = query({
 			if (!includeHidden && (e.hidden ?? false)) return false;
 			if (muscleGroup && e.muscleGroup !== muscleGroup) return false;
 			if (equipment && e.equipment !== equipment) return false;
+			// Filtre de la bibliothèque par FAMILLE (sled, cable, band… regroupés).
+			if (equipmentFamily && !isEquipmentFamily(e.equipment, equipmentFamily)) return false;
 			if (bodyPart && e.bodyPart !== bodyPart) return false;
 			if (source && e.source !== source) return false;
 			return true;
