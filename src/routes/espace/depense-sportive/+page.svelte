@@ -16,6 +16,15 @@
 	import { onMount } from 'svelte';
 	import BackToHome from '$lib/components/BackToHome.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import {
+		ERREUR_BPM,
+		ERREUR_DUREE,
+		messageErreurSport,
+		nombreSaisi,
+		validerBpm,
+		validerDuree,
+		validerSaisieSport
+	} from '$lib/sportSaisie';
 
 	type Activity = {
 		_id: string;
@@ -137,7 +146,7 @@
 		try {
 			await loadWeek(addDays(weekStart, delta * 7));
 		} catch (e) {
-			err = e instanceof Error ? e.message : String(e);
+			err = messageErreurSport(e);
 		}
 	}
 
@@ -173,9 +182,17 @@
 					? (catalog?.zonesCardio ?? [])
 					: []
 	);
+	/** Saisies numériques normalisées (texte OU nombre) — lib/sportSaisie. */
+	const bpmCheck = $derived(validerBpm(formBpm));
 	/** FC moyenne plausible (mêmes bornes que le barème : 40 à 240 BPM). */
-	const bpmValide = $derived(
-		formBpm.trim() !== '' && Number(formBpm) >= 40 && Number(formBpm) <= 240
+	const bpmValide = $derived(bpmCheck.ok && bpmCheck.bpm !== null);
+	/** FC renseignée mais hors bornes : message clair, jamais un écart silencieux. */
+	const bpmErreur = $derived(bpmCheck.ok ? '' : bpmCheck.erreur);
+	/** Durée (présélection 30/45/60 ou libre) dans les bornes 1 à 600 min. */
+	const dureeValide = $derived(validerDuree(formDuration).ok);
+	/** Saisie complète prête à enregistrer (durée obligatoire, FC optionnelle). */
+	const saisieValide = $derived(
+		validerSaisieSport({ dureeMinutes: formDuration, bpmMoyen: formBpm }).ok
 	);
 	/** Choix stocké qui n'est plus proposé (ligne v1, ou activité passée au barème doux). */
 	const choixHorsBareme = $derived(
@@ -263,7 +280,7 @@
 			const copy = week?.activities.find((x) => x._id === r._id);
 			if (copy) openEdit(copy);
 		} catch (e) {
-			err = e instanceof Error ? e.message : String(e);
+			err = messageErreurSport(e);
 		} finally {
 			saving = false;
 		}
@@ -273,51 +290,40 @@
 		formCustomDuration = '';
 	}
 	function pickCustomDuration() {
-		const n = Math.round(Number(formCustomDuration.replace(',', '.')));
-		if (Number.isFinite(n) && n >= 1 && n <= 600) {
-			formDuration = n;
-		} else if (n >= 600) {
-			formDuration = 600;
-		}
+		/* Saisie normalisée (texte OU nombre) — vide → aucune durée sélectionnée. */
+		const n = nombreSaisi(formCustomDuration);
+		formDuration = n === null ? null : Math.round(n);
 	}
 	async function saveSheet() {
-		if (!formActivityId || !formDuration) return;
+		/* Saisies NORMALISÉES (texte OU nombre) avant tout calcul et tout envoi :
+		   durée obligatoire (1 à 600 min), FC optionnelle (40 à 240 BPM). */
+		const v = validerSaisieSport({ dureeMinutes: formDuration, bpmMoyen: formBpm });
+		if (!v.ok) {
+			err = v.erreur;
+			return;
+		}
+		if (!formActivityId) return;
 		saving = true;
 		err = '';
 		try {
-			if (editingId) {
-				const r = await fetch('/api/sport', {
-					method: 'PATCH',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({
-						_id: editingId,
-						date: formDate,
-						activityId: formActivityId,
-						...(formIntensity ? { intensity: formIntensity } : {}),
-						...(bpmValide ? { bpmMoyen: Number(formBpm) } : {}),
-						durationMinutes: formDuration,
-					}),
-				}).then((x) => x.json());
-				if (r.error) throw new Error(r.error);
-			} else {
-				const r = await fetch('/api/sport', {
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({
-						date: formDate,
-						activityId: formActivityId,
-						...(formIntensity ? { intensity: formIntensity } : {}),
-						...(bpmValide ? { bpmMoyen: Number(formBpm) } : {}),
-						durationMinutes: formDuration,
-					}),
-				}).then((x) => x.json());
-				if (r.error) throw new Error(r.error);
-			}
+			const payload = {
+				date: formDate,
+				activityId: formActivityId,
+				...(formIntensity ? { intensity: formIntensity } : {}),
+				...(v.saisie.bpmMoyen !== null ? { bpmMoyen: v.saisie.bpmMoyen } : {}),
+				durationMinutes: v.saisie.dureeMinutes
+			};
+			const r = await fetch('/api/sport', {
+				method: editingId ? 'PATCH' : 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(editingId ? { _id: editingId, ...payload } : payload)
+			}).then((x) => x.json());
+			if (r.error) throw new Error(r.error);
 			sheetOpen = false;
 			await loadWeek();
 			void loadRecents();
 		} catch (e) {
-			err = e instanceof Error ? e.message : String(e);
+			err = messageErreurSport(e, "Impossible d'enregistrer l'activité. Réessaie dans un instant.");
 		} finally {
 			saving = false;
 		}
@@ -334,7 +340,7 @@
 			await loadWeek();
 			void loadRecents();
 		} catch (e) {
-			err = e instanceof Error ? e.message : String(e);
+			err = messageErreurSport(e);
 		}
 	}
 	async function loadRecents() {
@@ -619,6 +625,9 @@
 					class="w-20 rounded-xl border-2 border-line px-2 py-2 text-center text-sm tabular-nums outline-none focus:border-brand {formCustomDuration ? 'border-brand' : ''}"
 				/>
 			</div>
+			{#if !dureeValide}
+				<p class="mt-1.5 text-[11px] font-semibold text-danger">{ERREUR_DUREE}</p>
+			{/if}
 
 			<label class="mt-3 block">
 				<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist"
@@ -636,6 +645,9 @@
 				<span class="mt-1 block text-[11px] text-mist">
 					Renseignée, elle choisit la zone cardio à ta place — quelle que soit l'activité.
 				</span>
+				{#if bpmErreur}
+					<span class="mt-1 block text-[11px] font-semibold text-danger">{bpmErreur}</span>
+				{/if}
 			</label>
 
 			{#if formEntry && !bpmValide}
@@ -687,7 +699,7 @@
 			{/if}
 
 			<button
-				type="button"				disabled={saving || !formDuration || !choixValide}
+				type="button"				disabled={saving || !saisieValide || !choixValide}
 				onclick={saveSheet}
 				class="mt-4 w-full rounded-xl bg-brand px-5 py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
 			>
