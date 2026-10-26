@@ -312,6 +312,58 @@ export function weightVision(rows: WeightPoint[], days: string[]): WeightVision 
 	};
 }
 
+export type WeightTrendFacts = {
+	/** Dernière pesée enregistrée, toutes dates confondues (aujourd'hui inclus). */
+	last: { date: string; weightKg: number } | null;
+	/** Pesée immédiatement précédente, toutes dates confondues. */
+	previous: { date: string; weightKg: number } | null;
+	/** Écart kg (last − previous), arrondi 0,01 — null si moins de 2 pesées. */
+	gapKg: number | null;
+	/** Poids moyen de la semaine d'un bilan précédent — null si aucun bilan fourni. */
+	prevCheckin: {
+		weekLabel: string;
+		avgKg: number | null;
+		count: number;
+	} | null;
+};
+
+/**
+ * TENDANCE DE POIDS — la MÊME fonction pour la carte du bilan et le contexte
+ * du brouillon (aucun calcul parallèle) :
+ *  - écart entre les deux pesées les plus récentes, TOUTES DATES confondues,
+ *    aujourd'hui inclus : la tendance reste lisible même quand la fenêtre
+ *    des 7 derniers jours terminés est peu renseignée ;
+ *  - poids moyen de la semaine d'un bilan précédent, s'il est fourni.
+ * Aucun zéro inventé : chaque absence reste `null`.
+ */
+export function weightTrendFacts(
+	rows: WeightPoint[],
+	prevCheckin: { weekLabel: string; weekStart: string } | null
+): WeightTrendFacts {
+	// Tri défensif par DATE : « dernière pesée » = date la plus récente.
+	const sorted = [...rows].sort((a, b) => a.date.localeCompare(b.date));
+	const last = sorted.length > 0 ? sorted[sorted.length - 1] : null;
+	const previous = sorted.length > 1 ? sorted[sorted.length - 2] : null;
+	let prevFacts: WeightTrendFacts['prevCheckin'] = null;
+	if (prevCheckin) {
+		// Semaine du bilan précédent (lundi → dimanche), même calcul que pour
+		// la fenêtre courante : moyenne des pesées réellement enregistrées.
+		const prevDays = last7CompletedDays(shiftISO(prevCheckin.weekStart, 7));
+		const vision = weightVision(sorted, prevDays);
+		prevFacts = {
+			weekLabel: prevCheckin.weekLabel,
+			avgKg: vision.avg,
+			count: vision.count,
+		};
+	}
+	return {
+		last: last ? { date: last.date, weightKg: last.weightKg } : null,
+		previous: previous ? { date: previous.date, weightKg: previous.weightKg } : null,
+		gapKg: last && previous ? Math.round((last.weightKg - previous.weightKg) * 100) / 100 : null,
+		prevCheckin: prevFacts,
+	};
+}
+
 /* ──────────────────────── DÉPENSE SPORTIVE ──────────────────────── */
 
 export type SportDayInput = {
@@ -418,6 +470,66 @@ export function mensurationsVision(rows: MensurationPoint[]): MensurationCompare
 		neckCm: latest.neckCm ?? null,
 		deltas: { waistCm: deltaOf('waistCm'), hipCm: deltaOf('hipCm'), neckCm: deltaOf('neckCm') },
 	};
+}
+
+/* ──────────── Fenêtre de fraîcheur d'un relevé (brouillon) ──────────── */
+
+/**
+ * FENÊTRE DE FRAÎCHEUR — une donnée datée n'est transmise au brouillon que
+ * si elle tombe de J-7 à J (aujourd'hui INCLUS), dans le fuseau de référence
+ * (Europe/Paris, même clé `parisTodayISO`). Vaut pour les mensurations, la
+ * dernière pesée et les photos : au-delà, la donnée a déjà été commentée au
+ * bilan précédent (aucun doublon de bilan à bilan).
+ */
+export const RECENT_WINDOW_DAYS = 7;
+
+/** Fenêtre de fraîcheur des mensurations — même règle que `isRecentDate`. */
+export const MENSURATIONS_FRESH_DAYS = RECENT_WINDOW_DAYS;
+
+/** La date `date` tombe-t-elle dans la fenêtre J-7 → J de `todayISO` ? */
+export function isRecentDate(date: string, todayISO: string): boolean {
+	assertISO(date, 'date');
+	assertISO(todayISO, 'todayISO');
+	return date >= shiftISO(todayISO, -RECENT_WINDOW_DAYS) && date <= todayISO;
+}
+
+/** Le relevé du `date` tombe-t-il dans la fenêtre J-7 → J de `todayISO` ? */
+export function isMensurationFresh(date: string, todayISO: string): boolean {
+	return isRecentDate(date, todayISO);
+}
+
+/**
+ * MENSURATIONS DU BROUILLON — la MÊME comparaison que la carte
+ * (`mensurationsVision`: dernier relevé vs précédent, deltas par mesure),
+ * mais transmise UNIQUEMENT si le dernier relevé est frais (J-7 → J).
+ * Sinon `null` : rien ne part vers l'assistant.
+ */
+export function freshMensurationsVision(
+	rows: MensurationPoint[],
+	todayISO: string
+): MensurationCompare | null {
+	const latest = mensurationsVision(rows);
+	if (!latest) return null;
+	return isMensurationFresh(latest.date, todayISO) ? latest : null;
+}
+
+/* ────────────────── Complétude du suivi (brouillon) ────────────────── */
+
+/**
+ * SEUIL DE COMPLÉTUDE — moins de 4 jours exploitables (calories, protéines)
+ * ou renseignés (pas) sur 7 : aucun jugement sur la moyenne. De 4 à 6 jours :
+ * la moyenne se commente en précisant « sur X jours ». 7 jours : rien à
+ * préciser. Appliqué aux MÊMES compteurs que la carte du bilan.
+ */
+export const MIN_COMPLETE_TRACKING_DAYS = 4;
+
+export type TrackingCompleteness = 'insufficient' | 'partial' | 'complete';
+
+/** Complétude d'un suivi à partir du nombre de jours exploitables/renseignés. */
+export function trackingCompleteness(days: number): TrackingCompleteness {
+	if (!Number.isFinite(days) || days < MIN_COMPLETE_TRACKING_DAYS) return 'insufficient';
+	if (days < 7) return 'partial';
+	return 'complete';
 }
 
 /* ─────────────────────────── Formatage dates ─────────────────────────── */

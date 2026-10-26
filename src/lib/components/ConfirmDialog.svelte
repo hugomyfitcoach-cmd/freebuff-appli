@@ -1,90 +1,162 @@
 <script lang="ts">
 	/**
-	 * ConfirmDialog — confirmation obligatoire avant une action engageante
-	 * (ex. « Appliquer à la fiche » de l'onglet Calibrage). Vue épurée,
-	 * accessible (role dialog + aria-modal), mobile et desktop :
-	 *  - `onconfirm` n'est JAMAIS appelé sans clic explicite sur « Confirmer » ;
-	 *  - `oncancel` (et le bouton d'annulation / la touche Échap) ne fait QUE
-	 *    fermer — aucune écriture ne part de l'annulation.
+	 * CONFIRMATION AUX COULEURS DE G-FLUX — remplace `window.confirm` natif.
+	 * Version UNIFIÉE : accepte les deux styles de rappel — `onConfirm`/`onCancel`
+	 * (assistant IA) ET `onconfirm`/`oncancel` (entraînement, admin) — ainsi que
+	 * `danger`, `busy` et un snippet `children` (champ de saisie intégré).
+	 *
+	 * Feuille ancrée en bas sur mobile, boîte centrée sur desktop, mêmes
+	 * transitions et mêmes jetons de couleur que les feuilles de saisie de
+	 * l'application (`sheetMotion`). Le focus part sur « Annuler » : une
+	 * action destructive ne se déclenche jamais sur une touche Entrée réflexe.
+	 * Échap et clic sur le fond annulent (le texte existant n'est jamais perdu),
+	 * sauf pendant `busy` où rien ne s'interrompt.
 	 */
+	import { fade, fly } from 'svelte/transition';
 	import Icon from './Icon.svelte';
+	import { sheetFade, sheetFly } from '../sheetMotion.js';
 
 	let {
 		open = false,
-		title = 'Confirmer',
-		message = '',
+		title,
+		message,
 		confirmLabel = 'Confirmer',
 		cancelLabel = 'Annuler',
 		danger = false,
 		busy = false,
+		onConfirm,
+		onCancel,
 		onconfirm,
 		oncancel,
 		children
 	}: {
 		open?: boolean;
-		title?: string;
-		message?: string;
+		title: string;
+		message: string;
 		confirmLabel?: string;
 		cancelLabel?: string;
 		danger?: boolean;
 		busy?: boolean;
-		onconfirm: () => void;
-		oncancel: () => void;
+		onConfirm?: () => void;
+		onCancel?: () => void;
+		onconfirm?: () => void;
+		oncancel?: () => void;
 		children?: import('svelte').Snippet;
 	} = $props();
 
-	function onKey(e: KeyboardEvent) {
+	const titleId = $props.id();
+	const messageId = `${titleId}-message`;
+
+	let dialogEl = $state<HTMLDivElement>();
+	let cancelButton = $state<HTMLButtonElement>();
+	let confirmButton = $state<HTMLButtonElement>();
+
+	function confirm() {
+		if (busy) return;
+		(onConfirm ?? onconfirm)?.();
+	}
+
+	function cancel() {
+		if (busy) return;
+		(onCancel ?? oncancel)?.();
+	}
+
+	// Le focus entre dans la modale à l'ouverture et revient au déclencheur
+	// à la fermeture (clavier et lecteurs d'écran restent dans le contexte).
+	$effect(() => {
+		if (!open) return;
+		const previous = document.activeElement as HTMLElement | null;
+		cancelButton?.focus();
+		return () => previous?.focus?.();
+	});
+
+	function focusables(): HTMLElement[] {
+		if (!dialogEl) return [];
+		return Array.from(
+			dialogEl.querySelectorAll<HTMLElement>(
+				'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+			)
+		);
+	}
+
+	function onKeydown(event: KeyboardEvent) {
 		if (!open || busy) return;
-		if (e.key === 'Escape') oncancel();
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			cancel();
+			return;
+		}
+		// Piège à focus simple : aucun élément de la modale ne s'échappe au Tab.
+		if (event.key === 'Tab') {
+			event.preventDefault();
+			const items = focusables();
+			if (items.length === 0) return;
+			const index = items.indexOf(document.activeElement as HTMLElement);
+			const next = event.shiftKey
+				? items[(index <= 0 ? items.length : index) - 1]
+				: items[(index + 1) % items.length];
+			next?.focus();
+		}
 	}
 </script>
 
-<svelte:window onkeydown={onKey} />
+<svelte:window onkeydown={onKeydown} />
 
 {#if open}
-	<button
-		type="button"
-		class="fixed inset-0 z-[90] cursor-pointer bg-ink/45 backdrop-blur-[2px]"
-		aria-label="Fermer"
-		onclick={() => !busy && oncancel()}
-	></button>
 	<div
-		class="fixed inset-x-4 top-1/2 z-[91] mx-auto max-w-sm -translate-y-1/2 sm:left-1/2 sm:right-auto sm:-translate-x-1/2"
-		role="dialog"
-		aria-modal="true"
-		aria-label={title}
+		role="presentation"
+		transition:fade={sheetFade()}
+		class="fixed inset-0 z-[90] flex items-end justify-center bg-[#0F1512]/45 backdrop-blur-sm sm:items-center sm:p-6"
+		onclick={(event) => {
+			if (event.target === event.currentTarget) cancel();
+		}}
 	>
-		<div class="rounded-2xl bg-white p-5 shadow-2xl">
-			<h4 class="flex items-center gap-2.5 font-display text-base font-bold text-ink">
+		<div
+			bind:this={dialogEl}
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby={titleId}
+			aria-describedby={messageId}
+			transition:fly={sheetFly()}
+			class="w-full max-w-sm rounded-t-[28px] border border-line bg-card px-5 pt-5 shadow-[0_-20px_50px_-20px_rgba(15,21,18,0.35)] sm:rounded-[28px]"
+			style="padding-bottom: max(env(safe-area-inset-bottom), 20px);"
+		>
+			<div class="flex items-start gap-3">
 				<span
-					class="grid h-8 w-8 shrink-0 place-items-center rounded-xl {danger
+					class="grid h-11 w-11 shrink-0 place-items-center rounded-2xl {danger
 						? 'bg-danger-light text-danger'
 						: 'bg-brand-light text-brand-deep'}"
 				>
-					<Icon name={danger ? 'triangleAlert' : 'check'} size={15} />
+					<Icon name={danger ? 'triangleAlert' : 'sparkles'} size={20} />
 				</span>
-				{title}
-			</h4>
-			{#if message}
-				<p class="mt-2 text-sm leading-relaxed text-ink">{message}</p>
-			{/if}
+				<div class="min-w-0 flex-1">
+					<h2 id={titleId} class="font-display text-[17px] font-black leading-tight tracking-[-0.01em] text-ink">
+						{title}
+					</h2>
+					<p id={messageId} class="mt-1 text-[13px] leading-relaxed text-mist">{message}</p>
+				</div>
+			</div>
+
 			{#if children}
 				<div class="mt-3">{@render children()}</div>
 			{/if}
-			<div class="mt-4 flex gap-2">
+
+			<div class="mt-5 flex gap-2">
 				<button
+					bind:this={cancelButton}
 					type="button"
-					onclick={() => !busy && oncancel()}
+					onclick={cancel}
 					disabled={busy}
-					class="flex-1 rounded-full border-2 border-line px-3 py-2.5 text-sm font-bold text-ink transition hover:border-mist disabled:opacity-60"
+					class="flex-1 rounded-xl border-2 border-line bg-card px-4 py-2.5 text-sm font-semibold text-ink transition hover:border-mist focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 disabled:opacity-60"
 				>
 					{cancelLabel}
 				</button>
 				<button
+					bind:this={confirmButton}
 					type="button"
-					onclick={() => onconfirm()}
+					onclick={confirm}
 					disabled={busy}
-					class="flex-1 rounded-full px-3 py-2.5 text-sm font-bold text-white transition disabled:opacity-60 {danger
+					class="flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-60 {danger
 						? 'bg-danger hover:brightness-95'
 						: 'bg-brand hover:bg-brand-dark'}"
 				>

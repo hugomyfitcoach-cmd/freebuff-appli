@@ -4290,7 +4290,8 @@
 									</div>
 								{/snippet}
 
-					<!-- POIDS — VISION 360 LIVE (7 jours complets) : moyenne principale + dernière pesée vs période précédente -->
+					<!-- POIDS — VISION 360 LIVE (7 jours complets) : moyenne principale +
+					     dernière pesée vs pesée précédente (toutes dates, aujourd'hui inclus). -->
 					<div class="flex flex-col rounded-xl border border-line bg-cream/40 p-3">
 						{@render cardHead('scale', 'Poids', cockpit.weight.count > 0 ? `${cockpit.weight.count} pesée${cockpit.weight.count > 1 ? 's' : ''}` : undefined)}
 						{#if cockpit.weight.avg !== null}
@@ -4301,20 +4302,20 @@
 								{/if}
 							</div>
 							<p class="mt-0.5 text-[11px] text-mist">Moyenne des 7 derniers jours terminés</p>
-							{#if cockpit.weight.last}
-								<p class="mt-1.5 border-t border-line/60 pt-1.5 text-[11px] leading-snug text-mist">
-									Dernière pesée <strong class="text-ink">{fmtVal(cockpit.weight.last.weightKg)} kg</strong>
-									{#if cockpit.weight.last.date}<span class="tabular-nums"> · {fmtDateShort(cockpit.weight.last.date)}</span>{/if}
-									{#if cockpit.weight.prevLast}
-										<br />vs {fmtVal(cockpit.weight.prevLast.weightKg)} kg
-										{#if cockpit.weight.prevLast.date}<span class="tabular-nums"> · {fmtDateShort(cockpit.weight.prevLast.date)}</span>{/if}								{:else}
-									<br /><span class="italic">comparaison indisponible (période précédente sans pesée)</span>
-								{/if}
-								</p>
-							{/if}
 						{:else}
 							<div class="mt-1 font-display text-2xl font-semibold text-mist/50">—</div>
 							<p class="mt-0.5 text-[11px] italic text-mist">Aucune pesée sur les 7 derniers jours terminés</p>
+						{/if}
+						{#if cockpit.weight.last}
+							<p class="mt-1.5 border-t border-line/60 pt-1.5 text-[11px] leading-snug text-mist">
+								Dernière pesée <strong class="text-ink">{fmtVal(cockpit.weight.last.weightKg)} kg</strong>
+								{#if cockpit.weight.last.date}<span class="tabular-nums"> · {fmtDateShort(cockpit.weight.last.date)}</span>{/if}
+								{#if cockpit.weight.prevLast}
+									<br />vs {fmtVal(cockpit.weight.prevLast.weightKg)} kg
+									{#if cockpit.weight.prevLast.date}<span class="tabular-nums"> · {fmtDateShort(cockpit.weight.prevLast.date)}</span>{/if}								{:else}
+									<br /><span class="italic">comparaison indisponible (moins de deux pesées)</span>
+								{/if}
+							</p>
 						{/if}
 					</div>
 
@@ -4516,11 +4517,11 @@
 
 						<!-- Historique semaine par semaine (bilan + réponses + retour coach) -->
 						{#each checkins as checkin (checkin._id)}
-							<BilanCard checkin={checkin} clientName={fullName(selected.user)} clientId={selected.user._id} media={mediaFor(checkin._id)} />
+							<BilanCard checkin={checkin} clientName={fullName(selected.user)} clientId={selected.user._id} media={mediaFor(checkin._id)} draftEnabled={data.coachDraftEnabled} />
 						{/each}
 					{:else}
 						{#each checkins as checkin (checkin._id)}
-							<BilanCard checkin={checkin} clientName={fullName(selected.user)} clientId={selected.user._id} media={mediaFor(checkin._id)} />
+							<BilanCard checkin={checkin} clientName={fullName(selected.user)} clientId={selected.user._id} media={mediaFor(checkin._id)} draftEnabled={data.coachDraftEnabled} />
 						{/each}
 					{/if}
 				</div>
