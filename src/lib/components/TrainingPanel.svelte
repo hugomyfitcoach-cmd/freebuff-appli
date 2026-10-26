@@ -11,7 +11,15 @@
 	import { onMount } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { displayExerciseName } from '$lib/exerciseFr';
-	import { parisTodayISO, trainingStatus, trainingAdherence, TRAINING_STATUS_LABELS, type TrainingStatusKey } from '$lib/trainingProgress';
+	import {
+		parisTodayISO,
+		trainingStatus,
+		trainingAdherence,
+		TRAINING_STATUS_LABELS,
+		formatLoggedSet,
+		progressionDeltaLabel,
+		type TrainingStatusKey,
+	} from '$lib/trainingProgress';
 	import {
 		defaultOpenWeekIndex,
 		groupSessionsByWeek,
@@ -134,10 +142,64 @@
 	let replaceBusy = $state(false);
 
 	/* ── Historique par exercice ── */
-	type ExRow = { exerciseId: string; name: string; sets: number; lastDate: string; lastWeight: number | null; bestWeight: number | null };
+	/** Ligne « Charges & progression » : départ (1re séance) → actuel (dernière). */
+	type ExRow = {
+		exerciseId: string;
+		name: string;
+		sessions: number;
+		unit: 'kg' | 'reps' | 's';
+		startDate: string;
+		startValue: number | null;
+		currentDate: string;
+		currentValue: number | null;
+		delta: number | null;
+	};
 	let tracked = $state<ExRow[]>([]);
 	let exDetail = $state<null | { exerciseId: string; name: string; last: { date: string; reps: number | null; weightKg: number | null; durationSeconds: number | null; mode: string } | null; best: { date: string; reps: number | null; weightKg: number | null; durationSeconds: number | null; mode: string } | null; timeline: { date: string; weightKg: number | null }[] }>(null);
 	let exLoading = $state('');
+
+	/* ── Détail des séries d'une séance réalisée (lecture seule) ── */
+	type SessionDetail = {
+		_id: string;
+		date: string;
+		sessionName: string;
+		note: string | null;
+		difficulty: number | null;
+		durationMin: number | null;
+		exercises: {
+			exerciseId: string;
+			name: string;
+			mode: string;
+			sets: { setOrder: number; reps: number | null; weightKg: number | null; durationSeconds: number | null; mode: string }[];
+			volumeKg: number | null;
+		}[];
+		volumeKg: number | null;
+	};
+	let sessionDetail = $state<SessionDetail | null>(null);
+	let sessionDetailBusy = $state(false);
+
+	async function loadSessionDetail(scheduledSessionId: string) {
+		sessionDetailBusy = true;
+		try {
+			const r = await fetch(`/api/coach/training/session-detail?scheduledSessionId=${scheduledSessionId}`).then((x) => x.json());
+			sessionDetail = r?.error ? null : (r as SessionDetail);
+		} catch {
+			sessionDetail = null;
+		} finally {
+			sessionDetailBusy = false;
+		}
+	}
+
+	// Une pastille ouverte sur une « Réalisée » charge ses séries (jamais pour les autres).
+	$effect(() => {
+		const id = openNote;
+		const row = id ? scheduled.find((x) => x._id === id) : null;
+		if (!row || trainingStatus(row, today) !== 'done') {
+			sessionDetail = null;
+			return;
+		}
+		void loadSessionDetail(row._id);
+	});
 
 	async function loadAll() {
 		loading = true;
@@ -163,7 +225,8 @@
 			openWeek = defaultOpenWeekIndex(
 				groupSessionsByWeek(scheduled, summary?.active?.startDate ?? '', summary?.active?.endDate ?? '', today)
 			);
-			const t = await fetch(`/api/coach/training/exercise-history?userId=${userId}`).then((r) => r.json());
+			const window = summary?.active ? `&from=${summary.active.startDate}&to=${summary.active.endDate}` : '';
+			const t = await fetch(`/api/coach/training/exercise-history?userId=${userId}${window}`).then((r) => r.json());
 			tracked = (t.exercises ?? []) as ExRow[];
 		} catch (e) {
 			err = e instanceof Error ? e.message : 'Chargement impossible.';
@@ -187,6 +250,18 @@
 	}
 	function fmtKg(n: number): string {
 		return String(Number.isInteger(n) ? n : Math.round(n * 10) / 10).replace('.', ',');
+	}
+	/** Valeur d'une progression dans l'unité de l'exercice (kg, reps ou secondes). */
+	function valueLabel(value: number | null, unit: string): string {
+		if (value == null) return '—';
+		if (unit === 's') return `${value} s`;
+		if (unit === 'reps') return `${value} reps`;
+		return `${fmtKg(value)} kg`;
+	}
+	/** Vert si hausse, gris si stable, orange si baisse. */
+	function deltaTone(delta: number | null): string {
+		if (delta == null || delta === 0) return 'text-mist';
+		return delta > 0 ? 'text-brand-dark' : 'text-warn';
 	}
 
 	function toggleDay(list: number[], d: number): number[] {
@@ -550,6 +625,31 @@
 													{:else}
 														<p class="mt-0.5 text-mist">Aucune note de la cliente.</p>
 													{/if}
+													{#if statusOf(s) === 'done'}
+														<div class="mt-1.5 border-t border-brand/20 pt-1.5">
+															{#if sessionDetailBusy}
+																<p class="text-mist">Chargement des séries…</p>
+															{:else if sessionDetail && sessionDetail._id === s._id}
+																{#if sessionDetail.exercises.length === 0}
+																	<p class="text-mist">Aucune série enregistrée.</p>
+																{:else}
+																	<ul class="space-y-1">
+																		{#each sessionDetail.exercises as ex (ex.exerciseId)}
+																			<li class="min-w-0">
+																				<p class="break-words font-semibold">{displayExerciseName(ex.name)}</p>
+																				<p class="break-words text-mist">
+																					{ex.sets.map(formatLoggedSet).join(' · ')}{#if ex.volumeKg != null}<span class="whitespace-nowrap"> · {fmtKg(ex.volumeKg)} kg</span>{/if}
+																				</p>
+																			</li>
+																		{/each}
+																	</ul>
+																	{#if sessionDetail.volumeKg != null}
+																		<p class="mt-1 font-semibold">Volume total : {fmtKg(sessionDetail.volumeKg)} kg</p>
+																	{/if}
+																{/if}
+															{/if}
+														</div>
+													{/if}
 													<div class="mt-2 flex flex-wrap gap-1.5">
 														<button type="button" onclick={() => { moveFor = s; moveDate = s.date; }} class="rounded-lg border border-line bg-white px-2 py-1 text-[10px] font-semibold text-ink transition hover:border-brand">Déplacer</button>
 														<button type="button" onclick={() => { dupFor = s; dupDate = s.date; }} class="rounded-lg border border-line bg-white px-2 py-1 text-[10px] font-semibold text-ink transition hover:border-brand">Dupliquer</button>
@@ -574,7 +674,7 @@
 			</div>
 		{/if}
 
-		<!-- ── Historique par exercice ── -->
+		<!-- ── Charges & progression (départ → actuel, écart, séances) ── -->
 		{#if tracked.length > 0}
 			<details class="mt-3">
 				<summary class="cursor-pointer text-xs font-semibold text-mist hover:text-ink">Charges & progression par exercice ({tracked.length})</summary>
@@ -583,13 +683,19 @@
 						<button
 							type="button"
 							onclick={() => openExercise(ex)}
-							class="flex w-full items-center justify-between gap-2 rounded-lg border border-line px-3 py-2 text-left text-xs transition hover:border-brand/60"
+							class="flex w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-line px-2.5 py-2 text-left text-xs transition hover:border-brand/60"
 						>
-							<span class="min-w-0 truncate font-semibold text-ink">{displayExerciseName(ex.name)}</span>
-							<span class="shrink-0 text-mist tabular-nums">
-								{#if ex.lastWeight != null}{fmtKg(ex.lastWeight)} kg{:else}—{/if}
-								{#if ex.bestWeight != null && ex.bestWeight !== ex.lastWeight} · max {fmtKg(ex.bestWeight)}{/if}
+							<span class="min-w-0 flex-1">
+								<span class="block truncate font-semibold text-ink">{displayExerciseName(ex.name)}</span>
+								<span class="mt-0.5 block text-[10px] leading-snug text-mist">
+									{valueLabel(ex.startValue, ex.unit)}
+									<span class="capitalize">({fmtISO(ex.startDate)})</span>
+									→ {valueLabel(ex.currentValue, ex.unit)}
+									<span class="capitalize">({fmtISO(ex.currentDate)})</span>
+									· {ex.sessions} séance{ex.sessions > 1 ? 's' : ''}
+								</span>
 							</span>
+							<span class="shrink-0 text-[11px] font-bold tabular-nums {deltaTone(ex.delta)}">{progressionDeltaLabel(ex)}</span>
 						</button>
 					{/each}
 				</div>

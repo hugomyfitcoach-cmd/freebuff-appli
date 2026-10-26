@@ -18,7 +18,7 @@ import type { MutationCtx } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { getSessionUser, addDaysISO, mondayISOof, localTodayISO } from "./helpers";
 import { copyProgramInto } from "./training";
-import { trainingAdherence, lastLoad } from "../lib/trainingProgress";
+import { trainingAdherence, lastLoad, groupSessionSets, exerciseProgressions } from "../lib/trainingProgress";
 
 /* ── Phases (partagées avec training.ts, libellés FR affichables) ── */
 
@@ -208,6 +208,48 @@ export const assignmentDetail = query({
 					difficulty: s.difficulty ?? null,
 					note: s.note ?? null,
 				})),
+		};
+	},
+});
+
+/**
+ * Détail d'une séance réalisée (LECTURE seule) : séries enregistrées de cette
+ * occurrence (`trainingSetLogs`), groupées par exercice, avec le volume.
+ * Réservé au coach DE la cliente : rôle coach + `createdBy` de la cliente.
+ */
+export const sessionDetail = query({
+	args: {
+		sessionToken: v.optional(v.string()),
+		scheduledSessionId: v.id("trainingScheduledSessions"),
+	},
+	handler: async (ctx, { sessionToken, scheduledSessionId }) => {
+		const coach = await getSessionUser(ctx, sessionToken);
+		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
+		const occurrence = await ctx.db.get(scheduledSessionId);
+		if (!occurrence) throw new ConvexError("Séance planifiée introuvable.");
+		const target = await ctx.db.get(occurrence.userId);
+		if (!target || target.createdBy !== coach._id) {
+			throw new ConvexError("Accès réservé au coach de cette cliente.");
+		}
+		const [session, logs] = await Promise.all([
+			ctx.db.get(occurrence.sessionId),
+			ctx.db
+				.query("trainingSetLogs")
+				.withIndex("by_session", (q) => q.eq("scheduledSessionId", scheduledSessionId))
+				.collect(),
+		]);
+		const exercises = groupSessionSets(logs);
+		const volume = exercises.reduce((sum, e) => sum + (e.volumeKg ?? 0), 0);
+		return {
+			_id: occurrence._id,
+			date: occurrence.date,
+			status: occurrence.status,
+			sessionName: session?.name ?? "Séance",
+			note: occurrence.note ?? null,
+			difficulty: occurrence.difficulty ?? null,
+			durationMin: occurrence.durationMin ?? null,
+			exercises,
+			volumeKg: exercises.some((e) => e.volumeKg != null) ? Math.round(volume * 10) / 10 : null,
 		};
 	},
 });
@@ -603,19 +645,23 @@ export const clientExerciseHistory = query({
 		userId: v.id("users"),
 		/** Exercice précis (bibliothèque) — sinon liste des exercices tracés. */
 		exerciseId: v.optional(v.id("exercises")),
+		/** Fenêtre du programme ("yyyy-mm-dd") — bornes optionnelles incluses. */
+		from: v.optional(v.string()),
+		to: v.optional(v.string()),
 	},
-	handler: async (ctx, { sessionToken, userId, exerciseId }) => {
+	handler: async (ctx, { sessionToken, userId, exerciseId, from, to }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
 		if (!coach || coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
 
 		if (!exerciseId) {
-			// Index des exercices tracés (distincts, avec compte de séries).
-			const rows = await ctx.db
+			// Exercices travaillés (bornés au programme quand une fenêtre est passée).
+			const all = await ctx.db
 				.query("trainingSetLogs")
 				.withIndex("by_user", (q) => q.eq("userId", userId))
 				.collect();
-			// Regroupement par exercice : la dernière charge se déduit d'un TRI EXPLICITE
-			// (date la plus récente, puis setOrder), jamais de l'ordre d'itération.
+			const rows = all.filter((r) => (!from || r.date >= from) && (!to || r.date <= to));
+			// Progression : départ = première séance, actuel = dernière (tri explicite
+			// par date puis setOrder, jamais l'ordre d'itération de la base).
 			const byExercise = new Map<string, { exerciseId: string; name: string; rows: typeof rows }>();
 			for (const r of rows) {
 				if (!r.done) continue;
@@ -623,24 +669,21 @@ export const clientExerciseHistory = query({
 				cur.rows.push(r);
 				byExercise.set(r.exerciseId, cur);
 			}
-			const exercises = [...byExercise.values()].map((e) => {
-				const last = lastLoad(e.rows);
-				let lastDate = e.rows[0].date;
+			const exercises = exerciseProgressions(rows).map((p) => {
+				const e = byExercise.get(p.exerciseId) ?? { exerciseId: p.exerciseId, name: p.name, rows: [] as typeof rows };
 				let bestWeight: number | null = null;
 				for (const r of e.rows) {
-					if (r.date > lastDate) lastDate = r.date;
 					if (r.weightKg != null && (bestWeight == null || r.weightKg > bestWeight)) bestWeight = r.weightKg;
 				}
 				return {
-					exerciseId: e.exerciseId,
-					name: e.name,
+					...p,
 					sets: e.rows.length,
-					lastDate,
-					lastWeight: last?.weightKg ?? null,
+					lastDate: p.currentDate,
+					lastWeight: lastLoad(e.rows)?.weightKg ?? null,
 					bestWeight,
 				};
 			});
-			return { exercises: exercises.sort((a, b) => b.lastDate.localeCompare(a.lastDate)) };
+			return { exercises };
 		}
 
 		// Détail d'un exercice : toutes les séries chronologiques.
