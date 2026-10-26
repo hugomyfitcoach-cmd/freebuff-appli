@@ -2719,6 +2719,24 @@
 							</select>
 							<p class="mt-1.5 text-[11px] leading-snug text-mist">En Autonomie, la cliente garde son compte, son historique et tous ses outils, mais les sollicitations de coaching s'arrêtent : bilans hebdo, rappels mensurations/photos, rappel RDV 12 h, alerte d'inactivité et notifications push.</p>
 						</div>
+						<!-- CONSENTEMENTS (M5) — section dédiée de la fiche. Le coach
+								 enregistre (ou retire) l'accord de LA cliente ; tant qu'il
+								 n'est pas enregistré, le brouillon IA reste désactivé. -->
+						<div class="mb-3 rounded-lg border-2 border-dashed border-line bg-cream/50 px-3 py-2.5">
+							<p class="mb-1 text-[10px] font-bold uppercase tracking-wider text-mist">Consentements</p>
+							<label class="flex cursor-pointer items-start gap-2 text-sm text-ink">
+								<input type="checkbox" name="aiConsent" value="1" checked={!!selected.user.aiConsentAt} class="mt-0.5 accent-brand" />
+								<span>
+									<span class="block text-[11px] font-bold text-ink">Consentement assistant IA</span>
+									{#if selected.user.aiConsentAt}
+										<span class="mt-0.5 block text-[11px] leading-snug text-mist">Accordé le {new Date(selected.user.aiConsentAt).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+									{:else}
+										<span class="mt-0.5 block text-[11px] leading-snug text-mist">Tant qu'il n'est pas enregistré, la préparation de brouillon IA reste désactivée pour cette cliente.</span>
+									{/if}
+								</span>
+							</label>
+							<input type="hidden" name="aiConsent" value="0" />
+						</div>
 						<div class="mb-3 rounded-lg border-2 border-dashed border-line bg-cream/50 px-3 py-2.5">
 							<label class="flex cursor-pointer items-start gap-2 text-sm text-ink">
 								<input type="checkbox" name="onboardingEnabled" value="1" checked={selected.user.onboardingEnabled} class="accent-brand" />
@@ -4517,11 +4535,11 @@
 
 						<!-- Historique semaine par semaine (bilan + réponses + retour coach) -->
 						{#each checkins as checkin (checkin._id)}
-							<BilanCard checkin={checkin} clientName={fullName(selected.user)} clientId={selected.user._id} media={mediaFor(checkin._id)} draftEnabled={data.coachDraftEnabled} />
+							<BilanCard checkin={checkin} clientName={fullName(selected.user)} clientId={selected.user._id} media={mediaFor(checkin._id)} draftEnabled={data.coachDraftEnabled} draftConsent={!!selected.user.aiConsentAt} />
 						{/each}
 					{:else}
 						{#each checkins as checkin (checkin._id)}
-							<BilanCard checkin={checkin} clientName={fullName(selected.user)} clientId={selected.user._id} media={mediaFor(checkin._id)} draftEnabled={data.coachDraftEnabled} />
+							<BilanCard checkin={checkin} clientName={fullName(selected.user)} clientId={selected.user._id} media={mediaFor(checkin._id)} draftEnabled={data.coachDraftEnabled} draftConsent={!!selected.user.aiConsentAt} />
 						{/each}
 					{/if}
 				</div>

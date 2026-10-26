@@ -422,9 +422,12 @@ test('Régularité : la température basse (0,3) part avec chaque appel de broui
 });
 
 test('Régularité : modèle qui refuse le réglage → réessai sans température (valeur la plus proche acceptée)', async () => {
-	const fetchMock = mockFetch((url, init, callIndex) => {
+	// M5-quater : le repli est escaladé et BORNÉ (sans reasoning, puis sans
+	// température) — un modèle qui refuse la température la refuse à chaque
+	// tentative, d'où trois appels au maximum.
+	const fetchMock = mockFetch((url, init) => {
 		const body = JSON.parse(init.body);
-		if (callIndex === 1 && body.temperature !== undefined) {
+		if (body.temperature !== undefined) {
 			return jsonResponse({ error: { message: 'Unsupported parameter: temperature' } }, 400);
 		}
 		return jsonResponse({
@@ -443,9 +446,19 @@ test('Régularité : modèle qui refuse le réglage → réessai sans températu
 			});
 			assert.equal(result.text, 'Salut {{prenom}}, bilan bien reçu.');
 		});
-		assert.equal(fetchMock.calls.length, 2, 'un seul réessai');
+		assert.equal(fetchMock.calls.length, 3, 'repli borné : trois tentatives au maximum');
 		assert.equal(JSON.parse(fetchMock.calls[0].init.body).temperature, 0.3, 'd\u2019abord 0,3');
-		assert.equal(JSON.parse(fetchMock.calls[1].init.body).temperature, undefined, 'puis réglage retiré');
+		assert.equal(
+			JSON.parse(fetchMock.calls[1].init.body).reasoning,
+			undefined,
+			'puis sans effort de raisonnement'
+		);
+		assert.equal(JSON.parse(fetchMock.calls[2].init.body).temperature, undefined, 'enfin réglage retiré');
+		assert.equal(
+			JSON.parse(fetchMock.calls[2].init.body).max_output_tokens,
+			400,
+			'limite de sortie inchangée par le repli'
+		);
 	} finally {
 		fetchMock.restore();
 	}

@@ -221,6 +221,14 @@ export default defineSchema({
 		stripeCancelAtPeriodEnd: v.optional(v.boolean()),
 		/** Fin de la grâce de 24 h après un échec de paiement (ms UTC) — jamais repoussée par un webhook dupliqué. */
 		stripeGraceUntil: v.optional(v.number()),
+		/**
+		 * CONSENTEMENT ASSISTANT IA — date (ms UTC) à laquelle le coach a
+		 * enregistré l'accord de la cliente pour la préparation de brouillons de
+		 * retour par l'assistant. Champ OPTIONNEL et ADDITIF : absent = pas de
+		 * consentement (l'action de génération refuse alors sans appeler l'IA).
+		 * Aucune migration, aucun backfill : les fiches existantes restent valides.
+		 */
+		aiConsentAt: v.optional(v.number()),
 		/** Suivi de cycle (carte Accueil cliente + Vision 360 coach) — mêmes questions et formule que l'outil historique. */
 		cycle: v.optional(
 			v.object({
@@ -1595,8 +1603,20 @@ export default defineSchema({
 		status: v.union(v.literal("ok"), v.literal("error")),
 		/** Coût estimé en USD (tarifs publics, à date) — info de pilotage. */
 		estimatedCostUsd: v.optional(v.number()),
-		/** Raison d'échec courte (tracabilité, jamais de message utilisateur). */
+		/**
+		 * Raison d'échec COURTE : un code stable (`http_401`, `http_429`, `quota`,
+		 * `model`, `timeout`, `incomplete`, `disabled`, `consent`, `unknown`) —
+		 * jamais le message brut du fournisseur ni une valeur de clé.
+		 */
 		failReason: v.optional(v.string()),
+		/**
+		 * Paramètre/champ refusé par le fournisseur (`error.param` ou `error.code`,
+		 * ex. « reasoning.effort »), tronqué à 40 caractères et nettoyé. Sert au
+		 * diagnostic d'un HTTP 400 sans jamais stocker `error.message`.
+		 */
+		failParam: v.optional(v.string()),
+		/** Bilan concerné (brouillon coach) — anti-double génération. Aucun contenu. */
+		checkinId: v.optional(v.string()),
 		createdAt: v.number(),
 	}).index("by_kind", ["kind"]),
 

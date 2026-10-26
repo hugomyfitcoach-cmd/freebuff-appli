@@ -46,6 +46,8 @@ import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { generateText, isAiFeatureDisabled, resolveGenerationConfig } from "./ai/provider";
+import { OpenAiIncompleteError, OpenAiUnavailableError } from "../lib/server/openai";
+import { DRAFT_RATE_LIMITED, draftFailReason, type DraftFailReasonCode } from "../lib/coachDraftError";
 import { COACH_DRAFT_STYLE_GUIDE } from "../lib/data/coachDraftStyleGuide";
 import { COACH_DRAFT_METHOD_REFERENCE } from "./ai/methodeGflux";
 import { daysBetweenISO, getSessionUser, localTodayISO } from "./helpers";
@@ -554,6 +556,91 @@ export const loadContext = internalQuery({
 /* ═══════════════════════════ M1 — PLOMBERIE ═══════════════════════════ */
 
 /**
+ * CONSENTEMENT ASSISTANT IA (M5) — query COACH, LECTURE SEULE.
+ *
+ * Répond à une seule question : le coach a-t-il enregistré l'accord de CETTE
+ * cliente pour l'assistant ? Mêmes gardes que `loadContext` (coach + bilan +
+ * appartenance), donc un autre coach est refusé même avec l'identifiant.
+ * Aucune donnée de la fiche ne sort : un booléen, rien d'autre.
+ *
+ * Publique (et non interne) pour que la route BFF puisse refuser en 403 avec
+ * le code `consent` AVANT d'appeler l'action ; l'action revérifie de son côté.
+ */
+export const hasAiConsent = query({
+	args: { sessionToken: v.optional(v.string()), checkinId: v.id("checkins") },
+	handler: async (ctx, { sessionToken, checkinId }): Promise<boolean> => {
+		const coach = await requireCoach(ctx, sessionToken);
+		const checkin = await ctx.db.get(checkinId);
+		if (!checkin) throw new ConvexError("Bilan introuvable.");
+		const target = await ctx.db.get(checkin.userId);
+		if (!target || target.role !== "client") throw new ConvexError("Cliente introuvable.");
+		if (!target.createdBy || target.createdBy !== coach._id) throw new ConvexError("Accès refusé.");
+		return typeof target.aiConsentAt === "number";
+	},
+});
+
+/**
+ * DERNIÈRE CAUSE D'ÉCHEC DU BROUILLON — query coach, LECTURE SEULE.
+ *
+ * Renvoie UNIQUEMENT la raison courte déjà tracée dans `aiUsageLog`
+ * (`failReason`) pour un échec postérieur à `since` (l'instant où le coach a
+ * lancé la génération), et `null` sinon. Aucun contenu, aucun identifiant :
+ * le BFF la traduit en cause lisible, jamais en message technique.
+ */
+export const lastDraftFailure = query({
+	args: { sessionToken: v.optional(v.string()), since: v.optional(v.number()) },
+	handler: async (ctx, { sessionToken, since }): Promise<string | null> => {
+		await requireCoach(ctx, sessionToken);
+		const sinceMs = typeof since === "number" ? since : 0;
+		const rows = await ctx.db
+			.query("aiUsageLog")
+			.withIndex("by_kind", (q) => q.eq("kind", "coach_draft"))
+			.collect();
+		const failures = rows
+			.filter((row) => row.status === "error" && row.createdAt >= sinceMs)
+			.sort((a, b) => b.createdAt - a.createdAt);
+		return failures[0]?.failReason ?? null;
+	},
+});
+
+/**
+ * FENÊTRE ANTI-DOUBLE GÉNÉRATION — un seul brouillon réussi par bilan et par
+ * 30 secondes (double-clic, deux onglets ouverts). Valeur explicite et stable.
+ */
+export const DRAFT_RATE_LIMIT_MS = 30_000;
+
+/**
+ * BROUILLON RÉCENT POUR CE BILAN — query INTERNE, LECTURE SEULE.
+ *
+ * Vrai si une génération a RÉUSSI (`status: "ok"`) pour ce bilan depuis
+ * `since`. Seul un identifiant technique est lu (`aiUsageLog.checkinId`) :
+ * aucun contenu, aucun prénom, aucune donnée de la fiche.
+ */
+export const recentSuccessfulDraft = internalQuery({
+	args: {
+		sessionToken: v.optional(v.string()),
+		checkinId: v.id("checkins"),
+		since: v.number(),
+	},
+	handler: async (ctx, { sessionToken, checkinId, since }): Promise<boolean> => {
+		const coach = await requireCoach(ctx, sessionToken);
+		const checkin = await ctx.db.get(checkinId);
+		if (!checkin) throw new ConvexError("Bilan introuvable.");
+		const target = await ctx.db.get(checkin.userId);
+		if (!target || target.role !== "client") throw new ConvexError("Cliente introuvable.");
+		if (!target.createdBy || target.createdBy !== coach._id) throw new ConvexError("Accès refusé.");
+		const rows = await ctx.db
+			.query("aiUsageLog")
+			.withIndex("by_kind", (q) => q.eq("kind", "coach_draft"))
+			.collect();
+		return rows.some(
+			(row) =>
+				row.status === "ok" && row.checkinId === checkinId && row.createdAt >= since
+		);
+	},
+});
+
+/**
  * ÉTAT du brouillon assisté pour l'interface coach : uniquement le kill
  * switch. Une query (et non une variable côté client) pour que le bouton
  * disparaisse dès que `AI_COACH_DRAFT_DISABLED` est actif, sans redéploiement
@@ -600,6 +687,27 @@ export const generate = action({
 		if (!session) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
 		if (session.role !== "coach") throw new ConvexError("Accès réservé au coach.");
 
+		// CONSENTEMENT (M5) — refus AVANT tout appel au fournisseur : sans
+		// consentement enregistré par le coach, aucun prompt n'est construit et
+		// OpenAI n'est jamais appelé (aucun coût, aucune donnée transmise).
+		const consent = (await ctx.runQuery(api.coachDraft.hasAiConsent, {
+			sessionToken,
+			checkinId,
+		})) as boolean;
+		if (!consent) {
+			throw new ConvexError("Consentement IA non enregistré pour cette cliente.");
+		}
+
+		// ANTI-DOUBLE GÉNÉRATION — refus AVANT lecture du contexte et AVANT tout
+		// appel fournisseur : un second brouillon réussi pour le même bilan en
+		// moins de 30 secondes coûterait deux fois pour le même texte.
+		const recentDraft = (await ctx.runQuery(internal.coachDraft.recentSuccessfulDraft, {
+			sessionToken,
+			checkinId,
+			since: Date.now() - DRAFT_RATE_LIMIT_MS,
+		})) as boolean;
+		if (recentDraft) throw new ConvexError(DRAFT_RATE_LIMITED);
+
 		// loadContext vérifie de nouveau le coach et renvoie un contexte sans
 		// identifiant, e-mail ni nom de famille (prénom seul).
 		const context = (await ctx.runQuery(internal.coachDraft.loadContext, {
@@ -629,12 +737,22 @@ export const generate = action({
 				feature: "coach_draft",
 				system: COACH_DRAFT_SYSTEM,
 				prompt,
-				maxTokens: 400,
+				maxTokens: 2000,
 				// Repères factuels du fournisseur fictif uniquement (jamais transmis
 				// à un vrai fournisseur, qui ne reçoit que system + prompt).
 				fakeFacts: { prenom: context.prenom, weekLabel: context.weekLabel },
 			});
 		} catch (error) {
+			// CAUSE COURTE ET STABLE uniquement : jamais le message brut du
+			// fournisseur (il peut citer une clé ou un détail technique). Réponse
+			// coupée → « incomplete » ; le reste est classé par `draftFailReason`.
+			const failReason: DraftFailReasonCode =
+				error instanceof OpenAiIncompleteError
+					? "incomplete"
+					: draftFailReason(error instanceof Error ? error.message : String(error));
+			// DIAGNOSTIC SANS FUITE : uniquement le paramètre refusé (`reasoning.effort`),
+			// déjà borné et nettoyé par le client OpenAI — jamais le message.
+			const failParam = error instanceof OpenAiUnavailableError ? error.failParam : undefined;
 			// Erreur ou délai dépassé : on trace la cause technique courte (jamais
 			// le prompt ni le contenu) puis on renvoie un message clair — le coach
 			// écrit à la main comme avant.
@@ -643,7 +761,8 @@ export const generate = action({
 				model: resolveGenerationConfig("coach_draft").model || "non configuré",
 				durationMs: Date.now() - started,
 				status: "error",
-				failReason: (error instanceof Error ? error.message : String(error)).slice(0, 120),
+				failReason,
+				...(failParam ? { failParam } : {}),
 			} as never);
 			throw new ConvexError(
 				"Le brouillon n'a pas pu être préparé. Tu peux écrire ton retour à la main comme avant, ou réessayer dans un instant."
@@ -661,6 +780,7 @@ export const generate = action({
 			durationMs: result.usage.durationMs,
 			status: "ok",
 			estimatedCostUsd: result.usage.estimatedCostUsd,
+			checkinId,
 		} as never);
 
 		// Prénom réinséré côté serveur : l'appel ne contenait que {{prenom}}.

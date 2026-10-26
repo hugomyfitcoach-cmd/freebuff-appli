@@ -23,6 +23,16 @@ export const record = internalMutation({
 		status: v.union(v.literal("ok"), v.literal("error")),
 		estimatedCostUsd: v.optional(v.number()),
 		failReason: v.optional(v.string()),
+		/**
+		 * Paramètre/champ refusé par OpenAI (`error.param` ou `error.code`), borné
+		 * à 40 caractères — jamais `error.message`. Diagnostic d'un HTTP 400.
+		 */
+		failParam: v.optional(v.string()),
+		/**
+		 * Identifiant technique du bilan concerné (brouillon coach) — borne la
+		 * double génération en 30 s. Jamais un contenu, jamais un prénom.
+		 */
+		checkinId: v.optional(v.string()),
 	},
 	handler: async (ctx, entry) => {
 		await ctx.db.insert("aiUsageLog", { ...entry, createdAt: Date.now() });

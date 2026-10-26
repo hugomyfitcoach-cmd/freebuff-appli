@@ -111,7 +111,11 @@ export type GenerateTextInput = {
 	system: string;
 	/** Prompt complet, déjà construit et testé par la fonctionnalité. */
 	prompt: string;
-	/** Plafond de sortie demandé au fournisseur (≈ 400 pour un brouillon). */
+	/**
+	 * Plafond de sortie demandé au fournisseur. 2 000 par défaut : le texte
+	 * attendu reste court, la marge sert au RAISONNEMENT du modèle (sinon la
+	 * sortie est coupée en pleine phrase).
+	 */
 	maxTokens?: number;
 	/**
 	 * Repères factuels réservés au fournisseur `fake`. Un vrai fournisseur ne
@@ -211,7 +215,7 @@ async function generateWithProvider(
 				system: input.system,
 				prompt: input.prompt,
 				model,
-				maxOutputTokens: input.maxTokens ?? 400,
+				maxOutputTokens: input.maxTokens ?? 2000,
 			});
 			return {
 				text,

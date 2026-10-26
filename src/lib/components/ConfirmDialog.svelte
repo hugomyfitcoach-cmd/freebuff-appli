@@ -1,16 +1,23 @@
 <script lang="ts">
 	/**
 	 * CONFIRMATION AUX COULEURS DE G-FLUX — remplace `window.confirm` natif.
-	 * Version UNIFIÉE : accepte les deux styles de rappel — `onConfirm`/`onCancel`
-	 * (assistant IA) ET `onconfirm`/`oncancel` (entraînement, admin) — ainsi que
-	 * `danger`, `busy` et un snippet `children` (champ de saisie intégré).
 	 *
 	 * Feuille ancrée en bas sur mobile, boîte centrée sur desktop, mêmes
 	 * transitions et mêmes jetons de couleur que les feuilles de saisie de
 	 * l'application (`sheetMotion`). Le focus part sur « Annuler » : une
 	 * action destructive ne se déclenche jamais sur une touche Entrée réflexe.
-	 * Échap et clic sur le fond annulent (le texte existant n'est jamais perdu),
-	 * sauf pendant `busy` où rien ne s'interrompt.
+	 * Échap et clic sur le fond annulent (le texte existant n'est jamais perdu).
+	 *
+	 * Confirmation obligatoire avant une action engageante (ex. « Appliquer à
+	 * la fiche » de l'onglet Calibrage) :
+	 *  - la confirmation n'est JAMAIS appelée sans clic explicite, et reste
+	 *    inerte pendant `busy` (écriture en cours) ;
+	 *  - l'annulation (bouton, Échap, fond) ne fait QUE fermer — aucune
+	 *    écriture ne part de l'annulation.
+	 *
+	 * Les deux orthographes de callback coexistent dans l'application
+	 * (`onConfirm`/`onCancel` pour la carte bilan, `onconfirm`/`oncancel` pour
+	 * le calibrage) : les deux sont acceptées.
 	 */
 	import { fade, fly } from 'svelte/transition';
 	import Icon from './Icon.svelte';
@@ -18,31 +25,35 @@
 
 	let {
 		open = false,
-		title,
-		message,
+		title = 'Confirmer',
+		message = '',
 		confirmLabel = 'Confirmer',
 		cancelLabel = 'Annuler',
 		danger = false,
 		busy = false,
-		onConfirm: onConfirmCb,
-		onCancel: onCancelCb,
 		onconfirm,
 		oncancel,
-		children
+		onConfirm: onConfirmProp,
+		onCancel: onCancelProp,
+		children,
 	}: {
 		open?: boolean;
-		title: string;
-		message: string;
+		title?: string;
+		message?: string;
 		confirmLabel?: string;
 		cancelLabel?: string;
 		danger?: boolean;
 		busy?: boolean;
-		onConfirm?: () => void;
-		onCancel?: () => void;
 		onconfirm?: () => void;
 		oncancel?: () => void;
+		onConfirm?: () => void;
+		onCancel?: () => void;
 		children?: import('svelte').Snippet;
 	} = $props();
+
+	// Une seule implémentation pour les deux conventions d'appel.
+	const onConfirm = $derived(onConfirmProp ?? onconfirm ?? (() => {}));
+	const onCancel = $derived(onCancelProp ?? oncancel ?? (() => {}));
 
 	const titleId = $props.id();
 	const messageId = `${titleId}-message`;
@@ -50,18 +61,6 @@
 	let dialogEl = $state<HTMLDivElement>();
 	let cancelButton = $state<HTMLButtonElement>();
 	let confirmButton = $state<HTMLButtonElement>();
-
-	// Rappels unifiés : `onConfirm`/`onCancel` (#21) OU `onconfirm`/`oncancel`
-	// (entraînement, admin) — les deux styles appellent la même logique.
-	function onConfirm() {
-		if (busy) return;
-		(onConfirmCb ?? onconfirm)?.();
-	}
-
-	function onCancel() {
-		if (busy) return;
-		(onCancelCb ?? oncancel)?.();
-	}
 
 	// Le focus entre dans la modale à l'ouverture et revient au déclencheur
 	// à la fermeture (clavier et lecteurs d'écran restent dans le contexte).
@@ -72,6 +71,8 @@
 		return () => previous?.focus?.();
 	});
 
+	// Éléments atteignables au clavier DANS la modale — y compris les champs
+	// du snippet `children` (ex. le renommage de séance de l'éditeur).
 	function focusables(): HTMLElement[] {
 		if (!dialogEl) return [];
 		return Array.from(
@@ -118,7 +119,7 @@
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby={titleId}
-			aria-describedby={messageId}
+			aria-describedby={message ? messageId : undefined}
 			transition:fly={sheetFly()}
 			class="w-full max-w-sm rounded-t-[28px] border border-line bg-card px-5 pt-5 shadow-[0_-20px_50px_-20px_rgba(15,21,18,0.35)] sm:rounded-[28px]"
 			style="padding-bottom: max(env(safe-area-inset-bottom), 20px);"
@@ -135,7 +136,9 @@
 					<h2 id={titleId} class="font-display text-[17px] font-black leading-tight tracking-[-0.01em] text-ink">
 						{title}
 					</h2>
-					<p id={messageId} class="mt-1 text-[13px] leading-relaxed text-mist">{message}</p>
+					{#if message}
+						<p id={messageId} class="mt-1 text-[13px] leading-relaxed text-mist">{message}</p>
+					{/if}
 				</div>
 			</div>
 
@@ -147,7 +150,7 @@
 				<button
 					bind:this={cancelButton}
 					type="button"
-					onclick={onCancel}
+					onclick={() => !busy && onCancel()}
 					disabled={busy}
 					class="flex-1 rounded-xl border-2 border-line bg-card px-4 py-2.5 text-sm font-semibold text-ink transition hover:border-mist focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 disabled:opacity-60"
 				>
@@ -156,14 +159,14 @@
 				<button
 					bind:this={confirmButton}
 					type="button"
-					onclick={onConfirm}
+					onclick={() => !busy && onConfirm()}
 					disabled={busy}
 					aria-busy={busy}
 					class="flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-60 {danger
 						? 'bg-danger hover:brightness-95'
 						: 'bg-brand hover:bg-brand-dark'}"
 				>
-					{confirmLabel}
+					{#if busy}En cours…{:else}{confirmLabel}{/if}
 				</button>
 			</div>
 		</div>
