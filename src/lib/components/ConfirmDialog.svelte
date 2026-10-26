@@ -24,8 +24,8 @@
 		cancelLabel = 'Annuler',
 		danger = false,
 		busy = false,
-		onConfirm,
-		onCancel,
+		onConfirm: onConfirmCb,
+		onCancel: onCancelCb,
 		onconfirm,
 		oncancel,
 		children
@@ -51,14 +51,16 @@
 	let cancelButton = $state<HTMLButtonElement>();
 	let confirmButton = $state<HTMLButtonElement>();
 
-	function confirm() {
+	// Rappels unifiés : `onConfirm`/`onCancel` (#21) OU `onconfirm`/`oncancel`
+	// (entraînement, admin) — les deux styles appellent la même logique.
+	function onConfirm() {
 		if (busy) return;
-		(onConfirm ?? onconfirm)?.();
+		(onConfirmCb ?? onconfirm)?.();
 	}
 
-	function cancel() {
+	function onCancel() {
 		if (busy) return;
-		(onCancel ?? oncancel)?.();
+		(onCancelCb ?? oncancel)?.();
 	}
 
 	// Le focus entre dans la modale à l'ouverture et revient au déclencheur
@@ -83,7 +85,7 @@
 		if (!open || busy) return;
 		if (event.key === 'Escape') {
 			event.preventDefault();
-			cancel();
+			onCancel();
 			return;
 		}
 		// Piège à focus simple : aucun élément de la modale ne s'échappe au Tab.
@@ -108,7 +110,7 @@
 		transition:fade={sheetFade()}
 		class="fixed inset-0 z-[90] flex items-end justify-center bg-[#0F1512]/45 backdrop-blur-sm sm:items-center sm:p-6"
 		onclick={(event) => {
-			if (event.target === event.currentTarget) cancel();
+			if (event.target === event.currentTarget) onCancel();
 		}}
 	>
 		<div
@@ -145,7 +147,7 @@
 				<button
 					bind:this={cancelButton}
 					type="button"
-					onclick={cancel}
+					onclick={onCancel}
 					disabled={busy}
 					class="flex-1 rounded-xl border-2 border-line bg-card px-4 py-2.5 text-sm font-semibold text-ink transition hover:border-mist focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 disabled:opacity-60"
 				>
@@ -154,13 +156,14 @@
 				<button
 					bind:this={confirmButton}
 					type="button"
-					onclick={confirm}
+					onclick={onConfirm}
 					disabled={busy}
+					aria-busy={busy}
 					class="flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-60 {danger
 						? 'bg-danger hover:brightness-95'
 						: 'bg-brand hover:bg-brand-dark'}"
 				>
-					{busy ? 'En cours…' : confirmLabel}
+					{confirmLabel}
 				</button>
 			</div>
 		</div>
