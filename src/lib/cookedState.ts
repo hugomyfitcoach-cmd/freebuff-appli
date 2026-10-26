@@ -106,25 +106,38 @@ export function cookedBonusFor(candidateName: string, wantCooked: boolean): numb
  * Le classement de la recherche Ciqual (convex/ciqual.ts) et le badge affiché
  * sur les cartes Ciqual lisent le MÊME état, calculé ici et nulle part ailleurs.
  *
- * Détection : sur le nom Ciqual COMPLET, après normalisation (accents retirés,
+ * Détection : sur le nom Ciqual après normalisation (accents retirés,
  * minuscules, ponctuation → espace ; les formes féminines et plurielles sont
- * énumérées). Quand plusieurs mentions de cuisson coexistent, la DERNIÈRE du
- * nom gagne : « Pomme de terre, rôtie/cuite au four » → « Au four ».
+ * énumérées), mais JAMAIS sur le premier segment du libellé — celui qui précède
+ * la première virgule nomme l'aliment (« Frites de pommes de terre, … »,
+ * « Rôti de porc, … ») et son vocabulaire n'est pas un mode de cuisson
+ * (Mission R1-quater). Un nom sans virgule n'a pas de queue : seul son premier
+ * mot est neutralisé, le reste décrit l'état (« Oeuf cru » → « Cru »). Quand
+ * plusieurs mentions de cuisson coexistent, la DERNIÈRE du nom gagne :
+ * « Pomme de terre, rôtie/cuite au four » → « Au four ».
+ *
+ * Mentions de PRÉPARATION (« pour cuisson au four », « à cuire », « à poêler »,
+ * « à réchauffer ») : elles décrivent un produit PAS ENCORE cuit. Elles ne
+ * déclenchent donc jamais le badge du mode cité, mais l'état « À cuire »
+ * (Mission R1-quater) : « Frites …, préfrites, pour cuisson au four » →
+ * « À cuire ».
  *
  * Badge (une seule couleur neutre côté UI, quel que soit l'état) :
- *   cru → « Cru » · cuit à l'eau/bouilli → « Cuit à l'eau » · vapeur →
- *   « Vapeur » · au four/rôti → « Au four » · poêlé/sauté → « Poêlé » ·
- *   grillé → « Grillé » · frit → « Frit » · appertisé/en conserve →
- *   « En conserve » · « cuit » seul → « Cuit » · aucune mention → aucun badge.
+ *   cru → « Cru » · à cuire → « À cuire » · cuit à l'eau/bouilli → « Cuit à
+ *   l'eau » · vapeur → « Vapeur » · au four/rôti → « Au four » · poêlé/sauté →
+ *   « Poêlé » · grillé → « Grillé » · frit → « Frit » · appertisé/en conserve
+ *   → « En conserve » · « cuit » seul → « Cuit » · aucune mention → aucun badge.
  *
  * Ordre de cuisson à l'intérieur d'une variété (Mission R1-bis) : cru →
  * cuit à l'eau/bouilli → vapeur → four → poêlé/sauté → frit ; puis les états
  * de conservation (appertisé), enfin « cuit » générique (trop vague pour
- * primer) et les fiches sans mention.
+ * primer) et les fiches sans mention. « À cuire » se range avec « cru »
+ * (produit pas encore cuit, Mission R1-quater).
  * ═══════════════════════════════════════════════════════════════════════════ */
 
 export type CookingState =
 	| 'cru'
+	| 'acuire'
 	| 'eau'
 	| 'vapeur'
 	| 'four'
@@ -135,9 +148,10 @@ export type CookingState =
 	| 'cuit'
 	| 'neutre';
 
-/** Les 10 valeurs de `CookingState` (source unique pour validation + formulaire). */
+/** Les 11 valeurs de `CookingState` (source unique pour validation + formulaire). */
 export const COOKING_STATE_VALUES: readonly CookingState[] = [
 	'cru',
+	'acuire',
 	'eau',
 	'vapeur',
 	'four',
@@ -173,6 +187,7 @@ const COOKING_TOKENS: Record<string, CookingState> = {
 export function cookingRank(s: CookingState): number {
 	switch (s) {
 		case 'cru': return 0;
+		case 'acuire': return 0; // produit pas encore cuit : rang du « cru »
 		case 'eau': return 1;
 		case 'vapeur': return 2;
 		case 'four': return 3;
@@ -189,6 +204,7 @@ export function cookingRank(s: CookingState): number {
 export function cookingBadge(s: CookingState): string | null {
 	switch (s) {
 		case 'cru': return 'Cru';
+		case 'acuire': return 'À cuire';
 		case 'eau': return "Cuit à l'eau";
 		case 'vapeur': return 'Vapeur';
 		case 'four': return 'Au four';
@@ -228,13 +244,18 @@ function cookingText(s: string): string {
 }
 
 /**
- * Mentions de cuisson d'un nom, dans l'ordre du nom. Les formes composées
- * (« cuit à l'eau », « au four », « en conserve ») sont reconnues AVANT leurs
- * mots isolés, pour que la dernière mention soit la bonne.
+ * Mentions de cuisson d'un nom, dans l'ordre du nom. Les mentions de
+ * PRÉPARATION (« pour cuisson au four », « à cuire », « à poêler », « à
+ * réchauffer ») sont reconnues EN PREMIER et consomment le mode qu'elles
+ * citent, pour qu'il ne devienne jamais un badge de cuisson. Puis les formes
+ * composées (« cuit à l'eau », « au four », « en conserve ») avant leurs mots
+ * isolés, pour que la dernière mention soit la bonne.
  */
-const COOKING_MENTION = /\b(?:cuit(?:e|s|es)?\s+a\s+l\s+eau|bouilli(?:e|s|es)?\s+a\s+l\s+eau|bouilli(?:e|s|es)?|cuit(?:e|s|es)?|cru(?:e|s|es)?|vapeur|au\s+four|four|roti(?:e|s|es)?|poele(?:e|s|es)?|saute(?:e|s|es)?|grille(?:e|s|es)?|frit(?:e|s|es)?|en\s+conserve|conserve(?:s)?|appertise(?:e|s|es)?)\b/g;
+const COOKING_MENTION = /\b(?:pour\s+cuisson(?:\s+(?:au|en|a\s+la|a\s+l|a|sur)\s+[a-z]+)?|a\s+(?:cuire|poeler|rechauffer)|cuit(?:e|s|es)?\s+a\s+l\s+eau|bouilli(?:e|s|es)?\s+a\s+l\s+eau|bouilli(?:e|s|es)?|cuit(?:e|s|es)?|cru(?:e|s|es)?|vapeur|au\s+four|four|roti(?:e|s|es)?|poele(?:e|s|es)?|saute(?:e|s|es)?|grille(?:e|s|es)?|frit(?:e|s|es)?|en\s+conserve|conserve(?:s)?|appertise(?:e|s|es)?)\b/g;
 
 function classifyMention(m: string): CookingState {
+	// Produit à préparer : « pour cuisson au four », « à cuire », « à poêler »…
+	if (m.startsWith('pour') || m.startsWith('a ')) return 'acuire';
 	if (m.startsWith('cuit') || m.startsWith('bouilli')) {
 		return m.includes('eau') || m.startsWith('bouilli') ? 'eau' : 'cuit';
 	}
@@ -248,9 +269,24 @@ function classifyMention(m: string): CookingState {
 	return 'neutre';
 }
 
+/**
+ * Nom privé de son PREMIER SEGMENT (Mission R1-quater) : « Frites de pommes
+ * de terre, surgelées, préfrites, pour cuisson au four » → « surgelées,
+ * préfrites, pour cuisson au four ». Le premier segment nomme l'aliment, son
+ * vocabulaire n'est jamais un mode de cuisson. Un nom sans virgule n'a pas de
+ * queue : seul son premier mot est neutralisé (« Oeuf cru » garde « cru »).
+ */
+function cookingDetailText(name: string): string {
+	const comma = name.indexOf(',');
+	if (comma !== -1) return name.slice(comma + 1);
+	const text = cookingText(name);
+	const i = text.indexOf(' ');
+	return i === -1 ? '' : text.slice(i + 1);
+}
+
 /** État de cuisson d'un nom Ciqual (dernière mention du nom, « neutre » sinon). */
 export function cookingStateOf(name: string): CookingState {
-	const text = cookingText(name);
+	const text = cookingText(cookingDetailText(name));
 	let state: CookingState = 'neutre';
 	for (const m of text.matchAll(COOKING_MENTION)) state = classifyMention(m[0]);
 	return state;

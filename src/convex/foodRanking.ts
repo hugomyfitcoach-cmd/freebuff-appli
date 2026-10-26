@@ -84,6 +84,17 @@ export function tokenize(s: string): string[] {
 	return norm(s).split(" ").filter(Boolean).map(singularize);
 }
 
+/**
+ * Nombre de tokens du PREMIER SEGMENT d'un nom (avant la première virgule).
+ * C'est le segment qui NOMME l'aliment (« Frites de pommes de terre », « Sole »),
+ * par opposition à la queue qui décrit la préparation (« frite », « au four »).
+ * Un nom sans virgule est entièrement segment d'aliment.
+ */
+export function headTokenCount(name: string): number {
+	const comma = name.indexOf(',');
+	return tokenize(comma === -1 ? name : name.slice(0, comma)).length;
+}
+
 /* ─── États de cuisson (normalisation partagée Ciqual + OFF) ───
  *
  * SOURCE UNIQUE : src/lib/cookedState.ts (détection, badge, rangs). Utilisée
@@ -102,9 +113,14 @@ export function stateClassOf(tok: string): CookingState | undefined {
 	return cookingStateOfToken(tok);
 }
 
-/** État de cuisson tapé dans la requête (undefined = aucun état demandé). */
+/** État de cuisson tapé dans la requête (undefined = aucun état demandé).
+ *
+ * Le PREMIER mot de la recherche est l'ALIMENT, jamais un mode de cuisson
+ * (Mission R1-quater) : « frites » cherche les frites de pommes de terre (et
+ * non les poissons frits), « poisson frit » garde « frit » comme cuisson.
+ */
 export function queryCookState(qt: string[]): CookingState | undefined {
-	for (const t of qt) {
+	for (const t of qt.slice(1)) {
 		const c = cookingStateOfToken(t);
 		if (c) return c;
 	}
@@ -141,9 +157,18 @@ export function phrasePresent(toks: string[], qt: string[]): boolean {
  * « bouilli/cuit à l'eau »). La réciproque (mot du nom préfixe du mot tapé)
  * absorbe le genre (« complet » ≈ « complètes »).
  */
-export function wordPresent(toks: string[], qTok: string): boolean {
-	const sc = cookingStateOfToken(qTok);
-	for (const t of toks) {
+export function wordPresent(toks: string[], qTok: string, foodWord = false, head = toks.length): boolean {
+	// `foodWord` : mot de l'ALIMENT (1er mot de la recherche). Il n'a pas de
+	// sens de cuisson : « frites » ne doit pas être satisfait par « frit »
+	// (poisson frit), sinon le mode de cuisson cité prend la place de l'aliment.
+	const sc = foodWord ? undefined : cookingStateOfToken(qTok);
+	// Un mot d'aliment qui RESSEMBLE à une cuisson (« frites », « rôties ») ne
+	// peut être satisfait que par le segment qui NOMME l'aliment (avant la
+	// première virgule) : « Sole, frite » n'est pas « frites ».
+	const headOnly = foodWord && cookingStateOfToken(qTok) !== undefined;
+	const last = headOnly ? Math.min(head, toks.length) : toks.length;
+	for (let i = 0; i < last; i++) {
+		const t = toks[i];
 		if (t.startsWith(qTok)) return true;
 		const tc = sc !== undefined ? cookingStateOfToken(t) : undefined;
 		if (sc !== undefined && tc !== undefined && sameCookFamily(sc, tc)) return true;
@@ -152,14 +177,18 @@ export function wordPresent(toks: string[], qTok: string): boolean {
 		// contenant « a », « au », « d »… — 560 fiches hors sujet (Sole,
 		// Homard, Navet) présentées comme résultats. Les mots outils d'une
 		// fiche ne rendent jamais son nom pertinent.
-		if (t.length >= 4 && qTok.startsWith(t)) return true;
+		if (t.length >= 4 && qTok.startsWith(t)) {
+			// …et jamais par un mot de cuisson quand on cherche un ALIMENT
+			// (« frites » ≠ « frit », « rôties » ≠ « rôti »).
+			if (!foodWord || cookingStateOfToken(t) === undefined) return true;
+		}
 	}
 	return false;
 }
 
 /** Tous les mots de la recherche sont-ils présents (en début de mot) dans le nom ? */
-export function allWordsPresent(toks: string[], qt: string[]): boolean {
-	return qt.every((q) => wordPresent(toks, q));
+export function allWordsPresent(toks: string[], qt: string[], head = toks.length): boolean {
+	return qt.every((q, i) => wordPresent(toks, q, i === 0, head));
 }
 
 /* ─── Requête multi-mots : le PREMIER aliment est obligatoire ───
@@ -359,7 +388,7 @@ export function rankFoods<T extends RankableFood>(items: readonly T[], query: st
 			// ABÉRANT < TOUS LES MOTS < ANCHOR < tier < marque(0/1) < ciqual(0/1) < longueur < alpha
 			key: [
 				mismatch !== undefined && mismatch > ABERRATION_THRESHOLD ? 1 : 0,
-				allWordsPresent(nt, qt) ? 0 : 1,
+				allWordsPresent(nt, qt, headTokenCount(f.name)) ? 0 : 1,
 				anchorKey,
 				tierOf(qt, nt),
 				// À pertinence égale : les mots tapés consécutifs d'abord.

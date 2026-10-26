@@ -45,10 +45,12 @@
 import { ciqualNutrients } from "./ciqualNutrients";
 import {
 	allWordsPresent,
+	headTokenCount,
 	norm,
 	phrasePresent,
 	queryCookState,
 	sameCookFamily,
+	stateClassOf,
 	tokenize,
 } from "./foodRanking";
 import {
@@ -96,6 +98,8 @@ type Row = {
 	ref: CiqualHit;
 	/** Tokens normalisés + singularisés. */
 	toks: string[];
+	/** Tokens du PREMIER segment (avant la première virgule) : l'aliment nommé. */
+	head: number;
 	/** Nom normalisé (longueur + départage alphabétique + famille œuf). */
 	normed: string;
 	/** Premier token (règle 2 : « nom qui commence par le premier mot »). */
@@ -118,6 +122,7 @@ const ROWS: Row[] = (() => {
 		rows.push({
 			ref: { label: r.name, kcal: r.kcal, protein: r.p, carbs: r.c, fat: r.f },
 			toks,
+			head: headTokenCount(r.name),
 			normed: norm(r.name),
 			first: toks[0],
 			state: cookingStateOf(r.name),
@@ -183,7 +188,7 @@ function eggStateRank(normed: string): number {
 function isGenericEggQuery(qt: string[]): boolean {
 	return (
 		qt[0].startsWith("oeuf") &&
-		!qt.some((t) => EGG_STATE_TOKENS.has(t) || queryCookState([t]) !== undefined)
+		!qt.some((t) => EGG_STATE_TOKENS.has(t) || stateClassOf(t) !== undefined)
 	);
 }
 
@@ -208,7 +213,7 @@ export function rankCiqual(q: string, opts?: RankOpts): CiqualHit[] {
 	const scored: { key: (number | string)[]; ref: CiqualHit }[] = [];
 	for (const row of ROWS) {
 		// Règle 1 — TOUS les mots de la recherche présents (en début de mot).
-		if (!allWordsPresent(row.toks, qt)) continue;
+		if (!allWordsPresent(row.toks, qt, row.head)) continue;
 		// Doublons de libellé : une seule fiche affichée (1re occurrence).
 		if (seen.has(row.ref.label)) continue;
 		seen.add(row.ref.label);
