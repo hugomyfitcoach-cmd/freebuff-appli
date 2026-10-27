@@ -36,10 +36,12 @@ import {
 	disponibiliteEnergieKcal,
 	macrosJour,
 	masseMaigreBrute,
+	modePhase,
 	profilCalibrage,
 	sportSemaineKcal,
 	supplementTravail,
-	type MacrosJour
+	type MacrosJour,
+	type ModePhase
 } from './calibrage';
 import { getSportEntry, resolveSportCoefficient, SPORT_INTENSITY_LABELS } from '../convex/sportCatalog';
 
@@ -100,6 +102,10 @@ export type EntreesFicheCalibrage = {
 	adaptationPct?: number;
 	/** Déficit choisi (% du budget), 12 par défaut, borné 0 à 30. */
 	deficitPct?: number;
+	/** Phase énergétique : déficit (défaut), maintenance ou surplus. */
+	mode?: ModePhase;
+	/** Surplus choisi (% au-dessus de la maintenance totale), borné 0 à 15. */
+	surplusPct?: number;
 	/** Ratio protéines (g/kg de masse maigre), 2,3 par défaut, borné 2 à 2,6. */
 	proteinesParKgMasseMaigre?: number;
 	/** Profil sportif habituel (liste de séances, peut être vide). */
@@ -170,6 +176,12 @@ export type ResultatsFicheCalibrage = {
 	budgetSemaineKcal: number;
 	/** Déficit choisi (% du budget). */
 	deficitPct: number;
+	/** Phase retenue (déficit par défaut). */
+	mode: ModePhase;
+	/** Surplus choisi (%) — 0 hors surplus. */
+	surplusPct: number;
+	/** Prise de poids estimée (kg/semaine) = surplus semaine ÷ 7 700 (0 hors surplus). */
+	priseGraisseKg: number;
 	/** Déficit de la semaine (kcal) = budget − objectif. */
 	deficitSemaineKcal: number;
 	/** Objectif de la semaine (kcal). */
@@ -198,6 +210,8 @@ export type ResultatsFicheCalibrage = {
 	alertePlafonds: string | null;
 	/** Attention au-delà de 25 % de déficit (null sinon). */
 	avertissementDeficitEleve: string | null;
+	/** Surplus élevé au-delà de 10 % (null sinon). */
+	avertissementSurplusEleve: string | null;
 	/** Effet de l'adaptation métabolique (kcal/jour) = MB × A/100 (affiché « −X kcal/jour »). */
 	adaptationEffetKcal: number;
 	/** Avertissement au-delà de 13 % d'adaptation (null sinon). */
@@ -236,6 +250,10 @@ export type ImpactObjectifApplique = {
 	deficitSemaineKcal: number;
 	/** Déficit réel, en % de la maintenance totale — positif en cas de déficit. */
 	deficitPct: number;
+	/** Phase retenue (déficit par défaut). */
+	mode: ModePhase;
+	/** Prise de poids estimée (kg/semaine) — 0 hors surplus. */
+	priseGraisseKg: number;
 	/** Perte de graisse estimée (kg/semaine) — négative en cas de prise. */
 	perteGraisseKg: number;
 	/** Disponibilité en énergie du jour type = (objectif − exercice)/MM. */
@@ -490,8 +508,14 @@ export function resultatsFiche(entrees: EntreesFicheCalibrage): ResultatsFicheCa
 		maintenanceSansExercice: profil.maintenanceKcal,
 		sportSemaineKcal: sport
 	});
+	const mode = modePhase(entrees.mode);
 	const deficitPct = entrees.deficitPct ?? DEFICIT_PCT_DEFAUT;
-	const bilan = bilanObjectifSemaine({ budgetSemaineKcal: budget, deficitPct });
+	const bilan = bilanObjectifSemaine({
+		budgetSemaineKcal: budget,
+		deficitPct,
+		mode,
+		surplusPct: entrees.surplusPct
+	});
 	/* Objectif visé = semaine ÷ 7 ; les macros ENTIÈRES en découlent, puis
 	   l'objectif APPLIQUÉ = somme exacte 4G + 4P + 9L (`macros.kcalApplique`) :
 	   la même valeur est affichée, appliquée, confirmée, résumée dans la
@@ -537,7 +561,9 @@ export function resultatsFiche(entrees: EntreesFicheCalibrage): ResultatsFicheCa
 	const alpert = profil.vitesseMaxAlpertKgSemaine;
 	const macdonald = profil.vitesseMaxMacdonaldKgSemaine;
 	const perte = bilan.perteGraisseKg;
-	const alertePlafonds = alertePlafondsPour(perte, alpert, macdonald);
+	/* Plafonds Alpert / Macdonald : repères de PERTE uniquement, masqués en
+	   maintenance et en surplus (aucune perte de graisse visée). */
+	const alertePlafonds = mode === 'deficit' ? alertePlafondsPour(perte, alpert, macdonald) : null;
 
 	/* Disponibilité en énergie du jour type : sous 30 kcal/kg de MM → vigilance,
 	   sous 24 → alerte (seuils du référentiel, le plus haut franchi l'emporte). */
@@ -568,6 +594,10 @@ export function resultatsFiche(entrees: EntreesFicheCalibrage): ResultatsFicheCa
 		sportSemaineKcal: sport,
 		budgetSemaineKcal: budget,
 		deficitPct: bilan.deficitPct,
+		mode: bilan.mode,
+		surplusPct: bilan.surplusPct,
+		priseGraisseKg:
+			bilan.mode === 'surplus' ? Math.max(0, Math.round(-bilan.perteGraisseKg * 100) / 100) : 0,
 		deficitSemaineKcal: bilan.deficitSemaineKcal,
 		objectifSemaineKcal: bilan.objectifSemaineKcal,
 		objectifCibleKcal,
@@ -577,6 +607,7 @@ export function resultatsFiche(entrees: EntreesFicheCalibrage): ResultatsFicheCa
 		vitesseMaxMacdonaldKgSemaine: macdonald,
 		alertePlafonds,
 		avertissementDeficitEleve: bilan.avertissementDeficitEleve,
+		avertissementSurplusEleve: bilan.avertissementSurplusEleve,
 		adaptationEffetKcal: adaptationEffetKcal({ poidsKg, mgPct, adaptationPct }),
 		avertissementAdaptation:
 			adaptationPct > ADAPTATION_PCT_AVERTISSEMENT ? ADAPTATION_AVERTISSEMENT : null,
@@ -681,6 +712,8 @@ export function impactObjectifApplique(entree: {
 	 *  Absente ou invalide → maintenance calculée (budget ÷ 7), comportement
 	 *  historique. */
 	maintenanceTotaleKcal?: number;
+	/** Phase choisie : déficit (défaut), maintenance ou surplus. */
+	mode?: ModePhase;
 }): ImpactObjectifApplique {
 	const objectifKcal = Math.round(nombre(entree.objectifKcal, 'Objectif appliqué'));
 	const r = entree.resultats;
@@ -724,8 +757,10 @@ export function impactObjectifApplique(entree: {
 
 	const alpert = r.vitesseMaxAlpertKgSemaine;
 	const macdonald = r.vitesseMaxMacdonaldKgSemaine;
-	const depasseAlpert = perteGraisseKg > alpert;
-	const depasseMacdonald = perteGraisseKg > macdonald;
+	const mode = modePhase(entree.mode ?? r.mode);
+	/* Plafonds de perte : jugés UNIQUEMENT en phase de déficit. */
+	const depasseAlpert = mode === 'deficit' && perteGraisseKg > alpert;
+	const depasseMacdonald = mode === 'deficit' && perteGraisseKg > macdonald;
 
 	/* Attention de déficit au-delà de 25 % : MÊME seuil et MÊME message que les
 	   résultats, appliqués au déficit RÉEL de cet objectif (borné à la plage
@@ -735,11 +770,14 @@ export function impactObjectifApplique(entree: {
 		deficitPct: Math.min(BORNES.deficitPct.max, Math.max(BORNES.deficitPct.min, deficitPct))
 	});
 
-	const comparaisonPlafonds = depasseMacdonald
-		? `Au-dessus des plafonds Alpert (${decimalFr(alpert)} kg/semaine) et Macdonald (${decimalFr(macdonald)} kg/semaine).`
-		: depasseAlpert
-			? `Au-dessus du plafond Alpert (${decimalFr(alpert)} kg/semaine), sous le plafond Macdonald (${decimalFr(macdonald)} kg/semaine).`
-			: `Sous les plafonds Alpert (${decimalFr(alpert)} kg/semaine) et Macdonald (${decimalFr(macdonald)} kg/semaine).`;
+	const comparaisonPlafonds =
+		mode !== 'deficit'
+			? ''
+			: depasseMacdonald
+				? `Au-dessus des plafonds Alpert (${decimalFr(alpert)} kg/semaine) et Macdonald (${decimalFr(macdonald)} kg/semaine).`
+				: depasseAlpert
+					? `Au-dessus du plafond Alpert (${decimalFr(alpert)} kg/semaine), sous le plafond Macdonald (${decimalFr(macdonald)} kg/semaine).`
+					: `Sous les plafonds Alpert (${decimalFr(alpert)} kg/semaine) et Macdonald (${decimalFr(macdonald)} kg/semaine).`;
 
 	return {
 		objectifKcal,
@@ -747,6 +785,8 @@ export function impactObjectifApplique(entree: {
 		budgetSemaineKcal,
 		deficitSemaineKcal,
 		deficitPct,
+		mode,
+		priseGraisseKg: mode === 'surplus' ? Math.max(0, Math.round(-perteGraisseKg * 100) / 100) : 0,
 		perteGraisseKg,
 		disponibiliteKcal,
 		niveauDisponibilite: niveauDisponibilite(disponibiliteKcal),
@@ -756,8 +796,9 @@ export function impactObjectifApplique(entree: {
 		depasseAlpert,
 		depasseMacdonald,
 		comparaisonPlafonds,
-		alertePlafonds: alertePlafondsPour(perteGraisseKg, alpert, macdonald),
-		avertissementDeficitEleve: bilanSeuils.avertissementDeficitEleve,
+		alertePlafonds:
+			mode === 'deficit' ? alertePlafondsPour(perteGraisseKg, alpert, macdonald) : null,
+		avertissementDeficitEleve: mode === 'deficit' ? bilanSeuils.avertissementDeficitEleve : null,
 		avertissementDisponibilite: avertissementDisponibilitePour(disponibiliteKcal)
 	};
 }

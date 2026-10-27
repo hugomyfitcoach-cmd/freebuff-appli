@@ -69,6 +69,10 @@ const entreesValidator = v.object({
 	ajustementTravail: v.optional(v.number()),
 	adaptationPct: v.optional(v.number()),
 	deficitPct: v.optional(v.number()),
+	/* Phase énergétique (facultative : absent = déficit, instantanés existants
+	   toujours valides) et surplus choisi, bornés par le module (0 à 15 %). */
+	mode: v.optional(v.union(v.literal("deficit"), v.literal("maintenance"), v.literal("surplus"))),
+	surplusPct: v.optional(v.number()),
 	proteinesParKgMasseMaigre: v.optional(v.number()),
 	seances: v.array(seanceValidator),
 	apportsSemaine: v.array(v.union(v.number(), v.null()))
@@ -294,6 +298,9 @@ export type DetailInstantaneCalibrage = {
 	ajustementTravail: number | null;
 	adaptationPct: number | null;
 	deficitPct: number | null;
+	/** Phase du calibrage — null pour un instantané antérieur (lu « déficit »). */
+	mode: string | null;
+	surplusPct: number | null;
 	sportSemaineKcal: number | null;
 	coefficient: number | null;
 	metabolismeBaseKcal: number | null;
@@ -336,6 +343,8 @@ function detailInstantane(snap: Doc<"calibrageSnapshots">): DetailInstantaneCali
 		ajustementTravail: nombre(i.ajustementTravail),
 		adaptationPct: nombre(i.adaptationPct),
 		deficitPct: nombre(i.deficitPct),
+		mode: typeof i.mode === "string" ? i.mode : null,
+		surplusPct: nombre(i.surplusPct),
 		sportSemaineKcal: nombre(r.sportSemaineKcal),
 		coefficient: nombre(r.coefficient),
 		metabolismeBaseKcal: nombre(r.metabolismeBaseKcal),

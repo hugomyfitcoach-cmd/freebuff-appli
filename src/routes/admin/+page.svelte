@@ -1580,7 +1580,10 @@
 		heuresTravail: 0,
 		ajustementTravail: 0,
 		adaptationPct: 0,
+		/* Phase par défaut : déficit (comportement historique) ; surplus à 5 %. */
+		mode: 'deficit',
 		deficitPct: DEFICIT_PCT_DEFAUT,
+		surplusPct: 5,
 		proteinesParKgMasseMaigre: PROTEINES_PAR_KG_MM_DEFAUT,
 		seances: [],
 		apportsSemaine: [null, null, null, null, null, null, null]
@@ -1637,6 +1640,9 @@
 		ajustementTravail: number | null;
 		adaptationPct: number | null;
 		deficitPct: number | null;
+		/** Phase du calibrage — null pour un instantané antérieur (lu « déficit »). */
+		mode: string | null;
+		surplusPct: number | null;
 		sportSemaineKcal: number | null;
 		coefficient: number | null;
 		metabolismeBaseKcal: number | null;
@@ -1988,6 +1994,15 @@
 	});
 	/** Déficit choisi (% du budget) → perte estimée, arrondie au 0,05 kg. */
 	const calPerteDeficit = $derived(calR ? perteGraisseKgSemaine(calR.deficitSemaineKcal) : null);
+	/** Phase de l'ajustement : déficit (défaut), maintenance ou surplus. */
+	const calMode = $derived(calibrageInputs.mode ?? 'deficit');
+	/** Surplus choisi (%) — borné 0 à 15 par le module. */
+	const calSurplusPct = $derived(calibrageInputs.surplusPct ?? 0);
+	const calSurplusErreur = $derived(calSurplusPct > 15 ? 'Maximum 15 %' : calSurplusPct < 0 ? 'Minimum 0 %' : null);
+	/** Libellé de la phase pour le bandeau, les cartes et la semaine type. */
+	function libellePhase(mode: 'deficit' | 'maintenance' | 'surplus'): string {
+		return mode === 'surplus' ? 'Surplus' : mode === 'maintenance' ? 'Maintenance' : 'Déficit';
+	}
 	/** Couleur G-FLUX d'une macro — MÊMES valeurs que le Journal alimentaire
 	 *  ($lib/macros, source unique) : glucides rose, protéines bleu, lipides
 	 *  orange. Aucune couleur de macro n'est recopiée dans cette page. */
@@ -4597,7 +4612,7 @@
 								{/each}
 							</div>
 							<p class="mt-3 text-center text-xs text-mist">
-								Déficit total de la semaine : {Math.round(-calSemaine.deficitSemaineKcal).toLocaleString('fr-FR')} kcal · graisse estimée <strong class="text-loss">{formatPerteGraisse(Math.abs(calSemaine.graisseKg))} kg</strong>
+								{calR?.mode === 'surplus' ? 'Surplus total de la semaine' : calR?.mode === 'maintenance' ? 'Écart de la semaine' : 'Déficit total de la semaine'} : {calR && calR.mode !== 'deficit' ? Math.abs(Math.round(calSemaine.deficitSemaineKcal)).toLocaleString('fr-FR') : Math.round(-calSemaine.deficitSemaineKcal).toLocaleString('fr-FR')} kcal · {calR?.mode === 'surplus' ? 'prise estimée' : calR?.mode === 'maintenance' ? 'poids stable' : 'graisse estimée'} <strong class="text-loss">{formatPerteGraisse(Math.abs(calSemaine.graisseKg))} kg</strong>
 							</p>
 							<!-- MESSAGES CLIENTE — neutres et rassurants (module pur). Jamais
 							     les mots alerte, risque, dépasse, exceptionnelle, ni Alpert/
@@ -4640,12 +4655,28 @@
 										<div class="truncate font-display text-[13px] font-bold text-brand-dark">
 											{calImpact.objectifKcal.toLocaleString('fr-FR')} <span class="text-[9px] font-semibold">kcal</span>
 										</div>
-										<div class="truncate text-[9px] font-semibold text-mist">déficit {decimalFr(calImpact.deficitPct)} %</div>
+										{#if calImpact.mode === 'surplus'}
+											<div class="truncate text-[9px] font-semibold text-mist">surplus {decimalFr(Math.abs(calImpact.deficitPct))} %</div>
+										{:else if calImpact.mode === 'maintenance'}
+											<div class="truncate text-[9px] font-semibold text-mist">maintenance</div>
+										{:else}
+											<div class="truncate text-[9px] font-semibold text-mist">déficit {decimalFr(calImpact.deficitPct)} %</div>
+										{/if}
 									</div>
 									<div class="min-w-0 px-1.5 text-center" title="Perte de graisse estimée par semaine">
-										<div class="truncate text-[9px] font-bold uppercase tracking-wider text-mist">Perte graisse</div>
-										<div class="truncate font-display text-[13px] font-bold text-loss">{formatPerteGraisse(calImpact.perteGraisseKg)}</div>
-										<div class="truncate text-[9px] font-semibold text-mist">kg/semaine</div>
+										{#if calImpact.mode === 'surplus'}
+											<div class="truncate text-[9px] font-bold uppercase tracking-wider text-mist">Prise estimée</div>
+											<div class="truncate font-display text-[13px] font-bold text-brand-dark">{formatPerteGraisse(calImpact.priseGraisseKg)}</div>
+											<div class="truncate text-[9px] font-semibold text-mist">kg/semaine</div>
+										{:else if calImpact.mode === 'maintenance'}
+											<div class="truncate text-[9px] font-bold uppercase tracking-wider text-mist">Poids</div>
+											<div class="truncate font-display text-[13px] font-bold text-ink">stable</div>
+											<div class="truncate text-[9px] font-semibold text-mist">maintenance</div>
+										{:else}
+											<div class="truncate text-[9px] font-bold uppercase tracking-wider text-mist">Perte graisse</div>
+											<div class="truncate font-display text-[13px] font-bold text-loss">{formatPerteGraisse(calImpact.perteGraisseKg)}</div>
+											<div class="truncate text-[9px] font-semibold text-mist">kg/semaine</div>
+										{/if}
 									</div>
 									<div class="min-w-0 px-1.5 text-center" title="Disponibilité en énergie">
 										<div class="truncate text-[9px] font-bold uppercase tracking-wider text-mist">Disponibilité</div>
@@ -4747,13 +4778,42 @@
 							</div>
 
 							<div class="mt-3 grid gap-3 sm:grid-cols-3">
-								<label class="block">
-									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Déficit choisi (% du budget)</span>
-									<input type="number" inputmode="decimal" min="0" max="30" step="1" bind:value={calibrageInputs.deficitPct} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
-									<p class="mt-1 min-h-[15px] text-[11px] font-semibold text-danger">{calErreursChamps.deficitPct ?? ''}</p>
-									<!-- Perte estimée du déficit choisi, arrondie au 0,05 kg (module pur). -->
-									<p class="text-[11px] font-semibold text-loss">{calPerteDeficit !== null ? `≈ ${formatPerteGraisse(calPerteDeficit)} kg de graisse par semaine` : '—'}</p>
-								</label>
+								<div class="block">
+									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Ajustement</span>
+									<div class="grid grid-cols-3 gap-1 rounded-xl bg-cream/60 p-1" role="group" aria-label="Ajustement énergétique">
+										{#each [{ id: 'deficit', label: 'Déficit' }, { id: 'maintenance', label: 'Maintenance' }, { id: 'surplus', label: 'Surplus' }] as phase (phase.id)}
+											<button
+												type="button"
+												onclick={() => (calibrageInputs.mode = phase.id as 'deficit' | 'maintenance' | 'surplus')}
+												aria-pressed={calMode === phase.id}
+												class="rounded-lg px-1.5 py-1.5 text-[12px] font-bold transition {calMode === phase.id ? 'bg-white text-ink shadow-sm' : 'text-mist hover:text-ink'}"
+											>{phase.label}</button>
+										{/each}
+									</div>
+									{#if calMode === 'maintenance'}
+										<!-- Maintenance : aucun pourcentage, objectif = maintenance totale. -->
+										<p class="mt-2 text-[11px] font-semibold text-ink">Poids stable</p>
+										<p class="text-[11px] text-mist">Objectif = maintenance totale, sans pourcentage.</p>
+									{:else if calMode === 'surplus'}
+										<label class="mt-2 block">
+											<input type="number" inputmode="decimal" min="0" max="15" step="1" bind:value={calibrageInputs.surplusPct} aria-label="Surplus choisi (% de la maintenance totale)" class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+											<p class="mt-1 min-h-[14px] text-[11px] font-semibold text-danger">{calSurplusErreur ?? ''}</p>
+											<p class="text-[11px] text-mist">% au-dessus de la maintenance totale</p>
+										</label>
+										{#if calSurplusPct > 10}
+											<p class="mt-1 text-[11px] font-semibold text-warn">Surplus élevé : la prise de gras risque de dépasser la prise de muscle.</p>
+										{/if}
+										<p class="text-[11px] font-semibold text-brand-dark">{calR ? `≈ ${decimalFr(calR.priseGraisseKg)} kg de prise par semaine` : '—'}</p>
+									{:else}
+										<label class="mt-2 block">
+											<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Déficit choisi (% du budget)</span>
+											<input type="number" inputmode="decimal" min="0" max="30" step="1" bind:value={calibrageInputs.deficitPct} aria-label="Déficit choisi (% du budget)" class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+											<p class="mt-1 min-h-[15px] text-[11px] font-semibold text-danger">{calErreursChamps.deficitPct ?? ''}</p>
+										</label>
+										<!-- Perte estimée du déficit choisi, arrondie au 0,05 kg (module pur). -->
+										<p class="text-[11px] font-semibold text-loss">{calPerteDeficit !== null ? `≈ ${formatPerteGraisse(calPerteDeficit)} kg de graisse par semaine` : '—'}</p>
+									{/if}
+								</div>
 								<label class="block">
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Protéines (g/kg de masse maigre)</span>
 									<input type="number" inputmode="decimal" min="2" max="2.6" step="0.1" bind:value={calibrageInputs.proteinesParKgMasseMaigre} class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
@@ -4888,9 +4948,19 @@
 										<p class="mt-0.5 text-[11px] text-mist">somme exacte des macros 4G + 4P + 9L · objectif visé {calR.objectifCibleKcal.toLocaleString('fr-FR')} kcal</p>
 									</div>
 									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
-										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Perte de graisse estimée</div>
-										<div class="mt-0.5 font-display text-xl font-bold text-loss">{String(calR.perteGraisseKg).replace('.', ',')} <span class="text-xs font-semibold text-mist">kg/semaine</span></div>
-										<p class="mt-0.5 text-[11px] text-mist">plafonds Alpert {String(calR.vitesseMaxAlpertKgSemaine).replace('.', ',')} · Macdonald {String(calR.vitesseMaxMacdonaldKgSemaine).replace('.', ',')} kg/sem</p>
+										{#if calR.mode === 'surplus'}
+											<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Prise de poids estimée</div>
+											<div class="mt-0.5 font-display text-xl font-bold text-brand-dark">{decimalFr(calR.priseGraisseKg)} <span class="text-xs font-semibold text-mist">kg/semaine</span></div>
+											<p class="mt-0.5 text-[11px] text-mist">Estimation : une partie peut être du muscle, du glycogène et de l'eau.</p>
+										{:else if calR.mode === 'maintenance'}
+											<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Poids</div>
+											<div class="mt-0.5 font-display text-xl font-bold text-ink">Poids stable</div>
+											<p class="mt-0.5 text-[11px] text-mist">objectif = maintenance totale</p>
+										{:else}
+											<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Perte de graisse estimée</div>
+											<div class="mt-0.5 font-display text-xl font-bold text-loss">{String(calR.perteGraisseKg).replace('.', ',')} <span class="text-xs font-semibold text-mist">kg/semaine</span></div>
+											<p class="mt-0.5 text-[11px] text-mist">plafonds Alpert {String(calR.vitesseMaxAlpertKgSemaine).replace('.', ',')} · Macdonald {String(calR.vitesseMaxMacdonaldKgSemaine).replace('.', ',')} kg/sem</p>
+										{/if}
 									</div>
 									<div class="rounded-xl border border-line bg-white px-3.5 py-2.5">
 										<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Disponibilité en énergie</div>
@@ -4919,6 +4989,7 @@
 							     s'y affichent sans insérer ni retirer d'espace, la page ne saute plus. -->
 							<div class="mt-3 min-h-[124px] space-y-2">
 								{#if calR && calR.avertissementDeficitEleve}<p class="flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.avertissementDeficitEleve}</p>{/if}
+								{#if calR && calR.avertissementSurplusEleve}<p class="flex items-start gap-2 rounded-xl border border-line bg-cream/40 px-3.5 py-2.5 text-[12px] font-semibold text-mist"><Icon name="info" size={14} class="mt-0.5 shrink-0" /> {calR.avertissementSurplusEleve}</p>{/if}
 								{#if calR && calR.alertePlafonds}<p class="flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.alertePlafonds}</p>{/if}
 								{#if calR && calR.avertissementDisponibilite}<p class="flex items-start gap-2 rounded-xl border px-3.5 py-2.5 text-[12px] font-semibold {calR.avertissementDisponibilite.niveau === 'alerte' ? 'border-danger/40 bg-danger-light text-danger' : 'border-warn/40 bg-warn-light text-warn'}"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calR.avertissementDisponibilite.message}</p>{/if}
 								<!-- Erreur de calcul hors champs chiffrés (séances, semaine type…) :
@@ -4974,7 +5045,7 @@
 									Disponibilité en énergie de chaque jour (kcal/kg de masse maigre) — seuils 30 et 24 kcal/kg, soit {calR.seuilsDisponibiliteKcal.haut} et {calR.seuilsDisponibiliteKcal.bas} kcal · exercice réparti : {Math.round(calSemaine.exerciceKcal)} kcal/jour.
 								</p>
 								<p class="mt-1 text-sm font-semibold text-ink">
-									Déficit total de la semaine : {Math.round(-calSemaine.deficitSemaineKcal).toLocaleString('fr-FR')} kcal · graisse estimée <strong class="text-loss">{formatPerteGraisse(Math.abs(calSemaine.graisseKg))} kg</strong>
+									{calR?.mode === 'surplus' ? 'Surplus total de la semaine' : calR?.mode === 'maintenance' ? 'Écart de la semaine' : 'Déficit total de la semaine'} : {calR && calR.mode !== 'deficit' ? Math.abs(Math.round(calSemaine.deficitSemaineKcal)).toLocaleString('fr-FR') : Math.round(-calSemaine.deficitSemaineKcal).toLocaleString('fr-FR')} kcal · {calR?.mode === 'surplus' ? 'prise estimée' : calR?.mode === 'maintenance' ? 'poids stable' : 'graisse estimée'} <strong class="text-loss">{formatPerteGraisse(Math.abs(calSemaine.graisseKg))} kg</strong>
 								</p>
 							{/if}
 						</div>
@@ -5052,14 +5123,29 @@
 									</div>
 									<div class="mt-2 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
 										<div>
-											<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Déficit réel</div>
-											<div class="mt-0.5 font-display text-lg font-bold text-ink">{decimalFr(calImpact.deficitPct)} <span class="text-xs font-semibold text-mist">% de la maintenance totale</span></div>
-											<p class="mt-0.5 text-[11px] text-mist">{Math.round(calImpact.deficitSemaineKcal).toLocaleString('fr-FR')} kcal/semaine</p>
+											{#if calImpact.mode === 'surplus'}
+												<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Surplus</div>
+												<div class="mt-0.5 font-display text-lg font-bold text-ink">+{decimalFr(Math.abs(calImpact.deficitPct))} <span class="text-xs font-semibold text-mist">% de la maintenance totale</span></div>
+												<p class="mt-0.5 text-[11px] text-mist">{Math.abs(Math.round(calImpact.deficitSemaineKcal)).toLocaleString('fr-FR')} kcal/semaine</p>
+											{:else if calImpact.mode === 'maintenance'}
+												<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Équilibre</div>
+												<div class="mt-0.5 font-display text-lg font-bold text-ink">Poids stable</div>
+												<p class="mt-0.5 text-[11px] text-mist">objectif = maintenance totale</p>
+											{:else}
+												<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Déficit réel</div>
+												<div class="mt-0.5 font-display text-lg font-bold text-ink">{decimalFr(calImpact.deficitPct)} <span class="text-xs font-semibold text-mist">% de la maintenance totale</span></div>
+												<p class="mt-0.5 text-[11px] text-mist">{Math.round(calImpact.deficitSemaineKcal).toLocaleString('fr-FR')} kcal/semaine</p>
+											{/if}
 										</div>
 										<div>
-											<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Perte de graisse estimée</div>
-											<div class="mt-0.5 font-display text-lg font-bold text-loss">{formatPerteGraisse(calImpact.perteGraisseKg)} <span class="text-xs font-semibold text-mist">kg/semaine</span></div>
-											<p class="mt-0.5 text-[11px] text-mist">7 700 kcal par kg de graisse</p>
+											<div class="text-[10px] font-bold uppercase tracking-wider text-mist">{calImpact.mode === 'surplus' ? 'Prise de poids estimée' : calImpact.mode === 'maintenance' ? 'Poids' : 'Perte de graisse estimée'}</div>
+											{#if calImpact.mode === 'maintenance'}
+												<div class="mt-0.5 font-display text-lg font-bold text-ink">Poids stable</div>
+												<p class="mt-0.5 text-[11px] text-mist">objectif = maintenance totale</p>
+											{:else}
+												<div class="mt-0.5 font-display text-lg font-bold {calImpact.mode === 'surplus' ? 'text-brand-dark' : 'text-loss'}">{calImpact.mode === 'surplus' ? formatPerteGraisse(calImpact.priseGraisseKg) : formatPerteGraisse(calImpact.perteGraisseKg)} <span class="text-xs font-semibold text-mist">kg/semaine</span></div>
+												<p class="mt-0.5 text-[11px] text-mist">{calImpact.mode === 'surplus' ? 'Estimation : une partie peut être du muscle, du glycogène et de l\'eau.' : '7 700 kcal par kg de graisse'}</p>
+											{/if}
 										</div>
 										<div>
 											<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Disponibilité en énergie</div>
@@ -5069,10 +5155,12 @@
 											</div>
 											<p class="mt-0.5 text-[11px] text-mist">{DISPONIBILITE_NIVEAUX[calImpact.niveauDisponibilite].label} · seuils {calImpact.seuilsDisponibiliteKcal.haut} et {calImpact.seuilsDisponibiliteKcal.bas} kcal</p>
 										</div>
-										<div>
-											<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Plafonds Alpert / Macdonald</div>
-											<div class="mt-0.5 text-[12px] font-bold leading-snug text-ink">{calImpact.comparaisonPlafonds}</div>
-										</div>
+										{#if calImpact.mode === 'deficit'}
+											<div>
+												<div class="text-[10px] font-bold uppercase tracking-wider text-mist">Plafonds Alpert / Macdonald</div>
+												<div class="mt-0.5 text-[12px] font-bold leading-snug text-ink">{calImpact.comparaisonPlafonds}</div>
+											</div>
+										{/if}
 									</div>
 									<!-- Mêmes avertissements que les résultats (messages du module). -->
 									{#if calImpact.avertissementDeficitEleve}<p class="mt-2 flex items-start gap-2 rounded-xl border border-warn/40 bg-warn-light px-3.5 py-2.5 text-[12px] font-semibold text-warn"><Icon name="triangleAlert" size={14} class="mt-0.5 shrink-0" /> {calImpact.avertissementDeficitEleve}</p>{/if}
@@ -5156,7 +5244,7 @@
 														<span class="text-mist">Pas : <strong class="text-ink">{d.pasMoyen !== null ? `${Math.round(d.pasMoyen).toLocaleString('fr-FR')}/jour` : '—'}</strong></span>
 														<span class="text-mist">Travail : <strong class="text-ink">{d.heuresTravail !== null ? `${decimalFr(d.heuresTravail)} h/jour` : '—'}</strong>{#if d.ajustementTravail} · ajust. {decimalFr(d.ajustementTravail)}{/if}</span>
 														<span class="text-mist">Adaptation : <strong class="text-ink">{d.adaptationPct !== null ? `${decimalFr(d.adaptationPct)} %` : '—'}</strong></span>
-														<span class="text-mist">Déficit : <strong class="text-ink">{d.deficitPct !== null ? `${decimalFr(d.deficitPct)} %` : '—'}</strong></span>
+														<span class="text-mist">Ajustement : <strong class="text-ink">{d.mode === 'surplus' ? `Surplus +${decimalFr(d.surplusPct ?? 0)} %` : d.mode === 'maintenance' ? 'Maintenance' : d.deficitPct !== null ? `Déficit ${decimalFr(d.deficitPct)} %` : '—'}</strong></span>
 														<span class="text-mist">Sport de la semaine : <strong class="text-ink">{d.sportSemaineKcal !== null ? `${Math.round(d.sportSemaineKcal).toLocaleString('fr-FR')} kcal` : '—'}</strong></span>
 													</div>
 													<p class="mt-2 text-mist">Résultats : coefficient <strong class="text-ink">{d.coefficient !== null ? decimalFr(d.coefficient) : '—'}</strong> · métabolisme de base <strong class="text-ink">{d.metabolismeBaseKcal !== null ? `${Math.round(d.metabolismeBaseKcal).toLocaleString('fr-FR')} kcal` : '—'}</strong> · maintenance totale <strong class="text-ink">{d.maintenanceFiletKcal !== null ? `${Math.round(d.maintenanceFiletKcal).toLocaleString('fr-FR')} kcal` : '—'}</strong> · objectif <strong class="text-ink">{d.objectifJournalierKcal !== null ? `${Math.round(d.objectifJournalierKcal).toLocaleString('fr-FR')} kcal/jour` : '—'}</strong></p>
