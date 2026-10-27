@@ -21,8 +21,51 @@ import {
 	type MensurationCompare,
 	type TrackingCompleteness,
 } from "../lib/vision360";
+import { phaseEffective, PHASE_LIBELLES, type Phase } from "../lib/phase";
 
 export const DEFAULT_COACH_DRAFT_TARGET_WORDS = 150;
+
+/* ─────────────── Phase nutritionnelle : règles conditionnelles ───────────────
+   Les règles propres au déficit (section 11 du référentiel, filet de sécurité
+   du guide, « aucun déficit supérieur à 15 % », « perte au ralenti ») ne
+   s'appliquent QU'EN perte de gras. En maintenance et en surplus, le prompt
+   reçoit une consigne courte dédiée et ces règles sont retirées des sources.
+   En perte de gras, le prompt est STRICTEMENT inchangé (goldens M0). */
+
+/** Référentiel de méthode adapté à la phase : section 11 retirée hors perte de gras. */
+export function methodePourPhase(reference: string, phase: Phase): string {
+	if (phase === "perte_gras") return reference;
+	const start = reference.indexOf("\n## 11.");
+	if (start < 0) return reference;
+	const end = reference.indexOf("\n## 12.", start);
+	return `${reference.slice(0, start)}${end >= 0 ? reference.slice(end) : ""}`.trim();
+}
+
+/** Guide de style adapté à la phase : la ligne « filet de sécurité » est retirée hors perte de gras. */
+export function guideStylePourPhase(guide: string, phase: Phase): string {
+	if (phase === "perte_gras") return guide;
+	return guide
+		.split("\n")
+		.filter((line) => !line.includes("**Le filet de sécurité**"))
+		.join("\n");
+}
+
+/** Consignes courtes propres à la phase — vides en perte de gras (inchangé). */
+export function consignesPhase(phase: Phase): string[] {
+	if (phase === "maintenance") {
+		return [
+			"- Phase « Maintenance » : la priorité est la stabilité et la régularité (calories et protéines proches de l'objectif, séances régulières). Aucun objectif de perte de poids : ne parle pas de déficit.",
+			"- La règle « perte au ralenti → proposer un appel » ne s'applique pas dans cette phase.",
+		];
+	}
+	if (phase === "surplus") {
+		return [
+			"- Phase « Surplus » : l'objectif est d'atteindre l'objectif calorique (prise volontaire et maîtrisée), avec priorité aux protéines et à l'entraînement. Ne parle pas de déficit.",
+			"- La règle « perte au ralenti → proposer un appel » ne s'applique pas dans cette phase.",
+		];
+	}
+	return [];
+}
 
 /** Bornes de sûreté du paramètre de longueur (la valeur réelle reste à calibrer). */
 export function normalizeCoachDraftTargetWords(value?: number | null): number {
@@ -176,6 +219,8 @@ export type CoachDraftAppointments = {
 export type CoachDraftContext = {
 	/** Prénom seul — aucun nom de famille, e-mail ni identifiant. */
 	prenom: string;
+	/** Phase effective de la fiche (`clientGoals.phase`, absente = perte de gras). */
+	phase?: Phase;
 	weekStart: string;
 	weekLabel: string;
 	answers: CoachDraftAnswers;
@@ -775,6 +820,10 @@ export function buildCoachDraftPrompt(input: CoachDraftPromptInput): string {
 	const targetWords = normalizeCoachDraftTargetWords(input.targetWords);
 	const examples = input.examples ?? context.examples ?? [];
 	const { week, previousWeek, deltas, mensurations } = context.stats;
+	// Phase lue sur le contexte (jamais recalculée depuis les chiffres).
+	const phase = phaseEffective(context);
+	const methodReferencePhase = methodePourPhase(methodReference, phase);
+	const styleGuidePhase = guideStylePourPhase(styleGuide, phase);
 
 	// TÊTE D'APPEL — méthode puis guide de style, EN TÊTE et IDENTIQUES à
 	// chaque appel : le préfixe commun profite du cache de prompt. Cette partie
@@ -785,11 +834,11 @@ export function buildCoachDraftPrompt(input: CoachDraftPromptInput): string {
 		"SOURCES DE RÉFÉRENCE — trois sources, toutes obligatoires",
 		"",
 		"--- 1. RÉFÉRENTIEL DE MÉTHODE ---",
-		methodReference.trim(),
+		methodReferencePhase.trim(),
 		"--- FIN DU RÉFÉRENTIEL DE MÉTHODE ---",
 		"",
 		"--- 2. GUIDE DE STYLE ---",
-		styleGuide.trim(),
+		styleGuidePhase.trim(),
 		"--- FIN DU GUIDE DE STYLE ---",
 	];
 
@@ -816,6 +865,8 @@ export function buildCoachDraftPrompt(input: CoachDraftPromptInput): string {
 		`Semaine : ${context.weekLabel} (du ${formatDateFR(week.start)} au ${formatDateFR(week.end)})`,
 		`Objectifs : ${formatNumber(context.goals.kcal)} kcal, ${formatNumber(context.goals.protein)} g de protéines, ${context.goals.stepGoal === null ? "pas : objectif non défini" : `${formatNumber(context.goals.stepGoal)} pas`}.`,
 		`Formule : ${context.formule === "autonomie" ? "autonomie" : "coaching"}.`,
+		// Ligne absente en perte de gras → prompt historique strictement inchangé.
+		...(phase === "perte_gras" ? [] : [`Phase nutritionnelle : ${PHASE_LIBELLES[phase]}.`]),
 		"",
 		`Statistiques — 7 derniers jours terminés : ${weekDaysLabel(week)}`,
 		...formatFoodLines(week, "", true),
@@ -853,7 +904,8 @@ export function buildCoachDraftPrompt(input: CoachDraftPromptInput): string {
 		"- Appuie-toi uniquement sur les chiffres présents dans le contexte ci-dessus. Ils sont déjà calculés, arrondis et formatés par le code : reprends-les tels quels, avec la même unité.",
 		"- INTERDICTION DE CALCULER : ne fais aucune addition, soustraction, moyenne, règle de trois, conversion ou arrondi. Reprends les chiffres déjà formatés, sans les recalculer.",
 		"- INTERDICTION D'INVENTER : n'ajoute aucun chiffre, aucune date, aucun événement, aucun ressenti, aucun détail absent des faits ou des réponses.",
-		"- Respecte les interdits de la méthode (section 10 — Limites de l'assistant) : aucun diagnostic médical ou hormonal, aucun commentaire de traitement, aucun déficit supérieur à 15 %, aucun ton moqueur ou culpabilisant (« triche », « écart », « mauvais aliment »), aucune promesse de résultat.",
+		`- Respecte les interdits de la méthode (section 10 — Limites de l'assistant) : aucun diagnostic médical ou hormonal, aucun commentaire de traitement,${phase === "perte_gras" ? " aucun déficit supérieur à 15 %," : ""} aucun ton moqueur ou culpabilisant (« triche », « écart », « mauvais aliment »), aucune promesse de résultat.`,
+		...consignesPhase(phase),
 		"- Si une donnée est indisponible ou un écart est null, ne la comble pas et ne la présente pas comme un zéro.",
 		"- Un jugement simple plutôt que chaque chiffre comparé à son objectif.",
 		"- Ne parle des jours non renseignés ou de la fiabilité des données QUE si la tendance stagne ou remonte. Si la tendance baisse ou si les mensurations baissent : félicite, ne signale rien.",

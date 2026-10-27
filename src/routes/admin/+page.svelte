@@ -4648,7 +4648,12 @@
 								{#each [
 									{ label: 'Objectif journalier', value: `${applyKcal.toLocaleString('fr-FR')} kcal`, classe: 'text-brand-dark' },
 									{ label: 'Maintenance', value: `${Math.round(calR.maintenanceFiletKcal).toLocaleString('fr-FR')} kcal`, classe: 'text-ink' },
-									{ label: 'Perte estimée', value: `${String(calR.perteGraisseKg).replace('.', ',')} kg/sem`, classe: 'text-loss' },
+									// Tuile selon la phase de la fiche (phaseEffective) — perte de gras inchangée.
+									phaseClient === 'surplus'
+										? { label: 'Prise estimée', value: `${decimalFr(calR.priseGraisseKg)} kg/sem`, classe: 'text-brand-dark' }
+										: phaseClient === 'maintenance'
+											? { label: 'Objectif', value: 'Poids stable', classe: 'text-ink' }
+											: { label: 'Perte estimée', value: `${String(calR.perteGraisseKg).replace('.', ',')} kg/sem`, classe: 'text-loss' },
 									{ label: 'Coefficient', value: String(calR.coefficient).replace('.', ','), classe: 'text-ink' }
 								] as kpi (kpi.label)}
 									<div class="rounded-2xl bg-white/80 px-4 py-3 text-center">

@@ -53,6 +53,7 @@ import { COACH_DRAFT_METHOD_REFERENCE } from "./ai/methodeGflux";
 import { daysBetweenISO, getSessionUser, localTodayISO } from "./helpers";
 import { DEFAULT_GOALS } from "./journal";
 import { cycleState } from "../lib/cycle";
+import { phaseEffective } from "../lib/phase";
 import { kcalGoalForDate, withCurrentGoal, type GoalHistoryRow } from "../lib/goalHistory";
 import {
 	exploitabilityThresholdKcal,
@@ -401,6 +402,8 @@ export const loadContext = internalQuery({
 		const currentKcalGoal = goalsRow?.kcal ?? DEFAULT_GOALS.kcal;
 		const proteinGoal = goalsRow?.protein ?? DEFAULT_GOALS.protein;
 		const stepGoal = goalsRow?.stepGoal ?? null;
+		// Phase effective de la fiche — exposée au prompt (jamais déduite des chiffres).
+		const phase = phaseEffective(goalsRow);
 		const effectiveHistory = withCurrentGoal(
 			goalHistory.map((row) => ({ kcal: row.kcal, effectiveFrom: row.effectiveFrom })),
 			currentKcalGoal,
@@ -505,12 +508,14 @@ export const loadContext = internalQuery({
 		if (answers.victoire) answers.victoire = redactFeedback(answers.victoire, target);
 
 		const now = new Date();
+		const appointments = appointmentFacts(appointmentRows, localTodayISO(now), parisHHMM(now));
 
 		return {
 			prenom: target.prenom,
 			weekStart: checkin.weekStart,
 			weekLabel: checkin.weekLabel,
 			answers,
+			phase,
 			goals: {
 				kcal: currentKcalGoal,
 				protein: proteinGoal,
@@ -518,7 +523,13 @@ export const loadContext = internalQuery({
 			},
 			formule: target.coachingMode === "autonomy" ? "autonomie" : "coaching",
 			cycle: cycleFacts(target.cycle, now.getTime()),
-			appointments: appointmentFacts(appointmentRows, localTodayISO(now), parisHHMM(now)),
+			// Règle « perte au ralenti → proposer un appel » : le nombre de jours
+			// écoulé n'est transmis QU'EN perte de gras (les autres phases n'ont
+			// pas d'objectif de perte, la règle ne s'y applique pas).
+			appointments: {
+				...appointments,
+				daysSinceLastCall: phase === "perte_gras" ? appointments.daysSinceLastCall : null,
+			},
 			stats: {
 				week,
 				previousWeek,

@@ -23,6 +23,12 @@
 import Icon from './Icon.svelte';
 import FoodImg from './FoodImg.svelte';
 import { currentLocalDay } from '$lib/currentDay.svelte';
+import {
+	etatJauge,
+	libellePhaseJauge,
+	phaseDesObjectifs,
+	type TonJauge
+} from '$lib/phaseAffichage';
 
 	type Entry = {
 		_id: string;
@@ -75,7 +81,8 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 	};
 	type Day = {
 		date: string;
-		goals: { kcal: number; carbs: number; protein: number; fat: number; maintenanceKcal?: number };
+		/** `phase` : phase effective de la fiche (absente = perte de gras). */
+		goals: { kcal: number; carbs: number; protein: number; fat: number; maintenanceKcal?: number; phase?: string };
 		goalsSet?: boolean;
 		entries: Entry[];
 		totals: { kcal: number; carbs: number; protein: number; fat: number };
@@ -296,31 +303,49 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 	const plannedItems = $derived(day.planned ?? []);
 	const plannedKcalTotal = $derived(Math.round(day.plannedTotals?.kcal ?? 0));
 	const remaining = $derived(Math.max(0, day.goals.kcal - totals.kcal));
-	/** Filet de sécurité : maintenance > objectif — sinon le comportement actuel est conservé. */
-	const maintenanceKcal = $derived(
-		day.goals.maintenanceKcal && day.goals.maintenanceKcal > day.goals.kcal ? day.goals.maintenanceKcal : null
+	/** Phase effective de la fiche — lue telle quelle (jamais déduite des chiffres). */
+	const phase = $derived(phaseDesObjectifs(day.goals));
+	/** Libellé « Phase : maintenance / surplus » sous la jauge (rien en perte de gras). */
+	const phaseJaugeLabel = $derived(libellePhaseJauge(phase));
+	/** État de la jauge par phase — module pur partagé ($lib/phaseAffichage). */
+	const jauge = $derived(
+		etatJauge(phase, {
+			total: totals.kcal,
+			objectifKcal: day.goals.kcal,
+			maintenanceKcal: day.goals.maintenanceKcal
+		})
 	);
+	/** Filet de sécurité : perte de gras uniquement (maintenance > objectif). */
+	const maintenanceKcal = $derived(jauge.filetActif ? (day.goals.maintenanceKcal ?? null) : null);
 	/** Échelle de la barre : la maintenance quand elle existe (zone filet comprise), sinon l'objectif. */
-	const barScale = $derived(maintenanceKcal ?? day.goals.kcal);
+	const barScale = $derived(jauge.cibleKcal);
 	const kcalPct = $derived(barScale > 0 ? Math.min(100, (totals.kcal / barScale) * 100) : 0);
-	const overGoal = $derived(totals.kcal > day.goals.kcal);
+	const overGoal = $derived(jauge.depasse);
 	const inSafetyNet = $derived(!!maintenanceKcal && totals.kcal > day.goals.kcal && totals.kcal <= maintenanceKcal);
-	const overMaintenance = $derived(!!maintenanceKcal && totals.kcal > maintenanceKcal);
+	const overMaintenance = $derived(jauge.depasseMaintenance);
 	/** Position du marqueur « Objectif » sur la barre (en % de l'échelle). */
 	const goalMarkPct = $derived(barScale > 0 ? (day.goals.kcal / barScale) * 100 : 0);
+	/** Teintes par ton — le rouge n'existe qu'en perte de gras. */
+	const TON_COULEUR: Record<TonJauge, string> = {
+		brand: '#1db954',
+		neutre: '#66716b',
+		warn: '#f59e0b',
+		danger: '#ef4444'
+	};
+	/** Couche VISUELLE (refonte premium) : correspondance ton → classes.
+	 *  AUCUNE logique : simple décoration dérivée de l'état de la jauge. */
+	const TON_CLASSES: Record<
+		TonJauge,
+		{ border: string; bg: string; badge: string; icon: string; soft: string; bar: string }
+	> = {
+		danger: { border: 'border-danger/40', bg: 'bg-danger-light/40', badge: 'bg-danger-light', icon: 'text-danger', soft: 'text-danger/80', bar: 'bg-danger' },
+		warn: { border: 'border-warn/50', bg: 'bg-warn-light/30', badge: 'bg-warn-light', icon: 'text-warn', soft: 'text-warn', bar: 'bg-warn' },
+		neutre: { border: 'border-line', bg: 'bg-soft/40', badge: 'bg-soft', icon: 'text-mist', soft: 'text-mist', bar: 'bg-mist' },
+		brand: { border: 'border-brand/30', bg: 'bg-brand-light/20', badge: 'bg-brand-light', icon: 'text-brand', soft: 'text-brand/80', bar: 'bg-brand' }
+	};
 	/** Teinte contextuelle des calories (filet de sécurité compris). */
-	const kcalTone = $derived(overMaintenance ? '#ef4444' : overGoal ? '#f59e0b' : '#1db954');
-	/** Couche VISUELLE (refonte premium) : correspondance état → classes.
-	 *  AUCUNE logique : simple décoration dérivée des mêmes booléens existants
-	 *  (overGoal / overMaintenance / inSafetyNet) — bordure teintée, fond
-	 *  légèrement teinté, couleurs du badge et du statut. */
-	const cardTone = $derived(
-		overMaintenance
-			? { border: 'border-danger/40', bg: 'bg-danger-light/40', badge: 'bg-danger-light', icon: 'text-danger', soft: 'text-danger/80', bar: 'bg-danger' }
-			: overGoal
-				? { border: 'border-warn/50', bg: 'bg-warn-light/30', badge: 'bg-warn-light', icon: 'text-warn', soft: 'text-warn', bar: 'bg-warn' }
-				: { border: 'border-brand/30', bg: 'bg-brand-light/20', badge: 'bg-brand-light', icon: 'text-brand', soft: 'text-brand/80', bar: 'bg-brand' }
-	);
+	const kcalTone = $derived(TON_COULEUR[jauge.ton]);
+	const cardTone = $derived(TON_CLASSES[jauge.ton]);
 
 	function mealEntries(meal: string) {
 		return day.entries.filter((e) => e.meal === meal);
@@ -373,17 +398,17 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 	<div class="flex items-start justify-between {compact ? 'gap-3' : 'gap-3'} md:gap-4">
 		<div class="min-w-0">
 			<p class="{compact ? 'text-[15px]' : 'text-sm'} font-bold text-[#3a4540]">
-				{overGoal ? (overMaintenance ? 'Maintenance dépassée de' : 'Objectif dépassé de') : 'Il te reste'}
+				{overGoal ? (overMaintenance ? 'Maintenance dépassée de' : phase === 'perte_gras' ? 'Objectif dépassé de' : 'Au-dessus de l’objectif de') : 'Il te reste'}
 			</p>
 			<p class="mt-0.5 flex items-baseline gap-2">
 				<span class="font-black leading-[1.05] tracking-[-0.04em] text-ink tabular-nums {compact ? 'text-[40px]' : 'text-4xl md:text-[40px]'}">
-					{overGoal ? (overMaintenance ? fmt(totals.kcal - (maintenanceKcal ?? day.goals.kcal)) : fmt(totals.kcal - day.goals.kcal)) : fmt(remaining)}
+					{overGoal ? fmt(jauge.depassementKcal) : fmt(remaining)}
 				</span>
 				<span class="{compact ? 'text-[17px]' : 'text-[15px] md:text-[17px]'} font-bold text-mist">kcal</span>
 			</p>
 		</div>
 		<span class="grid {compact ? 'h-[42px] w-[42px] rounded-[21px]' : 'h-10 w-10 md:h-[42px] md:w-[42px] md:rounded-[21px]'} shrink-0 place-items-center rounded-full bg-white {cardTone.badge}" style:box-shadow="0 6px 16px -8px rgba(15,21,18,0.3)" aria-hidden="true">
-			<Icon name={overMaintenance ? 'bell' : 'shieldCheck'} size={compact ? 24 : 20} class={cardTone.icon} />
+			<Icon name={overMaintenance ? 'bell' : overGoal && phase !== 'perte_gras' ? 'info' : 'shieldCheck'} size={compact ? 24 : 20} class={cardTone.icon} />
 		</span>
 	</div>
 	{#if compact}
@@ -423,6 +448,9 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 			{/if}
 		</span>
 	</div>
+	{#if phaseJaugeLabel}
+		<p class="mt-1.5 text-[11px] font-semibold text-mist">{phaseJaugeLabel}</p>
+	{/if}
 </section>
 
 <!-- Macros type FOOD : le RING est l'élément visuel principal de la card.
