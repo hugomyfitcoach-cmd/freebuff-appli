@@ -1115,7 +1115,8 @@ export async function bilanJourAliments(
  * limitée au coach du compte. Une entrée sans référence résoluble (repas IA,
  * saisie rapide, recette) reste NON couverte : aucune valeur n'est inventée.
  *
- * Renvoie `null` pour un jour sans aliment (la ligne du Journal est masquée).
+ * Un jour VIDE n'est pas une erreur : le bilan est renvoyé avec 0 aliment,
+ * 0 kcal et 0 g (la carte Fibres du Journal reste affichée, « 0 g / repère »).
  */
 export const dayNutritionDetails = query({
 	args: {
@@ -1140,7 +1141,6 @@ export const dayNutritionDetails = query({
 				.first(),
 			loadGoalHistory(ctx, user._id),
 		]);
-		if (entries.length === 0) return null;
 
 		// Objectif calorique DATÉ — celui affiché en haut du Journal, jamais
 		// les kcal mangées.

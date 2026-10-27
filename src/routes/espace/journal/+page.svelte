@@ -302,8 +302,9 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	/* ————— Bilan nutritionnel du jour (Mission R5c) —————
 	   Une seule requête à la lecture du jour (`dayNutritionDetails`), rejouée
 	   à chaque rafraîchissement / ajout d'aliment. Aucun calcul client : le
-	   serveur résout les valeurs connues et la couverture. `null` = ligne
-	   masquée (jour sans aliment ou requête indisponible). */
+	   serveur résout les valeurs connues et la couverture. Un jour VIDE renvoie
+	   un bilan à 0 (la carte Fibres reste affichée) — `null` = requête
+	   indisponible, seule la carte est alors masquée. */
 	let bilanJour = $state<BilanJourData | null>(null);
 	let bilanOpen = $state(false);
 	let bilanSeq = 0;
@@ -315,7 +316,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 			if (seq !== bilanSeq) return;
 			const j = await r.json();
 			if (seq !== bilanSeq || d !== date) return;
-			bilanJour = r.ok && j && !j.error && (j.aliments ?? 0) > 0 ? (j as BilanJourData) : null;
+			bilanJour = r.ok && j && !j.error ? (j as BilanJourData) : null;
 		} catch {
 			if (seq === bilanSeq && d === date) bilanJour = null;
 		}

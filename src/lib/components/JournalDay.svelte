@@ -384,11 +384,14 @@ import { formatDetailValue } from '$lib/foodDetailsFormat';
 		{ label: 'Protéines', icon: 'drumstick', color: '#3b82f6', eaten: macrosShown.protein, goal: day.goals.protein },
 		{ label: 'Lipides', icon: 'droplet', color: '#f97316', eaten: macrosShown.fat, goal: day.goals.fat },
 	]);
-	/* Ligne compacte « Fibres » (cliente uniquement, jour avec aliments) :
-	   trois états sobres selon la couverture — jamais de rouge. */
+	/* Carte « Fibres » (cliente uniquement) :
+	   - jour VIDE : 0 g / repère et jauge vide, comme les anneaux macros à 0 % ;
+	   - jour renseigné : trois états sobres selon la couverture — jamais de rouge. */
 	const fibresLine = $derived(
-		compact && bilanJour && bilanJour.aliments > 0
-			? etatFibres(bilanJour.fibres, bilanJour.repere, bilanJour.couverture)
+		compact && bilanJour
+			? bilanJour.aliments > 0
+				? etatFibres(bilanJour.fibres, bilanJour.repere, bilanJour.couverture)
+				: etatFibres(0, bilanJour.repere, 100)
 			: null
 	);
 
@@ -517,37 +520,46 @@ import { formatDetailValue } from '$lib/foodDetailsFormat';
 	{/each}
 </section>
 
-<!-- Ligne compacte BILAN DU JOUR (Mission R5c) — seul ajout au Journal :
-     sous les 3 cartes macros, masquée sans aliment consommé. La jauge est
-     verte quand la couverture est complète, grise quand le total est un
-     minimum, absente quand les données sont insuffisantes. Jamais de rouge. -->
+<!-- Carte FIBRES DU JOUR (Mission R5c-ter) — seule carte pleine largeur sous
+     les 3 cartes macros : icône, libellé / valeur, jauge et chevron. La CARTE
+     ENTIÈRE est le bouton d'ouverture du volet (plus aucun lien texte).
+     Jauge verte quand la couverture est complète, grise quand le total est un
+     minimum, absente quand les données sont insuffisantes. Jamais de rouge.
+     Jour vide : « 0 g / repère » et jauge vide. -->
 {#if compact && bilanJour && fibresLine}
 	<button
 		type="button"
-		class="mb-3.5 flex w-full items-center gap-2.5 rounded-[18px] border border-[#EEF1EF] bg-white px-3.5 py-2.5 text-left shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_22px_-18px_rgba(15,21,18,0.18)] transition active:scale-[0.99]"
+		class="mb-3.5 flex w-full items-center gap-3 rounded-[20px] border border-[#EEF1EF] bg-white px-3 py-2.5 text-left shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_22px_-18px_rgba(15,21,18,0.18)] transition active:scale-[0.99]"
 		aria-label="Voir le bilan nutritionnel du jour"
 		onclick={() => onOpenBilanJour?.()}
 	>
-		<!-- Colonne de gauche : libellé / valeur et jauge sur toute sa largeur. -->
+		<!-- Icône : même carré vert pâle que les repas. -->
+		<span
+			aria-hidden="true"
+			class="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[11px] bg-brand-light text-brand"
+		>
+			<Icon name="leaf" size={18} />
+		</span>
+		<!-- Centre : libellé / valeur sur une ligne, jauge pleine largeur dessous. -->
 		<div class="min-w-0 flex-1">
-			<div class="flex min-w-0 items-baseline gap-2">
+			<div class="flex min-w-0 items-baseline justify-between gap-2">
 				{#if fibresLine.mention === 'insuffisant'}
 					<span class="min-w-0 flex-1 text-[12px] font-semibold leading-snug text-mist">
 						Fibres : pas assez de données aujourd'hui
 					</span>
 				{:else}
-					<span class="shrink-0 text-[12.5px] font-bold text-ink">Fibres</span>
-					<span class="ml-auto text-[12.5px] font-bold text-ink tabular-nums">
-						{#if fibresLine.mention === 'au-moins'}<span class="text-[11px] font-semibold text-mist"
+					<span class="shrink-0 text-[13px] font-bold text-ink">Fibres</span>
+					<span class="shrink-0 text-[13px] font-bold text-ink tabular-nums">
+						{#if fibresLine.mention === 'au-moins'}<span class="text-[10.5px] font-semibold text-mist"
 								>au moins </span
-							>{/if}{formatDetailValue(fibresLine.valeur, 'g')}{' '}<span
+							>{/if}{fibresLine.valeur === 0 ? '0' : formatDetailValue(fibresLine.valeur, 'g')} g{' '}<span
 							class="font-semibold text-mist">/ {bilanJour.repere} g</span
 						>
 					</span>
 				{/if}
 			</div>
 			{#if fibresLine.jauge}
-				<div class="mt-1.5 h-[7px] w-full overflow-hidden rounded-full bg-[#e8edea]" aria-hidden="true">
+				<div class="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-[#e8edea]" aria-hidden="true">
 					<div
 						class="h-full rounded-full transition-[width] duration-500 ease-out {fibresLine.niveau === 'complete'
 							? 'bg-brand'
@@ -560,8 +572,8 @@ import { formatDetailValue } from '$lib/foodDetailsFormat';
 				<p class="mt-1 text-[10.5px] font-semibold text-mist">Données incomplètes</p>
 			{/if}
 		</div>
-		<!-- Lien centré verticalement sur toute la hauteur de la carte. -->
-		<span class="shrink-0 self-center text-[12px] font-bold text-brand">Détail du jour ›</span>
+		<!-- Chevron gris, centré verticalement. -->
+		<Icon name="chevronRight" size={18} class="shrink-0 self-center text-mist" />
 	</button>
 {/if}
 

@@ -5,8 +5,8 @@
  *  - les totaux du jour (fibres, sucres, AGS + % des kcal, sel) ;
  *  - la couverture : part des kcal du jour provenant d'aliments dont la
  *    valeur est connue (jamais un 0 inventé pour un aliment sans référence) ;
- *  - les 2 principales sources de fibres ;
- *  - l'état d'affichage de la ligne compacte du Journal (seuils 80 / 50 %).
+ *  - toutes les sources de fibres du jour (aliments > 0 g, regroupés par nom) ;
+ *  - l'état d'affichage de la carte Fibres du Journal (seuils 80 / 50 %).
  *
  * Aucune valeur n'est inventée : une entrée sans référence (repas IA, saisie
  * rapide, recette non résoluble) laisse ses champs à `null` et ne compte pas
@@ -31,8 +31,8 @@ export const COUVERTURE_COMPLETE_PCT = 80;
 /** Couverture à partir de laquelle le total est un minimum (« au moins »). */
 export const COUVERTURE_PARTIELLE_PCT = 50;
 
-/** Nombre de sources de fibres renvoyées par le bilan. */
-export const SOURCES_FIBRES_MAX = 2;
+/** Nombre de sources de fibres affichées avant le « + N autres » du volet. */
+export const SOURCES_FIBRES_VISIBLES = 6;
 
 /** Une entrée du journal, valeurs POUR LA PORTION (pas pour 100 g). */
 export type BilanJourAliment = {
@@ -46,7 +46,7 @@ export type BilanJourAliment = {
 	sel: number | null;
 };
 
-/** Source de fibres affichée (« pain complet 15 g »). */
+/** Source de fibres affichée (« pain complet 15 g ») — nom regroupé. */
 export type SourceFibres = { name: string; fibres: number };
 
 /** Bilan complet d'une journée — renvoyé par `dayNutritionDetails`. */
@@ -65,7 +65,8 @@ export type BilanJourData = {
 	couverture: number;
 	/** Repère fibres du jour (g). */
 	repere: number;
-	/** 2 principales sources de fibres, décroissantes. */
+	/** TOUTES les sources de fibres du jour (> 0 g), regroupées par nom et
+	 *  décroissantes — le volet affiche les 6 premières puis « + N autres ». */
 	sourcesFibres: SourceFibres[];
 };
 
@@ -104,6 +105,41 @@ function sommeConnue(
 }
 
 /**
+ * Sources de fibres du jour : uniquement les aliments apportant des fibres
+ * (> 0 g), les aliments identiques regroupés (somme des grammes), triés par
+ * grammes décroissants. Aucun aliment à 0 g ni sans donnée n'apparaît.
+ */
+export function sourcesFibres(aliments: readonly BilanJourAliment[]): SourceFibres[] {
+	const parNom = new Map<string, number>();
+	for (const a of aliments) {
+		if (!estNombre(a.fibres) || a.fibres <= 0) continue;
+		const nom = a.name.trim();
+		if (!nom) continue;
+		parNom.set(nom, (parNom.get(nom) ?? 0) + a.fibres);
+	}
+	return [...parNom.entries()]
+		.map(([name, fibres]) => ({ name, fibres: arrondi1(fibres) }))
+		.sort((a, b) => b.fibres - a.fibres);
+}
+
+/**
+ * Découpe de la liste pour le volet : les 6 premières lignes, le reste
+ * derrière « + N autres ». En dessous du seuil, tout est visible.
+ */
+export function decouperSourcesFibres(sources: readonly SourceFibres[]): {
+	visibles: SourceFibres[];
+	autres: SourceFibres[];
+} {
+	if (sources.length <= SOURCES_FIBRES_VISIBLES) {
+		return { visibles: sources.slice(), autres: [] };
+	}
+	return {
+		visibles: sources.slice(0, SOURCES_FIBRES_VISIBLES),
+		autres: sources.slice(SOURCES_FIBRES_VISIBLES)
+	};
+}
+
+/**
  * Couverture kcal (0–100) : part des kcal du jour portée par des aliments
  * dont la valeur est connue (pondérée par les kcal de chaque entrée).
  * Un aliment sans référence — repas IA, saisie rapide, recette non résoluble
@@ -132,11 +168,6 @@ export function bilanJour(
 	const kcal = Math.round(aliments.reduce((s, a) => s + (estNombre(a.kcal) ? a.kcal : 0), 0));
 	const fibres = sommeConnue(aliments, 'fibres');
 	const ags = sommeConnue(aliments, 'ags');
-	const sourcesFibres = aliments
-		.filter((a): a is BilanJourAliment & { fibres: number } => estNombre(a.fibres) && a.fibres > 0)
-		.sort((a, b) => b.fibres - a.fibres)
-		.slice(0, SOURCES_FIBRES_MAX)
-		.map((a) => ({ name: a.name, fibres: arrondi1(a.fibres) }));
 
 	return {
 		aliments: aliments.length,
@@ -150,7 +181,7 @@ export function bilanJour(
 		sel: sommeConnue(aliments, 'sel'),
 		couverture: couvertureKcal(aliments),
 		repere: repereFibres(objectifKcal),
-		sourcesFibres
+		sourcesFibres: sourcesFibres(aliments)
 	};
 }
 
@@ -165,7 +196,7 @@ export function niveauCouverture(couverture: number): NiveauCouverture {
 	return 'insuffisante';
 }
 
-/** État d'affichage de la ligne « Fibres » du Journal et du bloc du volet. */
+/** État d'affichage de la carte « Fibres » du Journal et du bloc du volet. */
 export type EtatFibres = {
 	niveau: NiveauCouverture;
 	mention: 'exact' | 'au-moins' | 'insuffisant';

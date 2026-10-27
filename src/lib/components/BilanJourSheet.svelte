@@ -3,7 +3,7 @@
 	import Icon from './Icon.svelte';
 	import { sheetFade, sheetFly } from '$lib/sheetMotion';
 	import { formatDetailValue } from '$lib/foodDetailsFormat';
-	import { etatFibres, type BilanJourData } from '$lib/bilanJour';
+	import { decouperSourcesFibres, etatFibres, type BilanJourData } from '$lib/bilanJour';
 
 	/* VOLET « BILAN NUTRITIONNEL DU JOUR » (Mission R5c).
 	   Même volet que les autres saisies rapides de l'app (sheetMotion :
@@ -29,8 +29,16 @@
 		onClose: () => void;
 	} = $props();
 
+	/** Jour sans aucun aliment : 0 g partout — des zéros certains, jamais un
+	 *  « pas assez de données » (rien n'a été consommé). */
+	const jourVide = $derived((bilan?.aliments ?? 0) === 0);
+
 	const etat = $derived(
-		bilan ? etatFibres(bilan.fibres, bilan.repere, bilan.couverture) : null
+		bilan
+			? jourVide
+				? etatFibres(0, bilan.repere, 100)
+				: etatFibres(bilan.fibres, bilan.repere, bilan.couverture)
+			: null
 	);
 
 	const dateLabel = $derived.by(() => {
@@ -46,11 +54,21 @@
 	/** Accord du nombre d'aliments (« 1 aliment » · « 10 aliments »). */
 	const alimentsWord = $derived((bilan?.aliments ?? 0) > 1 ? 'aliments' : 'aliment');
 
-	const sourcesLabel = $derived(
-		(bilan?.sourcesFibres ?? [])
-			.map((s) => `${s.name} ${formatDetailValue(s.fibres, 'g')} g`)
-			.join(' · ')
-	);
+	/** Toutes les sources de fibres du jour (aliments > 0 g, regroupés par nom). */
+	const sources = $derived(bilan?.sourcesFibres ?? []);
+	/** Total du jour — base des mini-barres (le total affiché, connu). */
+	const totalFibres = $derived(bilan?.fibres ?? sources.reduce((s, x) => s + x.fibres, 0));
+	/** Les 6 premières lignes, le reste derrière « + N autres ». */
+	const sourcesCoupees = $derived(decouperSourcesFibres(sources));
+	/** Liste dépliée — refermée à chaque fermeture du volet. */
+	let toutesSources = $state(false);
+	$effect(() => {
+		if (!open) toutesSources = false;
+	});
+	const sourcesAffichees = $derived(toutesSources ? sources : sourcesCoupees.visibles);
+	/** Largeur de la mini-barre : part du total de fibres du jour (0–100). */
+	const pctSource = (fibres: number) =>
+		totalFibres > 0 ? Math.min(100, (fibres / totalFibres) * 100) : 0;
 
 	/** « 22 g », « 12,4 g » — une décimale sous 10, virgule (fiche détaillée). */
 	const g = (n: number | null) => formatDetailValue(n, 'g');
@@ -121,7 +139,7 @@
 					Calculé sur {bilan.couverture} % des calories de la journée
 				</p>
 
-				<!-- ─── Fibres : valeur, repère, jauge et principales sources ─── -->
+				<!-- ─── Fibres : valeur, repère, jauge et sources du jour ─── -->
 				<section class="mt-4 rounded-[20px] bg-brand-soft px-4 py-4">
 					<div class="flex items-baseline justify-between gap-2">
 						<h3 class="text-[16px] font-black text-ink">Fibres</h3>
@@ -130,7 +148,9 @@
 								{#if etat.mention === 'au-moins'}
 									<span class="text-[11px] font-bold uppercase tracking-wide text-mist">au moins </span>
 								{/if}
-								<span class="text-[22px] font-black leading-none text-brand">{g(etat.valeur)}</span>
+								<span class="text-[22px] font-black leading-none text-brand"
+									>{etat.valeur === 0 ? '0' : g(etat.valeur)}</span
+								>
 								<span class="text-[13px] font-semibold text-mist">{' '}g / {bilan.repere} g</span>
 							</p>
 						{/if}
@@ -158,10 +178,48 @@
 					<p class="mt-2.5 text-[13px] leading-snug text-ink/80">
 						Repère adapté à ton objectif : 15 g pour 1 000 kcal, jamais moins de 25 g.
 					</p>
-					{#if sourcesLabel}
-						<p class="mt-1.5 text-[12.5px] leading-snug text-mist">
-							Principales sources : {sourcesLabel}
-						</p>
+
+					<!-- D'où viennent tes fibres : uniquement les aliments du jour qui
+					     apportent des fibres (> 0 g), regroupés par nom, triés par grammes
+					     décroissants. Mini-barre proportionnelle au total du jour. -->
+					{#if sources.length > 0}
+						<div class="mt-3 border-t border-brand/15 pt-3">
+							<p class="text-[11px] font-bold uppercase tracking-wide text-mist">
+								D'où viennent tes fibres
+							</p>
+							<ul class="mt-2 space-y-1.5">
+								{#each sourcesAffichees as s (s.name)}
+									<li class="flex items-center gap-3">
+										<span
+											class="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-ink"
+											title={s.name}>{s.name}</span
+										>
+										<span
+											class="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-white"
+											aria-hidden="true"
+										>
+											<span
+												class="block h-full rounded-full bg-brand"
+												style:width="{pctSource(s.fibres)}%"
+											></span>
+										</span>
+										<span
+											class="w-12 shrink-0 text-right text-[13px] font-bold text-ink tabular-nums"
+											>{g(s.fibres)} g</span
+										>
+									</li>
+								{/each}
+							</ul>
+							{#if sourcesCoupees.autres.length > 0 && !toutesSources}
+								<button
+									type="button"
+									class="mt-2 text-[12.5px] font-bold text-brand"
+									onclick={() => (toutesSources = true)}
+								>
+									+ {sourcesCoupees.autres.length} autres
+								</button>
+							{/if}
+						</div>
 					{/if}
 				</section>
 
@@ -170,13 +228,13 @@
 					<div class="flex items-baseline justify-between gap-3 border-b border-line/70 py-3">
 						<span class="text-[14px] font-bold text-ink">Sucres</span>
 						<span class="text-[14px] font-bold text-ink tabular-nums">
-							{avecUnite(bilan.sucres, 'g')}
+							{jourVide ? '0 g' : avecUnite(bilan.sucres, 'g')}
 						</span>
 					</div>
 					<div class="flex items-baseline justify-between gap-3 border-b border-line/70 py-3">
 						<span class="shrink-0 text-[14px] font-bold text-ink">Acides gras saturés</span>
 						<span class="text-right text-[14px] font-bold text-ink tabular-nums">
-							{avecUnite(bilan.ags, 'g')}							{#if bilan.ags !== null && bilan.agsPctKcal !== null}<span
+							{jourVide ? '0 g' : avecUnite(bilan.ags, 'g')}							{#if bilan.ags !== null && bilan.agsPctKcal !== null}<span
 									class="font-semibold text-mist"
 								>{' '}· {bilan.agsPctKcal} % des kcal</span
 								>{/if}
@@ -187,7 +245,7 @@
 							>Sel{' '}<span class="font-semibold text-mist">des aliments enregistrés</span></span
 						>
 						<span class="text-[14px] font-bold text-ink tabular-nums">
-							{#if bilan.sel === null}—{:else}{sel(bilan.sel)} g{/if}
+							{#if jourVide}0 g{:else if bilan.sel === null}—{:else}{sel(bilan.sel)} g{/if}
 						</span>
 					</div>
 				</section>

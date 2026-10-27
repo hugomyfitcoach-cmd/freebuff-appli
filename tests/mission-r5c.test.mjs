@@ -5,9 +5,9 @@
  * 2) Couverture kcal et ses trois seuils d'affichage (85 %, 65 %, 40 %) —
  *    jamais de rouge, jauge grise entre 50 et 80 %, aucune jauge sous 50 %.
  * 3) Agrégation de 3 aliments dont 1 sans fibres : totaux connus uniquement,
- *    AGS en % des kcal, 2 principales sources, aliment sans référence non
- *    couvert.
- * 4) Câblage : requête serveur unique, route BFF, ligne compacte du Journal,
+ *    AGS en % des kcal, sources de fibres complètes (R5c-ter), aliment sans
+ *    référence non couvert.
+ * 4) Câblage : requête serveur unique, route BFF, carte Fibres du Journal,
  *    volet « Bilan nutritionnel du jour », bande d'en-tête collante et tuiles
  *    macros au format de la fiche détaillée.
  *
@@ -20,9 +20,11 @@ import { readFileSync } from 'node:fs';
 import {
 	bilanJour,
 	couvertureKcal,
+	decouperSourcesFibres,
 	etatFibres,
 	niveauCouverture,
 	repereFibres,
+	SOURCES_FIBRES_VISIBLES,
 } from '../src/lib/bilanJour.ts';
 import { hashToken } from '../src/convex/helpers.ts';
 import { dayNutritionDetails } from '../src/convex/journal.ts';
@@ -104,7 +106,7 @@ test('seuils d’affichage : 85 % normal, 65 % « au moins » gris, 40 % sans ja
 
 /* ─── 3) Agrégation du jour (3 aliments, 1 sans fibres) ─── */
 
-test('agrégation : totaux connus, AGS en % des kcal, 2 sources, non couvert exclu', () => {
+test('agrégation : totaux connus, AGS en % des kcal, sources, non couvert exclu', () => {
 	const aliments = [
 		{ name: 'Pain complet', kcal: 468, fibres: 15, sucres: 6, ags: 3.2, sel: 1.8 },
 		{ name: 'Fromage blanc 0 %', kcal: 194, fibres: null, sucres: 12, ags: 1.4, sel: 0.4 },
@@ -127,7 +129,7 @@ test('agrégation : totaux connus, AGS en % des kcal, 2 sources, non couvert exc
 			{ name: 'Pain complet', fibres: 15 },
 			{ name: 'Tomates', fibres: 1.8 },
 		],
-		'2 principales sources, décroissantes'
+		'sources décroissantes, aliment sans fibres exclu'
 	);
 });
 
@@ -146,7 +148,7 @@ test('AGS : part des kcal = (AGS g × 9) ÷ kcal du jour, arrondie à l’entier
 	);
 });
 
-test('agrégation : aucune valeur inventée quand rien n’est connu + sources limitées à 2', () => {
+test('agrégation : aucune valeur inventée quand rien n’est connu + liste complète', () => {
 	const inconnu = bilanJour(
 		[{ name: 'Repas IA', kcal: 620, fibres: null, sucres: null, ags: null, sel: null }],
 		2000
@@ -170,9 +172,65 @@ test('agrégation : aucune valeur inventée quand rien n’est connu + sources l
 	);
 	assert.deepEqual(
 		quatre.sourcesFibres.map((s) => s.name),
-		['B', 'D'],
-		'seules les 2 plus grosses sources sont renvoyées'
+		['B', 'D', 'C', 'A'],
+		'toutes les sources sont renvoyées, décroissantes'
 	);
+});
+
+/* ─── 3 bis) Sources de fibres du volet (R5c-ter) ─── */
+
+test('sources de fibres : tri décroissant, aliments identiques regroupés, 0 g exclus', () => {
+	const aliments = [
+		{ name: 'Tomate cerise, crue', kcal: 18, fibres: 2.4, sucres: 0, ags: 0, sel: 0 },
+		{ name: 'Pain complet', kcal: 468, fibres: 15, sucres: 0, ags: 0, sel: 0 },
+		{ name: 'Philadelphia Light', kcal: 60, fibres: 0.4, sucres: 0, ags: 0, sel: 0 },
+		{ name: 'Tomate ronde, crue', kcal: 20, fibres: 4.2, sucres: 0, ags: 0, sel: 0 },
+		// Identique au premier repas : les deux portions sont additionnées.
+		{ name: 'Tomate cerise, crue', kcal: 18, fibres: 1.6, sucres: 0, ags: 0, sel: 0 },
+		// 0 g (valeur réelle) et inconnu : aucune ligne.
+		{ name: 'Eau', kcal: 0, fibres: 0, sucres: 0, ags: 0, sel: 0 },
+		{ name: 'Repas IA', kcal: 300, fibres: null, sucres: null, ags: null, sel: null },
+	];
+	const b = bilanJour(aliments, 2148);
+
+	assert.deepEqual(
+		b.sourcesFibres,
+		[
+			{ name: 'Pain complet', fibres: 15 },
+			{ name: 'Tomate ronde, crue', fibres: 4.2 },
+			{ name: 'Tomate cerise, crue', fibres: 4 },
+			{ name: 'Philadelphia Light', fibres: 0.4 },
+		],
+		'tri par grammes décroissants, tomates cerise regroupées, 0 g et inconnu exclus'
+	);
+	assert.equal(b.fibres, 23.6, 'le total reste celui du jour');
+	assert.ok(!b.sourcesFibres.some((s) => s.name === 'Eau'), 'aliment à 0 g exclu');
+	assert.ok(!b.sourcesFibres.some((s) => s.name === 'Repas IA'), 'aliment sans donnée exclu');
+
+	// Jour vide : aucune source, donc aucune liste à afficher.
+	assert.deepEqual(bilanJour([], 2000).sourcesFibres, []);
+});
+
+test('seuil de 6 lignes : 6 sources visibles, le reste derrière « + N autres »', () => {
+	assert.equal(SOURCES_FIBRES_VISIBLES, 6);
+	const sources = Array.from({ length: 9 }, (_, i) => ({ name: `Aliment ${i}`, fibres: 9 - i }));
+
+	const coupees = decouperSourcesFibres(sources);
+	assert.deepEqual(
+		coupees.visibles.map((s) => s.name),
+		['Aliment 0', 'Aliment 1', 'Aliment 2', 'Aliment 3', 'Aliment 4', 'Aliment 5'],
+		'6 premières lignes affichées'
+	);
+	assert.deepEqual(
+		coupees.autres.map((s) => s.name),
+		['Aliment 6', 'Aliment 7', 'Aliment 8'],
+		'le reste derrière « + 3 autres »'
+	);
+
+	// Borne exacte : 6 lignes → aucun « + N autres ». 7 → une ligne repliée.
+	assert.deepEqual(decouperSourcesFibres(sources.slice(0, 6)), { visibles: sources.slice(0, 6), autres: [] });
+	assert.equal(decouperSourcesFibres(sources.slice(0, 7)).autres.length, 1);
+	assert.deepEqual(decouperSourcesFibres([]), { visibles: [], autres: [] });
 });
 
 /* ─── 4) La requête elle-même : résolution OFF / Ciqual / perso ─── */
@@ -281,6 +339,22 @@ test('dayNutritionDetails : OFF + Ciqual + perso, sans référence exclu, sessio
 	);
 });
 
+test('dayNutritionDetails : jour vide → bilan à 0 avec repère, jamais null', async () => {
+	const ctx = await fakeCtx({
+		entries: [],
+		goals: { kcal: 2148, carbs: 217, protein: 158, fat: 72 },
+	});
+	const bilan = await dayNutritionDetails._handler(ctx, { sessionToken: SESSION_TOKEN, date: DATE });
+
+	assert.ok(bilan, 'jour vide : le volet reste ouvrable');
+	assert.equal(bilan.aliments, 0);
+	assert.equal(bilan.kcal, 0);
+	assert.equal(bilan.fibres, null, 'aucune valeur inventée pour un jour sans aliment');
+	assert.equal(bilan.couverture, 0);
+	assert.equal(bilan.repere, 32, 'repère de l’objectif affiché, même sans aliment');
+	assert.deepEqual(bilan.sourcesFibres, [], 'aucune source : liste masquée');
+});
+
 /* ─── 5) Câblage serveur / interface ─── */
 
 const journal = source('src/convex/journal.ts');
@@ -299,17 +373,20 @@ test('serveur : une requête dayNutritionDetails qui réutilise foodDetails, san
 	assert.ok(journal.includes('food.userId === ownerId'), 'isolation stricte des fiches perso');
 	assert.ok(journal.includes('bilanJour(aliments, objectifKcal)'), 'calcul pur partagé');
 	assert.ok(journal.includes('kcalGoalForDate('), 'objectif calorique daté du Journal');
-	assert.ok(journal.includes('if (entries.length === 0) return null'), 'jour sans aliment → masqué');
+	assert.ok(!journal.includes('if (entries.length === 0) return null'), 'jour vide → bilan à 0, plus masqué');
 	assert.ok(!source('src/convex/schema.ts').includes('nutritionDetails'), 'aucun schéma modifié');
 
 	assert.ok(route.includes('api.journal.dayNutritionDetails'), 'une seule requête Convex');
 	assert.ok(/requireRole\(event, 'client'/.test(route), 'même contrôle d’accès que le journal');
 });
 
-test('journal : ligne compacte sous les macros, trois états, aucun rouge', () => {
+test('journal : carte Fibres sous les macros, trois états, aucun rouge', () => {
 	assert.ok(journalDay.includes('etatFibres(bilanJour.fibres, bilanJour.repere, bilanJour.couverture)'));
-	assert.match(journalDay, /\{#if compact && bilanJour && fibresLine\}/, 'cliente uniquement, masquée sans aliment');
-	assert.ok(journalDay.includes('Détail du jour ›'), 'accès au volet');
+	assert.match(journalDay, /\{#if compact && bilanJour && fibresLine\}/, 'cliente uniquement');
+	assert.ok(journalDay.includes('aria-label="Voir le bilan nutritionnel du jour"'), 'carte entière → volet');
+	assert.ok(!journalDay.includes('Détail du jour ›'), 'plus de lien texte');
+	assert.ok(journalDay.includes("name=\"leaf\""), 'icône feuille');
+	assert.ok(journalDay.includes("name=\"chevronRight\""), 'chevron grisé');
 	assert.ok(journalDay.includes("Fibres : pas assez de données aujourd'hui"), 'état < 50 %');
 	assert.ok(journalDay.includes('au moins '), 'état 50–80 %');
 	assert.ok(journalDay.includes('Données incomplètes'));
@@ -325,7 +402,9 @@ test('volet : titre, couverture, blocs fibres/sucres/AGS/sel et phrases obligato
 	assert.ok(bilanSheet.includes('Bilan nutritionnel du jour'));
 	assert.ok(bilanSheet.includes('Calculé sur {bilan.couverture} % des calories de la journée'));
 	assert.ok(bilanSheet.includes('15 g pour 1 000 kcal, jamais moins de 25 g'));
-	assert.ok(bilanSheet.includes('Principales sources'));
+	assert.ok(bilanSheet.includes("D'où viennent tes fibres"), 'liste des sources du jour');
+	assert.ok(!bilanSheet.includes('Principales sources'), 'plus de « Principales sources »');
+	assert.ok(bilanSheet.includes('+ {sourcesCoupees.autres.length} autres'), 'reste dépliable au-delà de 6 lignes');
 	assert.ok(bilanSheet.includes('Acides gras saturés'));
 	assert.ok(bilanSheet.includes('% des kcal'));
 	assert.ok(bilanSheet.includes('des aliments enregistrés'));
