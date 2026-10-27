@@ -1,4 +1,10 @@
-import { action, internalAction, type ActionCtx } from "./_generated/server";
+import {
+	action,
+	internalAction,
+	internalMutation,
+	internalQuery,
+	type ActionCtx,
+} from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Id, Doc } from "./_generated/dataModel";
@@ -40,6 +46,11 @@ type OffProduct = {
 		"polyols_100g"?: number;
 		// Convention OFF : % vol (ex. vin 12,5 → « 12.5 »).
 		"alcohol_100g"?: number;
+		/* ── Fiche détaillée (R5a) — facultatifs, servis en `null` si absents. ── */
+		"sugars_100g"?: number;
+		/** OFF nomme ce nutriment « saturated-fat_100g » (tiret). */
+		"saturated-fat_100g"?: number;
+		"salt_100g"?: number;
 	};
 };
 
@@ -73,6 +84,12 @@ function resolveProductName(p: OffProduct): string | undefined {
 
 /** Garde uniquement les produits exploitables (nom + calories + code). */
 function parseProducts(products: OffProduct[] | undefined) {
+	/** Valeur de DÉTAIL /100 g : 0 est une valeur réelle (ex. 0 g de sucres),
+	 *  contrairement à `round1` qui la traite comme absente pour le garde-fou.
+	 *  Déclarée ICI pour que le bloc reste autonome (extrait et exécuté tel
+	 *  quel par les tests du fallback de nom). */
+	const detail1 = (n: number | undefined) =>
+		typeof n === "number" && isFinite(n) && n >= 0 ? Math.round(n * 10) / 10 : undefined;
 	const out: {
 		offId: string;
 		name: string;
@@ -84,6 +101,10 @@ function parseProducts(products: OffProduct[] | undefined) {
 		fiber100?: number;
 		polyols100?: number;
 		alcohol100?: number;
+		/** Détail nutritionnel /100 g (R5a) — absents si OFF ne les publie pas. */
+		sugars100?: number;
+		saturatedFat100?: number;
+		salt100?: number;
 		imageUrl?: string;
 		servingQty?: number;
 		servingUnit?: string;
@@ -111,6 +132,11 @@ function parseProducts(products: OffProduct[] | undefined) {
 			fiber100: round1(p.nutriments?.["fiber_100g"]),
 			polyols100: round1(p.nutriments?.["polyols_100g"]),
 			alcohol100: round1(p.nutriments?.["alcohol_100g"]),
+			// Détail /100 g (R5a) : 0 est une valeur réelle (jamais confondue
+			// avec une valeur absente).
+			sugars100: detail1(p.nutriments?.["sugars_100g"]),
+			saturatedFat100: detail1(p.nutriments?.["saturated-fat_100g"]),
+			salt100: detail1(p.nutriments?.["salt_100g"]),
 			imageUrl: p.image_front_small_url || undefined,
 			servingQty: qty ?? undefined,
 			servingUnit: p.quantity ? "g" : undefined,
@@ -517,4 +543,120 @@ export const searchFoods = action({
 			);
 			return { items: withThumbs, hasMore: false };
 		},
+});
+
+/* ═══ FICHE DÉTAILLÉE OFF (R5a) — sucres, fibres, AGS, sel /100 g ══════════
+ * Conservés à l'insertion dans `foods` (parseProducts, tous optionnels) puis
+ * COMPLÉTÉS À LA DEMANDE : `refreshOffDetails` n'est appelée qu'à l'ouverture
+ * de la fiche de détail et au plus UNE fois tous les 30 jours par aliment
+ * (horodatage `foods.detailsRefreshedAt`). Aucun traitement de masse, aucune
+ * écriture sur les autres fiches.
+ */
+
+/** Délai minimal entre deux complétions OFF d'un même aliment. */
+export const DETAILS_REFRESH_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Valeurs de détail /100 g — toutes optionnelles (OFF ne les publie pas toujours). */
+export type OffDetails = {
+	sugars100?: number;
+	fiber100?: number;
+	saturatedFat100?: number;
+	salt100?: number;
+};
+
+/**
+ * Produit OFF par code-barres (v2, champs utiles seulement).
+ *  - `null`  : OFF injoignable (réseau, timeout, 5xx) — aucun horodatage n'est
+ *              posé, un nouvel essai reste donc possible ;
+ *  - `{}`    : OFF a répondu (produit inconnu ou sans valeurs de détail).
+ */
+async function fetchOffDetails(offId: string): Promise<OffDetails | null> {
+	const url = `https://world.openfoodfacts.org/api/v2/product/${offId}.json?fields=code,nutriments`;
+	try {
+		const res = await fetch(url, {
+			headers: { "User-Agent": OFF_UA, Accept: "application/json" },
+			signal: AbortSignal.timeout(10_000),
+		});
+		if (!res.ok) return res.status === 404 ? {} : null;
+		const data = (await res.json()) as { status?: number; product?: OffProduct };
+		if (data.status !== 1 || !data.product) return {};
+		// MÊME parsing que l'insertion (`parseProducts`) : une seule source
+		// de vérité pour les valeurs de détail OFF.
+		const parsed = parseProducts([data.product])[0];
+		if (!parsed) return {};
+		const details: OffDetails = {};
+		if (parsed.sugars100 !== undefined) details.sugars100 = parsed.sugars100;
+		if (parsed.fiber100 !== undefined) details.fiber100 = parsed.fiber100;
+		if (parsed.saturatedFat100 !== undefined) details.saturatedFat100 = parsed.saturatedFat100;
+		if (parsed.salt100 !== undefined) details.salt100 = parsed.salt100;
+		return details;
+	} catch {
+		return null;
+	}
+}
+
+/** Lecture interne d'une fiche `foods` (pour l'action de complétion). */
+export const offFoodById = internalQuery({
+	args: { foodId: v.id("foods") },
+	handler: async (ctx, { foodId }) => await ctx.db.get(foodId),
+});
+
+/** Écriture interne : valeurs de détail fournies + horodatage (jamais destructif). */
+export const applyOffDetails = internalMutation({
+	args: {
+		foodId: v.id("foods"),
+		sugars100: v.optional(v.number()),
+		fiber100: v.optional(v.number()),
+		saturatedFat100: v.optional(v.number()),
+		salt100: v.optional(v.number()),
+		refreshedAt: v.number(),
+	},
+	handler: async (ctx, { foodId, refreshedAt, sugars100, fiber100, saturatedFat100, salt100 }) => {
+		const patch: Partial<
+			Pick<Doc<"foods">, "sugars100" | "fiber100" | "saturatedFat100" | "salt100">
+		> & { detailsRefreshedAt: number } = { detailsRefreshedAt: refreshedAt };
+		if (sugars100 !== undefined) patch.sugars100 = sugars100;
+		if (fiber100 !== undefined) patch.fiber100 = fiber100;
+		if (saturatedFat100 !== undefined) patch.saturatedFat100 = saturatedFat100;
+		if (salt100 !== undefined) patch.salt100 = salt100;
+		await ctx.db.patch(foodId, patch);
+	},
+});
+
+/**
+ * Complète un aliment DÉJÀ EN CACHE avec les détails OFF manquants.
+ *
+ * Appelée uniquement à l'ouverture de la fiche nutritionnelle détaillée, par
+ * une cliente connectée. Au plus une tentative réussie tous les 30 jours par
+ * aliment (`detailsRefreshedAt`) : les ouvertures suivantes ne font AUCUN appel
+ * réseau. Une panne OFF (réseau/timeout) n'horodate pas et laisse donc la
+ * possibilité de réessayer à la prochaine ouverture. Relecture des valeurs via
+ * la requête `foodDetails` — l'action ne renvoie aucune donnée.
+ */
+export const refreshOffDetails = action({
+	args: { sessionToken: v.optional(v.string()), foodId: v.id("foods") },
+	handler: async (ctx, { sessionToken, foodId }): Promise<null> => {
+		const user: { _id: Id<"users">; role: "coach" | "client" } | null = await ctx.runQuery(
+			api.journal.checkSession,
+			{ sessionToken }
+		);
+		if (!user) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
+		if (user.role !== "client") {
+			throw new ConvexError("Seuls les comptes clients peuvent utiliser le journal alimentaire.");
+		}
+
+		const food: Doc<"foods"> | null = await ctx.runQuery(internal.off.offFoodById, { foodId });
+		if (!food || !food.offId) return null;
+
+		const now = Date.now();
+		if (typeof food.detailsRefreshedAt === "number" && now - food.detailsRefreshedAt < DETAILS_REFRESH_MS) {
+			return null;
+		}
+
+		const details = await fetchOffDetails(food.offId);
+		// OFF injoignable : on ne pose PAS l'horodatage (nouvel essai possible).
+		if (details === null) return null;
+		await ctx.runMutation(internal.off.applyOffDetails, { foodId, ...details, refreshedAt: now });
+		return null;
+	},
 });

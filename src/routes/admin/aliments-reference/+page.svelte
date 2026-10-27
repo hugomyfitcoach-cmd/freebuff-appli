@@ -24,6 +24,11 @@
 		fatG: number;
 		/** Mode de cuisson (valeurs de cookedState.ts) — facultatif. */
 		cookingState?: string;
+		/** Détail nutritionnel /100 g (R5a) — facultatif. */
+		sugarsG?: number;
+		fiberG?: number;
+		saturatedFatG?: number;
+		saltG?: number;
 	};
 	let refFoods = $state<ReferenceFood[]>([]);
 	let refLoading = $state(false);
@@ -31,7 +36,20 @@
 	let refMsg = $state('');
 	let refMsgOk = $state(false);
 	let refConfirmId = $state<string | null>(null);
-	let refForm = $state({ id: '', name: '', kcal: '', proteinG: '', carbsG: '', fatG: '', cookingState: '' });
+	let refForm = $state({
+		id: '',
+		name: '',
+		kcal: '',
+		proteinG: '',
+		carbsG: '',
+		fatG: '',
+		cookingState: '',
+		/* Détail facultatif /100 g (R5a) — vide = non renseigné. */
+		sugarsG: '',
+		fiberG: '',
+		saturatedFatG: '',
+		saltG: '',
+	});
 
 	/** Modes de cuisson proposés (valeurs de cookedState.ts, libellés du badge).
 	 *  « Non précisé » = champ absent : la cuisson est détectée d'après le nom. */
@@ -73,11 +91,35 @@
 			carbsG: String(food.carbsG),
 			fatG: String(food.fatG),
 			cookingState: food.cookingState ?? '',
+			sugarsG: food.sugarsG !== undefined ? String(food.sugarsG) : '',
+			fiberG: food.fiberG !== undefined ? String(food.fiberG) : '',
+			saturatedFatG: food.saturatedFatG !== undefined ? String(food.saturatedFatG) : '',
+			saltG: food.saltG !== undefined ? String(food.saltG) : '',
 		};
 	}
 
 	function resetReferenceForm() {
-		refForm = { id: '', name: '', kcal: '', proteinG: '', carbsG: '', fatG: '', cookingState: '' };
+		refForm = {
+			id: '',
+			name: '',
+			kcal: '',
+			proteinG: '',
+			carbsG: '',
+			fatG: '',
+			cookingState: '',
+			sugarsG: '',
+			fiberG: '',
+			saturatedFatG: '',
+			saltG: '',
+		};
+	}
+
+	/** Champ facultatif du formulaire : vide → absent, sinon nombre.
+	 *  `bind:value` d'un input number rend un nombre (ou undefined) : on
+	 *  normalise en texte avant de tester le vide. */
+	function optionalFormValue(raw: unknown): number | undefined {
+		const text = String(raw ?? '').trim();
+		return text === '' ? undefined : Number(text);
 	}
 
 	async function saveReferenceFood() {
@@ -85,6 +127,11 @@
 		refSaving = true;
 		refMsg = '';
 		try {
+			// Détail facultatif (R5a) — champ vide = absent.
+			const sugarsG = optionalFormValue(refForm.sugarsG);
+			const fiberG = optionalFormValue(refForm.fiberG);
+			const saturatedFatG = optionalFormValue(refForm.saturatedFatG);
+			const saltG = optionalFormValue(refForm.saltG);
 			const payload = {
 				...(refForm.id ? { referenceFoodId: refForm.id } : {}),
 				name: refForm.name,
@@ -93,6 +140,10 @@
 				carbsG: Number(refForm.carbsG) || 0,
 				fatG: Number(refForm.fatG) || 0,
 				cookingState: refForm.cookingState,
+				...(sugarsG !== undefined ? { sugarsG } : {}),
+				...(fiberG !== undefined ? { fiberG } : {}),
+				...(saturatedFatG !== undefined ? { saturatedFatG } : {}),
+				...(saltG !== undefined ? { saltG } : {}),
 			};
 			const r = await fetch('/api/coach/reference-foods', {
 				method: refForm.id ? 'PATCH' : 'POST',
@@ -269,6 +320,63 @@
 							inputmode="decimal"
 							required
 							bind:value={refForm.fatG}
+							class="w-full rounded-xl border-2 border-line bg-soft px-3 py-2.5 text-sm font-semibold tabular-nums text-ink outline-none transition focus:border-brand"
+						/>
+					</label>
+					<!-- Détail nutritionnel facultatif (R5a) — même style, non requis. -->
+					<label class="block">
+						<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Sucres (g / 100 g) — facultatif</span>
+						<input
+							id="refSugars"
+							type="number"
+							min="0"
+							max="100"
+							step="0.1"
+							inputmode="decimal"
+							placeholder="—"
+							bind:value={refForm.sugarsG}
+							class="w-full rounded-xl border-2 border-line bg-soft px-3 py-2.5 text-sm font-semibold tabular-nums text-ink outline-none transition focus:border-brand"
+						/>
+					</label>
+					<label class="block">
+						<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Fibres (g / 100 g) — facultatif</span>
+						<input
+							id="refFiber"
+							type="number"
+							min="0"
+							max="100"
+							step="0.1"
+							inputmode="decimal"
+							placeholder="—"
+							bind:value={refForm.fiberG}
+							class="w-full rounded-xl border-2 border-line bg-soft px-3 py-2.5 text-sm font-semibold tabular-nums text-ink outline-none transition focus:border-brand"
+						/>
+					</label>
+					<label class="block">
+						<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">AGS (g / 100 g) — facultatif</span>
+						<input
+							id="refSatFat"
+							type="number"
+							min="0"
+							max="100"
+							step="0.1"
+							inputmode="decimal"
+							placeholder="—"
+							bind:value={refForm.saturatedFatG}
+							class="w-full rounded-xl border-2 border-line bg-soft px-3 py-2.5 text-sm font-semibold tabular-nums text-ink outline-none transition focus:border-brand"
+						/>
+					</label>
+					<label class="block">
+						<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Sel (g / 100 g) — facultatif</span>
+						<input
+							id="refSalt"
+							type="number"
+							min="0"
+							max="100"
+							step="0.1"
+							inputmode="decimal"
+							placeholder="—"
+							bind:value={refForm.saltG}
 							class="w-full rounded-xl border-2 border-line bg-soft px-3 py-2.5 text-sm font-semibold tabular-nums text-ink outline-none transition focus:border-brand"
 						/>
 					</label>

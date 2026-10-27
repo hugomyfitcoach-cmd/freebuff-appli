@@ -483,6 +483,11 @@ export const cacheFoods = mutation({
 				fiber100: v.optional(v.number()),
 				polyols100: v.optional(v.number()),
 				alcohol100: v.optional(v.number()),
+				// Détail nutritionnel /100 g (R5a) — optionnels, conservés à
+				// l'insertion pour la future fiche (aucune valeur inventée).
+				sugars100: v.optional(v.number()),
+				saturatedFat100: v.optional(v.number()),
+				salt100: v.optional(v.number()),
 				imageUrl: v.optional(v.string()),
 				servingQty: v.optional(v.number()),
 				servingUnit: v.optional(v.string()),

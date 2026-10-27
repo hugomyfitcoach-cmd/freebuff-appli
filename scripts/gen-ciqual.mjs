@@ -8,15 +8,24 @@
  *    par libellé (source XLSX officiel) — signal de COHÉRENCE NUTRITIONNELLE :
  *    une fiche OFF reconnue comme générique mais très loin de la référence
  *    Ciqual est pénalisée.
+ *  - `src/convex/ciqualDetails.ts` : module SÉPARÉ pour la future fiche
+ *    nutritionnelle détaillée (R5a) — sucres, fibres, acides gras saturés,
+ *    sel + calcium, fer, magnésium, potassium, vitamines C et D /100 g.
+ *    Importé UNIQUEMENT par la requête de détail (foodDetails) : la recherche
+ *    (ciqualNutrients.ts) n'est ni alourdie ni modifiée.
  *
  * Usage : node scripts/gen-ciqual.mjs
  * Sources : table Ciqual 2025, édition FR — DOI 10.57745/RDMHWY
  * (entrepot.recherche.data.gouv.fr).
  */
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+	ciqualDetailNumber,
+	ciqualNumber,
+} from '../src/lib/ciqualValues.ts';
 
 const XML_URL = 'https://entrepot.recherche.data.gouv.fr/api/access/datafile/666252';
 const XLSX_URL = 'https://entrepot.recherche.data.gouv.fr/api/access/datafile/666260';
@@ -38,15 +47,6 @@ async function download(url, dest) {
 	const buf = Buffer.from(await res.arrayBuffer());
 	await writeFile(dest, buf);
 	return dest;
-}
-
-/** Valeur Ciqual : texte FR (« 49,9 », « < 0,2 », « - ») → nombre ou undefined. */
-function ciqualNumber(raw) {
-	if (raw === undefined) return undefined;
-	const t = String(raw).trim();
-	if (!t || t === '-' || t === '') return undefined;
-	const n = parseFloat(t.replace('<', '').replace(',', '.'));
-	return Number.isFinite(n) ? n : undefined;
 }
 
 /** Lecture minimaliste du XLSX (feuille 1, cellules partagées) — zéro dépendance. */
@@ -111,7 +111,10 @@ export const ciqualNames: string[] = [
 
 	// Colonnes (en-têtes vérifiés) : G=alim_code, H=alim_nom_fr, K=kcal (Règlt UE),
 	// O=protéines (Jones), Q=glucides, R=lipides — valeurs /100 g en texte FR.
+	// Détail (R5a) : S=sucres, AA=fibres, AF=AGS, AX=sel, AY=calcium, BB=fer,
+	// BD=magnésium, BG=potassium, BU=vitamine C, BN=vitamine D.
 	const byName = new Map();
+	const detailRows = [];
 	let withKcal = 0;
 	for (const cells of parseXlsx(sheetXml, sharedStrings)) {
 		const name = cells.H ? String(cells.H).replace(/\s+/g, ' ').trim() : '';
@@ -129,6 +132,25 @@ export const ciqualNames: string[] = [
 		const list = byName.get(key);
 		if (list) list.push(entry);
 		else byName.set(key, [entry]);
+		// Fiche détaillée : MÊMES lignes que ciqualNutrients (kcal renseignées),
+		// conversion dédiée (« - »/vide → null, « traces » → 0, « < x » → 0).
+		detailRows.push({
+			name,
+			kcal,
+			protein: ciqualDetailNumber(cells.O),
+			carbs: ciqualDetailNumber(cells.Q),
+			fat: ciqualDetailNumber(cells.R),
+			sugars: ciqualDetailNumber(cells.S),
+			fiber: ciqualDetailNumber(cells.AA),
+			saturatedFat: ciqualDetailNumber(cells.AF),
+			salt: ciqualDetailNumber(cells.AX),
+			calcium: ciqualDetailNumber(cells.AY),
+			iron: ciqualDetailNumber(cells.BB),
+			magnesium: ciqualDetailNumber(cells.BD),
+			potassium: ciqualDetailNumber(cells.BG),
+			vitaminC: ciqualDetailNumber(cells.BU),
+			vitaminD: ciqualDetailNumber(cells.BN),
+		});
 	}
 	if (withKcal < 2500) throw new Error(`Trop peu d'aliments avec kcal (${withKcal}) — XLSX inattendu.`);
 
@@ -151,6 +173,80 @@ export const ciqualNutrients: CiqualRef[] = [
 		.join('\n');
 	await writeFile(join(OUT_DIR, 'ciqualNutrients.ts'), nutHeader + body + '\n];\n');
 	console.log(`✅ ciqualNutrients.ts : ${refs.length} références (${withKcal} kcal renseignées)`);
+
+	/* ── 3) Détail nutritionnel (XLSX officiel) → ciqualDetails.ts ── */
+	// Tri identique à ciqualNutrients.ts (alphabétique français) : la fiche
+	// exacte est retrouvée par son libellé officiel.
+	detailRows.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+	const DETAIL_FIELDS = [
+		['protein', 'protéines'],
+		['carbs', 'glucides'],
+		['fat', 'lipides'],
+		['sugars', 'sucres'],
+		['fiber', 'fibres'],
+		['saturatedFat', 'acides gras saturés'],
+		['salt', 'sel'],
+		['calcium', 'calcium'],
+		['iron', 'fer'],
+		['magnesium', 'magnésium'],
+		['potassium', 'potassium'],
+		['vitaminC', 'vitamine C'],
+		['vitaminD', 'vitamine D'],
+	];
+	const detailHeader = `/**
+ * Détail nutritionnel Ciqual 2025 (ANSES) — valeurs /100 g par libellé
+ * officiel français : sucres, fibres, acides gras saturés, sel, calcium, fer,
+ * magnésium, potassium, vitamines C et D (les macros sont incluses pour la
+ * fiche complète).
+ *
+ * Généré NE PAS ÉDITER À LA MAIN : scripts/gen-ciqual.mjs (source : Table
+ * Ciqual 2025_FR_2025_11_03.xlsx, DOI 10.57745/RDMHWY).
+ * ${detailRows.length} références — module SÉPARÉ, importé UNIQUEMENT par la
+ * requête de détail (convex/foodDetails.ts) : la recherche embarquée
+ * (ciqualNutrients.ts) reste inchangée.
+ *
+ * Conversion des cellules (ciqualValues.ts) : « - » ou vide → null,
+ * « traces » → 0, « < x » → 0, virgule décimale gérée. Le sel vient de la
+ * colonne « Sel » du XLSX (jamais recalculé depuis le sodium).
+ *
+ * Ordre des valeurs du tuple = ordre des champs de \`CiqualDetailRow\`.
+ */
+export type CiqualDetailRow = [
+	name: string,
+	kcal: number,
+	protein: number | null,
+	carbs: number | null,
+	fat: number | null,
+	sugars: number | null,
+	fiber: number | null,
+	saturatedFat: number | null,
+	salt: number | null,
+	calcium: number | null,
+	iron: number | null,
+	magnesium: number | null,
+	potassium: number | null,
+	vitaminC: number | null,
+	vitaminD: number | null,
+];
+export const ciqualDetailsRows: CiqualDetailRow[] = [
+`;
+	const cell = (value) => (value === null ? 'null' : String(value));
+	const detailBody = detailRows
+		.map((r) =>
+			`\t[${JSON.stringify(r.name)}, ${cell(r.kcal)}, ${cell(r.protein)}, ${cell(r.carbs)}, ${cell(r.fat)}, ${cell(r.sugars)}, ${cell(r.fiber)}, ${cell(r.saturatedFat)}, ${cell(r.salt)}, ${cell(r.calcium)}, ${cell(r.iron)}, ${cell(r.magnesium)}, ${cell(r.potassium)}, ${cell(r.vitaminC)}, ${cell(r.vitaminD)}],`
+		)
+		.join('\n');
+	const detailsPath = join(OUT_DIR, 'ciqualDetails.ts');
+	await writeFile(detailsPath, detailHeader + detailBody + '\n];\n');
+	const detailsSize = (await stat(detailsPath)).size;
+	console.log(
+		`✅ ciqualDetails.ts : ${detailRows.length} références, ${(detailsSize / 1024).toFixed(1)} Ko`
+	);
+	const nulls = DETAIL_FIELDS.map(
+		([key, label]) => `${label} : ${detailRows.filter((r) => r[key] === null).length}`
+	);
+	console.log(`ℹ️  valeurs null par nutriment (sur ${detailRows.length}) :`);
+	for (const line of nulls) console.log(`   · ${line}`);
 }
 
 function readFileText(p) {

@@ -292,6 +292,18 @@ export default defineSchema({
 		polyols100: v.optional(v.number()),
 		/** Alcool /100 g — convention OFF : % vol. */
 		alcohol100: v.optional(v.number()),
+		/* ── Fiche nutritionnelle détaillée (R5a) — champs OPTIONNELS, additifs,
+		   aucune migration : les fiches existantes restent valides, une valeur
+		   absente est servie en `null` (jamais un 0 inventé). ── */
+		/** Sucres /100 g (information étiquette OFF). */
+		sugars100: v.optional(v.number()),
+		/** Acides gras saturés /100 g. */
+		saturatedFat100: v.optional(v.number()),
+		/** Sel /100 g. */
+		salt100: v.optional(v.number()),
+		/** Horodatage (ms) de la dernière complétion OFF des détails — au plus
+		 *  une fois tous les 30 jours par aliment (refreshOffDetails). */
+		detailsRefreshedAt: v.optional(v.number()),
 		imageUrl: v.optional(v.string()),
 		/** Portion suggérée par OFF (g/ml), quand elle existe. */
 		servingQty: v.optional(v.number()),
@@ -839,6 +851,16 @@ export default defineSchema({
 		 *  Renseigné, il pilote le badge de cuisson et le classement ; sinon la
 		 *  cuisson est détectée d'après le nom. Validé par referenceFoodError. */
 		cookingState: v.optional(v.string()),
+		/* ── Fiche nutritionnelle détaillée (R5a) — 4 champs OPTIONNELS, additifs,
+		   aucune migration : absents = valeur non renseignée (servie en `null`). ── */
+		/** Sucres /100 g. */
+		sugarsG: v.optional(v.number()),
+		/** Fibres /100 g. */
+		fiberG: v.optional(v.number()),
+		/** Acides gras saturés /100 g. */
+		saturatedFatG: v.optional(v.number()),
+		/** Sel /100 g. */
+		saltG: v.optional(v.number()),
 		createdAt: v.number(),
 		updatedAt: v.number(),
 	}).index("by_coach", ["coachId"]),
