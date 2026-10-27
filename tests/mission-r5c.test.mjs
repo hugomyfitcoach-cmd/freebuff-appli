@@ -390,7 +390,7 @@ test('journal : carte Fibres sous les macros, trois états, aucun rouge', () => 
 	assert.ok(journalDay.includes("Fibres : pas assez de données aujourd'hui"), 'état < 50 %');
 	assert.ok(journalDay.includes('au moins '), 'état 50–80 %');
 	assert.ok(journalDay.includes('Données incomplètes'));
-	assert.ok(journalDay.includes("? 'bg-brand'") && journalDay.includes(": 'bg-mist'"), 'jauge verte ou grise');
+	assert.ok(journalDay.includes("? 'bg-fibres'") && journalDay.includes(": 'bg-mist'"), 'jauge aux couleurs des fibres, ou grise');
 	const ligne = journalDay.slice(
 		journalDay.indexOf('Ligne compacte BILAN DU JOUR'),
 		journalDay.indexOf('<!-- Repas -->')

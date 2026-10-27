@@ -3908,12 +3908,14 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		return () => io.disconnect();
 	});
 
-	/* Verrouille le scroll du fond quand un panneau plein écran est ouvert.
-	   Au déverrouillage (ou démontage de la page), on restaure overflow='' et
-	   on réconcilie le layout viewport iOS pour que la barre fixe du bas reste
-	   ancrée au bas de l'écran. */
+	/* Verrouille le scroll du fond quand un panneau plein écran est ouvert —
+	   y compris le volet « Bilan nutritionnel du jour » (R5c-quater) : le
+	   Journal derrière ne défile plus, le volet garde son propre défilement.
+	   Au déverrouillage (fermeture du volet, retour arrière, démontage de la
+	   page), on restaure overflow='' et on réconcilie le layout viewport iOS
+	   pour que la barre fixe du bas reste ancrée au bas de l'écran. */
 	$effect(() => {
-		const locked = logOpen || !!qtyFood || !!editEntry || !!qtyMealSel || calOpen || dupOpen || mealCreateOpen || mealPhotoOpen;
+		const locked = logOpen || !!qtyFood || !!editEntry || !!qtyMealSel || calOpen || dupOpen || mealCreateOpen || mealPhotoOpen || bilanOpen;
 		document.body.style.overflow = locked ? 'hidden' : '';
 		if (!locked && typeof window !== 'undefined') {
 			window.requestAnimationFrame(() => {

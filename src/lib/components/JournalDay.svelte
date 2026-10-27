@@ -523,9 +523,10 @@ import { formatDetailValue } from '$lib/foodDetailsFormat';
 <!-- Carte FIBRES DU JOUR (Mission R5c-ter) — seule carte pleine largeur sous
      les 3 cartes macros : icône, libellé / valeur, jauge et chevron. La CARTE
      ENTIÈRE est le bouton d'ouverture du volet (plus aucun lien texte).
-     Jauge verte quand la couverture est complète, grise quand le total est un
-     minimum, absente quand les données sont insuffisantes. Jamais de rouge.
-     Jour vide : « 0 g / repère » et jauge vide. -->
+     Couleur PROPRE aux fibres (`fibres`, sarcelle) : jamais le vert des
+     calories et des repas. Jauge pleine quand la couverture est complète,
+     grise quand le total est un minimum, absente quand les données sont
+     insuffisantes. Jamais de rouge. Jour vide : « 0 g / repère », jauge vide. -->
 {#if compact && bilanJour && fibresLine}
 	<button
 		type="button"
@@ -533,10 +534,10 @@ import { formatDetailValue } from '$lib/foodDetailsFormat';
 		aria-label="Voir le bilan nutritionnel du jour"
 		onclick={() => onOpenBilanJour?.()}
 	>
-		<!-- Icône : même carré vert pâle que les repas. -->
+		<!-- Icône : carré pâle aux couleurs des fibres (même gabarit que les repas). -->
 		<span
 			aria-hidden="true"
-			class="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[11px] bg-brand-light text-brand"
+			class="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[11px] bg-fibres-light text-fibres-deep"
 		>
 			<Icon name="leaf" size={18} />
 		</span>
@@ -562,7 +563,7 @@ import { formatDetailValue } from '$lib/foodDetailsFormat';
 				<div class="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-[#e8edea]" aria-hidden="true">
 					<div
 						class="h-full rounded-full transition-[width] duration-500 ease-out {fibresLine.niveau === 'complete'
-							? 'bg-brand'
+							? 'bg-fibres'
 							: 'bg-mist'}"
 						style:width="{fibresLine.pct}%"
 					></div>

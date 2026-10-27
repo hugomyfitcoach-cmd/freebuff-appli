@@ -139,8 +139,9 @@
 					Calculé sur {bilan.couverture} % des calories de la journée
 				</p>
 
-				<!-- ─── Fibres : valeur, repère, jauge et sources du jour ─── -->
-				<section class="mt-4 rounded-[20px] bg-brand-soft px-4 py-4">
+				<!-- ─── Fibres : couleur PROPRE aux fibres (sarcelle), jamais le vert
+				     des calories — valeur, fond du bloc, jauge et barres de sources. ─── -->
+				<section class="mt-4 rounded-[20px] bg-fibres-soft px-4 py-4">
 					<div class="flex items-baseline justify-between gap-2">
 						<h3 class="text-[16px] font-black text-ink">Fibres</h3>
 						{#if etat.valeur !== null}
@@ -148,7 +149,7 @@
 								{#if etat.mention === 'au-moins'}
 									<span class="text-[11px] font-bold uppercase tracking-wide text-mist">au moins </span>
 								{/if}
-								<span class="text-[22px] font-black leading-none text-brand"
+								<span class="text-[22px] font-black leading-none text-fibres-deep"
 									>{etat.valeur === 0 ? '0' : g(etat.valeur)}</span
 								>
 								<span class="text-[13px] font-semibold text-mist">{' '}g / {bilan.repere} g</span>
@@ -159,7 +160,7 @@
 					{#if etat.jauge}
 						<div class="mt-2.5 h-[9px] w-full overflow-hidden rounded-full bg-white" aria-hidden="true">
 							<div
-								class="h-full rounded-full transition-[width] duration-500 ease-out {etat.niveau === 'complete' ? 'bg-brand' : 'bg-mist'}"
+								class="h-full rounded-full transition-[width] duration-500 ease-out {etat.niveau === 'complete' ? 'bg-fibres' : 'bg-mist'}"
 								style:width="{etat.pct}%"
 							></div>
 						</div>
@@ -183,7 +184,7 @@
 					     apportent des fibres (> 0 g), regroupés par nom, triés par grammes
 					     décroissants. Mini-barre proportionnelle au total du jour. -->
 					{#if sources.length > 0}
-						<div class="mt-3 border-t border-brand/15 pt-3">
+						<div class="mt-3 border-t border-fibres/15 pt-3">
 							<p class="text-[11px] font-bold uppercase tracking-wide text-mist">
 								D'où viennent tes fibres
 							</p>
@@ -199,7 +200,7 @@
 											aria-hidden="true"
 										>
 											<span
-												class="block h-full rounded-full bg-brand"
+												class="block h-full rounded-full bg-fibres"
 												style:width="{pctSource(s.fibres)}%"
 											></span>
 										</span>
@@ -213,7 +214,7 @@
 							{#if sourcesCoupees.autres.length > 0 && !toutesSources}
 								<button
 									type="button"
-									class="mt-2 text-[12.5px] font-bold text-brand"
+									class="mt-2 text-[12.5px] font-bold text-fibres-deep"
 									onclick={() => (toutesSources = true)}
 								>
 									+ {sourcesCoupees.autres.length} autres

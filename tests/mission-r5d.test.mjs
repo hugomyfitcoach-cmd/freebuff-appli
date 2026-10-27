@@ -100,7 +100,7 @@ test('câblage coach : Vision 360 après Hydratation + fiche bilan à côté de 
 	const admin = source('src/routes/admin/+page.svelte');
 	// La carte existe une seule fois dans chaque emplacement.
 	assert.equal((admin.match(/> Fibres \/ jour<\/div>/g) ?? []).length, 1, 'carte « Fibres / jour » de la Vision 360');
-	assert.equal((admin.match(/cardHead\('wheat', 'Fibres'/g) ?? []).length, 1, 'carte Fibres de la fiche bilan');
+	assert.equal((admin.match(/cardHead\('leaf', 'Fibres'/g) ?? []).length, 1, 'carte Fibres de la fiche bilan');
 	// Vision 360 : la carte est placée APRÈS le bloc Hydratation.
 	const hydration = admin.indexOf('<!-- HYDRATATION — mêmes enregistrements');
 	const fibresVision = admin.indexOf('> Fibres / jour</div>');
@@ -108,7 +108,7 @@ test('câblage coach : Vision 360 après Hydratation + fiche bilan à côté de 
 	assert.ok(hydration > 0 && fibresVision > hydration, 'carte Fibres après Hydratation');
 	// Fiche bilan : la carte Fibres suit la carte Protéines.
 	const proteines = admin.indexOf("cardHead('beef', 'Protéines'");
-	const fibresBilan = admin.indexOf("cardHead('wheat', 'Fibres'");
+	const fibresBilan = admin.indexOf("cardHead('leaf', 'Fibres'");
 	assert.ok(proteines > 0 && fibresBilan > proteines, 'carte Fibres à côté de Protéines');
 	// Aucun chiffre quand les données sont insuffisantes, jamais de rouge.
 	assert.match(admin, /Pas assez de données/);
