@@ -138,7 +138,9 @@ export function bilanJour(
 		fibres,
 		sucres: sommeConnue(aliments, 'sucres'),
 		ags,
-		agsPctKcal: ags !== null && kcal > 0 ? Math.round((ags / kcal) * 100) : null,
+		// Les lipides (dont les AGS) valent 9 kcal/g : part des kcal du jour
+		// réellement apportée par les AGS, arrondie à l'entier.
+		agsPctKcal: ags !== null && kcal > 0 ? Math.round(((ags * 9) / kcal) * 100) : null,
 		sel: sommeConnue(aliments, 'sel'),
 		couverture: couvertureKcal(aliments),
 		repere: repereFibres(objectifKcal),

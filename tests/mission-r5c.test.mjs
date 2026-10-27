@@ -118,7 +118,7 @@ test('agrégation : totaux connus, AGS en % des kcal, 2 sources, non couvert exc
 	assert.equal(b.fibres, 16.8, 'fibres : seules les valeurs connues sont additionnées');
 	assert.equal(b.sucres, 21.9);
 	assert.equal(b.ags, 4.7);
-	assert.equal(b.agsPctKcal, 1, '4,7 g d’AGS / 689 kcal → 1 %');
+	assert.equal(b.agsPctKcal, 6, '4,7 g d’AGS × 9 kcal/g / 689 kcal → 6 %');
 	assert.equal(b.sel, 2.2, 'sel arrondi à une décimale, jamais inventé');
 	assert.equal(b.couverture, 72, '(468 + 27) / 689 kcal → 72 % (fromage sans fibres exclu)');
 	assert.deepEqual(
@@ -128,6 +128,21 @@ test('agrégation : totaux connus, AGS en % des kcal, 2 sources, non couvert exc
 			{ name: 'Tomates', fibres: 1.8 },
 		],
 		'2 principales sources, décroissantes'
+	);
+});
+
+test('AGS : part des kcal = (AGS g × 9) ÷ kcal du jour, arrondie à l’entier', () => {
+	// 3,6 g d'AGS sur 642 kcal → 32,4 / 642 × 100 = 5,05 → 5 %.
+	const b = bilanJour(
+		[{ name: 'Repas', kcal: 642, fibres: 5, sucres: 20, ags: 3.6, sel: 1 }],
+		2000
+	);
+	assert.equal(b.agsPctKcal, 5, '3,6 g × 9 / 642 kcal → 5 %');
+	// Sans AGS connues : jamais un pourcentage inventé.
+	assert.equal(
+		bilanJour([{ name: 'Inconnu', kcal: 500, fibres: null, sucres: null, ags: null, sel: null }], 2000)
+			.agsPctKcal,
+		null
 	);
 });
 
@@ -322,14 +337,21 @@ test('volet : titre, couverture, blocs fibres/sucres/AGS/sel et phrases obligato
 	assert.ok(bilanSheet.includes('sheetFade') && bilanSheet.includes('sheetFly'), 'volet existant réutilisé');
 });
 
-test('fiche aliment : bande collante sous les contrôles + macros au format détaillé', () => {
-	assert.ok(
-		sheet.includes(
-			'class="sticky top-0 z-[1] h-[calc(max(env(safe-area-inset-top),12px)+44px)] bg-white'
-		),
-		'bande d’en-tête collante opaque à la hauteur exacte des contrôles'
+test('fiche aliment : bande de défilement hors flux derrière les contrôles + macros au format détaillé', () => {
+	const bande = sheet.slice(
+		sheet.indexOf('DÉFILEMENT'),
+		sheet.indexOf('min-h-0 flex-1 overflow-y-auto')
 	);
-	assert.ok(sheet.includes('onscroll={onSheetScroll}'), 'ombre au défilement seulement');
+	assert.ok(bande.includes('pointer-events-none'), 'bande hors flux, ne bloque pas le contenu');
+	assert.ok(bande.includes('absolute inset-x-0 top-[max(env(safe-area-inset-top),12px)] z-[5]'), 'superposée, derrière les boutons (z-10)');
+	assert.ok(bande.includes('h-14 -translate-y-1.5'), '56 px centrée sur les contrôles de 44 px');
+	assert.ok(bande.includes('transition-opacity duration-150'), 'apparition en fondu ~150 ms');
+	assert.ok(bande.includes('opacity-0'), 'invisible en haut de fiche');
+	assert.ok(!sheet.includes('sticky top-0 z-[1]'), 'plus de bande dans le flux : la photo garde sa hauteur');
+	assert.ok(sheet.includes('bind:this={heroEl}'), 'seuil mesuré sur la photo');
+	assert.ok(sheet.includes('heroEl.getBoundingClientRect().bottom'), 'bande déclenchée quand la photo sort de vue');
+	assert.ok(sheet.includes('el.scrollTop > 8'), 'seuil de quelques pixels sans photo');
+	assert.ok(sheet.includes('onscroll={onSheetScroll}'));
 	assert.ok(
 		sheet.includes('absolute right-3 top-[max(env(safe-area-inset-top),12px)] z-10'),
 		'cœur et fermer restent fixes'

@@ -131,7 +131,7 @@
 									<span class="text-[11px] font-bold uppercase tracking-wide text-mist">au moins </span>
 								{/if}
 								<span class="text-[22px] font-black leading-none text-brand">{g(etat.valeur)}</span>
-								<span class="text-[13px] font-semibold text-mist"> g / {bilan.repere} g</span>
+								<span class="text-[13px] font-semibold text-mist">{' '}g / {bilan.repere} g</span>
 							</p>
 						{/if}
 					</div>
@@ -176,16 +176,15 @@
 					<div class="flex items-baseline justify-between gap-3 border-b border-line/70 py-3">
 						<span class="shrink-0 text-[14px] font-bold text-ink">Acides gras saturés</span>
 						<span class="text-right text-[14px] font-bold text-ink tabular-nums">
-							{avecUnite(bilan.ags, 'g')}{#if bilan.ags !== null && bilan.agsPctKcal !== null}<span
+							{avecUnite(bilan.ags, 'g')}							{#if bilan.ags !== null && bilan.agsPctKcal !== null}<span
 									class="font-semibold text-mist"
-								>
-									· {bilan.agsPctKcal} % des kcal</span
+								>{' '}· {bilan.agsPctKcal} % des kcal</span
 								>{/if}
 						</span>
 					</div>
 					<div class="flex items-baseline justify-between gap-3 py-3">
 						<span class="text-[14px] font-bold text-ink"
-							>Sel<span class="font-semibold text-mist"> des aliments enregistrés</span></span
+							>Sel{' '}<span class="font-semibold text-mist">des aliments enregistrés</span></span
 						>
 						<span class="text-[14px] font-bold text-ink tabular-nums">
 							{#if bilan.sel === null}—{:else}{sel(bilan.sel)} g{/if}

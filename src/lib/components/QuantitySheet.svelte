@@ -407,15 +407,28 @@
 	   et le hero laisse une marge pour que la fiche tienne sans scroll sur
 	   les téléphones standards. */
 	let scrollerEl: HTMLElement | undefined = $state();
-	/* Ombre légère de la bande d'en-tête collante, au défilement seulement. */
+	/** Hero (photo ou pictogramme) : sert de repère de défilement à la bande. */
+	let heroEl: HTMLElement | undefined = $state();
+	const hasPhoto = $derived(!!heroSrc);
+	/* BANDE D'EN-TÊTE DE DÉFILEMENT (R5c-bis) : hors flux, DERRIÈRE les
+	   boutons. Invisible tant que la photo (ou le pictogramme) est en vue ;
+	   apparaît en fondu de 150 ms dès qu'elle a défilé hors de vue. Sans
+	   photo, un seuil de quelques pixels suffit. */
 	let sheetScrolled = $state(false);
 	function onSheetScroll(e: Event) {
-		sheetScrolled = (e.currentTarget as HTMLElement).scrollTop > 4;
+		const el = e.currentTarget as HTMLElement;
+		if (hasPhoto && heroEl) {
+			// La photo est sortie par le haut de la zone visible.
+			sheetScrolled = heroEl.getBoundingClientRect().bottom <= el.getBoundingClientRect().top + 1;
+			return;
+		}
+		sheetScrolled = el.scrollTop > 8;
 	}
 	$effect(() => {
 		if (scrollerEl) {
 			void qtyFocused; // re-ancrage à chaque entrée/sortie du mode focus
 			scrollerEl.scrollTop = 0;
+			sheetScrolled = false;
 		}
 	});
 	function endQtyFocus() {
@@ -489,16 +502,17 @@
 				<Icon name="x" size={18} />
 			</button>
 		</div>
-		<div role="presentation" class="min-h-0 flex-1 overflow-y-auto overscroll-contain" bind:this={scrollerEl} onpointerdown={sheetPointerDown} onscroll={onSheetScroll}>
-		<!-- ─── Bande d'en-tête COLLANTE (R5c) ───
-		     Hauteur EXACTE des contrôles fixes (safe area + 44 px), fond blanc
-		     opaque et ombre légère au défilement. Le contenu défile SOUS elle :
-		     la croix et le cœur ne chevauchent plus jamais un élément de la
-		     fiche, et aucun bouton ne peut rester caché dessous au repos. -->
+		<!-- ─── Bande d'en-tête de DÉFILEMENT (R5c-bis) : HORS flux, DERRIÈRE
+		     les boutons, superposée au contenu. Invisible en haut de fiche (la
+		     photo garde sa hauteur d'origine), elle apparaît en fondu (150 ms)
+		     dès que la photo a défilé hors de vue — seuil de quelques pixels
+		     sans photo. Hauteur 56 px, centrée sur les contrôles de 44 px
+		     (6 px au-dessus / 6 px en dessous) : rien n'est poussé. -->
 		<div
-			class="sticky top-0 z-[1] h-[calc(max(env(safe-area-inset-top),12px)+44px)] bg-white transition-shadow duration-200 {sheetScrolled ? 'shadow-[0_6px_16px_-12px_rgba(15,21,18,0.30)]' : ''}"
+			class="pointer-events-none absolute inset-x-0 top-[max(env(safe-area-inset-top),12px)] z-[5] h-14 -translate-y-1.5 bg-white shadow-[0_6px_16px_-12px_rgba(15,21,18,0.30)] transition-opacity duration-150 {sheetScrolled ? 'opacity-100' : 'opacity-0'}"
 			aria-hidden="true"
 		></div>
+		<div role="presentation" class="min-h-0 flex-1 overflow-y-auto overscroll-contain" bind:this={scrollerEl} onpointerdown={sheetPointerDown} onscroll={onSheetScroll}>
 		<!-- MODE FOCUS QUANTITÉ : le clavier s'ouvre → hero/repas/actions masqués,
 	     il reste identité compacte + quantité + raccourcis + macros au-dessus
 	     du clavier ; Done / ✓ / Enter ou tap ailleurs restaure la fiche. -->
@@ -510,7 +524,7 @@
 		     tient sans scroll sur un écran de 390×844. object-contain via
 		     FoodImg : JAMAIS d'étirement ni de recadrage ; fond cream si
 		     l'image est plus petite que la zone ; placeholder G-FLUX. -->
-			<div class="relative shrink-0 bg-cream">
+			<div class="relative shrink-0 bg-cream" bind:this={heroEl}>
 				{#if heroSrc}
 					<div class="h-[min(24dvh,180px)] sm:h-[180px]">
 						<FoodImg src={heroSrc} fallbackSrc={food.thumbUrl} alt={food.name} class="h-full w-full" fit="contain" eager />
