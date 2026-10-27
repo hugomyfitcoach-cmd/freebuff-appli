@@ -987,9 +987,6 @@
 		bind:value={renameValue}
 		aria-label="Nom de la séance"
 		class="w-full rounded-xl border-2 border-line px-3 py-2 text-sm font-semibold text-ink outline-none focus:border-brand"
-		onkeydown={(e) => {
-			if (e.key === 'Enter') confirmRenameSession();
-		}}
 	/>
 </ConfirmDialog>
 
