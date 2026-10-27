@@ -2,6 +2,7 @@ import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { addDaysISO, dateISOInTimeZone, getSessionUser, localTodayISO } from "./helpers";
 import { kcalGoalForDate, withCurrentGoal } from "../lib/goalHistory";
+import { phaseEffective, validerObjectifPhase } from "../lib/phase";
 import { sportHabituelObjectifEnVigueur, type InstantaneCalibrageVigueur } from "../lib/perf";
 import { FOOD_SEARCH_CANDIDATES, rankFoods } from "./foodRanking";
 import { applyKcalGuard, guardedKcal100, kcalNeedsRecalc } from "../lib/nutritionGuard";
@@ -711,8 +712,10 @@ export const setClientGoals = mutation({
 		stepGoal: v.optional(v.number()),
 		/** True pour retirer l'objectif de pas enregistré (champ vidé côté CRM). */
 		clearStepGoal: v.optional(v.boolean()),
+		/** Phase nutritionnelle : absente = inchangée (et perte de gras par défaut). */
+		phase: v.optional(v.union(v.literal("perte_gras"), v.literal("maintenance"), v.literal("surplus"))),
 	},
-	handler: async (ctx, { sessionToken, userId, kcal, carbs, protein, fat, maintenanceKcal, clearMaintenance, stepGoal, clearStepGoal }) => {
+	handler: async (ctx, { sessionToken, userId, kcal, carbs, protein, fat, maintenanceKcal, clearMaintenance, stepGoal, clearStepGoal, phase }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
 		if (!coach || coach.role !== "coach") {
 			throw new ConvexError("Seul le coach peut définir les objectifs.");
@@ -730,29 +733,46 @@ export const setClientGoals = mutation({
 			throw new ConvexError("Objectifs hors plage. Vérifie les valeurs (kcal 800-6000, macros en grammes).");
 		}
 		if (
-			maintenanceKcal !== undefined &&
-			maintenanceKcal !== null &&
-			(!isFinite(maintenanceKcal) || maintenanceKcal < kcal || maintenanceKcal > 10000)
-		) {
-			throw new ConvexError("Maintenance invalide : elle doit être supérieure à l'objectif calorique (et ≤ 10000 kcal).");
-		}
-		if (
 			stepGoal !== undefined &&
 			stepGoal !== null &&
 			(!Number.isInteger(stepGoal) || stepGoal < 500 || stepGoal > 100000)
 		) {
 			throw new ConvexError("Objectif de pas invalide (entre 500 et 100 000 pas).");
 		}
-		// Valeurs optionnelles réellement à écrire (les champs absents ne sont
-		// jamais écrasés ; un clear explicite les retire).
-		const opt: { maintenanceKcal?: number; stepGoal?: number } = {};
-		if (maintenanceKcal !== undefined && maintenanceKcal !== null) opt.maintenanceKcal = maintenanceKcal;
-		if (stepGoal !== undefined && stepGoal !== null) opt.stepGoal = stepGoal;
 
 		const existing = await ctx.db
 			.query("clientGoals")
 			.withIndex("by_userId", (q) => q.eq("userId", userId))
 			.first();
+
+		/* Cohérence objectif / maintenance selon la PHASE (même règle que
+		   `calibrage.apply` et le formulaire coach — $lib/phase) : en surplus
+		   l'objectif dépasse la maintenance, en maintenance il reste à ±5 %.
+		   Maintenance effective = valeur envoyée, sinon celle déjà enregistrée
+		   (jamais écrasée par un champ vide côté CRM). */
+		if (
+			maintenanceKcal !== undefined &&
+			maintenanceKcal !== null &&
+			!isFinite(maintenanceKcal)
+		) {
+			throw new ConvexError("Maintenance invalide : un nombre fini est attendu.");
+		}
+		const phaseCible = phase ?? phaseEffective(existing);
+		const maintenanceEffective = clearMaintenance
+			? undefined
+			: maintenanceKcal ?? existing?.maintenanceKcal;
+		if (maintenanceEffective !== undefined && (!isFinite(maintenanceEffective) || maintenanceEffective > 10000)) {
+			throw new ConvexError("Maintenance invalide : elle doit rester ≤ 10 000 kcal.");
+		}
+		const messagePhase = validerObjectifPhase(phaseCible, kcal, maintenanceEffective);
+		if (messagePhase) {
+			throw new ConvexError(messagePhase);
+		}
+		// Valeurs optionnelles réellement à écrire (les champs absents ne sont
+		// jamais écrasés ; un clear explicite les retire).
+		const opt: { maintenanceKcal?: number; stepGoal?: number } = {};
+		if (maintenanceKcal !== undefined && maintenanceKcal !== null) opt.maintenanceKcal = maintenanceKcal;
+		if (stepGoal !== undefined && stepGoal !== null) opt.stepGoal = stepGoal;
 
 		// HISTORISATION : si l'objectif calorique CHANGE (ou première définition),
 		// la nouvelle valeur prend effet AUJOURD'HUI (Europe/Paris — date serveur
@@ -768,13 +788,14 @@ export const setClientGoals = mutation({
 
 		if (existing) {
 			const p: Partial<Doc<"clientGoals">> = { kcal, carbs, protein, fat };
+			if (phase !== undefined) p.phase = phase;
 			if (clearMaintenance) p.maintenanceKcal = undefined;
 			else if (opt.maintenanceKcal !== undefined) p.maintenanceKcal = opt.maintenanceKcal;
 			if (clearStepGoal) p.stepGoal = undefined;
 			else if (opt.stepGoal !== undefined) p.stepGoal = opt.stepGoal;
 			await ctx.db.patch(existing._id, p);
 		} else {
-			await ctx.db.insert("clientGoals", { userId, kcal, carbs, protein, fat, ...opt });
+			await ctx.db.insert("clientGoals", { userId, kcal, carbs, protein, fat, ...(phase ? { phase } : {}), ...opt });
 		}
 		return { ok: true };
 	},
@@ -1049,6 +1070,9 @@ export const getWeek = query({
 				protein: g.protein ?? DEFAULT_GOALS.protein,
 				fat: g.fat ?? DEFAULT_GOALS.fat,
 				maintenanceKcal: g.maintenanceKcal ?? undefined,
+				/* Phase effective (absente = perte de gras) — exposée pour les vues
+				   qui en ont besoin, sans changer l'affichage existant. */
+				phase: phaseEffective(g),
 			},
 			/** Objectif calorique par date (Europe/Paris) — kcal pour today = goals.kcal. */
 			kcalGoalsByDate: Object.fromEntries(goalByDate),

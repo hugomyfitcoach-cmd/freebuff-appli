@@ -115,7 +115,7 @@ export const BORNES = {
 	ajustementTravail: { min: 0, max: 0.05, label: '0 à 0,05' },
 	budgetSemaine: { min: 0, max: 140_000, label: '0 à 140 000 kcal' },
 	deficitPct: { min: 0, max: 30, label: '0 à 30 % (0 = maintenance)' },
-	surplusPct: { min: 0, max: 15, label: '0 à 15 %' }
+	surplusPct: { min: 0, max: 20, label: '0 à 20 %' }
 } as const;
 
 /* ─────────────────── Phase du calibrage : déficit · maintenance · surplus ─────────────────── */
@@ -129,11 +129,11 @@ export type ModePhase = 'deficit' | 'maintenance' | 'surplus';
 export const MODES_PHASE = ['deficit', 'maintenance', 'surplus'] as const;
 
 /** Seuil d'attention du surplus (% au-dessus de la maintenance totale). */
-export const SURPLUS_PCT_ATTENTION = 10;
+export const SURPLUS_PCT_ATTENTION = 15;
 
-/** Message neutre au-delà de 10 % de surplus. */
+/** Message neutre au-delà de 15 % de surplus (le plafond reste 20 %). */
 export const SURPLUS_AVERTISSEMENT =
-	'Surplus élevé : la prise de gras risque de dépasser la prise de muscle.';
+	'Surplus élevé : prise de gras probable, à réserver à un cas précis.';
 
 /** Phase validée : absente → déficit (compatibilité des instantanés existants). */
 export function modePhase(valeur?: string | null): ModePhase {
@@ -982,7 +982,7 @@ export function objectifSemaineKcal(entree: {
 	deficitPct?: number;
 	/** Phase : déficit par défaut (mêmes résultats qu'avant). */
 	mode?: ModePhase;
-	/** Surplus choisi (% au-dessus de la maintenance totale), 0 à 15. */
+	/** Surplus choisi (% au-dessus de la maintenance totale), 0 à 20. */
 	surplusPct?: number;
 }): number {
 	const budget = verifier(entree.budgetSemaineKcal, 'Budget de la semaine', BORNES.budgetSemaine);
@@ -1017,7 +1017,7 @@ export type BilanObjectifSemaine = {
 	perteGraisseKg: number;
 	/** Attention au-delà de 25 % de déficit (null sinon, et null hors déficit). */
 	avertissementDeficitEleve: string | null;
-	/** Surplus élevé au-delà de 10 % (null sinon, et null hors surplus). */
+	/** Surplus élevé au-delà de 15 % (null sinon, et null hors surplus). */
 	avertissementSurplusEleve: string | null;
 };
 
@@ -1036,7 +1036,7 @@ export function bilanObjectifSemaine(entree: {
 	deficitPct?: number;
 	/** Phase : déficit par défaut (mêmes résultats qu'avant). */
 	mode?: ModePhase;
-	/** Surplus choisi (% au-dessus de la maintenance totale), 0 à 15. */
+	/** Surplus choisi (% au-dessus de la maintenance totale), 0 à 20. */
 	surplusPct?: number;
 }): BilanObjectifSemaine {
 	const budget = verifier(entree.budgetSemaineKcal, 'Budget de la semaine', BORNES.budgetSemaine);

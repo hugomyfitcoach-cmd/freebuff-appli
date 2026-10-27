@@ -404,6 +404,13 @@ export default defineSchema({
 		maintenanceKcal: v.optional(v.number()),
 		/** Objectif quotidien de pas — saisi manuellement par le coach, optionnel (ex. 10 000). */
 		stepGoal: v.optional(v.number()),
+		/**
+		 * Phase nutritionnelle de l'objectif : « perte_gras » (défaut), « maintenance »
+		 * ou « surplus ». OPTIONNELLE : son absence vaut perte de gras — aucune
+		 * migration des fiches existantes, et la cohérence objectif / maintenance
+		 * est validée par `$lib/phase` (source unique, serveur et formulaire).
+		 */
+		phase: v.optional(v.union(v.literal("perte_gras"), v.literal("maintenance"), v.literal("surplus"))),
 	}).index("by_userId", ["userId"]),
 
 	/**

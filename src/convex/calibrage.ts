@@ -6,6 +6,7 @@ import { DEFAULT_GOALS, baselineLegacyGoalHistory, loadGoalHistory, upsertGoalHi
 import { CalibrageError, VERSION_FORMULES_CALIBRAGE } from "../lib/calibrage";
 import { resultatsFiche, type EntreesFicheCalibrage } from "../lib/calibrageFiche";
 import { messageDateEffetFuture } from "../lib/calibrageSaisie";
+import { phaseDepuisMode, validerObjectifPhase } from "../lib/phase";
 import type { Doc } from "./_generated/dataModel";
 
 /**
@@ -70,7 +71,7 @@ const entreesValidator = v.object({
 	adaptationPct: v.optional(v.number()),
 	deficitPct: v.optional(v.number()),
 	/* Phase énergétique (facultative : absent = déficit, instantanés existants
-	   toujours valides) et surplus choisi, bornés par le module (0 à 15 %). */
+	   toujours valides) et surplus choisi, bornés par le module (0 à 20 %). */
 	mode: v.optional(v.union(v.literal("deficit"), v.literal("maintenance"), v.literal("surplus"))),
 	surplusPct: v.optional(v.number()),
 	proteinesParKgMasseMaigre: v.optional(v.number()),
@@ -212,9 +213,18 @@ export const apply = mutation({
 		if (
 			maintenanceKcal !== undefined &&
 			maintenanceKcal !== null &&
-			(!isFinite(maintenanceKcal) || maintenanceKcal < kcal || maintenanceKcal > 10000)
+			(!isFinite(maintenanceKcal) || maintenanceKcal > 10000)
 		) {
-			throw new ConvexError("Maintenance invalide : elle doit être supérieure à l'objectif calorique (et ≤ 10000 kcal).");
+			throw new ConvexError("Maintenance invalide : elle doit rester ≤ 10 000 kcal.");
+		}
+		/* Cohérence objectif / maintenance selon la PHASE : en surplus l'objectif
+	   dépasse légitimement la maintenance (jusqu'à +20 %), en maintenance il
+	   reste à ±5 %, en perte de gras il lui est inférieur. MÊME règle que
+	   `journal.setClientGoals` et le formulaire coach ($lib/phase). */
+		const phase = phaseDepuisMode(entrees.mode);
+		const messagePhase = validerObjectifPhase(phase, kcal, maintenanceKcal);
+		if (messagePhase) {
+			throw new ConvexError(messagePhase);
 		}
 		if (!estDateISO(effectiveFrom)) {
 			throw new ConvexError("Date d'effet invalide : format « jj/mm/aaaa » attendu (yyyy-mm-dd).");
@@ -254,13 +264,13 @@ export const apply = mutation({
 		}
 
 		if (existing) {
-			const p: Partial<Doc<"clientGoals">> = { kcal, carbs, protein, fat };
+			const p: Partial<Doc<"clientGoals">> = { kcal, carbs, protein, fat, phase };
 			if (maintenanceKcal !== undefined && maintenanceKcal !== null) p.maintenanceKcal = maintenanceKcal;
 			await ctx.db.patch(existing._id, p);
 		} else {
 			const opt: { maintenanceKcal?: number } = {};
 			if (maintenanceKcal !== undefined && maintenanceKcal !== null) opt.maintenanceKcal = maintenanceKcal;
-			await ctx.db.insert("clientGoals", { userId, kcal, carbs, protein, fat, ...opt });
+			await ctx.db.insert("clientGoals", { userId, kcal, carbs, protein, fat, phase, ...opt });
 		}
 
 		/* Instantané du calibrage : entrées, résultats, version des formules,
@@ -270,7 +280,7 @@ export const apply = mutation({
 			inputs: entrees,
 			results: {
 				...resultats,
-				applique: { kcal, carbs, protein, fat, maintenanceKcal: maintenanceKcal ?? null, effectiveFrom },
+				applique: { kcal, carbs, protein, fat, maintenanceKcal: maintenanceKcal ?? null, phase, effectiveFrom },
 			},
 			formulaVersion: VERSION_FORMULES_CALIBRAGE,
 			effectiveFrom,

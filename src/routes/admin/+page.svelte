@@ -51,6 +51,12 @@
 	} from '$lib/calibragePresentation';
 	import { prefillProfilSportif } from '$lib/sportPrefill';
 	import {
+		PHASE_LIBELLES,
+		phaseEffective,
+		validerObjectifPhase,
+		type Phase
+	} from '$lib/phase';
+	import {
 		alerteGlucidesPour,
 		messageBlocageGlucides,
 		recalculerObjectif,
@@ -382,6 +388,16 @@
 		return dates.length ? dates.sort()[dates.length - 1] : null;
 	});
 	const goalKcal = $derived(view?.goals?.kcal ?? 2000);
+	/* Phase nutritionnelle effective de la fiche (absente = perte de gras). */
+	const phaseClient = $derived(phaseEffective(view?.goals ?? null));
+	const phaseClientLibelle = $derived(PHASE_LIBELLES[phaseClient]);
+	const phaseClientCls = $derived(
+		phaseClient === 'surplus'
+			? 'bg-warn-light text-warn'
+			: phaseClient === 'maintenance'
+				? 'bg-soft text-ink'
+				: 'bg-brand-light text-brand-dark'
+	);
 	/** VISION 360 LIVE — les données du cockpit sont servies déjà recalculées
 	   sur les 7 JOURNÉES CALENDAIRES COMPLÈTES (J-7 → J-1, Europe/Paris) au
 	   MOMENT de la consultation (client360 recalculé à chaque requête — photo
@@ -596,6 +612,21 @@
 	 */
 	type GoalsMode = 'pct' | 'grams';
 	let goalsMode = $state<GoalsMode>('pct');
+	/** Phase nutritionnelle de l'objectif — 3 boutons, stockée sur clientGoals. */
+	let goalsPhase = $state<Phase>('perte_gras');
+	const PHASES_FORM: { id: Phase; label: string }[] = [
+		{ id: 'perte_gras', label: PHASE_LIBELLES.perte_gras },
+		{ id: 'maintenance', label: PHASE_LIBELLES.maintenance },
+		{ id: 'surplus', label: PHASE_LIBELLES.surplus }
+	];
+	/** Aide de cohérence objectif / maintenance, dépendante de la phase. */
+	const goalsPhaseAide = $derived(
+		goalsPhase === 'surplus'
+			? "L'objectif doit rester supérieur à la maintenance, sans dépasser +20 %."
+			: goalsPhase === 'maintenance'
+				? "L'objectif doit rester à ±5 % de la maintenance."
+				: "L'objectif doit rester inférieur à la maintenance."
+	);
 	let pctKcal = $state(2000);
 	let pctCarbs = $state(40);
 	let pctProtein = $state(30);
@@ -647,6 +678,20 @@
 		if (carbs < 0 || carbs > 1000) return 'Glucides hors plage (0 à 1000 g).';
 		if (protein < 0 || protein > 400) return 'Protéines hors plage (0 à 400 g).';
 		if (fat < 0 || fat > 300) return 'Lipides hors plage (0 à 300 g).';
+		/* Cohérence objectif / maintenance selon la phase — MÊME règle que la
+		   mutation serveur ($lib/phase). La maintenance laissée vide n'annule
+		   pas celle déjà enregistrée (elle reste en base). */
+		const rawMaintenance = String(maintenanceKcal ?? '').trim();
+		const maintenanceEffective =
+			rawMaintenance === '' ? savedMaintenance : Number(rawMaintenance);
+		const messagePhase = validerObjectifPhase(
+			goalsPhase,
+			kcal,
+			maintenanceEffective !== null && Number.isFinite(maintenanceEffective)
+				? maintenanceEffective
+				: null
+		);
+		if (messagePhase) return messagePhase;
 		return '';
 	});
 
@@ -715,6 +760,7 @@
 		gFat = fat;
 		maintenanceKcal = 'maintenanceKcal' in g && g.maintenanceKcal ? String(g.maintenanceKcal) : '';
 		stepGoal = 'stepGoal' in g && g.stepGoal ? String(g.stepGoal) : '';
+		goalsPhase = phaseEffective(g);
 		if (kcal > 0) {
 			// Attention : ne JAMAIS relire pctCarbs/pctProtein ici — ils deviendraient
 			// des dépendances de l'effet et chaque frappe dans Glucides/Protéines
@@ -1996,9 +2042,9 @@
 	const calPerteDeficit = $derived(calR ? perteGraisseKgSemaine(calR.deficitSemaineKcal) : null);
 	/** Phase de l'ajustement : déficit (défaut), maintenance ou surplus. */
 	const calMode = $derived(calibrageInputs.mode ?? 'deficit');
-	/** Surplus choisi (%) — borné 0 à 15 par le module. */
+	/** Surplus choisi (%) — borné 0 à 20 par le module (attention au-delà de 15). */
 	const calSurplusPct = $derived(calibrageInputs.surplusPct ?? 0);
-	const calSurplusErreur = $derived(calSurplusPct > 15 ? 'Maximum 15 %' : calSurplusPct < 0 ? 'Minimum 0 %' : null);
+	const calSurplusErreur = $derived(calSurplusPct > 20 ? 'Maximum 20 %' : calSurplusPct < 0 ? 'Minimum 0 %' : null);
 	/** Libellé de la phase pour le bandeau, les cartes et la semaine type. */
 	function libellePhase(mode: 'deficit' | 'maintenance' | 'surplus'): string {
 		return mode === 'surplus' ? 'Surplus' : mode === 'maintenance' ? 'Maintenance' : 'Déficit';
@@ -2670,6 +2716,7 @@
 						{#if coachingModeOf(selected.user) === 'autonomy'}
 							<span class="rounded-full bg-warn-light px-2.5 py-1 text-[11px] font-bold text-warn" title="Mode Autonomie : sollicitations de coaching coupées, accès app et historique conservés">Autonomie</span>
 						{/if}
+						<span class="rounded-full px-2.5 py-1 text-[11px] font-bold {phaseClientCls}" title="Phase nutritionnelle des objectifs en vigueur">{phaseClientLibelle}</span>
 					</div>
 					<p class="mt-0.5 flex items-center gap-1.5 text-[12.5px] font-medium text-mist">
 						<Icon name="mail" size={12} class="shrink-0" />
@@ -3309,6 +3356,22 @@
 						<form method="POST" action="?/setGoals&client={selected.user._id}&section={section}" class="mt-3">
 							<input type="hidden" name="userId" value={selected.user._id} />
 
+							<!-- Phase nutritionnelle : détermine la cohérence objectif / maintenance -->
+							<div class="mb-3">
+								<span class="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-mist">Phase nutritionnelle</span>
+								<div class="flex gap-1 rounded-full border border-line bg-white p-1 text-xs font-semibold sm:text-sm" role="radiogroup" aria-label="Phase nutritionnelle">
+									{#each PHASES_FORM as phase (phase.id)}
+										<button
+											type="button"
+											class="flex-1 rounded-full px-3 py-2 transition {goalsPhase === phase.id ? 'bg-brand text-white' : 'text-ink hover:bg-soft'}"
+											onclick={() => (goalsPhase = phase.id)}
+										>{phase.label}</button>
+									{/each}
+								</div>
+								<input type="hidden" name="phase" value={goalsPhase} />
+								<p class="mt-1 text-[11px] leading-snug text-mist">{goalsPhaseAide}</p>
+							</div>
+
 							<div class="grid gap-3 xl:grid-cols-5">
 							<div class="min-w-0 xl:col-span-3">
 							<!-- Choix du mode de saisie -->
@@ -3396,7 +3459,7 @@
 								<label class="flex items-center justify-between gap-3">
 									<span class="min-w-0">
 										<span class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-brand-dark"><Icon name="lifeBuoy" size={12} class="shrink-0" /> Maintenance calorique (optionnel)</span>
-										<span class="mt-0.5 block text-[11px] leading-snug text-mist">Filet de sécurité : repère discret côté cliente si elle dépasse légèrement son objectif. Doit rester &gt; l'objectif. Laisse vide pour désactiver.</span>
+										<span class="mt-0.5 block text-[11px] leading-snug text-mist">Filet de sécurité : repère discret côté cliente si elle dépasse légèrement son objectif. {goalsPhaseAide} Laisse vide pour désactiver.</span>
 									</span>
 									<input
 										type="number"
@@ -4796,12 +4859,12 @@
 										<p class="text-[11px] text-mist">Objectif = maintenance totale, sans pourcentage.</p>
 									{:else if calMode === 'surplus'}
 										<label class="mt-2 block">
-											<input type="number" inputmode="decimal" min="0" max="15" step="1" bind:value={calibrageInputs.surplusPct} aria-label="Surplus choisi (% de la maintenance totale)" class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
+											<input type="number" inputmode="decimal" min="0" max="20" step="1" bind:value={calibrageInputs.surplusPct} aria-label="Surplus choisi (% de la maintenance totale)" class="w-full rounded-lg border-2 border-line px-2.5 py-2 text-sm outline-none focus:border-brand" />
 											<p class="mt-1 min-h-[14px] text-[11px] font-semibold text-danger">{calSurplusErreur ?? ''}</p>
 											<p class="text-[11px] text-mist">% au-dessus de la maintenance totale</p>
 										</label>
-										{#if calSurplusPct > 10}
-											<p class="mt-1 text-[11px] font-semibold text-warn">Surplus élevé : la prise de gras risque de dépasser la prise de muscle.</p>
+										{#if calSurplusPct > 15}
+											<p class="mt-1 text-[11px] font-semibold text-warn">Surplus élevé : prise de gras probable, à réserver à un cas précis.</p>
 										{/if}
 										<p class="text-[11px] font-semibold text-brand-dark">{calR ? `≈ ${decimalFr(calR.priseGraisseKg)} kg de prise par semaine` : '—'}</p>
 									{:else}

@@ -104,7 +104,7 @@ export type EntreesFicheCalibrage = {
 	deficitPct?: number;
 	/** Phase énergétique : déficit (défaut), maintenance ou surplus. */
 	mode?: ModePhase;
-	/** Surplus choisi (% au-dessus de la maintenance totale), borné 0 à 15. */
+	/** Surplus choisi (% au-dessus de la maintenance totale), borné 0 à 20. */
 	surplusPct?: number;
 	/** Ratio protéines (g/kg de masse maigre), 2,3 par défaut, borné 2 à 2,6. */
 	proteinesParKgMasseMaigre?: number;

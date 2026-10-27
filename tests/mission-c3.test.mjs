@@ -119,20 +119,20 @@ test('surplus 5 % : objectif, macros et prise estimée', () => {
 	assert.equal(cal.objectifSemaineKcal({ budgetSemaineKcal: 10_000, mode: 'surplus', surplusPct: 5 }), 10_500);
 });
 
-test('surplus élevé : message neutre au-delà de 10 %, refus au-delà de 15 %', () => {
+test('surplus élevé : message neutre au-delà de 15 %, refus au-delà de 20 %', () => {
 	const doux = cal.bilanObjectifSemaine({ budgetSemaineKcal: 10_000, mode: 'surplus', surplusPct: 10 });
 	assert.equal(doux.avertissementSurplusEleve, null, '10 % sans message');
-	const haut = cal.bilanObjectifSemaine({ budgetSemaineKcal: 10_000, mode: 'surplus', surplusPct: 12 });
+	const haut = cal.bilanObjectifSemaine({ budgetSemaineKcal: 10_000, mode: 'surplus', surplusPct: 18 });
 	assert.equal(
 		haut.avertissementSurplusEleve,
-		'Surplus élevé : la prise de gras risque de dépasser la prise de muscle.'
+		'Surplus élevé : prise de gras probable, à réserver à un cas précis.'
 	);
-	// Refus au-delà de 15 % (bornes du module).
+	// Refus au-delà de 20 % (bornes du module).
 	assert.throws(
-		() => cal.objectifSemaineKcal({ budgetSemaineKcal: 10_000, mode: 'surplus', surplusPct: 16 }),
-		/0 à 15 %/
+		() => cal.objectifSemaineKcal({ budgetSemaineKcal: 10_000, mode: 'surplus', surplusPct: 21 }),
+		/0 à 20 %/
 	);
-	assert.throws(() => resultatsFiche({ ...ENTREES, mode: 'surplus', surplusPct: 16 }), /0 à 15 %/);
+	assert.throws(() => resultatsFiche({ ...ENTREES, mode: 'surplus', surplusPct: 21 }), /0 à 20 %/);
 	// Phase inconnue : refus explicite, jamais un mode deviné.
 	assert.throws(() => cal.modePhase('prise'), /Phase inconnue/);
 });
@@ -151,10 +151,10 @@ test('serveur : mode et surplusPct acceptés (facultatifs), recalcul depuis les 
 		convexSource.includes('resultatsFiche(entrees)'),
 		'recalcul côté serveur depuis les entrées validées'
 	);
-	assert.equal(cal.BORNES.surplusPct.max, 15, 'borne haute partagée');
+	assert.equal(cal.BORNES.surplusPct.max, 20, 'borne haute partagée');
 	assert.equal(cal.BORNES.surplusPct.min, 0, 'borne basse partagée');
-	// 16 % refusé par le module que le serveur appelle.
-	assert.throws(() => resultatsFiche({ ...ENTREES, mode: 'surplus', surplusPct: 16 }), /15/);
+	// 21 % refusé par le module que le serveur appelle.
+	assert.throws(() => resultatsFiche({ ...ENTREES, mode: 'surplus', surplusPct: 21 }), /20/);
 });
 
 /* ─── 5) Aucune perte ni plafond en surplus ─── */
@@ -200,7 +200,7 @@ test('Calibrage : bloc « Ajustement » et libellés de phase', () => {
 	for (const libelle of ['Déficit', 'Maintenance', 'Surplus']) {
 		assert.ok(adminPage.includes(`label: '${libelle}'`), `bouton ${libelle}`);
 	}
-	assert.ok(adminPage.includes('max="15"'), 'surplus borné à 15 %');
+	assert.ok(adminPage.includes('max="20"'), 'surplus borné à 20 %');
 	assert.ok(adminPage.includes('max="30"'), 'déficit borné à 30 %');
 	assert.ok(adminPage.includes('Poids stable'), 'maintenance : poids stable');
 	assert.ok(adminPage.includes('Prise de poids estimée'), 'surplus : prise estimée');
@@ -209,8 +209,8 @@ test('Calibrage : bloc « Ajustement » et libellés de phase', () => {
 		'note d’estimation en surplus'
 	);
 	assert.ok(
-		adminPage.includes('Surplus élevé : la prise de gras risque de dépasser la prise de muscle.'),
-		'message neutre au-delà de 10 %'
+		adminPage.includes('Surplus élevé : prise de gras probable, à réserver à un cas précis.'),
+		'message neutre au-delà de 15 %'
 	);
 	assert.ok(adminPage.includes('Surplus +${decimalFr(d.surplusPct ?? 0)} %'), 'historique : « Surplus +X % »');
 	assert.ok(adminPage.includes("'Maintenance'"), 'historique : « Maintenance »');
