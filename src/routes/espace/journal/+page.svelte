@@ -52,6 +52,8 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		ciqualLabel?: string;
 		/** Provenance de la fiche de référence (R3-bis) : jamais déduite de ciqualLabel. */
 		referenceSource?: 'ciqual' | 'gflux';
+		/** Fiche G-Flux d'origine (identité de la fiche nutritionnelle détaillée). */
+		referenceFoodId?: string;
 	};
 	/** Item PLANIFIÉ — plan coach ou préparation cliente : grisé, 0 impact header. */
 	type PlannedItem = {
@@ -78,6 +80,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		foodId?: string;
 		customFoodId?: string;
 		ciqualLabel?: string;
+		referenceFoodId?: string;
 	};
 	type DayData = {
 		date: string;
@@ -5808,6 +5811,9 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		mode="planned"
 		saving={plannedSheetBusy}
 		error={plannedSheetErr}
+		// Fiche nutritionnelle détaillée : identité de la fiche d'origine (R5b).
+		detailsSource={editPlanned.ciqualLabel ? 'ciqual' : editPlanned.foodId ? 'food' : editPlanned.referenceFoodId ? 'reference' : undefined}
+		detailsId={editPlanned.ciqualLabel ?? editPlanned.foodId ?? editPlanned.referenceFoodId}
 		onSave={(g, meal) => savePlannedQty(g, meal)}
 		onEat={eatFromSheet}
 		onReplace={replaceFromSheet}
@@ -5888,6 +5894,9 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	<QuantitySheet
 		food={editFood}
 		source={editFood.ciqual ? 'ciqual' : undefined}
+		// Fiche nutritionnelle détaillée : identité de l'entrée (R5b).
+		detailsSource={editEntry.ciqualLabel ? 'ciqual' : editEntry.foodId ? 'food' : editEntry.referenceFoodId ? 'reference' : undefined}
+		detailsId={editEntry.ciqualLabel ?? editEntry.foodId ?? editEntry.referenceFoodId}
 		mealDefs={MEAL_DEFS}
 		sheetTop={mobile ? vvTop : 0}
 		sheetHeight={mobile ? vvH : undefined}

@@ -127,9 +127,11 @@ function parseProducts(products: OffProduct[] | undefined) {
 			carbs100: round1(p.nutriments?.["carbohydrates_100g"]) ?? 0,
 			protein100: round1(p.nutriments?.["proteins_100g"]) ?? 0,
 			fat100: round1(p.nutriments?.["fat_100g"]) ?? 0,
-			// Gardés pour le garde-fou kcal↔macros (jamais affichés) : fibres,
-			// polyols, alcool — n'entrent ni dans les macros ni dans les totaux.
-			fiber100: round1(p.nutriments?.["fiber_100g"]),
+			// Fibres : servent au garde-fou kcal↔macros ET à la fiche détaillée
+			// (R5b) — 0 g est une valeur réelle, donc `detail1` (pas `round1`).
+			fiber100: detail1(p.nutriments?.["fiber_100g"]),
+			// Polyols et alcool : garde-fou kcal↔macros uniquement (jamais affichés)
+			// — n'entrent ni dans les macros ni dans les totaux.
 			polyols100: round1(p.nutriments?.["polyols_100g"]),
 			alcohol100: round1(p.nutriments?.["alcohol_100g"]),
 			// Détail /100 g (R5a) : 0 est une valeur réelle (jamais confondue
