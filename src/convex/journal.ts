@@ -11,7 +11,15 @@ import { attachThumbs, attachThumbsForFoodIds } from "./foodImages";
 import { tagFoodImgUrl } from "../lib/foodImgTag";
 import { ciqualFoodSource } from "./ciqualSource";
 import { resolveCiqualLabel } from "./ciqual";
-import { resolveReferenceFood } from "./referenceFoods";
+import { listReferenceFoodsForUser, resolveReferenceFood } from "./referenceFoods";
+import {
+	ciqualFoodDetails,
+	foodDetailsFromCustomFood,
+	foodDetailsFromOffFood,
+	foodDetailsFromReferenceFood,
+	type FoodDetails,
+} from "./foodDetails";
+import { bilanJour, type BilanJourAliment, type BilanJourData } from "../lib/bilanJour";
 import { foodFrequencyKey, rankFrequentFoods, type FreqEntry } from "../lib/foodFrequency";
 import { internal } from "./_generated/api";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
@@ -995,6 +1003,127 @@ export const getDay = query({
 			planned: plannedOut,
 			plannedTotals,
 		};
+	},
+});
+
+/**
+ * BILAN NUTRITIONNEL DU JOUR (Mission R5c) — lecture seule, aucun schéma.
+ *
+ * Réutilise EXACTEMENT la logique de la fiche détaillée (`foodDetails`) :
+ *  - OFF    : produit de la base locale / du cache (`foodDetailsFromOffFood`) ;
+ *  - perso  : aliment de la cliente, propriétaire uniquement ;
+ *  - Ciqual : libellé officiel ANSES (provenance historique comprise) ;
+ *  - G-Flux : fiche du coach de la cliente, résolue par son NOM (le journal
+ *    ne conserve pas d'identifiant pour une entrée G-Flux — snapshot).
+ *
+ * Mêmes contrôles d'accès : session obligatoire, jour du compte courant
+ * uniquement, fiche perso d'une autre cliente jamais lue, référence G-Flux
+ * limitée au coach du compte. Une entrée sans référence résoluble (repas IA,
+ * saisie rapide, recette) reste NON couverte : aucune valeur n'est inventée.
+ *
+ * Renvoie `null` pour un jour sans aliment (la ligne du Journal est masquée).
+ */
+export const dayNutritionDetails = query({
+	args: {
+		sessionToken: v.optional(v.string()),
+		date: v.string(),
+	},
+	handler: async (ctx, { sessionToken, date }): Promise<BilanJourData | null> => {
+		const user = await getSessionUser(ctx, sessionToken);
+		if (!user) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
+		if (!isValidDateISO(date)) throw new ConvexError("Date invalide.");
+		const ownerId = user._id;
+
+		const [entries, goalsRow, goalHistory] = await Promise.all([
+			ctx.db
+				.query("diaryEntries")
+				.withIndex("by_user_date", (q) => q.eq("userId", user._id).eq("date", date))
+				.order("asc")
+				.collect(),
+			ctx.db
+				.query("clientGoals")
+				.withIndex("by_userId", (q) => q.eq("userId", user._id))
+				.first(),
+			loadGoalHistory(ctx, user._id),
+		]);
+		if (entries.length === 0) return null;
+
+		// Objectif calorique DATÉ — celui affiché en haut du Journal, jamais
+		// les kcal mangées.
+		const objectifKcal = kcalGoalForDate(
+			goalHistory,
+			date,
+			(goalsRow?.kcal ?? DEFAULT_GOALS.kcal) as number
+		);
+
+		// Fiches G-Flux visibles par le compte (celles de son coach) : résolues
+		// par nom, aucune écriture, aucun identifiant inventé sur l'entrée.
+		const referenceFoods = await listReferenceFoodsForUser(ctx, user);
+		const referenceByName = new Map<string, Doc<"referenceFoods">>();
+		for (const food of referenceFoods) {
+			if (!referenceByName.has(food.name)) referenceByName.set(food.name, food);
+		}
+
+		const offCache = new Map<string, FoodDetails | null>();
+		const customCache = new Map<string, FoodDetails | null>();
+
+		/** Fiche /100 g d'une entrée — `null` = aucune référence résoluble. */
+		async function detailsFor(entry: Doc<"diaryEntries">): Promise<FoodDetails | null> {
+			if (entry.foodId) {
+				const key = entry.foodId as string;
+				if (!offCache.has(key)) {
+					const food = await ctx.db.get(entry.foodId);
+					offCache.set(key, food ? foodDetailsFromOffFood(food) : null);
+				}
+				return offCache.get(key) ?? null;
+			}
+			if (entry.customFoodId) {
+				const key = entry.customFoodId as string;
+				if (!customCache.has(key)) {
+					const food = await ctx.db.get(entry.customFoodId);
+					// Isolation stricte : jamais la fiche perso d'une autre cliente.
+					customCache.set(
+						key,
+						food && food.userId === ownerId ? foodDetailsFromCustomFood(food) : null
+					);
+				}
+				return customCache.get(key) ?? null;
+			}
+			if (entry.referenceSource === "gflux") {
+				const food = referenceByName.get(entry.name);
+				return food ? foodDetailsFromReferenceFood(food) : null;
+			}
+			// Recette / repas personnel : les ingrédients ne sont pas résolubles ici.
+			// Repas IA : composants estimés, jamais une référence vérifiable.
+			if (entry.mealId || entry.mealGroup) return null;
+			// Ciqual : provenance explicite, ou libellé officiel retrouvé à la
+			// lecture (même règle que `withCiqualProvenance`).
+			if (entry.referenceSource === "ciqual" || resolveCiqualLabel(entry.name)) {
+				return ciqualFoodDetails(entry.name);
+			}
+			return null;
+		}
+
+		const aliments: BilanJourAliment[] = [];
+		for (const entry of entries) {
+			const details = await detailsFor(entry);
+			const ratio = entry.qtyGrams / 100;
+			/** Valeur pour la portion réellement consommée — jamais inventée. */
+			const pour = (v: number | null | undefined): number | null =>
+				typeof v === "number" && Number.isFinite(v)
+					? Math.round(v * ratio * 10) / 10
+					: null;
+			aliments.push({
+				name: entry.name,
+				kcal: entry.kcal,
+				fibres: pour(details?.fiber),
+				sucres: pour(details?.sugars),
+				ags: pour(details?.saturatedFat),
+				sel: pour(details?.salt),
+			});
+		}
+
+		return bilanJour(aliments, objectifKcal);
 	},
 });
 

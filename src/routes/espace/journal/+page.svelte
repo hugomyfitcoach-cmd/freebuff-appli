@@ -9,6 +9,8 @@
 	import { currentLocalDay } from '$lib/currentDay.svelte';
 	import { appWarm, firstVisit, isFresh, noteSync, restoreScroll, saveScroll } from '$lib/navMemory';
 	import JournalDay from '$lib/components/JournalDay.svelte';
+	import BilanJourSheet from '$lib/components/BilanJourSheet.svelte';
+	import type { BilanJourData } from '$lib/bilanJour';
 	import QuantitySheet from '$lib/components/QuantitySheet.svelte';
 	import FoodImg from '$lib/components/FoodImg.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -296,15 +298,45 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		d.setDate(d.getDate() + n);
 		setDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
 	}
+
+	/* ————— Bilan nutritionnel du jour (Mission R5c) —————
+	   Une seule requête à la lecture du jour (`dayNutritionDetails`), rejouée
+	   à chaque rafraîchissement / ajout d'aliment. Aucun calcul client : le
+	   serveur résout les valeurs connues et la couverture. `null` = ligne
+	   masquée (jour sans aliment ou requête indisponible). */
+	let bilanJour = $state<BilanJourData | null>(null);
+	let bilanOpen = $state(false);
+	let bilanSeq = 0;
+
+	async function loadBilanJour(d: string) {
+		const seq = ++bilanSeq;
+		try {
+			const r = await fetch(`/api/journal/nutrition?date=${d}`);
+			if (seq !== bilanSeq) return;
+			const j = await r.json();
+			if (seq !== bilanSeq || d !== date) return;
+			bilanJour = r.ok && j && !j.error && (j.aliments ?? 0) > 0 ? (j as BilanJourData) : null;
+		} catch {
+			if (seq === bilanSeq && d === date) bilanJour = null;
+		}
+	}
+
+	function openBilanJour() {
+		if (!bilanJour) return;
+		bilanOpen = true;
+	}
+
 	async function setDate(d: string) {
 		date = d;
 		loadingDay = true;
 		error = '';
+		bilanOpen = false;
 		try {
 			const r = await fetch(`/api/journal?date=${d}`);
 			const j = await r.json();
 			if (j.error) throw new Error(j.error);
 			day = j;
+			void loadBilanJour(d);
 		} catch (e) {
 			if (date === d) error = e instanceof Error ? e.message : String(e);
 		} finally {
@@ -403,6 +435,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		if (date !== macroDay) {
 			macroDay = date;
 			macroDetail = null;
+			bilanOpen = false;
 		}
 	});
 
@@ -3716,6 +3749,9 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	});
 
 	onMount(() => {
+		/* Bilan du jour déjà servi par le serveur : même lecture que le Journal. */
+		void loadBilanJour(date);
+
 		document.addEventListener('keydown', (e) => {
 			if (logOpen || qtyFood || editEntry || qtyMealSel || macroDetail) return;
 			if (e.key === 'ArrowLeft') shiftDay(-1);
@@ -3852,6 +3888,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 			const j = await r.json();
 			if (j.error) throw new Error(j.error);
 			day = j;
+			void loadBilanJour(date);
 		} catch {
 			// silencieux : on garde la donnée affichée
 		}
@@ -4123,6 +4160,8 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 			onCalCardMount={(el) => (calCardEl = el)}
 			onMacroCardsMount={(el) => (macroCardsEl = el)}
 			onTipDismiss={() => (tipDismissed = true)}
+			bilanJour={bilanJour}
+			onOpenBilanJour={openBilanJour}
 			onPhoto={aiFlags.mealPhotoAi ? (meal) => openMealPhoto(meal as 'petit-dej' | 'dejeuner' | 'diner' | 'collation') : undefined}
 			/>
 		</div>
@@ -5915,3 +5954,11 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		onClose={() => { editEntry = null; }}
 	/>
 {/if}
+
+<!-- ═══════════ Volet « Bilan nutritionnel du jour » (R5c) — même volet que les saisies rapides ═══════════ -->
+<BilanJourSheet
+	open={bilanOpen}
+	date={date}
+	bilan={bilanJour}
+	onClose={() => (bilanOpen = false)}
+/>

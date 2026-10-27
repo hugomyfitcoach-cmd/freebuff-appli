@@ -29,6 +29,8 @@ import {
 	phaseDesObjectifs,
 	type TonJauge
 } from '$lib/phaseAffichage';
+import { etatFibres, type BilanJourData } from '$lib/bilanJour';
+import { formatDetailValue } from '$lib/foodDetailsFormat';
 
 	type Entry = {
 		_id: string;
@@ -113,6 +115,9 @@ import {
 		onCalCardMount,
 		onMacroCardsMount,
 		onTipDismiss,
+		/** Bilan nutritionnel du jour (cliente) — `null` = masqué. */
+		bilanJour = null,
+		onOpenBilanJour,
 	}: {
 		day: Day;
 		mode?: 'client' | 'coach';
@@ -139,6 +144,9 @@ import {
 		onCalCardMount?: (el: HTMLElement | undefined) => void;
 		onMacroCardsMount?: (el: HTMLElement | undefined) => void;
 		onTipDismiss?: () => void;
+		/** Bilan du jour (fibres, sucres, AGS, sel) — fourni par le Journal cliente. */
+		bilanJour?: BilanJourData | null;
+		onOpenBilanJour?: () => void;
 	} = $props();
 
 	const MEAL_DEFS = [
@@ -376,6 +384,14 @@ import {
 		{ label: 'Protéines', icon: 'drumstick', color: '#3b82f6', eaten: macrosShown.protein, goal: day.goals.protein },
 		{ label: 'Lipides', icon: 'droplet', color: '#f97316', eaten: macrosShown.fat, goal: day.goals.fat },
 	]);
+	/* Ligne compacte « Fibres » (cliente uniquement, jour avec aliments) :
+	   trois états sobres selon la couverture — jamais de rouge. */
+	const fibresLine = $derived(
+		compact && bilanJour && bilanJour.aliments > 0
+			? etatFibres(bilanJour.fibres, bilanJour.repere, bilanJour.couverture)
+			: null
+	);
+
 	function isSel(id: string) {
 		return selIds?.has(id) ?? false;
 	}
@@ -497,9 +513,53 @@ import {
 		<p class="{macrosPlanned ? 'text-mist' : 'text-ink'} {compact ? 'mt-1.5 text-[12.5px]' : 'mt-0.5 text-[12.5px]'}">
 			<strong class="font-bold tabular-nums {macrosPlanned ? 'text-mist' : 'text-ink'}">{fmt(Math.round(ring.eaten))}</strong><span class="text-mist">/{fmt(ring.goal)}g</span>
 		</p>
-	</div>
+		</div>
 	{/each}
 </section>
+
+<!-- Ligne compacte BILAN DU JOUR (Mission R5c) — seul ajout au Journal :
+     sous les 3 cartes macros, masquée sans aliment consommé. La jauge est
+     verte quand la couverture est complète, grise quand le total est un
+     minimum, absente quand les données sont insuffisantes. Jamais de rouge. -->
+{#if compact && bilanJour && fibresLine}
+	<button
+		type="button"
+		class="mb-3.5 flex w-full flex-col rounded-[18px] border border-[#EEF1EF] bg-white px-3.5 py-2.5 text-left shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_22px_-18px_rgba(15,21,18,0.18)] transition active:scale-[0.99]"
+		aria-label="Voir le bilan nutritionnel du jour"
+		onclick={() => onOpenBilanJour?.()}
+	>
+		<div class="flex min-w-0 items-center gap-2">
+			{#if fibresLine.mention === 'insuffisant'}
+				<span class="min-w-0 flex-1 text-[12px] font-semibold leading-snug text-mist">
+					Fibres : pas assez de données aujourd'hui
+				</span>
+			{:else}
+				<span class="shrink-0 text-[12.5px] font-bold text-ink">Fibres</span>
+				<span class="ml-auto text-[12.5px] font-bold text-ink tabular-nums">
+					{#if fibresLine.mention === 'au-moins'}<span class="text-[11px] font-semibold text-mist"
+							>au moins </span
+						>{/if}{formatDetailValue(fibresLine.valeur, 'g')}<span class="font-semibold text-mist">
+						/ {bilanJour.repere} g</span
+					>
+				</span>
+			{/if}
+			<span class="ml-1 shrink-0 text-[12px] font-bold text-brand">Détail du jour ›</span>
+		</div>
+		{#if fibresLine.jauge}
+			<div class="mt-1.5 h-[7px] w-[68%] overflow-hidden rounded-full bg-[#e8edea]" aria-hidden="true">
+				<div
+					class="h-full rounded-full transition-[width] duration-500 ease-out {fibresLine.niveau === 'complete'
+						? 'bg-brand'
+						: 'bg-mist'}"
+					style:width="{fibresLine.pct}%"
+				></div>
+			</div>
+		{/if}
+		{#if fibresLine.niveau === 'partielle'}
+			<p class="mt-1 text-[10.5px] font-semibold text-mist">Données incomplètes</p>
+		{/if}
+	</button>
+{/if}
 
 <!-- Repas -->
 {#each MEAL_DEFS as meal (meal.id)}

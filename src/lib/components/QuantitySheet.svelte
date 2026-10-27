@@ -5,6 +5,7 @@
 	import {
 		detailRows,
 		detailSourceLabel,
+		formatDetailValue,
 		hasUnknownValue,
 		microRows,
 		type DetailRow,
@@ -291,10 +292,13 @@
 	);
 	const valid = $derived(gramsNum != null && gramsNum > 0 && gramsNum <= 5000);
 	const effGrams = $derived(valid ? (gramsNum ?? 0) : 0);
+	/* Valeurs NON arrondies : le format d'affichage de la fiche détaillée
+	   (une décimale sous 10 g, virgule) s'applique tel quel aux 4 tuiles.
+	   Les kcal restent un entier. */
 	const kcal = $derived(Math.round((food.kcal100 * effGrams) / 100));
-	const carbs = $derived(Math.round((food.carbs100 * effGrams) / 100));
-	const protein = $derived(Math.round((food.protein100 * effGrams) / 100));
-	const fat = $derived(Math.round((food.fat100 * effGrams) / 100));
+	const carbs = $derived((food.carbs100 * effGrams) / 100);
+	const protein = $derived((food.protein100 * effGrams) / 100);
+	const fat = $derived((food.fat100 * effGrams) / 100);
 
 	/* Détail nutritionnel de la quantité choisie (recalculé à chaque changement). */
 	const detailQty = $derived(valid ? effGrams : null);
@@ -403,6 +407,11 @@
 	   et le hero laisse une marge pour que la fiche tienne sans scroll sur
 	   les téléphones standards. */
 	let scrollerEl: HTMLElement | undefined = $state();
+	/* Ombre légère de la bande d'en-tête collante, au défilement seulement. */
+	let sheetScrolled = $state(false);
+	function onSheetScroll(e: Event) {
+		sheetScrolled = (e.currentTarget as HTMLElement).scrollTop > 4;
+	}
 	$effect(() => {
 		if (scrollerEl) {
 			void qtyFocused; // re-ancrage à chaque entrée/sortie du mode focus
@@ -480,7 +489,16 @@
 				<Icon name="x" size={18} />
 			</button>
 		</div>
-		<div role="presentation" class="min-h-0 flex-1 overflow-y-auto overscroll-contain" bind:this={scrollerEl} onpointerdown={sheetPointerDown}>
+		<div role="presentation" class="min-h-0 flex-1 overflow-y-auto overscroll-contain" bind:this={scrollerEl} onpointerdown={sheetPointerDown} onscroll={onSheetScroll}>
+		<!-- ─── Bande d'en-tête COLLANTE (R5c) ───
+		     Hauteur EXACTE des contrôles fixes (safe area + 44 px), fond blanc
+		     opaque et ombre légère au défilement. Le contenu défile SOUS elle :
+		     la croix et le cœur ne chevauchent plus jamais un élément de la
+		     fiche, et aucun bouton ne peut rester caché dessous au repos. -->
+		<div
+			class="sticky top-0 z-[1] h-[calc(max(env(safe-area-inset-top),12px)+44px)] bg-white transition-shadow duration-200 {sheetScrolled ? 'shadow-[0_6px_16px_-12px_rgba(15,21,18,0.30)]' : ''}"
+			aria-hidden="true"
+		></div>
 		<!-- MODE FOCUS QUANTITÉ : le clavier s'ouvre → hero/repas/actions masqués,
 	     il reste identité compacte + quantité + raccourcis + macros au-dessus
 	     du clavier ; Done / ✓ / Enter ou tap ailleurs restaure la fiche. -->
@@ -691,22 +709,22 @@
 				<div class="grid grid-cols-4 overflow-hidden rounded-[20px] border border-[#EEF1EF] bg-white shadow-[0_1px_2px_rgba(15,21,18,0.04),0_12px_26px_-16px_rgba(15,21,18,0.18)]">
 					<div class="border-l border-[#EEF1EF] px-1 py-2.5 text-center first:border-l-0">
 						<p class="text-[10px] font-bold uppercase tracking-wide text-brand">Calories</p>
-						<p class="mt-0.5 text-[17px] font-bold leading-none text-brand tabular-nums">{valid ? fmtQty(kcal) : '—'}</p>
+						<p class="mt-0.5 text-[17px] font-bold leading-none text-brand tabular-nums">{valid ? formatDetailValue(kcal, 'kcal') : '—'}</p>
 						<p class="text-[9px] font-semibold text-mist">kcal</p>
 					</div>
 					<div class="border-l border-[#EEF1EF] px-1 py-2.5 text-center first:border-l-0">
 						<p class="text-[10px] font-bold uppercase tracking-wide" style:color="#ec4899">Glucides</p>
-						<p class="mt-0.5 text-[17px] font-bold leading-none tabular-nums" style:color="#ec4899">{valid ? fmtQty(carbs) : '—'}</p>
+						<p class="mt-0.5 text-[17px] font-bold leading-none tabular-nums" style:color="#ec4899">{valid ? formatDetailValue(carbs, 'g') : '—'}</p>
 						<p class="text-[9px] font-semibold text-mist">g</p>
 					</div>
 					<div class="border-l border-[#EEF1EF] px-1 py-2.5 text-center first:border-l-0">
 						<p class="text-[10px] font-bold uppercase tracking-wide" style:color="#3b82f6">Protéines</p>
-						<p class="mt-0.5 text-[17px] font-bold leading-none tabular-nums" style:color="#3b82f6">{valid ? fmtQty(protein) : '—'}</p>
+						<p class="mt-0.5 text-[17px] font-bold leading-none tabular-nums" style:color="#3b82f6">{valid ? formatDetailValue(protein, 'g') : '—'}</p>
 						<p class="text-[9px] font-semibold text-mist">g</p>
 					</div>
 					<div class="border-l border-[#EEF1EF] px-1 py-2.5 text-center first:border-l-0">
 						<p class="text-[10px] font-bold uppercase tracking-wide" style:color="#f97316">Lipides</p>
-						<p class="mt-0.5 text-[17px] font-bold leading-none tabular-nums" style:color="#f97316">{valid ? fmtQty(fat) : '—'}</p>
+						<p class="mt-0.5 text-[17px] font-bold leading-none tabular-nums" style:color="#f97316">{valid ? formatDetailValue(fat, 'g') : '—'}</p>
 						<p class="text-[9px] font-semibold text-mist">g</p>
 					</div>
 				</div>
