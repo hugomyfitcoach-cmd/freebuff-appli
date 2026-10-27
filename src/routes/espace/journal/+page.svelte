@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, tick, untrack } from 'svelte';
+	import { onDestroy, onMount, tick, untrack } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
 	import { beforeNavigate } from '$app/navigation';
 	import { startBarcodeScanner, CameraPermissionError, normalizeProductCode, type BarcodeScannerHandle, type TorchHandle } from '$lib/barcodeScanner';
@@ -8,6 +8,7 @@
 	import { cookingBadgeOf } from '$lib/cookedState';
 	import { currentLocalDay } from '$lib/currentDay.svelte';
 	import { appWarm, firstVisit, isFresh, noteSync, restoreScroll, saveScroll } from '$lib/navMemory';
+	import { lockScroll, unlockScroll } from '$lib/scrollLock';
 	import JournalDay from '$lib/components/JournalDay.svelte';
 	import BilanJourSheet from '$lib/components/BilanJourSheet.svelte';
 	import type { BilanJourData } from '$lib/bilanJour';
@@ -3908,23 +3909,24 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		return () => io.disconnect();
 	});
 
-	/* Verrouille le scroll du fond quand un panneau plein écran est ouvert —
-	   y compris le volet « Bilan nutritionnel du jour » (R5c-quater) : le
-	   Journal derrière ne défile plus, le volet garde son propre défilement.
-	   Au déverrouillage (fermeture du volet, retour arrière, démontage de la
-	   page), on restaure overflow='' et on réconcilie le layout viewport iOS
-	   pour que la barre fixe du bas reste ancrée au bas de l'écran. */
+	/* Verrouille le défilement du fond quand un volet est ouvert — TOUS les
+	   volets du Journal (fiche aliment, repas, calendrier, bilan du jour…).
+	   Le document est le vrai conteneur qui défile : `overflow: hidden` sur le
+	   body ne suffit pas sur iPhone (R5c-quinquies). `lockScroll` fige donc le
+	   body `position: fixed` à sa position courante et `unlockScroll` restaure
+	   la position exacte — à la fermeture comme au démontage (retour arrière). */
+	let fondFigé = false;
 	$effect(() => {
 		const locked = logOpen || !!qtyFood || !!editEntry || !!qtyMealSel || calOpen || dupOpen || mealCreateOpen || mealPhotoOpen || bilanOpen;
-		document.body.style.overflow = locked ? 'hidden' : '';
-		if (!locked && typeof window !== 'undefined') {
-			window.requestAnimationFrame(() => {
-				window.scrollTo(window.scrollX, window.scrollY);
-			});
-		}
-		return () => {
-			document.body.style.overflow = '';
-		};
+		if (locked === fondFigé) return;
+		fondFigé = locked;
+		if (locked) lockScroll();
+		else unlockScroll();
+	});
+	onDestroy(() => {
+		if (!fondFigé) return;
+		fondFigé = false;
+		unlockScroll();
 	});
 </script>
 

@@ -10,6 +10,8 @@
  *   la page a été démontée — même source que le fetch, jamais inventé.
  */
 
+import { currentScrollY } from './scrollLock';
+
 const boot = Date.now();
 const visitedAt: Record<string, boolean> = {};
 const lastSyncAt: Record<string, number> = {};
@@ -41,7 +43,9 @@ export function isFresh(route: string, ttl = 30_000): boolean {
 }
 
 export function saveScroll(route: string) {
-	if (typeof window !== 'undefined') scrollAt[route] = window.scrollY;
+	/* `currentScrollY` : la position d'avant le volet quand un verrou de
+	   défilement est actif (le body figé n'a plus de scrollY propre). */
+	if (typeof window !== 'undefined') scrollAt[route] = currentScrollY();
 }
 
 export function restoreScroll(route: string): number {

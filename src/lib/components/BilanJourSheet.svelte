@@ -88,7 +88,7 @@
 	<div
 		role="presentation"
 		transition:fade={sheetFade()}
-		class="fixed inset-0 z-[60] flex items-end justify-center bg-[#0F1512]/38 backdrop-blur-sm sm:items-center sm:p-6"
+		class="fixed inset-0 z-[60] flex touch-none items-end justify-center bg-[#0F1512]/38 backdrop-blur-sm sm:items-center sm:p-6"
 		onclick={(e) => {
 			if (e.target === e.currentTarget) onClose();
 		}}
@@ -98,7 +98,7 @@
 			aria-modal="true"
 			aria-labelledby="bilan-jour-title"
 			transition:fly={sheetFly()}
-			class="max-h-[88dvh] w-full max-w-lg overflow-y-auto overscroll-contain rounded-t-[28px] bg-white px-5 pt-5 shadow-[0_-20px_50px_-20px_rgba(15,21,18,0.35)] sm:rounded-[28px]"
+			class="max-h-[88dvh] w-full max-w-lg touch-pan-y overflow-y-auto overscroll-contain rounded-t-[28px] bg-white px-5 pt-5 shadow-[0_-20px_50px_-20px_rgba(15,21,18,0.35)] sm:rounded-[28px]"
 			style="padding-bottom: max(env(safe-area-inset-bottom), 20px);"
 		>
 			<div class="flex items-start justify-between gap-3">
