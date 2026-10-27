@@ -1341,6 +1341,12 @@
 		const f = foodAverages(totals, week.map((d) => d.date), goalKcal);
 		return { avg: f.proteinAvg, goal, trackedDays: f.breakdown.exploitableDays, partialExcluded: f.breakdown.partialDays };
 	});
+	/** Fibres / jour (R5d) — calculée CÔTÉ SERVEUR avec la fiche nutritionnelle
+	    du jour (`bilanJour`), sur EXACTEMENT les mêmes journées que Calories /
+	    Protéines (règle `isExploitableDay`) + couverture fibres ≥ 80 % des kcal.
+	    Aucune formule de fibres ici : la carte ne fait qu'afficher. */
+	type FibresCard = { avg: number | null; repere: number | null; trackedDays: number; atteint: boolean } | null;
+	const fibresCard = $derived(((view as Record<string, unknown> | null)?.fibres360 ?? null) as FibresCard);
 	/** Dépense sportive LIVE : 7 journées complètes (J-7 → J-1) — activité
 	    d'aujourd'hui jamais incluse (partielle). Repli : bloc semaines. */
 	const sport7 = $derived((view?.sport7 ?? null) as { activities: number; durationMin: number; kcal: number; metMinutes: number; manualCount: number; trainingCount: number } | null);
@@ -3191,7 +3197,31 @@
 						{/if}
 					</div>
 				{/if}
+				<!-- FIBRES / JOUR — moyenne des fibres sur les 7 dernières journées
+				     civiles terminées (J-7 → J-1), mêmes journées exploitables que
+				     Calories / Protéines ET couverture fibres ≥ 80 % des kcal.
+				     Calcul serveur (`bilanJour`), affichage seul ici. Moins de 3 jours
+				     exploitables → « Pas assez de données », sans chiffre ; pastille
+				     « repère atteint » uniquement quand la moyenne atteint le repère
+				     moyen des mêmes jours — jamais de rouge. -->
+				<div class="kpi-crm" style="--kpi-accent: #0d9488; --kpi-tile-bg: #e6f7f4; --kpi-tile-fg: #0f766e">
+					<div class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-mist"><span class="kpi-tile" style="width:1.75rem;height:1.75rem"><Icon name="wheat" size={14} /></span> Fibres / jour</div>
+					{#if fibresCard && fibresCard.avg !== null && fibresCard.repere !== null}
+						<div class="mt-1 flex items-baseline gap-2">
+							<span class="kpi-num-crm text-[1.65rem] text-ink">{fmtVal(fibresCard.avg)} g</span>
+							{#if fibresCard.atteint}
+								<span class="rounded-full bg-brand-light px-1.5 py-0.5 text-[10px] font-bold text-brand-dark">repère atteint</span>
+							{:else}
+								<span class="text-sm font-bold text-mist">repère {fmtVal(fibresCard.repere)} g</span>
+							{/if}
+						</div>
+						<div class="mt-1 text-[11px] text-mist">{fibresCard.trackedDays}/7 j exploitables</div>
+					{:else}
+						<p class="mt-1 text-sm italic text-mist">Pas assez de données</p>
+					{/if}
 				</div>
+				</div>
+
 
 				<!-- Ajout rapide depuis l'Aperçu : même endpoint que « Poids & mesures »,
 			     la vue est rechargée après enregistrement → cartes à jour immédiatement. -->
@@ -4538,6 +4568,27 @@
 							<div class="mt-1 font-display text-2xl font-semibold text-mist/50">—</div>
 							<p class="mt-0.5 text-[11px] italic text-mist">Aucun jour exploitable · objectif {fmtVal(proteinCard.goal)} g</p>
 						{/if}
+								</div>
+
+								<!-- FIBRES — R5d : même carte que la Vision 360, mêmes journées
+								     exploitables que la carte Protéines voisine (couverture
+								     fibres ≥ 80 % des kcal en plus). Aucun chiffre sous 3 jours. -->
+								<div class="flex flex-col rounded-xl border border-line bg-cream/40 p-3">
+									{@render cardHead('wheat', 'Fibres', fibresCard && fibresCard.avg !== null ? `${fibresCard.trackedDays}/7 j exploitables` : undefined)}
+									{#if fibresCard && fibresCard.avg !== null && fibresCard.repere !== null}
+										<div class="mt-1 flex flex-wrap items-baseline gap-x-2">
+											<span class="font-display text-2xl font-semibold text-ink">{fmtVal(fibresCard.avg)} g</span>
+											{#if fibresCard.atteint}
+												<span class="rounded-full bg-brand-light px-1.5 py-0.5 text-[10px] font-bold text-brand-dark">repère atteint</span>
+											{:else}
+												<span class="text-xs font-semibold text-mist">repère {fmtVal(fibresCard.repere)} g</span>
+											{/if}
+										</div>
+										<p class="mt-0.5 text-[11px] text-mist">en moyenne / jour exploitable (mêmes jours que les protéines)</p>
+									{:else}
+										<div class="mt-1 font-display text-2xl font-semibold text-mist/50">—</div>
+										<p class="mt-0.5 text-[11px] italic text-mist">Pas assez de données</p>
+									{/if}
 								</div>
 
 								<!-- CYCLE — lecture seule, mêmes données que l'Accueil cliente -->

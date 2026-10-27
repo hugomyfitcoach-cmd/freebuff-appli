@@ -11,7 +11,13 @@
  * Aucune valeur n'est inventée : une entrée sans référence (repas IA, saisie
  * rapide, recette non résoluble) laisse ses champs à `null` et ne compte pas
  * dans les totaux — elle ne compte pas non plus dans les kcal « couvertes ».
+ *
+ * Depuis R5d, il porte aussi la carte « Fibres / jour » (Vision 360 + fiche
+ * bilan) : la moyenne des fibres réutilise `bilanJour` journée par journée,
+ * aucune formule de fibres n'existe ailleurs.
  */
+
+import { goalOfDay, isExploitableDay, type GoalForDay } from './vision360';
 
 /** Repère officiel : 15 g de fibres pour 1 000 kcal. */
 export const FIBRES_G_PAR_1000_KCAL = 15;
@@ -194,4 +200,77 @@ export function etatFibres(
 		jauge: true,
 		pct: Math.min(100, Math.max(0, (fibres / cible) * 100))
 	};
+}
+
+/* ───────────────── FIBRES / JOUR — MOYENNE (carte côté coach) ───────────────── */
+
+/** Nombre minimal de jours exploitables pour afficher une moyenne. */
+export const FIBRES_MIN_JOURS_EXPLOITABLES = 3;
+
+/**
+ * Une journée telle que la voit la carte « Fibres / jour » : les valeurs
+ * viennent de `bilanJour` (fibres, couverture, repère) — aucun calcul de
+ * fibres n'est refait dans l'agrégat.
+ */
+export type FibresJourData = {
+	date: string;
+	/** Total kcal de la journée — `null` = aucune donnée (jamais un 0 inventé). */
+	kcal: number | null;
+	/** Fibres du jour (g) — `null` = aucune valeur connue. */
+	fibres: number | null;
+	/** Couverture kcal des fibres (0–100), telle que la calcule `bilanJour`. */
+	couverture: number;
+};
+
+export type FibresMoyenne = {
+	/** Moyenne des fibres sur les jours exploitables — `null` si < 3 jours. */
+	avg: number | null;
+	/** Moyenne des repères de ces MÊMES jours — `null` si < 3 jours. */
+	repere: number | null;
+	/** Jours exploitables pour les fibres (affiché « X/7 j exploitables »). */
+	trackedDays: number;
+	/** Moyenne ≥ repère → pastille « repère atteint » (jamais de rouge). */
+	atteint: boolean;
+};
+
+/**
+ * Journée exploitable POUR LES FIBRES = journée déjà exploitable selon la
+ * règle existante des cartes Calories / Protéines (MÊME fonction
+ * `isExploitableDay`, objectif historisé du jour) ET couverture fibres
+ * ≥ 80 % des kcal (sous ce seuil le total est un minimum : `etatFibres`
+ * refuse de l'afficher comme une valeur exacte).
+ */
+export function jourExploitableFibres(jour: FibresJourData, goalKcal: GoalForDay): boolean {
+	if (!estNombre(jour.fibres)) return false;
+	if (!estNombre(jour.couverture) || jour.couverture < COUVERTURE_COMPLETE_PCT) return false;
+	return isExploitableDay(jour.kcal, goalOfDay(goalKcal, jour.date));
+}
+
+/**
+ * MOYENNE DES FIBRES / JOUR sur les SEULS jours exploitables pour les fibres,
+ * dans la fenêtre fournie par l'appelant (7 dernières journées terminées pour
+ * la Vision 360, semaine du bilan pour la fiche bilan — mêmes jours que la
+ * carte Protéines).
+ *
+ * Le repère moyen est la moyenne des repères DE CES MÊMES JOURS :
+ * `repereFibres(objectif kcal du jour)`, l'objectif pouvant changer dans la
+ * fenêtre. Moins de 3 jours exploitables → aucune valeur (l'interface affiche
+ * « Pas assez de données », sans chiffre).
+ */
+export function moyenneFibres(jours: readonly FibresJourData[], goalKcal: GoalForDay): FibresMoyenne {
+	let fibresSum = 0;
+	let repereSum = 0;
+	let trackedDays = 0;
+	for (const jour of jours) {
+		if (!jourExploitableFibres(jour, goalKcal)) continue;
+		fibresSum += jour.fibres as number;
+		repereSum += repereFibres(goalOfDay(goalKcal, jour.date) ?? 0);
+		trackedDays += 1;
+	}
+	if (trackedDays < FIBRES_MIN_JOURS_EXPLOITABLES) {
+		return { avg: null, repere: null, trackedDays, atteint: false };
+	}
+	const avg = arrondi1(fibresSum / trackedDays);
+	const repere = arrondi1(repereSum / trackedDays);
+	return { avg, repere, trackedDays, atteint: avg >= repere };
 }

@@ -16,7 +16,7 @@ import {
 	mondayISOof,
 	normalizeEmail,
 } from "./helpers";
-import { DEFAULT_GOALS } from "./journal";
+import { DEFAULT_GOALS, bilanJourAliments, referenceFoodsByName } from "./journal";
 import { bodyFatSeries, logHeightRow } from "./metrics";
 import { recordClientEvent, resolveInactivity } from "./notifications";
 import { accessStateForUser } from "./billing";
@@ -36,6 +36,13 @@ import {
 	mensurationsVision,
 	exploitabilityThresholdKcal,
 } from "../lib/vision360";
+import {
+	bilanJour,
+	moyenneFibres,
+	type BilanJourAliment,
+	type FibresJourData,
+	type FibresMoyenne,
+} from "../lib/bilanJour";
 import { kcalGoalForDate, hasChangeWithin, withCurrentGoal } from "../lib/goalHistory";
 import { nextFeedbackAiDraft } from "../lib/coachDraftUi";
 
@@ -1200,6 +1207,47 @@ export const client360 = query({
 			today360
 		);
 
+		// ── FIBRES / JOUR (R5d) — MÊME résolution et MÊME calcul que la fiche
+		// nutritionnelle du jour (`journal.dayNutritionDetails` → `bilanJour`) :
+		// par journée, `bilanJour` donne les fibres, la couverture kcal et le
+		// repère. Aucune formule de fibres n'est réécrite ici, et la règle de
+		// journée exploitable reste `isExploitableDay` (celle des cartes
+		// Calories / Protéines, appelée par `moyenneFibres`).
+		const windowEntries = entries.filter((e) => daySet.has(e.date));
+		let fibres360: FibresMoyenne = { avg: null, repere: null, trackedDays: 0, atteint: false };
+		if (windowEntries.length > 0) {
+			const referenceByName = await referenceFoodsByName(ctx, target);
+			// UNE seule résolution pour les 7 journées (la même fiche n'est lue
+			// qu'une fois), puis répartition par date : `bilanJourAliments`
+			// renvoie un aliment par entrée, dans l'ordre reçu.
+			const aliments = await bilanJourAliments(ctx, target._id, referenceByName, windowEntries);
+			const alimentsParJour = new Map<string, BilanJourAliment[]>();
+			windowEntries.forEach((entry, i) => {
+				const aliment = aliments[i];
+				if (!aliment) return;
+				const list = alimentsParJour.get(entry.date) ?? [];
+				list.push(aliment);
+				alimentsParJour.set(entry.date, list);
+			});
+			const joursFibres: FibresJourData[] = days.map((day) => {
+				// `foodTotals` porte EXACTEMENT le total kcal des cartes Calories /
+				// Protéines : le jour exploitable est donc le même pour les fibres.
+				const totalKcal = foodTotals.get(day)?.kcal ?? null;
+				const dayAliments = alimentsParJour.get(day);
+				if (!dayAliments || totalKcal === null) {
+					return { date: day, kcal: null, fibres: null, couverture: 0 };
+				}
+				const bilan = bilanJour(dayAliments, goalForDay(day));
+				return {
+					date: day,
+					kcal: totalKcal,
+					fibres: bilan.fibres,
+					couverture: bilan.couverture,
+				};
+			});
+			fibres360 = moyenneFibres(joursFibres, goalForDay);
+		}
+
 		return {
 			user: publicUser(target),
 			goals: goalsRow ?? { userId, ...DEFAULT_GOALS },
@@ -1220,6 +1268,9 @@ export const client360 = query({
 			sport: sportBlock,
 			/** Vision 360 LIVE : dépense des 7 journées complètes (J-7 → J-1). */
 			sport7,
+			/** Carte « Fibres / jour » (coach) : moyenne sur les jours exploitables
+			 *  pour les fibres, mêmes 7 journées terminées que Calories / Protéines. */
+			fibres360,
 			/** Fenêtre Vision 360 réellement appliquée (transparence UI). */
 			visionWindow: { start: vision.start, end: vision.end, today: vision.today },
 		};

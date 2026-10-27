@@ -1007,6 +1007,100 @@ export const getDay = query({
 });
 
 /**
+ * Fiches G-Flux visibles par un compte, indexées par NOM — le journal ne
+ * conserve pas d'identifiant pour une entrée G-Flux (snapshot). Résolution
+ * partagée par `dayNutritionDetails` et la carte « Fibres / jour » du CRM :
+ * une seule définition de ce qu'un aliment du journal apporte.
+ */
+export async function referenceFoodsByName(
+	ctx: Pick<QueryCtx, "db">,
+	user: Doc<"users">
+): Promise<Map<string, Doc<"referenceFoods">>> {
+	const referenceFoods = await listReferenceFoodsForUser(ctx, user);
+	const byName = new Map<string, Doc<"referenceFoods">>();
+	for (const food of referenceFoods) {
+		if (!byName.has(food.name)) byName.set(food.name, food);
+	}
+	return byName;
+}
+
+/**
+ * ENTRÉES DU JOURNAL → ALIMENTS DU BILAN (valeurs POUR LA PORTION) — SEULE
+ * source de résolution des fibres : OFF, fiche perso (propriétaire
+ * uniquement), Ciqual, G-Flux (résolue par son nom). Une entrée sans référence
+ * résoluble (repas IA, saisie rapide, recette) reste `null` : aucune valeur
+ * n'est inventée.
+ *
+ * Partagé par `dayNutritionDetails` (bilan d'une journée) et par la carte
+ * « Fibres / jour » du CRM (7 journées terminées) : les deux passent ensuite
+ * par `bilanJour`, jamais par un calcul de fibres parallèle.
+ */
+export async function bilanJourAliments(
+	ctx: Pick<QueryCtx, "db">,
+	ownerId: Id<"users">,
+	referenceByName: Map<string, Doc<"referenceFoods">>,
+	entries: Doc<"diaryEntries">[]
+): Promise<BilanJourAliment[]> {
+	const offCache = new Map<string, FoodDetails | null>();
+	const customCache = new Map<string, FoodDetails | null>();
+
+	/** Fiche /100 g d'une entrée — `null` = aucune référence résoluble. */
+	async function detailsFor(entry: Doc<"diaryEntries">): Promise<FoodDetails | null> {
+		if (entry.foodId) {
+			const key = entry.foodId as string;
+			if (!offCache.has(key)) {
+				const food = await ctx.db.get(entry.foodId);
+				offCache.set(key, food ? foodDetailsFromOffFood(food) : null);
+			}
+			return offCache.get(key) ?? null;
+		}
+		if (entry.customFoodId) {
+			const key = entry.customFoodId as string;
+			if (!customCache.has(key)) {
+				const food = await ctx.db.get(entry.customFoodId);
+				// Isolation stricte : jamais la fiche perso d'une autre cliente.
+				customCache.set(
+					key,
+					food && food.userId === ownerId ? foodDetailsFromCustomFood(food) : null
+				);
+			}
+			return customCache.get(key) ?? null;
+		}
+		if (entry.referenceSource === "gflux") {
+			const food = referenceByName.get(entry.name);
+			return food ? foodDetailsFromReferenceFood(food) : null;
+		}
+		// Recette / repas personnel : les ingrédients ne sont pas résolubles ici.
+		// Repas IA : composants estimés, jamais une référence vérifiable.
+		if (entry.mealId || entry.mealGroup) return null;
+		// Ciqual : provenance explicite, ou libellé officiel retrouvé à la
+		// lecture (même règle que `withCiqualProvenance`).
+		if (entry.referenceSource === "ciqual" || resolveCiqualLabel(entry.name)) {
+			return ciqualFoodDetails(entry.name);
+		}
+		return null;
+	}
+
+	const aliments: BilanJourAliment[] = [];
+	for (const entry of entries) {
+		const details = await detailsFor(entry);
+		const ratio = entry.qtyGrams / 100;
+		/** Valeur pour la portion réellement consommée — jamais inventée. */
+		const pour = (v: number | null | undefined): number | null =>
+			typeof v === "number" && Number.isFinite(v) ? Math.round(v * ratio * 10) / 10 : null;
+		aliments.push({
+			name: entry.name,
+			kcal: entry.kcal,
+			fibres: pour(details?.fiber),
+			sucres: pour(details?.sugars),
+			ags: pour(details?.saturatedFat),
+			sel: pour(details?.salt),
+		});
+	}
+	return aliments;
+}
+
+/**
  * BILAN NUTRITIONNEL DU JOUR (Mission R5c) — lecture seule, aucun schéma.
  *
  * Réutilise EXACTEMENT la logique de la fiche détaillée (`foodDetails`) :
@@ -1058,70 +1152,9 @@ export const dayNutritionDetails = query({
 
 		// Fiches G-Flux visibles par le compte (celles de son coach) : résolues
 		// par nom, aucune écriture, aucun identifiant inventé sur l'entrée.
-		const referenceFoods = await listReferenceFoodsForUser(ctx, user);
-		const referenceByName = new Map<string, Doc<"referenceFoods">>();
-		for (const food of referenceFoods) {
-			if (!referenceByName.has(food.name)) referenceByName.set(food.name, food);
-		}
-
-		const offCache = new Map<string, FoodDetails | null>();
-		const customCache = new Map<string, FoodDetails | null>();
-
-		/** Fiche /100 g d'une entrée — `null` = aucune référence résoluble. */
-		async function detailsFor(entry: Doc<"diaryEntries">): Promise<FoodDetails | null> {
-			if (entry.foodId) {
-				const key = entry.foodId as string;
-				if (!offCache.has(key)) {
-					const food = await ctx.db.get(entry.foodId);
-					offCache.set(key, food ? foodDetailsFromOffFood(food) : null);
-				}
-				return offCache.get(key) ?? null;
-			}
-			if (entry.customFoodId) {
-				const key = entry.customFoodId as string;
-				if (!customCache.has(key)) {
-					const food = await ctx.db.get(entry.customFoodId);
-					// Isolation stricte : jamais la fiche perso d'une autre cliente.
-					customCache.set(
-						key,
-						food && food.userId === ownerId ? foodDetailsFromCustomFood(food) : null
-					);
-				}
-				return customCache.get(key) ?? null;
-			}
-			if (entry.referenceSource === "gflux") {
-				const food = referenceByName.get(entry.name);
-				return food ? foodDetailsFromReferenceFood(food) : null;
-			}
-			// Recette / repas personnel : les ingrédients ne sont pas résolubles ici.
-			// Repas IA : composants estimés, jamais une référence vérifiable.
-			if (entry.mealId || entry.mealGroup) return null;
-			// Ciqual : provenance explicite, ou libellé officiel retrouvé à la
-			// lecture (même règle que `withCiqualProvenance`).
-			if (entry.referenceSource === "ciqual" || resolveCiqualLabel(entry.name)) {
-				return ciqualFoodDetails(entry.name);
-			}
-			return null;
-		}
-
-		const aliments: BilanJourAliment[] = [];
-		for (const entry of entries) {
-			const details = await detailsFor(entry);
-			const ratio = entry.qtyGrams / 100;
-			/** Valeur pour la portion réellement consommée — jamais inventée. */
-			const pour = (v: number | null | undefined): number | null =>
-				typeof v === "number" && Number.isFinite(v)
-					? Math.round(v * ratio * 10) / 10
-					: null;
-			aliments.push({
-				name: entry.name,
-				kcal: entry.kcal,
-				fibres: pour(details?.fiber),
-				sucres: pour(details?.sugars),
-				ags: pour(details?.saturatedFat),
-				sel: pour(details?.salt),
-			});
-		}
+		// Résolution et calcul partagés avec la carte « Fibres / jour » du CRM.
+		const referenceByName = await referenceFoodsByName(ctx, user);
+		const aliments = await bilanJourAliments(ctx, ownerId, referenceByName, entries);
 
 		return bilanJour(aliments, objectifKcal);
 	},
