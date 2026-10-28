@@ -237,7 +237,7 @@ export default defineSchema({
 				noDate: v.boolean(),
 				/** Premier jour des dernières règles "yyyy-mm-dd". */
 				lmp: v.optional(v.string()),
-				/** Durée moyenne du cycle en jours (21–32). */
+				/** Durée moyenne du cycle en jours (21–45, validée dans users.saveCycle). */
 				len: v.optional(v.number()),
 				updatedAt: v.number(),
 			})

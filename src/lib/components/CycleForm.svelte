@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { CycleConfig, CycleContra } from '$lib/cycle';
+	import { CYCLE_LENGTH_OPTIONS, type CycleConfig, type CycleContra } from '$lib/cycle';
 
 	/**
 	 * Questionnaire de configuration du suivi de cycle — mêmes questions que
@@ -121,7 +121,7 @@
 					bind:value={cLen}
 					class="mt-1.5 w-full rounded-xl border-2 border-line bg-soft px-3 py-2.5 text-sm font-semibold text-ink outline-none transition focus:border-brand"
 				>
-					{#each Array.from({ length: 12 }, (_, i) => i + 21) as n (n)}
+					{#each CYCLE_LENGTH_OPTIONS as n (n)}
 						<option value={n}>{n} jours</option>
 					{/each}
 				</select>
