@@ -999,6 +999,152 @@ export const setSupersetGroup = mutation({
 	},
 });
 
+/* ═══════════ Import d'exercices entre séances ═══════════ */
+
+/**
+ * COPIE des exercices d'une séance source dans PLUSIEURS séances du programme
+ * en cours, en une seule transaction.
+ *
+ * Rien n'est partagé avec la source : chaque cible reçoit de NOUVELLES lignes
+ * (exercice + séries) avec toute la prescription (mode, tempo, consignes,
+ * notes, phase, reps, charge, RIR, repos, durée). Un circuit de la source est
+ * RECRÉÉ comme circuit distinct dans chaque cible : nouvel identifiant de
+ * groupe, sans lien avec celui de la source ni avec un import précédent (deux
+ * imports successifs ne fusionnent jamais deux circuits).
+ *
+ * Positions : les copies sont posées au début (avant tout) ou à la fin, puis
+ * la mise en page canonique d'EDITEUR-DOUBLON (`planSessionLayout`) recolle
+ * les circuits et réindexe 0..n-1 — aucune position dupliquée, aucun groupe
+ * orphelin. Le programme source n'est jamais modifié.
+ */
+export const importSessionExercises = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		/** Séance source (programme du coach, jamais une copie assignée). */
+		sourceSessionId: v.id("trainingSessions"),
+		/** Exercices retenus dans la séance source (tous cochés par défaut). */
+		sessionExerciseIds: v.array(v.id("trainingSessionExercises")),
+		/** Séances cibles du programme en cours. */
+		targetSessionIds: v.array(v.id("trainingSessions")),
+		position: v.union(v.literal("start"), v.literal("end")),
+		/** `keep` = phase d'origine ; `echauffement` = tout en échauffement. */
+		phaseMode: v.union(v.literal("keep"), v.literal("echauffement")),
+	},
+	handler: async (ctx, { sessionToken, sourceSessionId, sessionExerciseIds, targetSessionIds, position, phaseMode }) => {
+		const coach = await requireCoach(ctx, sessionToken);
+		if (sessionExerciseIds.length === 0) throw new ConvexError("Sélectionne au moins un exercice à importer.");
+		if (sessionExerciseIds.length > MAX_EXERCISES_PER_SESSION) {
+			throw new ConvexError(`Maximum ${MAX_EXERCISES_PER_SESSION} exercices par séance.`);
+		}
+		if (new Set(sessionExerciseIds).size !== sessionExerciseIds.length) {
+			throw new ConvexError("Exercices en double dans la sélection — opération refusée.");
+		}
+		const targetIds = [...new Set(targetSessionIds)];
+		if (targetIds.length === 0) throw new ConvexError("Sélectionne au moins une séance cible.");
+
+		// Source : propriété vérifiée comme partout (programme → séance).
+		await requireSession(ctx, coach._id, sourceSessionId);
+		const sourceRows = await ctx.db
+			.query("trainingSessionExercises")
+			.withIndex("by_session", (q) => q.eq("sessionId", sourceSessionId))
+			.collect();
+		sourceRows.sort((a, b) => a.order - b.order || a.createdAt - b.createdAt || a._id.localeCompare(b._id));
+		const chosen = new Set(sessionExerciseIds);
+		if (sourceRows.filter((r) => chosen.has(r._id)).length !== chosen.size) {
+			throw new ConvexError("Exercice source introuvable dans la séance.");
+		}
+		const picked = sourceRows.filter((r) => chosen.has(r._id));
+
+		// Séries de la source : lues UNE fois, recopiées dans chaque cible.
+		const sourceSets = new Map<string, Doc<"trainingSets">[]>();
+		for (const se of picked) {
+			const sets = await ctx.db
+				.query("trainingSets")
+				.withIndex("by_sessionExercise", (q) => q.eq("sessionExerciseId", se._id))
+				.collect();
+			sets.sort((a, b) => a.order - b.order || a._creationTime - b._creationTime);
+			sourceSets.set(se._id, sets);
+		}
+
+		// Cibles : même programme (celui en cours), appartenant au coach appelant.
+		const targets: Doc<"trainingSessions">[] = [];
+		for (const id of targetIds) targets.push(await requireSession(ctx, coach._id, id));
+		const programId = targets[0].programId;
+		if (!targets.every((t) => t.programId === programId)) {
+			throw new ConvexError("Les séances cibles doivent appartenir au même programme.");
+		}
+
+		const now = Date.now();
+		const sourceGroups = [...new Set(picked.map((r) => r.supersetGroup).filter((g): g is string => !!g))];
+
+		for (const [ti, target] of targets.entries()) {
+			const existing = await ctx.db
+				.query("trainingSessionExercises")
+				.withIndex("by_session", (q) => q.eq("sessionId", target._id))
+				.collect();
+			if (existing.length + picked.length > MAX_EXERCISES_PER_SESSION) {
+				throw new ConvexError(`Maximum ${MAX_EXERCISES_PER_SESSION} exercices par séance.`);
+			}
+			// Un circuit source → un NOUVEAU groupe dans CETTE cible (jamais de
+			// collision avec un groupe existant ni avec un import précédent).
+			const taken = new Set(existing.map((r) => r.supersetGroup).filter((g): g is string => !!g));
+			const fresh = new Map<string, string>();
+			sourceGroups.forEach((g, gi) => {
+				let id = `sup:imp${now.toString(36)}${ti}${gi}`;
+				while (taken.has(id)) id += "x";
+				taken.add(id);
+				fresh.set(g, id);
+			});
+
+			// Place : les copies passent avant tout (start) ou après tout (end).
+			existing.sort((a, b) => a.order - b.order || a.createdAt - b.createdAt || a._id.localeCompare(b._id));
+			const start = position === "start";
+			await Promise.all(
+				existing.map((r, i) => ctx.db.patch(r._id, { order: start ? i + picked.length : i }))
+			);
+
+			for (const [i, se] of picked.entries()) {
+				const group = se.supersetGroup ? fresh.get(se.supersetGroup) : undefined;
+				const phase = phaseMode === "echauffement" ? "echauffement" : se.phase;
+				const newId = await ctx.db.insert("trainingSessionExercises", {
+					sessionId: target._id,
+					exerciseId: se.exerciseId,
+					order: (start ? 0 : existing.length) + i,
+					mode: se.mode,
+					tempo: se.tempo,
+					coachNote: se.coachNote,
+					techniqueNote: se.techniqueNote,
+					...(phase ? { phase } : {}),
+					...(group ? { supersetGroup: group } : {}),
+					createdAt: now + i, // ordre déterministe entre les copies
+				});
+				for (const st of sourceSets.get(se._id) ?? []) {
+					await ctx.db.insert("trainingSets", {
+						sessionExerciseId: newId,
+						order: st.order,
+						repsMin: st.repsMin,
+						repsMax: st.repsMax,
+						targetWeight: st.targetWeight,
+						targetRir: st.targetRir,
+						restSeconds: st.restSeconds,
+						durationSeconds: st.durationSeconds,
+					});
+				}
+			}
+			// Mise en page canonique : circuits contigus, groupes orphelins
+			// dissous, positions réindexées 0..n-1.
+			await normalizeSessionLayout(ctx, target._id);
+		}
+
+		await ctx.db.patch(programId, { updatedAt: now });
+		return {
+			exerciseCount: picked.length,
+			sessionCount: targets.length,
+			targetSessionIds: targets.map((t) => t._id),
+		};
+	},
+});
+
 /* ═══════════ Séries ═══════════ */
 
 const setFields = v.object({

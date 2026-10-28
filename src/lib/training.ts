@@ -90,6 +90,13 @@ export function setSummary(s: TrainingSetView, mode: 'reps' | 'time'): string {
 	return parts.join(' · ') || '—';
 }
 
+/** Message court après un import : « 8 exercices ajoutés à 3 séances ». */
+export function importNoticeLabel(exerciseCount: number, sessionCount: number): string {
+	const e = Math.max(0, Math.round(exerciseCount));
+	const s = Math.max(0, Math.round(sessionCount));
+	return `${e} exercice${e > 1 ? 's' : ''} ajouté${e > 1 ? 's' : ''} à ${s} séance${s > 1 ? 's' : ''}`;
+}
+
 /** Aperçu compact sous le nom d'un exercice (colonne centrale). */
 export function exercisePreview(e: SessionExerciseView): string {
 	const n = e.sets.length;
