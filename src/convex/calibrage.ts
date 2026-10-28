@@ -204,7 +204,7 @@ export const apply = mutation({
 		}
 		// APPARTENANCE — seul le coach DE la cliente applique un calibrage
 		// (même règle que `coach.updateClient`, source unique dans helpers).
-		assertCoachOwnsClient(target, coach);
+		await assertCoachOwnsClient(ctx, target, coach);
 		if (
 			!isFinite(kcal) || kcal < 800 || kcal > 6000 ||
 			!isFinite(carbs) || carbs < 0 || carbs > 1000 ||

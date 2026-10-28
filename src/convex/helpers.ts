@@ -147,18 +147,34 @@ export async function getSessionUser(
 /**
  * APPARTENANCE — un coach n'accède QU'AUX clientes qu'il a créées.
  *
- * Source UNIQUE de la règle (créée pour `coach.updateClient`) : le
- * rattachement `users.createdBy` doit désigner le coach connecté. Une
- * cliente SANS `createdBy` est donc REFUSÉE, exactement comme la mise à jour
- * de fiche : aucune exception n'est ajoutée ici.
+ * Source UNIQUE de la règle (créée pour `coach.updateClient`, partagée par
+ * `client360`, `journal.setClientGoals` et `calibrage.apply`) :
+ * - `createdBy` présent : accès seulement si `createdBy` désigne le coach
+ *   connecté (inchangé) ;
+ * - `createdBy` absent : repli « coach unique » — accès autorisé SI ET
+ *   SEULEMENT SI le coach appelant est l'UNIQUE compte coach du déploiement
+ *   (installation mono-coach : le rattachement est implicite). Sinon, refus
+ *   avec le message historique.
+ *
+ * Pas d'index sur `role` dans le schéma : la recherche des coachs est une
+ * requête filtrée bornée à 2 lignes (assez pour prouver l'unicité), et le
+ * rôle est revérifié sur les lignes renvoyées (défense en profondeur).
  */
-export function assertCoachOwnsClient(
+export async function assertCoachOwnsClient(
+	ctx: Pick<QueryCtx, "db">,
 	target: Pick<Doc<"users">, "createdBy">,
 	coach: Pick<Doc<"users">, "_id">
-): void {
-	if (target.createdBy !== coach._id) {
-		throw new ConvexError("Accès réservé au coach de cette cliente.");
+): Promise<void> {
+	if (target.createdBy === coach._id) return;
+	if (target.createdBy === undefined || target.createdBy === null) {
+		const rows = await ctx.db
+			.query("users")
+			.filter((q) => q.eq(q.field("role"), "coach"))
+			.take(2);
+		const coaches = rows.filter((u) => u.role === "coach");
+		if (coaches.length === 1 && coaches[0]._id === coach._id) return;
 	}
+	throw new ConvexError("Accès réservé au coach de cette cliente.");
 }
 
 /* ── Semaines (mêmes règles que le formulaire d'origine) ───────────── */

@@ -739,7 +739,7 @@ export const setClientGoals = mutation({
 		}
 		// APPARTENANCE — les objectifs d'une cliente ne sont modifiables que par
 		// SON coach : même règle que `coach.updateClient` (helpers).
-		assertCoachOwnsClient(target, coach);
+		await assertCoachOwnsClient(ctx, target, coach);
 		if (
 			!isFinite(kcal) || kcal < 800 || kcal > 6000 ||
 			!isFinite(carbs) || carbs < 0 || carbs > 1000 ||

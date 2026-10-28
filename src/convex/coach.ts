@@ -477,7 +477,7 @@ export const updateClient = mutation({
 		// (même contrôle que le calibrage et le brouillon IA) : un autre coach
 		// est refusé même avec l'identifiant de la fiche en main. Règle
 		// partagée par client360, les objectifs et le calibrage.
-		assertCoachOwnsClient(target, coach);
+		await assertCoachOwnsClient(ctx, target, coach);
 		const patch: Partial<
 			Pick<UserRow, "prenom" | "nom" | "email" | "birthDate" | "startDate" | "heightCm" | "onboardingEnabled" | "gsheetUrl" | "coachingMode" | "aiConsentAt">
 		> = {};
@@ -810,7 +810,7 @@ export const client360 = query({
 		if (!target || target.role !== "client") throw new ConvexError("Client introuvable.");
 		// APPARTENANCE — la Vision 360 (carte Fibres comprise) est réservée au
 		// coach DE la cliente, même règle que `updateClient`.
-		assertCoachOwnsClient(target, coach);
+		await assertCoachOwnsClient(ctx, target, coach);
 
 		const [goalsRow, metrics, checkins, entries, stepsRows, sportRows, goalHistory] = await Promise.all([
 			ctx.db.query("clientGoals").withIndex("by_userId", (q) => q.eq("userId", userId)).first(),

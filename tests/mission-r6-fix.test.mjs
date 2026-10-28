@@ -4,8 +4,9 @@
  * 1. APPARTENANCE coach/cliente : `client360`, `journal.setClientGoals` et
  *    `calibrage.apply` appliquent EXACTEMENT la règle de `coach.updateClient`
  *    (helper partagé `assertCoachOwnsClient`) : coach propriétaire → OK,
- *    autre coach → refusé, cliente SANS `createdBy` → refusée comme dans la
- *    mise à jour de fiche ;
+ *    autre coach → refusé ; cliente SANS `createdBy` → repli « coach unique »
+ *    (accès SI ET SEULEMENT SI le coach appelant est l'unique compte coach,
+ *    sinon refusé comme dans la mise à jour de fiche) ;
  * 2. Volet « aliment planifié » (`editPlanned`) verrouille le scroll comme les
  *    autres volets ;
  * 3. Validation de phase : kcal = maintenance acceptée en perte de gras ;
@@ -126,11 +127,13 @@ function makeCtx() {
 const TOKEN = 'session-r6-coach';
 const TOKEN_AUTRE = 'session-r6-autre';
 
-/** Coach propriétaire + coach tiers + une cliente rattachée (ou non). */
-async function ctxAvecCliente({ createdBy = true } = {}) {
+/** Coach propriétaire + coach tiers (optionnel) + une cliente rattachée (ou non). */
+async function ctxAvecCliente({ createdBy = true, deuxCoachs = true } = {}) {
 	const ctx = makeCtx();
 	const coachId = await ctx.db.insert('users', { role: 'coach', disabled: false, name: 'Coach' });
-	const autreCoachId = await ctx.db.insert('users', { role: 'coach', disabled: false, name: 'Coach B' });
+	const autreCoachId = deuxCoachs
+		? await ctx.db.insert('users', { role: 'coach', disabled: false, name: 'Coach B' })
+		: null;
 	const userId = await ctx.db.insert('users', {
 		role: 'client',
 		disabled: false,
@@ -154,15 +157,28 @@ const GOALS = { kcal: 2000, carbs: 210, protein: 130, fat: 50 };
 
 /* ═══════════ 1 · Appartenance coach/cliente ═══════════ */
 
-test('règle partagée : coach propriétaire OK, autre coach refusé, sans createdBy refusé', () => {
-	assert.doesNotThrow(() => assertCoachOwnsClient({ createdBy: 'coach-1' }, { _id: 'coach-1' }));
-	assert.throws(
-		() => assertCoachOwnsClient({ createdBy: 'coach-1' }, { _id: 'coach-2' }),
+test('règle partagée : createdBy = le coach appelant → OK', async () => {
+	const { ctx, coachId } = await ctxAvecCliente();
+	await assertCoachOwnsClient(ctx, { createdBy: coachId }, { _id: coachId });
+});
+
+test('règle partagée : createdBy = un autre coach → refusé', async () => {
+	const { ctx, coachId, autreCoachId } = await ctxAvecCliente();
+	await assert.rejects(
+		() => assertCoachOwnsClient(ctx, { createdBy: autreCoachId }, { _id: coachId }),
 		(e) => /coach de cette cliente/i.test(e.message)
 	);
-	// MÊME comportement que coach.updateClient : l'absence de rattachement refuse.
-	assert.throws(
-		() => assertCoachOwnsClient({}, { _id: 'coach-1' }),
+});
+
+test('repli coach unique : createdBy absent + un seul coach → OK', async () => {
+	const { ctx, coachId } = await ctxAvecCliente({ createdBy: false, deuxCoachs: false });
+	await assertCoachOwnsClient(ctx, {}, { _id: coachId });
+});
+
+test('repli coach unique : createdBy absent + deux coachs → refusé', async () => {
+	const { ctx, coachId } = await ctxAvecCliente({ createdBy: false });
+	await assert.rejects(
+		() => assertCoachOwnsClient(ctx, {}, { _id: coachId }),
 		(e) => /coach de cette cliente/i.test(e.message)
 	);
 });
@@ -194,7 +210,22 @@ test('setClientGoals : un autre coach est refusé', async () => {
 	assert.equal(ctx.all('clientGoals').length, 0, 'aucune écriture refusée');
 });
 
-test('sans createdBy : setClientGoals refuse EXACTEMENT comme coach.updateClient', async () => {
+test('sans createdBy + coach unique : setClientGoals et updateClient passent (repli)', async () => {
+	const { ctx, userId } = await ctxAvecCliente({ createdBy: false, deuxCoachs: false });
+
+	const res = await journalConvex.setClientGoals._handler(ctx, {
+		sessionToken: TOKEN,
+		userId,
+		...GOALS
+	});
+	assert.deepEqual(res, { ok: true });
+	assert.equal(ctx.all('clientGoals').length, 1, 'objectifs écrits via le repli');
+
+	const resUpdate = await coachConvex.updateClient._handler(ctx, { sessionToken: TOKEN, userId, prenom: 'Léa' });
+	assert.ok(resUpdate, 'updateClient accepte la même cliente via le repli');
+});
+
+test('sans createdBy + deux coachs : setClientGoals refuse EXACTEMENT comme coach.updateClient', async () => {
 	const { ctx, userId } = await ctxAvecCliente({ createdBy: false });
 
 	const messageUpdate = await coachConvex.updateClient
@@ -218,13 +249,13 @@ test('sans createdBy : setClientGoals refuse EXACTEMENT comme coach.updateClient
 test('client360 et calibrage.apply utilisent la même règle partagée', () => {
 	const client360 = coachSrc.slice(coachSrc.indexOf('export const client360'), coachSrc.indexOf('export const sport360'));
 	assert.ok(client360.includes('const coach = await requireCoach(ctx, sessionToken)'));
-	assert.ok(client360.includes('assertCoachOwnsClient(target, coach)'), 'client360 vérifie l’appartenance');
+	assert.ok(client360.includes('assertCoachOwnsClient(ctx, target, coach)'), 'client360 vérifie l’appartenance');
 
 	const apply = calibrageSrc.slice(calibrageSrc.indexOf('export const apply'), calibrageSrc.indexOf('export const historique'));
-	assert.ok(apply.includes('assertCoachOwnsClient(target, coach)'), 'calibrage.apply vérifie l’appartenance');
+	assert.ok(apply.includes('assertCoachOwnsClient(ctx, target, coach)'), 'calibrage.apply vérifie l’appartenance');
 
 	const setGoals = journalSrc.slice(journalSrc.indexOf('export const setClientGoals'), journalSrc.indexOf('BASELINE LEGACY'));
-	assert.ok(setGoals.includes('assertCoachOwnsClient(target, coach)'), 'setClientGoals vérifie l’appartenance');
+	assert.ok(setGoals.includes('assertCoachOwnsClient(ctx, target, coach)'), 'setClientGoals vérifie l’appartenance');
 });
 
 /* ═══════════ 2 · Volet « aliment planifié » verrouillé ═══════════ */
