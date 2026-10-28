@@ -132,7 +132,7 @@ const TOKEN = 'session-c2c-4';
 async function ctxAvecCoach() {
 	const ctx = makeCtx();
 	const coachId = await ctx.db.insert('users', { role: 'coach', disabled: false, name: 'Coach' });
-	const userId = await ctx.db.insert('users', { role: 'client', disabled: false, name: 'Cliente Test' });
+	const userId = await ctx.db.insert('users', { role: 'client', disabled: false, name: 'Cliente Test', createdBy: coachId });
 	await ctx.db.insert('sessions', {
 		tokenHash: await hashToken(TOKEN),
 		userId: coachId,

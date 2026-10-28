@@ -6,7 +6,7 @@
  * phase effective et de la cohérence objectif / maintenance, jamais recopiée.
  *
  * Trois phases :
- *  - `perte_gras` (défaut historique, absent en base) : objectif < maintenance ;
+ *  - `perte_gras` (défaut historique, absent en base) : objectif ≤ maintenance ;
  *  - `maintenance` : objectif à ±5 % de la maintenance ;
  *  - `surplus` : objectif > maintenance, au plus +20 %.
  *
@@ -72,7 +72,8 @@ function borne(valeur: number): number {
  * maintenance reste facultative — son absence ne rend pas l'objectif invalide).
  *
  * Règles (bornes incluses sauf mention) :
- *  - perte_gras : kcal < maintenance ;
+ *  - perte_gras : kcal ≤ maintenance (égalité acceptée, comme l'ancienne
+ *    règle de production) ;
  *  - maintenance : maintenance −5 % ≤ kcal ≤ maintenance +5 % ;
  *  - surplus : maintenance < kcal ≤ maintenance +20 %.
  */
@@ -113,8 +114,10 @@ export function validerObjectifPhase(
 	}
 
 	if (phase === 'perte_gras') {
-		if (objectif >= maintenance) {
-			return `Objectif incohérent avec la phase « Perte de gras » : il doit rester inférieur à la maintenance (${maintenance} kcal).`;
+		// ÉGALITÉ ACCEPTÉE : objectif = maintenance reste une perte de gras
+		// valide (ancienne règle de production, ≤ et non <).
+		if (objectif > maintenance) {
+			return `Objectif incohérent avec la phase « Perte de gras » : il doit rester inférieur ou égal à la maintenance (${maintenance} kcal).`;
 		}
 		return null;
 	}

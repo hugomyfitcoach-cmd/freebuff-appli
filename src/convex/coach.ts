@@ -4,6 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { checkinStatus, coachingModeKind } from "./schema";
 import {
+	assertCoachOwnsClient,
 	assertE2eEmailAllowed,
 	EMAIL_RE,
 	addDaysISO,
@@ -474,10 +475,9 @@ export const updateClient = mutation({
 		if (!target || target.role !== "client") throw new ConvexError("Client introuvable.");
 		// APPARTENANCE — chaque coach ne modifie QUE ses propres clientes
 		// (même contrôle que le calibrage et le brouillon IA) : un autre coach
-		// est refusé même avec l'identifiant de la fiche en main.
-		if (target.createdBy !== coach._id) {
-			throw new ConvexError("Accès réservé au coach de cette cliente.");
-		}
+		// est refusé même avec l'identifiant de la fiche en main. Règle
+		// partagée par client360, les objectifs et le calibrage.
+		assertCoachOwnsClient(target, coach);
 		const patch: Partial<
 			Pick<UserRow, "prenom" | "nom" | "email" | "birthDate" | "startDate" | "heightCm" | "onboardingEnabled" | "gsheetUrl" | "coachingMode" | "aiConsentAt">
 		> = {};
@@ -805,9 +805,12 @@ export const client360 = query({
 		userId: v.id("users"),
 	},
 	handler: async (ctx, { sessionToken, userId }) => {
-		await requireCoach(ctx, sessionToken);
+		const coach = await requireCoach(ctx, sessionToken);
 		const target = await ctx.db.get(userId);
 		if (!target || target.role !== "client") throw new ConvexError("Client introuvable.");
+		// APPARTENANCE — la Vision 360 (carte Fibres comprise) est réservée au
+		// coach DE la cliente, même règle que `updateClient`.
+		assertCoachOwnsClient(target, coach);
 
 		const [goalsRow, metrics, checkins, entries, stepsRows, sportRows, goalHistory] = await Promise.all([
 			ctx.db.query("clientGoals").withIndex("by_userId", (q) => q.eq("userId", userId)).first(),

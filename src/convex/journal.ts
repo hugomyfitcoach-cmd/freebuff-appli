@@ -1,6 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
-import { addDaysISO, dateISOInTimeZone, getSessionUser, localTodayISO } from "./helpers";
+import { addDaysISO, assertCoachOwnsClient, dateISOInTimeZone, getSessionUser, localTodayISO } from "./helpers";
 import { kcalGoalForDate, withCurrentGoal } from "../lib/goalHistory";
 import { phaseEffective, validerObjectifPhase } from "../lib/phase";
 import { sportHabituelObjectifEnVigueur, type InstantaneCalibrageVigueur } from "../lib/perf";
@@ -737,6 +737,9 @@ export const setClientGoals = mutation({
 		if (!target || target.role !== "client") {
 			throw new ConvexError("Ce compte client n'existe pas.");
 		}
+		// APPARTENANCE — les objectifs d'une cliente ne sont modifiables que par
+		// SON coach : même règle que `coach.updateClient` (helpers).
+		assertCoachOwnsClient(target, coach);
 		if (
 			!isFinite(kcal) || kcal < 800 || kcal > 6000 ||
 			!isFinite(carbs) || carbs < 0 || carbs > 1000 ||

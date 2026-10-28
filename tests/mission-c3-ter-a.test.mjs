@@ -68,14 +68,13 @@ test('phaseDepuisMode : déficit → perte de gras', () => {
 
 /* ─── 2) Validation objectif / phase ─── */
 
-test('perte de gras : objectif strictement inférieur à la maintenance', () => {
+test('perte de gras : objectif inférieur ou égal à la maintenance (R6-fix)', () => {
 	assert.equal(validerObjectifPhase('perte_gras', 1700, 2000), null);
 	assert.equal(validerObjectifPhase('perte_gras', 1999, 2000), null);
-	const egal = validerObjectifPhase('perte_gras', 2000, 2000);
-	assert.match(egal, /Perte de gras/);
-	assert.match(egal, /inférieur à la maintenance \(2000 kcal\)/);
+	// R6-fix : l'ÉGALITÉ est acceptée — ancienne règle de production (≤).
+	assert.equal(validerObjectifPhase('perte_gras', 2000, 2000), null);
 	const auDessus = validerObjectifPhase('perte_gras', 2100, 2000);
-	assert.match(auDessus, /inférieur à la maintenance/);
+	assert.match(auDessus, /inférieur ou égal à la maintenance \(2000 kcal\)/);
 });
 
 test('maintenance : objectif à ±5 % de la maintenance', () => {

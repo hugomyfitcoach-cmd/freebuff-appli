@@ -12,8 +12,9 @@ import type { Id, Doc } from "./_generated/dataModel";
  *
  * Une SEULE requête `foodDetails(source, id)` sert les valeurs /100 g de
  * n'importe quel aliment déjà exposé par les recherches existantes :
- *  - `ciqual`    : référence ANSES embarquée (module SÉPARÉ ciqualDetails.ts,
- *                  jamais chargé par la recherche ni par ciqualNutrients.ts) ;
+ *  - `ciqual`    : référence ANSES embarquée (module ciqualDetails.ts, chargé
+ *                  transitivement par le module de recherche — importé ici, à
+ *                  la différence des seules données compactes de ciqual) ;
  *  - `food`      : produit OFF de la base locale / du cache ;
  *  - `custom`    : aliment personnel de la cliente (« Créés par moi ») ;
  *  - `reference` : aliment de référence G-Flux du coach.

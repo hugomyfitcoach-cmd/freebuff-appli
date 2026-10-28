@@ -210,7 +210,7 @@ export type ResultatsFicheCalibrage = {
 	alertePlafonds: string | null;
 	/** Attention au-delà de 25 % de déficit (null sinon). */
 	avertissementDeficitEleve: string | null;
-	/** Surplus élevé au-delà de 10 % (null sinon). */
+	/** Surplus élevé au-delà de 15 % (null sinon) — seuil `SURPLUS_PCT_ATTENTION`. */
 	avertissementSurplusEleve: string | null;
 	/** Effet de l'adaptation métabolique (kcal/jour) = MB × A/100 (affiché « −X kcal/jour »). */
 	adaptationEffetKcal: number;

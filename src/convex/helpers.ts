@@ -142,6 +142,25 @@ export async function getSessionUser(
 	return user;
 }
 
+/* ── Appartenance coach → cliente ──────────────────────────────────── */
+
+/**
+ * APPARTENANCE — un coach n'accède QU'AUX clientes qu'il a créées.
+ *
+ * Source UNIQUE de la règle (créée pour `coach.updateClient`) : le
+ * rattachement `users.createdBy` doit désigner le coach connecté. Une
+ * cliente SANS `createdBy` est donc REFUSÉE, exactement comme la mise à jour
+ * de fiche : aucune exception n'est ajoutée ici.
+ */
+export function assertCoachOwnsClient(
+	target: Pick<Doc<"users">, "createdBy">,
+	coach: Pick<Doc<"users">, "_id">
+): void {
+	if (target.createdBy !== coach._id) {
+		throw new ConvexError("Accès réservé au coach de cette cliente.");
+	}
+}
+
 /* ── Semaines (mêmes règles que le formulaire d'origine) ───────────── */
 
 /** Numéro de semaine ISO d'une date UTC (réplique du calcul du HTML d'origine). */

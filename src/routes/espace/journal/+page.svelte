@@ -3917,7 +3917,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	   la position exacte — à la fermeture comme au démontage (retour arrière). */
 	let fondFigé = false;
 	$effect(() => {
-		const locked = logOpen || !!qtyFood || !!editEntry || !!qtyMealSel || calOpen || dupOpen || mealCreateOpen || mealPhotoOpen || bilanOpen;
+		const locked = logOpen || !!qtyFood || !!editEntry || !!editPlanned || !!qtyMealSel || calOpen || dupOpen || mealCreateOpen || mealPhotoOpen || bilanOpen;
 		if (locked === fondFigé) return;
 		fondFigé = locked;
 		if (locked) lockScroll();

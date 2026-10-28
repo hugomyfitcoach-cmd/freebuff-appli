@@ -1,6 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
-import { addDaysISO, getSessionUser, localTodayISO } from "./helpers";
+import { addDaysISO, assertCoachOwnsClient, getSessionUser, localTodayISO } from "./helpers";
 import { bodyFatSeries } from "./metrics";
 import { DEFAULT_GOALS, baselineLegacyGoalHistory, loadGoalHistory, upsertGoalHistoryToday } from "./journal";
 import { CalibrageError, VERSION_FORMULES_CALIBRAGE } from "../lib/calibrage";
@@ -202,6 +202,9 @@ export const apply = mutation({
 		if (!target || target.role !== "client") {
 			throw new ConvexError("Ce compte client n'existe pas.");
 		}
+		// APPARTENANCE — seul le coach DE la cliente applique un calibrage
+		// (même règle que `coach.updateClient`, source unique dans helpers).
+		assertCoachOwnsClient(target, coach);
 		if (
 			!isFinite(kcal) || kcal < 800 || kcal > 6000 ||
 			!isFinite(carbs) || carbs < 0 || carbs > 1000 ||
