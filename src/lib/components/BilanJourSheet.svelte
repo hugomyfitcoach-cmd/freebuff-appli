@@ -181,14 +181,14 @@
 					</p>
 
 					<!-- Note d'estimation (FIX-FIBRES) : au moins un aliment du jour a
-					     des fibres inconnues (typiquement un produit du commerce dont
-					     Open Food Facts ne publie pas les fibres) → le total repose sur
-					     les aliments à référence nutritionnelle. Rien à signaler quand
-					     toutes les fibres du jour sont connues. -->
+					     des fibres inconnues (produit du commerce dont Open Food Facts ne
+					     publie pas les fibres, ou recette saisie avec ses seules macros)
+					     → le total repose sur les aliments à référence nutritionnelle.
+					     Rien à signaler quand toutes les fibres du jour sont connues. -->
 					{#if bilan.fibresInconnues > 0}
 						<p class="mt-2.5 text-[11px] leading-snug text-mist">
-							Estimation : certains produits du commerce (Open Food Facts) n'indiquent pas leurs
-							fibres. Le calcul repose surtout sur les aliments à référence nutritionnelle.
+							Estimation : certains produits du commerce et certaines recettes n'indiquent pas
+							leurs fibres. Le calcul repose surtout sur les aliments à référence nutritionnelle.
 						</p>
 					{/if}
 

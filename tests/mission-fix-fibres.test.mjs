@@ -94,7 +94,7 @@ test('volet : note « Estimation » seulement si des fibres sont inconnues', () 
 		'note conditionnée au nombre d’aliments sans fibres'
 	);
 	assert.ok(
-		bilanSheet.includes('Estimation : certains produits du commerce (Open Food Facts)'),
+		bilanSheet.includes('Estimation : certains produits du commerce et certaines recettes'),
 		'note discrète présente'
 	);
 	assert.ok(
