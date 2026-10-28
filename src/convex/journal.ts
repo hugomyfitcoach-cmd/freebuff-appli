@@ -1036,7 +1036,11 @@ type NutrimentPortion = {
 };
 
 /** Valeurs du PLAT ENTIER d'une recette + son poids (base du prorata mangé). */
-type RecetteDetails = NutrimentPortion & { totalWeight: number };
+type RecetteDetails = NutrimentPortion & {
+	totalWeight: number;
+	/** Somme PARTIELLE : au moins un ingrédient ne publie pas ses fibres. */
+	fibresPartielles: boolean;
+};
 
 /** Champs de détail communs à une fiche aliment et à une recette résolue. */
 const NUTRIMENTS = ["fiber", "sugars", "saturatedFat", "salt"] as const;
@@ -1055,13 +1059,16 @@ function pour(valeur: number | null | undefined, ratio: number): number | null {
  * résoluble (repas IA, saisie rapide, recette du coach) reste `null` : aucune
  * valeur n'est inventée.
  *
- * RECETTES DE LA CLIENTE (FIX-FIBRES-2) : une entrée `mealId` est résolue par
- * les ingrédients de sa recette, avec la MÊME logique que `foodDetails`
- * (référence Ciqual, produit OFF, fiche perso de la propriétaire), puis
- * rapportée à la quantité mangée (portion / poids du plat). Une valeur n'est
- * connue que si TOUS les ingrédients la publient. Les recettes du coach
- * (macros seules, aucun ingrédient rattaché) et toute recette non résolue
- * restent inconnues : aucune valeur n'est construite pour elles.
+ * RECETTES DE LA CLIENTE (FIX-FIBRES-2, règle FIX-FIBRES-3) : une entrée
+ * `mealId` est résolue par les ingrédients de sa recette, avec la MÊME logique
+ * que `foodDetails` (référence Ciqual, produit OFF, fiche perso de la
+ * propriétaire), puis rapportée à la quantité mangée (portion / poids du plat).
+ * La valeur d'un nutriment est la SOMME DES INGRÉDIENTS QUI LA PUBLIKENT : un
+ * ingrédient sans valeur n'annule plus les autres, il rend seulement la somme
+ * partielle — la recette compte alors dans `fibresInconnues` (note du volet)
+ * tout en gardant sa valeur. Aucun ingrédient ne publie la valeur → `null`.
+ * Les recettes du coach (macros seules, aucun ingrédient rattaché) et toute
+ * recette non résolue restent inconnues : aucune valeur n'est construite.
  *
  * Partagé par `dayNutritionDetails` (bilan d'une journée) et par la carte
  * « Fibres / jour » du CRM (7 journées terminées) : les deux passent ensuite
@@ -1130,12 +1137,12 @@ export async function bilanJourAliments(
 			saturatedFat: 0,
 			salt: 0,
 		};
-		/** Une valeur n'est connue que si TOUS les ingrédients la publient. */
-		const connue: Record<(typeof NUTRIMENTS)[number], boolean> = {
-			fiber: true,
-			sugars: true,
-			saturatedFat: true,
-			salt: true,
+		/** Nombre d'ingrédients qui publient la valeur — 0 → nutriment inconnu. */
+		const connue: Record<(typeof NUTRIMENTS)[number], number> = {
+			fiber: 0,
+			sugars: 0,
+			saturatedFat: 0,
+			salt: 0,
 		};
 		let poidsIngredients = 0;
 		for (const ing of rec.ingredients) {
@@ -1144,17 +1151,20 @@ export async function bilanJourAliments(
 			const part = ing.qtyGrams / 100;
 			for (const champ of NUTRIMENTS) {
 				const valeur = details?.[champ];
-				if (typeof valeur === "number" && Number.isFinite(valeur)) totals[champ] += valeur * part;
-				else connue[champ] = false;
+				if (typeof valeur === "number" && Number.isFinite(valeur)) {
+					totals[champ] += valeur * part;
+					connue[champ] += 1;
+				}
 			}
 		}
 		const totalWeight = rec.totalWeight > 0 ? rec.totalWeight : poidsIngredients;
 		const result: RecetteDetails = {
-			fiber: connue.fiber ? totals.fiber : null,
-			sugars: connue.sugars ? totals.sugars : null,
-			saturatedFat: connue.saturatedFat ? totals.saturatedFat : null,
-			salt: connue.salt ? totals.salt : null,
+			fiber: connue.fiber > 0 ? totals.fiber : null,
+			sugars: connue.sugars > 0 ? totals.sugars : null,
+			saturatedFat: connue.saturatedFat > 0 ? totals.saturatedFat : null,
+			salt: connue.salt > 0 ? totals.salt : null,
 			totalWeight,
+			fibresPartielles: connue.fiber > 0 && connue.fiber < rec.ingredients.length,
 		};
 		recetteCache.set(key, result);
 		return result;
@@ -1201,6 +1211,8 @@ export async function bilanJourAliments(
 	for (const entry of entries) {
 		/** Valeurs POUR LA PORTION mangée — `null` = inconnue, jamais 0 inventé. */
 		let portion: NutrimentPortion = { fiber: null, sugars: null, saturatedFat: null, salt: null };
+		/** Recette dont la somme des fibres est partielle (note du volet). */
+		let fibresPartielles = false;
 		if (entry.mealId) {
 			// RECETTE : somme des ingrédients référencés, rapportée à la quantité
 			// mangée (portion / poids du plat). La recette apparaît sous son nom
@@ -1214,6 +1226,7 @@ export async function bilanJourAliments(
 					saturatedFat: pour(recette.saturatedFat, ratio),
 					salt: pour(recette.salt, ratio),
 				};
+				fibresPartielles = recette.fibresPartielles;
 			}
 		} else {
 			const details = await detailsFor(entry);
@@ -1232,6 +1245,7 @@ export async function bilanJourAliments(
 			sucres: portion.sugars,
 			ags: portion.saturatedFat,
 			sel: portion.salt,
+			fibresPartielles,
 		});
 	}
 	return aliments;

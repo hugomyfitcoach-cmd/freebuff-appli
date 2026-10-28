@@ -5,7 +5,9 @@
  *    sucres, AGS et sel = somme des valeurs des ingrédients (même logique que
  *    `foodDetails`), rapportée à la quantité mangée. La recette apparaît sous
  *    son nom dans « D'où viennent tes fibres ».
- * 2) Une valeur n'est connue que si TOUS les ingrédients la publient.
+ * 2) Somme des ingrédients qui publient la valeur ; si au moins un ingrédient
+ *    ne publie pas ses fibres, la somme partielle reste affichée et la note
+ *    du volet est déclenchée (règle FIX-FIBRES-3).
  * 3) Recette du coach (macros seules, aucun ingrédient rattaché) : fibres
  *    inconnues + note d'estimation du volet.
  * 4) Recette d'une autre cliente : jamais lue, jamais comptée.
@@ -148,7 +150,7 @@ test('recette cliente mangée à une demi-portion → valeurs rapportées au man
 	assert.equal(bilan.sel, 0.4, '0,7514 g pour le plat → 0,4 g pour la portion');
 });
 
-test('une valeur n’est connue que si TOUS les ingrédients la publient', async () => {
+test('somme des ingrédients qui publient la valeur, note si les fibres sont partielles', async () => {
 	// Aliment personnel : fibres et sel publiés, sucres et AGS non publiés.
 	const ctx = await fakeCtx({
 		entries: [
@@ -196,11 +198,14 @@ test('une valeur n’est connue que si TOUS les ingrédients la publient', async
 	const bilan = await dayNutritionDetails._handler(ctx, { sessionToken: SESSION_TOKEN, date: DATE });
 	assert.equal(bilan.fibres, 27.2, 'fibres connues : 11,2 + 8 × 2 = 27,2 g');
 	assert.equal(bilan.sel, 0.4, 'sel connu : 0,011 + 0,2 × 2 = 0,411 → 0,4 g');
-	assert.equal(bilan.sucres, null, 'sucres inconnus : l’aliment perso ne les publie pas');
-	assert.equal(bilan.ags, null, 'AGS inconnus : l’aliment perso ne les publie pas');
+	// FIX-FIBRES-3 : l’aliment perso ne publie ni sucres ni AGS — la somme
+	// partielle des ingrédients connus est conservée (plus de `null` global).
+	assert.equal(bilan.sucres, 1, 'sucres : seuls les flocons les publient (1,04 → 1 g)');
+	assert.equal(bilan.ags, 1.4, 'AGS : seuls les flocons les publient (1,37 → 1,4 g)');
+	assert.equal(bilan.fibresInconnues, 0, 'fibres de tous les ingrédients connues → aucune note');
 });
 
-test('ingrédient sans référence → recette non résolue, aucune valeur inventée', async () => {
+test('ingrédient sans référence → somme partielle conservée, note affichée', async () => {
 	const ctx = await fakeCtx({
 		entries: [
 			{
@@ -233,11 +238,13 @@ test('ingrédient sans référence → recette non résolue, aucune valeur inven
 	});
 
 	const bilan = await dayNutritionDetails._handler(ctx, { sessionToken: SESSION_TOKEN, date: DATE });
-	assert.equal(bilan.fibres, null, 'un ingrédient non résolu → fibres de la recette inconnues');
-	assert.equal(bilan.sucres, null);
-	assert.equal(bilan.ags, null);
-	assert.equal(bilan.sel, null);
-	assert.equal(bilan.fibresInconnues, 1, 'la recette est comptée comme fibres inconnues');
+	// FIX-FIBRES-3 : l’ingrédient non référencé n’annule plus les flocons —
+	// 11,2 × 0,5 = 5,6 g, somme partielle conservée et signalée.
+	assert.equal(bilan.fibres, 5.6, 'somme des ingrédients dont les fibres sont connues');
+	assert.equal(bilan.sucres, 0.5, 'sucres des flocons seuls (1,04 × 0,5)');
+	assert.equal(bilan.ags, 0.7, 'AGS des flocons seuls (1,37 × 0,5)');
+	assert.equal(bilan.sel, 0, 'sel des flocons seuls (0,011 × 0,5)');
+	assert.equal(bilan.fibresInconnues, 1, 'la recette reste comptée comme fibres inconnues');
 });
 
 test('recette du coach (macros seules) → fibres inconnues + note du volet', async () => {

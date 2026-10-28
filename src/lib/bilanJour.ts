@@ -44,6 +44,12 @@ export type BilanJourAliment = {
 	sucres: number | null;
 	ags: number | null;
 	sel: number | null;
+	/**
+	 * Somme PARTIELLE des fibres : une recette dont au moins un ingrédient ne
+	 * publie pas ses fibres. La valeur connue est conservée (jamais effacée)
+	 * mais la note « Estimation » du volet reste affichée.
+	 */
+	fibresPartielles?: boolean;
 };
 
 /** Source de fibres affichée (« pain complet 15 g ») — nom regroupé. */
@@ -187,8 +193,9 @@ export function bilanJour(
 		repere: repereFibres(objectifKcal),
 		sourcesFibres: sourcesFibres(aliments),
 		// Aucune valeur n'est inventée : ce compteur ne remplace jamais un
-		// total, il signale seulement que la couverture n'est pas totale.
-		fibresInconnues: aliments.filter((a) => !estNombre(a.fibres)).length
+		// total, il signale seulement que la couverture n'est pas totale. Une
+		// recette à somme partielle (un ingrédient sans fibres) en fait partie.
+		fibresInconnues: aliments.filter((a) => !estNombre(a.fibres) || a.fibresPartielles === true).length
 	};
 }
 
