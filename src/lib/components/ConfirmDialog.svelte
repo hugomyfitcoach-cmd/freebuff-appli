@@ -62,12 +62,26 @@
 	let cancelButton = $state<HTMLButtonElement>();
 	let confirmButton = $state<HTMLButtonElement>();
 
-	// Le focus entre dans la modale à l'ouverture et revient au déclencheur
-	// à la fermeture (clavier et lecteurs d'écran restent dans le contexte).
+	// Premier champ de saisie du snippet `children` (ex. renommage de séance).
+	// Un dialogue qui contient un champ doit y placer le focus : sinon les
+	// frappes partent sur « Annuler » et le champ reste inutilisable.
+	function firstField(): HTMLElement | null {
+		if (!dialogEl) return null;
+		return dialogEl.querySelector<HTMLElement>(
+			'input:not([disabled]):not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), textarea:not([disabled]), select:not([disabled])'
+		);
+	}
+
+	// Le focus entre dans la modale à l'ouverture (champ de saisie s'il y en a
+	// un, sinon « Annuler » : une action destructive ne part jamais d'un
+	// Entrée réflexe) et revient au déclencheur à la fermeture.
 	$effect(() => {
 		if (!open) return;
 		const previous = document.activeElement as HTMLElement | null;
-		cancelButton?.focus();
+		// `cancelButton` et `dialogEl` sont lus pour rejouer l'effet dès que le
+		// contenu du dialogue est monté.
+		const target = firstField() ?? cancelButton;
+		target?.focus();
 		return () => previous?.focus?.();
 	});
 
@@ -89,11 +103,21 @@
 			onCancel();
 			return;
 		}
+		// Entrée dans un champ de saisie = validation (le champ garde sinon son
+		// comportement natif) ; une zone de texte multiligne reste multiligne.
+		const target = event.target as HTMLElement | null;
+		const inSingleLineField =
+			!!target && (target.tagName === 'INPUT' || target.tagName === 'SELECT');
+		if (event.key === 'Enter' && inSingleLineField) {
+			event.preventDefault();
+			onConfirm();
+			return;
+		}
 		// Piège à focus simple : aucun élément de la modale ne s'échappe au Tab.
 		if (event.key === 'Tab') {
-			event.preventDefault();
 			const items = focusables();
 			if (items.length === 0) return;
+			event.preventDefault();
 			const index = items.indexOf(document.activeElement as HTMLElement);
 			const next = event.shiftKey
 				? items[(index <= 0 ? items.length : index) - 1]

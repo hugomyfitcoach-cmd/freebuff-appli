@@ -7,10 +7,15 @@
 	 *   couleurs que le Journal) — un jour sans données n'est JAMAIS un zéro ;
 	 * - Sélection d'un jour : calories consommées / objectif + % et les 3
 	 *   cartes circulaires macros du Journal (les % peuvent dépasser 100 %) ;
-	 * - Récap hebdo : moyennes sur les jours RÉELLEMENT renseignés seulement ;
-	 * - Graisse théorique estimée : déficit = maintenance cumulée − calories
-	 *   réellement consommées (≈ 7 700 kcal = 1 kg), JAMAIS à partir de
-	 *   l'objectif ; masqué si la maintenance n'est pas disponible.
+ * - Récap hebdo : moyennes sur les jours RÉELLEMENT renseignés seulement ;
+ * - Solde selon la phase (clientGoals.phase, via $lib/phase) :
+ *     · perte_gras : déficit = maintenance cumulée − calories consommées
+ *       (≈ 7 700 kcal = 1 kg), JAMAIS à partir de l'objectif ;
+ *     · surplus : surplus cumulé = calories − maintenance × jours, tuile
+ *       « Prise de poids estimée » ;
+ *     · maintenance : écart à la maintenance, tuile « Objectif : poids
+ *       stable ».
+ *   Masqué si la maintenance n'est pas disponible.
 	 *
 	 * Données : uniquement le journal existant (lecture pure) + objectifs
 	 * courants + maintenance existante. Aucun aliment recalculé.
@@ -22,6 +27,8 @@
 	import { currentLocalDay } from '$lib/currentDay.svelte';
 
 	import { noteMaintenanceSport, type PerfWeek } from '$lib/perf';
+	import { phaseEffective } from '$lib/phase';
+	import { kgDepuisKcal, soldeMaintenance } from '$lib/phaseAffichage';
 
 	let { data } = $props();
 
@@ -133,10 +140,15 @@
 		};
 	});
 
-	/* ————— Graisse théorique estimée (maintenance disponible uniquement) —————
-	   déficit cumulé = (maintenance × jours renseignés) − calories consommées.
-	   ≈ 7 700 kcal = 1 kg de graisse. JAMAIS calculée à partir de l'objectif. */
+	/* ————— Solde de la semaine selon la phase (maintenance disponible) —————
+	   perte_gras : déficit = (maintenance × jours) − calories consommées ;
+	   surplus : surplus = calories − maintenance × jours ;
+	   maintenance : écart à la maintenance (même calcul, signé).
+	   ≈ 7 700 kcal = 1 kg. JAMAIS calculé à partir de l'objectif. */
 	const KCAL_PER_KG = 7700;
+	/** Phase effective de la fiche — jamais recalculée depuis les chiffres. */
+	const phase = $derived(phaseEffective(week.goals));
+	/** Filet de sécurité historique : maintenance > objectif (perte de gras). */
 	const maintenance = $derived(
 		week.goals.maintenanceKcal && week.goals.maintenanceKcal > week.goals.kcal ? week.goals.maintenanceKcal : null
 	);
@@ -148,6 +160,23 @@
 		if (deficit <= 0) return null;
 		return Math.round((deficit / KCAL_PER_KG) * 100) / 100;
 	});
+	/* Maintenance de référence pour les phases maintenance / surplus (sans la
+	   condition « > objectif » du filet de perte de gras). */
+	const maintenanceReference = $derived(
+		week.goals.maintenanceKcal && week.goals.maintenanceKcal > 0 ? week.goals.maintenanceKcal : null
+	);
+	/** Solde cumulé mangé − maintenance × jours renseignés (positif = au-dessus). */
+	const soldeKcal = $derived(
+		soldeMaintenance({
+			mangeKcal: trackedDays.reduce((s, d) => s + d.totals.kcal, 0),
+			jours: trackedDays.length,
+			maintenanceKcal: maintenanceReference
+		})
+	);
+	/** Surplus cumulé : jamais négatif (aucun surplus = 0). */
+	const surplusKcal = $derived(soldeKcal === null ? null : Math.max(0, soldeKcal));
+	/** Prise de poids estimée (surplus ÷ 7 700). */
+	const priseKg = $derived(surplusKcal === null ? null : kgDepuisKcal(surplusKcal));
 
 	/* ————— Cartes circulaires macros (mêmes couleurs/icônes que le Journal) ————— */
 	const rings = $derived.by(() => {
@@ -343,19 +372,50 @@
 			</div>
 		{/if}
 
-		<!-- Perte de graisse théorique estimée (maintenance disponible uniquement, sinon masqué) -->
-		{#if theoreticalFatKg !== null && maintenance}
+		<!-- Solde de la semaine selon la phase (maintenance disponible uniquement) -->
+		{#if phase === 'perte_gras'}
+			{#if theoreticalFatKg !== null && maintenance}
+				<div class="mt-3 rounded-2xl border border-line bg-soft px-3.5 py-3">
+					<p class="flex items-start gap-1.5 text-sm font-semibold leading-snug text-ink">
+						<Icon name="scale" size={15} class="mt-0.5 shrink-0 text-brand" />
+						<span>Perte de graisse théorique estimée à ce stade de la semaine</span>
+					</p>
+					<p class="mt-1 whitespace-nowrap font-display text-[28px] font-black leading-none tracking-tight text-ink tabular-nums">
+						{String(theoreticalFatKg).replace('.', ',')}
+						<span class="text-base font-bold text-mist">kg</span>
+					</p>
+					<p class="mt-1.5 text-[11px] leading-snug text-mist">
+						Estimation indicative calculée uniquement sur les jours renseignés de la semaine, selon le déficit calorique cumulé à l'instant T.
+					</p>
+				</div>
+			{/if}
+		{:else if phase === 'surplus' && priseKg !== null}
 			<div class="mt-3 rounded-2xl border border-line bg-soft px-3.5 py-3">
 				<p class="flex items-start gap-1.5 text-sm font-semibold leading-snug text-ink">
 					<Icon name="scale" size={15} class="mt-0.5 shrink-0 text-brand" />
-					<span>Perte de graisse théorique estimée à ce stade de la semaine</span>
+					<span>Prise de poids estimée à ce stade de la semaine</span>
 				</p>
 				<p class="mt-1 whitespace-nowrap font-display text-[28px] font-black leading-none tracking-tight text-ink tabular-nums">
-					{String(theoreticalFatKg).replace('.', ',')}
+					{String(priseKg).replace('.', ',')}
 					<span class="text-base font-bold text-mist">kg</span>
 				</p>
 				<p class="mt-1.5 text-[11px] leading-snug text-mist">
-					Estimation indicative calculée uniquement sur les jours renseignés de la semaine, selon le déficit calorique cumulé à l'instant T.
+					Surplus cumulé : <strong class="font-bold text-ink">≈ {fmt(surplusKcal ?? 0)} kcal</strong> sur les jours renseignés.
+					Estimation théorique : une partie peut être du muscle si tu t'entraînes.
+				</p>
+			</div>
+		{:else if phase === 'maintenance' && soldeKcal !== null}
+			<div class="mt-3 rounded-2xl border border-line bg-soft px-3.5 py-3">
+				<p class="flex items-start gap-1.5 text-sm font-semibold leading-snug text-ink">
+					<Icon name="scale" size={15} class="mt-0.5 shrink-0 text-brand" />
+					<span>Objectif : poids stable</span>
+				</p>
+				<p class="mt-1 whitespace-nowrap font-display text-[28px] font-black leading-none tracking-tight text-ink tabular-nums">
+					{soldeKcal > 0 ? '+' : ''}{fmt(soldeKcal)}
+					<span class="text-base font-bold text-mist">kcal</span>
+				</p>
+				<p class="mt-1.5 text-[11px] leading-snug text-mist">
+					Écart à la maintenance (mangé − maintenance × jours renseignés) : la stabilité se lit sur les moyennes, pas sur une pesée isolée.
 				</p>
 			</div>
 		{/if}

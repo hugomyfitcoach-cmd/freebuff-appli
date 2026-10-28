@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, tick, untrack } from 'svelte';
+	import { onDestroy, onMount, tick, untrack } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
 	import { beforeNavigate } from '$app/navigation';
 	import { startBarcodeScanner, CameraPermissionError, normalizeProductCode, type BarcodeScannerHandle, type TorchHandle } from '$lib/barcodeScanner';
@@ -8,7 +8,10 @@
 	import { cookingBadgeOf } from '$lib/cookedState';
 	import { currentLocalDay } from '$lib/currentDay.svelte';
 	import { appWarm, firstVisit, isFresh, noteSync, restoreScroll, saveScroll } from '$lib/navMemory';
+	import { lockScroll, unlockScroll } from '$lib/scrollLock';
 	import JournalDay from '$lib/components/JournalDay.svelte';
+	import BilanJourSheet from '$lib/components/BilanJourSheet.svelte';
+	import type { BilanJourData } from '$lib/bilanJour';
 	import QuantitySheet from '$lib/components/QuantitySheet.svelte';
 	import FoodImg from '$lib/components/FoodImg.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -52,6 +55,8 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		ciqualLabel?: string;
 		/** Provenance de la fiche de référence (R3-bis) : jamais déduite de ciqualLabel. */
 		referenceSource?: 'ciqual' | 'gflux';
+		/** Fiche G-Flux d'origine (identité de la fiche nutritionnelle détaillée). */
+		referenceFoodId?: string;
 	};
 	/** Item PLANIFIÉ — plan coach ou préparation cliente : grisé, 0 impact header. */
 	type PlannedItem = {
@@ -78,6 +83,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		foodId?: string;
 		customFoodId?: string;
 		ciqualLabel?: string;
+		referenceFoodId?: string;
 	};
 	type DayData = {
 		date: string;
@@ -293,10 +299,71 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		d.setDate(d.getDate() + n);
 		setDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
 	}
+
+	/* ————— Bilan nutritionnel du jour (Missions R5c / R5c-sexies) —————
+	   Une seule requête à la lecture du jour (`dayNutritionDetails`), rejouée
+	   à chaque rafraîchissement / ajout d'aliment. Aucun calcul client : le
+	   serveur résout les valeurs connues et la couverture. Un jour VIDE renvoie
+	   un bilan à 0 (la carte Fibres reste affichée).
+
+	   Mission R5c-sexies — la requête part EN MÊME TEMPS que celle du journal
+	   (initialisation du composant, changement de jour), jamais après le
+	   montage : la carte Fibres est peinte dans la même image que les macros.
+	   Le résultat est gardé par DATE : un jour déjà vu s'affiche immédiatement,
+	   puis se revalide en silence. Une erreur n'est jamais bloquante — la carte
+	   affiche « — » et reste cliquable. */
+	type BilanEntry = { etat: 'chargement' | 'pret' | 'erreur'; data?: BilanJourData };
+	let bilanByDay = $state<Record<string, BilanEntry>>({});
+	let bilanOpen = $state(false);
+	let bilanSeq = 0;
+
+	/** Bilan du jour affiché (`null` tant qu'aucune donnée n'est en mémoire). */
+	const bilanJour = $derived(bilanByDay[date]?.data ?? null);
+	/** État de la carte Fibres du jour affiché — la carte existe toujours. */
+	const bilanEtat = $derived<'chargement' | 'pret' | 'erreur'>(bilanByDay[date]?.etat ?? 'chargement');
+
+	async function loadBilanJour(d: string) {
+		const seq = ++bilanSeq;
+		/* Rien en mémoire pour ce jour : état de chargement immédiat (la carte
+		   garde sa place, jauge vide). Une donnée déjà vue reste affichée. */
+		if (bilanByDay[d]?.etat !== 'pret') bilanByDay = { ...bilanByDay, [d]: { etat: 'chargement' } };
+		try {
+			const r = await fetch(`/api/journal/nutrition?date=${d}`);
+			if (seq !== bilanSeq) return; // une requête plus récente a pris la main
+			const j = await r.json();
+			if (seq !== bilanSeq) return;
+			const ok = r.ok && j && !j.error;
+			bilanByDay = { ...bilanByDay, [d]: ok ? { etat: 'pret', data: j as BilanJourData } : { etat: 'erreur' } };
+		} catch {
+			if (seq === bilanSeq) bilanByDay = { ...bilanByDay, [d]: { etat: 'erreur' } };
+		}
+	}
+
+	/** Carte Fibres → volet du bilan. Sans donnée (chargement / erreur), le tap
+	 *  relance la requête du jour : la carte reste cliquable, jamais un volet
+	 *  vide, et le journal n'est jamais bloqué. */
+	function openBilanJour() {
+		if (!bilanJour) {
+			void loadBilanJour(date);
+			return;
+		}
+		bilanOpen = true;
+	}
+
+	/* Démarrage de la requête DÈS l'initialisation du composant : les données du
+	   journal sont déjà servies par le serveur, la carte Fibres part donc en
+	   même temps que le rendu des macros (jamais un fetch « après montage »).
+	   Jamais exécuté pendant le rendu serveur. */
+	if (typeof window !== 'undefined') void loadBilanJour(date);
+
 	async function setDate(d: string) {
 		date = d;
 		loadingDay = true;
 		error = '';
+		bilanOpen = false;
+		/* Les DEUX requêtes (journal + bilan du jour) partent ensemble : la carte
+		   Fibres ne dépend jamais de la réponse du journal. */
+		void loadBilanJour(d);
 		try {
 			const r = await fetch(`/api/journal?date=${d}`);
 			const j = await r.json();
@@ -400,6 +467,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		if (date !== macroDay) {
 			macroDay = date;
 			macroDetail = null;
+			bilanOpen = false;
 		}
 	});
 
@@ -3713,6 +3781,8 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	});
 
 	onMount(() => {
+		/* Bilan du jour : requête DÉJÀ lancée à l'initialisation du composant
+		   (R5c-sexies) — rien à faire après le montage. */
 		document.addEventListener('keydown', (e) => {
 			if (logOpen || qtyFood || editEntry || qtyMealSel || macroDetail) return;
 			if (e.key === 'ArrowLeft') shiftDay(-1);
@@ -3844,6 +3914,8 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	/* ————— Navigation rapide : identifiant de route + re-fetch silencieux ————— */
 	const ROUTE = '/espace/journal';
 	async function syncDaySilently() {
+		/* Revalidation silencieuse : journal ET bilan du jour en parallèle. */
+		void loadBilanJour(date);
 		try {
 			const r = await fetch(`/api/journal?date=${date}`);
 			const j = await r.json();
@@ -3867,21 +3939,24 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		return () => io.disconnect();
 	});
 
-	/* Verrouille le scroll du fond quand un panneau plein écran est ouvert.
-	   Au déverrouillage (ou démontage de la page), on restaure overflow='' et
-	   on réconcilie le layout viewport iOS pour que la barre fixe du bas reste
-	   ancrée au bas de l'écran. */
+	/* Verrouille le défilement du fond quand un volet est ouvert — TOUS les
+	   volets du Journal (fiche aliment, repas, calendrier, bilan du jour…).
+	   Le document est le vrai conteneur qui défile : `overflow: hidden` sur le
+	   body ne suffit pas sur iPhone (R5c-quinquies). `lockScroll` fige donc le
+	   body `position: fixed` à sa position courante et `unlockScroll` restaure
+	   la position exacte — à la fermeture comme au démontage (retour arrière). */
+	let fondFigé = false;
 	$effect(() => {
-		const locked = logOpen || !!qtyFood || !!editEntry || !!qtyMealSel || calOpen || dupOpen || mealCreateOpen || mealPhotoOpen;
-		document.body.style.overflow = locked ? 'hidden' : '';
-		if (!locked && typeof window !== 'undefined') {
-			window.requestAnimationFrame(() => {
-				window.scrollTo(window.scrollX, window.scrollY);
-			});
-		}
-		return () => {
-			document.body.style.overflow = '';
-		};
+		const locked = logOpen || !!qtyFood || !!editEntry || !!editPlanned || !!qtyMealSel || calOpen || dupOpen || mealCreateOpen || mealPhotoOpen || bilanOpen;
+		if (locked === fondFigé) return;
+		fondFigé = locked;
+		if (locked) lockScroll();
+		else unlockScroll();
+	});
+	onDestroy(() => {
+		if (!fondFigé) return;
+		fondFigé = false;
+		unlockScroll();
 	});
 </script>
 
@@ -4120,6 +4195,9 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 			onCalCardMount={(el) => (calCardEl = el)}
 			onMacroCardsMount={(el) => (macroCardsEl = el)}
 			onTipDismiss={() => (tipDismissed = true)}
+			bilanJour={bilanJour}
+			bilanEtat={bilanEtat}
+			onOpenBilanJour={openBilanJour}
 			onPhoto={aiFlags.mealPhotoAi ? (meal) => openMealPhoto(meal as 'petit-dej' | 'dejeuner' | 'diner' | 'collation') : undefined}
 			/>
 		</div>
@@ -5808,6 +5886,9 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		mode="planned"
 		saving={plannedSheetBusy}
 		error={plannedSheetErr}
+		// Fiche nutritionnelle détaillée : identité de la fiche d'origine (R5b).
+		detailsSource={editPlanned.ciqualLabel ? 'ciqual' : editPlanned.foodId ? 'food' : editPlanned.referenceFoodId ? 'reference' : undefined}
+		detailsId={editPlanned.ciqualLabel ?? editPlanned.foodId ?? editPlanned.referenceFoodId}
 		onSave={(g, meal) => savePlannedQty(g, meal)}
 		onEat={eatFromSheet}
 		onReplace={replaceFromSheet}
@@ -5888,6 +5969,9 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	<QuantitySheet
 		food={editFood}
 		source={editFood.ciqual ? 'ciqual' : undefined}
+		// Fiche nutritionnelle détaillée : identité de l'entrée (R5b).
+		detailsSource={editEntry.ciqualLabel ? 'ciqual' : editEntry.foodId ? 'food' : editEntry.referenceFoodId ? 'reference' : undefined}
+		detailsId={editEntry.ciqualLabel ?? editEntry.foodId ?? editEntry.referenceFoodId}
 		mealDefs={MEAL_DEFS}
 		sheetTop={mobile ? vvTop : 0}
 		sheetHeight={mobile ? vvH : undefined}
@@ -5906,3 +5990,11 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		onClose={() => { editEntry = null; }}
 	/>
 {/if}
+
+<!-- ═══════════ Volet « Bilan nutritionnel du jour » (R5c) — même volet que les saisies rapides ═══════════ -->
+<BilanJourSheet
+	open={bilanOpen}
+	date={date}
+	bilan={bilanJour}
+	onClose={() => (bilanOpen = false)}
+/>

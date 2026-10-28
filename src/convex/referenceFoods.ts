@@ -117,6 +117,11 @@ export const list = query({
 				carbsG: r.carbsG,
 				fatG: r.fatG,
 				cookingState: r.cookingState,
+				// Détail facultatif (R5a) — undefined = non renseigné côté coach.
+				sugarsG: r.sugarsG,
+				fiberG: r.fiberG,
+				saturatedFatG: r.saturatedFatG,
+				saltG: r.saltG,
 				createdAt: r.createdAt,
 				updatedAt: r.updatedAt,
 			}))
@@ -132,6 +137,11 @@ const foodFields = {
 	fatG: v.number(),
 	/** Mode de cuisson facultatif — valeur validée par referenceFoodError. */
 	cookingState: v.optional(v.string()),
+	/** Détail nutritionnel facultatif /100 g (R5a) — validé par referenceFoodError. */
+	sugarsG: v.optional(v.number()),
+	fiberG: v.optional(v.number()),
+	saturatedFatG: v.optional(v.number()),
+	saltG: v.optional(v.number()),
 };
 
 /** Crée une fiche de référence (coach propriétaire uniquement). */
@@ -165,9 +175,18 @@ export const update = mutation({
 		if (error) throw new ConvexError(error);
 		// Les entrées passées (journal, plans) portent leur propre copie du nom
 		// et des valeurs : cette modification ne les touche jamais.
-		// `cookingState` est réécrit EXPLICITEMENT (undefined = « Non précisé » →
-		// le champ est retiré, la cuisson redétectée d'après le nom).
-		await ctx.db.patch(referenceFoodId, { ...input, cookingState: input.cookingState, updatedAt: Date.now() });
+		// `cookingState` et les 4 valeurs de détail sont réécrits EXPLICITEMENT
+		// (undefined = champ retiré : « Non précisé » pour la cuisson, valeur
+		// effacée pour le détail — un patch partiel conserverait l'ancienne).
+		await ctx.db.patch(referenceFoodId, {
+			...input,
+			cookingState: input.cookingState,
+			sugarsG: input.sugarsG,
+			fiberG: input.fiberG,
+			saturatedFatG: input.saturatedFatG,
+			saltG: input.saltG,
+			updatedAt: Date.now(),
+		});
 		return { ok: true, referenceFoodId };
 	},
 });

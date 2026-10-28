@@ -23,6 +23,14 @@
 import Icon from './Icon.svelte';
 import FoodImg from './FoodImg.svelte';
 import { currentLocalDay } from '$lib/currentDay.svelte';
+import {
+	etatJauge,
+	libellePhaseJauge,
+	phaseDesObjectifs,
+	type TonJauge
+} from '$lib/phaseAffichage';
+import { etatFibres, type BilanJourData } from '$lib/bilanJour';
+import { formatDetailValue } from '$lib/foodDetailsFormat';
 
 	type Entry = {
 		_id: string;
@@ -75,7 +83,8 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 	};
 	type Day = {
 		date: string;
-		goals: { kcal: number; carbs: number; protein: number; fat: number; maintenanceKcal?: number };
+		/** `phase` : phase effective de la fiche (absente = perte de gras). */
+		goals: { kcal: number; carbs: number; protein: number; fat: number; maintenanceKcal?: number; phase?: string };
 		goalsSet?: boolean;
 		entries: Entry[];
 		totals: { kcal: number; carbs: number; protein: number; fat: number };
@@ -106,6 +115,10 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 		onCalCardMount,
 		onMacroCardsMount,
 		onTipDismiss,
+		/** Bilan nutritionnel du jour (cliente) — `null` = masqué. */
+		bilanJour = null,
+		bilanEtat = 'inactif',
+		onOpenBilanJour,
 	}: {
 		day: Day;
 		mode?: 'client' | 'coach';
@@ -132,6 +145,13 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 		onCalCardMount?: (el: HTMLElement | undefined) => void;
 		onMacroCardsMount?: (el: HTMLElement | undefined) => void;
 		onTipDismiss?: () => void;
+		/** Bilan du jour (fibres, sucres, AGS, sel) — fourni par le Journal cliente. */
+		bilanJour?: BilanJourData | null;
+		/** État de la requête du bilan du jour : `inactif` = jamais demandé
+		 *  (CRM coach) → aucune carte. `chargement` / `erreur` affichent la carte
+		 *  immédiatement, à sa hauteur finale (R5c-sexies). */
+		bilanEtat?: 'inactif' | 'chargement' | 'pret' | 'erreur';
+		onOpenBilanJour?: () => void;
 	} = $props();
 
 	const MEAL_DEFS = [
@@ -296,31 +316,49 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 	const plannedItems = $derived(day.planned ?? []);
 	const plannedKcalTotal = $derived(Math.round(day.plannedTotals?.kcal ?? 0));
 	const remaining = $derived(Math.max(0, day.goals.kcal - totals.kcal));
-	/** Filet de sécurité : maintenance > objectif — sinon le comportement actuel est conservé. */
-	const maintenanceKcal = $derived(
-		day.goals.maintenanceKcal && day.goals.maintenanceKcal > day.goals.kcal ? day.goals.maintenanceKcal : null
+	/** Phase effective de la fiche — lue telle quelle (jamais déduite des chiffres). */
+	const phase = $derived(phaseDesObjectifs(day.goals));
+	/** Libellé « Phase : maintenance / surplus » sous la jauge (rien en perte de gras). */
+	const phaseJaugeLabel = $derived(libellePhaseJauge(phase));
+	/** État de la jauge par phase — module pur partagé ($lib/phaseAffichage). */
+	const jauge = $derived(
+		etatJauge(phase, {
+			total: totals.kcal,
+			objectifKcal: day.goals.kcal,
+			maintenanceKcal: day.goals.maintenanceKcal
+		})
 	);
+	/** Filet de sécurité : perte de gras uniquement (maintenance > objectif). */
+	const maintenanceKcal = $derived(jauge.filetActif ? (day.goals.maintenanceKcal ?? null) : null);
 	/** Échelle de la barre : la maintenance quand elle existe (zone filet comprise), sinon l'objectif. */
-	const barScale = $derived(maintenanceKcal ?? day.goals.kcal);
+	const barScale = $derived(jauge.cibleKcal);
 	const kcalPct = $derived(barScale > 0 ? Math.min(100, (totals.kcal / barScale) * 100) : 0);
-	const overGoal = $derived(totals.kcal > day.goals.kcal);
+	const overGoal = $derived(jauge.depasse);
 	const inSafetyNet = $derived(!!maintenanceKcal && totals.kcal > day.goals.kcal && totals.kcal <= maintenanceKcal);
-	const overMaintenance = $derived(!!maintenanceKcal && totals.kcal > maintenanceKcal);
+	const overMaintenance = $derived(jauge.depasseMaintenance);
 	/** Position du marqueur « Objectif » sur la barre (en % de l'échelle). */
 	const goalMarkPct = $derived(barScale > 0 ? (day.goals.kcal / barScale) * 100 : 0);
+	/** Teintes par ton — le rouge n'existe qu'en perte de gras. */
+	const TON_COULEUR: Record<TonJauge, string> = {
+		brand: '#1db954',
+		neutre: '#66716b',
+		warn: '#f59e0b',
+		danger: '#ef4444'
+	};
+	/** Couche VISUELLE (refonte premium) : correspondance ton → classes.
+	 *  AUCUNE logique : simple décoration dérivée de l'état de la jauge. */
+	const TON_CLASSES: Record<
+		TonJauge,
+		{ border: string; bg: string; badge: string; icon: string; soft: string; bar: string }
+	> = {
+		danger: { border: 'border-danger/40', bg: 'bg-danger-light/40', badge: 'bg-danger-light', icon: 'text-danger', soft: 'text-danger/80', bar: 'bg-danger' },
+		warn: { border: 'border-warn/50', bg: 'bg-warn-light/30', badge: 'bg-warn-light', icon: 'text-warn', soft: 'text-warn', bar: 'bg-warn' },
+		neutre: { border: 'border-line', bg: 'bg-soft/40', badge: 'bg-soft', icon: 'text-mist', soft: 'text-mist', bar: 'bg-mist' },
+		brand: { border: 'border-brand/30', bg: 'bg-brand-light/20', badge: 'bg-brand-light', icon: 'text-brand', soft: 'text-brand/80', bar: 'bg-brand' }
+	};
 	/** Teinte contextuelle des calories (filet de sécurité compris). */
-	const kcalTone = $derived(overMaintenance ? '#ef4444' : overGoal ? '#f59e0b' : '#1db954');
-	/** Couche VISUELLE (refonte premium) : correspondance état → classes.
-	 *  AUCUNE logique : simple décoration dérivée des mêmes booléens existants
-	 *  (overGoal / overMaintenance / inSafetyNet) — bordure teintée, fond
-	 *  légèrement teinté, couleurs du badge et du statut. */
-	const cardTone = $derived(
-		overMaintenance
-			? { border: 'border-danger/40', bg: 'bg-danger-light/40', badge: 'bg-danger-light', icon: 'text-danger', soft: 'text-danger/80', bar: 'bg-danger' }
-			: overGoal
-				? { border: 'border-warn/50', bg: 'bg-warn-light/30', badge: 'bg-warn-light', icon: 'text-warn', soft: 'text-warn', bar: 'bg-warn' }
-				: { border: 'border-brand/30', bg: 'bg-brand-light/20', badge: 'bg-brand-light', icon: 'text-brand', soft: 'text-brand/80', bar: 'bg-brand' }
-	);
+	const kcalTone = $derived(TON_COULEUR[jauge.ton]);
+	const cardTone = $derived(TON_CLASSES[jauge.ton]);
 
 	function mealEntries(meal: string) {
 		return day.entries.filter((e) => e.meal === meal);
@@ -351,6 +389,27 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 		{ label: 'Protéines', icon: 'drumstick', color: '#3b82f6', eaten: macrosShown.protein, goal: day.goals.protein },
 		{ label: 'Lipides', icon: 'droplet', color: '#f97316', eaten: macrosShown.fat, goal: day.goals.fat },
 	]);
+	/* Carte « Fibres » (cliente uniquement) :
+	   - jour VIDE : 0 g / repère et jauge vide, comme les anneaux macros à 0 % ;
+	   - jour renseigné : trois états sobres selon la couverture — jamais de rouge. */
+	const fibresLine = $derived(
+		compact && bilanJour
+			? bilanJour.aliments > 0
+				? etatFibres(bilanJour.fibres, bilanJour.repere, bilanJour.couverture)
+				: etatFibres(0, bilanJour.repere, 100)
+			: null
+	);
+	/* Mission R5c-sexies — la carte est rendue DÈS la première image côté
+	   cliente, même sans donnée : elle garde sa hauteur finale pendant le
+	   chargement (valeur neutre, jauge vide) et en cas d'erreur (« — », carte
+	   toujours cliquable). Aucun saut de mise en page à l'arrivée des fibres.
+	   `inactif` (CRM coach, aucune requête) → aucune carte, rendu inchangé. */
+	const fibresCard = $derived(compact && bilanEtat !== 'inactif');
+	/** Données pas encore là (hors erreur) : valeur neutre pulsée. */
+	const fibresLoading = $derived(fibresCard && !fibresLine && bilanEtat !== 'erreur');
+	/** Requête en échec : « — », le journal n'est jamais bloqué. */
+	const fibresError = $derived(fibresCard && !fibresLine && bilanEtat === 'erreur');
+
 	function isSel(id: string) {
 		return selIds?.has(id) ?? false;
 	}
@@ -373,17 +432,17 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 	<div class="flex items-start justify-between {compact ? 'gap-3' : 'gap-3'} md:gap-4">
 		<div class="min-w-0">
 			<p class="{compact ? 'text-[15px]' : 'text-sm'} font-bold text-[#3a4540]">
-				{overGoal ? (overMaintenance ? 'Maintenance dépassée de' : 'Objectif dépassé de') : 'Il te reste'}
+				{overGoal ? (overMaintenance ? 'Maintenance dépassée de' : phase === 'perte_gras' ? 'Objectif dépassé de' : 'Au-dessus de l’objectif de') : 'Il te reste'}
 			</p>
 			<p class="mt-0.5 flex items-baseline gap-2">
 				<span class="font-black leading-[1.05] tracking-[-0.04em] text-ink tabular-nums {compact ? 'text-[40px]' : 'text-4xl md:text-[40px]'}">
-					{overGoal ? (overMaintenance ? fmt(totals.kcal - (maintenanceKcal ?? day.goals.kcal)) : fmt(totals.kcal - day.goals.kcal)) : fmt(remaining)}
+					{overGoal ? fmt(jauge.depassementKcal) : fmt(remaining)}
 				</span>
 				<span class="{compact ? 'text-[17px]' : 'text-[15px] md:text-[17px]'} font-bold text-mist">kcal</span>
 			</p>
 		</div>
 		<span class="grid {compact ? 'h-[42px] w-[42px] rounded-[21px]' : 'h-10 w-10 md:h-[42px] md:w-[42px] md:rounded-[21px]'} shrink-0 place-items-center rounded-full bg-white {cardTone.badge}" style:box-shadow="0 6px 16px -8px rgba(15,21,18,0.3)" aria-hidden="true">
-			<Icon name={overMaintenance ? 'bell' : 'shieldCheck'} size={compact ? 24 : 20} class={cardTone.icon} />
+			<Icon name={overMaintenance ? 'bell' : overGoal && phase !== 'perte_gras' ? 'info' : 'shieldCheck'} size={compact ? 24 : 20} class={cardTone.icon} />
 		</span>
 	</div>
 	{#if compact}
@@ -423,6 +482,9 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 			{/if}
 		</span>
 	</div>
+	{#if phaseJaugeLabel}
+		<p class="mt-1.5 text-[11px] font-semibold text-mist">{phaseJaugeLabel}</p>
+	{/if}
 </section>
 
 <!-- Macros type FOOD : le RING est l'élément visuel principal de la card.
@@ -469,9 +531,90 @@ import { currentLocalDay } from '$lib/currentDay.svelte';
 		<p class="{macrosPlanned ? 'text-mist' : 'text-ink'} {compact ? 'mt-1.5 text-[12.5px]' : 'mt-0.5 text-[12.5px]'}">
 			<strong class="font-bold tabular-nums {macrosPlanned ? 'text-mist' : 'text-ink'}">{fmt(Math.round(ring.eaten))}</strong><span class="text-mist">/{fmt(ring.goal)}g</span>
 		</p>
-	</div>
+		</div>
 	{/each}
 </section>
+
+<!-- Carte FIBRES DU JOUR (Missions R5c-ter / R5c-sexies) — seule carte pleine
+     largeur sous les 3 cartes macros : icône, libellé / valeur, jauge et chevron.
+     La CARTE ENTIÈRE est le bouton d'ouverture du volet (plus aucun lien texte).
+     Couleur PROPRE aux fibres (`fibres`, sarcelle) : jamais le vert des
+     calories et des repas. Jauge pleine quand la couverture est complète,
+     grise quand le total est un minimum, absente quand les données sont
+     insuffisantes. Jamais de rouge. Jour vide : « 0 g / repère », jauge vide.
+
+     R5c-sexies — la carte est rendue DÈS la première image côté cliente :
+     pendant le chargement la valeur est un gris neutre pulsé et la jauge est
+     vide, en cas d'erreur elle affiche « — » et reste cliquable. La jauge et
+     sa légende occupent une hauteur RÉSERVÉE : les fibres qui arrivent ne
+     décalent jamais les repas (aucun saut de mise en page). -->
+{#if fibresCard}
+	<button
+		type="button"
+		class="mb-3.5 flex w-full items-center gap-3 rounded-[20px] border border-[#EEF1EF] bg-white px-3 py-2.5 text-left shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_22px_-18px_rgba(15,21,18,0.18)] transition active:scale-[0.99]"
+		aria-label="Voir le bilan nutritionnel du jour"
+		aria-busy={fibresLoading}
+		onclick={() => onOpenBilanJour?.()}
+	>
+		<!-- Icône : carré pâle aux couleurs des fibres (même gabarit que les repas). -->
+		<span
+			aria-hidden="true"
+			class="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[11px] bg-fibres-light text-fibres-deep"
+		>
+			<Icon name="leaf" size={18} />
+		</span>
+		<!-- Centre : libellé / valeur sur une ligne, jauge pleine largeur dessous. -->
+		<div class="min-w-0 flex-1">
+			<div class="flex min-w-0 items-baseline justify-between gap-2">
+				{#if fibresError}
+					<span class="shrink-0 text-[13px] font-bold text-ink">Fibres</span>
+					<span class="shrink-0 text-[13px] font-bold text-mist tabular-nums" aria-label="Fibres indisponibles"
+						>—</span
+					>
+				{:else if fibresLoading}
+					<span class="shrink-0 text-[13px] font-bold text-ink">Fibres</span>
+					<span class="shrink-0 animate-pulse text-[13px] font-bold text-mist tabular-nums" aria-hidden="true">—</span>
+					<span class="sr-only">Chargement des fibres</span>
+				{:else if fibresLine?.mention === 'insuffisant'}
+					<span class="min-w-0 flex-1 truncate text-[12px] font-semibold leading-snug text-mist">
+						Fibres : pas assez de données aujourd'hui
+					</span>
+				{:else if fibresLine}
+					<span class="shrink-0 text-[13px] font-bold text-ink">Fibres</span>
+					<span class="shrink-0 text-[13px] font-bold text-ink tabular-nums">
+						{#if fibresLine.mention === 'au-moins'}<span class="text-[10.5px] font-semibold text-mist"
+								>au moins </span
+							>{/if}{fibresLine.valeur === 0 ? '0' : formatDetailValue(fibresLine.valeur, 'g')} g{' '}<span
+							class="font-semibold text-mist">/ {bilanJour?.repere} g</span
+						>
+					</span>
+				{/if}
+			</div>
+			<!-- Hauteur RÉSERVÉE de la jauge : toujours présente, remplie quand
+			     les données sont là — les repas ne bougent jamais. -->
+			<div class="mt-1.5 h-2 w-full" aria-hidden="true">
+				{#if fibresLine?.jauge}
+					<div class="h-2 w-full overflow-hidden rounded-full bg-[#e8edea]">
+						<div
+							class="h-full rounded-full transition-[width] duration-500 ease-out {fibresLine.niveau === 'complete'
+								? 'bg-fibres'
+								: 'bg-mist'}"
+							style:width="{fibresLine.pct}%"
+						></div>
+					</div>
+				{:else if fibresLoading || fibresError}
+					<div class="h-2 w-full overflow-hidden rounded-full bg-[#e8edea]"></div>
+				{/if}
+			</div>
+			<!-- Légende : hauteur réservée elle aussi (état « données incomplètes »). -->
+			<p class="mt-1 h-[13px] text-[10.5px] font-semibold leading-[13px] text-mist">
+				{fibresLine?.niveau === 'partielle' ? 'Données incomplètes' : ''}
+			</p>
+		</div>
+		<!-- Chevron gris, centré verticalement. -->
+		<Icon name="chevronRight" size={18} class="shrink-0 self-center text-mist" />
+	</button>
+{/if}
 
 <!-- Repas -->
 {#each MEAL_DEFS as meal (meal.id)}

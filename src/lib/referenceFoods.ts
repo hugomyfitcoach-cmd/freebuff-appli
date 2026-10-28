@@ -51,15 +51,32 @@ export type ReferenceFoodInput = {
 	 *  poele, frit, conserve, cuit, neutre) — FACULTATIF. Renseigné, il pilote le
 	 *  badge de cuisson et le classement ; sinon détection d'après le nom. */
 	cookingState?: string;
+	/* ── Fiche nutritionnelle détaillée (R5a) — 4 valeurs FACULTATIVES /100 g,
+	   ajout seul : absentes = non renseigné (jamais un 0 inventé). ── */
+	sugarsG?: number;
+	fiberG?: number;
+	saturatedFatG?: number;
+	saltG?: number;
 };
 
 export type ReferenceFoodLike = ReferenceFoodInput & { _id?: string; coachId?: string };
+
+/** Valeur facultative : absente / vide → undefined ; sinon arrondi 0,1 g.
+ *  Une saisie non numérique reste NaN pour être refusée par la validation. */
+function optionalClean(value: unknown): number | undefined {
+	if (value === undefined || value === null || String(value).trim() === '') return undefined;
+	return round1(Number(value));
+}
 
 /** Trim + arrondi 0,1 g — la forme persistée (aucune autre transformation).
  *  `cookingState` n'est présent que s'il est renseigné (« Non précisé » = champ
  *  absent, jamais une valeur spéciale). */
 export function cleanReferenceFood(input: ReferenceFoodInput): ReferenceFoodInput {
 	const cookingState = String(input.cookingState ?? '').trim();
+	const sugarsG = optionalClean(input.sugarsG);
+	const fiberG = optionalClean(input.fiberG);
+	const saturatedFatG = optionalClean(input.saturatedFatG);
+	const saltG = optionalClean(input.saltG);
 	return {
 		name: String(input.name ?? '').trim(),
 		kcal: round1(Number(input.kcal)),
@@ -67,6 +84,10 @@ export function cleanReferenceFood(input: ReferenceFoodInput): ReferenceFoodInpu
 		carbsG: round1(Number(input.carbsG)),
 		fatG: round1(Number(input.fatG)),
 		...(cookingState ? { cookingState } : {}),
+		...(sugarsG !== undefined ? { sugarsG } : {}),
+		...(fiberG !== undefined ? { fiberG } : {}),
+		...(saturatedFatG !== undefined ? { saturatedFatG } : {}),
+		...(saltG !== undefined ? { saltG } : {}),
 	};
 }
 
@@ -93,6 +114,21 @@ export function referenceFoodError(input: ReferenceFoodInput): string | null {
 	}
 	if ([input.proteinG, input.carbsG, input.fatG].some((v) => Number(v) > REFERENCE_MACRO_MAX)) {
 		return `Chaque macro (protéines, glucides, lipides) doit rester entre 0 et ${REFERENCE_MACRO_MAX} g pour 100 g.`;
+	}
+	// Détail facultatif (R5a) : absent = non renseigné ; sinon 0 à 100 g /100 g.
+	const optionalValues: [unknown, string, string][] = [
+		[input.sugarsG, 'Les sucres (g pour 100 g)', 'doivent'],
+		[input.fiberG, 'Les fibres (g pour 100 g)', 'doivent'],
+		[input.saturatedFatG, 'Les acides gras saturés (g pour 100 g)', 'doivent'],
+		[input.saltG, 'Le sel (g pour 100 g)', 'doit'],
+	];
+	for (const [raw, label, verb] of optionalValues) {
+		if (raw === undefined || raw === null || String(raw).trim() === '') continue;
+		const value = Number(raw);
+		if (!isFinite(value) || value < 0) return `${label} ${verb} être un nombre positif.`;
+		if (value > REFERENCE_MACRO_MAX) {
+			return `${label} ${verb} rester entre 0 et ${REFERENCE_MACRO_MAX} g pour 100 g.`;
+		}
 	}
 	// Mode de cuisson facultatif : valeur vide = non précisé (détection par le
 	// nom) ; toute autre valeur doit être un état de cookedState.ts.

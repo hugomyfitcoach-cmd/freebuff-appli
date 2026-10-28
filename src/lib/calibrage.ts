@@ -114,8 +114,35 @@ export const BORNES = {
 	heuresTravail: { min: 0, max: 12, label: '0 à 12 h' },
 	ajustementTravail: { min: 0, max: 0.05, label: '0 à 0,05' },
 	budgetSemaine: { min: 0, max: 140_000, label: '0 à 140 000 kcal' },
-	deficitPct: { min: 0, max: 30, label: '0 à 30 % (0 = maintenance)' }
+	deficitPct: { min: 0, max: 30, label: '0 à 30 % (0 = maintenance)' },
+	surplusPct: { min: 0, max: 20, label: '0 à 20 %' }
 } as const;
+
+/* ─────────────────── Phase du calibrage : déficit · maintenance · surplus ─────────────────── */
+
+/**
+ * Phase énergétique du calibrage : `deficit` (défaut historique), `maintenance`
+ * ou `surplus`. Aucune phase n'est devinée : une valeur inconnue est refusée.
+ */
+export type ModePhase = 'deficit' | 'maintenance' | 'surplus';
+
+export const MODES_PHASE = ['deficit', 'maintenance', 'surplus'] as const;
+
+/** Seuil d'attention du surplus (% au-dessus de la maintenance totale). */
+export const SURPLUS_PCT_ATTENTION = 15;
+
+/** Message neutre au-delà de 15 % de surplus (le plafond reste 20 %). */
+export const SURPLUS_AVERTISSEMENT =
+	'Surplus élevé : prise de gras probable, à réserver à un cas précis.';
+
+/** Phase validée : absente → déficit (compatibilité des instantanés existants). */
+export function modePhase(valeur?: string | null): ModePhase {
+	if (valeur === undefined || valeur === null || valeur === '') return 'deficit';
+	if (valeur === 'deficit' || valeur === 'maintenance' || valeur === 'surplus') return valeur;
+	throw new CalibrageError(
+		`Phase inconnue : « deficit », « maintenance » ou « surplus » attendu (reçu « ${String(valeur)} »).`
+	);
+}
 
 type Bornes = { min: number; max: number; label: string };
 
@@ -953,8 +980,19 @@ export function budgetSemaineKcal(entree: {
 export function objectifSemaineKcal(entree: {
 	budgetSemaineKcal: number;
 	deficitPct?: number;
+	/** Phase : déficit par défaut (mêmes résultats qu'avant). */
+	mode?: ModePhase;
+	/** Surplus choisi (% au-dessus de la maintenance totale), 0 à 20. */
+	surplusPct?: number;
 }): number {
 	const budget = verifier(entree.budgetSemaineKcal, 'Budget de la semaine', BORNES.budgetSemaine);
+	const mode = modePhase(entree.mode);
+	/* Maintenance : l'objectif est la maintenance totale, sans pourcentage. */
+	if (mode === 'maintenance') return Math.round(budget);
+	if (mode === 'surplus') {
+		const surplus = verifierOption(entree.surplusPct, 'Surplus choisi', BORNES.surplusPct, 0);
+		return Math.round(budget * (1 + surplus / 100));
+	}
 	const deficit = verifierOption(entree.deficitPct, 'Déficit choisi', BORNES.deficitPct, 0);
 	return Math.round(budget * (1 - deficit / 100));
 }
@@ -967,14 +1005,20 @@ export type BilanObjectifSemaine = {
 	budgetSemaineKcal: number;
 	/** Déficit choisi (% du budget, 0 = maintenance). */
 	deficitPct: number;
-	/** Déficit de la semaine (kcal) = budget − objectif. */
+	/** Phase retenue (déficit par défaut). */
+	mode: ModePhase;
+	/** Surplus choisi (%) — 0 hors surplus. */
+	surplusPct: number;
+	/** Déficit de la semaine (kcal) = budget − objectif (NÉGATIF en surplus). */
 	deficitSemaineKcal: number;
 	/** Objectif de la semaine (kcal) — arrondi au kcal. */
 	objectifSemaineKcal: number;
-	/** Perte de graisse estimée (kg/semaine) = déficit semaine / 7 700. */
+	/** Perte de graisse estimée (kg/semaine) = déficit semaine / 7 700 (négative en surplus). */
 	perteGraisseKg: number;
-	/** Attention au-delà de 25 % de déficit (null sinon). */
+	/** Attention au-delà de 25 % de déficit (null sinon, et null hors déficit). */
 	avertissementDeficitEleve: string | null;
+	/** Surplus élevé au-delà de 15 % (null sinon, et null hors surplus). */
+	avertissementSurplusEleve: string | null;
 };
 
 /**
@@ -990,19 +1034,37 @@ export type BilanObjectifSemaine = {
 export function bilanObjectifSemaine(entree: {
 	budgetSemaineKcal: number;
 	deficitPct?: number;
+	/** Phase : déficit par défaut (mêmes résultats qu'avant). */
+	mode?: ModePhase;
+	/** Surplus choisi (% au-dessus de la maintenance totale), 0 à 20. */
+	surplusPct?: number;
 }): BilanObjectifSemaine {
 	const budget = verifier(entree.budgetSemaineKcal, 'Budget de la semaine', BORNES.budgetSemaine);
-	const deficitPct = verifierOption(entree.deficitPct, 'Déficit choisi', BORNES.deficitPct, 0);
-	const objectif = objectifSemaineKcal({ budgetSemaineKcal: budget, deficitPct });
+	const mode = modePhase(entree.mode);
+	const deficitPct =
+		mode === 'deficit'
+			? verifierOption(entree.deficitPct, 'Déficit choisi', BORNES.deficitPct, 0)
+			: 0;
+	const surplusPct =
+		mode === 'surplus'
+			? verifierOption(entree.surplusPct, 'Surplus choisi', BORNES.surplusPct, 0)
+			: 0;
+	const objectif = objectifSemaineKcal({ budgetSemaineKcal: budget, deficitPct, mode, surplusPct });
 	const deficitSemaine = arrondi(budget - objectif, 2);
 	return {
 		budgetSemaineKcal: budget,
 		deficitPct,
+		mode,
+		surplusPct,
 		deficitSemaineKcal: deficitSemaine,
 		objectifSemaineKcal: objectif,
 		perteGraisseKg: arrondi(deficitSemaine / KCAL_PAR_KG_GRAISSE, 2),
 		avertissementDeficitEleve:
-			deficitPct > DEFICIT_PCT_ATTENTION ? `Déficit au-delà de 25 % à prendre en compte.` : null
+			mode === 'deficit' && deficitPct > DEFICIT_PCT_ATTENTION
+				? `Déficit au-delà de 25 % à prendre en compte.`
+				: null,
+		avertissementSurplusEleve:
+			mode === 'surplus' && surplusPct > SURPLUS_PCT_ATTENTION ? SURPLUS_AVERTISSEMENT : null
 	};
 }
 

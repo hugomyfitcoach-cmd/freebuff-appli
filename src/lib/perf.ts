@@ -8,7 +8,15 @@ export type PerfDay = {
 	tracked: boolean;
 	totals: { kcal: number; carbs: number; protein: number; fat: number };
 };
-export type PerfGoals = { kcal: number; carbs: number; protein: number; fat: number; maintenanceKcal?: number };
+export type PerfGoals = {
+	kcal: number;
+	carbs: number;
+	protein: number;
+	fat: number;
+	maintenanceKcal?: number;
+	/** Phase effective de la fiche (absente = perte de gras). */
+	phase?: string;
+};
 export type PerfWeek = {
 	start: string;
 	end: string;

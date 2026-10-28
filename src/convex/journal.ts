@@ -1,7 +1,8 @@
 import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
-import { addDaysISO, dateISOInTimeZone, getSessionUser, localTodayISO } from "./helpers";
+import { addDaysISO, assertCoachOwnsClient, dateISOInTimeZone, getSessionUser, localTodayISO } from "./helpers";
 import { kcalGoalForDate, withCurrentGoal } from "../lib/goalHistory";
+import { phaseEffective, validerObjectifPhase } from "../lib/phase";
 import { sportHabituelObjectifEnVigueur, type InstantaneCalibrageVigueur } from "../lib/perf";
 import { FOOD_SEARCH_CANDIDATES, rankFoods } from "./foodRanking";
 import { applyKcalGuard, guardedKcal100, kcalNeedsRecalc } from "../lib/nutritionGuard";
@@ -10,7 +11,15 @@ import { attachThumbs, attachThumbsForFoodIds } from "./foodImages";
 import { tagFoodImgUrl } from "../lib/foodImgTag";
 import { ciqualFoodSource } from "./ciqualSource";
 import { resolveCiqualLabel } from "./ciqual";
-import { resolveReferenceFood } from "./referenceFoods";
+import { listReferenceFoodsForUser, resolveReferenceFood } from "./referenceFoods";
+import {
+	ciqualFoodDetails,
+	foodDetailsFromCustomFood,
+	foodDetailsFromOffFood,
+	foodDetailsFromReferenceFood,
+	type FoodDetails,
+} from "./foodDetails";
+import { bilanJour, type BilanJourAliment, type BilanJourData } from "../lib/bilanJour";
 import { foodFrequencyKey, rankFrequentFoods, type FreqEntry } from "../lib/foodFrequency";
 import { internal } from "./_generated/api";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
@@ -482,6 +491,11 @@ export const cacheFoods = mutation({
 				fiber100: v.optional(v.number()),
 				polyols100: v.optional(v.number()),
 				alcohol100: v.optional(v.number()),
+				// Détail nutritionnel /100 g (R5a) — optionnels, conservés à
+				// l'insertion pour la future fiche (aucune valeur inventée).
+				sugars100: v.optional(v.number()),
+				saturatedFat100: v.optional(v.number()),
+				salt100: v.optional(v.number()),
 				imageUrl: v.optional(v.string()),
 				servingQty: v.optional(v.number()),
 				servingUnit: v.optional(v.string()),
@@ -711,8 +725,10 @@ export const setClientGoals = mutation({
 		stepGoal: v.optional(v.number()),
 		/** True pour retirer l'objectif de pas enregistré (champ vidé côté CRM). */
 		clearStepGoal: v.optional(v.boolean()),
+		/** Phase nutritionnelle : absente = inchangée (et perte de gras par défaut). */
+		phase: v.optional(v.union(v.literal("perte_gras"), v.literal("maintenance"), v.literal("surplus"))),
 	},
-	handler: async (ctx, { sessionToken, userId, kcal, carbs, protein, fat, maintenanceKcal, clearMaintenance, stepGoal, clearStepGoal }) => {
+	handler: async (ctx, { sessionToken, userId, kcal, carbs, protein, fat, maintenanceKcal, clearMaintenance, stepGoal, clearStepGoal, phase }) => {
 		const coach = await getSessionUser(ctx, sessionToken);
 		if (!coach || coach.role !== "coach") {
 			throw new ConvexError("Seul le coach peut définir les objectifs.");
@@ -721,6 +737,9 @@ export const setClientGoals = mutation({
 		if (!target || target.role !== "client") {
 			throw new ConvexError("Ce compte client n'existe pas.");
 		}
+		// APPARTENANCE — les objectifs d'une cliente ne sont modifiables que par
+		// SON coach : même règle que `coach.updateClient` (helpers).
+		await assertCoachOwnsClient(ctx, target, coach);
 		if (
 			!isFinite(kcal) || kcal < 800 || kcal > 6000 ||
 			!isFinite(carbs) || carbs < 0 || carbs > 1000 ||
@@ -730,29 +749,46 @@ export const setClientGoals = mutation({
 			throw new ConvexError("Objectifs hors plage. Vérifie les valeurs (kcal 800-6000, macros en grammes).");
 		}
 		if (
-			maintenanceKcal !== undefined &&
-			maintenanceKcal !== null &&
-			(!isFinite(maintenanceKcal) || maintenanceKcal < kcal || maintenanceKcal > 10000)
-		) {
-			throw new ConvexError("Maintenance invalide : elle doit être supérieure à l'objectif calorique (et ≤ 10000 kcal).");
-		}
-		if (
 			stepGoal !== undefined &&
 			stepGoal !== null &&
 			(!Number.isInteger(stepGoal) || stepGoal < 500 || stepGoal > 100000)
 		) {
 			throw new ConvexError("Objectif de pas invalide (entre 500 et 100 000 pas).");
 		}
-		// Valeurs optionnelles réellement à écrire (les champs absents ne sont
-		// jamais écrasés ; un clear explicite les retire).
-		const opt: { maintenanceKcal?: number; stepGoal?: number } = {};
-		if (maintenanceKcal !== undefined && maintenanceKcal !== null) opt.maintenanceKcal = maintenanceKcal;
-		if (stepGoal !== undefined && stepGoal !== null) opt.stepGoal = stepGoal;
 
 		const existing = await ctx.db
 			.query("clientGoals")
 			.withIndex("by_userId", (q) => q.eq("userId", userId))
 			.first();
+
+		/* Cohérence objectif / maintenance selon la PHASE (même règle que
+		   `calibrage.apply` et le formulaire coach — $lib/phase) : en surplus
+		   l'objectif dépasse la maintenance, en maintenance il reste à ±5 %.
+		   Maintenance effective = valeur envoyée, sinon celle déjà enregistrée
+		   (jamais écrasée par un champ vide côté CRM). */
+		if (
+			maintenanceKcal !== undefined &&
+			maintenanceKcal !== null &&
+			!isFinite(maintenanceKcal)
+		) {
+			throw new ConvexError("Maintenance invalide : un nombre fini est attendu.");
+		}
+		const phaseCible = phase ?? phaseEffective(existing);
+		const maintenanceEffective = clearMaintenance
+			? undefined
+			: maintenanceKcal ?? existing?.maintenanceKcal;
+		if (maintenanceEffective !== undefined && (!isFinite(maintenanceEffective) || maintenanceEffective > 10000)) {
+			throw new ConvexError("Maintenance invalide : elle doit rester ≤ 10 000 kcal.");
+		}
+		const messagePhase = validerObjectifPhase(phaseCible, kcal, maintenanceEffective);
+		if (messagePhase) {
+			throw new ConvexError(messagePhase);
+		}
+		// Valeurs optionnelles réellement à écrire (les champs absents ne sont
+		// jamais écrasés ; un clear explicite les retire).
+		const opt: { maintenanceKcal?: number; stepGoal?: number } = {};
+		if (maintenanceKcal !== undefined && maintenanceKcal !== null) opt.maintenanceKcal = maintenanceKcal;
+		if (stepGoal !== undefined && stepGoal !== null) opt.stepGoal = stepGoal;
 
 		// HISTORISATION : si l'objectif calorique CHANGE (ou première définition),
 		// la nouvelle valeur prend effet AUJOURD'HUI (Europe/Paris — date serveur
@@ -768,13 +804,14 @@ export const setClientGoals = mutation({
 
 		if (existing) {
 			const p: Partial<Doc<"clientGoals">> = { kcal, carbs, protein, fat };
+			if (phase !== undefined) p.phase = phase;
 			if (clearMaintenance) p.maintenanceKcal = undefined;
 			else if (opt.maintenanceKcal !== undefined) p.maintenanceKcal = opt.maintenanceKcal;
 			if (clearStepGoal) p.stepGoal = undefined;
 			else if (opt.stepGoal !== undefined) p.stepGoal = opt.stepGoal;
 			await ctx.db.patch(existing._id, p);
 		} else {
-			await ctx.db.insert("clientGoals", { userId, kcal, carbs, protein, fat, ...opt });
+			await ctx.db.insert("clientGoals", { userId, kcal, carbs, protein, fat, ...(phase ? { phase } : {}), ...opt });
 		}
 		return { ok: true };
 	},
@@ -973,6 +1010,160 @@ export const getDay = query({
 });
 
 /**
+ * Fiches G-Flux visibles par un compte, indexées par NOM — le journal ne
+ * conserve pas d'identifiant pour une entrée G-Flux (snapshot). Résolution
+ * partagée par `dayNutritionDetails` et la carte « Fibres / jour » du CRM :
+ * une seule définition de ce qu'un aliment du journal apporte.
+ */
+export async function referenceFoodsByName(
+	ctx: Pick<QueryCtx, "db">,
+	user: Doc<"users">
+): Promise<Map<string, Doc<"referenceFoods">>> {
+	const referenceFoods = await listReferenceFoodsForUser(ctx, user);
+	const byName = new Map<string, Doc<"referenceFoods">>();
+	for (const food of referenceFoods) {
+		if (!byName.has(food.name)) byName.set(food.name, food);
+	}
+	return byName;
+}
+
+/**
+ * ENTRÉES DU JOURNAL → ALIMENTS DU BILAN (valeurs POUR LA PORTION) — SEULE
+ * source de résolution des fibres : OFF, fiche perso (propriétaire
+ * uniquement), Ciqual, G-Flux (résolue par son nom). Une entrée sans référence
+ * résoluble (repas IA, saisie rapide, recette) reste `null` : aucune valeur
+ * n'est inventée.
+ *
+ * Partagé par `dayNutritionDetails` (bilan d'une journée) et par la carte
+ * « Fibres / jour » du CRM (7 journées terminées) : les deux passent ensuite
+ * par `bilanJour`, jamais par un calcul de fibres parallèle.
+ */
+export async function bilanJourAliments(
+	ctx: Pick<QueryCtx, "db">,
+	ownerId: Id<"users">,
+	referenceByName: Map<string, Doc<"referenceFoods">>,
+	entries: Doc<"diaryEntries">[]
+): Promise<BilanJourAliment[]> {
+	const offCache = new Map<string, FoodDetails | null>();
+	const customCache = new Map<string, FoodDetails | null>();
+
+	/** Fiche /100 g d'une entrée — `null` = aucune référence résoluble. */
+	async function detailsFor(entry: Doc<"diaryEntries">): Promise<FoodDetails | null> {
+		if (entry.foodId) {
+			const key = entry.foodId as string;
+			if (!offCache.has(key)) {
+				const food = await ctx.db.get(entry.foodId);
+				offCache.set(key, food ? foodDetailsFromOffFood(food) : null);
+			}
+			return offCache.get(key) ?? null;
+		}
+		if (entry.customFoodId) {
+			const key = entry.customFoodId as string;
+			if (!customCache.has(key)) {
+				const food = await ctx.db.get(entry.customFoodId);
+				// Isolation stricte : jamais la fiche perso d'une autre cliente.
+				customCache.set(
+					key,
+					food && food.userId === ownerId ? foodDetailsFromCustomFood(food) : null
+				);
+			}
+			return customCache.get(key) ?? null;
+		}
+		if (entry.referenceSource === "gflux") {
+			const food = referenceByName.get(entry.name);
+			return food ? foodDetailsFromReferenceFood(food) : null;
+		}
+		// Recette / repas personnel : les ingrédients ne sont pas résolubles ici.
+		// Repas IA : composants estimés, jamais une référence vérifiable.
+		if (entry.mealId || entry.mealGroup) return null;
+		// Ciqual : provenance explicite, ou libellé officiel retrouvé à la
+		// lecture (même règle que `withCiqualProvenance`).
+		if (entry.referenceSource === "ciqual" || resolveCiqualLabel(entry.name)) {
+			return ciqualFoodDetails(entry.name);
+		}
+		return null;
+	}
+
+	const aliments: BilanJourAliment[] = [];
+	for (const entry of entries) {
+		const details = await detailsFor(entry);
+		const ratio = entry.qtyGrams / 100;
+		/** Valeur pour la portion réellement consommée — jamais inventée. */
+		const pour = (v: number | null | undefined): number | null =>
+			typeof v === "number" && Number.isFinite(v) ? Math.round(v * ratio * 10) / 10 : null;
+		aliments.push({
+			name: entry.name,
+			kcal: entry.kcal,
+			fibres: pour(details?.fiber),
+			sucres: pour(details?.sugars),
+			ags: pour(details?.saturatedFat),
+			sel: pour(details?.salt),
+		});
+	}
+	return aliments;
+}
+
+/**
+ * BILAN NUTRITIONNEL DU JOUR (Mission R5c) — lecture seule, aucun schéma.
+ *
+ * Réutilise EXACTEMENT la logique de la fiche détaillée (`foodDetails`) :
+ *  - OFF    : produit de la base locale / du cache (`foodDetailsFromOffFood`) ;
+ *  - perso  : aliment de la cliente, propriétaire uniquement ;
+ *  - Ciqual : libellé officiel ANSES (provenance historique comprise) ;
+ *  - G-Flux : fiche du coach de la cliente, résolue par son NOM (le journal
+ *    ne conserve pas d'identifiant pour une entrée G-Flux — snapshot).
+ *
+ * Mêmes contrôles d'accès : session obligatoire, jour du compte courant
+ * uniquement, fiche perso d'une autre cliente jamais lue, référence G-Flux
+ * limitée au coach du compte. Une entrée sans référence résoluble (repas IA,
+ * saisie rapide, recette) reste NON couverte : aucune valeur n'est inventée.
+ *
+ * Un jour VIDE n'est pas une erreur : le bilan est renvoyé avec 0 aliment,
+ * 0 kcal et 0 g (la carte Fibres du Journal reste affichée, « 0 g / repère »).
+ */
+export const dayNutritionDetails = query({
+	args: {
+		sessionToken: v.optional(v.string()),
+		date: v.string(),
+	},
+	handler: async (ctx, { sessionToken, date }): Promise<BilanJourData | null> => {
+		const user = await getSessionUser(ctx, sessionToken);
+		if (!user) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
+		if (!isValidDateISO(date)) throw new ConvexError("Date invalide.");
+		const ownerId = user._id;
+
+		const [entries, goalsRow, goalHistory] = await Promise.all([
+			ctx.db
+				.query("diaryEntries")
+				.withIndex("by_user_date", (q) => q.eq("userId", user._id).eq("date", date))
+				.order("asc")
+				.collect(),
+			ctx.db
+				.query("clientGoals")
+				.withIndex("by_userId", (q) => q.eq("userId", user._id))
+				.first(),
+			loadGoalHistory(ctx, user._id),
+		]);
+
+		// Objectif calorique DATÉ — celui affiché en haut du Journal, jamais
+		// les kcal mangées.
+		const objectifKcal = kcalGoalForDate(
+			goalHistory,
+			date,
+			(goalsRow?.kcal ?? DEFAULT_GOALS.kcal) as number
+		);
+
+		// Fiches G-Flux visibles par le compte (celles de son coach) : résolues
+		// par nom, aucune écriture, aucun identifiant inventé sur l'entrée.
+		// Résolution et calcul partagés avec la carte « Fibres / jour » du CRM.
+		const referenceByName = await referenceFoodsByName(ctx, user);
+		const aliments = await bilanJourAliments(ctx, ownerId, referenceByName, entries);
+
+		return bilanJour(aliments, objectifKcal);
+	},
+});
+
+/**
  * Semaine complète (lundi → dimanche) — page « Performance » + carte Accueil.
  *
  * Lecture pure du journal : totaux CONSOMMÉS par jour + objectifs courants.
@@ -1049,6 +1240,9 @@ export const getWeek = query({
 				protein: g.protein ?? DEFAULT_GOALS.protein,
 				fat: g.fat ?? DEFAULT_GOALS.fat,
 				maintenanceKcal: g.maintenanceKcal ?? undefined,
+				/* Phase effective (absente = perte de gras) — exposée pour les vues
+				   qui en ont besoin, sans changer l'affichage existant. */
+				phase: phaseEffective(g),
 			},
 			/** Objectif calorique par date (Europe/Paris) — kcal pour today = goals.kcal. */
 			kcalGoalsByDate: Object.fromEntries(goalByDate),

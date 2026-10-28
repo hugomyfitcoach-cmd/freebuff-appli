@@ -36,7 +36,7 @@
 			audio: { mediaId: string; durationMs: number | null; url: string } | null;
 			read: boolean;
 		} | null;
-		tracking: { kcal: number; kcalGoal: number; maintenanceKcal: number | null };
+		tracking: { kcal: number; kcalGoal: number; maintenanceKcal: number | null; phase?: string };
 		/** MODE AUTONOMIE (absent sur anciens dashboards = coaching). */
 		coachingMode?: 'coaching' | 'autonomy';
 		/** La PWA peut demander la permission push (false en autonomie). */
@@ -96,6 +96,7 @@
 	import { macroRings, type MacroLineState } from '$lib/macros';
 	import { fmtWeightKg } from '$lib/weight';
 	import type { PerfDay, PerfGoals } from '$lib/perf';
+	import { etatJauge, phaseDesObjectifs, soldeMaintenance } from '$lib/phaseAffichage';
 	import { fmtMs, type CoachMediaItem } from '$lib/media';
 	import { shiftISO } from '$lib/averages';
 	import {
@@ -600,13 +601,19 @@
 		return `${fmt(recap.windowStart)} → ${fmt(recap.windowEnd)}`;
 	}
 
-	/** Filet de sécurité : maintenance > objectif (sinon comportement inchangé). */
-	const maintenanceKcal = $derived(
-		dash && dash.tracking.maintenanceKcal && dash.tracking.maintenanceKcal > dash.tracking.kcalGoal
-			? dash.tracking.maintenanceKcal
-			: null
+	/** Phase effective de la fiche (absente = perte de gras) — jamais déduite des chiffres. */
+	const phase = $derived(phaseDesObjectifs(dash?.tracking ?? null));
+	/** Jauge du jour par phase (même module pur que le Journal). */
+	const jauge = $derived(
+		etatJauge(phase, {
+			total: kcalToday,
+			objectifKcal: dash?.tracking.kcalGoal ?? 0,
+			maintenanceKcal: dash?.tracking.maintenanceKcal ?? null
+		})
 	);
-	const barScale = $derived(maintenanceKcal ?? dash?.tracking.kcalGoal ?? 1);
+	/** Filet de sécurité : perte de gras uniquement (maintenance > objectif). */
+	const maintenanceKcal = $derived(jauge.filetActif ? (dash?.tracking.maintenanceKcal ?? null) : null);
+	const barScale = $derived(jauge.cibleKcal || 1);
 	const kcalPct = $derived(dash ? Math.min(100, (kcalToday / barScale) * 100) : 0);
 	const goalMarkPct = $derived(barScale > 0 ? ((dash?.tracking.kcalGoal ?? 1) / barScale) * 100 : 0);
 
@@ -646,7 +653,8 @@
 		const goal = dash.tracking.kcalGoal;
 		if (kcalState === 'over-maintenance') return `Maintenance dépassée · Objectif ${fmt(goal)}`;
 		if (kcalState === 'filet') return `Dans ton filet de sécurité · Objectif ${fmt(goal)}`;
-		if (kcalState === 'over') return `Objectif dépassé de ${fmt(kcal - goal)} · Objectif ${fmt(goal)}`;
+		if (kcalState === 'over')
+			return `${phase === 'perte_gras' ? 'Objectif dépassé de' : 'Au-dessus de l’objectif de'} ${fmt(kcal - goal)} · Objectif ${fmt(goal)}`;
 		if (kcalState === 'aligned') return `Objectif ${fmt(goal)} respecté`;
 		return `Il te reste ${fmt(Math.max(0, goal - kcal))} · Objectif ${fmt(goal)}`;
 	});
@@ -680,6 +688,8 @@
 			? Math.min(100, Math.round((perfKcalAvg / perfKcalGoal) * 100))
 			: 0
 	);
+	/** Phase de la semaine affichée (goals du journal, sinon tracking du dashboard). */
+	const perfPhase = $derived(phaseDesObjectifs(perfWeek?.goals ?? dash?.tracking ?? null));
 	/** Déficit cumulé estimé sur la semaine à ce jour (0 si un jour dépasse sa cible). */
 	const perfDeficit = $derived.by(() => {
 		if (!perfWeek || perfTracked.length === 0) return null;
@@ -689,6 +699,35 @@
 		}
 		return deficit;
 	});
+	/** Maintenance de référence (positive), pour les phases maintenance / surplus. */
+	const perfMaintenance = $derived(
+		perfWeek?.goals.maintenanceKcal && perfWeek.goals.maintenanceKcal > 0 ? perfWeek.goals.maintenanceKcal : null
+	);
+	/** Solde mangé − maintenance × jours renseignés (positif = au-dessus). */
+	const perfSolde = $derived(
+		soldeMaintenance({
+			mangeKcal: perfTracked.reduce((s, d) => s + d.totals.kcal, 0),
+			jours: perfTracked.length,
+			maintenanceKcal: perfMaintenance
+		})
+	);
+	/** Valeur affichée : déficit (perte), surplus jamais négatif, écart signé. */
+	const perfSoldeValue = $derived(
+		perfPhase === 'perte_gras'
+			? perfDeficit
+			: perfSolde === null
+				? null
+				: perfPhase === 'surplus'
+					? Math.max(0, perfSolde)
+					: perfSolde
+	);
+	const perfSoldeLabel = $derived(
+		perfPhase === 'surplus'
+			? 'Surplus cumulé'
+			: perfPhase === 'maintenance'
+				? 'Écart à la maintenance'
+				: 'Déficit cumulé'
+	);
 	const perfLabel = $derived(
 		perfKcalAvg !== null && perfKcalGoal !== null
 			? `${fmt(perfKcalAvg)} kcal de moyenne · objectif ${fmt(perfKcalGoal)}`
@@ -1488,9 +1527,12 @@
 				<p class="mt-1 truncate font-display text-xl font-black leading-none tracking-tight text-ink tabular-nums sm:text-2xl">{perfKcalGoal !== null ? fmt(perfKcalGoal) : '—'}</p>
 			</div>
 			<div class="min-w-0 border-l border-line pl-2">
-				<p class="text-[9px] font-black uppercase tracking-[0.08em] text-mist sm:text-[10px]">Déficit</p>
+				<p class="text-[9px] font-black uppercase tracking-[0.08em] text-mist sm:text-[10px]">{perfPhase === 'surplus' ? 'Surplus' : perfPhase === 'maintenance' ? 'Écart' : 'Déficit'}</p>
 				<p class="mt-1 flex items-baseline gap-0.5 truncate font-display text-xl font-black leading-none tracking-tight text-brand-deep tabular-nums sm:text-2xl">
-					{#if perfDeficit !== null}<Icon name="arrowDown" size={13} class="shrink-0" />~{fmt(perfDeficit)}{:else}—{/if}
+					{#if perfSoldeValue !== null}
+						<Icon name={perfPhase === 'surplus' || (perfPhase === 'maintenance' && perfSoldeValue > 0) ? 'arrowUp' : 'arrowDown'} size={13} class="shrink-0" />
+						{#if perfPhase === 'maintenance'}{perfSoldeValue > 0 ? '+' : ''}{fmt(perfSoldeValue)}{:else}~{fmt(perfSoldeValue)}{/if}
+					{:else}—{/if}
 				</p>
 			</div>
 		</div>
@@ -1499,7 +1541,7 @@
 		</div>
 		<p class="mt-2 text-[11px] leading-relaxed text-mist">
 			{#if perfTracked.length > 0}
-				Déficit cumulé sur {perfTracked.length} jour{perfTracked.length > 1 ? 's' : ''} renseigné{perfTracked.length > 1 ? 's' : ''} · moyenne à {perfKcalPct}% de l’objectif
+				{perfSoldeLabel} sur {perfTracked.length} jour{perfTracked.length > 1 ? 's' : ''} renseigné{perfTracked.length > 1 ? 's' : ''} · moyenne à {perfKcalPct}% de l’objectif
 			{:else}
 				Aucune journée renseignée cette semaine
 			{/if}

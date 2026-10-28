@@ -79,6 +79,13 @@
 	--color-warn-light: #fff8f0;
 	/* Perte de graisse estimée (onglet Calibrage) : violet, distinct des seuils. */
 	--color-loss: #7c3aed;
+	/* Fibres : teinte PROPRE (sarcelle, reprise du liseré de la carte coach
+	   « Fibres / jour ») — jamais le vert des calories ni des repas.
+	   `deep` = texte (contraste AA sur fond pâle), `light`/`soft` = fonds. */
+	--color-fibres: #0d9488;
+	--color-fibres-deep: #0f766e;
+	--color-fibres-light: #e6f7f4;
+	--color-fibres-soft: #f2faf8;
 	--font-sans: 'Lato', ui-sans-serif, system-ui, sans-serif;
 	--font-display: 'Lato', ui-sans-serif, system-ui, sans-serif;
 }

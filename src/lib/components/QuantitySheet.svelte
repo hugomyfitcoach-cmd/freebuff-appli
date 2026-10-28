@@ -2,6 +2,15 @@
 	import Icon from './Icon.svelte';
 	import FoodImg from './FoodImg.svelte';
 	import { reperesForFood, unitWord } from '$lib/data/gfluxReperes';
+	import {
+		detailRows,
+		detailSourceLabel,
+		formatDetailValue,
+		hasUnknownValue,
+		microRows,
+		type DetailRow,
+		type FoodDetails,
+	} from '$lib/foodDetailsFormat';
 
 	/* Feuille de quantité partagée AJOUT / MODIFICATION d'un aliment.
 	   Une seule source de vérité : la quantité finale en grammes (qtyGrams),
@@ -47,6 +56,10 @@
 		saveLabel = undefined,
 		/** « ciqual » : fiche de référence ANSES (badge officiel) · « ai » : estimation IA. */
 		source,
+		/** Identité de la fiche détaillée quand elle ne se déduit pas de `food`
+		 *  (entrée de journal reconstruite depuis un snapshot). */
+		detailsSource,
+		detailsId,
 		showFav = false,
 		favActive = false,
 		/** Favori possible : identité alimentaire stable (produit OFF avec _id).
@@ -80,6 +93,10 @@
 			fat100: number;
 			servingQty?: number;
 			custom?: boolean;
+			/** Identifiant stable de la fiche (OFF, Ciqual = libellé officiel, G-Flux). */
+			_id?: string;
+			/** Fiche de RÉFÉRENCE Ciqual (ANSES) — `_id` = libellé officiel exact. */
+			ciqual?: boolean;
 			/** Fiche de RÉFÉRENCE G-FLUX (badge distinct, jamais Ciqual). */
 			gflux?: boolean;
 			/** Garde-fou kcal↔macros : kcal OFF incohérentes, valeur recalculée affichée. */
@@ -98,6 +115,10 @@
 		/** « ciqual » : fiche de référence ANSES (badge officiel, pas de photo produit).
 		 *  L'aliment de référence G-Flux est signalé par `food.gflux` (badge distinct). */
 		source?: 'ciqual' | 'ai';
+		/** Provenance des valeurs détaillées (déduite de `food` si absente). */
+		detailsSource?: 'ciqual' | 'food' | 'custom' | 'reference';
+		/** Identifiant de la fiche détaillée (déduit de `food` si absent). */
+		detailsId?: string;
 		showFav?: boolean;
 		favActive?: boolean;
 		/** Identifiant alimentaire stable du favori (foodId OFF) quand il existe. */
@@ -157,6 +178,92 @@
 	let servingsTouched = $state(false);
 	let repereTouched = $state(false);
 
+	/* ═══ FICHE NUTRITIONNELLE DÉTAILLÉE (R5b) ═══
+	   Fermée par défaut. Les valeurs ne sont demandées qu'au DÉPLIAGE (une
+	   seule requête `foodDetails`, jamais à l'ouverture de la fiche) puis
+	   recalculées à l'affichage quand la quantité change. Pour un produit
+	   Open Food Facts, `refreshOffDetails` est lancé en parallèle (la règle
+	   « au plus une fois tous les 30 jours » est côté serveur) — l'affichage
+	   n'attend jamais ce rafraîchissement. */
+	type DetailRef = { source: 'ciqual' | 'food' | 'reference'; id: string };
+	const detailRef = $derived.by<DetailRef | null>(() => {
+		if (detailsSource && detailsSource !== 'custom' && detailsId) {
+			return { source: detailsSource, id: detailsId };
+		}
+		if (food.ciqual && food._id) return { source: 'ciqual', id: food._id };
+		if (food.gflux && food._id) return { source: 'reference', id: food._id };
+		// Aliment personnel (« Créés par moi ») : pas de fiche détaillée de source.
+		if (food.custom) return null;
+		return food._id ? { source: 'food', id: food._id } : null;
+	});
+	let detailsOpen = $state(false);
+	let detailsLoading = $state(false);
+	let detailsFailed = $state(false);
+	let detailsData = $state<FoodDetails | null>(null);
+	let detailsSeq = 0;
+	let offRefreshAsked = false;
+
+	async function loadDetails(quiet = false) {
+		const ref = detailRef;
+		if (!ref) return;
+		const seq = ++detailsSeq;
+		if (!quiet) {
+			detailsLoading = true;
+			detailsFailed = false;
+		}
+		try {
+			const r = await fetch(
+				`/api/foods/details?source=${ref.source}&id=${encodeURIComponent(ref.id)}`
+			);
+			const j = (await r.json()) as { details?: FoodDetails | null; error?: string };
+			if (seq !== detailsSeq) return;
+			if (!r.ok || j.error) {
+				if (!quiet) detailsFailed = true;
+				return;
+			}
+			detailsData = j.details ?? null;
+			detailsFailed = false;
+		} catch {
+			if (seq === detailsSeq && !quiet) detailsFailed = true;
+		} finally {
+			if (seq === detailsSeq && !quiet) detailsLoading = false;
+		}
+	}
+
+	/** Dépliage/repliage : la requête part au PREMIER dépliage seulement. */
+	function toggleDetails() {
+		if (detailsOpen) {
+			detailsOpen = false;
+			return;
+		}
+		detailsOpen = true;
+		const ref = detailRef;
+		if (!ref) return;
+		if (!detailsData && !detailsLoading) void loadDetails();
+		if (ref.source === 'food' && !offRefreshAsked) {
+			offRefreshAsked = true;
+			void refreshOffDetails(ref.id);
+		}
+	}
+
+	/** OFF déjà en cache : complétion silencieuse des détails (jamais bloquante). */
+	async function refreshOffDetails(foodId: string) {
+		try {
+			const r = await fetch('/api/foods/details/refresh', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ foodId }),
+			});
+			if (!r.ok) return;
+			const j = (await r.json()) as { refreshed?: boolean };
+			// Valeurs complétées côté serveur → relecture silencieuse (sans loader)
+			// si la fiche est toujours ouverte sur le même aliment.
+			if (j.refreshed && detailsOpen && detailRef?.id === foodId) void loadDetails(true);
+		} catch {
+			/* OFF indisponible : la fiche affichée reste intacte. */
+		}
+	}
+
 	function parseNum(s: string): number | null {
 		const t = s.trim().replace(',', '.');
 		if (t === '' || t === '-' || t === '.' || t === '+') return null;
@@ -185,10 +292,29 @@
 	);
 	const valid = $derived(gramsNum != null && gramsNum > 0 && gramsNum <= 5000);
 	const effGrams = $derived(valid ? (gramsNum ?? 0) : 0);
+	/* Valeurs NON arrondies : le format d'affichage de la fiche détaillée
+	   (une décimale sous 10 g, virgule) s'applique tel quel aux 4 tuiles.
+	   Les kcal restent un entier. */
 	const kcal = $derived(Math.round((food.kcal100 * effGrams) / 100));
-	const carbs = $derived(Math.round((food.carbs100 * effGrams) / 100));
-	const protein = $derived(Math.round((food.protein100 * effGrams) / 100));
-	const fat = $derived(Math.round((food.fat100 * effGrams) / 100));
+	const carbs = $derived((food.carbs100 * effGrams) / 100);
+	const protein = $derived((food.protein100 * effGrams) / 100);
+	const fat = $derived((food.fat100 * effGrams) / 100);
+
+	/* Détail nutritionnel de la quantité choisie (recalculé à chaque changement). */
+	const detailQty = $derived(valid ? effGrams : null);
+	const detailRowList = $derived(detailRows(detailsData, detailQty));
+	const detailMicros = $derived(microRows(detailsData));
+	const detailsSourceText = $derived(detailsData ? detailSourceLabel(detailsData.source) : '');
+	const detailsHasUnknown = $derived(hasUnknownValue(detailsData));
+
+	/** Couleur de libellé d'une ligne (code couleur du Journal, « dont … » en gris). */
+	function detailLabelClass(row: DetailRow): string {
+		if (row.tone === 'carbs') return 'font-semibold text-[#ec4899]';
+		if (row.tone === 'protein') return 'font-semibold text-[#3b82f6]';
+		if (row.tone === 'fat') return 'font-semibold text-[#f97316]';
+		if (row.indent) return 'pl-3 text-mist';
+		return 'font-semibold text-ink';
+	}
 
 	/* Unité affichée à côté de la quantité centrale (accord singulier/pluriel). */
 	const unitLabel = $derived(
@@ -281,10 +407,28 @@
 	   et le hero laisse une marge pour que la fiche tienne sans scroll sur
 	   les téléphones standards. */
 	let scrollerEl: HTMLElement | undefined = $state();
+	/** Hero (photo ou pictogramme) : sert de repère de défilement à la bande. */
+	let heroEl: HTMLElement | undefined = $state();
+	const hasPhoto = $derived(!!heroSrc);
+	/* BANDE D'EN-TÊTE DE DÉFILEMENT (R5c-bis) : hors flux, DERRIÈRE les
+	   boutons. Invisible tant que la photo (ou le pictogramme) est en vue ;
+	   apparaît en fondu de 150 ms dès qu'elle a défilé hors de vue. Sans
+	   photo, un seuil de quelques pixels suffit. */
+	let sheetScrolled = $state(false);
+	function onSheetScroll(e: Event) {
+		const el = e.currentTarget as HTMLElement;
+		if (hasPhoto && heroEl) {
+			// La photo est sortie par le haut de la zone visible.
+			sheetScrolled = heroEl.getBoundingClientRect().bottom <= el.getBoundingClientRect().top + 1;
+			return;
+		}
+		sheetScrolled = el.scrollTop > 8;
+	}
 	$effect(() => {
 		if (scrollerEl) {
 			void qtyFocused; // re-ancrage à chaque entrée/sortie du mode focus
 			scrollerEl.scrollTop = 0;
+			sheetScrolled = false;
 		}
 	});
 	function endQtyFocus() {
@@ -358,7 +502,17 @@
 				<Icon name="x" size={18} />
 			</button>
 		</div>
-		<div role="presentation" class="min-h-0 flex-1 overflow-y-auto overscroll-contain" bind:this={scrollerEl} onpointerdown={sheetPointerDown}>
+		<!-- ─── Bande d'en-tête de DÉFILEMENT (R5c-bis) : HORS flux, DERRIÈRE
+		     les boutons, superposée au contenu. Invisible en haut de fiche (la
+		     photo garde sa hauteur d'origine), elle apparaît en fondu (150 ms)
+		     dès que la photo a défilé hors de vue — seuil de quelques pixels
+		     sans photo. Hauteur 56 px, centrée sur les contrôles de 44 px
+		     (6 px au-dessus / 6 px en dessous) : rien n'est poussé. -->
+		<div
+			class="pointer-events-none absolute inset-x-0 top-[max(env(safe-area-inset-top),12px)] z-[5] h-14 -translate-y-1.5 bg-white shadow-[0_6px_16px_-12px_rgba(15,21,18,0.30)] transition-opacity duration-150 {sheetScrolled ? 'opacity-100' : 'opacity-0'}"
+			aria-hidden="true"
+		></div>
+		<div role="presentation" class="min-h-0 flex-1 overflow-y-auto overscroll-contain" bind:this={scrollerEl} onpointerdown={sheetPointerDown} onscroll={onSheetScroll}>
 		<!-- MODE FOCUS QUANTITÉ : le clavier s'ouvre → hero/repas/actions masqués,
 	     il reste identité compacte + quantité + raccourcis + macros au-dessus
 	     du clavier ; Done / ✓ / Enter ou tap ailleurs restaure la fiche. -->
@@ -370,7 +524,7 @@
 		     tient sans scroll sur un écran de 390×844. object-contain via
 		     FoodImg : JAMAIS d'étirement ni de recadrage ; fond cream si
 		     l'image est plus petite que la zone ; placeholder G-FLUX. -->
-			<div class="relative shrink-0 bg-cream">
+			<div class="relative shrink-0 bg-cream" bind:this={heroEl}>
 				{#if heroSrc}
 					<div class="h-[min(24dvh,180px)] sm:h-[180px]">
 						<FoodImg src={heroSrc} fallbackSrc={food.thumbUrl} alt={food.name} class="h-full w-full" fit="contain" eager />
@@ -569,27 +723,87 @@
 				<div class="grid grid-cols-4 overflow-hidden rounded-[20px] border border-[#EEF1EF] bg-white shadow-[0_1px_2px_rgba(15,21,18,0.04),0_12px_26px_-16px_rgba(15,21,18,0.18)]">
 					<div class="border-l border-[#EEF1EF] px-1 py-2.5 text-center first:border-l-0">
 						<p class="text-[10px] font-bold uppercase tracking-wide text-brand">Calories</p>
-						<p class="mt-0.5 text-[17px] font-bold leading-none text-brand tabular-nums">{valid ? fmtQty(kcal) : '—'}</p>
+						<p class="mt-0.5 text-[17px] font-bold leading-none text-brand tabular-nums">{valid ? formatDetailValue(kcal, 'kcal') : '—'}</p>
 						<p class="text-[9px] font-semibold text-mist">kcal</p>
 					</div>
 					<div class="border-l border-[#EEF1EF] px-1 py-2.5 text-center first:border-l-0">
 						<p class="text-[10px] font-bold uppercase tracking-wide" style:color="#ec4899">Glucides</p>
-						<p class="mt-0.5 text-[17px] font-bold leading-none tabular-nums" style:color="#ec4899">{valid ? fmtQty(carbs) : '—'}</p>
+						<p class="mt-0.5 text-[17px] font-bold leading-none tabular-nums" style:color="#ec4899">{valid ? formatDetailValue(carbs, 'g') : '—'}</p>
 						<p class="text-[9px] font-semibold text-mist">g</p>
 					</div>
 					<div class="border-l border-[#EEF1EF] px-1 py-2.5 text-center first:border-l-0">
 						<p class="text-[10px] font-bold uppercase tracking-wide" style:color="#3b82f6">Protéines</p>
-						<p class="mt-0.5 text-[17px] font-bold leading-none tabular-nums" style:color="#3b82f6">{valid ? fmtQty(protein) : '—'}</p>
+						<p class="mt-0.5 text-[17px] font-bold leading-none tabular-nums" style:color="#3b82f6">{valid ? formatDetailValue(protein, 'g') : '—'}</p>
 						<p class="text-[9px] font-semibold text-mist">g</p>
 					</div>
 					<div class="border-l border-[#EEF1EF] px-1 py-2.5 text-center first:border-l-0">
 						<p class="text-[10px] font-bold uppercase tracking-wide" style:color="#f97316">Lipides</p>
-						<p class="mt-0.5 text-[17px] font-bold leading-none tabular-nums" style:color="#f97316">{valid ? fmtQty(fat) : '—'}</p>
+						<p class="mt-0.5 text-[17px] font-bold leading-none tabular-nums" style:color="#f97316">{valid ? formatDetailValue(fat, 'g') : '—'}</p>
 						<p class="text-[9px] font-semibold text-mist">g</p>
 					</div>
 				</div>
 
 				{#if !qtyFocused}
+				<!-- ─── FICHE NUTRITIONNELLE DÉTAILLÉE (R5b) ───
+				     Lien discret sous les 4 macros ; fermé par défaut ; valeurs
+				     chargées au dépliage et recalculées pour la quantité choisie. -->
+				{#if detailRef}
+					<div class="mt-2">
+						<button
+							type="button"
+							class="flex w-full items-center justify-center gap-2 rounded-full bg-[#F3F5F3] px-4 py-3 text-[13px] font-bold text-brand transition hover:bg-[#ECEFEC]"
+							aria-expanded={detailsOpen}
+							aria-controls="food-details-section"
+							onclick={toggleDetails}
+						>
+							{#if !detailsOpen}<Icon name="info" size={15} class="shrink-0" />{/if}
+							<span>{detailsOpen ? 'Masquer la fiche nutritionnelle' : 'Voir la fiche nutritionnelle'}</span>
+							<Icon name={detailsOpen ? 'chevronUp' : 'chevronDown'} size={15} class="shrink-0" />
+						</button>
+
+						{#if detailsOpen}
+							<div id="food-details-section" class="mt-2 rounded-[20px] border border-[#EEF1EF] bg-white px-4 py-3 shadow-[0_1px_2px_rgba(15,21,18,0.04)]">
+								{#if detailsLoading}
+									<p class="py-2 text-center text-[12px] text-mist">Chargement…</p>
+								{:else if detailsFailed && !detailsData}
+									<p class="py-2 text-center text-[12px] text-mist">Fiche nutritionnelle indisponible pour le moment.</p>
+								{:else if detailsData}
+									<div class="flex items-baseline justify-between gap-2">
+										<h3 class="text-[14px] font-bold text-ink">Fiche nutritionnelle</h3>
+										<span class="text-[12px] font-semibold text-mist">pour {fmtQty(detailQty ?? 0)} g</span>
+									</div>
+									<dl class="mt-1">
+										{#each detailRowList as row (row.key)}
+											<div class="flex items-baseline justify-between gap-3 border-t border-[#F1F3F1] py-1.5 first:border-t-0">
+												<dt class="text-[12.5px] {detailLabelClass(row)}">{row.label}</dt>
+												<dd class="text-[12.5px] font-bold tabular-nums text-ink">{row.value} {row.unit}</dd>
+											</div>
+										{/each}
+									</dl>
+
+									{#if detailMicros.length > 0}
+										<p class="mt-3 text-[10px] font-bold uppercase tracking-[0.08em] text-mist">Vitamines et minéraux</p>
+										<div class="mt-1.5 grid grid-cols-2 gap-2">
+											{#each detailMicros as m (m.key)}
+												<div class="rounded-2xl bg-[#F6F8F6] px-3 py-2">
+													<p class="text-[11px] text-mist">{m.label}</p>
+													<p class="text-[13px] font-bold tabular-nums text-ink">{m.value}{m.unit ? ` ${m.unit}` : ''}</p>
+												</div>
+											{/each}
+										</div>
+									{/if}
+
+									<p class="mt-3 text-[11px] leading-snug text-mist">
+										{#if detailsHasUnknown}« — » = non renseigné par la source. {/if}{detailsSourceText}, recalculées pour la quantité choisie.
+									</p>
+								{:else}
+									<p class="py-2 text-center text-[12px] text-mist">Aucune valeur détaillée pour cet aliment.</p>
+								{/if}
+							</div>
+						{/if}
+					</div>
+				{/if}
+
 				<!-- Choix du repas (masqué en mode focus quantité) -->
 				<div class="mt-2 grid grid-cols-4 gap-2">
 					{#each mealDefs as m (m.id)}

@@ -10,8 +10,10 @@ import { errMsg } from '$lib/errors.js';
  * G-Flux » du Guide nutrition & recettes (coach uniquement).
  *
  * GET    : fiches du coach connecté.
- * POST   : création { name, kcal, proteinG, carbsG, fatG, cookingState? }.
- * PATCH  : modification { referenceFoodId, name, kcal, proteinG, carbsG, fatG, cookingState? }.
+ * POST   : création { name, kcal, proteinG, carbsG, fatG, cookingState?,
+ *          sugarsG?, fiberG?, saturatedFatG?, saltG? }.
+ * PATCH  : modification { referenceFoodId, name, kcal, proteinG, carbsG, fatG,
+ *          cookingState?, sugarsG?, fiberG?, saturatedFatG?, saltG? }.
  * DELETE : suppression ?id=<referenceFoodId>.
  *
  * Écriture réservée au coach PROPRIÉTAIRE (contrôle Convex, even if the BFF
@@ -19,11 +21,22 @@ import { errMsg } from '$lib/errors.js';
  * recherche (`/api/foods/ciqual`) — jamais par cette route.
  */
 const num = (value: unknown): number => (typeof value === 'number' ? value : Number(value));
+/** Champ facultatif : vide = non renseigné (absent) ; toute autre valeur est
+ *  transmise telle quelle et validée côté Convex (`referenceFoodError`). */
+const optionalNum = (value: unknown): number | undefined => {
+	if (value === undefined || value === null || String(value).trim() === '') return undefined;
+	return Number(value);
+};
 
 function fields(body: Record<string, unknown>) {
 	// Mode de cuisson facultatif (valeurs de cookedState.ts) — vide = non
 	// précisé (champ absent, cuisson détectée d'après le nom).
 	const cookingState = String(body.cookingState ?? '').trim();
+	// Détail nutritionnel facultatif (R5a) — 4 valeurs /100 g.
+	const sugarsG = optionalNum(body.sugarsG);
+	const fiberG = optionalNum(body.fiberG);
+	const saturatedFatG = optionalNum(body.saturatedFatG);
+	const saltG = optionalNum(body.saltG);
 	return {
 		name: String(body.name ?? ''),
 		kcal: num(body.kcal),
@@ -31,6 +44,10 @@ function fields(body: Record<string, unknown>) {
 		carbsG: num(body.carbsG),
 		fatG: num(body.fatG),
 		...(cookingState ? { cookingState } : {}),
+		...(sugarsG !== undefined ? { sugarsG } : {}),
+		...(fiberG !== undefined ? { fiberG } : {}),
+		...(saturatedFatG !== undefined ? { saturatedFatG } : {}),
+		...(saltG !== undefined ? { saltG } : {}),
 	};
 }
 

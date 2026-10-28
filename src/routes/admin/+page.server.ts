@@ -472,6 +472,13 @@ export const actions: Actions = {
 		const rawStepGoal = String(form.get('stepGoal') ?? '').trim();
 		const stepGoal = rawStepGoal === '' ? undefined : Number(rawStepGoal);
 		const clearStepGoal = form.get('clearStepGoal') === '1';
+		// Phase nutritionnelle : absente (formulaire antérieur) = perte de gras,
+		// validée par le module partagé `$lib/phase` côté mutation.
+		const rawPhase = String(form.get('phase') ?? '').trim();
+		const phase =
+			rawPhase === 'perte_gras' || rawPhase === 'maintenance' || rawPhase === 'surplus'
+				? (rawPhase as 'perte_gras' | 'maintenance' | 'surplus')
+				: undefined;
 		try {
 			await convex.mutation(api.journal.setClientGoals, {
 				sessionToken: token,
@@ -484,6 +491,7 @@ export const actions: Actions = {
 				clearMaintenance,
 				stepGoal,
 				clearStepGoal,
+				phase,
 			});
 			return { action: 'setGoals', ok: 'Objectifs journaliers enregistrés.', clientId: userId };
 		} catch (e) {

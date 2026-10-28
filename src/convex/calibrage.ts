@@ -1,11 +1,12 @@
 import { mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
-import { addDaysISO, getSessionUser, localTodayISO } from "./helpers";
+import { addDaysISO, assertCoachOwnsClient, getSessionUser, localTodayISO } from "./helpers";
 import { bodyFatSeries } from "./metrics";
 import { DEFAULT_GOALS, baselineLegacyGoalHistory, loadGoalHistory, upsertGoalHistoryToday } from "./journal";
 import { CalibrageError, VERSION_FORMULES_CALIBRAGE } from "../lib/calibrage";
 import { resultatsFiche, type EntreesFicheCalibrage } from "../lib/calibrageFiche";
 import { messageDateEffetFuture } from "../lib/calibrageSaisie";
+import { phaseDepuisMode, validerObjectifPhase } from "../lib/phase";
 import type { Doc } from "./_generated/dataModel";
 
 /**
@@ -69,6 +70,10 @@ const entreesValidator = v.object({
 	ajustementTravail: v.optional(v.number()),
 	adaptationPct: v.optional(v.number()),
 	deficitPct: v.optional(v.number()),
+	/* Phase énergétique (facultative : absent = déficit, instantanés existants
+	   toujours valides) et surplus choisi, bornés par le module (0 à 20 %). */
+	mode: v.optional(v.union(v.literal("deficit"), v.literal("maintenance"), v.literal("surplus"))),
+	surplusPct: v.optional(v.number()),
 	proteinesParKgMasseMaigre: v.optional(v.number()),
 	seances: v.array(seanceValidator),
 	apportsSemaine: v.array(v.union(v.number(), v.null()))
@@ -197,6 +202,9 @@ export const apply = mutation({
 		if (!target || target.role !== "client") {
 			throw new ConvexError("Ce compte client n'existe pas.");
 		}
+		// APPARTENANCE — seul le coach DE la cliente applique un calibrage
+		// (même règle que `coach.updateClient`, source unique dans helpers).
+		await assertCoachOwnsClient(ctx, target, coach);
 		if (
 			!isFinite(kcal) || kcal < 800 || kcal > 6000 ||
 			!isFinite(carbs) || carbs < 0 || carbs > 1000 ||
@@ -208,9 +216,18 @@ export const apply = mutation({
 		if (
 			maintenanceKcal !== undefined &&
 			maintenanceKcal !== null &&
-			(!isFinite(maintenanceKcal) || maintenanceKcal < kcal || maintenanceKcal > 10000)
+			(!isFinite(maintenanceKcal) || maintenanceKcal > 10000)
 		) {
-			throw new ConvexError("Maintenance invalide : elle doit être supérieure à l'objectif calorique (et ≤ 10000 kcal).");
+			throw new ConvexError("Maintenance invalide : elle doit rester ≤ 10 000 kcal.");
+		}
+		/* Cohérence objectif / maintenance selon la PHASE : en surplus l'objectif
+	   dépasse légitimement la maintenance (jusqu'à +20 %), en maintenance il
+	   reste à ±5 %, en perte de gras il lui est inférieur. MÊME règle que
+	   `journal.setClientGoals` et le formulaire coach ($lib/phase). */
+		const phase = phaseDepuisMode(entrees.mode);
+		const messagePhase = validerObjectifPhase(phase, kcal, maintenanceKcal);
+		if (messagePhase) {
+			throw new ConvexError(messagePhase);
 		}
 		if (!estDateISO(effectiveFrom)) {
 			throw new ConvexError("Date d'effet invalide : format « jj/mm/aaaa » attendu (yyyy-mm-dd).");
@@ -250,13 +267,13 @@ export const apply = mutation({
 		}
 
 		if (existing) {
-			const p: Partial<Doc<"clientGoals">> = { kcal, carbs, protein, fat };
+			const p: Partial<Doc<"clientGoals">> = { kcal, carbs, protein, fat, phase };
 			if (maintenanceKcal !== undefined && maintenanceKcal !== null) p.maintenanceKcal = maintenanceKcal;
 			await ctx.db.patch(existing._id, p);
 		} else {
 			const opt: { maintenanceKcal?: number } = {};
 			if (maintenanceKcal !== undefined && maintenanceKcal !== null) opt.maintenanceKcal = maintenanceKcal;
-			await ctx.db.insert("clientGoals", { userId, kcal, carbs, protein, fat, ...opt });
+			await ctx.db.insert("clientGoals", { userId, kcal, carbs, protein, fat, phase, ...opt });
 		}
 
 		/* Instantané du calibrage : entrées, résultats, version des formules,
@@ -266,7 +283,7 @@ export const apply = mutation({
 			inputs: entrees,
 			results: {
 				...resultats,
-				applique: { kcal, carbs, protein, fat, maintenanceKcal: maintenanceKcal ?? null, effectiveFrom },
+				applique: { kcal, carbs, protein, fat, maintenanceKcal: maintenanceKcal ?? null, phase, effectiveFrom },
 			},
 			formulaVersion: VERSION_FORMULES_CALIBRAGE,
 			effectiveFrom,
@@ -294,6 +311,9 @@ export type DetailInstantaneCalibrage = {
 	ajustementTravail: number | null;
 	adaptationPct: number | null;
 	deficitPct: number | null;
+	/** Phase du calibrage — null pour un instantané antérieur (lu « déficit »). */
+	mode: string | null;
+	surplusPct: number | null;
 	sportSemaineKcal: number | null;
 	coefficient: number | null;
 	metabolismeBaseKcal: number | null;
@@ -336,6 +356,8 @@ function detailInstantane(snap: Doc<"calibrageSnapshots">): DetailInstantaneCali
 		ajustementTravail: nombre(i.ajustementTravail),
 		adaptationPct: nombre(i.adaptationPct),
 		deficitPct: nombre(i.deficitPct),
+		mode: typeof i.mode === "string" ? i.mode : null,
+		surplusPct: nombre(i.surplusPct),
 		sportSemaineKcal: nombre(r.sportSemaineKcal),
 		coefficient: nombre(r.coefficient),
 		metabolismeBaseKcal: nombre(r.metabolismeBaseKcal),

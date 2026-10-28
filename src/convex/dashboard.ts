@@ -31,6 +31,7 @@ import {
 	isUnreadFeedback,
 } from "../lib/notificationFreshness";
 import { recordClientEvent } from "./notifications";
+import { phaseEffective } from "../lib/phase";
 
 /**
  * Dashboard « Accueil » de l'espace cliente.
@@ -197,6 +198,8 @@ export const getDashboard = query({
 		const kcal = Math.round(entries.reduce((s, e) => s + e.kcal, 0));
 		const kcalGoal = goalsRow?.kcal ?? DEFAULT_GOALS.kcal;
 		const maintenanceKcal = goalsRow?.maintenanceKcal ?? null;
+		/* Phase effective (absente = perte de gras) — exposée pour la suite. */
+		const phase = phaseEffective(goalsRow);
 
 		/* ── Objectif DATÉ (historique) : le récap « 7 derniers jours » évalue le
 		   garde-fou 60 % avec l'objectif APPLICABLE À CHAQUE JOURNÉE (règle
@@ -418,7 +421,7 @@ export const getDashboard = query({
 			coachMessage,
 			onboarding,
 			appointmentReminder,
-			tracking: { kcal, kcalGoal, maintenanceKcal },
+			tracking: { kcal, kcalGoal, maintenanceKcal, phase },
 			steps: {
 				today: stepsTodayRow?.count ?? null,
 				goal: stepGoal,
