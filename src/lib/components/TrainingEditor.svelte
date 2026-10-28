@@ -719,7 +719,7 @@
 
 		<!-- COLONNE CENTRALE — exercices de la séance -->
 		<section class="overflow-hidden rounded-2xl border border-line bg-card shadow-sm">
-			<header class="flex items-center justify-between border-b border-line bg-line/30 px-3 py-2.5">
+			<header class="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-line/30 px-3 py-2.5">
 				<h2 class="min-w-0 truncate text-[11px] font-bold uppercase tracking-widest text-mist">
 					{selectedSession ? sessionName(selectedSession) : 'Exercices'}
 				</h2>
