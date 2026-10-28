@@ -2,8 +2,9 @@
  * Tests MISSION R5c — bilan nutritionnel du jour + correctifs fiche aliment.
  *
  * 1) Repère fibres : max(25, arrondi(objectif kcal × 0,015)).
- * 2) Couverture kcal et ses trois seuils d'affichage (85 %, 65 %, 40 %) —
- *    jamais de rouge, jauge grise entre 50 et 80 %, aucune jauge sous 50 %.
+ * 2) Couverture kcal et ses trois niveaux (85 %, 65 %, 40 %) — jamais de
+ *    rouge. La carte Fibres du Journal n'en dépend plus (état unique,
+ *    correctif FIX-FIBRES) ; `etatFibres` sert au volet détaillé.
  * 3) Agrégation de 3 aliments dont 1 sans fibres : totaux connus uniquement,
  *    AGS en % des kcal, sources de fibres complètes (R5c-ter), aliment sans
  *    référence non couvert.
@@ -380,21 +381,26 @@ test('serveur : une requête dayNutritionDetails qui réutilise foodDetails, san
 	assert.ok(/requireRole\(event, 'client'/.test(route), 'même contrôle d’accès que le journal');
 });
 
-test('journal : carte Fibres sous les macros, trois états, aucun rouge', () => {
-	assert.ok(journalDay.includes('etatFibres(bilanJour.fibres, bilanJour.repere, bilanJour.couverture)'));
+test('journal : carte Fibres sous les macros, état unique « X g / Y g », aucun rouge', () => {
+	/* Correctif FIX-FIBRES : les trois états d'affichage (au-moins /
+	   incomplet / insuffisant) sont remplacés par UN seul état — la valeur
+	   connue et son repère, quelle que soit la couverture. */
+	assert.ok(journalDay.includes('affichageFibres('), 'affichage unique, jamais dépendant de la couverture');
 	assert.match(journalDay, /\{#if fibresCard\}/, 'cliente uniquement (carte rendue dès la première image, R5c-sexies)');
 	assert.ok(journalDay.includes('aria-label="Voir le bilan nutritionnel du jour"'), 'carte entière → volet');
 	assert.ok(!journalDay.includes('Détail du jour ›'), 'plus de lien texte');
 	assert.ok(journalDay.includes("name=\"leaf\""), 'icône feuille');
 	assert.ok(journalDay.includes("name=\"chevronRight\""), 'chevron grisé');
-	assert.ok(journalDay.includes("Fibres : pas assez de données aujourd'hui"), 'état < 50 %');
-	assert.ok(journalDay.includes('au moins '), 'état 50–80 %');
-	assert.ok(journalDay.includes('Données incomplètes'));
-	assert.ok(journalDay.includes("? 'bg-fibres'") && journalDay.includes(": 'bg-mist'"), 'jauge aux couleurs des fibres, ou grise');
+	assert.ok(journalDay.includes('/ {bilanJour?.repere} g'), 'toujours « X g / Y g »');
+	assert.ok(!journalDay.includes('au moins '), 'plus de mention « au moins »');
+	assert.ok(!journalDay.includes('Données incomplètes'), 'plus de « Données incomplètes »');
+	assert.ok(!journalDay.includes('pas assez de données'), 'plus d’état « pas assez de données »');
 	const ligne = journalDay.slice(
-		journalDay.indexOf('Ligne compacte BILAN DU JOUR'),
+		journalDay.indexOf('{#if fibresCard}'),
 		journalDay.indexOf('<!-- Repas -->')
 	);
+	assert.ok(ligne.includes('bg-fibres'), 'jauge aux couleurs des fibres');
+	assert.ok(!ligne.includes('bg-mist'), 'plus de jauge grise');
 	assert.ok(!/danger/.test(ligne), 'jamais de rouge dans la ligne Fibres');
 });
 

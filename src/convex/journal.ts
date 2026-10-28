@@ -1027,12 +1027,48 @@ export async function referenceFoodsByName(
 	return byName;
 }
 
+/** Champs résolus pour une portion (mêmes noms que `FoodDetails`). */
+type NutrimentPortion = {
+	fiber: number | null;
+	sugars: number | null;
+	saturatedFat: number | null;
+	salt: number | null;
+};
+
+/** Valeurs du PLAT ENTIER d'une recette + son poids (base du prorata mangé). */
+type RecetteDetails = NutrimentPortion & {
+	totalWeight: number;
+	/** Somme PARTIELLE : au moins un ingrédient ne publie pas ses fibres. */
+	fibresPartielles: boolean;
+};
+
+/** Champs de détail communs à une fiche aliment et à une recette résolue. */
+const NUTRIMENTS = ["fiber", "sugars", "saturatedFat", "salt"] as const;
+
+/** Valeur pour la portion réellement consommée — jamais inventée. */
+function pour(valeur: number | null | undefined, ratio: number): number | null {
+	return typeof valeur === "number" && Number.isFinite(valeur)
+		? Math.round(valeur * ratio * 10) / 10
+		: null;
+}
+
 /**
  * ENTRÉES DU JOURNAL → ALIMENTS DU BILAN (valeurs POUR LA PORTION) — SEULE
  * source de résolution des fibres : OFF, fiche perso (propriétaire
  * uniquement), Ciqual, G-Flux (résolue par son nom). Une entrée sans référence
- * résoluble (repas IA, saisie rapide, recette) reste `null` : aucune valeur
- * n'est inventée.
+ * résoluble (repas IA, saisie rapide, recette du coach) reste `null` : aucune
+ * valeur n'est inventée.
+ *
+ * RECETTES DE LA CLIENTE (FIX-FIBRES-2, règle FIX-FIBRES-3) : une entrée
+ * `mealId` est résolue par les ingrédients de sa recette, avec la MÊME logique
+ * que `foodDetails` (référence Ciqual, produit OFF, fiche perso de la
+ * propriétaire), puis rapportée à la quantité mangée (portion / poids du plat).
+ * La valeur d'un nutriment est la SOMME DES INGRÉDIENTS QUI LA PUBLIKENT : un
+ * ingrédient sans valeur n'annule plus les autres, il rend seulement la somme
+ * partielle — la recette compte alors dans `fibresInconnues` (note du volet)
+ * tout en gardant sa valeur. Aucun ingrédient ne publie la valeur → `null`.
+ * Les recettes du coach (macros seules, aucun ingrédient rattaché) et toute
+ * recette non résolue restent inconnues : aucune valeur n'est construite.
  *
  * Partagé par `dayNutritionDetails` (bilan d'une journée) et par la carte
  * « Fibres / jour » du CRM (7 journées terminées) : les deux passent ensuite
@@ -1046,8 +1082,95 @@ export async function bilanJourAliments(
 ): Promise<BilanJourAliment[]> {
 	const offCache = new Map<string, FoodDetails | null>();
 	const customCache = new Map<string, FoodDetails | null>();
+	const recetteCache = new Map<string, RecetteDetails | null>();
 
-	/** Fiche /100 g d'une entrée — `null` = aucune référence résoluble. */
+	/** Fiche /100 g d'un INGRÉDIENT de recette — `null` = aucune référence. */
+	async function ingredientDetails(
+		ing: Doc<"meals">["ingredients"][number]
+	): Promise<FoodDetails | null> {
+		if (ing.ciqualLabel) return ciqualFoodDetails(ing.ciqualLabel);
+		if (ing.foodId) {
+			const key = ing.foodId as string;
+			if (!offCache.has(key)) {
+				const food = await ctx.db.get(ing.foodId);
+				offCache.set(key, food ? foodDetailsFromOffFood(food) : null);
+			}
+			return offCache.get(key) ?? null;
+		}
+		if (ing.customFoodId) {
+			const key = ing.customFoodId as string;
+			if (!customCache.has(key)) {
+				const food = await ctx.db.get(ing.customFoodId);
+				// Isolation stricte : jamais la fiche perso d'une autre cliente.
+				customCache.set(
+					key,
+					food && food.userId === ownerId ? foodDetailsFromCustomFood(food) : null
+				);
+			}
+			return customCache.get(key) ?? null;
+		}
+		return null;
+	}
+
+	/**
+	 * Valeurs du PLAT ENTIER d'une recette de la cliente, résolues ingrédient par
+	 * ingrédient (même logique que `foodDetails`) et proratisées ensuite à la
+	 * portion mangée par l'appelant.
+	 *
+	 * `null` = recette NON résolue : repas d'une autre cliente (jamais lu),
+	 * recette du coach (`sourceType` `gflux_recipe` : ses macros seulement,
+	 * aucun ingrédient rattaché) ou recette sans ingrédient. Aucune valeur n'est
+	 * construite pour ces recettes : leurs fibres restent inconnues.
+	 */
+	async function recetteDetails(mealId: Id<"meals">): Promise<RecetteDetails | null> {
+		const key = mealId as string;
+		if (recetteCache.has(key)) return recetteCache.get(key) ?? null;
+		const rec = await ctx.db.get(mealId);
+		// Mêmes contrôles d'accès que les recettes existantes : propriétaire seul.
+		if (!rec || rec.userId !== ownerId || rec.ingredients.length === 0) {
+			recetteCache.set(key, null);
+			return null;
+		}
+		const totals: Record<(typeof NUTRIMENTS)[number], number> = {
+			fiber: 0,
+			sugars: 0,
+			saturatedFat: 0,
+			salt: 0,
+		};
+		/** Nombre d'ingrédients qui publient la valeur — 0 → nutriment inconnu. */
+		const connue: Record<(typeof NUTRIMENTS)[number], number> = {
+			fiber: 0,
+			sugars: 0,
+			saturatedFat: 0,
+			salt: 0,
+		};
+		let poidsIngredients = 0;
+		for (const ing of rec.ingredients) {
+			poidsIngredients += ing.qtyGrams;
+			const details = await ingredientDetails(ing);
+			const part = ing.qtyGrams / 100;
+			for (const champ of NUTRIMENTS) {
+				const valeur = details?.[champ];
+				if (typeof valeur === "number" && Number.isFinite(valeur)) {
+					totals[champ] += valeur * part;
+					connue[champ] += 1;
+				}
+			}
+		}
+		const totalWeight = rec.totalWeight > 0 ? rec.totalWeight : poidsIngredients;
+		const result: RecetteDetails = {
+			fiber: connue.fiber > 0 ? totals.fiber : null,
+			sugars: connue.sugars > 0 ? totals.sugars : null,
+			saturatedFat: connue.saturatedFat > 0 ? totals.saturatedFat : null,
+			salt: connue.salt > 0 ? totals.salt : null,
+			totalWeight,
+			fibresPartielles: connue.fiber > 0 && connue.fiber < rec.ingredients.length,
+		};
+		recetteCache.set(key, result);
+		return result;
+	}
+
+	/** Fiche /100 g d'une entrée simple — `null` = aucune référence résoluble. */
 	async function detailsFor(entry: Doc<"diaryEntries">): Promise<FoodDetails | null> {
 		if (entry.foodId) {
 			const key = entry.foodId as string;
@@ -1073,9 +1196,9 @@ export async function bilanJourAliments(
 			const food = referenceByName.get(entry.name);
 			return food ? foodDetailsFromReferenceFood(food) : null;
 		}
-		// Recette / repas personnel : les ingrédients ne sont pas résolubles ici.
 		// Repas IA : composants estimés, jamais une référence vérifiable.
-		if (entry.mealId || entry.mealGroup) return null;
+		// (Une recette `mealId` est résolue plus haut, via ses ingrédients.)
+		if (entry.mealGroup) return null;
 		// Ciqual : provenance explicite, ou libellé officiel retrouvé à la
 		// lecture (même règle que `withCiqualProvenance`).
 		if (entry.referenceSource === "ciqual" || resolveCiqualLabel(entry.name)) {
@@ -1086,18 +1209,43 @@ export async function bilanJourAliments(
 
 	const aliments: BilanJourAliment[] = [];
 	for (const entry of entries) {
-		const details = await detailsFor(entry);
-		const ratio = entry.qtyGrams / 100;
-		/** Valeur pour la portion réellement consommée — jamais inventée. */
-		const pour = (v: number | null | undefined): number | null =>
-			typeof v === "number" && Number.isFinite(v) ? Math.round(v * ratio * 10) / 10 : null;
+		/** Valeurs POUR LA PORTION mangée — `null` = inconnue, jamais 0 inventé. */
+		let portion: NutrimentPortion = { fiber: null, sugars: null, saturatedFat: null, salt: null };
+		/** Recette dont la somme des fibres est partielle (note du volet). */
+		let fibresPartielles = false;
+		if (entry.mealId) {
+			// RECETTE : somme des ingrédients référencés, rapportée à la quantité
+			// mangée (portion / poids du plat). La recette apparaît sous son nom
+			// dans « D'où viennent tes fibres » (nom de l'entrée = nom du repas).
+			const recette = await recetteDetails(entry.mealId);
+			if (recette && recette.totalWeight > 0) {
+				const ratio = entry.qtyGrams / recette.totalWeight;
+				portion = {
+					fiber: pour(recette.fiber, ratio),
+					sugars: pour(recette.sugars, ratio),
+					saturatedFat: pour(recette.saturatedFat, ratio),
+					salt: pour(recette.salt, ratio),
+				};
+				fibresPartielles = recette.fibresPartielles;
+			}
+		} else {
+			const details = await detailsFor(entry);
+			const ratio = entry.qtyGrams / 100;
+			portion = {
+				fiber: pour(details?.fiber, ratio),
+				sugars: pour(details?.sugars, ratio),
+				saturatedFat: pour(details?.saturatedFat, ratio),
+				salt: pour(details?.salt, ratio),
+			};
+		}
 		aliments.push({
 			name: entry.name,
 			kcal: entry.kcal,
-			fibres: pour(details?.fiber),
-			sucres: pour(details?.sugars),
-			ags: pour(details?.saturatedFat),
-			sel: pour(details?.salt),
+			fibres: portion.fiber,
+			sucres: portion.sugars,
+			ags: portion.saturatedFat,
+			sel: portion.salt,
+			fibresPartielles,
 		});
 	}
 	return aliments;
