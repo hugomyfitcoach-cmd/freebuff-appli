@@ -339,6 +339,39 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		}
 	}
 
+	/**
+	 * FIX-FIBRES — COMPLÉTION OFF EN ARRIÈRE-PLAN À L'AJOUT.
+	 *
+	 * Un produit Open Food Facts mis en cache avant R5a (ou dont OFF ne
+	 * publiait pas les fibres à l'époque) n'a pas de `fiber100` : le bilan du
+	 * jour ne peut alors pas compter ses fibres. Jusqu'ici la complétion
+	 * (`refreshOffDetails`, même règle « au plus une fois tous les 30 jours »)
+	 * ne partait qu'au dépliage de la fiche nutritionnelle.
+	 *
+	 * Elle est donc déclenchée ici à l'ajout, JAMAIS attendue : l'ajout et
+	 * l'affichage ne sont pas bloqués. Quand la complétion a réellement écrit
+	 * des valeurs, le bilan du jour est rechargé — les fibres désormais connues
+	 * entrent dans le total de la journée.
+	 */
+	async function completerOffEnArrierePlan(foodId: string) {
+		const d = date;
+		try {
+			const r = await fetch('/api/foods/details/refresh', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ foodId })
+			});
+			if (!r.ok) return;
+			const j = (await r.json()) as { refreshed?: boolean };
+			// Valeurs complétées côté Convex → recalcul du bilan de CE jour.
+			// (Le cache par date est déjà invalidé à chaque ajout / modification /
+			// suppression ; ici on relance une fois les données OFF arrivées.)
+			if (j.refreshed) void loadBilanJour(d);
+		} catch {
+			/* OFF indisponible : le bilan affiché reste intact, aucun blocage. */
+		}
+	}
+
 	/** Carte Fibres → volet du bilan. Sans donnée (chargement / erreur), le tap
 	 *  relance la requête du jour : la carte reste cliquable, jamais un volet
 	 *  vide, et le journal n'est jamais bloqué. */
@@ -2745,6 +2778,10 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		qtySaving = true;
 		qtyError = '';
 		qtyMeal = meal as 'petit-dej' | 'dejeuner' | 'diner' | 'collation';
+		/* FIX-FIBRES : identité du produit OFF capturée AVANT la fermeture de la
+		   fiche — la complétion des détails part en arrière-plan après l'ajout. */
+		const offFoodId =
+			!qtyFood.gflux && !qtyFood.ciqual && !qtyFood.custom ? qtyFood._id : null;
 		try {
 			const r = await fetch('/api/journal', {
 				method: 'POST',
@@ -2787,6 +2824,9 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 			hasMore = false;
 			nextOffset = 0;
 			await setDate(date);
+			/* Jamais attendu : l'ajout est terminé, la complétion OFF et le
+			   recalcul du bilan se font en arrière-plan (FIX-FIBRES). */
+			if (offFoodId) void completerOffEnArrierePlan(offFoodId);
 		} catch (e) {
 			qtyError = e instanceof Error ? e.message : String(e);
 		} finally {

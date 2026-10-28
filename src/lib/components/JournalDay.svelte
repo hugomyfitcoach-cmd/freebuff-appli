@@ -29,7 +29,7 @@ import {
 	phaseDesObjectifs,
 	type TonJauge
 } from '$lib/phaseAffichage';
-import { etatFibres, type BilanJourData } from '$lib/bilanJour';
+import { affichageFibres, type BilanJourData } from '$lib/bilanJour';
 import { formatDetailValue } from '$lib/foodDetailsFormat';
 
 	type Entry = {
@@ -389,14 +389,14 @@ import { formatDetailValue } from '$lib/foodDetailsFormat';
 		{ label: 'Protéines', icon: 'drumstick', color: '#3b82f6', eaten: macrosShown.protein, goal: day.goals.protein },
 		{ label: 'Lipides', icon: 'droplet', color: '#f97316', eaten: macrosShown.fat, goal: day.goals.fat },
 	]);
-	/* Carte « Fibres » (cliente uniquement) :
-	   - jour VIDE : 0 g / repère et jauge vide, comme les anneaux macros à 0 % ;
-	   - jour renseigné : trois états sobres selon la couverture — jamais de rouge. */
+	/* Carte « Fibres » (cliente uniquement) — ÉTAT UNIQUE (correctif FIX-FIBRES) :
+	   toujours « X g / Y g » + jauge aux couleurs des fibres, quelle que soit la
+	   couverture. Plus aucune mention de couverture ni de jauge grise : la
+	   bascule entre états disparaît. Jour VIDE : 0 g / repère et jauge vide
+	   (comme les anneaux macros à 0 %). Jamais de rouge. */
 	const fibresLine = $derived(
 		compact && bilanJour
-			? bilanJour.aliments > 0
-				? etatFibres(bilanJour.fibres, bilanJour.repere, bilanJour.couverture)
-				: etatFibres(0, bilanJour.repere, 100)
+			? affichageFibres(bilanJour.aliments > 0 ? bilanJour.fibres : 0, bilanJour.repere)
 			: null
 	);
 	/* Mission R5c-sexies — la carte est rendue DÈS la première image côté
@@ -539,15 +539,14 @@ import { formatDetailValue } from '$lib/foodDetailsFormat';
      largeur sous les 3 cartes macros : icône, libellé / valeur, jauge et chevron.
      La CARTE ENTIÈRE est le bouton d'ouverture du volet (plus aucun lien texte).
      Couleur PROPRE aux fibres (`fibres`, sarcelle) : jamais le vert des
-     calories et des repas. Jauge pleine quand la couverture est complète,
-     grise quand le total est un minimum, absente quand les données sont
-     insuffisantes. Jamais de rouge. Jour vide : « 0 g / repère », jauge vide.
-
-     R5c-sexies — la carte est rendue DÈS la première image côté cliente :
+     calories et des repas. ÉTAT UNIQUE (FIX-FIBRES) : toujours « X g / Y g »
+     et une jauge aux couleurs des fibres, quelle que soit la couverture —
+     aucune mention de couverture, aucune jauge grise.
+     Jamais de rouge. Jour vide : « 0 g / repère », jauge vide.	     R5c-sexies — la carte est rendue DÈS la première image côté cliente :
      pendant le chargement la valeur est un gris neutre pulsé et la jauge est
-     vide, en cas d'erreur elle affiche « — » et reste cliquable. La jauge et
-     sa légende occupent une hauteur RÉSERVÉE : les fibres qui arrivent ne
-     décalent jamais les repas (aucun saut de mise en page). -->
+     vide, en cas d'erreur elle affiche « — » et reste cliquable. La jauge
+     garde une hauteur RÉSERVÉE : les fibres qui arrivent ne décalent jamais
+     les repas (aucun saut de mise en page). -->
 {#if fibresCard}
 	<button
 		type="button"
@@ -575,41 +574,28 @@ import { formatDetailValue } from '$lib/foodDetailsFormat';
 					<span class="shrink-0 text-[13px] font-bold text-ink">Fibres</span>
 					<span class="shrink-0 animate-pulse text-[13px] font-bold text-mist tabular-nums" aria-hidden="true">—</span>
 					<span class="sr-only">Chargement des fibres</span>
-				{:else if fibresLine?.mention === 'insuffisant'}
-					<span class="min-w-0 flex-1 truncate text-[12px] font-semibold leading-snug text-mist">
-						Fibres : pas assez de données aujourd'hui
-					</span>
 				{:else if fibresLine}
 					<span class="shrink-0 text-[13px] font-bold text-ink">Fibres</span>
 					<span class="shrink-0 text-[13px] font-bold text-ink tabular-nums">
-						{#if fibresLine.mention === 'au-moins'}<span class="text-[10.5px] font-semibold text-mist"
-								>au moins </span
-							>{/if}{fibresLine.valeur === 0 ? '0' : formatDetailValue(fibresLine.valeur, 'g')} g{' '}<span
+						{fibresLine.valeur === 0 ? '0' : formatDetailValue(fibresLine.valeur, 'g')} g{' '}<span
 							class="font-semibold text-mist">/ {bilanJour?.repere} g</span
 						>
 					</span>
 				{/if}
 			</div>
-			<!-- Hauteur RÉSERVÉE de la jauge : toujours présente, remplie quand
-			     les données sont là — les repas ne bougent jamais. -->
+			<!-- Jauge : hauteur CONSTANTE (état unique), toujours aux couleurs des
+			     fibres, remplie dès que les données sont là — les repas ne bougent
+			     jamais et aucune jauge grise n'apparaît. -->
 			<div class="mt-1.5 h-2 w-full" aria-hidden="true">
-				{#if fibresLine?.jauge}
-					<div class="h-2 w-full overflow-hidden rounded-full bg-[#e8edea]">
+				<div class="h-2 w-full overflow-hidden rounded-full bg-[#e8edea]">
+					{#if fibresLine}
 						<div
-							class="h-full rounded-full transition-[width] duration-500 ease-out {fibresLine.niveau === 'complete'
-								? 'bg-fibres'
-								: 'bg-mist'}"
+							class="h-full rounded-full bg-fibres transition-[width] duration-500 ease-out"
 							style:width="{fibresLine.pct}%"
 						></div>
-					</div>
-				{:else if fibresLoading || fibresError}
-					<div class="h-2 w-full overflow-hidden rounded-full bg-[#e8edea]"></div>
-				{/if}
+					{/if}
+				</div>
 			</div>
-			<!-- Légende : hauteur réservée elle aussi (état « données incomplètes »). -->
-			<p class="mt-1 h-[13px] text-[10.5px] font-semibold leading-[13px] text-mist">
-				{fibresLine?.niveau === 'partielle' ? 'Données incomplètes' : ''}
-			</p>
 		</div>
 		<!-- Chevron gris, centré verticalement. -->
 		<Icon name="chevronRight" size={18} class="shrink-0 self-center text-mist" />

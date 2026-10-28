@@ -68,6 +68,10 @@ export type BilanJourData = {
 	/** TOUTES les sources de fibres du jour (> 0 g), regroupées par nom et
 	 *  décroissantes — le volet affiche les 6 premières puis « + N autres ». */
 	sourcesFibres: SourceFibres[];
+	/** Nombre d'aliments du jour dont les fibres sont INCONNUES (aucune
+	 *  référence résoluble) — sert uniquement à la note « Estimation » du
+	 *  volet. Ne change AUCUN total : les valeurs inconnues restent exclues. */
+	fibresInconnues: number;
 };
 
 /** Arrondi à une décimale, robuste aux artefacts binaires. */
@@ -181,7 +185,10 @@ export function bilanJour(
 		sel: sommeConnue(aliments, 'sel'),
 		couverture: couvertureKcal(aliments),
 		repere: repereFibres(objectifKcal),
-		sourcesFibres: sourcesFibres(aliments)
+		sourcesFibres: sourcesFibres(aliments),
+		// Aucune valeur n'est inventée : ce compteur ne remplace jamais un
+		// total, il signale seulement que la couverture n'est pas totale.
+		fibresInconnues: aliments.filter((a) => !estNombre(a.fibres)).length
 	};
 }
 
@@ -231,6 +238,28 @@ export function etatFibres(
 		jauge: true,
 		pct: Math.min(100, Math.max(0, (fibres / cible) * 100))
 	};
+}
+
+/**
+ * AFFICHAGE DE LA CARTE FIBRES DU JOURNAL — ÉTAT UNIQUE (correctif FIX-FIBRES).
+ *
+ * La carte ne raconte plus la couverture : elle montre TOUJOURS « X g / Y g »
+ * et une jauge aux couleurs des fibres, quel que soit le pourcentage de kcal
+ * couvertes. Aucun seuil ici, donc plus de bascule entre « au moins X g »,
+ * « Données incomplètes » et « pas assez de données ».
+ *
+ * Les valeurs viennent de `bilanJour` (fibres connues, repère) : ce helper ne
+ * calcule aucun total, il met seulement en forme ce que le bilan contient.
+ * `pct` = part du repère (0–100) ; une valeur absente n'est jamais inventée
+ * (0 g, jauge vide) et la couverture n'entre pas dans le calcul.
+ */
+export function affichageFibres(
+	fibres: number | null,
+	repere: number
+): { valeur: number; pct: number } {
+	const cible = estNombre(repere) && repere > 0 ? repere : FIBRES_REPERE_MIN_G;
+	const valeur = estNombre(fibres) && fibres > 0 ? fibres : 0;
+	return { valeur, pct: Math.min(100, Math.max(0, (valeur / cible) * 100)) };
 }
 
 /* ───────────────── FIBRES / JOUR — MOYENNE (carte côté coach) ───────────────── */
