@@ -117,6 +117,7 @@ import { formatDetailValue } from '$lib/foodDetailsFormat';
 		onTipDismiss,
 		/** Bilan nutritionnel du jour (cliente) — `null` = masqué. */
 		bilanJour = null,
+		bilanEtat = 'inactif',
 		onOpenBilanJour,
 	}: {
 		day: Day;
@@ -146,6 +147,10 @@ import { formatDetailValue } from '$lib/foodDetailsFormat';
 		onTipDismiss?: () => void;
 		/** Bilan du jour (fibres, sucres, AGS, sel) — fourni par le Journal cliente. */
 		bilanJour?: BilanJourData | null;
+		/** État de la requête du bilan du jour : `inactif` = jamais demandé
+		 *  (CRM coach) → aucune carte. `chargement` / `erreur` affichent la carte
+		 *  immédiatement, à sa hauteur finale (R5c-sexies). */
+		bilanEtat?: 'inactif' | 'chargement' | 'pret' | 'erreur';
 		onOpenBilanJour?: () => void;
 	} = $props();
 
@@ -394,6 +399,16 @@ import { formatDetailValue } from '$lib/foodDetailsFormat';
 				: etatFibres(0, bilanJour.repere, 100)
 			: null
 	);
+	/* Mission R5c-sexies — la carte est rendue DÈS la première image côté
+	   cliente, même sans donnée : elle garde sa hauteur finale pendant le
+	   chargement (valeur neutre, jauge vide) et en cas d'erreur (« — », carte
+	   toujours cliquable). Aucun saut de mise en page à l'arrivée des fibres.
+	   `inactif` (CRM coach, aucune requête) → aucune carte, rendu inchangé. */
+	const fibresCard = $derived(compact && bilanEtat !== 'inactif');
+	/** Données pas encore là (hors erreur) : valeur neutre pulsée. */
+	const fibresLoading = $derived(fibresCard && !fibresLine && bilanEtat !== 'erreur');
+	/** Requête en échec : « — », le journal n'est jamais bloqué. */
+	const fibresError = $derived(fibresCard && !fibresLine && bilanEtat === 'erreur');
 
 	function isSel(id: string) {
 		return selIds?.has(id) ?? false;
@@ -520,18 +535,25 @@ import { formatDetailValue } from '$lib/foodDetailsFormat';
 	{/each}
 </section>
 
-<!-- Carte FIBRES DU JOUR (Mission R5c-ter) — seule carte pleine largeur sous
-     les 3 cartes macros : icône, libellé / valeur, jauge et chevron. La CARTE
-     ENTIÈRE est le bouton d'ouverture du volet (plus aucun lien texte).
+<!-- Carte FIBRES DU JOUR (Missions R5c-ter / R5c-sexies) — seule carte pleine
+     largeur sous les 3 cartes macros : icône, libellé / valeur, jauge et chevron.
+     La CARTE ENTIÈRE est le bouton d'ouverture du volet (plus aucun lien texte).
      Couleur PROPRE aux fibres (`fibres`, sarcelle) : jamais le vert des
      calories et des repas. Jauge pleine quand la couverture est complète,
      grise quand le total est un minimum, absente quand les données sont
-     insuffisantes. Jamais de rouge. Jour vide : « 0 g / repère », jauge vide. -->
-{#if compact && bilanJour && fibresLine}
+     insuffisantes. Jamais de rouge. Jour vide : « 0 g / repère », jauge vide.
+
+     R5c-sexies — la carte est rendue DÈS la première image côté cliente :
+     pendant le chargement la valeur est un gris neutre pulsé et la jauge est
+     vide, en cas d'erreur elle affiche « — » et reste cliquable. La jauge et
+     sa légende occupent une hauteur RÉSERVÉE : les fibres qui arrivent ne
+     décalent jamais les repas (aucun saut de mise en page). -->
+{#if fibresCard}
 	<button
 		type="button"
 		class="mb-3.5 flex w-full items-center gap-3 rounded-[20px] border border-[#EEF1EF] bg-white px-3 py-2.5 text-left shadow-[0_1px_2px_rgba(15,21,18,0.04),0_10px_22px_-18px_rgba(15,21,18,0.18)] transition active:scale-[0.99]"
 		aria-label="Voir le bilan nutritionnel du jour"
+		aria-busy={fibresLoading}
 		onclick={() => onOpenBilanJour?.()}
 	>
 		<!-- Icône : carré pâle aux couleurs des fibres (même gabarit que les repas). -->
@@ -544,34 +566,50 @@ import { formatDetailValue } from '$lib/foodDetailsFormat';
 		<!-- Centre : libellé / valeur sur une ligne, jauge pleine largeur dessous. -->
 		<div class="min-w-0 flex-1">
 			<div class="flex min-w-0 items-baseline justify-between gap-2">
-				{#if fibresLine.mention === 'insuffisant'}
-					<span class="min-w-0 flex-1 text-[12px] font-semibold leading-snug text-mist">
+				{#if fibresError}
+					<span class="shrink-0 text-[13px] font-bold text-ink">Fibres</span>
+					<span class="shrink-0 text-[13px] font-bold text-mist tabular-nums" aria-label="Fibres indisponibles"
+						>—</span
+					>
+				{:else if fibresLoading}
+					<span class="shrink-0 text-[13px] font-bold text-ink">Fibres</span>
+					<span class="shrink-0 animate-pulse text-[13px] font-bold text-mist tabular-nums" aria-hidden="true">—</span>
+					<span class="sr-only">Chargement des fibres</span>
+				{:else if fibresLine?.mention === 'insuffisant'}
+					<span class="min-w-0 flex-1 truncate text-[12px] font-semibold leading-snug text-mist">
 						Fibres : pas assez de données aujourd'hui
 					</span>
-				{:else}
+				{:else if fibresLine}
 					<span class="shrink-0 text-[13px] font-bold text-ink">Fibres</span>
 					<span class="shrink-0 text-[13px] font-bold text-ink tabular-nums">
 						{#if fibresLine.mention === 'au-moins'}<span class="text-[10.5px] font-semibold text-mist"
 								>au moins </span
 							>{/if}{fibresLine.valeur === 0 ? '0' : formatDetailValue(fibresLine.valeur, 'g')} g{' '}<span
-							class="font-semibold text-mist">/ {bilanJour.repere} g</span
+							class="font-semibold text-mist">/ {bilanJour?.repere} g</span
 						>
 					</span>
 				{/if}
 			</div>
-			{#if fibresLine.jauge}
-				<div class="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-[#e8edea]" aria-hidden="true">
-					<div
-						class="h-full rounded-full transition-[width] duration-500 ease-out {fibresLine.niveau === 'complete'
-							? 'bg-fibres'
-							: 'bg-mist'}"
-						style:width="{fibresLine.pct}%"
-					></div>
-				</div>
-			{/if}
-			{#if fibresLine.niveau === 'partielle'}
-				<p class="mt-1 text-[10.5px] font-semibold text-mist">Données incomplètes</p>
-			{/if}
+			<!-- Hauteur RÉSERVÉE de la jauge : toujours présente, remplie quand
+			     les données sont là — les repas ne bougent jamais. -->
+			<div class="mt-1.5 h-2 w-full" aria-hidden="true">
+				{#if fibresLine?.jauge}
+					<div class="h-2 w-full overflow-hidden rounded-full bg-[#e8edea]">
+						<div
+							class="h-full rounded-full transition-[width] duration-500 ease-out {fibresLine.niveau === 'complete'
+								? 'bg-fibres'
+								: 'bg-mist'}"
+							style:width="{fibresLine.pct}%"
+						></div>
+					</div>
+				{:else if fibresLoading || fibresError}
+					<div class="h-2 w-full overflow-hidden rounded-full bg-[#e8edea]"></div>
+				{/if}
+			</div>
+			<!-- Légende : hauteur réservée elle aussi (état « données incomplètes »). -->
+			<p class="mt-1 h-[13px] text-[10.5px] font-semibold leading-[13px] text-mist">
+				{fibresLine?.niveau === 'partielle' ? 'Données incomplètes' : ''}
+			</p>
 		</div>
 		<!-- Chevron gris, centré verticalement. -->
 		<Icon name="chevronRight" size={18} class="shrink-0 self-center text-mist" />

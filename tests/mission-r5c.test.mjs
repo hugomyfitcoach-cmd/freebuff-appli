@@ -382,7 +382,7 @@ test('serveur : une requête dayNutritionDetails qui réutilise foodDetails, san
 
 test('journal : carte Fibres sous les macros, trois états, aucun rouge', () => {
 	assert.ok(journalDay.includes('etatFibres(bilanJour.fibres, bilanJour.repere, bilanJour.couverture)'));
-	assert.match(journalDay, /\{#if compact && bilanJour && fibresLine\}/, 'cliente uniquement');
+	assert.match(journalDay, /\{#if fibresCard\}/, 'cliente uniquement (carte rendue dès la première image, R5c-sexies)');
 	assert.ok(journalDay.includes('aria-label="Voir le bilan nutritionnel du jour"'), 'carte entière → volet');
 	assert.ok(!journalDay.includes('Détail du jour ›'), 'plus de lien texte');
 	assert.ok(journalDay.includes("name=\"leaf\""), 'icône feuille');

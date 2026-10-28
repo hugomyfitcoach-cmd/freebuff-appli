@@ -300,45 +300,75 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		setDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
 	}
 
-	/* ————— Bilan nutritionnel du jour (Mission R5c) —————
+	/* ————— Bilan nutritionnel du jour (Missions R5c / R5c-sexies) —————
 	   Une seule requête à la lecture du jour (`dayNutritionDetails`), rejouée
 	   à chaque rafraîchissement / ajout d'aliment. Aucun calcul client : le
 	   serveur résout les valeurs connues et la couverture. Un jour VIDE renvoie
-	   un bilan à 0 (la carte Fibres reste affichée) — `null` = requête
-	   indisponible, seule la carte est alors masquée. */
-	let bilanJour = $state<BilanJourData | null>(null);
+	   un bilan à 0 (la carte Fibres reste affichée).
+
+	   Mission R5c-sexies — la requête part EN MÊME TEMPS que celle du journal
+	   (initialisation du composant, changement de jour), jamais après le
+	   montage : la carte Fibres est peinte dans la même image que les macros.
+	   Le résultat est gardé par DATE : un jour déjà vu s'affiche immédiatement,
+	   puis se revalide en silence. Une erreur n'est jamais bloquante — la carte
+	   affiche « — » et reste cliquable. */
+	type BilanEntry = { etat: 'chargement' | 'pret' | 'erreur'; data?: BilanJourData };
+	let bilanByDay = $state<Record<string, BilanEntry>>({});
 	let bilanOpen = $state(false);
 	let bilanSeq = 0;
 
+	/** Bilan du jour affiché (`null` tant qu'aucune donnée n'est en mémoire). */
+	const bilanJour = $derived(bilanByDay[date]?.data ?? null);
+	/** État de la carte Fibres du jour affiché — la carte existe toujours. */
+	const bilanEtat = $derived<'chargement' | 'pret' | 'erreur'>(bilanByDay[date]?.etat ?? 'chargement');
+
 	async function loadBilanJour(d: string) {
 		const seq = ++bilanSeq;
+		/* Rien en mémoire pour ce jour : état de chargement immédiat (la carte
+		   garde sa place, jauge vide). Une donnée déjà vue reste affichée. */
+		if (bilanByDay[d]?.etat !== 'pret') bilanByDay = { ...bilanByDay, [d]: { etat: 'chargement' } };
 		try {
 			const r = await fetch(`/api/journal/nutrition?date=${d}`);
-			if (seq !== bilanSeq) return;
+			if (seq !== bilanSeq) return; // une requête plus récente a pris la main
 			const j = await r.json();
-			if (seq !== bilanSeq || d !== date) return;
-			bilanJour = r.ok && j && !j.error ? (j as BilanJourData) : null;
+			if (seq !== bilanSeq) return;
+			const ok = r.ok && j && !j.error;
+			bilanByDay = { ...bilanByDay, [d]: ok ? { etat: 'pret', data: j as BilanJourData } : { etat: 'erreur' } };
 		} catch {
-			if (seq === bilanSeq && d === date) bilanJour = null;
+			if (seq === bilanSeq) bilanByDay = { ...bilanByDay, [d]: { etat: 'erreur' } };
 		}
 	}
 
+	/** Carte Fibres → volet du bilan. Sans donnée (chargement / erreur), le tap
+	 *  relance la requête du jour : la carte reste cliquable, jamais un volet
+	 *  vide, et le journal n'est jamais bloqué. */
 	function openBilanJour() {
-		if (!bilanJour) return;
+		if (!bilanJour) {
+			void loadBilanJour(date);
+			return;
+		}
 		bilanOpen = true;
 	}
+
+	/* Démarrage de la requête DÈS l'initialisation du composant : les données du
+	   journal sont déjà servies par le serveur, la carte Fibres part donc en
+	   même temps que le rendu des macros (jamais un fetch « après montage »).
+	   Jamais exécuté pendant le rendu serveur. */
+	if (typeof window !== 'undefined') void loadBilanJour(date);
 
 	async function setDate(d: string) {
 		date = d;
 		loadingDay = true;
 		error = '';
 		bilanOpen = false;
+		/* Les DEUX requêtes (journal + bilan du jour) partent ensemble : la carte
+		   Fibres ne dépend jamais de la réponse du journal. */
+		void loadBilanJour(d);
 		try {
 			const r = await fetch(`/api/journal?date=${d}`);
 			const j = await r.json();
 			if (j.error) throw new Error(j.error);
 			day = j;
-			void loadBilanJour(d);
 		} catch (e) {
 			if (date === d) error = e instanceof Error ? e.message : String(e);
 		} finally {
@@ -3751,9 +3781,8 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	});
 
 	onMount(() => {
-		/* Bilan du jour déjà servi par le serveur : même lecture que le Journal. */
-		void loadBilanJour(date);
-
+		/* Bilan du jour : requête DÉJÀ lancée à l'initialisation du composant
+		   (R5c-sexies) — rien à faire après le montage. */
 		document.addEventListener('keydown', (e) => {
 			if (logOpen || qtyFood || editEntry || qtyMealSel || macroDetail) return;
 			if (e.key === 'ArrowLeft') shiftDay(-1);
@@ -3885,12 +3914,13 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	/* ————— Navigation rapide : identifiant de route + re-fetch silencieux ————— */
 	const ROUTE = '/espace/journal';
 	async function syncDaySilently() {
+		/* Revalidation silencieuse : journal ET bilan du jour en parallèle. */
+		void loadBilanJour(date);
 		try {
 			const r = await fetch(`/api/journal?date=${date}`);
 			const j = await r.json();
 			if (j.error) throw new Error(j.error);
 			day = j;
-			void loadBilanJour(date);
 		} catch {
 			// silencieux : on garde la donnée affichée
 		}
@@ -4166,6 +4196,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 			onMacroCardsMount={(el) => (macroCardsEl = el)}
 			onTipDismiss={() => (tipDismissed = true)}
 			bilanJour={bilanJour}
+			bilanEtat={bilanEtat}
 			onOpenBilanJour={openBilanJour}
 			onPhoto={aiFlags.mealPhotoAi ? (meal) => openMealPhoto(meal as 'petit-dej' | 'dejeuner' | 'diner' | 'collation') : undefined}
 			/>
