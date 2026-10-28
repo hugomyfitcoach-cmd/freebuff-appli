@@ -15,6 +15,7 @@
 		"exercises": "node scripts/exercises.mjs",
 		"exercises:sync": "node scripts/sync-gflux-exercises.mjs",
 		"e2e:performance": "node scripts/e2e-performance.mjs",
+		"verify:sheet-exit": "node scripts/verify-sheet-exit.mjs",
 		"preview": "vite preview",
 		"test": "node --test --experimental-strip-types --import ./tests/ts-resolve.mjs tests/*.test.mjs",
 		"prepare": "svelte-kit sync || echo ''",

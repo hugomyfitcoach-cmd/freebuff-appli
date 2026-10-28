@@ -578,6 +578,11 @@ html,
 body {
 	background: var(--bg);
 	overflow-x: clip;
+	/* Rebond élastique de la page entière supprimé (iOS/Android) : l'en-tête
+	   collé ne descend plus avec le document quand on tire vers le bas.
+	   Les zones défilantes internes (volets, listes) gardent leur propre
+	   geste — elles portent `overscroll-contain` / `touch-action: pan-y`. */
+	overscroll-behavior-y: none;
 }
 @supports not (overflow-x: clip) {
 	html,

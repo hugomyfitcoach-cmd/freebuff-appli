@@ -9,6 +9,7 @@
 	import { currentLocalDay } from '$lib/currentDay.svelte';
 	import { appWarm, firstVisit, isFresh, noteSync, restoreScroll, saveScroll } from '$lib/navMemory';
 	import { lockScroll, unlockScroll } from '$lib/scrollLock';
+	import { onSheetExitEnd } from '$lib/sheetMotion';
 	import JournalDay from '$lib/components/JournalDay.svelte';
 	import BilanJourSheet from '$lib/components/BilanJourSheet.svelte';
 	import type { BilanJourData } from '$lib/bilanJour';
@@ -3986,14 +3987,34 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	   body `position: fixed` à sa position courante et `unlockScroll` restaure
 	   la position exacte — à la fermeture comme au démontage (retour arrière). */
 	let fondFigé = false;
+	let annulerLiberation: (() => void) | null = null;
 	$effect(() => {
 		const locked = logOpen || !!qtyFood || !!editEntry || !!editPlanned || !!qtyMealSel || calOpen || dupOpen || mealCreateOpen || mealPhotoOpen || bilanOpen;
 		if (locked === fondFigé) return;
-		fondFigé = locked;
-		if (locked) lockScroll();
-		else unlockScroll();
+		if (locked) {
+			/* Réouverture pendant la sortie : on garde le verrou, on annule la
+			   libération en attente (sinon le compteur se déséquilibre). */
+			annulerLiberation?.();
+			annulerLiberation = null;
+			fondFigé = true;
+			lockScroll();
+			return;
+		}
+		fondFigé = false;
+		/* FERMETURE : le body reste figé jusqu'à la FIN du fondu de sortie.
+		   Le libérer dès que `open` passe à false rendait au document sa hauteur
+		   au milieu de l'animation : WebKit réancrait les couches fixes (le
+		   volet sautait vers le bas) et repeignait le fond assombri une fraction
+		   de seconde (clignotement). On attend donc la fin de la transition, avec
+		   un délai de secours si elle ne se termine pas. */
+		annulerLiberation = onSheetExitEnd(null, () => {
+			annulerLiberation = null;
+			if (!fondFigé) unlockScroll();
+		});
 	});
 	onDestroy(() => {
+		annulerLiberation?.();
+		annulerLiberation = null;
 		if (!fondFigé) return;
 		fondFigé = false;
 		unlockScroll();
