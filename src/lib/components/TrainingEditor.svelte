@@ -309,10 +309,16 @@
 		}
 	}
 
-	/** Réordonne le groupe : membres contigus dans l'ordre demandé. */
-	async function reorderSuperset(group: string, orderedIds: string[]) {
+	/**
+	 * Réordonne le groupe : membres contigus dans l'ordre demandé.
+	 * `detachIds` retire l'appartenance DANS LA MÊME opération (sortie d'un
+	 * membre) : aucun aller-retour où il garderait une référence orpheline.
+	 */
+	async function reorderSuperset(group: string, orderedIds: string[], detachIds?: string[]) {
 		if (!selectedSession || orderedIds.length < 2) return;
-		if (await send('PATCH', `/api/coach/training/session-exercises/${orderedIds[0]}`, { superset: { orderedIds, group } })) {
+		const superset = detachIds?.length ? { orderedIds, group, detachIds } : { orderedIds, group };
+		if (await send('PATCH', `/api/coach/training/session-exercises/${orderedIds[0]}`, { superset })) {
+			clearSel();
 			await onReload();
 		}
 	}
@@ -631,7 +637,11 @@
 				{/if}
 
 				<ul class="max-h-[62vh] overflow-y-auto p-2">
-					{#each supersetBlocks(selectedSession.exercises) as block, bi (block.group ?? `iso-${bi}`)}
+					<!-- Clé de bloc TOUJOURS unique (`groupe#occurrence` / `iso-index`) :
+					     une séance héritée avec un circuit découpé s'affiche au lieu de
+					     planter (`each_key_duplicate`). Rien n'est supprimé : le coach
+					     retire lui-même le surplus, l'enregistrement normalise la suite. -->
+					{#each supersetBlocks(selectedSession.exercises) as block (block.key)}
 						<!-- Bloc superset : carte englobante premium (groupe visible d'un coup d'œil) -->
 						{#if block.group}
 							<li class="mb-2.5 rounded-2xl border-2 border-brand/35 bg-brand-light/25 p-1.5">
@@ -713,8 +723,11 @@
 										class="ml-1.5 inline-flex items-center gap-1 rounded-full border border-line bg-white px-2 py-0.5 text-[10.5px] font-bold text-mist transition hover:border-danger hover:text-danger"
 										onclick={() => {
 											const rest = members.filter((m) => m._id !== selectedExercise!._id).map((m) => m._id);
-											if (rest.length >= 2) void reorderSuperset(selectedExercise!.supersetGroup!, rest);
-											else void unlinkGroup(selectedExercise!.supersetGroup!);
+										// Le membre sorti est détaché dans le même appel : jamais de
+										// référence orpheline qui découperait le circuit en deux.
+										if (rest.length >= 2)
+											void reorderSuperset(selectedExercise!.supersetGroup!, rest, [selectedExercise!._id]);
+										else void unlinkGroup(selectedExercise!.supersetGroup!);
 										}}
 									>
 										<Icon name="unlink" size={10} /> Sortir du groupe

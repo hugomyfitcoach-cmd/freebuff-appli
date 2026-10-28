@@ -1166,7 +1166,9 @@
 									{#if showWeight(ex)}<span>Kg</span>{/if}
 									<span></span>
 								</div>
-								{#each ex.sets as st (st.order)}
+								<!-- Clé = tour + rang : deux séries de même `order` (donnée héritée)
+								     s'affichent deux fois au lieu de casser le rendu. -->
+								{#each ex.sets as st, stIdx (`tour-${st.order}-${stIdx}`)}
 									{@const d = getDraft(ex, st.order)}
 									{@const missingWeight = d.done && showWeight(ex) && !d.weight.trim()}
 									<div class="rounded-xl {d.done ? 'bg-brand-light/60' : ''}">
@@ -1225,7 +1227,9 @@
 					<!-- Supersets : les exercices liés s'affichent dans une même carte
 				     englobante (groupe visible, enchaînement explicite) — même
 				     prescription, même saisie, aucun changement de log. -->
-					{#each supersetBlocks(data.exercises.filter((e) => (e.phase ?? 'principal') === phase)) as block, bi (bi)}
+					<!-- Clé de bloc unique (`groupe#occurrence` / `iso-index`) : un circuit
+					     hérité découpé en deux s'affiche, il ne fait jamais planter la séance. -->
+					{#each supersetBlocks(data.exercises.filter((e) => (e.phase ?? 'principal') === phase)) as block (block.key)}
 						{#if block.group}
 							<div class="mb-4 rounded-2xl border-2 border-brand/35 bg-brand-light/25 p-1.5">
 								<p class="mb-1 flex items-center gap-1.5 px-1.5 pt-0.5 text-[10.5px] font-black uppercase tracking-wider text-brand-deep">
