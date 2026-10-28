@@ -36,6 +36,12 @@ export const PATCH: RequestHandler = async (event) => {
 			...(body.tempo !== undefined ? { tempo: (body.tempo as string | null) ?? null } : {}),
 			...(body.coachNote !== undefined ? { coachNote: (body.coachNote as string | null) ?? null } : {}),
 			...(body.techniqueNote !== undefined ? { techniqueNote: (body.techniqueNote as string | null) ?? null } : {}),
+			// Phase du parcours : sans ce passage, le champ était accepté par le
+			// validateur mais JAMAIS transmis — le choix revenait toujours sur
+			// « Entraînement principal » au rechargement.
+			...(body.phase !== undefined
+				? { phase: (body.phase as 'echauffement' | 'principal' | 'finisher' | null) ?? null }
+				: {}),
 		});
 		return json({ ok: true });
 	} catch (e) {

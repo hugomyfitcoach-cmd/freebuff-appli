@@ -350,14 +350,32 @@
 		await onReload();
 	}
 
-	/* ── Prescription de l'exercice sélectionné ── */
+	/* ── Prescription de l'exercice sélectionné ──
+	   Deux chemins, une seule source de vérité (la requête rechargée) :
+	   • `patchExercise` : champs TEXTE déboundés (tempo, consignes) — la valeur
+	     est déjà dans le champ en cours de frappe, aucun rechargement pour ne
+	     pas déplacer le curseur ;
+	   • `saveExercise` / `saveSet` : valeurs qui pilotent l'APERÇU de la liste
+	     (séries, mode, phase) — écriture AWAITÉE puis rechargement, donc la
+	     liste affiche la nouvelle valeur sans recharger la page. */
 	function patchExercise(id: string, fields: Record<string, unknown>) {
 		void send('PATCH', `/api/coach/training/session-exercises/${id}`, fields);
 	}
-	function setMode(mode: 'reps' | 'time') {
+	async function saveExercise(id: string, fields: Record<string, unknown>) {
+		const res = await send('PATCH', `/api/coach/training/session-exercises/${id}`, fields);
+		if (res !== null) await onReload();
+		return res;
+	}
+	async function saveSet(body: Record<string, unknown>) {
+		const res = await send('PATCH', '/api/coach/training/sets', body);
+		if (res !== null) await onReload();
+		return res;
+	}
+	async function setMode(mode: 'reps' | 'time') {
 		if (!selectedExercise) return;
-		patchExercise(selectedExercise._id, { mode });
-		void onReload();
+		const id = selectedExercise._id;
+		selectedExercise.mode = mode; // retour visuel immédiat (la requête confirme)
+		await saveExercise(id, { mode });
 	}
 	function onTempoInput() {
 		if (!selectedExercise) return;
@@ -391,7 +409,7 @@
 		debounced(`reps-${setId}`, () => {
 			const parsed = parseRepsField(raw);
 			if (!parsed) return; // saisie en cours — rien n'est envoyé tant que ce n'est pas valide
-			return send('PATCH', '/api/coach/training/sets', {
+			return saveSet({
 				setId,
 				repsMin: parsed.repsMin,
 				repsMax: parsed.repsMax,
@@ -402,7 +420,7 @@
 		debounced(`set-${field}-${setId}`, () => {
 			const t = raw.trim().replace(',', '.');
 			const n = Number(t);
-			return send('PATCH', '/api/coach/training/sets', {
+			return saveSet({
 				setId,
 				[field]: t === '' || !Number.isFinite(n) ? null : n,
 			});
@@ -894,9 +912,11 @@
 						<select
 							value={selectedExercise.phase ?? 'principal'}
 							onchange={(e) => {
+								if (!selectedExercise) return;
 								const v = (e.currentTarget as HTMLSelectElement).value as 'echauffement' | 'principal' | 'finisher';
-								if (selectedExercise) selectedExercise.phase = v;
-								patchExercise(selectedExercise!._id, { phase: v === 'principal' ? null : v });
+								const id = selectedExercise._id;
+								selectedExercise.phase = v; // affichage immédiat (la requête confirme)
+								void saveExercise(id, { phase: v === 'principal' ? null : v });
 							}}
 							class="w-full rounded-xl border border-line bg-white px-3 py-2 text-sm outline-none focus:border-brand"
 						>

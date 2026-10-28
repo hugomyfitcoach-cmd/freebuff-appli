@@ -146,7 +146,18 @@
 	let gDuration = $state('');
 	let guidedDone = $state(0);
 	let guidedTotal = $state(1);
-	const gEx = $derived(data?.exercises[gExIdx] ?? null);
+	/**
+	 * Parcours GUIDÉ : même ordre que l'affichage libre — la PHASE enregistrée
+	 * par le coach (échauffement → principal → finisher), puis l'ordre de
+	 * prescription à l'intérieur d'une phase (tri stable).
+	 */
+	const guidedExercises = $derived(
+		[...(data?.exercises ?? [])].sort(
+			(a, b) =>
+				(PHASE_ORDER[a.phase ?? 'principal'] ?? 1) - (PHASE_ORDER[b.phase ?? 'principal'] ?? 1)
+		)
+	);
+	const gEx = $derived(guidedExercises[gExIdx] ?? null);
 	const gSet = $derived(gEx?.sets[gSetIdx] ?? null);
 
 	/* ── Timers (durée + repos) — un seul à la fois ── */
@@ -510,7 +521,7 @@
 			gSetIdx -= 1;
 		} else if (gExIdx > 0) {
 			gExIdx -= 1;
-			gSetIdx = Math.max((data.exercises[gExIdx]?.sets.length ?? 1) - 1, 0);
+			gSetIdx = Math.max((guidedExercises[gExIdx]?.sets.length ?? 1) - 1, 0);
 		} else {
 			return;
 		}
@@ -521,7 +532,7 @@
 		if (gSetIdx < gEx.sets.length - 1) {
 			gSetIdx += 1;
 			loadGuidedDraft();
-		} else if (gExIdx < data.exercises.length - 1) {
+		} else if (gExIdx < guidedExercises.length - 1) {
 			gExIdx += 1;
 			gSetIdx = 0;
 			loadGuidedDraft();
@@ -1277,7 +1288,7 @@
 
 			<!-- Progression -->
 			<p class="mb-2 text-center text-xs font-semibold text-mist">
-				Exercice {gExIdx + 1}/{data.exercises.length}{#if gEx.exercise} · {displayExerciseName(gEx.exercise.name)}{/if}
+				Exercice {gExIdx + 1}/{guidedExercises.length}{#if gEx.exercise} · {displayExerciseName(gEx.exercise.name)}{/if}
 			</p>
 
 			<div class="rounded-3xl border border-line bg-card p-5 shadow-sm">
