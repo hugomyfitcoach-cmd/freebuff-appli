@@ -1,8 +1,10 @@
 <script lang="ts">
 	import './layout.css';
 	import { onMount } from 'svelte';
+	import { afterNavigate } from '$app/navigation';
 	import { BUILD_VERSION } from '$lib/buildVersion';
 	import { clearAppCaches } from '$lib/appCaches';
+	import { flushDeferredShellReload, installShellRecovery } from '$lib/shellRecovery';
 
 	let { children } = $props();
 
@@ -14,6 +16,10 @@
 	   actions SvelteKit `?/login` / `?/logout` (toutes les pages, y compris le
 	   menu profil et la facturation) ; la soumission native reprend ensuite. */
 	onMount(() => {
+		// Shell cassé après déploiement (page SANS feuille de style) : un seul
+		// rechargement automatique, sans jamais interrompre une saisie.
+		installShellRecovery({ build: BUILD_VERSION });
+
 		function onSubmit(e: Event) {
 			const form = e.target;
 			if (!(form instanceof HTMLFormElement)) return;
@@ -30,6 +36,10 @@
 		document.addEventListener('submit', onSubmit, true);
 		return () => document.removeEventListener('submit', onSubmit, true);
 	});
+
+	// Rechargement reporté (volet ou saisie ouverte) : il n'a lieu qu'ici,
+	// quand l'utilisatrice a terminé — jamais au milieu d'une saisie.
+	afterNavigate(() => flushDeferredShellReload());
 </script>
 
 <svelte:head>

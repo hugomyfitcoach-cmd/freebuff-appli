@@ -9,8 +9,10 @@ import { isConvexStorageUrl, isFoodImgTagged } from './lib/foodImgTag';
  * - cache statique de l'app (shell) pour un démarrage hors-ligne fiable.
  */
 
-// Nom unique par build : un nouveau déploiement invalide l'ancien cache.
-const CACHE = `gflux-${version}`;
+/** Préfixe des caches de BUILD. Nom unique par build (donc invalidé à chaque
+ *  déploiement) et distinct du cache d'images, stable, qui a son propre nom. */
+const BUILD_CACHE_PREFIX = 'gflux-app-';
+const CACHE = `${BUILD_CACHE_PREFIX}${version}`;
 /** Cache dédié aux vignettes alimentaires — STABLE entre les builds : une
  *  image déjà vue reste servie instantanément après un déploiement. Contient
  *  les copies miroir G-FLUX (storage Convex) et les miniatures OFF utilisées
@@ -97,14 +99,35 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-	event.waitUntil(
-		caches
-			.keys()
-			.then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== IMG_CACHE).map((k) => caches.delete(k))))
-			.then(() => purgePrivateImages())
-			.then(() => self.clients.claim())
-	);
+	event.waitUntil(activateBuild());
 });
+
+/**
+ * Bascule vers le nouveau build — SANS casser les pages encore ouvertes.
+ *
+ * INCIDENT DU 28/10/2026 (Android, PWA installée) : page affichée SANS feuille
+ * de style (serif, blocs empilés, anneaux pleine largeur) à l'ouverture.
+ * Cause : ce worker prenait le contrôle immédiatement (skipWaiting) puis
+ * supprimait TOUS les autres caches. Une page encore ouverte sur le build
+ * précédent réclamait ses fichiers `/_app/immutable/*` : absents du cache
+ * (purgé) ET absents de Netlify (un déploiement ne sert que ses propres
+ * fichiers) → CSS 404 → page nue. Fermer/rouvrir servait le nouveau build
+ * d'où l'impression d'un bug intermittent.
+ *
+ * Désormais : le cache du build PRÉCÉDENT est CONSERVÉ jusqu'à la bascule
+ * complète (= jusqu'au déploiement suivant). `caches.keys()` est ordonné par
+ * création : le dernier cache de build autre que le courant est le précédent.
+ */
+async function activateBuild(): Promise<void> {
+	const keys = await caches.keys();
+	// Rien à voir avec le build courant ni avec le cache d'images stable.
+	const stale = keys.filter((k) => k !== CACHE && k !== IMG_CACHE);
+	// Version précédente : la plus récemment créée des caches de build.
+	const previous = stale.filter((k) => k.startsWith(BUILD_CACHE_PREFIX)).slice(-1);
+	await Promise.all(stale.filter((k) => !previous.includes(k)).map((k) => caches.delete(k)));
+	await purgePrivateImages();
+	await self.clients.claim();
+}
 
 /**
  * Purge de confidentialité à l'activation : les anciens builds mettaient TOUT
@@ -279,7 +302,12 @@ self.addEventListener('fetch', (event) => {
 				// shell périmé. Sinon : page d'erreur propre avec « Réessayer ».
 				.catch(async () => {
 					try {
-						const cached = (await caches.match(event.request)) || (await caches.match('/'));
+						// Repli lu UNIQUEMENT dans le cache de CE build : le cache du
+						// build précédent (conservé pour ses fichiers _app/immutable)
+						// contient un HTML d'une autre version, qui ne doit jamais
+						// masquer la copie valide du build courant.
+						const cache = await caches.open(CACHE);
+						const cached = (await cache.match(event.request)) || (await cache.match('/'));
 						if (cached && (await htmlMatchesBuild(cached.clone()))) return cached;
 					} catch {
 						/* cache illisible : page d'erreur propre */
@@ -290,6 +318,10 @@ self.addEventListener('fetch', (event) => {
 		return;
 	}
 	event.respondWith(
+		// `caches.match` interroge TOUS les caches : le build courant d'abord,
+		// puis celui du build précédent (conservé à l'activation) — une page
+		// encore ouverte sur l'ancienne version retrouve ainsi son CSS et ses
+		// modules, que Netlify ne sert plus.
 		caches.match(event.request).then((cached) => {
 			if (cached) return cached;
 			return fetchBounded(event.request)
