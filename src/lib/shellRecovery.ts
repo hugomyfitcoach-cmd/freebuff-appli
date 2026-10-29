@@ -52,8 +52,6 @@ let deferred = false;
 let currentBuild = 'dev';
 let doReload: () => void = () => location.reload();
 let guardStorage: Storage | null = null;
-/** Rechargements tentés sans stockage disponible (garde-fou mémoire). */
-let attempts = 0;
 
 /** Un volet ou une saisie en cours ? (le rechargement attendrait la suite) */
 export function blockingUiOpen(doc: Document = document): boolean {
@@ -100,12 +98,12 @@ function readGuard(storage: Storage): ReloadGuard {
 	}
 }
 
-function writeGuard(storage: Storage, guard: ReloadGuard): void {
+function writeGuard(storage: Storage, guard: ReloadGuard): boolean {
 	try {
 		storage.setItem(RELOAD_KEY, JSON.stringify(guard));
+		return true;
 	} catch {
-		/* sessionStorage indisponible (mode privé strict) : le rechargement
-		   reste borné par le compteur en mémoire de la page suivante */
+		return false;
 	}
 }
 
@@ -120,15 +118,17 @@ export function requestShellReload(): boolean {
 		return false;
 	}
 	const storage = guardStorage ?? safeSessionStorage();
-	if (storage) {
-		const guard = readGuard(storage);
-		if (guard.count >= MAX_AUTO_RELOADS) return false;
-		if (Date.now() - guard.at < MIN_RELOAD_GAP_MS) return false;
-		writeGuard(storage, { count: guard.count + 1, at: Date.now() });
-	} else {
-		if (attempts >= MAX_AUTO_RELOADS) return false;
-		attempts += 1;
-	}
+	// PAS de garde-fou persistant = PAS de rechargement automatique :
+	// sessionStorage indisponible (navigation privée stricte), quota atteint,
+	// lecture refusée… le compteur disparaîtrait au rechargement et l'app
+	// boucherait. Mieux vaut laisser la page telle quelle : l'utilisatrice
+	// recharge elle-même (l'ancien compteur en mémoire ne survivait pas à la
+	// page suivante, il ne protégeait donc de rien).
+	if (!storage) return false;
+	const guard = readGuard(storage);
+	if (guard.count >= MAX_AUTO_RELOADS) return false;
+	if (Date.now() - guard.at < MIN_RELOAD_GAP_MS) return false;
+	if (!writeGuard(storage, { count: guard.count + 1, at: Date.now() })) return false;
 	deferred = false;
 	doReload();
 	return true;

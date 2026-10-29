@@ -956,9 +956,14 @@ export const setSupersetGroup = mutation({
 				throw new ConvexError("Les exercices d'un superset doivent appartenir à la même séance.");
 			}
 			sessionId = linkedSessionId;
-			// Membres explicitement sortis du groupe (même transaction).
+			// Membres explicitement sortis du groupe (même transaction). Ils doivent
+			// appartenir à CETTE séance : un id d'une autre séance ferait sortir du
+			// groupe une ligne que l'opération ne concerne pas → refus.
 			for (const id of detachIds ?? []) {
 				const se = await requireSessionExercise(ctx, coach._id, id);
+				if (se.sessionId !== linkedSessionId) {
+					throw new ConvexError("Un exercice sorti du groupe doit appartenir à la même séance.");
+				}
 				if (se.supersetGroup === group) await ctx.db.patch(se._id, { supersetGroup: undefined } as never);
 			}
 			// Patch de groupe : les ids reçoivent le même identifiant, réordonnés

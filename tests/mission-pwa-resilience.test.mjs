@@ -66,7 +66,7 @@ test('SW vie privée : /api/ jamais caché — ni sessions ni réponses privées
 });
 
 test('SW images : IMG_CACHE survit aux déploiements (volontaire, cf. doc)', () => {
-	assert.match(sw, /keys\.filter\(\(k\) => k !== CACHE && k !== IMG_CACHE\)/);
+	assert.match(sw, /k !== CACHE && k !== IMG_CACHE/);
 });
 
 test('SW activation : le cache du build PRÉCÉDENT est conservé (bascule sans casse)', () => {
@@ -74,8 +74,12 @@ test('SW activation : le cache du build PRÉCÉDENT est conservé (bascule sans 
 	// ouverte réclamait ses fichiers _app/immutable, absents du cache (purgé à
 	// l'activation) et du serveur (Netlify ne sert que le dernier déploiement).
 	const activate = sw.slice(sw.indexOf('async function activateBuild'), sw.indexOf('async function purgePrivateImages'));
-	assert.match(activate, /startsWith\(BUILD_CACHE_PREFIX\)\)\.slice\(-1\)/, 'un cache de build conservé (le précédent)');
-	assert.match(activate, /stale\.filter\(\(k\) => !previous\.includes\(k\)\)/, 'seuls les caches plus anciens sont supprimés');
+	// La version précédente est désignée par le TÉMOIN (build mémorisé), pas
+	// par sa position dans `caches.keys()` : cet ordre n'est pas garanti.
+	assert.match(activate, /readBuildPointer\(\)/, 'précédent désigné explicitement');
+	assert.ok(!/\.slice\(-1\)|\.pop\(\)/.test(activate), 'aucun choix dépendant de l’ordre des clés');
+	assert.match(activate, /!previous\.includes\(k\)/, 'la version précédente échappe à la purge');
+	assert.match(activate, /isLegacyBuildCache/, 'ancien format « gflux-<hash> » conservé une activation');
 	assert.ok(!/keys\.map\(\(k\) => caches\.delete\(k\)\)/.test(activate), 'aucune purge générale');
 });
 

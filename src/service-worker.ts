@@ -13,6 +13,18 @@ import { isConvexStorageUrl, isFoodImgTagged } from './lib/foodImgTag';
  *  déploiement) et distinct du cache d'images, stable, qui a son propre nom. */
 const BUILD_CACHE_PREFIX = 'gflux-app-';
 const CACHE = `${BUILD_CACHE_PREFIX}${version}`;
+/** Préfixe de l'ANCIEN format de cache de build : un seul cache `gflux-<hash>`
+ *  contenait tout (shell, modules, vignettes). Encore en place sur les
+ *  installations au moment de la séparation app/images : il doit survivre UNE
+ *  activation, sinon une page ouverte sur l'ancien build perd son CSS une
+ *  dernière fois. */
+const LEGACY_CACHE_PREFIX = 'gflux-';
+/** Cache-TÉMOIN (une entrée, jamais servie) : il MÉMORISE le nom du cache du
+ *  build courant. C'est lui qui désigne la version précédente à l'activation —
+ *  `caches.keys()` n'étant pas garanti dans un ordre particulier, la position
+ *  d'un cache dans cette liste ne prouve rien. */
+const STATE_CACHE = 'gflux-sw-state';
+const STATE_KEY = 'https://gflux.invalid/sw-build';
 /** Cache dédié aux vignettes alimentaires — STABLE entre les builds : une
  *  image déjà vue reste servie instantanément après un déploiement. Contient
  *  les copies miroir G-FLUX (storage Convex) et les miniatures OFF utilisées
@@ -23,6 +35,17 @@ const CACHE = `${BUILD_CACHE_PREFIX}${version}`;
 const IMG_CACHE = 'gflux-img-v1';
 /** Plafond d'entrées du cache d'images (les plus anciennes sont retirées). */
 const IMG_CACHE_MAX = 600;
+
+/** Un cache de l'ANCIEN format « gflux-<hash> » ? (hors cache d'images,
+ *  caches de build et témoin, qui partagent le même préfixe). */
+function isLegacyBuildCache(name: string): boolean {
+	return (
+		name.startsWith(LEGACY_CACHE_PREFIX) &&
+		!name.startsWith(BUILD_CACHE_PREFIX) &&
+		!name.startsWith(`${LEGACY_CACHE_PREFIX}img-`) &&
+		!name.startsWith(`${LEGACY_CACHE_PREFIX}sw-`)
+	);
+}
 
 /** Limite de patience réseau des requêtes interceptées (ms). */
 const FETCH_TIMEOUT_MS = 5000;
@@ -115,18 +138,66 @@ self.addEventListener('activate', (event) => {
  * d'où l'impression d'un bug intermittent.
  *
  * Désormais : le cache du build PRÉCÉDENT est CONSERVÉ jusqu'à la bascule
- * complète (= jusqu'au déploiement suivant). `caches.keys()` est ordonné par
- * création : le dernier cache de build autre que le courant est le précédent.
+ * complète (= jusqu'au déploiement suivant).
+ *
+ * La version précédente est désignée par le TÉMOIN (`STATE_CACHE`), qui
+ * contient le nom du cache du build précédent : `caches.keys()` n'est pas
+ * garanti ordonné, donc la choisir par sa position dans cette liste pouvait
+ * conserver le mauvais cache (et supprimer celui dont les pages ouvertes ont
+ * besoin).
+ *
+ * PREMIER déploiement de ce worker : le cache en production est encore au
+ * format « gflux-<hash> ». Faute de témoin, il est conservé UNE fois comme
+ * version précédente (sinon : une dernière page sans feuille de style), puis
+ * supprimé à l'activation suivante comme toute version N-2.
  */
 async function activateBuild(): Promise<void> {
 	const keys = await caches.keys();
-	// Rien à voir avec le build courant ni avec le cache d'images stable.
-	const stale = keys.filter((k) => k !== CACHE && k !== IMG_CACHE);
-	// Version précédente : la plus récemment créée des caches de build.
-	const previous = stale.filter((k) => k.startsWith(BUILD_CACHE_PREFIX)).slice(-1);
-	await Promise.all(stale.filter((k) => !previous.includes(k)).map((k) => caches.delete(k)));
+	const pointer = await readBuildPointer();
+	// Version précédente : 0 ou 1 cache de build (le témoin fait foi), ou, à la
+	// toute première activation, le(s) cache(s) de l'ancien format encore en
+	// place. Aucun tri, aucun index : le choix ne dépend pas de l'ordre des clés.
+	let previous: string[] = [];
+	if (pointer) {
+		if (pointer !== CACHE && keys.includes(pointer)) previous = [pointer];
+	} else {
+		previous = keys.filter(isLegacyBuildCache);
+	}
+	// Rien à voir avec le build courant, le cache d'images stable, le témoin ni
+	// la version précédente : tout le reste est du N-2 (ou plus ancien).
+	const stale = keys.filter(
+		(k) => k !== CACHE && k !== IMG_CACHE && k !== STATE_CACHE && !previous.includes(k)
+	);
+	await Promise.all(stale.map((k) => caches.delete(k)));
+	// Témoin du build désormais actif (le suivant le lira comme « précédent »).
+	await writeBuildPointer(CACHE);
 	await purgePrivateImages();
 	await self.clients.claim();
+}
+
+/** Nom du cache du build précédent, tel que mémorisé à la dernière activation. */
+async function readBuildPointer(): Promise<string | null> {
+	try {
+		const cache = await caches.open(STATE_CACHE);
+		const res = await cache.match(STATE_KEY);
+		const name = res ? (await res.text()).trim() : '';
+		return name || null;
+	} catch {
+		return null;
+	}
+}
+
+/** Mémorise le build actif. En cas d'échec (quota, stockage refusé), la
+ *  prochaine activation ne saura pas quelle version conserver : elle repartira
+ *  sur la règle de l'ancien format ou ne conservera rien — jamais de fuite de
+ *  caches, jamais de suppression du build courant. */
+async function writeBuildPointer(name: string): Promise<void> {
+	try {
+		const cache = await caches.open(STATE_CACHE);
+		await cache.put(STATE_KEY, new Response(name, { headers: { 'content-type': 'text/plain' } }));
+	} catch {
+		/* témoin non écrit : cf. ci-dessus */
+	}
 }
 
 /**
