@@ -1,5 +1,7 @@
 import { internalQuery, mutation, query } from "./_generated/server";
-import { v, ConvexError } from "convex/values";	import {
+import { v, ConvexError } from "convex/values";
+import { CYCLE_LENGTH_MAX, CYCLE_LENGTH_MIN, isValidCycleLength } from "../lib/cycle";
+import {
 		EMAIL_RE,
 		SESSION_TTL_MS,
 		getSessionUser,
@@ -297,7 +299,7 @@ export const myCycle = query({
  * Enregistre la configuration de cycle de la cliente connectée.
  * Les valeurs suivent exactement l'outil d'origine : contraception (3 choix),
  * « je n'ai plus de règles régulières », premier jour des dernières règles,
- * durée moyenne 21–32 jours. Aucune donnée n'est partagée avec un autre profil.
+ * durée moyenne 21–45 jours. Aucune donnée n'est partagée avec un autre profil.
  */
 export const saveCycle = mutation({
 	args: {
@@ -331,8 +333,10 @@ export const saveCycle = mutation({
 			throw new ConvexError("Indique le premier jour de tes dernières règles.");
 		}
 		const lenN = len;
-		if (typeof lenN !== "number" || !Number.isInteger(lenN) || lenN < 21 || lenN > 32) {
-			throw new ConvexError("La durée moyenne du cycle doit être comprise entre 21 et 32 jours.");
+		if (!isValidCycleLength(lenN)) {
+			throw new ConvexError(
+				`La durée moyenne du cycle doit être comprise entre ${CYCLE_LENGTH_MIN} et ${CYCLE_LENGTH_MAX} jours.`,
+			);
 		}
 		await ctx.db.patch(user._id, {
 			cycle: { contra, noDate: false, lmp: lmpClean, len: lenN, updatedAt },

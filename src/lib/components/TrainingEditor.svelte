@@ -23,12 +23,14 @@
 		type SessionView,
 		type SessionExerciseView,
 		type ProgramView,
+		type ProgramRow,
 		exercisePreview,
 		repsLabel,
 		parseRepsField,
 		supersetBlocks,
 		supersetLabel,
 		newSupersetId,
+		importNoticeLabel,
 	} from '$lib/training';
 
 	type Props = {
@@ -248,6 +250,158 @@
 			await onReload();
 		}
 	}
+
+	/* ── Import d'exercices d'une séance dans plusieurs séances ──
+	   Le volet réutilise les données de l'éditeur : liste des programmes du
+	   coach, programme complet de la séance SOURCE (exercices + séries pour
+	   l'aperçu) et séances du programme courant pour les cibles. L'écriture est
+	   UNE mutation Convex : copie indépendante, source jamais modifiée. */
+	let importOpen = $state(false);
+	let importPrograms = $state<ProgramRow[]>([]);
+	let importProgramId = $state('');
+	let importSourceSessions = $state<SessionView[]>([]);
+	let importSessionId = $state('');
+	let importPicked = $state<Set<string>>(new Set());
+	let importTargets = $state<Set<string>>(new Set());
+	let importPosition = $state<'start' | 'end'>('start');
+	let importPhase = $state<'keep' | 'echauffement'>('echauffement');
+	let importBusy = $state(false);
+	let importErr = $state('');
+	let importNotice = $state('');
+	/** Le programme courant est déjà assigné : rappel après import. */
+	let importAssigned = $state(false);
+
+	const importSourceExercises = $derived(
+		importSourceSessions.find((s) => s._id === importSessionId)?.exercises ?? []
+	);
+	const importAllPicked = $derived(
+		importSourceExercises.length > 0 && importPicked.size === importSourceExercises.length
+	);
+
+	function toggleImportPick(id: string) {
+		const next = new Set(importPicked);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		importPicked = next;
+	}
+	function toggleImportAll() {
+		importPicked = importAllPicked ? new Set() : new Set(importSourceExercises.map((e) => e._id));
+	}
+	function toggleImportTarget(id: string) {
+		const next = new Set(importTargets);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		importTargets = next;
+	}
+	/** Position : « Au début » (défaut) échauffe, « À la fin » garde la phase. */
+	function setImportPosition(p: 'start' | 'end') {
+		importPosition = p;
+		importPhase = p === 'start' ? 'echauffement' : 'keep';
+	}
+
+	async function openImport() {
+		if (!selectedSessionId) {
+			actionErr = 'Sélectionne d’abord une séance dans la colonne de gauche.';
+			return;
+		}
+		importOpen = true;
+		importErr = '';
+		importNotice = '';
+		importBusy = false;
+		importPrograms = [];
+		importProgramId = '';
+		importSourceSessions = [];
+		importSessionId = '';
+		importPicked = new Set();
+		importTargets = new Set([selectedSessionId]); // séance courante cochée par défaut
+		importPosition = 'start';
+		importPhase = 'echauffement';
+		try {
+			const [pr, ar] = await Promise.all([
+				fetch('/api/coach/training/programs'),
+				fetch('/api/coach/training/assignments'),
+			]);
+			const pj = await pr.json();
+			if (pj.error) throw new Error(pj.error);
+			importPrograms = (pj.items ?? []) as ProgramRow[];
+			// Rappel d'assignation : toute assignation active de CE programme.
+			const aj = await ar.json().catch(() => ({}));
+			const rows = Array.isArray(aj.items) ? aj.items : [];
+			importAssigned = rows.some(
+				(a: { sourceProgramId?: string; removedAt?: number | null }) =>
+					a.sourceProgramId === program._id && !a.removedAt
+			);
+		} catch (e) {
+			importErr = e instanceof Error ? e.message : 'Erreur de chargement.';
+		}
+	}
+
+	async function pickImportProgram(id: string) {
+		importProgramId = id;
+		importSourceSessions = [];
+		importSessionId = '';
+		importPicked = new Set();
+		if (!id) return;
+		try {
+			const r = await fetch(`/api/coach/training/programs/${id}`);
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			importSourceSessions = (j.sessions ?? []) as SessionView[];
+			const first = importSourceSessions[0];
+			if (first) selectImportSession(first._id);
+		} catch (e) {
+			importErr = e instanceof Error ? e.message : 'Programme introuvable.';
+		}
+	}
+
+	/** Séance source choisie : tous ses exercices cochés par défaut. */
+	function selectImportSession(id: string) {
+		importSessionId = id;
+		const s = importSourceSessions.find((x) => x._id === id);
+		importPicked = new Set((s?.exercises ?? []).map((e) => e._id));
+	}
+
+	async function submitImport() {
+		if (!importSessionId) {
+			importErr = 'Choisis la séance source.';
+			return;
+		}
+		if (importPicked.size === 0) {
+			importErr = 'Sélectionne au moins un exercice.';
+			return;
+		}
+		if (importTargets.size === 0) {
+			importErr = 'Sélectionne au moins une séance cible.';
+			return;
+		}
+		importBusy = true;
+		importErr = '';
+		try {
+			const r = await fetch('/api/coach/training/import-exercises', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					sourceSessionId: importSessionId,
+					sessionExerciseIds: [...importPicked],
+					targetSessionIds: [...importTargets],
+					position: importPosition,
+					phaseMode: importPhase,
+				}),
+			});
+			const j = await r.json().catch(() => ({}));
+			if (!r.ok || j.error) throw new Error(j.error ?? 'Erreur d’import.');
+			const n = Number(j.exerciseCount ?? importPicked.size);
+			const k = Number(j.sessionCount ?? importTargets.size);
+			importNotice = importNoticeLabel(n, k);
+			saveState('saved');
+			importOpen = false;
+			await onReload();
+		} catch (e) {
+			importErr = e instanceof Error ? e.message : 'Erreur d’import.';
+		} finally {
+			importBusy = false;
+		}
+	}
 	async function duplicateExercise(id: string) {
 		if (await send('POST', `/api/coach/training/session-exercises/${id}`)) await onReload();
 	}
@@ -309,10 +463,16 @@
 		}
 	}
 
-	/** Réordonne le groupe : membres contigus dans l'ordre demandé. */
-	async function reorderSuperset(group: string, orderedIds: string[]) {
+	/**
+	 * Réordonne le groupe : membres contigus dans l'ordre demandé.
+	 * `detachIds` retire l'appartenance DANS LA MÊME opération (sortie d'un
+	 * membre) : aucun aller-retour où il garderait une référence orpheline.
+	 */
+	async function reorderSuperset(group: string, orderedIds: string[], detachIds?: string[]) {
 		if (!selectedSession || orderedIds.length < 2) return;
-		if (await send('PATCH', `/api/coach/training/session-exercises/${orderedIds[0]}`, { superset: { orderedIds, group } })) {
+		const superset = detachIds?.length ? { orderedIds, group, detachIds } : { orderedIds, group };
+		if (await send('PATCH', `/api/coach/training/session-exercises/${orderedIds[0]}`, { superset })) {
+			clearSel();
 			await onReload();
 		}
 	}
@@ -344,14 +504,32 @@
 		await onReload();
 	}
 
-	/* ── Prescription de l'exercice sélectionné ── */
+	/* ── Prescription de l'exercice sélectionné ──
+	   Deux chemins, une seule source de vérité (la requête rechargée) :
+	   • `patchExercise` : champs TEXTE déboundés (tempo, consignes) — la valeur
+	     est déjà dans le champ en cours de frappe, aucun rechargement pour ne
+	     pas déplacer le curseur ;
+	   • `saveExercise` / `saveSet` : valeurs qui pilotent l'APERÇU de la liste
+	     (séries, mode, phase) — écriture AWAITÉE puis rechargement, donc la
+	     liste affiche la nouvelle valeur sans recharger la page. */
 	function patchExercise(id: string, fields: Record<string, unknown>) {
 		void send('PATCH', `/api/coach/training/session-exercises/${id}`, fields);
 	}
-	function setMode(mode: 'reps' | 'time') {
+	async function saveExercise(id: string, fields: Record<string, unknown>) {
+		const res = await send('PATCH', `/api/coach/training/session-exercises/${id}`, fields);
+		if (res !== null) await onReload();
+		return res;
+	}
+	async function saveSet(body: Record<string, unknown>) {
+		const res = await send('PATCH', '/api/coach/training/sets', body);
+		if (res !== null) await onReload();
+		return res;
+	}
+	async function setMode(mode: 'reps' | 'time') {
 		if (!selectedExercise) return;
-		patchExercise(selectedExercise._id, { mode });
-		void onReload();
+		const id = selectedExercise._id;
+		selectedExercise.mode = mode; // retour visuel immédiat (la requête confirme)
+		await saveExercise(id, { mode });
 	}
 	function onTempoInput() {
 		if (!selectedExercise) return;
@@ -385,7 +563,7 @@
 		debounced(`reps-${setId}`, () => {
 			const parsed = parseRepsField(raw);
 			if (!parsed) return; // saisie en cours — rien n'est envoyé tant que ce n'est pas valide
-			return send('PATCH', '/api/coach/training/sets', {
+			return saveSet({
 				setId,
 				repsMin: parsed.repsMin,
 				repsMax: parsed.repsMax,
@@ -396,7 +574,7 @@
 		debounced(`set-${field}-${setId}`, () => {
 			const t = raw.trim().replace(',', '.');
 			const n = Number(t);
-			return send('PATCH', '/api/coach/training/sets', {
+			return saveSet({
 				setId,
 				[field]: t === '' || !Number.isFinite(n) ? null : n,
 			});
@@ -449,6 +627,28 @@
 
 	{#if actionErr}
 		<p class="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{actionErr}</p>
+	{/if}
+
+	<!-- Résultat de l'import : message court + rappel d'assignation -->
+	{#if importNotice}
+		<div class="flex flex-wrap items-start gap-2 rounded-xl border border-brand/40 bg-brand-light/60 px-3 py-2">
+			<div class="flex min-w-0 flex-1 flex-col gap-0.5">
+				<p class="flex items-center gap-1.5 text-sm font-bold text-brand-deep">
+					<Icon name="circleCheck" size={15} /> {importNotice}
+				</p>
+				{#if importAssigned}
+					<p class="text-[12px] font-semibold text-ink">Réassigne le programme pour que ta cliente reçoive la modification.</p>
+				{/if}
+			</div>
+			<button
+				type="button"
+				onclick={() => (importNotice = '')}
+				aria-label="Fermer le message"
+				class="shrink-0 rounded-full p-0.5 text-brand-deep/70 transition hover:bg-white hover:text-ink"
+			>
+				<Icon name="x" size={14} />
+			</button>
+		</div>
 	{/if}
 
 	<!-- ── 3 colonnes ── -->
@@ -519,17 +719,26 @@
 
 		<!-- COLONNE CENTRALE — exercices de la séance -->
 		<section class="overflow-hidden rounded-2xl border border-line bg-card shadow-sm">
-			<header class="flex items-center justify-between border-b border-line bg-line/30 px-3 py-2.5">
+			<header class="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-line/30 px-3 py-2.5">
 				<h2 class="min-w-0 truncate text-[11px] font-bold uppercase tracking-widest text-mist">
 					{selectedSession ? sessionName(selectedSession) : 'Exercices'}
 				</h2>
-				<button
-					type="button"
-					onclick={openPicker}
-					class="flex shrink-0 items-center gap-1 rounded-full bg-brand px-2.5 py-1 text-[11px] font-bold text-white transition hover:brightness-110"
-				>
-					<Icon name="plus" size={12} /> Ajouter un exercice
-				</button>
+				<span class="flex shrink-0 items-center gap-1.5">
+					<button
+						type="button"
+						onclick={openImport}
+						class="flex items-center gap-1 rounded-full bg-brand px-2.5 py-1 text-[11px] font-bold text-white transition hover:brightness-110"
+					>
+						<Icon name="filePlus" size={12} /> Importer des exercices
+					</button>
+					<button
+						type="button"
+						onclick={openPicker}
+						class="flex items-center gap-1 rounded-full bg-brand px-2.5 py-1 text-[11px] font-bold text-white transition hover:brightness-110"
+					>
+						<Icon name="plus" size={12} /> Ajouter un exercice
+					</button>
+				</span>
 			</header>
 
 			{#if !selectedSession}
@@ -631,7 +840,11 @@
 				{/if}
 
 				<ul class="max-h-[62vh] overflow-y-auto p-2">
-					{#each supersetBlocks(selectedSession.exercises) as block, bi (block.group ?? `iso-${bi}`)}
+					<!-- Clé de bloc TOUJOURS unique (`groupe#occurrence` / `iso-index`) :
+					     une séance héritée avec un circuit découpé s'affiche au lieu de
+					     planter (`each_key_duplicate`). Rien n'est supprimé : le coach
+					     retire lui-même le surplus, l'enregistrement normalise la suite. -->
+					{#each supersetBlocks(selectedSession.exercises) as block (block.key)}
 						<!-- Bloc superset : carte englobante premium (groupe visible d'un coup d'œil) -->
 						{#if block.group}
 							<li class="mb-2.5 rounded-2xl border-2 border-brand/35 bg-brand-light/25 p-1.5">
@@ -713,8 +926,11 @@
 										class="ml-1.5 inline-flex items-center gap-1 rounded-full border border-line bg-white px-2 py-0.5 text-[10.5px] font-bold text-mist transition hover:border-danger hover:text-danger"
 										onclick={() => {
 											const rest = members.filter((m) => m._id !== selectedExercise!._id).map((m) => m._id);
-											if (rest.length >= 2) void reorderSuperset(selectedExercise!.supersetGroup!, rest);
-											else void unlinkGroup(selectedExercise!.supersetGroup!);
+										// Le membre sorti est détaché dans le même appel : jamais de
+										// référence orpheline qui découperait le circuit en deux.
+										if (rest.length >= 2)
+											void reorderSuperset(selectedExercise!.supersetGroup!, rest, [selectedExercise!._id]);
+										else void unlinkGroup(selectedExercise!.supersetGroup!);
 										}}
 									>
 										<Icon name="unlink" size={10} /> Sortir du groupe
@@ -881,9 +1097,11 @@
 						<select
 							value={selectedExercise.phase ?? 'principal'}
 							onchange={(e) => {
+								if (!selectedExercise) return;
 								const v = (e.currentTarget as HTMLSelectElement).value as 'echauffement' | 'principal' | 'finisher';
-								if (selectedExercise) selectedExercise.phase = v;
-								patchExercise(selectedExercise!._id, { phase: v === 'principal' ? null : v });
+								const id = selectedExercise._id;
+								selectedExercise.phase = v; // affichage immédiat (la requête confirme)
+								void saveExercise(id, { phase: v === 'principal' ? null : v });
 							}}
 							class="w-full rounded-xl border border-line bg-white px-3 py-2 text-sm outline-none focus:border-brand"
 						>
@@ -969,6 +1187,220 @@
 			<div class="min-h-0 flex-1 overflow-y-auto p-5">
 				<ExerciseLibraryBrowser variant="picker" {addedIds} onAdd={(ex) => addFromLibrary(ex._id)} />
 			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- ── Import d'exercices d'une séance (volet) ── -->
+{#if importOpen}
+	<div
+		class="fixed inset-0 z-50 grid place-items-center bg-ink/50 p-4"
+		role="presentation"
+		onclick={(e) => {
+			if (e.target === e.currentTarget && !importBusy) importOpen = false;
+		}}
+		onkeydown={(e) => {
+			if (e.key === 'Escape' && !importBusy) importOpen = false;
+		}}
+	>
+		<div class="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl bg-card shadow-xl">
+			<header class="flex items-start justify-between gap-3 border-b border-line px-5 py-3">
+				<div class="min-w-0">
+					<h3 class="font-display text-lg font-bold text-ink">Importer des exercices</h3>
+					<p class="text-xs text-mist">
+						Copie indépendante dans les séances choisies — la séance source n'est pas modifiée.
+					</p>
+				</div>
+				<button
+					type="button"
+					disabled={importBusy}
+					onclick={() => (importOpen = false)}
+					class="rounded-full p-1 text-mist transition hover:bg-line/50 hover:text-ink disabled:opacity-50"
+					aria-label="Fermer"
+				>
+					<Icon name="x" size={18} />
+				</button>
+			</header>
+
+			<div class="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+				{#if importErr}
+					<p class="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{importErr}</p>
+				{/if}
+
+				<!-- 1. Programme puis séance source -->
+				<section>
+					<h4 class="mb-1.5 text-[10px] font-bold uppercase tracking-widest text-mist">Séance source</h4>
+					<div class="grid gap-2 sm:grid-cols-2">
+						<select
+							value={importProgramId}
+							onchange={(e) => pickImportProgram((e.currentTarget as HTMLSelectElement).value)}
+							aria-label="Programme source"
+							class="w-full rounded-xl border border-line bg-white px-3 py-2 text-sm outline-none focus:border-brand"
+						>
+							<option value="">Choisir un programme…</option>
+							{#each importPrograms as p (p._id)}<option value={p._id}>{p.name}</option>{/each}
+						</select>
+						<select
+							value={importSessionId}
+							onchange={(e) => selectImportSession((e.currentTarget as HTMLSelectElement).value)}
+							disabled={importSourceSessions.length === 0}
+							aria-label="Séance source"
+							class="w-full rounded-xl border border-line bg-white px-3 py-2 text-sm outline-none focus:border-brand disabled:opacity-50"
+						>
+							<option value="">Choisir une séance…</option>
+							{#each importSourceSessions as s (s._id)}<option value={s._id}>{sessionName(s)}</option>{/each}
+						</select>
+					</div>
+				</section>
+
+				<!-- 2. Exercices de la séance source (tous cochés par défaut) -->
+				{#if importSessionId}
+					<section>
+						<div class="mb-1.5 flex items-center justify-between gap-2">
+							<h4 class="text-[10px] font-bold uppercase tracking-widest text-mist">
+								Exercices ({importPicked.size}/{importSourceExercises.length})
+							</h4>
+							{#if importSourceExercises.length > 0}
+								<button
+									type="button"
+									onclick={toggleImportAll}
+									class="text-[11px] font-bold text-brand transition hover:text-brand-dark"
+								>
+									{importAllPicked ? 'Tout décocher' : 'Tout cocher'}
+								</button>
+							{/if}
+						</div>
+						{#if importSourceExercises.length === 0}
+							<p class="rounded-xl border border-dashed border-line px-3 py-4 text-center text-xs text-mist">
+								Cette séance n'a aucun exercice à importer.
+							</p>
+						{:else}
+							<ul class="max-h-56 overflow-y-auto rounded-xl border border-line bg-white">
+								{#each importSourceExercises as ex (ex._id)}
+									<li class="border-b border-line/60 last:border-0">
+										<label class="flex cursor-pointer items-center gap-2.5 px-3 py-2 transition hover:bg-brand-light/40">
+											<input
+												type="checkbox"
+												checked={importPicked.has(ex._id)}
+												onchange={() => toggleImportPick(ex._id)}
+												class="h-4 w-4 shrink-0 accent-[var(--brand)]"
+											/>
+											<span class="min-w-0 flex-1">
+												<span class="block truncate text-[13px] font-semibold text-ink">{displayExerciseName(ex.exercise?.name) || 'Exercice supprimé'}</span>
+												<span class="block truncate text-[11px] text-mist">{exercisePreview(ex)}</span>
+											</span>
+										</label>
+									</li>
+								{/each}
+							</ul>
+						{/if}
+					</section>
+				{/if}
+
+				<!-- 3. Séances cibles du programme en cours -->
+				<section>
+					<h4 class="mb-1.5 text-[10px] font-bold uppercase tracking-widest text-mist">
+						Séances cibles ({importTargets.size}/{sessions.length})
+					</h4>
+					<div class="grid gap-1.5 sm:grid-cols-2">
+						{#each sessions as s (s._id)}
+							<label
+								class="flex cursor-pointer items-center gap-2 rounded-xl border-2 px-3 py-2 text-[12.5px] font-semibold text-ink transition {importTargets.has(s._id)
+									? 'border-brand bg-brand-light/50'
+									: 'border-line bg-white hover:border-brand/60'}"
+							>
+								<input
+									type="checkbox"
+									checked={importTargets.has(s._id)}
+									onchange={() => toggleImportTarget(s._id)}
+									class="h-4 w-4 shrink-0 accent-[var(--brand)]"
+								/>
+								<span class="min-w-0 flex-1 truncate">{sessionName(s)}</span>
+								<span class="shrink-0 text-[10px] font-bold text-mist">{s.exercises.length} ex.</span>
+							</label>
+						{/each}
+					</div>
+					{#if sessions.length === 0}
+						<p class="rounded-xl border border-dashed border-line px-3 py-4 text-center text-xs text-mist">
+							Ce programme n'a aucune séance.
+						</p>
+					{/if}
+				</section>
+
+				<!-- 4. Position et phase -->
+				<div class="grid gap-3 sm:grid-cols-2">
+					<div class="block">
+						<p class="mb-1 block text-[10px] font-bold uppercase tracking-widest text-mist">Position</p>
+						<span class="flex gap-1.5">
+							<button
+								type="button"
+								onclick={() => setImportPosition('start')}
+								class="flex-1 rounded-xl border-2 px-2 py-1.5 text-xs font-bold transition {importPosition === 'start'
+									? 'border-brand bg-brand text-white'
+									: 'border-line bg-white text-ink hover:border-brand'}"
+							>
+								Au début
+							</button>
+							<button
+								type="button"
+								onclick={() => setImportPosition('end')}
+								class="flex-1 rounded-xl border-2 px-2 py-1.5 text-xs font-bold transition {importPosition === 'end'
+									? 'border-brand bg-brand text-white'
+									: 'border-line bg-white text-ink hover:border-brand'}"
+							>
+								À la fin
+							</button>
+						</span>
+					</div>
+					<div class="block">
+						<p class="mb-1 block text-[10px] font-bold uppercase tracking-widest text-mist">Phase</p>
+						<span class="flex gap-1.5">
+							<button
+								type="button"
+								onclick={() => (importPhase = 'keep')}
+								class="flex-1 rounded-xl border-2 px-2 py-1.5 text-xs font-bold transition {importPhase === 'keep'
+									? 'border-brand bg-brand text-white'
+									: 'border-line bg-white text-ink hover:border-brand'}"
+							>
+								Garder la phase d'origine
+							</button>
+							<button
+								type="button"
+								onclick={() => (importPhase = 'echauffement')}
+								class="flex-1 rounded-xl border-2 px-2 py-1.5 text-xs font-bold transition {importPhase === 'echauffement'
+									? 'border-brand bg-brand text-white'
+									: 'border-line bg-white text-ink hover:border-brand'}"
+							>
+								Forcer Échauffement
+							</button>
+						</span>
+					</div>
+				</div>
+			</div>
+
+			<footer class="flex flex-wrap items-center justify-between gap-2 border-t border-line px-5 py-3">
+				<p class="text-[11px] font-semibold text-mist">
+					{importPicked.size} exercice{importPicked.size > 1 ? 's' : ''} → {importTargets.size} séance{importTargets.size > 1 ? 's' : ''}
+				</p>
+				<span class="flex items-center gap-1.5">
+					<button
+						type="button"
+						disabled={importBusy}
+						onclick={() => (importOpen = false)}
+						class="rounded-full border border-line bg-white px-3.5 py-1.5 text-xs font-bold text-ink transition hover:border-brand disabled:opacity-50"
+					>
+						Annuler
+					</button>
+					<button
+						type="button"
+						disabled={importBusy || !importSessionId || importPicked.size === 0 || importTargets.size === 0}
+						onclick={submitImport}
+						class="flex items-center gap-1.5 rounded-full bg-brand px-4 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-50"
+					>
+						<Icon name="filePlus" size={13} /> {importBusy ? 'Import…' : 'Importer'}
+					</button>
+				</span>
+			</footer>
 		</div>
 	</div>
 {/if}

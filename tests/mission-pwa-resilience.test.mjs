@@ -42,8 +42,12 @@ test('SW : toute requête interceptée est BORNÉE (jamais un fetch qui pend)', 
 test('SW navigation : repli cache servi si le réseau est lent ou coupé', () => {
 	const nav = sw.slice(sw.indexOf("event.request.mode === 'navigate'"));
 	assert.match(nav, /fetchBounded\(event\.request\)/, 'navigation bornée');
-	assert.match(nav, /caches\.match\(event\.request\)/, 'copie de repli de la page');
-	assert.match(nav, /caches\.match\('\/'\)/, "dernier filet = shell de l'app");
+	// Repli lu dans le cache du build COURANT uniquement : le cache du build
+	// précédent (conservé pour ses fichiers _app/immutable) ne doit jamais
+	// fournir un HTML d'une autre version.
+	assert.match(nav, /caches\.open\(CACHE\)/, 'repli lu dans le cache du build courant');
+	assert.match(nav, /cache\.match\(event\.request\)/, 'copie de repli de la page');
+	assert.match(nav, /cache\.match\('\/'\)/, "dernier filet = shell de l'app");
 });
 
 test('SW navigation : la copie de repli reste rafraîchie par chaque HTML frais', () => {
@@ -62,7 +66,21 @@ test('SW vie privée : /api/ jamais caché — ni sessions ni réponses privées
 });
 
 test('SW images : IMG_CACHE survit aux déploiements (volontaire, cf. doc)', () => {
-	assert.match(sw, /keys\.filter\(\(k\) => k !== CACHE && k !== IMG_CACHE\)/);
+	assert.match(sw, /k !== CACHE && k !== IMG_CACHE/);
+});
+
+test('SW activation : le cache du build PRÉCÉDENT est conservé (bascule sans casse)', () => {
+	// Incident du 28/10/2026 : page SANS CSS après déploiement. Une page encore
+	// ouverte réclamait ses fichiers _app/immutable, absents du cache (purgé à
+	// l'activation) et du serveur (Netlify ne sert que le dernier déploiement).
+	const activate = sw.slice(sw.indexOf('async function activateBuild'), sw.indexOf('async function purgePrivateImages'));
+	// La version précédente est désignée par le TÉMOIN (build mémorisé), pas
+	// par sa position dans `caches.keys()` : cet ordre n'est pas garanti.
+	assert.match(activate, /readBuildPointer\(\)/, 'précédent désigné explicitement');
+	assert.ok(!/\.slice\(-1\)|\.pop\(\)/.test(activate), 'aucun choix dépendant de l’ordre des clés');
+	assert.match(activate, /!previous\.includes\(k\)/, 'la version précédente échappe à la purge');
+	assert.match(activate, /isLegacyBuildCache/, 'ancien format « gflux-<hash> » conservé une activation');
+	assert.ok(!/keys\.map\(\(k\) => caches\.delete\(k\)\)/.test(activate), 'aucune purge générale');
 });
 
 test('Convex serveur : avec échéance — un appel qui ne revient pas ne fige rien', () => {

@@ -23,6 +23,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { getSessionUser } from "./helpers";
 import { programGoal, programLevel } from "./schema";
+import { planSessionLayout } from "./trainingLayout";
 
 /* ── Référentiels affichables (l'UI ne code jamais les libellés en dur) ── */
 
@@ -121,13 +122,30 @@ async function renormalizeSessionOrders(ctx: MutationCtx, programId: Id<"trainin
 	await Promise.all(rows.map((r, i) => (r.order === i ? null : ctx.db.patch(r._id, { order: i }))));
 }
 
-async function renormalizeExerciseOrders(ctx: MutationCtx, sessionId: Id<"trainingSessions">) {
+/**
+ * Applique la mise en page CANONIQUE d'une séance (voir `trainingLayout`) :
+ * groupes de circuit contigus, références orphelines retirées, `order`
+ * réindexé 0..n-1. Appelée à la fin de TOUTE écriture structurelle (ajout,
+ * duplication, retrait, réordonnancement, liaison/déliage) : aucune suite
+ * « circuit → suppression → déplacement » ne peut plus laisser deux blocs de
+ * même identifiant, ni une position dupliquée. Aucune ligne n'est supprimée.
+ */
+async function normalizeSessionLayout(ctx: MutationCtx, sessionId: Id<"trainingSessions">) {
 	const rows = await ctx.db
 		.query("trainingSessionExercises")
 		.withIndex("by_session", (q) => q.eq("sessionId", sessionId))
 		.collect();
-	rows.sort((a, b) => a.order - b.order || a.createdAt - b.createdAt);
-	await Promise.all(rows.map((r, i) => (r.order === i ? null : ctx.db.patch(r._id, { order: i }))));
+	const plan = planSessionLayout(rows);
+	const clear = new Set(plan.clearGroupIds);
+	await Promise.all(
+		rows.map((r) => {
+			const patch: Record<string, unknown> = {};
+			const order = plan.orders.get(r._id);
+			if (order !== undefined && order !== r.order) patch.order = order;
+			if (clear.has(r._id) && r.supersetGroup !== undefined) patch.supersetGroup = undefined;
+			return Object.keys(patch).length > 0 ? ctx.db.patch(r._id, patch as never) : null;
+		})
+	);
 }
 
 async function renormalizeSetOrders(ctx: MutationCtx, sessionExerciseId: Id<"trainingSessionExercises">) {
@@ -708,6 +726,7 @@ export const addSessionExercise = mutation({
 			});
 		}
 		await ctx.db.patch(session.programId, { updatedAt: now });
+		await normalizeSessionLayout(ctx, sessionId);
 		return { sessionExerciseId: id };
 	},
 });
@@ -732,6 +751,10 @@ export const reorderSessionExercises = mutation({
 		const known = new Set(rows.map((r) => r._id));
 		if (!orderedIds.every((id) => known.has(id))) throw new ConvexError("Ordre des exercices invalide.");
 		await Promise.all(orderedIds.map((id, i) => ctx.db.patch(id, { order: i })));
+		// Un glisser-déposer ne peut pas couper un circuit en deux : la mise en
+		// page canonique recolle le groupe (l'exercice déplacé glisse DANS son
+		// bloc, jamais hors du bloc sans passer par « Sortir du groupe »).
+		await normalizeSessionLayout(ctx, sessionId);
 		await ctx.db.patch(session.programId, { updatedAt: Date.now() });
 		return { ok: true };
 	},
@@ -788,6 +811,9 @@ export const duplicateSessionExercise = mutation({
 		const ordered = siblings.map((s) => s._id);
 		ordered.splice(ordered.indexOf(src._id) + 1, 0, newId);
 		await Promise.all(ordered.map((id, i) => ctx.db.patch(id, { order: i })));
+		// La copie est isolée : sans cette passe, l'insérer au milieu d'un circuit
+		// séparerait le groupe en deux blocs de même identifiant (`each_key_duplicate`).
+		await normalizeSessionLayout(ctx, sessionId);
 		const session = await ctx.db.get(sessionId);
 		if (session) await ctx.db.patch(session.programId, { updatedAt: now });
 		return { sessionExerciseId: newId };
@@ -801,7 +827,9 @@ export const removeSessionExercise = mutation({
 		const coach = await requireCoach(ctx, sessionToken);
 		const se = await requireSessionExercise(ctx, coach._id, sessionExerciseId);
 		await deleteSessionExerciseCascade(ctx, sessionExerciseId);
-		await renormalizeExerciseOrders(ctx, se.sessionId);
+		// Retrait d'un membre : réindexe les positions ET retire la référence de
+		// circuit devenue orpheline (un membre seul n'est plus un circuit).
+		await normalizeSessionLayout(ctx, se.sessionId);
 		const session = await ctx.db.get(se.sessionId);
 		if (session) await ctx.db.patch(session.programId, { updatedAt: Date.now() });
 		return { ok: true };
@@ -889,14 +917,31 @@ export const setSupersetGroup = mutation({
 		orderedIds: v.array(v.id("trainingSessionExercises")),
 		/** null = délier totalement (tous les membres deviennent isolés). */
 		group: v.optional(v.union(v.string(), v.null())),
+		/**
+		 * Membres SORTIS du groupe dans la même opération (jamais dans
+		 * `orderedIds`) : leur référence est retirée. Sans ça, le membre exclu
+		 * gardait l'identifiant du groupe et créait un 2e bloc du même nom.
+		 */
+		detachIds: v.optional(v.array(v.id("trainingSessionExercises"))),
 	},
-	handler: async (ctx, { sessionToken, orderedIds, group }) => {
+	handler: async (ctx, { sessionToken, orderedIds, group, detachIds }) => {
 		const coach = await requireCoach(ctx, sessionToken);
+		if (orderedIds.length === 0) throw new ConvexError("Aucun exercice à lier.");
+		if (detachIds && detachIds.some((id) => orderedIds.includes(id))) {
+			throw new ConvexError("Un exercice ne peut pas être lié et sorti du même groupe.");
+		}
+		// Opération atomique : un identifiant ne peut jamais figurer deux fois
+		// dans le même groupe (référence partagée = doublon garanti à l'écran).
+		if (new Set(orderedIds).size !== orderedIds.length) {
+			throw new ConvexError("Exercices en double dans le groupe — opération refusée.");
+		}
+		let sessionId: Id<"trainingSessions"> | null = null;
 		if (group === null || group === undefined) {
 			// DÉLIAGE : retire l'appartenance de chaque ligne (individuel ou total).
 			for (const id of orderedIds) {
 				const se = await requireSessionExercise(ctx, coach._id, id);
-				await ctx.db.patch(se._id, { supersetGroup: undefined } as never);
+				sessionId = se.sessionId;
+				if (se.supersetGroup !== undefined) await ctx.db.patch(se._id, { supersetGroup: undefined } as never);
 			}
 		} else {
 			if (orderedIds.length < 2 || orderedIds.length > 6) {
@@ -906,16 +951,27 @@ export const setSupersetGroup = mutation({
 			for (const id of orderedIds) {
 				rows.push(await requireSessionExercise(ctx, coach._id, id));
 			}
-			const sessionId = rows[0].sessionId;
-			if (!rows.every((r) => r.sessionId === sessionId)) {
+			const linkedSessionId = rows[0].sessionId;
+			if (!rows.every((r) => r.sessionId === linkedSessionId)) {
 				throw new ConvexError("Les exercices d'un superset doivent appartenir à la même séance.");
+			}
+			sessionId = linkedSessionId;
+			// Membres explicitement sortis du groupe (même transaction). Ils doivent
+			// appartenir à CETTE séance : un id d'une autre séance ferait sortir du
+			// groupe une ligne que l'opération ne concerne pas → refus.
+			for (const id of detachIds ?? []) {
+				const se = await requireSessionExercise(ctx, coach._id, id);
+				if (se.sessionId !== linkedSessionId) {
+					throw new ConvexError("Un exercice sorti du groupe doit appartenir à la même séance.");
+				}
+				if (se.supersetGroup === group) await ctx.db.patch(se._id, { supersetGroup: undefined } as never);
 			}
 			// Patch de groupe : les ids reçoivent le même identifiant, réordonnés
 			// par contiguïté (le 1er du groupe amorce la position, les suivants
 			// viennent se placer juste après, dans l'ordre fourni).
 			const siblings = await ctx.db
 				.query("trainingSessionExercises")
-				.withIndex("by_session", (q) => q.eq("sessionId", sessionId))
+				.withIndex("by_session", (q) => q.eq("sessionId", linkedSessionId))
 				.collect();
 			siblings.sort((a, b) => a.order - b.order || a.createdAt - b.createdAt);
 			const chosen = new Set(orderedIds);
@@ -932,6 +988,10 @@ export const setSupersetGroup = mutation({
 				)
 			);
 		}
+		// Mise en page canonique : le groupe lié devient UN bloc contigu, et tout
+		// ancien groupe laissé avec un seul membre (membre sorti ou absorbé) perd
+		// sa référence — plus jamais deux blocs de même identifiant à l'écran.
+		if (sessionId) await normalizeSessionLayout(ctx, sessionId);
 		// Toucher updatedAt du programme (parent du 1er id) pour l'ordre de la liste.
 		if (orderedIds[0]) {
 			const first = await ctx.db.get(orderedIds[0]);
@@ -941,6 +1001,152 @@ export const setSupersetGroup = mutation({
 			}
 		}
 		return { ok: true };
+	},
+});
+
+/* ═══════════ Import d'exercices entre séances ═══════════ */
+
+/**
+ * COPIE des exercices d'une séance source dans PLUSIEURS séances du programme
+ * en cours, en une seule transaction.
+ *
+ * Rien n'est partagé avec la source : chaque cible reçoit de NOUVELLES lignes
+ * (exercice + séries) avec toute la prescription (mode, tempo, consignes,
+ * notes, phase, reps, charge, RIR, repos, durée). Un circuit de la source est
+ * RECRÉÉ comme circuit distinct dans chaque cible : nouvel identifiant de
+ * groupe, sans lien avec celui de la source ni avec un import précédent (deux
+ * imports successifs ne fusionnent jamais deux circuits).
+ *
+ * Positions : les copies sont posées au début (avant tout) ou à la fin, puis
+ * la mise en page canonique d'EDITEUR-DOUBLON (`planSessionLayout`) recolle
+ * les circuits et réindexe 0..n-1 — aucune position dupliquée, aucun groupe
+ * orphelin. Le programme source n'est jamais modifié.
+ */
+export const importSessionExercises = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		/** Séance source (programme du coach, jamais une copie assignée). */
+		sourceSessionId: v.id("trainingSessions"),
+		/** Exercices retenus dans la séance source (tous cochés par défaut). */
+		sessionExerciseIds: v.array(v.id("trainingSessionExercises")),
+		/** Séances cibles du programme en cours. */
+		targetSessionIds: v.array(v.id("trainingSessions")),
+		position: v.union(v.literal("start"), v.literal("end")),
+		/** `keep` = phase d'origine ; `echauffement` = tout en échauffement. */
+		phaseMode: v.union(v.literal("keep"), v.literal("echauffement")),
+	},
+	handler: async (ctx, { sessionToken, sourceSessionId, sessionExerciseIds, targetSessionIds, position, phaseMode }) => {
+		const coach = await requireCoach(ctx, sessionToken);
+		if (sessionExerciseIds.length === 0) throw new ConvexError("Sélectionne au moins un exercice à importer.");
+		if (sessionExerciseIds.length > MAX_EXERCISES_PER_SESSION) {
+			throw new ConvexError(`Maximum ${MAX_EXERCISES_PER_SESSION} exercices par séance.`);
+		}
+		if (new Set(sessionExerciseIds).size !== sessionExerciseIds.length) {
+			throw new ConvexError("Exercices en double dans la sélection — opération refusée.");
+		}
+		const targetIds = [...new Set(targetSessionIds)];
+		if (targetIds.length === 0) throw new ConvexError("Sélectionne au moins une séance cible.");
+
+		// Source : propriété vérifiée comme partout (programme → séance).
+		await requireSession(ctx, coach._id, sourceSessionId);
+		const sourceRows = await ctx.db
+			.query("trainingSessionExercises")
+			.withIndex("by_session", (q) => q.eq("sessionId", sourceSessionId))
+			.collect();
+		sourceRows.sort((a, b) => a.order - b.order || a.createdAt - b.createdAt || a._id.localeCompare(b._id));
+		const chosen = new Set(sessionExerciseIds);
+		if (sourceRows.filter((r) => chosen.has(r._id)).length !== chosen.size) {
+			throw new ConvexError("Exercice source introuvable dans la séance.");
+		}
+		const picked = sourceRows.filter((r) => chosen.has(r._id));
+
+		// Séries de la source : lues UNE fois, recopiées dans chaque cible.
+		const sourceSets = new Map<string, Doc<"trainingSets">[]>();
+		for (const se of picked) {
+			const sets = await ctx.db
+				.query("trainingSets")
+				.withIndex("by_sessionExercise", (q) => q.eq("sessionExerciseId", se._id))
+				.collect();
+			sets.sort((a, b) => a.order - b.order || a._creationTime - b._creationTime);
+			sourceSets.set(se._id, sets);
+		}
+
+		// Cibles : même programme (celui en cours), appartenant au coach appelant.
+		const targets: Doc<"trainingSessions">[] = [];
+		for (const id of targetIds) targets.push(await requireSession(ctx, coach._id, id));
+		const programId = targets[0].programId;
+		if (!targets.every((t) => t.programId === programId)) {
+			throw new ConvexError("Les séances cibles doivent appartenir au même programme.");
+		}
+
+		const now = Date.now();
+		const sourceGroups = [...new Set(picked.map((r) => r.supersetGroup).filter((g): g is string => !!g))];
+
+		for (const [ti, target] of targets.entries()) {
+			const existing = await ctx.db
+				.query("trainingSessionExercises")
+				.withIndex("by_session", (q) => q.eq("sessionId", target._id))
+				.collect();
+			if (existing.length + picked.length > MAX_EXERCISES_PER_SESSION) {
+				throw new ConvexError(`Maximum ${MAX_EXERCISES_PER_SESSION} exercices par séance.`);
+			}
+			// Un circuit source → un NOUVEAU groupe dans CETTE cible (jamais de
+			// collision avec un groupe existant ni avec un import précédent).
+			const taken = new Set(existing.map((r) => r.supersetGroup).filter((g): g is string => !!g));
+			const fresh = new Map<string, string>();
+			sourceGroups.forEach((g, gi) => {
+				let id = `sup:imp${now.toString(36)}${ti}${gi}`;
+				while (taken.has(id)) id += "x";
+				taken.add(id);
+				fresh.set(g, id);
+			});
+
+			// Place : les copies passent avant tout (start) ou après tout (end).
+			existing.sort((a, b) => a.order - b.order || a.createdAt - b.createdAt || a._id.localeCompare(b._id));
+			const start = position === "start";
+			await Promise.all(
+				existing.map((r, i) => ctx.db.patch(r._id, { order: start ? i + picked.length : i }))
+			);
+
+			for (const [i, se] of picked.entries()) {
+				const group = se.supersetGroup ? fresh.get(se.supersetGroup) : undefined;
+				const phase = phaseMode === "echauffement" ? "echauffement" : se.phase;
+				const newId = await ctx.db.insert("trainingSessionExercises", {
+					sessionId: target._id,
+					exerciseId: se.exerciseId,
+					order: (start ? 0 : existing.length) + i,
+					mode: se.mode,
+					tempo: se.tempo,
+					coachNote: se.coachNote,
+					techniqueNote: se.techniqueNote,
+					...(phase ? { phase } : {}),
+					...(group ? { supersetGroup: group } : {}),
+					createdAt: now + i, // ordre déterministe entre les copies
+				});
+				for (const st of sourceSets.get(se._id) ?? []) {
+					await ctx.db.insert("trainingSets", {
+						sessionExerciseId: newId,
+						order: st.order,
+						repsMin: st.repsMin,
+						repsMax: st.repsMax,
+						targetWeight: st.targetWeight,
+						targetRir: st.targetRir,
+						restSeconds: st.restSeconds,
+						durationSeconds: st.durationSeconds,
+					});
+				}
+			}
+			// Mise en page canonique : circuits contigus, groupes orphelins
+			// dissous, positions réindexées 0..n-1.
+			await normalizeSessionLayout(ctx, target._id);
+		}
+
+		await ctx.db.patch(programId, { updatedAt: now });
+		return {
+			exerciseCount: picked.length,
+			sessionCount: targets.length,
+			targetSessionIds: targets.map((t) => t._id),
+		};
 	},
 });
 

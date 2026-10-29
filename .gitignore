@@ -34,3 +34,6 @@ vite.config.ts.timestamp-*
 
 # Secret billing genere localement pour collage manuel Netlify (JAMAIS commité)
 .netlify-billing-secret.txt
+
+# Sorties de vérification Playwright (captures de volets — regenerables)
+.tmp-polish-ios/

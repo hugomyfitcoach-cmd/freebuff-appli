@@ -100,8 +100,10 @@
 	import { fmtMs, type CoachMediaItem } from '$lib/media';
 	import { shiftISO } from '$lib/averages';
 	import {
+		CYCLE_LENGTH_DEFAULT,
 		CYCLE_LENGTH_OPTIONS,
 		CYCLE_NO_ESTIMATE_MSGS,
+		cycleLengthOrDefault,
 		cycleState,
 		phaseRanges,
 		type CycleConfig,
@@ -309,7 +311,8 @@
 	let cContra = $state<CycleContra>('none');
 	let cNoDate = $state(false);
 	let cLmp = $state('');
-	let cLen = $state('28');
+	/** Nombre (et non chaîne) : les options du sélecteur sont des nombres. */
+	let cLen = $state(CYCLE_LENGTH_DEFAULT);
 	let cErr = $state('');
 	let cSaving = $state(false);
 	function openCycleEditor() {
@@ -317,7 +320,7 @@
 		cContra = cur?.contra ?? 'none';
 		cNoDate = cur ? cur.noDate : false;
 		cLmp = cur?.lmp ?? '';
-		cLen = String(cur?.len ?? 28);
+		cLen = cycleLengthOrDefault(cur?.len);
 		cErr = '';
 		cycleOpen = !cycleOpen;
 	}
@@ -346,7 +349,7 @@
 					contra: cContra,
 					noDate: cContra === 'hormonal' ? false : cNoDate,
 					lmp: cContra !== 'hormonal' && !cNoDate ? cLmp : undefined,
-					len: cContra !== 'hormonal' && !cNoDate ? parseInt(cLen, 10) : undefined,
+					len: cContra !== 'hormonal' && !cNoDate ? cycleLengthOrDefault(cLen) : undefined,
 				}),
 			});
 			const body = await res.json().catch(() => ({}));
@@ -1383,7 +1386,7 @@
 						<div class="mt-3 grid gap-3 sm:grid-cols-2">
 							<div>
 								<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="c-lmp">Premier jour des dernières règles</label>
-								<input id="c-lmp" type="date" bind:value={cLmp} class="w-full rounded-xl border-2 border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-brand" />
+								<input id="c-lmp" type="date" bind:value={cLmp} class="box-border block w-full min-w-0 appearance-none rounded-xl border-2 border-line bg-white px-3 py-2 text-left text-sm text-ink outline-none transition focus:border-brand" style="-webkit-appearance: none" />
 							</div>
 							<div>
 								<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="c-len">Durée moyenne</label>

@@ -19,7 +19,7 @@ export type CycleConfig = {
 	noDate: boolean;
 	/** Premier jour des dernières règles "yyyy-mm-dd" (absent si hormonal / irrégulier). */
 	lmp?: string | null;
-	/** Durée moyenne du cycle en jours, 21–32 (absente si hormonal / irrégulier). */
+	/** Durée moyenne du cycle en jours, 21–45 (absente si hormonal / irrégulier). */
 	len?: number | null;
 	updatedAt: number;
 };
@@ -58,8 +58,38 @@ export const CYCLE_NO_ESTIMATE_MSGS = {
 		'Sans date de règles fiable, une estimation de phase ne serait pas fiable non plus — mieux vaut ne pas t’en donner une plutôt que de te donner une fausse précision.',
 } as const;
 
-/** Durées proposées (sélecteur) — mêmes valeurs que l'outil d'origine : 21 à 32 jours. */
-export const CYCLE_LENGTH_OPTIONS = Array.from({ length: 12 }, (_, i) => i + 21);
+/** Bornes de durée du cycle — 21 à 45 jours (39 jours et plus existent réellement). */
+export const CYCLE_LENGTH_MIN = 21;
+export const CYCLE_LENGTH_MAX = 45;
+
+/** Durées proposées (sélecteur) — toutes les valeurs entre les bornes, 28 par défaut. */
+export const CYCLE_LENGTH_OPTIONS = Array.from(
+	{ length: CYCLE_LENGTH_MAX - CYCLE_LENGTH_MIN + 1 },
+	(_, i) => CYCLE_LENGTH_MIN + i,
+);
+
+/** Validation partagée cliente/serveur : entier entre 21 et 45 jours inclus. */
+export function isValidCycleLength(n: unknown): n is number {
+	return (
+		typeof n === 'number' &&
+		Number.isInteger(n) &&
+		n >= CYCLE_LENGTH_MIN &&
+		n <= CYCLE_LENGTH_MAX
+	);
+}
+
+/** Durée présélectionnée quand aucune valeur exploitable n'est enregistrée. */
+export const CYCLE_LENGTH_DEFAULT = 28;
+
+/**
+ * Durée à présélectionner dans un formulaire cycle : la valeur enregistrée si
+ * elle fait partie des options, 28 sinon. Renvoie toujours un NOMBRE (jamais une
+ * chaîne ni une valeur vide) : c'est ce nombre qui est envoyé à `users.saveCycle`.
+ */
+export function cycleLengthOrDefault(value: unknown): number {
+	const n = typeof value === 'string' ? Number.parseInt(value, 10) : value;
+	return isValidCycleLength(n) ? n : CYCLE_LENGTH_DEFAULT;
+}
 
 /* ————— Contenu détaillé par phase — repris À L'IDENTIQUE de l'outil historique
        « Cycle » (Outils & calibrage) : cartes « dims », avertissement, « Pourquoi ? ». ————— */

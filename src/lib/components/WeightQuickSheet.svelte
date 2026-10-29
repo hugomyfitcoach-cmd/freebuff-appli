@@ -1,8 +1,17 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
 	import { untrack } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { sheetFade, sheetFly } from '$lib/sheetMotion';
+	import { lockScroll, unlockScroll } from '$lib/scrollLock';
+	import {
+		freezeSheetForExit,
+		onSheetExitEnd,
+		sheetFade,
+		sheetFadeOut,
+		sheetFly,
+		sheetFlyOut
+	} from '$lib/sheetMotion';
 	import { checkWeightKg, parseWeightKg, saveWeightKg } from '$lib/weightLog';
 
 	/* Saisie rapide du poids depuis l'Accueil : feuille compacte, clavier décimal,
@@ -32,6 +41,11 @@
 	let done = $state(false);
 	let error = $state('');
 
+	/* Verrou de défilement + géométrie figée (mécanisme partagé des volets). */
+	let panel = $state<HTMLElement | null>(null);
+	let verrouille = false;
+	let annulerLiberation: (() => void) | null = null;
+
 	const fmtKg = (n: number) => String(n).replace('.', ',');
 	const isToday = $derived(lastDate === date && lastKg !== null);
 	const dateLabel = $derived(
@@ -55,10 +69,55 @@
 		});
 	});
 
+	/* Fermeture : la géométrie du volet est figée AVANT le premier frame de
+	   sortie (hauteur, marge safe-area en pixels) et le verrou n'est rendu au
+	   document qu'APRÈS la fin du fondu. Pendant l'animation, le body reste
+	   `position: fixed` : plus de recalcul de mise en page, donc plus de saut
+	   du contenu ni de fond assombri qui réapparaît. */
 	function requestClose() {
-		if (saving) return;
+		if (saving || !open) return;
+		const rendreStyles = freezeSheetForExit(panel);
+		annulerLiberation?.();
+		annulerLiberation = onSheetExitEnd(panel, () => {
+			annulerLiberation = null;
+			rendreStyles();
+			if (verrouille) {
+				verrouille = false;
+				unlockScroll();
+			}
+		});
 		onClose();
 	}
+
+	/* Ouverture (ou réouverture pendant la sortie) : verrou posé une seule fois,
+	   libération en attente annulée. */
+	$effect(() => {
+		if (!open) return;
+		annulerLiberation?.();
+		annulerLiberation = null;
+		if (verrouille) return;
+		verrouille = true;
+		lockScroll();
+	});
+
+	/* Filet : fermeture décidée par le parent, jamais passée par requestClose(). */
+	$effect(() => {
+		if (open || !verrouille || annulerLiberation) return;
+		annulerLiberation = onSheetExitEnd(panel, () => {
+			annulerLiberation = null;
+			if (!verrouille) return;
+			verrouille = false;
+			unlockScroll();
+		});
+	});
+
+	onDestroy(() => {
+		annulerLiberation?.();
+		annulerLiberation = null;
+		if (!verrouille) return;
+		verrouille = false;
+		unlockScroll();
+	});
 
 	async function submit() {
 		// Anti double-enregistrement : un seul envoi à la fois, et plus jamais après succès.
@@ -85,10 +144,8 @@
 		} catch {
 			// La pesée est enregistrée : une erreur de rafraîchissement ne doit pas la masquer.
 		}
-		// Confirmation discrète puis fermeture.
-		setTimeout(() => {
-			if (open) onClose();
-		}, 650);
+		// Confirmation discrète puis fermeture (même chemin que le bouton Fermer).
+		setTimeout(() => requestClose(), 650);
 	}
 
 	function onKey(e: KeyboardEvent) {
@@ -102,7 +159,8 @@
 {#if open}
 	<div
 		role="presentation"
-		transition:fade={sheetFade()}
+		in:fade={sheetFade()}
+		out:fade={sheetFadeOut()}
 		class="fixed inset-0 z-[60] flex items-end justify-center bg-[#0F1512]/38 backdrop-blur-sm sm:items-center sm:p-6"
 		onclick={(e) => {
 			if (e.target === e.currentTarget) requestClose();
@@ -112,7 +170,9 @@
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="weight-quick-title"
-			transition:fly={sheetFly()}
+			bind:this={panel}
+			in:fly={sheetFly()}
+			out:fly={sheetFlyOut()}
 			class="w-full max-w-md rounded-t-[28px] bg-white px-5 pt-5 shadow-[0_-20px_50px_-20px_rgba(15,21,18,0.35)] sm:rounded-[28px]"
 			style="padding-bottom: max(env(safe-area-inset-bottom), 20px);"
 		>

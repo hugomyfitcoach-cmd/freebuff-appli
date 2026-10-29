@@ -90,6 +90,13 @@ export function setSummary(s: TrainingSetView, mode: 'reps' | 'time'): string {
 	return parts.join(' · ') || '—';
 }
 
+/** Message court après un import : « 8 exercices ajoutés à 3 séances ». */
+export function importNoticeLabel(exerciseCount: number, sessionCount: number): string {
+	const e = Math.max(0, Math.round(exerciseCount));
+	const s = Math.max(0, Math.round(sessionCount));
+	return `${e} exercice${e > 1 ? 's' : ''} ajouté${e > 1 ? 's' : ''} à ${s} séance${s > 1 ? 's' : ''}`;
+}
+
 /** Aperçu compact sous le nom d'un exercice (colonne centrale). */
 export function exercisePreview(e: SessionExerciseView): string {
 	const n = e.sets.length;
@@ -107,17 +114,31 @@ export function exercisePreview(e: SessionExerciseView): string {
  * Regroupe les exercices d'une séance par blocs d'affichage : un bloc isolé
  * (un exercice sans groupe) ou un bloc superset (2+ exercices partageant le
  * même `supersetGroup`, contigus). Sert à l'éditeur ET au runner cliente.
+ *
+ * `key` est TOUJOURS unique dans la liste rendue : un groupe peut arriver
+ * DÉCOUPÉ (deux suites non contiguës du même identifiant — donnée héritée d'un
+ * circuit déplacé/démembré), et deux blocs porteraient alors la même clé
+ * `group` → erreur Svelte `each_key_duplicate` (écran mort, même après
+ * rechargement). La clé est donc `groupe#occurrence`, et `iso-<index>` pour un
+ * exercice isolé. Un groupe réduit à UN membre n'est pas un circuit : il
+ * s'affiche isolé (rien n'est modifié en base, le coach garde la main).
  */
-export type SupersetBlock<T> = { group: string | null; exercises: T[] };
+export type SupersetBlock<T> = { group: string | null; exercises: T[]; key: string };
 export function supersetBlocks<T extends { supersetGroup?: string | null }>(exs: T[]): SupersetBlock<T>[] {
-	const blocks: SupersetBlock<T>[] = [];
+	const runs: SupersetBlock<T>[] = [];
 	for (const ex of exs) {
 		const g = ex.supersetGroup ?? null;
-		const prev = blocks[blocks.length - 1];
+		const prev = runs[runs.length - 1];
 		if (g && prev?.group === g) prev.exercises.push(ex);
-		else blocks.push({ group: g, exercises: [ex] });
+		else runs.push({ group: g, exercises: [ex], key: '' });
 	}
-	return blocks;
+	const seen = new Map<string, number>();
+	return runs.map((b, i) => {
+		if (!b.group || b.exercises.length < 2) return { ...b, group: null, key: `iso-${i}` };
+		const n = seen.get(b.group) ?? 0;
+		seen.set(b.group, n + 1);
+		return { ...b, key: `${b.group}#${n}` };
+	});
 }
 
 /** Nouvel identifiant de groupe (côté navigateur) — "sup:<12 hex>". */

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { CycleConfig, CycleContra } from '$lib/cycle';
+	import { CYCLE_LENGTH_OPTIONS, cycleLengthOrDefault, type CycleConfig, type CycleContra } from '$lib/cycle';
 
 	/**
 	 * Questionnaire de configuration du suivi de cycle — mêmes questions que
@@ -23,7 +23,8 @@
 	let cContra = $state<CycleContra>(config?.contra ?? 'none');
 	let cNoDate = $state(config ? config.noDate : false);
 	let cLmp = $state(config?.lmp ?? '');
-	let cLen = $state(String(config?.len ?? 28));
+	/** Nombre (et non chaîne) : les options du sélecteur sont des nombres. */
+	let cLen = $state(cycleLengthOrDefault(config?.len));
 	let cErr = $state('');
 	let cSaving = $state(false);
 
@@ -47,7 +48,7 @@
 					contra: cContra,
 					noDate: cContra === 'hormonal' ? false : cNoDate,
 					lmp: cContra !== 'hormonal' && !cNoDate ? cLmp : undefined,
-					len: cContra !== 'hormonal' && !cNoDate ? parseInt(cLen, 10) : undefined,
+					len: cContra !== 'hormonal' && !cNoDate ? cycleLengthOrDefault(cLen) : undefined,
 				}),
 			});
 			const body = await res.json().catch(() => ({}));
@@ -56,7 +57,7 @@
 				contra: cContra,
 				noDate: cContra === 'hormonal' ? false : cNoDate,
 				lmp: cContra !== 'hormonal' && !cNoDate ? cLmp : undefined,
-				len: cContra !== 'hormonal' && !cNoDate ? parseInt(cLen, 10) : undefined,
+				len: cContra !== 'hormonal' && !cNoDate ? cycleLengthOrDefault(cLen) : undefined,
 				updatedAt: Date.now(),
 			});
 		} catch (e) {
@@ -111,7 +112,8 @@
 					type="date"
 					max={maxLmp}
 					bind:value={cLmp}
-					class="mt-1.5 w-full rounded-xl border-2 border-line bg-soft px-3 py-2.5 text-sm font-semibold text-ink outline-none transition focus:border-brand"
+					class="mt-1.5 box-border w-full min-w-0 appearance-none rounded-xl border-2 border-line bg-soft px-3 py-2.5 text-left text-sm font-semibold text-ink outline-none transition focus:border-brand"
+					style="-webkit-appearance: none"
 				/>
 			</div>
 
@@ -121,7 +123,7 @@
 					bind:value={cLen}
 					class="mt-1.5 w-full rounded-xl border-2 border-line bg-soft px-3 py-2.5 text-sm font-semibold text-ink outline-none transition focus:border-brand"
 				>
-					{#each Array.from({ length: 12 }, (_, i) => i + 21) as n (n)}
+					{#each CYCLE_LENGTH_OPTIONS as n (n)}
 						<option value={n}>{n} jours</option>
 					{/each}
 				</select>

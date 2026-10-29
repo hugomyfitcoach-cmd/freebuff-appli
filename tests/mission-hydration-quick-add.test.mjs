@@ -41,9 +41,13 @@ test('Feuille : raccourcis +150/+250/+500 enregistrés via POST /api/hydration',
 });
 
 test('Feuille : mêmes animations que la saisie du poids et fermeture Échap / safe area', () => {
-	assert.match(sheet, /import \{ sheetFade, sheetFly \} from '\$lib\/sheetMotion';/);
-	assert.match(sheet, /transition:fade=\{sheetFade\(\)\}/);
-	assert.match(sheet, /transition:fly=\{sheetFly\(\)\}/);
+	assert.match(sheet, /from '\$lib\/sheetMotion';/, 'helpers d’animation partagés');
+	/* Fondu d'entrée 160 ms inchangé ; fondu de SORTIE aligné sur le panneau
+	   (un seul fondu du fond, plus de réapparition de la page sous le volet). */
+	assert.match(sheet, /in:fade=\{sheetFade\(\)\}/);
+	assert.match(sheet, /out:fade=\{sheetFadeOut\(\)\}/);
+	assert.match(sheet, /in:fly=\{sheetFly\(\)\}/);
+	assert.match(sheet, /out:fly=\{sheetFlyOut\(\)\}/);
 	assert.match(sheet, /env\(safe-area-inset-bottom\)/);
 	assert.match(sheet, /e\.key === 'Escape'/);
 });

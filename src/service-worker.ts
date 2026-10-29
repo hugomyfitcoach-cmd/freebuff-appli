@@ -9,8 +9,22 @@ import { isConvexStorageUrl, isFoodImgTagged } from './lib/foodImgTag';
  * - cache statique de l'app (shell) pour un démarrage hors-ligne fiable.
  */
 
-// Nom unique par build : un nouveau déploiement invalide l'ancien cache.
-const CACHE = `gflux-${version}`;
+/** Préfixe des caches de BUILD. Nom unique par build (donc invalidé à chaque
+ *  déploiement) et distinct du cache d'images, stable, qui a son propre nom. */
+const BUILD_CACHE_PREFIX = 'gflux-app-';
+const CACHE = `${BUILD_CACHE_PREFIX}${version}`;
+/** Préfixe de l'ANCIEN format de cache de build : un seul cache `gflux-<hash>`
+ *  contenait tout (shell, modules, vignettes). Encore en place sur les
+ *  installations au moment de la séparation app/images : il doit survivre UNE
+ *  activation, sinon une page ouverte sur l'ancien build perd son CSS une
+ *  dernière fois. */
+const LEGACY_CACHE_PREFIX = 'gflux-';
+/** Cache-TÉMOIN (une entrée, jamais servie) : il MÉMORISE le nom du cache du
+ *  build courant. C'est lui qui désigne la version précédente à l'activation —
+ *  `caches.keys()` n'étant pas garanti dans un ordre particulier, la position
+ *  d'un cache dans cette liste ne prouve rien. */
+const STATE_CACHE = 'gflux-sw-state';
+const STATE_KEY = 'https://gflux.invalid/sw-build';
 /** Cache dédié aux vignettes alimentaires — STABLE entre les builds : une
  *  image déjà vue reste servie instantanément après un déploiement. Contient
  *  les copies miroir G-FLUX (storage Convex) et les miniatures OFF utilisées
@@ -21,6 +35,17 @@ const CACHE = `gflux-${version}`;
 const IMG_CACHE = 'gflux-img-v1';
 /** Plafond d'entrées du cache d'images (les plus anciennes sont retirées). */
 const IMG_CACHE_MAX = 600;
+
+/** Un cache de l'ANCIEN format « gflux-<hash> » ? (hors cache d'images,
+ *  caches de build et témoin, qui partagent le même préfixe). */
+function isLegacyBuildCache(name: string): boolean {
+	return (
+		name.startsWith(LEGACY_CACHE_PREFIX) &&
+		!name.startsWith(BUILD_CACHE_PREFIX) &&
+		!name.startsWith(`${LEGACY_CACHE_PREFIX}img-`) &&
+		!name.startsWith(`${LEGACY_CACHE_PREFIX}sw-`)
+	);
+}
 
 /** Limite de patience réseau des requêtes interceptées (ms). */
 const FETCH_TIMEOUT_MS = 5000;
@@ -97,14 +122,83 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-	event.waitUntil(
-		caches
-			.keys()
-			.then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== IMG_CACHE).map((k) => caches.delete(k))))
-			.then(() => purgePrivateImages())
-			.then(() => self.clients.claim())
-	);
+	event.waitUntil(activateBuild());
 });
+
+/**
+ * Bascule vers le nouveau build — SANS casser les pages encore ouvertes.
+ *
+ * INCIDENT DU 28/10/2026 (Android, PWA installée) : page affichée SANS feuille
+ * de style (serif, blocs empilés, anneaux pleine largeur) à l'ouverture.
+ * Cause : ce worker prenait le contrôle immédiatement (skipWaiting) puis
+ * supprimait TOUS les autres caches. Une page encore ouverte sur le build
+ * précédent réclamait ses fichiers `/_app/immutable/*` : absents du cache
+ * (purgé) ET absents de Netlify (un déploiement ne sert que ses propres
+ * fichiers) → CSS 404 → page nue. Fermer/rouvrir servait le nouveau build
+ * d'où l'impression d'un bug intermittent.
+ *
+ * Désormais : le cache du build PRÉCÉDENT est CONSERVÉ jusqu'à la bascule
+ * complète (= jusqu'au déploiement suivant).
+ *
+ * La version précédente est désignée par le TÉMOIN (`STATE_CACHE`), qui
+ * contient le nom du cache du build précédent : `caches.keys()` n'est pas
+ * garanti ordonné, donc la choisir par sa position dans cette liste pouvait
+ * conserver le mauvais cache (et supprimer celui dont les pages ouvertes ont
+ * besoin).
+ *
+ * PREMIER déploiement de ce worker : le cache en production est encore au
+ * format « gflux-<hash> ». Faute de témoin, il est conservé UNE fois comme
+ * version précédente (sinon : une dernière page sans feuille de style), puis
+ * supprimé à l'activation suivante comme toute version N-2.
+ */
+async function activateBuild(): Promise<void> {
+	const keys = await caches.keys();
+	const pointer = await readBuildPointer();
+	// Version précédente : 0 ou 1 cache de build (le témoin fait foi), ou, à la
+	// toute première activation, le(s) cache(s) de l'ancien format encore en
+	// place. Aucun tri, aucun index : le choix ne dépend pas de l'ordre des clés.
+	let previous: string[] = [];
+	if (pointer) {
+		if (pointer !== CACHE && keys.includes(pointer)) previous = [pointer];
+	} else {
+		previous = keys.filter(isLegacyBuildCache);
+	}
+	// Rien à voir avec le build courant, le cache d'images stable, le témoin ni
+	// la version précédente : tout le reste est du N-2 (ou plus ancien).
+	const stale = keys.filter(
+		(k) => k !== CACHE && k !== IMG_CACHE && k !== STATE_CACHE && !previous.includes(k)
+	);
+	await Promise.all(stale.map((k) => caches.delete(k)));
+	// Témoin du build désormais actif (le suivant le lira comme « précédent »).
+	await writeBuildPointer(CACHE);
+	await purgePrivateImages();
+	await self.clients.claim();
+}
+
+/** Nom du cache du build précédent, tel que mémorisé à la dernière activation. */
+async function readBuildPointer(): Promise<string | null> {
+	try {
+		const cache = await caches.open(STATE_CACHE);
+		const res = await cache.match(STATE_KEY);
+		const name = res ? (await res.text()).trim() : '';
+		return name || null;
+	} catch {
+		return null;
+	}
+}
+
+/** Mémorise le build actif. En cas d'échec (quota, stockage refusé), la
+ *  prochaine activation ne saura pas quelle version conserver : elle repartira
+ *  sur la règle de l'ancien format ou ne conservera rien — jamais de fuite de
+ *  caches, jamais de suppression du build courant. */
+async function writeBuildPointer(name: string): Promise<void> {
+	try {
+		const cache = await caches.open(STATE_CACHE);
+		await cache.put(STATE_KEY, new Response(name, { headers: { 'content-type': 'text/plain' } }));
+	} catch {
+		/* témoin non écrit : cf. ci-dessus */
+	}
+}
 
 /**
  * Purge de confidentialité à l'activation : les anciens builds mettaient TOUT
@@ -279,7 +373,12 @@ self.addEventListener('fetch', (event) => {
 				// shell périmé. Sinon : page d'erreur propre avec « Réessayer ».
 				.catch(async () => {
 					try {
-						const cached = (await caches.match(event.request)) || (await caches.match('/'));
+						// Repli lu UNIQUEMENT dans le cache de CE build : le cache du
+						// build précédent (conservé pour ses fichiers _app/immutable)
+						// contient un HTML d'une autre version, qui ne doit jamais
+						// masquer la copie valide du build courant.
+						const cache = await caches.open(CACHE);
+						const cached = (await cache.match(event.request)) || (await cache.match('/'));
 						if (cached && (await htmlMatchesBuild(cached.clone()))) return cached;
 					} catch {
 						/* cache illisible : page d'erreur propre */
@@ -290,6 +389,10 @@ self.addEventListener('fetch', (event) => {
 		return;
 	}
 	event.respondWith(
+		// `caches.match` interroge TOUS les caches : le build courant d'abord,
+		// puis celui du build précédent (conservé à l'activation) — une page
+		// encore ouverte sur l'ancienne version retrouve ainsi son CSS et ses
+		// modules, que Netlify ne sert plus.
 		caches.match(event.request).then((cached) => {
 			if (cached) return cached;
 			return fetchBounded(event.request)

@@ -146,7 +146,18 @@
 	let gDuration = $state('');
 	let guidedDone = $state(0);
 	let guidedTotal = $state(1);
-	const gEx = $derived(data?.exercises[gExIdx] ?? null);
+	/**
+	 * Parcours GUIDÉ : même ordre que l'affichage libre — la PHASE enregistrée
+	 * par le coach (échauffement → principal → finisher), puis l'ordre de
+	 * prescription à l'intérieur d'une phase (tri stable).
+	 */
+	const guidedExercises = $derived(
+		[...(data?.exercises ?? [])].sort(
+			(a, b) =>
+				(PHASE_ORDER[a.phase ?? 'principal'] ?? 1) - (PHASE_ORDER[b.phase ?? 'principal'] ?? 1)
+		)
+	);
+	const gEx = $derived(guidedExercises[gExIdx] ?? null);
 	const gSet = $derived(gEx?.sets[gSetIdx] ?? null);
 
 	/* ── Timers (durée + repos) — un seul à la fois ── */
@@ -510,7 +521,7 @@
 			gSetIdx -= 1;
 		} else if (gExIdx > 0) {
 			gExIdx -= 1;
-			gSetIdx = Math.max((data.exercises[gExIdx]?.sets.length ?? 1) - 1, 0);
+			gSetIdx = Math.max((guidedExercises[gExIdx]?.sets.length ?? 1) - 1, 0);
 		} else {
 			return;
 		}
@@ -521,7 +532,7 @@
 		if (gSetIdx < gEx.sets.length - 1) {
 			gSetIdx += 1;
 			loadGuidedDraft();
-		} else if (gExIdx < data.exercises.length - 1) {
+		} else if (gExIdx < guidedExercises.length - 1) {
 			gExIdx += 1;
 			gSetIdx = 0;
 			loadGuidedDraft();
@@ -1166,7 +1177,9 @@
 									{#if showWeight(ex)}<span>Kg</span>{/if}
 									<span></span>
 								</div>
-								{#each ex.sets as st (st.order)}
+								<!-- Clé = tour + rang : deux séries de même `order` (donnée héritée)
+								     s'affichent deux fois au lieu de casser le rendu. -->
+								{#each ex.sets as st, stIdx (`tour-${st.order}-${stIdx}`)}
 									{@const d = getDraft(ex, st.order)}
 									{@const missingWeight = d.done && showWeight(ex) && !d.weight.trim()}
 									<div class="rounded-xl {d.done ? 'bg-brand-light/60' : ''}">
@@ -1225,7 +1238,9 @@
 					<!-- Supersets : les exercices liés s'affichent dans une même carte
 				     englobante (groupe visible, enchaînement explicite) — même
 				     prescription, même saisie, aucun changement de log. -->
-					{#each supersetBlocks(data.exercises.filter((e) => (e.phase ?? 'principal') === phase)) as block, bi (bi)}
+					<!-- Clé de bloc unique (`groupe#occurrence` / `iso-index`) : un circuit
+					     hérité découpé en deux s'affiche, il ne fait jamais planter la séance. -->
+					{#each supersetBlocks(data.exercises.filter((e) => (e.phase ?? 'principal') === phase)) as block (block.key)}
 						{#if block.group}
 							<div class="mb-4 rounded-2xl border-2 border-brand/35 bg-brand-light/25 p-1.5">
 								<p class="mb-1 flex items-center gap-1.5 px-1.5 pt-0.5 text-[10.5px] font-black uppercase tracking-wider text-brand-deep">
@@ -1273,7 +1288,7 @@
 
 			<!-- Progression -->
 			<p class="mb-2 text-center text-xs font-semibold text-mist">
-				Exercice {gExIdx + 1}/{data.exercises.length}{#if gEx.exercise} · {displayExerciseName(gEx.exercise.name)}{/if}
+				Exercice {gExIdx + 1}/{guidedExercises.length}{#if gEx.exercise} · {displayExerciseName(gEx.exercise.name)}{/if}
 			</p>
 
 			<div class="rounded-3xl border border-line bg-card p-5 shadow-sm">

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { fade, fly } from 'svelte/transition';
 	import Icon from './Icon.svelte';
-	import { sheetFade, sheetFly } from '$lib/sheetMotion';
+	import { freezeSheetForExit, sheetFade, sheetFadeOut, sheetFly, sheetFlyOut } from '$lib/sheetMotion';
 	import { formatDetailValue } from '$lib/foodDetailsFormat';
 	import { decouperSourcesFibres, etatFibres, type BilanJourData } from '$lib/bilanJour';
 
@@ -77,8 +77,18 @@
 	const avecUnite = (n: number | null, unite: string) =>
 		n === null ? formatDetailValue(null, 'g') : `${g(n)} ${unite}`;
 
+	let panel = $state<HTMLElement | null>(null);
+
+	/* Fermeture : hauteur et marge basse figées avant le premier frame de
+	   sortie — aucun recalcul pendant le fondu (mécanisme partagé). */
+	function requestClose() {
+		if (!open) return;
+		freezeSheetForExit(panel);
+		onClose();
+	}
+
 	function onKey(e: KeyboardEvent) {
-		if (open && e.key === 'Escape') onClose();
+		if (open && e.key === 'Escape') requestClose();
 	}
 </script>
 
@@ -87,17 +97,20 @@
 {#if open}
 	<div
 		role="presentation"
-		transition:fade={sheetFade()}
+		in:fade={sheetFade()}
+		out:fade={sheetFadeOut()}
 		class="fixed inset-0 z-[60] flex touch-none items-end justify-center bg-[#0F1512]/38 backdrop-blur-sm sm:items-center sm:p-6"
 		onclick={(e) => {
-			if (e.target === e.currentTarget) onClose();
+			if (e.target === e.currentTarget) requestClose();
 		}}
 	>
 		<div
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="bilan-jour-title"
-			transition:fly={sheetFly()}
+			bind:this={panel}
+			in:fly={sheetFly()}
+			out:fly={sheetFlyOut()}
 			class="max-h-[88dvh] w-full max-w-lg touch-pan-y overflow-y-auto overscroll-contain rounded-t-[28px] bg-white px-5 pt-5 shadow-[0_-20px_50px_-20px_rgba(15,21,18,0.35)] sm:rounded-[28px]"
 			style="padding-bottom: max(env(safe-area-inset-bottom), 20px);"
 		>
@@ -122,7 +135,7 @@
 					type="button"
 					class="-mr-2 -mt-1.5 grid h-11 w-11 shrink-0 place-items-center rounded-full text-mist hover:bg-soft"
 					aria-label="Fermer"
-					onclick={onClose}
+					onclick={requestClose}
 				>
 					<Icon name="x" size={20} />
 				</button>
