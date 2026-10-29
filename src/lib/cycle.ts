@@ -78,6 +78,19 @@ export function isValidCycleLength(n: unknown): n is number {
 	);
 }
 
+/** Durée présélectionnée quand aucune valeur exploitable n'est enregistrée. */
+export const CYCLE_LENGTH_DEFAULT = 28;
+
+/**
+ * Durée à présélectionner dans un formulaire cycle : la valeur enregistrée si
+ * elle fait partie des options, 28 sinon. Renvoie toujours un NOMBRE (jamais une
+ * chaîne ni une valeur vide) : c'est ce nombre qui est envoyé à `users.saveCycle`.
+ */
+export function cycleLengthOrDefault(value: unknown): number {
+	const n = typeof value === 'string' ? Number.parseInt(value, 10) : value;
+	return isValidCycleLength(n) ? n : CYCLE_LENGTH_DEFAULT;
+}
+
 /* ————— Contenu détaillé par phase — repris À L'IDENTIQUE de l'outil historique
        « Cycle » (Outils & calibrage) : cartes « dims », avertissement, « Pourquoi ? ». ————— */
 export type PhaseDim = { t: string; s: 'normal' | 'up' | 'watch'; x: string };

@@ -895,7 +895,7 @@
 
 			<div class="mt-[18px] text-[11.5px] font-black uppercase tracking-[0.1em] text-[#7B857F]">Date</div>
 			<label class="fld mt-2 flex h-[52px] items-center rounded-[16px] border-[1.5px] border-[#E3E8E5] bg-[#F6F8F6] px-4">
-				<input id="metric-date" type="date" bind:value={logDate} class="flex-1 border-0 bg-transparent text-[16px] font-bold text-[#0F1512] outline-none" />
+				<input id="metric-date" type="date" bind:value={logDate} class="box-border min-w-0 flex-1 appearance-none border-0 bg-transparent text-left text-[16px] font-bold text-[#0F1512] outline-none" style="-webkit-appearance: none" />
 			</label>
 
 			<div class="mt-3.5">
@@ -931,7 +931,7 @@
 
 			<div class="mt-[18px] text-[11.5px] font-black uppercase tracking-[0.1em] text-[#7B857F]">Date</div>
 			<label class="fld mt-2 flex h-[52px] items-center rounded-[16px] border-[1.5px] border-[#E3E8E5] bg-[#F6F8F6] px-4">
-				<input type="date" bind:value={logDate} class="flex-1 border-0 bg-transparent text-[16px] font-bold text-[#0F1512] outline-none" />
+				<input type="date" bind:value={logDate} class="box-border min-w-0 flex-1 appearance-none border-0 bg-transparent text-left text-[16px] font-bold text-[#0F1512] outline-none" style="-webkit-appearance: none" />
 			</label>
 
 			<div class="mt-3.5 flex flex-col gap-2.5">
