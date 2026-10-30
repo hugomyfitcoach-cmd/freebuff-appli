@@ -9,6 +9,7 @@
 	import { currentLocalDay } from '$lib/currentDay.svelte';
 	import { appWarm, firstVisit, isFresh, noteSync, restoreScroll, saveScroll } from '$lib/navMemory';
 	import { lockScroll, unlockScroll } from '$lib/scrollLock';
+	import { keyboard, registerSheetOwner, settleNavVisibility } from '$lib/keyboardViewport.svelte';
 	import { onSheetExitEnd } from '$lib/sheetMotion';
 	import JournalDay from '$lib/components/JournalDay.svelte';
 	import BilanJourSheet from '$lib/components/BilanJourSheet.svelte';
@@ -3676,9 +3677,9 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	let vvH = $state(typeof window !== 'undefined' ? Math.round(window.visualViewport?.height ?? window.innerHeight) : 700);
 	/** Décalage vertical du visualViewport (clavier iOS : l'overlay reste dans la zone visible). */
 	let vvTop = $state(0);
-	/** Clavier iOS ouvert (viewport visible nettement plus petit que la fenêtre) :
-	 *  la capsule Recherche / Code-barres / Repas IA se masque pour libérer les résultats. */
-	let keyboardOpen = $state(false);
+	/** Clavier iOS ouvert : la capsule Recherche / Code-barres / Repas IA se masque
+	 *  pour libérer les résultats. L'état vit dans lib/keyboardViewport (même
+	 *  source que la barre de navigation d'AppShell) — plus de copie locale. */
 	let mobile = $state(typeof window !== 'undefined' ? window.matchMedia('(max-width: 639px)').matches : true);
 	let refreshing = $state(false);
 
@@ -3837,7 +3838,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		const setVh = () => {
 			vvH = Math.round((vv?.height ?? window.innerHeight) ?? 0);
 			vvTop = vv?.offsetTop ?? 0;
-			keyboardOpen = !!vv && vv.height < window.innerHeight - 150;
+			/* Clavier : mesuré par l'écoute PARTAGÉE (lib/keyboardViewport). */
 			/* Ouverture du clavier = la hauteur DIMINUE ; fermeture = elle
 			   AUGMENTE (le clavier libère l'écran). */
 			const closed = vvH > prevVvH + 4;
@@ -3988,8 +3989,12 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	   la position exacte — à la fermeture comme au démontage (retour arrière). */
 	let fondFigé = false;
 	let annulerLiberation: (() => void) | null = null;
+	/** Volets du Journal qui figent le fond, masquent la navigation et le « + ».
+	 *  UNE seule liste : verrou de défilement, clavier et garde-fou la lisent. */
+	const voletsOuverts = () =>
+		logOpen || !!qtyFood || !!editEntry || !!editPlanned || !!qtyMealSel || calOpen || dupOpen || mealCreateOpen || mealPhotoOpen || bilanOpen;
 	$effect(() => {
-		const locked = logOpen || !!qtyFood || !!editEntry || !!editPlanned || !!qtyMealSel || calOpen || dupOpen || mealCreateOpen || mealPhotoOpen || bilanOpen;
+		const locked = voletsOuverts();
 		if (locked === fondFigé) return;
 		if (locked) {
 			/* Réouverture pendant la sortie : on garde le verrou, on annule la
@@ -4012,14 +4017,28 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 			if (!fondFigé) unlockScroll();
 		});
 	});
+	/* ————— GARDE-FOU UNIQUE (clavier + navigation + verrou restant) —————
+	   Le registre partagé ne connaît QUE des volets réellement ouverts. Dès
+	   qu'ils se referment — croix, glissement, retour arrière iOS, scan annulé,
+	   fermeture pendant un chargement, enchaînement fiche → recherche — l'état
+	   clavier résiduel est abandonné : la barre du bas et le « + » reviennent
+	   (plus de booléen bloqué jusqu'à la réouverture de l'app). */
+	$effect(() => registerSheetOwner(voletsOuverts));
+	$effect(() => {
+		if (!voletsOuverts()) return; // aucun volet ouvert : rien à libérer
+		return () => settleNavVisibility('sheet-closed');
+	});
 	onDestroy(() => {
 		annulerLiberation?.();
 		annulerLiberation = null;
-		if (!fondFigé) return;
-		fondFigé = false;
-		unlockScroll();
-	});
-</script>
+		if (fondFigé) {
+			fondFigé = false;
+			unlockScroll();
+		}
+		/* Démontage (retour arrière, navigation) : aucun volet ne survit à la
+		   page — clavier et verrou restants sont abandonnés, sans condition. */
+		settleNavVisibility('unmount', { force: true });
+	});</script>
 
 <svelte:head><title>Journal — G-Flux</title></svelte:head>
 
@@ -4383,7 +4402,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 {/if}
 
 <!-- Bouton flottant + (au-dessus de la barre flottante, avec respiration) -->
-{#if !macroDetail && !logOpen && !qtyFood && !editEntry && !qtyMealSel && !mealPhotoOpen && !keyboardOpen}
+{#if !macroDetail && !logOpen && !qtyFood && !editEntry && !qtyMealSel && !mealPhotoOpen && !keyboard.open}
 <button
 	type="button"
 	class="fixed bottom-[calc(6.75rem+env(safe-area-inset-bottom))] right-4 z-40 grid h-[62px] w-[62px] place-items-center rounded-full bg-brand text-white shadow-[0_18px_32px_-10px_rgba(23,163,73,.7)] transition hover:scale-105 hover:bg-brand-dark active:scale-95 [transform:translate3d(0,0,0)] md:bottom-6 md:right-6 md:h-16 md:w-16"
@@ -5047,7 +5066,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 			     inutile dans ce contexte, elle grignotait la hauteur du formulaire
 			     (notamment avec le clavier numérique ouvert). Elle revient à la
 			     sortie de l'éditeur (retour à la liste). -->
-			{#if !customEditor && !(searchTab === 'repas' && mealEditor) && !keyboardOpen}
+			{#if !customEditor && !(searchTab === 'repas' && mealEditor) && !keyboard.open}
 			<div class="pointer-events-none absolute inset-x-0 bottom-[calc(0.5rem+env(safe-area-inset-bottom))] z-10 flex justify-center px-5 transition-opacity duration-200">
 				<!-- 3 zones équilibrées quand la bêta « Repas IA » est active pour le
 				     compte (méthode de TRACKING du journal — jamais une création
