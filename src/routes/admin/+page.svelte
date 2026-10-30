@@ -11,6 +11,7 @@
 	import Icon from '../../lib/components/Icon.svelte';
 	import JournalDay from '../../lib/components/JournalDay.svelte';
 	import MetricTrend from '../../lib/components/MetricTrend.svelte';
+	import QuantitySheet from '../../lib/components/QuantitySheet.svelte';
 	import WeeklyTrendChart from '../../lib/components/WeeklyTrendChart.svelte';
 	import TrainingPanel from '../../lib/components/TrainingPanel.svelte';
 	import { cycleState } from '../../lib/cycle.js';
@@ -799,6 +800,13 @@
 		carbs: number;
 		protein: number;
 		fat: number;
+		/** Identité d'origine de l'entrée — sert à ouvrir la FICHE de l'aliment
+		 *  en consultation seule (même résolution que le Journal cliente). */
+		foodId?: string;
+		customFoodId?: string;
+		ciqualLabel?: string;
+		referenceSource?: 'ciqual' | 'gflux';
+		photoUrl?: string;
 	};
 	type DayData = {
 		date: string;
@@ -829,6 +837,29 @@
 	let day = $state<DayData | null>(null);
 	let journalBusy = $state(false);
 	let journalMsg = $state('');
+	/** Ligne dont la FICHE aliment est ouverte en CONSULTATION SEULE : aucun
+	 *  geste d'écriture (quantité figée, pas de repas, pas de bouton d'action). */
+	let coachSheetEntry = $state<Entry | null>(null);
+	/** Aliment « reconstruit » depuis l'entrée (mêmes kcal/100 g) pour la fiche
+	 *  partagée — même principe que le Journal cliente. */
+	const coachSheetFood = $derived(
+		coachSheetEntry
+			? {
+					name: coachSheetEntry.name,
+					brand: coachSheetEntry.brand,
+					imageUrl: coachSheetEntry.imageUrl,
+					thumbUrl: coachSheetEntry.thumbUrl,
+					photoUrl: coachSheetEntry.photoUrl,
+					custom: !coachSheetEntry.foodId && !coachSheetEntry.ciqualLabel && !!coachSheetEntry.customFoodId,
+					ciqual: !!coachSheetEntry.ciqualLabel,
+					gflux: coachSheetEntry.referenceSource === 'gflux',
+					kcal100: coachSheetEntry.qtyGrams > 0 ? (coachSheetEntry.kcal / coachSheetEntry.qtyGrams) * 100 : 0,
+					carbs100: coachSheetEntry.qtyGrams > 0 ? (coachSheetEntry.carbs / coachSheetEntry.qtyGrams) * 100 : 0,
+					protein100: coachSheetEntry.qtyGrams > 0 ? (coachSheetEntry.protein / coachSheetEntry.qtyGrams) * 100 : 0,
+					fat100: coachSheetEntry.qtyGrams > 0 ? (coachSheetEntry.fat / coachSheetEntry.qtyGrams) * 100 : 0
+				}
+			: null
+	);
 
 	let searchOpen = $state(false);
 	/**
@@ -3827,8 +3858,34 @@
 							}}
 								onQty={setQty}
 								onRemove={removeEntry}
+								onEntryClick={(e) => (coachSheetEntry = e)}
 							/>
 						</div>
+
+						<!-- FICHE ALIMENT en CONSULTATION SEULE (clic sur le nom/l'image d'une
+						     ligne) : lecture intégrale — quantité saisie par la cliente FIGÉE,
+						     macros et fiche nutritionnelle dépliables, fermeture par la croix
+						     ou par le fond. Aucune écriture : − / + / corbeille restent sur la
+						     ligne du journal, jamais dans la fiche. -->
+						{#if coachSheetEntry && coachSheetFood}
+							<QuantitySheet
+								food={coachSheetFood}
+								source={coachSheetFood.ciqual ? 'ciqual' : undefined}
+								detailsSource={coachSheetEntry.ciqualLabel
+									? 'ciqual'
+									: coachSheetEntry.foodId
+										? 'food'
+										: coachSheetEntry.customFoodId
+											? 'custom'
+											: undefined}
+								detailsId={coachSheetEntry.ciqualLabel ?? coachSheetEntry.foodId ?? coachSheetEntry.customFoodId}
+								initialQtyGrams={coachSheetEntry.qtyGrams}
+								subtitle={`${MEAL_LABEL[coachSheetEntry.meal] ?? ''} · ${journalDate}`}
+								mode="edit"
+								readOnly
+								onClose={() => (coachSheetEntry = null)}
+							/>
+						{/if}
 					{:else if !journalBusy}
 						<p class="mt-4 rounded-xl border border-dashed border-line px-4 py-8 text-center text-sm text-mist">Clique sur « Charger » pour afficher la journée.</p>
 					{/if}
