@@ -3866,7 +3866,8 @@
 						     ligne) : lecture intégrale — quantité saisie par la cliente FIGÉE,
 						     macros et fiche nutritionnelle dépliables, fermeture par la croix
 						     ou par le fond. Aucune écriture : − / + / corbeille restent sur la
-						     ligne du journal, jamais dans la fiche. -->
+						     ligne du journal, jamais dans la fiche. `onSave` reste inerte
+						     (contrat du composant inchangé) : readOnly bloque toute écriture. -->
 						{#if coachSheetEntry && coachSheetFood}
 							<QuantitySheet
 								food={coachSheetFood}
@@ -3880,6 +3881,8 @@
 											: undefined}
 								detailsId={coachSheetEntry.ciqualLabel ?? coachSheetEntry.foodId ?? coachSheetEntry.customFoodId}
 								initialQtyGrams={coachSheetEntry.qtyGrams}
+								mealDefs={[]}
+								onSave={() => {}}
 								subtitle={`${MEAL_LABEL[coachSheetEntry.meal] ?? ''} · ${journalDate}`}
 								mode="edit"
 								readOnly

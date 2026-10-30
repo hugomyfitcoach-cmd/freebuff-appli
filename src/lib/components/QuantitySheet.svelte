@@ -45,7 +45,7 @@
 
 	let {
 		food,
-		mealDefs = [],
+		mealDefs,
 		initialQtyGrams,
 		gramShortcuts = [50, 100, 150, 200],
 		subtitle = '',
@@ -108,7 +108,7 @@
 			/** Garde-fou kcal↔macros : kcal OFF incohérentes, valeur recalculée affichée. */
 			kcalRecalculated?: boolean;
 		};
-		mealDefs?: readonly MealDef[];
+		mealDefs: readonly MealDef[];
 		initialQtyGrams: number;
 		gramShortcuts?: readonly number[];
 		subtitle?: string;
@@ -135,7 +135,7 @@
 		sheetHeight?: number;
 		/** Consultation seule (CRM coach) : lecture intégrale, zéro écriture. */
 		readOnly?: boolean;
-		onSave?: (qtyGrams: number, meal: string) => void;
+		onSave: (qtyGrams: number, meal: string) => void;
 		/** Mode planned uniquement : valider « Mangé » (planned → consommé). */
 		onEat?: () => void;
 		/** Mode planned uniquement : remplacer par un autre aliment. */
@@ -392,8 +392,9 @@
 		} else gramsText = fmtQty(g);
 	}
 	function save() {
+		/* Consultation seule : la quantité de la cliente n'est jamais réécrite. */
 		if (readOnly || !valid || gramsNum == null || saving) return;
-		onSave?.(Math.round((gramsNum ?? 0) * 100) / 100, meal);
+		onSave(Math.round((gramsNum ?? 0) * 100) / 100, meal);
 	}
 
 	/* CONSULTATION SEULE : le volet se superpose au CRM → le document du fond
@@ -477,9 +478,15 @@
      Fond opaque plein viewport : le Journal n'est JAMAIS visible derrière,
      même clavier ouvert (le fond ne rétrécit pas — seule la page de contenu
      suit le visualViewport). Même principe que l'écran « Ajouter un aliment ». -->
+{#if readOnly}
+	<!-- Consultation seule : voile sombre DERRIÈRE la fiche (jamais en écriture —
+	     le fond opaque plein viewport reste la règle de la saisie). -->
+	<div class="fixed inset-0 z-[59] bg-ink/50" aria-hidden="true"></div>
+{/if}
 <div
 	role="presentation"
-	class="fixed inset-0 z-[60] sm:flex sm:items-center sm:justify-center sm:p-6 {readOnly ? 'bg-ink/50' : 'bg-white'}"
+	class="fixed inset-0 z-[60] bg-white sm:flex sm:items-center sm:justify-center sm:p-6"
+	style:background-color={readOnly ? 'transparent' : undefined}
 	onclick={(e) => {
 		/* Consultation seule : le fond (zone hors panneau) ferme la fiche, comme
 		   les autres volets du CRM. En écriture, AUCUN clic de fond ne ferme
@@ -873,7 +880,7 @@
 						type="button"
 						class="flex-1 rounded-full bg-brand px-3 py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
 						disabled={saving || !valid}
-						onclick={() => { if (gramsNum != null) onSave?.(Math.round(gramsNum * 100) / 100, meal); }}
+						onclick={() => { if (gramsNum != null) onSave(Math.round(gramsNum * 100) / 100, meal); }}
 					>
 						{saving ? 'Enregistrement…' : 'Enregistrer la quantité'}
 					</button>
