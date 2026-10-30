@@ -9,7 +9,7 @@ import { v, ConvexError } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Id, Doc } from "./_generated/dataModel";
 import type { FoodHit } from "./journal";
-import { rankFoods, tokenize } from "./foodRanking";
+import { filterByQueryWords, rankFoods, tokenize } from "./foodRanking";
 import { nameMatchScore, flavorConflict } from "../lib/foodText";
 import { applyKcalGuard } from "../lib/nutritionGuard";
 
@@ -512,10 +512,12 @@ export const searchFoods = action({
 			const ids: Id<"foods">[] = await ctx.runMutation(api.journal.cacheFoods, { sessionToken, products });
 			const foods = await ctx.runQuery(api.journal.foodsByIds, { sessionToken, ids });
 			// Re-tri identique à la recherche locale : aliments bruts d'abord.
+			// Éligibilité d'abord : un candidat admis par l'API sur un seul mot vide
+			// (« de ») n'est pas un résultat — même filtre que la base locale.
 			// Garde-fou kcal ↔ macros (lecture seule) : kcal aberrantes → théoriques,
 			// la fiche fraîchement mise en cache reste intacte en base.
 			const hits = rankFoods(
-				foods.map((f) => {
+				filterByQueryWords(foods, q).map((f) => {
 					const g = applyKcalGuard(f);
 					return {
 						_id: f._id,

@@ -4,7 +4,7 @@ import { addDaysISO, assertCoachOwnsClient, dateISOInTimeZone, getSessionUser, l
 import { kcalGoalForDate, withCurrentGoal } from "../lib/goalHistory";
 import { phaseEffective, validerObjectifPhase } from "../lib/phase";
 import { sportHabituelObjectifEnVigueur, type InstantaneCalibrageVigueur } from "../lib/perf";
-import { FOOD_SEARCH_CANDIDATES, rankFoods } from "./foodRanking";
+import { FOOD_SEARCH_CANDIDATES, filterByQueryWords, rankFoods } from "./foodRanking";
 import { applyKcalGuard, guardedKcal100, kcalNeedsRecalc } from "../lib/nutritionGuard";
 import { resolveCoachPlanForDate } from "./mealPlans";
 import { attachThumbs, attachThumbsForFoodIds } from "./foodImages";
@@ -159,8 +159,10 @@ export const searchForCoach = query({
 			.query("foods")
 			.withSearchIndex("by_name", (sb) => sb.search("name", term))
 			.take(FOOD_SEARCH_CANDIDATES);
+		// Éligibilité : l'index plein texte admet un candidat sur UN SEUL mot (« de ») —
+		// voir filterByQueryWords. Le classement R1 des candidats restants est inchangé.
 		// Miniatures miroir G-FLUX prêtes → thumbUrl (même lecture que côté client).
-		return attachThumbs(ctx, rankFoods(foods.map(toHit), term).slice(0, 25));
+		return attachThumbs(ctx, rankFoods(filterByQueryWords(foods.map(toHit), term), term).slice(0, 25));
 	},
 });
 
@@ -426,14 +428,22 @@ export const searchLocal = query({
 				.filter((q) => q.eq(q.field("userId"), user._id))
 				.take(10),
 		]);
+		// Éligibilité commune (base OFF ET aliments personnels) : un nom qui ne
+		// partage qu'un mot vide avec la requête n'est pas un résultat. Chaque
+		// tranche suit le MÊME classement R1 : un lot suivant complète la liste,
+		// il ne réinjecte jamais de résultats moins pertinents au milieu.
 		// Les aliments « Créés par moi » restent en fin de PREMIÈRE page (ordre
 		// historique, pas paginés) : la pagination ne s'applique qu'aux produits
 		// de la base OFF, sans jamais les dupliquer.
-		const ranked = rankFoods(foods.map(toHit), term);
-		const items = [
-			...ranked.slice(offset, offset + limit),
-			...(offset === 0 ? await Promise.all(customs.map((f) => toCustomHit(ctx, f))) : []),
-		];
+		const ranked = rankFoods(filterByQueryWords(foods.map(toHit), term), term);
+		const customHits =
+			offset === 0
+				? rankFoods(
+						filterByQueryWords(await Promise.all(customs.map((f) => toCustomHit(ctx, f))), term),
+						term
+					)
+				: [];
+		const items = [...ranked.slice(offset, offset + limit), ...customHits];
 		// Miniatures miroir G-FLUX prêtes → thumbUrl (lecture pure, sinon le hit
 		// garde son imageUrl OFF pour le fallback FoodImg).
 		return { items: await attachThumbs(ctx, items), hasMore: offset + limit < ranked.length };

@@ -191,6 +191,61 @@ export function allWordsPresent(toks: string[], qt: string[], head = toks.length
 	return qt.every((q, i) => wordPresent(toks, q, i === 0, head));
 }
 
+/* ─── Mots VIDES de la recherche (mission RECHERCHE-INTRUS) ───
+ *
+ * L'index plein texte (Convex `by_name`, API OFF) admet un candidat dès qu'il
+ * porte AU MOINS UN des mots de la requête : « Ragoût de veau » ramenait donc
+ * « Velouté de légumes », « Bière blonde de haute fermentation »… dont le seul
+ * point commun est « de ». Ces mots outils ne décident jamais de la
+ * pertinence : ils sont retirés de la requête AVANT tout filtre. Une requête
+ * qui ne contiendrait QUE des mots vides (« de ») est conservée telle quelle
+ * (règle explicite : on ne cherche jamais « rien »).
+ */
+export const QUERY_STOP_WORDS = new Set([
+	"de", "du", "des", "d", "la", "le", "les", "l", "un", "une",
+	"au", "aux", "a", "et", "en", "avec", "sans", "pour",
+]);
+
+/**
+ * Mots SIGNIFICATIFS d'une requête (normalisés + singularisés, mots vides
+ * retirés). Requête sans mot significatif → tokens complets (jamais vide si
+ * la requête ne l'est pas).
+ */
+export function significantTokens(query: string): string[] {
+	const toks = tokenize(query);
+	const sig = toks.filter((t) => !QUERY_STOP_WORDS.has(t));
+	return sig.length > 0 ? sig : toks;
+}
+
+/**
+ * Le nom partage-t-il AU MOINS UN mot significatif de la requête ?
+ * C'est le plancher d'ÉLIGIBILITÉ d'un résultat : un nom qui ne partage que
+ * des mots vides (« Velouté de légumes » pour « ragoût de veau ») n'est pas un
+ * résultat, quel que soit le classement. La règle R1 (« tous les mots
+ * présents ») reste, elle, l'ordre de classement (clé `allWordsPresent`).
+ */
+export function sharesSignificantWord(name: string, query: string): boolean {
+	const sig = significantTokens(query);
+	if (sig.length === 0) return true;
+	const toks = tokenize(name);
+	const head = headTokenCount(name);
+	return sig.some((t) => wordPresent(toks, t, false, head));
+}
+
+/**
+ * Filtre d'éligibilité partagé par TOUTES les sources (base locale, aliments
+ * personnels, cache/API Open Food Facts) et TOUS les lots (première page comme
+ * suivantes) : les candidats admis par l'index sur un seul mot vide sont
+ * écartés au lieu d'être simplement relégués en fin de liste — c'est ce qui
+ * faisait apparaître des intrus AU MILIEU des résultats pertinents.
+ * `rankFoods` conserve le classement R1 des candidats restants.
+ */
+export function filterByQueryWords<T extends RankableFood>(items: readonly T[], query: string): T[] {
+	const sig = significantTokens(query);
+	if (sig.length === 0) return [...items];
+	return items.filter((f) => sharesSignificantWord(f.name, query));
+}
+
 /* ─── Requête multi-mots : le PREMIER aliment est obligatoire ───
  *
  * « poulet cuit au four » : « poulet » est l'aliment, le reste n'affine que.
