@@ -232,18 +232,69 @@ export function sharesSignificantWord(name: string, query: string): boolean {
 	return sig.some((t) => wordPresent(toks, t, false, head));
 }
 
+/** Marque exploitable : ni vide, ni le littéral « null » hérité de certains
+ *  imports Open Food Facts (« null » n'est pas une marque). */
+function usableBrand(brand: string | null | undefined): string {
+	if (typeof brand !== 'string') return '';
+	const b = brand.trim();
+	return b && b.toLowerCase() !== 'null' ? b : '';
+}
+
+/**
+ * La MARQUE partage-t-elle au moins un mot significatif de la requête ?
+ * Un produit commercialisé sous une marque se cherche par son nom OU par sa
+ * marque : « bodymass » doit trouver « Bar Protéinée Caramel Cookie » (dont le
+ * nom ne contient pas la marque). À pertinence égale, une correspondance de
+ * NOM passe avant une correspondance de MARQUE seule (voir `rankFoods`).
+ */
+export function sharesBrandWord(brand: string | null | undefined, query: string): boolean {
+	const b = usableBrand(brand);
+	if (!b) return false;
+	const sig = significantTokens(query);
+	if (sig.length === 0) return false;
+	const toks = tokenize(b);
+	return sig.some((t) => wordPresent(toks, t));
+}
+
 /**
  * Filtre d'éligibilité partagé par TOUTES les sources (base locale, aliments
  * personnels, cache/API Open Food Facts) et TOUS les lots (première page comme
  * suivantes) : les candidats admis par l'index sur un seul mot vide sont
  * écartés au lieu d'être simplement relégués en fin de liste — c'est ce qui
  * faisait apparaître des intrus AU MILIEU des résultats pertinents.
- * `rankFoods` conserve le classement R1 des candidats restants.
+ * La correspondance porte sur le NOM ou la MARQUE (recherche par marque) ;
+ * `rankFoods` conserve le classement R1 des candidats restants et place le
+ * nom devant la marque seule.
  */
 export function filterByQueryWords<T extends RankableFood>(items: readonly T[], query: string): T[] {
 	const sig = significantTokens(query);
 	if (sig.length === 0) return [...items];
-	return items.filter((f) => sharesSignificantWord(f.name, query));
+	return items.filter((f) => sharesSignificantWord(f.name, query) || sharesBrandWord(f.brand, query));
+}
+
+/**
+ * Texte de recherche d'une fiche `foods` : NOM + MARQUE normalisés.
+ * Stocké dans `foods.searchText` (champ optionnel) et interrogé par l'index de
+ * recherche dédié `by_searchText` — la recherche locale trouve ainsi un produit
+ * par sa marque sans parcourir la table. Une fiche sans marque vaut son nom.
+ */
+export function searchTextOf(name: string, brand?: string | null): string {
+	const n = norm(name);
+	const b = usableBrand(brand) ? norm(usableBrand(brand)) : '';
+	if (!b || n.split(' ').includes(b)) return n;
+	return n ? `${n} ${b}` : b;
+}
+
+/**
+ * La fiche a-t-elle besoin d'être (re)écrite ? Faux quand `searchText` est déjà
+ * exactement le texte attendu : le rattrapage rejoué ne réécrit jamais une
+ * fiche déjà à jour (idempotence).
+ */
+export function needsSearchTextUpdate(
+	row: { searchText?: string },
+	text: string
+): boolean {
+	return row.searchText !== text;
 }
 
 /* ─── Requête multi-mots : le PREMIER aliment est obligatoire ───
@@ -438,12 +489,18 @@ export function rankFoods<T extends RankableFood>(items: readonly T[], query: st
 		const hasMain = at.includes(anchors[0]);
 		const anchorKey =
 			at.length === anchors.length ? 0 : hasMain ? 1 : 2 + (anchors.length - at.length);
+		// Nom d'abord, marque seule ensuite : à pertinence égale, un résultat dont
+		// le NOM contient la recherche passe avant celui qui ne la porte que dans
+		// sa marque. Les candidats admis par leur nom valent tous 0 : l'ordre R1
+		// des recherches existantes est donc strictement inchangé.
+		const byName = sharesSignificantWord(f.name, query) ? 0 : 1;
 		return {
 			f,
-			// ABÉRANT < TOUS LES MOTS < ANCHOR < tier < marque(0/1) < ciqual(0/1) < longueur < alpha
+			// ABÉRANT < TOUS LES MOTS < NOM/MARQUE < ANCHOR < tier < marque(0/1) < ciqual(0/1) < longueur < alpha
 			key: [
 				mismatch !== undefined && mismatch > ABERRATION_THRESHOLD ? 1 : 0,
 				allWordsPresent(nt, qt, headTokenCount(f.name)) ? 0 : 1,
+				byName,
 				anchorKey,
 				tierOf(qt, nt),
 				// À pertinence égale : les mots tapés consécutifs d'abord.
@@ -458,10 +515,11 @@ export function rankFoods<T extends RankableFood>(items: readonly T[], query: st
 	scored.sort((a, b) => {
 		const ka = a.key;
 		const kb = b.key;
-		for (let i = 0; i < 8; i++) {
+		// 9 clés numériques puis le nom (départage alphabétique stable).
+		for (let i = 0; i < 9; i++) {
 			if (ka[i] !== kb[i]) return (ka[i] as number) - (kb[i] as number);
 		}
-		return ka[8].localeCompare(kb[8], "fr");
+		return ka[9].localeCompare(kb[9], "fr");
 	});
 	return scored.map((s) => s.f);
 }
