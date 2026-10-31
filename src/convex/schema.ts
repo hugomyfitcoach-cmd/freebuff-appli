@@ -308,9 +308,20 @@ export default defineSchema({
 		/** Portion suggérée par OFF (g/ml), quand elle existe. */
 		servingQty: v.optional(v.number()),
 		servingUnit: v.optional(v.string()),
+		/**
+		 * Texte de recherche unifié : NOM + MARQUE normalisés (voir
+		 * `foodRanking.searchTextOf`). Champ OPTIONNEL — aucune migration : les
+		 * fiches antérieures en sont dépourvues et restent trouvées par l'index
+		 * `by_name` (repli de la recherche), le temps que le rattrapage interne
+		 * (`journal.backfillFoodSearchText`, toutes les 2 minutes) les complète.
+		 */
+		searchText: v.optional(v.string()),
 	})
 		.index("by_offId", ["offId"])
-		.searchIndex("by_name", { searchField: "name" }),
+		.searchIndex("by_name", { searchField: "name" })
+		// Index de recherche dédié « nom + marque » : un produit se trouve par sa
+		// marque (« bodymass ») comme par son nom.
+		.searchIndex("by_searchText", { searchField: "searchText" }),
 
 	/** Aliments créés par les clients (produit non présent dans la base OFF). */
 	customFoods: defineTable({

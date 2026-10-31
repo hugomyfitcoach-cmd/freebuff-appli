@@ -9,7 +9,7 @@ import { v, ConvexError } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Id, Doc } from "./_generated/dataModel";
 import type { FoodHit } from "./journal";
-import { rankFoods, tokenize } from "./foodRanking";
+import { filterByQueryWords, needsSearchTextUpdate, rankFoods, searchTextOf, tokenize } from "./foodRanking";
 import { nameMatchScore, flavorConflict } from "../lib/foodText";
 import { applyKcalGuard } from "../lib/nutritionGuard";
 
@@ -512,10 +512,12 @@ export const searchFoods = action({
 			const ids: Id<"foods">[] = await ctx.runMutation(api.journal.cacheFoods, { sessionToken, products });
 			const foods = await ctx.runQuery(api.journal.foodsByIds, { sessionToken, ids });
 			// Re-tri identique à la recherche locale : aliments bruts d'abord.
+			// Éligibilité d'abord : un candidat admis par l'API sur un seul mot vide
+			// (« de ») n'est pas un résultat — même filtre que la base locale.
 			// Garde-fou kcal ↔ macros (lecture seule) : kcal aberrantes → théoriques,
 			// la fiche fraîchement mise en cache reste intacte en base.
 			const hits = rankFoods(
-				foods.map((f) => {
+				filterByQueryWords(foods, q).map((f) => {
 					const g = applyKcalGuard(f);
 					return {
 						_id: f._id,
@@ -615,12 +617,20 @@ export const applyOffDetails = internalMutation({
 	},
 	handler: async (ctx, { foodId, refreshedAt, sugars100, fiber100, saturatedFat100, salt100 }) => {
 		const patch: Partial<
-			Pick<Doc<"foods">, "sugars100" | "fiber100" | "saturatedFat100" | "salt100">
+			Pick<Doc<"foods">, "sugars100" | "fiber100" | "saturatedFat100" | "salt100" | "searchText">
 		> & { detailsRefreshedAt: number } = { detailsRefreshedAt: refreshedAt };
 		if (sugars100 !== undefined) patch.sugars100 = sugars100;
 		if (fiber100 !== undefined) patch.fiber100 = fiber100;
 		if (saturatedFat100 !== undefined) patch.saturatedFat100 = saturatedFat100;
 		if (salt100 !== undefined) patch.salt100 = salt100;
+		// Texte de recherche nom + marque : le rafraîchissement d'une fiche
+		// complète aussi cette clé (une fiche dont la marque a été corrigée côté
+		// OFF redevient trouvable) — jamais écrite si elle est déjà à jour.
+		const food = await ctx.db.get(foodId);
+		if (food) {
+			const searchText = searchTextOf(food.name, food.brand);
+			if (needsSearchTextUpdate(food, searchText)) patch.searchText = searchText;
+		}
 		await ctx.db.patch(foodId, patch);
 	},
 });

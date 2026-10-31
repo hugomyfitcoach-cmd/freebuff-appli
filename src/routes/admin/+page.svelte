@@ -11,6 +11,7 @@
 	import Icon from '../../lib/components/Icon.svelte';
 	import JournalDay from '../../lib/components/JournalDay.svelte';
 	import MetricTrend from '../../lib/components/MetricTrend.svelte';
+	import QuantitySheet from '../../lib/components/QuantitySheet.svelte';
 	import WeeklyTrendChart from '../../lib/components/WeeklyTrendChart.svelte';
 	import TrainingPanel from '../../lib/components/TrainingPanel.svelte';
 	import { cycleState } from '../../lib/cycle.js';
@@ -22,7 +23,7 @@
 	import { avgLast7Completed } from '$lib/averages';
 	import { aggregateByDate, avgWindow, parisTodayISO, summarize, windowDaysCompleted } from '$lib/hydrationVision';
 	import { foodAverages } from '$lib/vision360';
-	import { createFoodSearch } from '$lib/foodSearch.svelte';
+	import { createFoodSearch, type SearchFood } from '$lib/foodSearch.svelte';
 	import CountUp from '$lib/components/CountUp.svelte';
 	import CoachIdentity from '$lib/components/CoachIdentity.svelte';
 	import { coachIdentity, type CoachUserLike } from '$lib/coachIdentity';
@@ -779,10 +780,10 @@
 
 	/* ── Journal alimentaire (le coach agit « en doublon ») ────── */
 	const MEALS = [
-		{ id: 'petit-dej', label: 'Petit-déjeuner' },
-		{ id: 'dejeuner', label: 'Déjeuner' },
-		{ id: 'diner', label: 'Dîner' },
-		{ id: 'collation', label: 'Collations' },
+		{ id: 'petit-dej', label: 'Petit-déjeuner', icon: 'sunrise' },
+		{ id: 'dejeuner', label: 'Déjeuner', icon: 'utensils' },
+		{ id: 'diner', label: 'Dîner', icon: 'moon' },
+		{ id: 'collation', label: 'Collations', icon: 'cookie' },
 	];
 	const MEAL_LABEL: Record<string, string> = Object.fromEntries(MEALS.map((m) => [m.id, m.label]));
 
@@ -799,6 +800,13 @@
 		carbs: number;
 		protein: number;
 		fat: number;
+		/** Identité d'origine de l'entrée — sert à ouvrir la FICHE de l'aliment
+		 *  en consultation seule (même résolution que le Journal cliente). */
+		foodId?: string;
+		customFoodId?: string;
+		ciqualLabel?: string;
+		referenceSource?: 'ciqual' | 'gflux';
+		photoUrl?: string;
 	};
 	type DayData = {
 		date: string;
@@ -829,6 +837,29 @@
 	let day = $state<DayData | null>(null);
 	let journalBusy = $state(false);
 	let journalMsg = $state('');
+	/** Ligne dont la FICHE aliment est ouverte en CONSULTATION SEULE : aucun
+	 *  geste d'écriture (quantité figée, pas de repas, pas de bouton d'action). */
+	let coachSheetEntry = $state<Entry | null>(null);
+	/** Aliment « reconstruit » depuis l'entrée (mêmes kcal/100 g) pour la fiche
+	 *  partagée — même principe que le Journal cliente. */
+	const coachSheetFood = $derived(
+		coachSheetEntry
+			? {
+					name: coachSheetEntry.name,
+					brand: coachSheetEntry.brand,
+					imageUrl: coachSheetEntry.imageUrl,
+					thumbUrl: coachSheetEntry.thumbUrl,
+					photoUrl: coachSheetEntry.photoUrl,
+					custom: !coachSheetEntry.foodId && !coachSheetEntry.ciqualLabel && !!coachSheetEntry.customFoodId,
+					ciqual: !!coachSheetEntry.ciqualLabel,
+					gflux: coachSheetEntry.referenceSource === 'gflux',
+					kcal100: coachSheetEntry.qtyGrams > 0 ? (coachSheetEntry.kcal / coachSheetEntry.qtyGrams) * 100 : 0,
+					carbs100: coachSheetEntry.qtyGrams > 0 ? (coachSheetEntry.carbs / coachSheetEntry.qtyGrams) * 100 : 0,
+					protein100: coachSheetEntry.qtyGrams > 0 ? (coachSheetEntry.protein / coachSheetEntry.qtyGrams) * 100 : 0,
+					fat100: coachSheetEntry.qtyGrams > 0 ? (coachSheetEntry.fat / coachSheetEntry.qtyGrams) * 100 : 0
+				}
+			: null
+	);
 
 	let searchOpen = $state(false);
 	/**
@@ -906,6 +937,86 @@
 			await loadDay();
 		} catch (e) {
 			journalMsg = e instanceof Error ? e.message : 'Ajout impossible.';
+		}
+	}
+
+	/* ── FICHE QUANTITÉ À L'AJOUT (clic sur un résultat de recherche) ──
+	 * Le coach choisit la quantité et le repas AVANT d'écrire, dans la même
+	 * fiche que la PWA / le journal. Le « ＋ » du résultat garde l'ajout rapide
+	 * historique (champ « Quantité (g) ») : `addFood` reste inchangé. */
+	let addSheetHit = $state<SearchFood | null>(null);
+	let addSheetQty = $state(100);
+	let addSheetMeal = $state('petit-dej');
+	let addSheetSaving = $state(false);
+	let addSheetError = $state('');
+
+	/** Ouvre la fiche avec les valeurs du volet (quantité du champ, repas choisi). */
+	function openAddSheet(hit: SearchFood) {
+		addSheetHit = hit;
+		const q = Number(addQty);
+		addSheetQty = isFinite(q) && q >= 1 && q <= 5000 ? q : 100;
+		addSheetMeal = addMeal;
+		addSheetError = '';
+	}
+
+	/** Aliment de la fiche — mêmes valeurs /100 g que le résultat de recherche
+	 *  (aucune valeur recalculée à la main). */
+	const addSheetFood = $derived(
+		addSheetHit
+			? {
+					_id: addSheetHit._id,
+					name: addSheetHit.name,
+					brand: addSheetHit.brand,
+					imageUrl: addSheetHit.imageUrl,
+					thumbUrl: addSheetHit.thumbUrl,
+					servingQty: addSheetHit.servingQty,
+					kcal100: addSheetHit.kcal100,
+					carbs100: addSheetHit.carbs100,
+					protein100: addSheetHit.protein100,
+					fat100: addSheetHit.fat100,
+					kcalRecalculated: addSheetHit.kcalRecalculated,
+					custom: !!addSheetHit.custom,
+					ciqual: !!addSheetHit.ciqual,
+					gflux: !!addSheetHit.gflux
+				}
+			: null
+	);
+
+	/** Enregistrement depuis la fiche : MÊME mutation et MÊMES contrôles que
+	 *  l'ajout coach existant (`/api/coach/journal`, userId + date du CRM).
+	 *  Après succès : fiche fermée, journal rechargé, volet de recherche
+	 *  toujours ouvert pour enchaîner sur un autre aliment. */
+	async function addFoodFromSheet(qtyGrams: number, meal: string) {
+		const hit = addSheetHit;
+		if (!hit || !selectedId) return;
+		addSheetSaving = true;
+		addSheetError = '';
+		// Préchauffage du miroir (fire-and-forget) — comme l'ajout rapide.
+		warmFoodImages([hit]);
+		try {
+			const res = await fetch('/api/coach/journal', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					userId: selectedId,
+					date: journalDate,
+					meal,
+					...(hit.gflux
+						? { referenceSource: 'gflux' as const, referenceFoodId: hit._id } // fiche G-Flux : jamais ciqualLabel
+						: hit.ciqual
+							? { ciqualLabel: hit._id }
+							: { foodId: hit._id }),
+					qtyGrams,
+				}),
+			});
+			const data = await res.json();
+			if (!res.ok) throw new Error(data.error ?? 'Ajout impossible.');
+			addSheetHit = null;
+			await loadDay();
+		} catch (e) {
+			addSheetError = e instanceof Error ? e.message : 'Ajout impossible.';
+		} finally {
+			addSheetSaving = false;
 		}
 	}
 
@@ -3827,8 +3938,37 @@
 							}}
 								onQty={setQty}
 								onRemove={removeEntry}
+								onEntryClick={(e) => (coachSheetEntry = e)}
 							/>
 						</div>
+
+						<!-- FICHE ALIMENT en CONSULTATION SEULE (clic sur le nom/l'image d'une
+						     ligne) : lecture intégrale — quantité saisie par la cliente FIGÉE,
+						     macros et fiche nutritionnelle dépliables, fermeture par la croix
+						     ou par le fond. Aucune écriture : − / + / corbeille restent sur la
+						     ligne du journal, jamais dans la fiche. `onSave` reste inerte
+						     (contrat du composant inchangé) : readOnly bloque toute écriture. -->
+						{#if coachSheetEntry && coachSheetFood}
+							<QuantitySheet
+								food={coachSheetFood}
+								source={coachSheetFood.ciqual ? 'ciqual' : undefined}
+								detailsSource={coachSheetEntry.ciqualLabel
+									? 'ciqual'
+									: coachSheetEntry.foodId
+										? 'food'
+										: coachSheetEntry.customFoodId
+											? 'custom'
+											: undefined}
+								detailsId={coachSheetEntry.ciqualLabel ?? coachSheetEntry.foodId ?? coachSheetEntry.customFoodId}
+								initialQtyGrams={coachSheetEntry.qtyGrams}
+								mealDefs={[]}
+								onSave={() => {}}
+								subtitle={`${MEAL_LABEL[coachSheetEntry.meal] ?? ''} · ${journalDate}`}
+								mode="edit"
+								readOnly
+								onClose={() => (coachSheetEntry = null)}
+							/>
+						{/if}
 					{:else if !journalBusy}
 						<p class="mt-4 rounded-xl border border-dashed border-line px-4 py-8 text-center text-sm text-mist">Clique sur « Charger » pour afficher la journée.</p>
 					{/if}
@@ -3893,21 +4033,31 @@
 									</div>
 									<div class="space-y-1">
 										{#each (foodSearch.state.ciqualExpanded ? foodSearch.state.ciqual : foodSearch.state.ciqual.slice(0, 3)) as hit (hit._id)}
-											<button
-												onclick={() => addFood(hit)}
-												class="flex w-full items-center gap-3 rounded-xl border border-brand/30 bg-brand-light/40 px-3 py-2 text-left transition hover:border-brand"
-											>
-												<span class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-light"><Icon name="salad" size={18} class="text-brand" /></span>
-												<div class="min-w-0 flex-1">
-													<div class="line-clamp-2 text-sm font-semibold leading-snug text-ink">{hit.name}</div>
-													<div class="mt-0.5 text-[11px] text-mist">{hit.kcal100} kcal/100 g</div>
-													<div class="mt-1 flex flex-wrap items-center gap-1.5">
-														{#if hit.gflux}<span data-gflux-badge class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence G-Flux</span>{:else}<span class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>{/if}
-														{#if hit.cookLabel}<span data-cook-badge class="rounded-full bg-[#F1F0EC] px-2 py-0.5 text-[9px] font-semibold text-[#6E6A62]">{hit.cookLabel}</span>{/if}
+											<div class="flex w-full items-center gap-2 rounded-xl border border-brand/30 bg-brand-light/40 px-3 py-2 transition hover:border-brand">
+												<!-- Ligne = fiche quantité (choisir AVANT d'écrire) · ＋ = ajout rapide. -->
+												<button
+													type="button"
+													onclick={() => openAddSheet(hit)}
+													class="flex min-w-0 flex-1 items-center gap-3 text-left"
+												>
+													<span class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-light"><Icon name="salad" size={18} class="text-brand" /></span>
+													<div class="min-w-0 flex-1">
+														<div class="line-clamp-2 text-sm font-semibold leading-snug text-ink">{hit.name}</div>
+														<div class="mt-0.5 text-[11px] text-mist">{hit.kcal100} kcal/100 g</div>
+														<div class="mt-1 flex flex-wrap items-center gap-1.5">
+															{#if hit.gflux}<span data-gflux-badge class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence G-Flux</span>{:else}<span class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>{/if}
+															{#if hit.cookLabel}<span data-cook-badge class="rounded-full bg-[#F1F0EC] px-2 py-0.5 text-[9px] font-semibold text-[#6E6A62]">{hit.cookLabel}</span>{/if}
+														</div>
 													</div>
-												</div>
-												<span class="text-brand">＋</span>
-											</button>
+												</button>
+												<button
+													type="button"
+													onclick={() => addFood(hit)}
+													class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-lg font-bold text-brand transition hover:bg-brand-light"
+													aria-label={`Ajout rapide : ${hit.name}`}
+													title={`Ajouter ${Number(addQty) || 100} g au ${MEAL_LABEL[addMeal] ?? 'repas'}`}
+												>＋</button>
+											</div>
 										{/each}
 									</div>
 									{#if foodSearch.state.ciqual.length > 3}
@@ -3929,21 +4079,31 @@
 									<p class="px-1 pb-1 pt-2 text-[10px] font-bold uppercase tracking-widest text-mist">Produits · Open Food Facts</p>
 									<div class="space-y-1 transition-opacity {foodSearch.state.searching ? 'opacity-50' : ''}">
 										{#each foodSearch.state.products as hit (hit._id)}
-											<button
-												onclick={() => addFood(hit)}
-												class="flex w-full items-center gap-3 rounded-xl border border-line bg-white px-3 py-2 text-left transition hover:border-brand"
-											>
-												{#if hit.thumbUrl || hit.imageUrl}
-													<FoodImg src={hit.thumbUrl} fallbackSrc={hit.imageUrl} alt="" class="h-9 w-9 shrink-0 rounded-lg" />
-												{:else}
-													<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-line/60"><Icon name="apple" size={16} class="text-mist" /></div>
-												{/if}
-												<div class="min-w-0 flex-1">
-													<div class="truncate text-sm font-semibold text-ink">{hit.name}</div>
-													<div class="text-[11px] text-mist">{hit.kcal100} kcal/100 g{#if hit.kcalRecalculated}<span class="ml-1 rounded bg-line/70 px-1 py-px text-[9px] font-semibold text-mist">Valeur recalculée</span>{/if}{hit.brand ? ` · ${hit.brand}` : ''}</div>
-												</div>
-												<span class="text-brand">＋</span>
-											</button>
+											<div class="flex w-full items-center gap-2 rounded-xl border border-line bg-white px-3 py-2 transition hover:border-brand">
+												<!-- Ligne = fiche quantité (choisir AVANT d'écrire) · ＋ = ajout rapide. -->
+												<button
+													type="button"
+													onclick={() => openAddSheet(hit)}
+													class="flex min-w-0 flex-1 items-center gap-3 text-left"
+												>
+													{#if hit.thumbUrl || hit.imageUrl}
+														<FoodImg src={hit.thumbUrl} fallbackSrc={hit.imageUrl} alt="" class="h-9 w-9 shrink-0 rounded-lg" />
+													{:else}
+														<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-line/60"><Icon name="apple" size={16} class="text-mist" /></div>
+													{/if}
+													<div class="min-w-0 flex-1">
+														<div class="truncate text-sm font-semibold text-ink">{hit.name}</div>
+														<div class="text-[11px] text-mist">{hit.kcal100} kcal/100 g{#if hit.kcalRecalculated}<span class="ml-1 rounded bg-line/70 px-1 py-px text-[9px] font-semibold text-mist">Valeur recalculée</span>{/if}{hit.brand ? ` · ${hit.brand}` : ''}</div>
+													</div>
+												</button>
+												<button
+													type="button"
+													onclick={() => addFood(hit)}
+													class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-lg font-bold text-brand transition hover:bg-line/60"
+													aria-label={`Ajout rapide : ${hit.name}`}
+													title={`Ajouter ${Number(addQty) || 100} g au ${MEAL_LABEL[addMeal] ?? 'repas'}`}
+												>＋</button>
+											</div>
 										{/each}
 									</div>
 									{#if foodSearch.state.loadingMore}<p class="py-2 text-center text-xs text-mist">Chargement…</p>{/if}
@@ -3951,6 +4111,26 @@
 							{/if}
 						</div>
 					</div>
+				{/if}
+
+				{#if addSheetHit && addSheetFood}
+					<!-- FICHE QUANTITÉ à l'ajout coach : mêmes contrôles que la PWA
+					     (clavier, −/+, raccourcis, portions/repères, macros en direct,
+					     fiche nutritionnelle) et même mutation que l'ajout existant.
+					     Le volet de recherche reste ouvert derrière : on enchaîne. -->
+					<QuantitySheet
+						food={addSheetFood}
+						mealDefs={MEALS}
+						source={addSheetFood.ciqual ? 'ciqual' : undefined}
+						initialQtyGrams={addSheetQty}
+						initialMeal={addSheetMeal}
+						mode="add"
+						saving={addSheetSaving}
+						error={addSheetError}
+						saveLabel={`Ajouter au journal de ${selected?.user.prenom ?? 'la cliente'}`}
+						onSave={(g, meal) => addFoodFromSheet(g, meal)}
+						onClose={() => { addSheetHit = null; }}
+					/>
 				{/if}
 
 			{:else if section === 'entrainement'}

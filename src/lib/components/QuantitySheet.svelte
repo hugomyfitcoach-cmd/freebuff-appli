@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Icon from './Icon.svelte';
 	import FoodImg from './FoodImg.svelte';
+	import { lockScroll, unlockScroll } from '$lib/scrollLock';
 	import { reperesForFood, unitWord } from '$lib/data/gfluxReperes';
 	import {
 		detailRows,
@@ -70,6 +71,11 @@
 		/** Positionne la fiche dans la zone visible (clavier mobile iOS). */
 		sheetTop = 0,
 		sheetHeight,
+		/** CONSULTATION SEULE (CRM coach) : la quantité affichée est celle saisie
+		 *  par la cliente, FIGÉE — aucun onglet, aucun − / +, aucun raccourci,
+		 *  aucun choix de repas, aucune action d'écriture. Fermeture par la
+		 *  croix ou par le fond (voile sombre). */
+		readOnly = false,
 		onSave,
 		onEat,
 		onReplace,
@@ -127,6 +133,8 @@
 		/** Positionne la fiche dans la zone visible (clavier mobile iOS). */
 		sheetTop?: number;
 		sheetHeight?: number;
+		/** Consultation seule (CRM coach) : lecture intégrale, zéro écriture. */
+		readOnly?: boolean;
 		onSave: (qtyGrams: number, meal: string) => void;
 		/** Mode planned uniquement : valider « Mangé » (planned → consommé). */
 		onEat?: () => void;
@@ -242,7 +250,8 @@
 		if (!detailsData && !detailsLoading) void loadDetails();
 		if (ref.source === 'food' && !offRefreshAsked) {
 			offRefreshAsked = true;
-			void refreshOffDetails(ref.id);
+			/* Consultation seule : aucune écriture, donc aucun rafraîchissement OFF. */
+			if (!readOnly) void refreshOffDetails(ref.id);
 		}
 	}
 
@@ -383,9 +392,18 @@
 		} else gramsText = fmtQty(g);
 	}
 	function save() {
-		if (!valid || gramsNum == null || saving) return;
+		/* Consultation seule : la quantité de la cliente n'est jamais réécrite. */
+		if (readOnly || !valid || gramsNum == null || saving) return;
 		onSave(Math.round((gramsNum ?? 0) * 100) / 100, meal);
 	}
+
+	/* CONSULTATION SEULE : le volet se superpose au CRM → le document du fond
+	   ne défile jamais (même verrou partagé que les autres volets de l'app). */
+	$effect(() => {
+		if (!readOnly) return;
+		lockScroll();
+		return () => unlockScroll();
+	});
 
 	/* MODE FOCUS QUANTITÉ : pendant la saisie au clavier (quantité centrale
 	   focalisée), on masque hero et choix du repas — il reste au-dessus du
@@ -460,15 +478,27 @@
      Fond opaque plein viewport : le Journal n'est JAMAIS visible derrière,
      même clavier ouvert (le fond ne rétrécit pas — seule la page de contenu
      suit le visualViewport). Même principe que l'écran « Ajouter un aliment ». -->
+{#if readOnly}
+	<!-- Consultation seule : voile sombre DERRIÈRE la fiche (jamais en écriture —
+	     le fond opaque plein viewport reste la règle de la saisie). -->
+	<div class="fixed inset-0 z-[59] bg-ink/50" aria-hidden="true"></div>
+{/if}
 <div
 	role="presentation"
 	class="fixed inset-0 z-[60] bg-white sm:flex sm:items-center sm:justify-center sm:p-6"
+	style:background-color={readOnly ? 'transparent' : undefined}
+	onclick={(e) => {
+		/* Consultation seule : le fond (zone hors panneau) ferme la fiche, comme
+		   les autres volets du CRM. En écriture, AUCUN clic de fond ne ferme
+		   (jamais de saisie perdue) — la croix et Échap restent les sorties. */
+		if (readOnly && !saving && e.target === e.currentTarget) onClose();
+	}}
 	onkeydown={(e) => {
 		if (e.key === 'Escape' && !saving) onClose();
 	}}
 >
 	<div
-		class="absolute inset-x-0 top-0 mx-auto flex w-full max-w-lg flex-col overflow-hidden bg-white sm:relative sm:top-auto sm:h-[min(92dvh,720px)] sm:rounded-[2rem] sm:shadow-2xl"
+		class="absolute inset-x-0 top-0 mx-auto flex w-full max-w-lg flex-col overflow-hidden bg-white sm:relative sm:top-auto sm:h-[min(92dvh,720px)] sm:rounded-[2rem] sm:shadow-2xl {readOnly ? 'max-h-[100dvh] rounded-b-[2rem]' : ''}"
 		style:top={mobileSheet ? `${sheetTop}px` : undefined}
 		style:height={mobileSheet ? `${sheetHeight}px` : undefined}
 	>
@@ -576,6 +606,15 @@
 
 			<!-- ─── Saisie de quantité (logique inchangée) ─── -->
 			<div class="px-5">
+			{#if readOnly}
+				<!-- CONSULTATION SEULE : la quantité est CELLE SAISIE PAR LA
+				     CLIENTE — affichée, jamais modifiable (aucun onglet, aucun
+				     − / +, aucun raccourci). -->
+				<div class="mt-3 rounded-[20px] bg-[#F6F8F6] px-4 py-3 text-center">
+					<p class="text-[10px] font-bold uppercase tracking-wide text-mist">Quantité saisie</p>
+					<p class="mt-0.5 text-3xl font-bold tabular-nums text-ink">{fmtQty(initialQtyGrams)} g</p>
+				</div>
+			{:else}
 				<!-- Bascule Grammes / Portions (si portion OFF fiable) / Repères G-FLUX
 			     (si un repère usuel correspond) — onglets dynamiques. -->
 				{#if tabCount > 1}						<div class="mt-2.5 flex items-stretch justify-around border-b border-[#E9EDEA] text-[14px] font-bold">
@@ -715,6 +754,7 @@
 						{/each}
 					{/if}
 				</div>
+			{/if}
 			</div>
 
 				<!-- ─── Macros en 4 cartes (code couleur du Journal) ───
@@ -804,7 +844,8 @@
 					</div>
 				{/if}
 
-				<!-- Choix du repas (masqué en mode focus quantité) -->
+				<!-- Choix du repas (masqué en mode focus quantité ET en consultation) -->
+				{#if !readOnly}
 				<div class="mt-2 grid grid-cols-4 gap-2">
 					{#each mealDefs as m (m.id)}
 						<button
@@ -818,16 +859,14 @@
 					{/each}
 				</div>
 				{/if}
+				{/if}
 			</div>
 		</div>
 
 		<!-- ─── Footer d'actions : barre SOLIDE intégrée à la fiche ───
-	     FRÈRE flex de la zone scrollable : espace réservé, fond blanc opaque +
-	     séparateur — jamais de contenu visible derrière (l'ancien sticky +
-	     dégradé transparent laissait passer les boutons repas sous
-	     Supprimer/Enregistrer). Safe area iOS en bas. TOUJOURS visible — même
-	     clavier ouvert (mode focus) et petits écrans : les boutons d'action ne
-	     sont jamais coupés, seul le contenu au-dessus peut défiler. -->
+	     CONSULTATION SEULE (coach) : AUCUN footer — aucun bouton « Ajouter au
+	     journal », aucune écriture possible ; fermeture par la croix / le fond. -->
+		{#if !readOnly}
 		<div class="shrink-0 border-t border-line bg-white px-5 pb-[max(env(safe-area-inset-bottom),12px)] pt-2.5">
 			{#if error}
 				<p class="mb-3 rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{error}</p>
@@ -907,5 +946,6 @@
 				{/if}
 			{/if}
 		</div>
+		{/if}
 	</div>
 </div>

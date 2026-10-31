@@ -1,10 +1,16 @@
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { addDaysISO, assertCoachOwnsClient, dateISOInTimeZone, getSessionUser, localTodayISO } from "./helpers";
 import { kcalGoalForDate, withCurrentGoal } from "../lib/goalHistory";
 import { phaseEffective, validerObjectifPhase } from "../lib/phase";
 import { sportHabituelObjectifEnVigueur, type InstantaneCalibrageVigueur } from "../lib/perf";
-import { FOOD_SEARCH_CANDIDATES, rankFoods } from "./foodRanking";
+import {
+	FOOD_SEARCH_CANDIDATES,
+	filterByQueryWords,
+	needsSearchTextUpdate,
+	rankFoods,
+	searchTextOf,
+} from "./foodRanking";
 import { applyKcalGuard, guardedKcal100, kcalNeedsRecalc } from "../lib/nutritionGuard";
 import { resolveCoachPlanForDate } from "./mealPlans";
 import { attachThumbs, attachThumbsForFoodIds } from "./foodImages";
@@ -155,12 +161,25 @@ export const searchForCoach = query({
 		if (term.length < 2) return [] as FoodHit[];
 		// Candidats élargis puis re-tri (foodRanking) : l'aliment brut (« tomate »,
 		// « riz ») doit passer devant les produits de marque du classement BM25.
-		const foods = await ctx.db
-			.query("foods")
-			.withSearchIndex("by_name", (sb) => sb.search("name", term))
-			.take(FOOD_SEARCH_CANDIDATES);
+		// DEUX index pour une seule liste : `by_searchText` (nom + marque) trouve
+		// un produit par sa marque ; `by_name` reste le repli des fiches pas
+		// encore rattrapées (`searchText` absent) — aucune fiche perdue.
+		const [byText, byName] = await Promise.all([
+			ctx.db
+				.query("foods")
+				.withSearchIndex("by_searchText", (sb) => sb.search("searchText", term))
+				.take(FOOD_SEARCH_CANDIDATES),
+			ctx.db
+				.query("foods")
+				.withSearchIndex("by_name", (sb) => sb.search("name", term))
+				.take(FOOD_SEARCH_CANDIDATES),
+		]);
+		const seenIds = new Set(byText.map((f) => f._id));
+		const foods = [...byText, ...byName.filter((f) => !f.searchText && !seenIds.has(f._id))];
+		// Éligibilité : l'index plein texte admet un candidat sur UN SEUL mot (« de ») —
+		// voir filterByQueryWords. Le classement R1 des candidats restants est inchangé.
 		// Miniatures miroir G-FLUX prêtes → thumbUrl (même lecture que côté client).
-		return attachThumbs(ctx, rankFoods(foods.map(toHit), term).slice(0, 25));
+		return attachThumbs(ctx, rankFoods(filterByQueryWords(foods.map(toHit), term), term).slice(0, 25));
 	},
 });
 
@@ -415,7 +434,11 @@ export const searchLocal = query({
 		if (term.length < 2) return { items: [] as FoodHit[], hasMore: false } as SearchPage;
 		// Candidats élargis puis re-tri (foodRanking) : les aliments bruts passent
 		// devant les produits de marque, sans modifier la base.
-		const [foods, customs] = await Promise.all([
+		const [byText, byName, customs] = await Promise.all([
+			ctx.db
+				.query("foods")
+				.withSearchIndex("by_searchText", (sb) => sb.search("searchText", term))
+				.take(FOOD_SEARCH_CANDIDATES),
 			ctx.db
 				.query("foods")
 				.withSearchIndex("by_name", (sb) => sb.search("name", term))
@@ -426,14 +449,26 @@ export const searchLocal = query({
 				.filter((q) => q.eq(q.field("userId"), user._id))
 				.take(10),
 		]);
+		// Liste unique : `by_searchText` (nom + marque) d'abord, puis le repli
+		// `by_name` pour les fiches sans `searchText` (rattrapage pas encore passé).
+		const seenIds = new Set(byText.map((f) => f._id));
+		const foods = [...byText, ...byName.filter((f) => !f.searchText && !seenIds.has(f._id))];
+		// Éligibilité commune (base OFF ET aliments personnels) : un nom qui ne
+		// partage qu'un mot vide avec la requête n'est pas un résultat. Chaque
+		// tranche suit le MÊME classement R1 : un lot suivant complète la liste,
+		// il ne réinjecte jamais de résultats moins pertinents au milieu.
 		// Les aliments « Créés par moi » restent en fin de PREMIÈRE page (ordre
 		// historique, pas paginés) : la pagination ne s'applique qu'aux produits
 		// de la base OFF, sans jamais les dupliquer.
-		const ranked = rankFoods(foods.map(toHit), term);
-		const items = [
-			...ranked.slice(offset, offset + limit),
-			...(offset === 0 ? await Promise.all(customs.map((f) => toCustomHit(ctx, f))) : []),
-		];
+		const ranked = rankFoods(filterByQueryWords(foods.map(toHit), term), term);
+		const customHits =
+			offset === 0
+				? rankFoods(
+						filterByQueryWords(await Promise.all(customs.map((f) => toCustomHit(ctx, f))), term),
+						term
+					)
+				: [];
+		const items = [...ranked.slice(offset, offset + limit), ...customHits];
 		// Miniatures miroir G-FLUX prêtes → thumbUrl (lecture pure, sinon le hit
 		// garde son imageUrl OFF pour le fallback FoodImg).
 		return { items: await attachThumbs(ctx, items), hasMore: offset + limit < ranked.length };
@@ -510,10 +545,51 @@ export const cacheFoods = mutation({
 				.query("foods")
 				.withIndex("by_offId", (q) => q.eq("offId", p.offId))
 				.first();
+			// Texte de recherche nom + marque, posé dès la mise en cache : une marque
+			// devient immédiatement cherchable (index `by_searchText`).
+			const searchText = searchTextOf(p.name, p.brand);
 			const id = existing ? existing._id : await ctx.db.insert("foods", p);
+			if (!existing || needsSearchTextUpdate(existing, searchText)) {
+				await ctx.db.patch(id, { searchText });
+			}
 			ids.push(id);
 		}
 		return ids;
+	},
+});
+
+/** Taille maximale d'un lot de rattrapage `searchText` (borne d'exécution). */
+export const FOOD_SEARCH_TEXT_BATCH = 200;
+
+/**
+ * RATTRAPAGE AUTOMATIQUE de `searchText` (idempotent, SANS réseau).
+ *
+ * Les fiches `foods` mises en cache avant l'index nom + marque n'ont pas de
+ * `searchText` : elles resteraient introuvables par leur marque (« bodymass »).
+ * Cette mutation interne en complète un LOT borné (200 au plus) à chaque
+ * passage — elle n'écrit QUE `searchText`, ne touche aucun autre champ, ne fait
+ * aucun appel réseau et ne fait rien quand toutes les fiches sont remplies.
+ * Rejouée sur une fiche déjà à jour, elle n'écrit rien (`needsSearchTextUpdate`).
+ * Déclenchée par `crons.ts` toutes les 2 minutes : aucun geste manuel.
+ */
+export const backfillFoodSearchText = internalMutation({
+	args: { batch: v.optional(v.number()) },
+	handler: async (ctx, { batch }) => {
+		const requested = Math.trunc(batch ?? FOOD_SEARCH_TEXT_BATCH);
+		const limit = Math.min(Math.max(requested, 1), FOOD_SEARCH_TEXT_BATCH);
+		const pending = await ctx.db
+			.query("foods")
+			.filter((q) => q.eq(q.field("searchText"), undefined))
+			.take(limit);
+		let processed = 0;
+		for (const f of pending) {
+			const searchText = searchTextOf(f.name, f.brand);
+			if (!searchText || !needsSearchTextUpdate(f, searchText)) continue;
+			await ctx.db.patch(f._id, { searchText });
+			processed += 1;
+		}
+		if (processed > 0) console.log(`[foods] searchText : ${processed} fiche(s) rattrapée(s)`);
+		return { processed, remainingScanned: pending.length };
 	},
 });
 
