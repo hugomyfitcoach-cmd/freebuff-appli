@@ -3678,8 +3678,10 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	/** Décalage vertical du visualViewport (clavier iOS : l'overlay reste dans la zone visible). */
 	let vvTop = $state(0);
 	/** Clavier iOS ouvert : la capsule Recherche / Code-barres / Repas IA se masque
-	 *  pour libérer les résultats. L'état vit dans lib/keyboardViewport (même
-	 *  source que la barre de navigation d'AppShell) — plus de copie locale. */
+	 *  pour libérer les résultats. MIROIR EN LECTURE SEULE de l'état partagé
+	 *  (lib/keyboardViewport) — la barre du bas et le « + » lisent LA MÊME
+	 *  source ; plus de booléen local qui pouvait rester bloqué. */
+	const keyboardOpen = $derived(keyboard.open);
 	let mobile = $state(typeof window !== 'undefined' ? window.matchMedia('(max-width: 639px)').matches : true);
 	let refreshing = $state(false);
 
@@ -3989,44 +3991,44 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	   la position exacte — à la fermeture comme au démontage (retour arrière). */
 	let fondFigé = false;
 	let annulerLiberation: (() => void) | null = null;
-	/** Volets du Journal qui figent le fond, masquent la navigation et le « + ».
-	 *  UNE seule liste : verrou de défilement, clavier et garde-fou la lisent. */
-	const voletsOuverts = () =>
-		logOpen || !!qtyFood || !!editEntry || !!editPlanned || !!qtyMealSel || calOpen || dupOpen || mealCreateOpen || mealPhotoOpen || bilanOpen;
 	$effect(() => {
-		const locked = voletsOuverts();
-		if (locked === fondFigé) return;
-		if (locked) {
-			/* Réouverture pendant la sortie : on garde le verrou, on annule la
-			   libération en attente (sinon le compteur se déséquilibre). */
-			annulerLiberation?.();
-			annulerLiberation = null;
-			fondFigé = true;
-			lockScroll();
-			return;
+		const locked = logOpen || !!qtyFood || !!editEntry || !!editPlanned || !!qtyMealSel || calOpen || dupOpen || mealCreateOpen || mealPhotoOpen || bilanOpen;
+		if (locked !== fondFigé) {
+			if (locked) {
+				/* Réouverture pendant la sortie : on garde le verrou, on annule la
+				   libération en attente (sinon le compteur se déséquilibre). */
+				annulerLiberation?.();
+				annulerLiberation = null;
+				fondFigé = true;
+				lockScroll();
+			} else {
+				fondFigé = false;
+				/* FERMETURE : le body reste figé jusqu'à la FIN du fondu de sortie.
+				   Le libérer dès que `open` passe à false rendait au document sa hauteur
+				   au milieu de l'animation : WebKit réancrait les couches fixes (le
+				   volet sautait vers le bas) et repeignait le fond assombri une fraction
+				   de seconde (clignotement). On attend donc la fin de la transition, avec
+				   un délai de secours si elle ne se termine pas. */
+				annulerLiberation = onSheetExitEnd(null, () => {
+					annulerLiberation = null;
+					if (!fondFigé) unlockScroll();
+				});
+			}
 		}
-		fondFigé = false;
-		/* FERMETURE : le body reste figé jusqu'à la FIN du fondu de sortie.
-		   Le libérer dès que `open` passe à false rendait au document sa hauteur
-		   au milieu de l'animation : WebKit réancrait les couches fixes (le
-		   volet sautait vers le bas) et repeignait le fond assombri une fraction
-		   de seconde (clignotement). On attend donc la fin de la transition, avec
-		   un délai de secours si elle ne se termine pas. */
-		annulerLiberation = onSheetExitEnd(null, () => {
-			annulerLiberation = null;
-			if (!fondFigé) unlockScroll();
-		});
-	});
-	/* ————— GARDE-FOU UNIQUE (clavier + navigation + verrou restant) —————
-	   Le registre partagé ne connaît QUE des volets réellement ouverts. Dès
-	   qu'ils se referment — croix, glissement, retour arrière iOS, scan annulé,
-	   fermeture pendant un chargement, enchaînement fiche → recherche — l'état
-	   clavier résiduel est abandonné : la barre du bas et le « + » reviennent
-	   (plus de booléen bloqué jusqu'à la réouverture de l'app). */
-	$effect(() => registerSheetOwner(voletsOuverts));
-	$effect(() => {
-		if (!voletsOuverts()) return; // aucun volet ouvert : rien à libérer
-		return () => settleNavVisibility('sheet-closed');
+
+		/* GARDE-FOU UNIQUE (clavier + navigation + verrou restant) : ce MÊME calcul
+		   déclare le volet au registre partagé — aucun volet ne peut être oublié
+		   d'un côté (verrou) ou de l'autre (barre du bas / « + »). Dès qu'il se
+		   referme — croix, glissement, retour arrière iOS, scan annulé, fermeture
+		   pendant un chargement, enchaînement fiche → recherche — l'état clavier
+		   résiduel est abandonné : la barre et le « + » reviennent (plus de
+		   booléen bloqué jusqu'à la réouverture de l'app). */
+		if (!locked) return;
+		const desinscrire = registerSheetOwner(() => true);
+		return () => {
+			desinscrire();
+			settleNavVisibility('sheet-closed');
+		};
 	});
 	onDestroy(() => {
 		annulerLiberation?.();
@@ -4402,7 +4404,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 {/if}
 
 <!-- Bouton flottant + (au-dessus de la barre flottante, avec respiration) -->
-{#if !macroDetail && !logOpen && !qtyFood && !editEntry && !qtyMealSel && !mealPhotoOpen && !keyboard.open}
+{#if !macroDetail && !logOpen && !qtyFood && !editEntry && !qtyMealSel && !mealPhotoOpen && !keyboardOpen}
 <button
 	type="button"
 	class="fixed bottom-[calc(6.75rem+env(safe-area-inset-bottom))] right-4 z-40 grid h-[62px] w-[62px] place-items-center rounded-full bg-brand text-white shadow-[0_18px_32px_-10px_rgba(23,163,73,.7)] transition hover:scale-105 hover:bg-brand-dark active:scale-95 [transform:translate3d(0,0,0)] md:bottom-6 md:right-6 md:h-16 md:w-16"
@@ -5066,7 +5068,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 			     inutile dans ce contexte, elle grignotait la hauteur du formulaire
 			     (notamment avec le clavier numérique ouvert). Elle revient à la
 			     sortie de l'éditeur (retour à la liste). -->
-			{#if !customEditor && !(searchTab === 'repas' && mealEditor) && !keyboard.open}
+			{#if !customEditor && !(searchTab === 'repas' && mealEditor) && !keyboardOpen}
 			<div class="pointer-events-none absolute inset-x-0 bottom-[calc(0.5rem+env(safe-area-inset-bottom))] z-10 flex justify-center px-5 transition-opacity duration-200">
 				<!-- 3 zones équilibrées quand la bêta « Repas IA » est active pour le
 				     compte (méthode de TRACKING du journal — jamais une création
