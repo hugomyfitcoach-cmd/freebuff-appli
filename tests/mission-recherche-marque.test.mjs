@@ -149,7 +149,7 @@ test('la recherche locale interroge le nouvel index, avec repli sur by_name', ()
 test('cacheFoods et refreshOffDetails remplissent searchText (jamais un autre champ)', () => {
 	const journal = source('src/convex/journal.ts');
 	const cache = journal.slice(journal.indexOf('export const cacheFoods'), journal.indexOf('export const FOOD_SEARCH_TEXT_BATCH'));
-	assert.ok(cache.includes('searchTextOf(p.name, p.brand)'), 'texte calculé à l’insertion');
+	assert.ok(cache.includes('searchTextOf(existing?.name ?? p.name, existing ? existing.brand : p.brand)'), 'texte calculé depuis les valeurs stockées');
 	assert.ok(cache.includes('await ctx.db.patch(id, { searchText });'), 'searchText seul écrit');
 	assert.ok(cache.includes('const id = existing ? existing._id : await ctx.db.insert("foods", p);'), 'upsert par offId conservé');
 
@@ -157,6 +157,25 @@ test('cacheFoods et refreshOffDetails remplissent searchText (jamais un autre ch
 	const apply = off.slice(off.indexOf('export const applyOffDetails'));
 	assert.ok(apply.includes('searchTextOf(food.name, food.brand)'), 'rafraîchissement OFF : texte recalculé');
 	assert.ok(apply.includes('patch.searchText = searchText;'), 'écrit seulement si nécessaire');
+});
+
+test('cache : searchText reflète le nom et la marque conservés pour un aliment existant', async () => {
+	const { cacheFoods } = await import('../src/convex/journal.ts');
+	const { hashToken } = await import('../src/convex/helpers.ts');
+	const token = 'session-recherche-test';
+	const coach = { _id: 'user', role: 'client' };
+	const session = { userId: coach._id, tokenHash: await hashToken(token), expiresAt: Date.now() + 60000 };
+	const food = { _id: 'food', offId: '123', name: 'Ancien nom', brand: 'Ancienne marque' };
+	const ctx = { db: {
+		query(table) { return { withIndex(_name, _fn) { return {
+			async unique() { return table === 'sessions' ? session : food; },
+			async first() { return table === 'sessions' ? session : food; }
+		}; } }; },
+		async get(id) { return id === coach._id ? coach : food; },
+		async patch(_id, patch) { Object.assign(food, patch); }
+	} };
+	await cacheFoods._handler(ctx, { sessionToken: token, products: [{ offId: '123', name: 'Nouveau nom', brand: 'Nouvelle marque', kcal100: 10, carbs100: 1, protein100: 1, fat100: 1 }] });
+	assert.equal(food.searchText, 'ancien nom ancienne marque');
 });
 
 test('rattrapage : lot borné de 200, idempotent, sans réseau, planifié toutes les 2 min', () => {

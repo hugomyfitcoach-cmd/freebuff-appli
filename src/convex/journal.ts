@@ -545,9 +545,9 @@ export const cacheFoods = mutation({
 				.query("foods")
 				.withIndex("by_offId", (q) => q.eq("offId", p.offId))
 				.first();
-			// Texte de recherche nom + marque, posé dès la mise en cache : une marque
-			// devient immédiatement cherchable (index `by_searchText`).
-			const searchText = searchTextOf(p.name, p.brand);
+			// Une fiche existante conserve son nom et sa marque : l'index doit
+			// refléter ces valeurs stockées, pas celles d'une réponse OFF différente.
+			const searchText = searchTextOf(existing?.name ?? p.name, existing ? existing.brand : p.brand);
 			const id = existing ? existing._id : await ctx.db.insert("foods", p);
 			if (!existing || needsSearchTextUpdate(existing, searchText)) {
 				await ctx.db.patch(id, { searchText });
