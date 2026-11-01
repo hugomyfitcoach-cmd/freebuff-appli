@@ -1716,9 +1716,16 @@
 			source: 'moyenne7j' | 'derniere' | null;
 			nbPesees: number;
 			date: string | null;
+			/** Repère affiché « précédent : X » (fenêtre 7 j d'avant). */
+			precedent: number | null;
 		};
-		masseGrasse: { valeur: number | null; source: 'usNavy' | null; date: string | null };
-		pasMoyen: { valeur: number | null; jours: number };
+		masseGrasse: {
+			valeur: number | null;
+			source: 'usNavy' | null;
+			date: string | null;
+			precedent: number | null;
+		};
+		pasMoyen: { valeur: number | null; jours: number; precedent: number | null };
 		sportOnboarding: {
 			sport: string | number | null;
 			sportsDetail: string | number | null;
@@ -1734,6 +1741,20 @@
 			goalsSet: boolean;
 		};
 		dernierCalibrage: { date: string; effectiveFrom: string; createdAt: number } | null;
+		/** Mémoire du calibrage : brouillon de saisie (un seul par cliente). */
+		brouillon: {
+			entrees: Partial<EntreesFicheCalibrage>;
+			ecartsSemaine: number[];
+			updatedAt: number;
+		} | null;
+		/** Repli : décisions du dernier calibrage appliqué. */
+		dernierInstantane: {
+			date: string;
+			effectiveFrom: string;
+			createdAt: number;
+			entrees: Partial<EntreesFicheCalibrage>;
+			objectifJournalierKcal: number | null;
+		} | null;
 	};
 	let calibragePre = $state<CalibragePrefill | null>(null);
 	let calibrageInputs = $state<EntreesFicheCalibrage>({
@@ -1753,6 +1774,155 @@
 	});
 	let calibrageBusy = $state(false);
 	let calibrageError = $state('');
+
+	/* ── MÉMOIRE DU CALIBRAGE — brouillon par cliente ──
+	   Sauvegarde automatique (debounce 800 ms) des DÉCISIONS de saisie dans
+	   `calibrageDrafts` (une seule ligne par cliente) : aucun objectif n'est
+	   écrit tant que le coach ne confirme pas « Appliquer à la fiche ».
+	   À l'ouverture : brouillon → dernier instantané → valeurs par défaut ;
+	   les MESURES (poids 7 j, pas 14 j, MG) sont toujours relues du serveur. */
+	const CAL_BROUILLON_DEBOUNCE_MS = 800;
+	let calBrouillonPret = $state(false);
+	let calBrouillonSavedAt = $state(0);
+	let calBrouillonBusy = $state(false);
+	let calBrouillonErreur = $state('');
+	let calBrouillonSource = $state<'brouillon' | 'instantane' | 'defauts'>('defauts');
+	let calBrouillonTimer: ReturnType<typeof setTimeout> | undefined;
+	let calResetOpen = $state(false);
+	let calResetBusy = $state(false);
+
+	/** Valeurs par défaut de l'onglet — mesures relues du serveur. */
+	function calibrageDefauts(): EntreesFicheCalibrage {
+		return {
+			poidsKg: calibragePre?.poids.valeur ?? 0,
+			mgPct: calibragePre?.masseGrasse.valeur ?? 26,
+			pasMoyen: calibragePre?.pasMoyen.valeur ?? 0,
+			heuresTravail: 0,
+			ajustementTravail: 0,
+			adaptationPct: 0,
+			mode: 'deficit',
+			deficitPct: DEFICIT_PCT_DEFAUT,
+			surplusPct: 5,
+			proteinesParKgMasseMaigre: PROTEINES_PAR_KG_MM_DEFAUT,
+			seances: [],
+			apportsSemaine: [null, null, null, null, null, null, null]
+		};
+	}
+
+	/** Décisions restaurées + MESURES TOUJOURS FRAÎCHES (mesure absente : valeur mémorisée). */
+	function calibrageRestaure(
+		entrees: Partial<EntreesFicheCalibrage> | null | undefined
+	): EntreesFicheCalibrage {
+		const base = calibrageDefauts();
+		if (!entrees) return base;
+		const poids = calibragePre?.poids.valeur;
+		const mg = calibragePre?.masseGrasse.valeur;
+		const pas = calibragePre?.pasMoyen.valeur;
+		return {
+			...base,
+			...entrees,
+			poidsKg: poids ?? entrees.poidsKg ?? base.poidsKg,
+			mgPct: mg ?? entrees.mgPct ?? base.mgPct,
+			pasMoyen: pas ?? entrees.pasMoyen ?? base.pasMoyen,
+			seances: Array.isArray(entrees.seances) ? entrees.seances.map((s) => ({ ...s })) : base.seances,
+			apportsSemaine:
+				Array.isArray(entrees.apportsSemaine) && entrees.apportsSemaine.length === 7
+					? [...entrees.apportsSemaine]
+					: base.apportsSemaine
+		};
+	}
+
+	/** Écarts de la semaine type d'un instantané = apports figés − objectif. */
+	function ecartsDepuisInstantane(inst: CalibragePrefill['dernierInstantane']): number[] {
+		const objectif = inst?.objectifJournalierKcal ?? 0;
+		const apports = inst?.entrees?.apportsSemaine;
+		if (!Array.isArray(apports) || apports.length !== 7 || objectif <= 0) return [0, 0, 0, 0, 0, 0, 0];
+		return apports.map((a) => (typeof a === 'number' ? Math.round(a - objectif) : 0));
+	}
+
+	function ecartsNormalises(ecarts: unknown): number[] {
+		if (!Array.isArray(ecarts) || ecarts.length !== 7) return [0, 0, 0, 0, 0, 0, 0];
+		return ecarts.map((e) => (typeof e === 'number' && Number.isFinite(e) ? Math.round(e) : 0));
+	}
+
+	/** « Brouillon enregistré · date heure » (heure locale du coach). */
+	function fmtHorodatage(ms: number): string {
+		const d = new Date(ms);
+		return `${d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })} ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
+	}
+
+	/** Signature des décisions : toute saisie déclenche la sauvegarde automatique.
+	 *  Fonction (et non $derived) : `ecartsSemaine` est déclaré plus bas, avec
+	 *  le simulateur de semaine type. */
+	function calBrouillonSignature(): string {
+		return JSON.stringify({ i: calibrageInputs, e: ecartsSemaine });
+	}
+
+	async function enregistrerBrouillon() {
+		if (!selectedId || !calBrouillonPret) return;
+		calBrouillonBusy = true;
+		calBrouillonErreur = '';
+		try {
+			const r = await fetch('/api/coach/calibrage/brouillon', {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ userId: selectedId, entrees: calibrageInputs, ecartsSemaine })
+			});
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			calBrouillonSavedAt = Number(j.savedAt) || Date.now();
+			calBrouillonSource = 'brouillon';
+		} catch (e) {
+			calBrouillonErreur = e instanceof Error ? e.message : 'Brouillon non enregistré.';
+		} finally {
+			calBrouillonBusy = false;
+		}
+	}
+
+	$effect(() => {
+		const signature = calBrouillonSignature();
+		if (!signature || !calBrouillonPret) return;
+		untrack(() => {
+			if (calBrouillonTimer) clearTimeout(calBrouillonTimer);
+			calBrouillonTimer = setTimeout(() => {
+				calBrouillonTimer = undefined;
+				void enregistrerBrouillon();
+			}, CAL_BROUILLON_DEBOUNCE_MS);
+		});
+	});
+
+	/** « Repartir des valeurs par défaut » : efface le brouillon puis réinitialise
+	 *  les décisions. Les mesures sont relues et les objectifs restent intacts. */
+	async function repartirValeursDefaut() {
+		if (!selectedId || calResetBusy) return;
+		calResetBusy = true;
+		calBrouillonErreur = '';
+		try {
+			/* Effacer AVANT de réinitialiser : aucune sauvegarde en attente ne peut
+			   ressusciter les anciennes décisions. */
+			if (calBrouillonTimer) {
+				clearTimeout(calBrouillonTimer);
+				calBrouillonTimer = undefined;
+			}
+			const r = await fetch(
+				`/api/coach/calibrage/brouillon?userId=${encodeURIComponent(selectedId)}`,
+				{ method: 'DELETE' }
+			);
+			const j = await r.json();
+			if (j.error) throw new Error(j.error);
+			calibrageInputs = calibrageDefauts();
+			ecartsSemaine = [0, 0, 0, 0, 0, 0, 0];
+			applyDate = calibragePre?.today ?? applyDate;
+			applyInitialise = true;
+			calBrouillonSavedAt = 0;
+			calBrouillonSource = 'defauts';
+			calResetOpen = false;
+		} catch (e) {
+			calBrouillonErreur = e instanceof Error ? e.message : 'Remise à zéro impossible.';
+		} finally {
+			calResetBusy = false;
+		}
+	}
 	/** Messages SOUS les champs : valeur vide ou hors limites (module PUR
 	 *  $lib/calibrageSaisie, bornes partagées avec le module calibrage). */
 	const calErreursChamps = $derived(messagesChampsCalibrage(calibrageInputs));
@@ -1863,18 +2033,28 @@
 			const j = await r.json();
 			if (j.error) throw new Error(j.error);
 			calibragePre = j as CalibragePrefill;
-			calibrageInputs = {
-				poidsKg: j.poids?.valeur ?? 0,
-				mgPct: j.masseGrasse?.valeur ?? 26,
-				pasMoyen: j.pasMoyen?.valeur ?? 0,
-				heuresTravail: 0,
-				ajustementTravail: 0,
-				adaptationPct: 0,
-				deficitPct: DEFICIT_PCT_DEFAUT,
-				proteinesParKgMasseMaigre: PROTEINES_PAR_KG_MM_DEFAUT,
-				seances: [],
-				apportsSemaine: [null, null, null, null, null, null, null]
-			};
+			const pre = j as CalibragePrefill;
+			/* La sauvegarde automatique reste MUETTE pendant la restauration. */
+			calBrouillonPret = false;
+			calBrouillonSavedAt = 0;
+			calBrouillonErreur = '';
+			/* DÉCISIONS : brouillon → dernier instantané → valeurs par défaut.
+			   MESURES : toujours relues du serveur (poids 7 j, MG, pas 14 j). */
+			if (pre.brouillon) {
+				calibrageInputs = calibrageRestaure(pre.brouillon.entrees);
+				ecartsSemaine = ecartsNormalises(pre.brouillon.ecartsSemaine);
+				calBrouillonSavedAt = Number(pre.brouillon.updatedAt) || 0;
+				calBrouillonSource = 'brouillon';
+			} else if (pre.dernierInstantane) {
+				calibrageInputs = calibrageRestaure(pre.dernierInstantane.entrees);
+				ecartsSemaine = ecartsDepuisInstantane(pre.dernierInstantane);
+				calBrouillonSource = 'instantane';
+			} else {
+				calibrageInputs = calibrageDefauts();
+				ecartsSemaine = [0, 0, 0, 0, 0, 0, 0];
+				calBrouillonSource = 'defauts';
+			}
+			calBrouillonPret = true;
 		} catch (e) {
 			calibrageError = e instanceof Error ? e.message : 'Chargement du calibrage impossible.';
 		} finally {
@@ -2220,6 +2400,14 @@
 			if (j.error) throw new Error(j.error);
 			calConfirmOpen = false;
 			applyMsg = `Objectifs appliqués à la fiche — effectifs le ${fmtISO(applyDate)}. Instantané du calibrage enregistré.`;
+			/* BROUILLON RÉALIGNÉ : le serveur a réécrit la mémoire avec ce qui vient
+			   d'être appliqué — aucune sauvegarde en attente ne doit la devancer. */
+			if (calBrouillonTimer) {
+				clearTimeout(calBrouillonTimer);
+				calBrouillonTimer = undefined;
+			}
+			calBrouillonSavedAt = Number(j.brouillonSavedAt) || Date.now();
+			calBrouillonSource = 'brouillon';
 			/* La fiche « Objectifs journaliers » reflète IMMÉDIATEMENT l'écriture :
 			   méthode macros (g), objectif, macros et filet de sécurité. Le mode est
 			   mémorisé pour rester actif après un rechargement complet. */
@@ -4998,6 +5186,30 @@
 							<p class="rounded-xl border border-brand/40 bg-brand-light px-4 py-3 text-sm font-semibold text-ink">{applyMsg}</p>
 						{/if}
 
+						<!-- MÉMOIRE DU CALIBRAGE : brouillon enregistré automatiquement (aucun
+						     objectif écrit) ou décisions reprises du dernier calibrage appliqué. -->
+						<div class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-cream/60 px-3.5 py-2.5">
+							<p class="text-[11px] font-semibold text-mist" aria-live="polite">
+								{#if calBrouillonBusy}
+									Enregistrement du brouillon…
+								{:else if calBrouillonSavedAt}
+									Brouillon enregistré · {fmtHorodatage(calBrouillonSavedAt)}
+								{:else if calBrouillonSource === 'instantane'}
+									Décisions reprises du dernier calibrage appliqué — mesures rafraîchies
+								{:else}
+									Brouillon automatique — rien n'est appliqué avant confirmation
+								{/if}
+							</p>
+							<button
+								type="button"
+								onclick={() => (calResetOpen = true)}
+								class="rounded-full border-2 border-line bg-white px-3 py-1.5 text-[11.5px] font-bold text-ink transition hover:border-brand"
+							>Repartir des valeurs par défaut</button>
+						</div>
+						{#if calBrouillonErreur}
+							<p class="rounded-lg bg-danger-light px-3 py-2 text-[11px] font-semibold text-danger">{calBrouillonErreur}</p>
+						{/if}
+
 						<!-- ENTRÉES : pré-remplies, toutes modifiables -->
 						<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
 							<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="settings" size={17} class="shrink-0 text-brand" /> Entrées</h3>
@@ -5009,6 +5221,9 @@
 									{#if calibragePre?.poids.source}
 										<span class="mt-1 block text-[11px] text-mist">{calibragePre.poids.source === 'moyenne7j' ? `Moyenne de ${calibragePre.poids.nbPesees} pesée(s) sur 7 jours` : 'Dernière pesée'}{calibragePre.poids.date ? ` · ${fmtISO(calibragePre.poids.date)}` : ''}</span>
 									{/if}
+									{#if calibragePre?.poids.precedent !== null && calibragePre?.poids.precedent !== undefined}
+										<span class="mt-0.5 block text-[11px] font-semibold text-mist">précédent : {decimalFr(calibragePre.poids.precedent)} kg</span>
+									{/if}
 								</label>
 								<label class="block">
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Taux de masse grasse (%)</span>
@@ -5017,6 +5232,9 @@
 									{#if calibragePre?.masseGrasse.source}
 										<span class="mt-1 block text-[11px] text-mist">Dernière estimation US Navy{calibragePre.masseGrasse.date ? ` · ${fmtISO(calibragePre.masseGrasse.date)}` : ''}</span>
 									{/if}
+									{#if calibragePre?.masseGrasse.precedent !== null && calibragePre?.masseGrasse.precedent !== undefined}
+										<span class="mt-0.5 block text-[11px] font-semibold text-mist">précédent : {decimalFr(calibragePre.masseGrasse.precedent)} %</span>
+									{/if}
 								</label>
 								<label class="block">
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Moyenne de pas sur 14 jours</span>
@@ -5024,6 +5242,9 @@
 									<p class="mt-1 min-h-[15px] text-[11px] font-semibold text-danger">{calErreursChamps.pasMoyen ?? ''}</p>
 									{#if calibragePre?.pasMoyen.jours}
 										<span class="mt-1 block text-[11px] text-mist">{calibragePre.pasMoyen.jours} jour(s) renseigné(s) sur 14</span>
+									{/if}
+									{#if calibragePre?.pasMoyen.precedent !== null && calibragePre?.pasMoyen.precedent !== undefined}
+										<span class="mt-0.5 block text-[11px] font-semibold text-mist">précédent : {Math.round(calibragePre.pasMoyen.precedent).toLocaleString('fr-FR')}</span>
 									{/if}
 								</label>
 								<div class="block">
@@ -5585,6 +5806,19 @@
 					{#if applyError}
 						<p class="mt-2 rounded-lg bg-danger-light px-3 py-2 text-xs font-semibold text-danger">{applyError}</p>
 					{/if}					</ConfirmDialog>
+
+				<!-- « Repartir des valeurs par défaut » : confirmation obligatoire,
+				     efface le brouillon de la cliente — les objectifs de la fiche
+				     (clientGoals) ne sont jamais touchés. -->
+				<ConfirmDialog
+					open={calResetOpen}
+					title={`Repartir des valeurs par défaut pour ${selected.user.prenom} ?`}
+					message="Les décisions enregistrées (phase, déficit, profil sportif, semaine type) seront remplacées par les valeurs par défaut. Les mesures sont relues et les objectifs de la fiche ne changent pas."
+					confirmLabel="Repartir des valeurs par défaut"
+					busy={calResetBusy}
+					onconfirm={repartirValeursDefaut}
+					oncancel={() => (calResetOpen = false)}
+				/>
 				{/if}
 				{:else if section === 'rdv'}
 				<!-- Rendez-vous (Vision 360) : UNIQUEMENT les RDV de cette cliente.
