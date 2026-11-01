@@ -383,6 +383,38 @@ test('APPLIQUER : le brouillon est réaligné sur ce qui vient d’être appliqu
 	);
 });
 
+test('AUTOSAVE : changer de cliente avant 800 ms ne sauvegarde aucun brouillon sur la nouvelle', async (t) => {
+	const { createCalibrageDraftScheduler } = await import('../src/lib/calibrageSaisie.ts');
+	t.mock.timers.enable({ apis: ['setTimeout'] });
+	let selected = 'cliente-a';
+	const writes = [];
+	const scheduler = createCalibrageDraftScheduler(() => selected, 800);
+	scheduler.schedule(selected, async () => { writes.push(selected); });
+	t.mock.timers.tick(799);
+	selected = 'cliente-b';
+	t.mock.timers.tick(1);
+	await scheduler.wait();
+	assert.deepEqual(writes, []);
+});
+
+test('AUTOSAVE : les réponses anciennes sont ignorées et la remise à zéro attend les envois', async () => {
+	const { createCalibrageDraftScheduler } = await import('../src/lib/calibrageSaisie.ts');
+	let selected = 'cliente-a';
+	let release;
+	let affichage = '';
+	const scheduler = createCalibrageDraftScheduler(() => selected, 0);
+	scheduler.schedule(selected, async (isCurrent) => {
+		await new Promise((resolve) => { release = resolve; });
+		if (isCurrent()) affichage = 'ancien';
+	});
+	await new Promise((resolve) => setTimeout(resolve, 10));
+	selected = 'cliente-b';
+	scheduler.invalidate();
+	release();
+	await scheduler.wait();
+	assert.equal(affichage, '');
+});
+
 /* ── 7 · UI : mention, debounce, bouton, aucun calcul modifié ── */
 
 test('UI : sauvegarde automatique 800 ms, mention « Brouillon enregistré · date heure »', () => {

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
-	import { tick, untrack } from 'svelte';
+	import { onDestroy, tick, untrack } from 'svelte';
 	import AudioPlayer from '../../lib/components/AudioPlayer.svelte';
 	import BilanCard from '../../lib/components/BilanCard.svelte';
 	import CoachMedia from '../../lib/components/CoachMedia.svelte';
@@ -64,6 +64,7 @@
 		type ChampSaisi
 	} from '$lib/goalMacros';
 	import {
+		createCalibrageDraftScheduler,
 		messageDateEffetFuture,
 		messagesChampsCalibrage,
 		saisiesCalibrageValides
@@ -1787,7 +1788,10 @@
 	let calBrouillonBusy = $state(false);
 	let calBrouillonErreur = $state('');
 	let calBrouillonSource = $state<'brouillon' | 'instantane' | 'defauts'>('defauts');
-	let calBrouillonTimer: ReturnType<typeof setTimeout> | undefined;
+	const calBrouillonScheduler = createCalibrageDraftScheduler(() => selectedId, CAL_BROUILLON_DEBOUNCE_MS);
+	let calBrouillonClient: string | null = null;
+	let calGeneration = 0;
+	onDestroy(() => calBrouillonScheduler.invalidate());
 	let calResetOpen = $state(false);
 	let calResetBusy = $state(false);
 
@@ -1858,57 +1862,57 @@
 		return JSON.stringify({ i: calibrageInputs, e: ecartsSemaine });
 	}
 
-	async function enregistrerBrouillon() {
-		if (!selectedId || !calBrouillonPret) return;
+	async function enregistrerBrouillon(userId: string, signature: string, estCourant: () => boolean) {
+		if (!estCourant()) return;
 		calBrouillonBusy = true;
 		calBrouillonErreur = '';
 		try {
+			const { i: entrees, e: ecartsSemaine } = JSON.parse(signature);
 			const r = await fetch('/api/coach/calibrage/brouillon', {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ userId: selectedId, entrees: calibrageInputs, ecartsSemaine })
+				body: JSON.stringify({ userId, entrees, ecartsSemaine })
 			});
 			const j = await r.json();
+			if (!estCourant()) return;
 			if (j.error) throw new Error(j.error);
 			calBrouillonSavedAt = Number(j.savedAt) || Date.now();
 			calBrouillonSource = 'brouillon';
 		} catch (e) {
-			calBrouillonErreur = e instanceof Error ? e.message : 'Brouillon non enregistré.';
+			if (estCourant()) calBrouillonErreur = e instanceof Error ? e.message : 'Brouillon non enregistré.';
 		} finally {
-			calBrouillonBusy = false;
+			if (estCourant()) calBrouillonBusy = false;
 		}
 	}
 
 	$effect(() => {
 		const signature = calBrouillonSignature();
-		if (!signature || !calBrouillonPret) return;
-		untrack(() => {
-			if (calBrouillonTimer) clearTimeout(calBrouillonTimer);
-			calBrouillonTimer = setTimeout(() => {
-				calBrouillonTimer = undefined;
-				void enregistrerBrouillon();
-			}, CAL_BROUILLON_DEBOUNCE_MS);
-		});
+		const userId = selectedId;
+		if (!signature || !calBrouillonPret || !userId || calBrouillonClient !== userId) return;
+		untrack(() => calBrouillonScheduler.schedule(userId, (estCourant) => enregistrerBrouillon(userId, signature, estCourant)));
 	});
 
 	/** « Repartir des valeurs par défaut » : efface le brouillon puis réinitialise
 	 *  les décisions. Les mesures sont relues et les objectifs restent intacts. */
 	async function repartirValeursDefaut() {
 		if (!selectedId || calResetBusy) return;
+		const userId = selectedId;
+		const generation = ++calGeneration;
+		calBrouillonScheduler.invalidate();
+		calBrouillonPret = false;
+		calBrouillonBusy = false;
 		calResetBusy = true;
 		calBrouillonErreur = '';
 		try {
-			/* Effacer AVANT de réinitialiser : aucune sauvegarde en attente ne peut
-			   ressusciter les anciennes décisions. */
-			if (calBrouillonTimer) {
-				clearTimeout(calBrouillonTimer);
-				calBrouillonTimer = undefined;
-			}
+			/* Une sauvegarde déjà envoyée doit finir AVANT la suppression. */
+			await calBrouillonScheduler.wait();
+			if (selectedId !== userId || generation !== calGeneration) return;
 			const r = await fetch(
-				`/api/coach/calibrage/brouillon?userId=${encodeURIComponent(selectedId)}`,
+				`/api/coach/calibrage/brouillon?userId=${encodeURIComponent(userId)}`,
 				{ method: 'DELETE' }
 			);
 			const j = await r.json();
+			if (selectedId !== userId || generation !== calGeneration) return;
 			if (j.error) throw new Error(j.error);
 			calibrageInputs = calibrageDefauts();
 			ecartsSemaine = [0, 0, 0, 0, 0, 0, 0];
@@ -1918,9 +1922,12 @@
 			calBrouillonSource = 'defauts';
 			calResetOpen = false;
 		} catch (e) {
-			calBrouillonErreur = e instanceof Error ? e.message : 'Remise à zéro impossible.';
+			if (selectedId === userId && generation === calGeneration) calBrouillonErreur = e instanceof Error ? e.message : 'Remise à zéro impossible.';
 		} finally {
-			calResetBusy = false;
+			if (selectedId === userId && generation === calGeneration) {
+				calResetBusy = false;
+				calBrouillonPret = true;
+			}
 		}
 	}
 	/** Messages SOUS les champs : valeur vide ou hors limites (module PUR
@@ -2022,15 +2029,23 @@
 	 *  (dernière estimation US Navy, sinon saisie), pas sur 14 j, aide « sport »
 	 *  du formulaire de démarrage (affichée telle quelle, jamais convertie). */
 	async function loadCalibrage() {
-		if (!selectedId) return;
+		const userId = selectedId;
+		const generation = ++calGeneration;
+		calBrouillonScheduler.invalidate();
+		calBrouillonPret = false;
+		calBrouillonClient = null;
+		calBrouillonBusy = false;
+		calResetBusy = false;
+		if (!userId) return;
 		calibrageBusy = true;
 		calibrageError = '';
 		applyInitialise = false;
 		applyMsg = '';
 		ecartsSemaine = [0, 0, 0, 0, 0, 0, 0];
 		try {
-			const r = await fetch(`/api/coach/calibrage?userId=${encodeURIComponent(selectedId)}`);
+			const r = await fetch(`/api/coach/calibrage?userId=${encodeURIComponent(userId)}`);
 			const j = await r.json();
+			if (selectedId !== userId || generation !== calGeneration) return;
 			if (j.error) throw new Error(j.error);
 			calibragePre = j as CalibragePrefill;
 			const pre = j as CalibragePrefill;
@@ -2054,18 +2069,19 @@
 				ecartsSemaine = [0, 0, 0, 0, 0, 0, 0];
 				calBrouillonSource = 'defauts';
 			}
+			calBrouillonClient = userId;
 			calBrouillonPret = true;
 		} catch (e) {
-			calibrageError = e instanceof Error ? e.message : 'Chargement du calibrage impossible.';
+			if (selectedId === userId && generation === calGeneration) calibrageError = e instanceof Error ? e.message : 'Chargement du calibrage impossible.';
 		} finally {
-			calibrageBusy = false;
+			if (selectedId === userId && generation === calGeneration) calibrageBusy = false;
 		}
+		if (selectedId !== userId || generation !== calGeneration) return;
 		/* Historique des objectifs : requête dédiée, même ouverture de fiche. */
 		await loadHistorique();
 	}
 	$effect(() => {
-		const id = selectedId;
-		if (!id) return;
+		selectedId;
 		untrack(() => loadCalibrage());
 	});
 
@@ -2378,14 +2394,21 @@
 			calConfirmOpen = false;
 			return;
 		}
+		const userId = selectedId;
+		const generation = ++calGeneration;
+		calBrouillonScheduler.invalidate();
+		calBrouillonPret = false;
+		calBrouillonBusy = false;
 		applyBusy = true;
 		applyError = '';
 		try {
+			await calBrouillonScheduler.wait();
+			if (selectedId !== userId || generation !== calGeneration) return;
 			const r = await fetch('/api/coach/calibrage', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					userId: selectedId,
+					userId,
 					entrees: calibrageInputs,
 					kcal: applyKcal,
 					carbs: applyCarbs,
@@ -2397,15 +2420,11 @@
 				})
 			});
 			const j = await r.json();
+			if (selectedId !== userId || generation !== calGeneration) return;
 			if (j.error) throw new Error(j.error);
 			calConfirmOpen = false;
 			applyMsg = `Objectifs appliqués à la fiche — effectifs le ${fmtISO(applyDate)}. Instantané du calibrage enregistré.`;
-			/* BROUILLON RÉALIGNÉ : le serveur a réécrit la mémoire avec ce qui vient
-			   d'être appliqué — aucune sauvegarde en attente ne doit la devancer. */
-			if (calBrouillonTimer) {
-				clearTimeout(calBrouillonTimer);
-				calBrouillonTimer = undefined;
-			}
+			/* Le serveur a réaligné le brouillon sur les valeurs appliquées. */
 			calBrouillonSavedAt = Number(j.brouillonSavedAt) || Date.now();
 			calBrouillonSource = 'brouillon';
 			/* La fiche « Objectifs journaliers » reflète IMMÉDIATEMENT l'écriture :
@@ -2429,9 +2448,10 @@
 			/* L'historique reflète IMMÉDIATEMENT la nouvelle ligne d'objectif. */
 			await loadHistorique();
 		} catch (e) {
-			applyError = e instanceof Error ? e.message : "Application impossible — rien n'a été écrit.";
+			if (selectedId === userId && generation === calGeneration) applyError = e instanceof Error ? e.message : "Application impossible — rien n'a été écrit.";
 		} finally {
 			applyBusy = false;
+			if (selectedId === userId && generation === calGeneration) calBrouillonPret = true;
 		}
 	}
 
