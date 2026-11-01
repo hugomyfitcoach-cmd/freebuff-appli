@@ -86,6 +86,19 @@ const entreesValidator = v.object({
    « Appliquer à la fiche » écrit les objectifs. Upsert par `userId` → jamais
    deux brouillons pour la même cliente. */
 
+/** Les brouillons peuvent être incomplets, mais leur taille reste bornée. */
+function validerTailleBrouillon(inputs: EntreesFicheCalibrage): void {
+	if (inputs.seances.length > 50) {
+		throw new ConvexError("Brouillon invalide : 50 séances maximum.");
+	}
+	if (inputs.apportsSemaine.length !== 7) {
+		throw new ConvexError("Brouillon invalide : 7 apports journaliers attendus.");
+	}
+	if (inputs.seances.some((s) => s.activiteId.length > 128 || s.choix.length > 128)) {
+		throw new ConvexError("Brouillon invalide : identifiant ou choix limité à 128 caractères.");
+	}
+}
+
 /** Écarts de semaine type : exactement 7 nombres finis (kcal vs objectif). */
 function ecartsValides(ecarts: readonly number[]): number[] {
 	if (ecarts.length !== 7 || ecarts.some((e) => typeof e !== "number" || !isFinite(e))) {
@@ -102,6 +115,7 @@ async function enregistrerBrouillon(
 	coachId: Id<"users">,
 	updatedAt: number
 ): Promise<number> {
+	validerTailleBrouillon(inputs);
 	const rows = await ctx.db
 		.query("calibrageDrafts")
 		.withIndex("by_user", (q) => q.eq("userId", userId))

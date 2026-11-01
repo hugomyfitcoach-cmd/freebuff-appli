@@ -239,6 +239,22 @@ test('SAUVEGARDE : semaine type invalide refusée (7 écarts attendus)', async (
 	assert.equal(ctx.all('calibrageDrafts').length, 0, 'aucune écriture');
 });
 
+test('SAUVEGARDE : taille des listes et chaînes bornée sans écriture', async () => {
+	const { ctx, userId } = await ctxAvecCoach();
+	const seance = ENTREES.seances[0];
+	for (const entrees of [
+		{ ...ENTREES, seances: Array(51).fill(seance) },
+		{ ...ENTREES, seances: [{ ...seance, activiteId: 'x'.repeat(129) }] },
+		{ ...ENTREES, seances: [{ ...seance, choix: 'x'.repeat(129) }] },
+		{ ...ENTREES, apportsSemaine: Array(8).fill(null) }
+	]) {
+		await assert.rejects(() => calibConvex.saveDraft._handler(ctx, {
+			sessionToken: TOKEN, userId, entrees, ecartsSemaine: [0, 0, 0, 0, 0, 0, 0]
+		}), /Brouillon invalide/);
+	}
+	assert.equal(ctx.all('calibrageDrafts').length, 0);
+});
+
 /* ── 3 · Mesures rafraîchies + « précédent » ── */
 
 test('MESURES : poids 7 j, pas 14 j et MG relus avec leur repère « précédent »', async () => {
