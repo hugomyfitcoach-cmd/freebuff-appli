@@ -2332,11 +2332,11 @@
 		return Number.isFinite(valeur) && valeur > 0 ? valeur : undefined;
 	});
 	const calImpact = $derived.by((): ImpactObjectifApplique | null => {
-		const entrees = calEntreesCompletes;
-		if (!calR || !entrees || !Number.isFinite(applyKcal) || applyKcal <= 0) return null;
+		/* Saisie incomplète : aucun impact (le module refuse un vide, on garde les « — »). */
+		if (!calR || !calEntreesCompletes || !Number.isFinite(applyKcal) || applyKcal <= 0) return null;
 		try {
 			return impactObjectifApplique({
-				entrees,
+				entrees: calibrageInputs,
 				resultats: calR,
 				objectifKcal: applyKcal,
 				maintenanceTotaleKcal: applyMaintenanceKcal
@@ -2349,10 +2349,10 @@
 	 *  saisi. Indépendante de l'objectif du bloc « Appliquer à la fiche » (même
 	 *  modifié à la main) : le déficit affiché est celui de la semaine simulée. */
 	const calSemaine = $derived.by((): SemaineCalibrage | null => {
-		const entrees = calEntreesCompletes;
-		if (!calR || !entrees) return null;
+		/* Saisie incomplète : la semaine type garde ses « — » (repli plus bas). */
+		if (!calR || !calEntreesCompletes) return null;
 		try {
-			return semaineAvecEcarts(entrees, calR, ecartsSemaine);
+			return semaineAvecEcarts(calibrageInputs, calR, ecartsSemaine);
 		} catch {
 			return calR.semaine;
 		}

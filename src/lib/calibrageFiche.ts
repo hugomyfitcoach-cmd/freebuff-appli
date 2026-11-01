@@ -740,12 +740,18 @@ export function resultatsFiche(entrees: EntreesFicheCalibrage): ResultatsFicheCa
  * l'objectif appliqué comme apport des jours « type ».
  */
 export function semaineAvecObjectif(
-	entrees: EntreesFicheCalibrage,
+	entrees: EntreesSaisieCalibrage | EntreesFicheCalibrage,
 	resultats: ResultatsFicheCalibrage,
 	objectifKcal: number
 ): SemaineCalibrage {
 	const objectif = Math.round(nombre(objectifKcal, 'Objectif appliqué'));
-	const apports = entrees.apportsSemaine ?? [];
+	const completes = entreesCalibrageCompletes(entrees);
+	if (!completes) {
+		throw new CalibrageError(
+			'Saisie incomplète : complète les champs vides pour recalculer la semaine type.'
+		);
+	}
+	const apports = completes.apportsSemaine ?? [];
 	if (!Array.isArray(apports) || apports.length !== JOURS_SEMAINE) {
 		throw new CalibrageError(
 			`Semaine type invalide : ${JOURS_SEMAINE} apports journaliers sont attendus (reçu ${Array.isArray(apports) ? apports.length : 0}).`
@@ -761,8 +767,8 @@ export function semaineAvecObjectif(
 		})),
 		maintenance: resultats.maintenanceKcal,
 		masseMaigreKg: masseMaigreBrute(
-			nombre(entrees.poidsKg, 'Poids'),
-			nombre(entrees.mgPct, 'Masse grasse')
+			nombre(completes.poidsKg, 'Poids'),
+			nombre(completes.mgPct, 'Masse grasse')
 		)
 	});
 	return {
@@ -785,7 +791,7 @@ export function semaineAvecObjectif(
  * semaine RÉELLEMENT simulée.
  */
 export function semaineAvecEcarts(
-	entrees: EntreesFicheCalibrage,
+	entrees: EntreesSaisieCalibrage | EntreesFicheCalibrage,
 	resultats: ResultatsFicheCalibrage,
 	ecarts: number[]
 ): SemaineCalibrage {
@@ -807,7 +813,7 @@ export function semaineAvecEcarts(
  * plafonds du profil et les seuils des résultats.
  */
 export function impactObjectifApplique(entree: {
-	entrees: EntreesFicheCalibrage;
+	entrees: EntreesSaisieCalibrage | EntreesFicheCalibrage;
 	resultats: ResultatsFicheCalibrage;
 	objectifKcal: number;
 	/** Maintenance TOTALE retenue (sport inclus) : celle du champ « Maintenance »
@@ -831,10 +837,15 @@ export function impactObjectifApplique(entree: {
 	const maintenanceTotale = maintenanceSaisie ?? r.budgetSemaineKcal / JOURS_SEMAINE;
 	const budgetSemaineKcal =
 		maintenanceSaisie === null ? r.budgetSemaineKcal : maintenanceSaisie * JOURS_SEMAINE;
-	const masseMaigre = masseMaigreBrute(
-		nombre(entree.entrees.poidsKg, 'Poids'),
-		nombre(entree.entrees.mgPct, 'Masse grasse')
-	);
+	/* Champ vidé : aucun calcul — l'appelant garde ses « — » (jamais NaN). */
+	const poidsKg = nombreSaisi(entree.entrees.poidsKg);
+	const mgPct = nombreSaisi(entree.entrees.mgPct);
+	if (poidsKg === undefined || mgPct === undefined) {
+		throw new CalibrageError(
+			'Saisie incomplète : complète poids et masse grasse pour recalculer l’impact.'
+		);
+	}
+	const masseMaigre = masseMaigreBrute(poidsKg, mgPct);
 
 	/* Même bilan que la semaine type, sur 7 jours au nouvel objectif : le déficit
 	   hebdomadaire vaut budget − 7 × objectif (sport habituel inclus). */
