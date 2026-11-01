@@ -17,8 +17,8 @@
  * mesure en direct (champ éditable focalisé, sinon viewport rétréci) et par un
  * garde-fou (`settleNavVisibility`) appelé à chaque navigation, à chaque retour
  * au premier plan, à la fermeture d'un volet et à son démontage : sans volet
- * réellement ouvert, la mesure ne croit plus un rétrécissement orphelin, la
- * barre et le « + » reviennent, et tout verrou de défilement restant est libéré.
+ * réellement ouvert, une mesure restée figée après stabilisation est ignorée,
+ * et tout verrou de défilement restant est libéré.
  *
  * Aucune modification visuelle : mêmes seuils, même rendu, mêmes transitions.
  */
@@ -26,6 +26,10 @@ import { resetScrollLock, scrollLockCount } from './scrollLock';
 
 /** Écart minimal (px) entre la fenêtre et le viewport visible = clavier. */
 const KEYBOARD_SHRINK_PX = 140;
+/** Laisser au clavier iOS le temps de se replier avant d'ignorer une mesure figée. */
+const KEYBOARD_SETTLE_MS = 1000;
+let viewportStale = false;
+let settleTimer: ReturnType<typeof setTimeout> | undefined;
 
 /** UNE SEULE source de vérité, lue par AppShell ET par le Journal. */
 export const keyboard = $state<{ open: boolean }>({ open: false });
@@ -68,16 +72,17 @@ function nudgeWebKitLayout(): void {
 /**
  * Applique l'état courant du clavier.
  *
- * `trustViewport: false` = garde-fou : un rétrécissement du viewport SANS champ
- * éditable focalisé n'est PAS cru (métrique iOS figée après fermeture d'un
- * volet). Un vrai clavier a toujours un champ focalisé : on ne masque donc
- * jamais la navigation à tort.
+ * Un viewport rétréci reste pris en compte pendant le repli du clavier, même
+ * après disparition du champ focalisé. Seule une mesure restée figée après le
+ * délai de stabilisation peut être ignorée.
  */
 export function syncKeyboardOpen(options: { trustViewport?: boolean } = {}): boolean {
 	if (typeof document === 'undefined') return false;
 	const trustViewport = options.trustViewport ?? true;
 	const focused = isEditableElement(document.activeElement);
-	const next = focused || (trustViewport && viewportShrunk());
+	const shrunk = viewportShrunk();
+	if (focused || !shrunk) viewportStale = false;
+	const next = focused || (trustViewport && !viewportStale && shrunk);
 	const wasOpen = keyboard.open;
 	keyboard.open = next;
 	if (wasOpen && !next) nudgeWebKitLayout();
@@ -133,19 +138,21 @@ export function settleNavVisibility(
 	options: { force?: boolean } = {}
 ): void {
 	if (typeof document === 'undefined') return;
-	if (!options.force && anySheetOpen()) {
-		/* Un volet est ouvert : son clavier est légitime, on se contente de
-		   remesurer (jamais de fermeture forcée pendant une saisie). */
+	clearTimeout(settleTimer);
+	if (anySheetOpen()) {
+		/* Tous les volets enregistrés gardent leur clavier et leur verrou. */
 		syncKeyboardOpen();
 		return;
 	}
-	syncKeyboardOpen({ trustViewport: false });
-	/* Le démontage d'un volet retire son input du DOM après le tick courant :
-	   une seconde mesure laisse WebKit rendre la main (premier plan, retour
-	   arrière) et rattrape la métrique qui se corrige juste après. */
-	window.requestAnimationFrame(() => {
-		if (!anySheetOpen()) syncKeyboardOpen({ trustViewport: false });
-	});
+	syncKeyboardOpen();
+	/* Le champ peut disparaître avant que le clavier ait fini de se replier.
+	   N'abandonner une mesure rétrécie qu'après un délai de stabilisation. */
+	settleTimer = setTimeout(() => {
+		settleTimer = undefined;
+		if (anySheetOpen() || isEditableElement(document.activeElement)) return;
+		viewportStale = viewportShrunk();
+		syncKeyboardOpen({ trustViewport: false });
+	}, KEYBOARD_SETTLE_MS);
 	if (reason === 'sheet-closed') {
 		/* Fermeture : le volet a déjà rendu son verrou (ou va le faire à la fin de
 		   son fondu) — on ne vérifie qu'après l'animation, sans jamais couper
@@ -165,7 +172,10 @@ let visibilityTimer: ReturnType<typeof setTimeout> | undefined;
 function installListeners(): () => void {
 	const onFocusIn = () => syncKeyboardOpen();
 	const onFocusOut = () => window.requestAnimationFrame(() => syncKeyboardOpen());
-	const onVv = () => syncKeyboardOpen();
+	const onVv = () => {
+		syncKeyboardOpen();
+		if (settleTimer !== undefined && !anySheetOpen()) settleNavVisibility('visible');
+	};
 	const onVisibility = () => {
 		clearTimeout(visibilityTimer);
 		if (document.visibilityState === 'hidden') return;
@@ -184,6 +194,7 @@ function installListeners(): () => void {
 
 	return () => {
 		clearTimeout(visibilityTimer);
+		clearTimeout(settleTimer);
 		document.removeEventListener('focusin', onFocusIn);
 		document.removeEventListener('focusout', onFocusOut);
 		window.visualViewport?.removeEventListener('resize', onVv);

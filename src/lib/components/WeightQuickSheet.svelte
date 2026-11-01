@@ -4,6 +4,7 @@
 	import { untrack } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { lockScroll, unlockScroll } from '$lib/scrollLock';
+	import { registerSheetOwner, settleNavVisibility } from '$lib/keyboardViewport.svelte';
 	import {
 		freezeSheetForExit,
 		onSheetExitEnd,
@@ -45,6 +46,11 @@
 	let panel = $state<HTMLElement | null>(null);
 	let verrouille = false;
 	let annulerLiberation: (() => void) | null = null;
+	$effect(() => {
+		if (!open) return;
+		const unregister = registerSheetOwner(() => open);
+		return () => { unregister(); settleNavVisibility('sheet-closed'); };
+	});
 
 	const fmtKg = (n: number) => String(n).replace('.', ',');
 	const isToday = $derived(lastDate === date && lastKg !== null);

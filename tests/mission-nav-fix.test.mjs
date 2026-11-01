@@ -107,7 +107,8 @@ function clean() {
 
 /* ── 1. Cause exacte : une métrique de viewport figée ne bloque plus l'UI ── */
 
-test('métrique iOS figée après fermeture : le garde-fou réaffiche barre et « + »', () => {
+test('métrique iOS figée après fermeture : le garde-fou réaffiche barre et « + »', (t) => {
+	t.mock.timers.enable({ apis: ['setTimeout'] });
 	clean();
 	// Le clavier a été ouvert (volet de recherche) : la mesure dit « rétréci ».
 	state.keyboardShrunk = true;
@@ -117,6 +118,8 @@ test('métrique iOS figée après fermeture : le garde-fou réaffiche barre et �
 	// Volet fermé : iOS n'a pas émis de resize, la mesure reste amputée.
 	state.active = null;
 	settleNavVisibility('visible');
+	assert.equal(keyboard.open, true, 'la barre reste masquée pendant le repli');
+	t.mock.timers.tick(1000);
 	assert.equal(keyboard.open, false, 'la barre du bas et le « + » reviennent au premier plan');
 
 	clean();
@@ -160,7 +163,8 @@ test('mesure en direct : un rétrécissement sans champ focalisé reste valable 
 
 /* ── 2. Chaque chemin de fermeture libère l'état (un seul mécanisme) ── */
 
-test('fermeture d’un volet : barre et « + » reviennent (croix, glissement, retour iOS, scan annulé)', () => {
+test('fermeture d’un volet : barre et « + » reviennent (croix, glissement, retour iOS, scan annulé)', (t) => {
+	t.mock.timers.enable({ apis: ['setTimeout'] });
 	clean();
 	const sheet = { open: true };
 	const stop = registerSheetOwner(() => sheet.open);
@@ -175,7 +179,8 @@ test('fermeture d’un volet : barre et « + » reviennent (croix, glissement, r
 	sheet.open = false;
 	state.active = null;
 	settleNavVisibility('sheet-closed');
-
+	assert.equal(keyboard.open, true, 'la barre reste masquée pendant le repli');
+	t.mock.timers.tick(1000);
 	assert.equal(keyboard.open, false, 'la barre du bas est réaffichée');
 	assert.equal(anySheetOpen(), false, 'plus aucun volet ouvert');
 
@@ -244,6 +249,25 @@ test('fermeture d’un volet : le verrou n’est pas libéré au milieu du fondu
 	resetScrollLock();
 	stop();
 	clean();
+});
+
+test('volet Accueil ouvert : le retour au premier plan conserve son verrou', () => {
+	fakeEnv();
+	clean();
+	const stop = registerSheetOwner(() => true);
+	lockScroll();
+	settleNavVisibility('visible');
+	assert.equal(scrollLockCount(), 1);
+	stop();
+	clean();
+});
+
+test('les volets poids et eau sont enregistrés dans le registre', () => {
+	for (const file of ['src/lib/components/WeightQuickSheet.svelte', 'src/lib/components/HydrationQuickSheet.svelte']) {
+		const sheet = source(file);
+		assert.ok(sheet.includes('registerSheetOwner(() => open)'));
+		assert.ok(sheet.includes("settleNavVisibility('sheet-closed')"));
+	}
 });
 
 /* ── 4. Câblage : une seule source de vérité pour la barre ET le « + » ── */
