@@ -30,6 +30,18 @@ const KEYBOARD_SHRINK_PX = 140;
 const KEYBOARD_SETTLE_MS = 1000;
 let viewportStale = false;
 let settleTimer: ReturnType<typeof setTimeout> | undefined;
+/**
+ * Référence de mise en page « sans clavier » (hauteur + largeur courantes).
+ *
+ * ROTATION : iOS modifie `innerHeight` et `visualViewport.height` DANS LE
+ * DÉSORDRE pendant l'animation. L'ancien calcul `innerHeight - vv.height > 140`
+ * comparait donc deux mises en page différentes (portrait 844 vs paysage 390) :
+ * écart > 140 px = un clavier imaginaire, volet de recherche figé en état
+ * « clavier ouvert ». Une rotation RÉINITIALISE cette référence et invalide la
+ * mesure héritée : elle n'est jamais interprétée comme un clavier.
+ */
+let refHeight = 0;
+let refWidth = 0;
 
 /** UNE SEULE source de vérité, lue par AppShell ET par le Journal. */
 export const keyboard = $state<{ open: boolean }>({ open: false });
@@ -50,12 +62,35 @@ export function isEditableElement(active: Element | null): boolean {
 	);
 }
 
+/**
+ * Met à jour la référence de mise en page ; vrai si la géométrie a changé.
+ *
+ * Signature FIABLE d'une rotation : la LARGEUR change (bascule d'orientation).
+ * Un clavier ne change jamais la largeur — il ne peut donc pas être confondu
+ * avec une rotation, et inversement.
+ */
+function noteLayoutChange(): boolean {
+	const w = Math.round(window.innerWidth || 0);
+	const h = Math.round(window.innerHeight || 0);
+	if (h <= 0) return false;
+	const prevW = refWidth;
+	const prevH = refHeight;
+	refWidth = w;
+	refHeight = h;
+	if (w <= 0 || prevW <= 0 || prevH <= 0) return false; // première mesure = référence
+	return prevW > prevH !== w > h || Math.abs(w - prevW) > 32;
+}
+
 /** Le viewport visible est-il amputé de la hauteur d'un clavier ? */
 function viewportShrunk(): boolean {
 	if (typeof window === 'undefined') return false;
 	const vv = window.visualViewport;
 	if (!vv) return false;
-	return window.innerHeight - vv.height > KEYBOARD_SHRINK_PX;
+	/* Comparaison à la hauteur de référence de la mise en page COURANTE (jamais
+	   à travers une rotation) : une mesure restée amputée après une rotation ne
+	   peut plus fabriquer un clavier. */
+	const ref = refHeight > 0 ? refHeight : Math.round(window.innerHeight || 0);
+	return ref - vv.height > KEYBOARD_SHRINK_PX;
 }
 
 /**
@@ -79,6 +114,9 @@ function nudgeWebKitLayout(): void {
 export function syncKeyboardOpen(options: { trustViewport?: boolean } = {}): boolean {
 	if (typeof document === 'undefined') return false;
 	const trustViewport = options.trustViewport ?? true;
+	/* ROTATION : nouvelle mise en page. La référence est réinitialisée et la
+	   mesure héritée invalidée — une rotation n'ouvre jamais un clavier. */
+	if (noteLayoutChange()) viewportStale = true;
 	const focused = isEditableElement(document.activeElement);
 	const shrunk = viewportShrunk();
 	if (focused || !shrunk) viewportStale = false;
@@ -184,6 +222,13 @@ function installListeners(): () => void {
 		visibilityTimer = setTimeout(() => settleNavVisibility('visible'), 120);
 	};
 	const onPageShow = () => settleNavVisibility('visible');
+	/* Rotation : la géométrie change (souvent sans `resize` fiable côté iOS).
+	   On invalide la mesure héritée puis on remesure au tick suivant, une fois
+	   le layout stabilisé — un champ réellement focalisé reste un clavier. */
+	const onOrientation = () => {
+		viewportStale = true;
+		window.requestAnimationFrame(() => syncKeyboardOpen());
+	};
 
 	document.addEventListener('focusin', onFocusIn);
 	document.addEventListener('focusout', onFocusOut);
@@ -191,6 +236,7 @@ function installListeners(): () => void {
 	window.visualViewport?.addEventListener('scroll', onVv);
 	document.addEventListener('visibilitychange', onVisibility);
 	window.addEventListener('pageshow', onPageShow);
+	window.addEventListener('orientationchange', onOrientation);
 
 	return () => {
 		clearTimeout(visibilityTimer);
@@ -201,6 +247,7 @@ function installListeners(): () => void {
 		window.visualViewport?.removeEventListener('scroll', onVv);
 		document.removeEventListener('visibilitychange', onVisibility);
 		window.removeEventListener('pageshow', onPageShow);
+		window.removeEventListener('orientationchange', onOrientation);
 	};
 }
 

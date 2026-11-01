@@ -3682,7 +3682,12 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	 *  (lib/keyboardViewport) — la barre du bas et le « + » lisent LA MÊME
 	 *  source ; plus de booléen local qui pouvait rester bloqué. */
 	const keyboardOpen = $derived(keyboard.open);
-	let mobile = $state(typeof window !== 'undefined' ? window.matchMedia('(max-width: 639px)').matches : true);
+	/** Téléphone = portrait OU paysage. En paysage (iPhone 844 × 390) la largeur
+	 *  dépasse 639 px : un test de largeur seule basculait le volet « Ajouter un
+	 *  aliment » dans le gabarit DESKTOP (modal centré, tassé, Journal visible
+	 *  derrière) et ne revenait pas proprement en portrait. */
+	const PHONE_MQ = '(max-width: 639px), (max-height: 520px)';
+	let mobile = $state(typeof window !== 'undefined' ? window.matchMedia(PHONE_MQ).matches : true);
 	let refreshing = $state(false);
 
 	/* Listes scrollables de l'écran « Ajouter un aliment » (recherche + code-barres)
@@ -3836,14 +3841,23 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		/* Clavier mobile : la hauteur de l'écran Ajouter suit le visualViewport. */
 		const vv = window.visualViewport;
 		let prevVvH = Math.round((vv?.height ?? window.innerHeight) ?? 0);
+		let prevVvW = Math.round((vv?.width ?? window.innerWidth) ?? 0);
 		let vvScrollTimer: ReturnType<typeof setTimeout> | undefined;
 		const setVh = () => {
 			vvH = Math.round((vv?.height ?? window.innerHeight) ?? 0);
-			vvTop = vv?.offsetTop ?? 0;
+			/* Le décalage vertical n'a de sens qu'avec un clavier RÉELLEMENT ouvert :
+			   sinon iOS conserve parfois l'offset de pannement reçu pendant la
+			   rotation et l'en-tête du volet se retrouve décalé vers le bas. */
+			vvTop = keyboard.open ? (vv?.offsetTop ?? 0) : 0;
+			/* ROTATION = la LARGEUR change (un clavier ne la change jamais). La
+			   hauteur varie alors aussi : ce n'est PAS une fermeture de clavier. */
+			const w = Math.round((vv?.width ?? window.innerWidth) ?? 0);
+			const rotated = prevVvW > 0 && Math.abs(w - prevVvW) > 32;
+			prevVvW = w;
 			/* Clavier : mesuré par l'écoute PARTAGÉE (lib/keyboardViewport). */
 			/* Ouverture du clavier = la hauteur DIMINUE ; fermeture = elle
 			   AUGMENTE (le clavier libère l'écran). */
-			const closed = vvH > prevVvH + 4;
+			const closed = !rotated && vvH > prevVvH + 4;
 			prevVvH = vvH;
 			/* Le clavier vient de s'ouvrir / se déplacer : replace le champ focalisé
 			   dans la zone visible — UNIQUEMENT après le jolt d'ouverture (~200 ms,
@@ -3862,7 +3876,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 				   du clavier est terminée (~200 ms sans changement de hauteur). */
 				clearTimeout(vvScrollTimer);
 				vvScrollTimer = setTimeout(() => {
-					const stillOpen = Math.round((vv?.height ?? window.innerHeight) ?? 0) < prevVvH + 4;
+					const stillOpen = rotated || Math.round((vv?.height ?? window.innerHeight) ?? 0) < prevVvH + 4;
 					if (stillOpen && focusedFieldEl?.isConnected) scrollFocusedIntoView(focusedFieldEl);
 				}, 200);
 			}
@@ -3872,7 +3886,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 			vv.addEventListener('scroll', setVh);
 		}
 		setVh();
-		const mq = window.matchMedia('(max-width: 639px)');
+		const mq = window.matchMedia(PHONE_MQ);
 		const onMq = () => (mobile = mq.matches);
 		mq.addEventListener('change', onMq);
 
@@ -3907,8 +3921,22 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 			barTop = h > 4 ? Math.ceil(h) : 16;
 		};
 		setBarPos();
+		/* ROTATION : ni la barre sticky (largeur du Journal, hauteur du header)
+		   ni la hauteur du volet ne sont définitives avant la fin de l'animation.
+		   On remesure au tick suivant ET une fois stabilisé — aucune dimension
+		   n'est figée dans l'orientation précédente. */
+		const relayout = () => {
+			setVh();
+			setBarPos();
+		};
+		const onOrientation = () => {
+			relayout();
+			requestAnimationFrame(relayout);
+			setTimeout(relayout, 260);
+		};
+		window.addEventListener('resize', setVh);
 		window.addEventListener('resize', setBarPos);
-		window.addEventListener('orientationchange', setBarPos);
+		window.addEventListener('orientationchange', onOrientation);
 
 		/* Jour serveur ≠ jour local (minuit, reprise, fuseau) : on charge la
 		   vraie journée locale — la vue démarre déjà vide (pas de veille affichée). */
@@ -3936,8 +3964,9 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 			mq.removeEventListener('change', onMq);
 			window.removeEventListener('gflux:journal-refresh', onRefresh);
 			document.removeEventListener('gflux:live-event', onLiveEvent);
+			window.removeEventListener('resize', setVh);
 			window.removeEventListener('resize', setBarPos);
-			window.removeEventListener('orientationchange', setBarPos);
+			window.removeEventListener('orientationchange', onOrientation);
 		};
 	});
 
@@ -4456,7 +4485,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	     rétrécit plus avec le visualViewport — seule la zone de contenu se
 	     positionne au-dessus du clavier). Desktop : backdrop + panneau centré. -->
 	<div role="presentation" class="fixed inset-0 z-50 bg-soft sm:flex sm:items-center sm:justify-center sm:bg-ink/40 sm:p-6" onclick={(e) => { if (e.target === e.currentTarget) closeLog(); }} onkeydown={(e) => { if (e.key === 'Escape') closeLog(); }}>
-		<div class="absolute inset-x-0 top-0 flex h-full w-full flex-col overflow-hidden bg-soft sm:relative sm:h-[min(92dvh,720px)] sm:max-w-lg sm:rounded-3xl sm:bg-white sm:shadow-2xl" style:top={mobile ? `${vvTop}px` : undefined} style:height={mobile ? `${vvH}px` : undefined}>
+		<div class="journal-sheet absolute inset-x-0 top-0 flex h-full w-full flex-col overflow-hidden bg-soft sm:relative sm:h-[min(92dvh,720px)] sm:max-w-lg sm:rounded-3xl sm:bg-white sm:shadow-2xl" style:top={mobile ? `${vvTop}px` : undefined} style:height={mobile ? `${vvH}px` : undefined}>
 			<!-- En-tête fixe (respire sous l'encoche en PWA installée, cf. convention safe-area de l'app).
 			     MODE CODE-BARRES : en-tête MINIMAL (pas de titre, pas d'explication) —
 			     la croix vit SUR la caméra (overlay) et l'écran est immersif. -->
@@ -5615,7 +5644,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	<!-- Même principe que « Ajouter un aliment » : fond OPAQUE plein viewport,
 	     panneau de contenu positionné au-dessus du clavier (visualViewport). -->
 	<div role="presentation" class="fixed inset-0 z-[70] bg-soft sm:flex sm:items-center sm:justify-center sm:bg-ink/40 sm:p-6" onclick={(e) => { if (e.target === e.currentTarget) void closeMealSearch(); }} onkeydown={(e) => { if (e.key === 'Escape') void closeMealSearch(); }}>
-		<div class="absolute inset-x-0 top-0 flex h-full w-full flex-col overflow-hidden bg-soft sm:relative sm:h-[min(92dvh,720px)] sm:max-w-lg sm:rounded-3xl sm:bg-white sm:shadow-2xl" style:top={mobile ? `${vvTop}px` : undefined} style:height={mobile ? `${vvH}px` : undefined}>
+		<div class="journal-sheet absolute inset-x-0 top-0 flex h-full w-full flex-col overflow-hidden bg-soft sm:relative sm:h-[min(92dvh,720px)] sm:max-w-lg sm:rounded-3xl sm:bg-white sm:shadow-2xl" style:top={mobile ? `${vvTop}px` : undefined} style:height={mobile ? `${vvH}px` : undefined}>
 			<!-- En-tête fixe (safe-area top, cf. « Ajouter un aliment ») -->
 			<div class="flex shrink-0 items-center justify-between border-b border-line bg-white/95 px-3 pt-[max(env(safe-area-inset-top),10px)] pb-2.5 backdrop-blur">
 				<button type="button" class="grid h-9 w-9 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={() => void closeMealSearch()}><Icon name="x" size={20} /></button>
@@ -6072,6 +6101,27 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		onClose={() => { editEntry = null; }}
 	/>
 {/if}
+
+<style>
+	/* ROTATION (téléphone en paysage) : le volet « Ajouter un aliment » reste un
+	   ÉCRAN PLEIN. Sans ça, la largeur paysage (844 px) déclenchait les
+	   utilitaires `sm:` = gabarit DESKTOP (modal centré, tassé, Journal visible
+	   derrière). La hauteur et le décalage restent pilotés en ligne par le
+	   visualViewport (donc par un clavier réellement ouvert). Aucun effet en
+	   portrait ni sur desktop. */
+	@media (orientation: landscape) and (max-height: 520px) {
+		.journal-sheet {
+			position: fixed !important;
+			left: 0 !important;
+			right: 0 !important;
+			width: 100% !important;
+			max-width: none !important;
+			border-radius: 0 !important;
+			box-shadow: none !important;
+			background-color: var(--color-soft, #f6f8f6) !important;
+		}
+	}
+</style>
 
 <!-- ═══════════ Volet « Bilan nutritionnel du jour » (R5c) — même volet que les saisies rapides ═══════════ -->
 <BilanJourSheet
