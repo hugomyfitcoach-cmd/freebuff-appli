@@ -9,6 +9,7 @@
 	import { currentLocalDay } from '$lib/currentDay.svelte';
 	import { appWarm, firstVisit, isFresh, noteSync, restoreScroll, saveScroll } from '$lib/navMemory';
 	import { lockScroll, unlockScroll } from '$lib/scrollLock';
+	import { keyboard, registerSheetOwner, settleNavVisibility } from '$lib/keyboardViewport.svelte';
 	import { onSheetExitEnd } from '$lib/sheetMotion';
 	import JournalDay from '$lib/components/JournalDay.svelte';
 	import BilanJourSheet from '$lib/components/BilanJourSheet.svelte';
@@ -3676,9 +3677,11 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	let vvH = $state(typeof window !== 'undefined' ? Math.round(window.visualViewport?.height ?? window.innerHeight) : 700);
 	/** Décalage vertical du visualViewport (clavier iOS : l'overlay reste dans la zone visible). */
 	let vvTop = $state(0);
-	/** Clavier iOS ouvert (viewport visible nettement plus petit que la fenêtre) :
-	 *  la capsule Recherche / Code-barres / Repas IA se masque pour libérer les résultats. */
-	let keyboardOpen = $state(false);
+	/** Clavier iOS ouvert : la capsule Recherche / Code-barres / Repas IA se masque
+	 *  pour libérer les résultats. MIROIR EN LECTURE SEULE de l'état partagé
+	 *  (lib/keyboardViewport) — la barre du bas et le « + » lisent LA MÊME
+	 *  source ; plus de booléen local qui pouvait rester bloqué. */
+	const keyboardOpen = $derived(keyboard.open);
 	let mobile = $state(typeof window !== 'undefined' ? window.matchMedia('(max-width: 639px)').matches : true);
 	let refreshing = $state(false);
 
@@ -3837,7 +3840,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		const setVh = () => {
 			vvH = Math.round((vv?.height ?? window.innerHeight) ?? 0);
 			vvTop = vv?.offsetTop ?? 0;
-			keyboardOpen = !!vv && vv.height < window.innerHeight - 150;
+			/* Clavier : mesuré par l'écoute PARTAGÉE (lib/keyboardViewport). */
 			/* Ouverture du clavier = la hauteur DIMINUE ; fermeture = elle
 			   AUGMENTE (le clavier libère l'écran). */
 			const closed = vvH > prevVvH + 4;
@@ -3990,36 +3993,54 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	let annulerLiberation: (() => void) | null = null;
 	$effect(() => {
 		const locked = logOpen || !!qtyFood || !!editEntry || !!editPlanned || !!qtyMealSel || calOpen || dupOpen || mealCreateOpen || mealPhotoOpen || bilanOpen;
-		if (locked === fondFigé) return;
-		if (locked) {
-			/* Réouverture pendant la sortie : on garde le verrou, on annule la
-			   libération en attente (sinon le compteur se déséquilibre). */
-			annulerLiberation?.();
-			annulerLiberation = null;
-			fondFigé = true;
-			lockScroll();
-			return;
+		if (locked !== fondFigé) {
+			if (locked) {
+				/* Réouverture pendant la sortie : on garde le verrou, on annule la
+				   libération en attente (sinon le compteur se déséquilibre). */
+				annulerLiberation?.();
+				annulerLiberation = null;
+				fondFigé = true;
+				lockScroll();
+			} else {
+				fondFigé = false;
+				/* FERMETURE : le body reste figé jusqu'à la FIN du fondu de sortie.
+				   Le libérer dès que `open` passe à false rendait au document sa hauteur
+				   au milieu de l'animation : WebKit réancrait les couches fixes (le
+				   volet sautait vers le bas) et repeignait le fond assombri une fraction
+				   de seconde (clignotement). On attend donc la fin de la transition, avec
+				   un délai de secours si elle ne se termine pas. */
+				annulerLiberation = onSheetExitEnd(null, () => {
+					annulerLiberation = null;
+					if (!fondFigé) unlockScroll();
+				});
+			}
 		}
-		fondFigé = false;
-		/* FERMETURE : le body reste figé jusqu'à la FIN du fondu de sortie.
-		   Le libérer dès que `open` passe à false rendait au document sa hauteur
-		   au milieu de l'animation : WebKit réancrait les couches fixes (le
-		   volet sautait vers le bas) et repeignait le fond assombri une fraction
-		   de seconde (clignotement). On attend donc la fin de la transition, avec
-		   un délai de secours si elle ne se termine pas. */
-		annulerLiberation = onSheetExitEnd(null, () => {
-			annulerLiberation = null;
-			if (!fondFigé) unlockScroll();
-		});
+
+		/* GARDE-FOU UNIQUE (clavier + navigation + verrou restant) : ce MÊME calcul
+		   déclare le volet au registre partagé — aucun volet ne peut être oublié
+		   d'un côté (verrou) ou de l'autre (barre du bas / « + »). Dès qu'il se
+		   referme — croix, glissement, retour arrière iOS, scan annulé, fermeture
+		   pendant un chargement, enchaînement fiche → recherche — l'état clavier
+		   résiduel est abandonné : la barre et le « + » reviennent (plus de
+		   booléen bloqué jusqu'à la réouverture de l'app). */
+		if (!locked) return;
+		const desinscrire = registerSheetOwner(() => true);
+		return () => {
+			desinscrire();
+			settleNavVisibility('sheet-closed');
+		};
 	});
 	onDestroy(() => {
 		annulerLiberation?.();
 		annulerLiberation = null;
-		if (!fondFigé) return;
-		fondFigé = false;
-		unlockScroll();
-	});
-</script>
+		if (fondFigé) {
+			fondFigé = false;
+			unlockScroll();
+		}
+		/* Démontage (retour arrière, navigation) : aucun volet ne survit à la
+		   page — clavier et verrou restants sont abandonnés, sans condition. */
+		settleNavVisibility('unmount', { force: true });
+	});</script>
 
 <svelte:head><title>Journal — G-Flux</title></svelte:head>
 

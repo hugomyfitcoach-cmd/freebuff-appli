@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
-	import { tick, untrack } from 'svelte';
+	import { onDestroy, tick, untrack } from 'svelte';
 	import AudioPlayer from '../../lib/components/AudioPlayer.svelte';
 	import BilanCard from '../../lib/components/BilanCard.svelte';
 	import CoachMedia from '../../lib/components/CoachMedia.svelte';
@@ -11,6 +11,7 @@
 	import Icon from '../../lib/components/Icon.svelte';
 	import JournalDay from '../../lib/components/JournalDay.svelte';
 	import MetricTrend from '../../lib/components/MetricTrend.svelte';
+	import QuantitySheet from '../../lib/components/QuantitySheet.svelte';
 	import WeeklyTrendChart from '../../lib/components/WeeklyTrendChart.svelte';
 	import TrainingPanel from '../../lib/components/TrainingPanel.svelte';
 	import { cycleState } from '../../lib/cycle.js';
@@ -22,7 +23,7 @@
 	import { avgLast7Completed } from '$lib/averages';
 	import { aggregateByDate, avgWindow, parisTodayISO, summarize, windowDaysCompleted } from '$lib/hydrationVision';
 	import { foodAverages } from '$lib/vision360';
-	import { createFoodSearch } from '$lib/foodSearch.svelte';
+	import { createFoodSearch, type SearchFood } from '$lib/foodSearch.svelte';
 	import CountUp from '$lib/components/CountUp.svelte';
 	import CoachIdentity from '$lib/components/CoachIdentity.svelte';
 	import { coachIdentity, type CoachUserLike } from '$lib/coachIdentity';
@@ -31,6 +32,7 @@
 	import {
 		DEFICIT_PCT_DEFAUT,
 		DISPONIBILITE_NIVEAUX,
+		entreesCalibrageCompletes,
 		phraseSupplementTravail,
 		supplementTravailTextes,
 		PROTEINES_PAR_KG_MM_DEFAUT,
@@ -39,7 +41,7 @@
 		perteGraisseKgSemaine,
 		resultatsFiche,
 		semaineAvecEcarts,
-		type EntreesFicheCalibrage,
+		type EntreesSaisieCalibrage,
 		type ImpactObjectifApplique,
 		type ResultatsFicheCalibrage,
 		type SemaineCalibrage
@@ -63,6 +65,7 @@
 		type ChampSaisi
 	} from '$lib/goalMacros';
 	import {
+		createCalibrageDraftScheduler,
 		messageDateEffetFuture,
 		messagesChampsCalibrage,
 		saisiesCalibrageValides
@@ -779,10 +782,10 @@
 
 	/* ── Journal alimentaire (le coach agit « en doublon ») ────── */
 	const MEALS = [
-		{ id: 'petit-dej', label: 'Petit-déjeuner' },
-		{ id: 'dejeuner', label: 'Déjeuner' },
-		{ id: 'diner', label: 'Dîner' },
-		{ id: 'collation', label: 'Collations' },
+		{ id: 'petit-dej', label: 'Petit-déjeuner', icon: 'sunrise' },
+		{ id: 'dejeuner', label: 'Déjeuner', icon: 'utensils' },
+		{ id: 'diner', label: 'Dîner', icon: 'moon' },
+		{ id: 'collation', label: 'Collations', icon: 'cookie' },
 	];
 	const MEAL_LABEL: Record<string, string> = Object.fromEntries(MEALS.map((m) => [m.id, m.label]));
 
@@ -799,6 +802,13 @@
 		carbs: number;
 		protein: number;
 		fat: number;
+		/** Identité d'origine de l'entrée — sert à ouvrir la FICHE de l'aliment
+		 *  en consultation seule (même résolution que le Journal cliente). */
+		foodId?: string;
+		customFoodId?: string;
+		ciqualLabel?: string;
+		referenceSource?: 'ciqual' | 'gflux';
+		photoUrl?: string;
 	};
 	type DayData = {
 		date: string;
@@ -829,6 +839,29 @@
 	let day = $state<DayData | null>(null);
 	let journalBusy = $state(false);
 	let journalMsg = $state('');
+	/** Ligne dont la FICHE aliment est ouverte en CONSULTATION SEULE : aucun
+	 *  geste d'écriture (quantité figée, pas de repas, pas de bouton d'action). */
+	let coachSheetEntry = $state<Entry | null>(null);
+	/** Aliment « reconstruit » depuis l'entrée (mêmes kcal/100 g) pour la fiche
+	 *  partagée — même principe que le Journal cliente. */
+	const coachSheetFood = $derived(
+		coachSheetEntry
+			? {
+					name: coachSheetEntry.name,
+					brand: coachSheetEntry.brand,
+					imageUrl: coachSheetEntry.imageUrl,
+					thumbUrl: coachSheetEntry.thumbUrl,
+					photoUrl: coachSheetEntry.photoUrl,
+					custom: !coachSheetEntry.foodId && !coachSheetEntry.ciqualLabel && !!coachSheetEntry.customFoodId,
+					ciqual: !!coachSheetEntry.ciqualLabel,
+					gflux: coachSheetEntry.referenceSource === 'gflux',
+					kcal100: coachSheetEntry.qtyGrams > 0 ? (coachSheetEntry.kcal / coachSheetEntry.qtyGrams) * 100 : 0,
+					carbs100: coachSheetEntry.qtyGrams > 0 ? (coachSheetEntry.carbs / coachSheetEntry.qtyGrams) * 100 : 0,
+					protein100: coachSheetEntry.qtyGrams > 0 ? (coachSheetEntry.protein / coachSheetEntry.qtyGrams) * 100 : 0,
+					fat100: coachSheetEntry.qtyGrams > 0 ? (coachSheetEntry.fat / coachSheetEntry.qtyGrams) * 100 : 0
+				}
+			: null
+	);
 
 	let searchOpen = $state(false);
 	/**
@@ -906,6 +939,86 @@
 			await loadDay();
 		} catch (e) {
 			journalMsg = e instanceof Error ? e.message : 'Ajout impossible.';
+		}
+	}
+
+	/* ── FICHE QUANTITÉ À L'AJOUT (clic sur un résultat de recherche) ──
+	 * Le coach choisit la quantité et le repas AVANT d'écrire, dans la même
+	 * fiche que la PWA / le journal. Le « ＋ » du résultat garde l'ajout rapide
+	 * historique (champ « Quantité (g) ») : `addFood` reste inchangé. */
+	let addSheetHit = $state<SearchFood | null>(null);
+	let addSheetQty = $state(100);
+	let addSheetMeal = $state('petit-dej');
+	let addSheetSaving = $state(false);
+	let addSheetError = $state('');
+
+	/** Ouvre la fiche avec les valeurs du volet (quantité du champ, repas choisi). */
+	function openAddSheet(hit: SearchFood) {
+		addSheetHit = hit;
+		const q = Number(addQty);
+		addSheetQty = isFinite(q) && q >= 1 && q <= 5000 ? q : 100;
+		addSheetMeal = addMeal;
+		addSheetError = '';
+	}
+
+	/** Aliment de la fiche — mêmes valeurs /100 g que le résultat de recherche
+	 *  (aucune valeur recalculée à la main). */
+	const addSheetFood = $derived(
+		addSheetHit
+			? {
+					_id: addSheetHit._id,
+					name: addSheetHit.name,
+					brand: addSheetHit.brand,
+					imageUrl: addSheetHit.imageUrl,
+					thumbUrl: addSheetHit.thumbUrl,
+					servingQty: addSheetHit.servingQty,
+					kcal100: addSheetHit.kcal100,
+					carbs100: addSheetHit.carbs100,
+					protein100: addSheetHit.protein100,
+					fat100: addSheetHit.fat100,
+					kcalRecalculated: addSheetHit.kcalRecalculated,
+					custom: !!addSheetHit.custom,
+					ciqual: !!addSheetHit.ciqual,
+					gflux: !!addSheetHit.gflux
+				}
+			: null
+	);
+
+	/** Enregistrement depuis la fiche : MÊME mutation et MÊMES contrôles que
+	 *  l'ajout coach existant (`/api/coach/journal`, userId + date du CRM).
+	 *  Après succès : fiche fermée, journal rechargé, volet de recherche
+	 *  toujours ouvert pour enchaîner sur un autre aliment. */
+	async function addFoodFromSheet(qtyGrams: number, meal: string) {
+		const hit = addSheetHit;
+		if (!hit || !selectedId) return;
+		addSheetSaving = true;
+		addSheetError = '';
+		// Préchauffage du miroir (fire-and-forget) — comme l'ajout rapide.
+		warmFoodImages([hit]);
+		try {
+			const res = await fetch('/api/coach/journal', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					userId: selectedId,
+					date: journalDate,
+					meal,
+					...(hit.gflux
+						? { referenceSource: 'gflux' as const, referenceFoodId: hit._id } // fiche G-Flux : jamais ciqualLabel
+						: hit.ciqual
+							? { ciqualLabel: hit._id }
+							: { foodId: hit._id }),
+					qtyGrams,
+				}),
+			});
+			const data = await res.json();
+			if (!res.ok) throw new Error(data.error ?? 'Ajout impossible.');
+			addSheetHit = null;
+			await loadDay();
+		} catch (e) {
+			addSheetError = e instanceof Error ? e.message : 'Ajout impossible.';
+		} finally {
+			addSheetSaving = false;
 		}
 	}
 
@@ -1605,9 +1718,16 @@
 			source: 'moyenne7j' | 'derniere' | null;
 			nbPesees: number;
 			date: string | null;
+			/** Repère affiché « précédent : X » (fenêtre 7 j d'avant). */
+			precedent: number | null;
 		};
-		masseGrasse: { valeur: number | null; source: 'usNavy' | null; date: string | null };
-		pasMoyen: { valeur: number | null; jours: number };
+		masseGrasse: {
+			valeur: number | null;
+			source: 'usNavy' | null;
+			date: string | null;
+			precedent: number | null;
+		};
+		pasMoyen: { valeur: number | null; jours: number; precedent: number | null };
 		sportOnboarding: {
 			sport: string | number | null;
 			sportsDetail: string | number | null;
@@ -1623,9 +1743,23 @@
 			goalsSet: boolean;
 		};
 		dernierCalibrage: { date: string; effectiveFrom: string; createdAt: number } | null;
+		/** Mémoire du calibrage : brouillon de saisie (un seul par cliente). */
+		brouillon: {
+			entrees: Partial<EntreesSaisieCalibrage>;
+			ecartsSemaine: number[];
+			updatedAt: number;
+		} | null;
+		/** Repli : décisions du dernier calibrage appliqué. */
+		dernierInstantane: {
+			date: string;
+			effectiveFrom: string;
+			createdAt: number;
+			entrees: Partial<EntreesSaisieCalibrage>;
+			objectifJournalierKcal: number | null;
+		} | null;
 	};
 	let calibragePre = $state<CalibragePrefill | null>(null);
-	let calibrageInputs = $state<EntreesFicheCalibrage>({
+	let calibrageInputs = $state<EntreesSaisieCalibrage>({
 		poidsKg: 0,
 		mgPct: 26,
 		pasMoyen: 0,
@@ -1642,16 +1776,192 @@
 	});
 	let calibrageBusy = $state(false);
 	let calibrageError = $state('');
+
+	/* ── MÉMOIRE DU CALIBRAGE — brouillon par cliente ──
+	   Sauvegarde automatique (debounce 800 ms) des DÉCISIONS de saisie dans
+	   `calibrageDrafts` (une seule ligne par cliente) : aucun objectif n'est
+	   écrit tant que le coach ne confirme pas « Appliquer à la fiche ».
+	   À l'ouverture : brouillon → dernier instantané → valeurs par défaut ;
+	   les MESURES (poids 7 j, pas 14 j, MG) sont toujours relues du serveur. */
+	const CAL_BROUILLON_DEBOUNCE_MS = 800;
+	let calBrouillonPret = $state(false);
+	let calBrouillonSavedAt = $state(0);
+	let calBrouillonBusy = $state(false);
+	let calBrouillonErreur = $state('');
+	let calBrouillonSource = $state<'brouillon' | 'instantane' | 'defauts'>('defauts');
+	const calBrouillonScheduler = createCalibrageDraftScheduler(() => selectedId, CAL_BROUILLON_DEBOUNCE_MS);
+	let calBrouillonClient: string | null = null;
+	let calGeneration = 0;
+	onDestroy(() => calBrouillonScheduler.invalidate());
+	let calResetOpen = $state(false);
+	let calResetBusy = $state(false);
+
+	/** Valeurs par défaut de l'onglet — mesures relues du serveur. */
+	function calibrageDefauts(): EntreesSaisieCalibrage {
+		return {
+			poidsKg: calibragePre?.poids.valeur ?? 0,
+			mgPct: calibragePre?.masseGrasse.valeur ?? 26,
+			pasMoyen: calibragePre?.pasMoyen.valeur ?? 0,
+			heuresTravail: 0,
+			ajustementTravail: 0,
+			adaptationPct: 0,
+			mode: 'deficit',
+			deficitPct: DEFICIT_PCT_DEFAUT,
+			surplusPct: 5,
+			proteinesParKgMasseMaigre: PROTEINES_PAR_KG_MM_DEFAUT,
+			seances: [],
+			apportsSemaine: [null, null, null, null, null, null, null]
+		};
+	}
+
+	/** Décisions restaurées + MESURES TOUJOURS FRAÎCHES (mesure absente : valeur mémorisée). */
+	function calibrageRestaure(
+		entrees: Partial<EntreesSaisieCalibrage> | null | undefined
+	): EntreesSaisieCalibrage {
+		const base = calibrageDefauts();
+		if (!entrees) return base;
+		const poids = calibragePre?.poids.valeur ?? null;
+		const mg = calibragePre?.masseGrasse.valeur ?? null;
+		const pas = calibragePre?.pasMoyen.valeur ?? null;
+		return {
+			...base,
+			...entrees,
+			/* MESURE fraîche prioritaire ; sinon la décision mémorisée TELLE QUELLE :
+			   un `null` du brouillon (champ vidé) se restaure VIDE, jamais à 0. */
+			poidsKg: poids ?? (entrees.poidsKg !== undefined ? entrees.poidsKg : base.poidsKg),
+			mgPct: mg ?? (entrees.mgPct !== undefined ? entrees.mgPct : base.mgPct),
+			pasMoyen: pas ?? (entrees.pasMoyen !== undefined ? entrees.pasMoyen : base.pasMoyen),
+			seances: Array.isArray(entrees.seances) ? entrees.seances.map((s) => ({ ...s })) : base.seances,
+			/* Semaine type partielle acceptée telle quelle (7 jours au maximum). */
+			apportsSemaine:
+				Array.isArray(entrees.apportsSemaine) && entrees.apportsSemaine.length <= 7
+					? [...entrees.apportsSemaine]
+					: base.apportsSemaine
+		};
+	}
+
+	/** Écarts de la semaine type d'un instantané = apports figés − objectif. */
+	function ecartsDepuisInstantane(inst: CalibragePrefill['dernierInstantane']): number[] {
+		const objectif = inst?.objectifJournalierKcal ?? 0;
+		const apports = inst?.entrees?.apportsSemaine;
+		if (!Array.isArray(apports) || apports.length !== 7 || objectif <= 0) return [0, 0, 0, 0, 0, 0, 0];
+		return apports.map((a) => (typeof a === 'number' ? Math.round(a - objectif) : 0));
+	}
+
+	function ecartsNormalises(ecarts: unknown): number[] {
+		if (!Array.isArray(ecarts) || ecarts.length !== 7) return [0, 0, 0, 0, 0, 0, 0];
+		return ecarts.map((e) => (typeof e === 'number' && Number.isFinite(e) ? Math.round(e) : 0));
+	}
+
+	/** « Brouillon enregistré · date heure » (heure locale du coach). */
+	function fmtHorodatage(ms: number): string {
+		const d = new Date(ms);
+		return `${d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })} ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
+	}
+
+	/** Mention discrète d'un échec de sauvegarde : jamais le message technique
+	 *  du serveur dans le CRM, et nouvel essai à la modification suivante. */
+	const MESSAGE_BROUILLON_ECHEC = 'Brouillon non enregistré, nouvel essai…';
+
+	/** Signature des décisions : toute saisie déclenche la sauvegarde automatique.
+	 *  Fonction (et non $derived) : `ecartsSemaine` est déclaré plus bas, avec
+	 *  le simulateur de semaine type. */
+	function calBrouillonSignature(): string {
+		return JSON.stringify({ i: calibrageInputs, e: ecartsSemaine });
+	}
+
+	async function enregistrerBrouillon(userId: string, signature: string, estCourant: () => boolean) {
+		if (!estCourant()) return;
+		calBrouillonBusy = true;
+		calBrouillonErreur = '';
+		try {
+			const { i: entrees, e: ecartsSemaine } = JSON.parse(signature);
+			const r = await fetch('/api/coach/calibrage/brouillon', {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ userId, entrees, ecartsSemaine })
+			});
+			const j = await r.json();
+			if (!estCourant()) return;
+			if (j.error) throw new Error(j.error);
+			calBrouillonSavedAt = Number(j.savedAt) || Date.now();
+			calBrouillonSource = 'brouillon';
+			calBrouillonErreur = '';
+		} catch {
+			/* Échec réel (réseau, refus) : AUCUN message technique à l'écran —
+			   mention discrète seulement, et nouvel essai à la prochaine
+			   modification (nouvelle signature → nouvelle sauvegarde). */
+			if (estCourant()) {
+				calBrouillonSavedAt = 0;
+				calBrouillonErreur = MESSAGE_BROUILLON_ECHEC;
+			}
+		} finally {
+			if (estCourant()) calBrouillonBusy = false;
+		}
+	}
+
+	$effect(() => {
+		const signature = calBrouillonSignature();
+		const userId = selectedId;
+		if (!signature || !calBrouillonPret || !userId || calBrouillonClient !== userId) return;
+		untrack(() => calBrouillonScheduler.schedule(userId, (estCourant) => enregistrerBrouillon(userId, signature, estCourant)));
+	});
+
+	/** « Repartir des valeurs par défaut » : efface le brouillon puis réinitialise
+	 *  les décisions. Les mesures sont relues et les objectifs restent intacts. */
+	async function repartirValeursDefaut() {
+		if (!selectedId || calResetBusy) return;
+		const userId = selectedId;
+		const generation = ++calGeneration;
+		calBrouillonScheduler.invalidate();
+		calBrouillonPret = false;
+		calBrouillonBusy = false;
+		calResetBusy = true;
+		calBrouillonErreur = '';
+		try {
+			/* Une sauvegarde déjà envoyée doit finir AVANT la suppression. */
+			await calBrouillonScheduler.wait();
+			if (selectedId !== userId || generation !== calGeneration) return;
+			const r = await fetch(
+				`/api/coach/calibrage/brouillon?userId=${encodeURIComponent(userId)}`,
+				{ method: 'DELETE' }
+			);
+			const j = await r.json();
+			if (selectedId !== userId || generation !== calGeneration) return;
+			if (j.error) throw new Error(j.error);
+			calibrageInputs = calibrageDefauts();
+			ecartsSemaine = [0, 0, 0, 0, 0, 0, 0];
+			applyDate = calibragePre?.today ?? applyDate;
+			applyInitialise = true;
+			calBrouillonSavedAt = 0;
+			calBrouillonSource = 'defauts';
+			calResetOpen = false;
+		} catch {
+			if (selectedId === userId && generation === calGeneration) {
+				calBrouillonErreur = 'Remise à zéro impossible, réessaie.';
+			}
+		} finally {
+			if (selectedId === userId && generation === calGeneration) {
+				calResetBusy = false;
+				calBrouillonPret = true;
+			}
+		}
+	}
 	/** Messages SOUS les champs : valeur vide ou hors limites (module PUR
 	 *  $lib/calibrageSaisie, bornes partagées avec le module calibrage). */
 	const calErreursChamps = $derived(messagesChampsCalibrage(calibrageInputs));
+	/** Entrées STRICTES (aucun champ vide) : `null` tant que la saisie est
+	 *  incomplète — aucun calcul ne reçoit un vide (« — » conservés à l'écran). */
+	const calEntreesCompletes = $derived(entreesCalibrageCompletes(calibrageInputs));
 	/** Résultats = sortie du module ($lib/calibrageFiche) — jamais recalculés ici.
 	 *  Une saisie invalide n'empêche QUE le calcul : elle affiche son message
 	 *  sous son champ et ne vide jamais l'écran des résultats. */
 	const calResults = $derived.by((): { results: ResultatsFicheCalibrage | null; error: string | null } => {
 		if (!saisiesCalibrageValides(calibrageInputs)) return { results: null, error: null };
+		const entrees = calEntreesCompletes;
+		if (!entrees) return { results: null, error: null };
 		try {
-			return { results: resultatsFiche(calibrageInputs), error: null };
+			return { results: resultatsFiche(entrees), error: null };
 		} catch (e) {
 			return {
 				results: null,
@@ -1741,40 +2051,59 @@
 	 *  (dernière estimation US Navy, sinon saisie), pas sur 14 j, aide « sport »
 	 *  du formulaire de démarrage (affichée telle quelle, jamais convertie). */
 	async function loadCalibrage() {
-		if (!selectedId) return;
+		const userId = selectedId;
+		const generation = ++calGeneration;
+		calBrouillonScheduler.invalidate();
+		calBrouillonPret = false;
+		calBrouillonClient = null;
+		calBrouillonBusy = false;
+		calResetBusy = false;
+		if (!userId) return;
 		calibrageBusy = true;
 		calibrageError = '';
 		applyInitialise = false;
 		applyMsg = '';
 		ecartsSemaine = [0, 0, 0, 0, 0, 0, 0];
 		try {
-			const r = await fetch(`/api/coach/calibrage?userId=${encodeURIComponent(selectedId)}`);
+			const r = await fetch(`/api/coach/calibrage?userId=${encodeURIComponent(userId)}`);
 			const j = await r.json();
+			if (selectedId !== userId || generation !== calGeneration) return;
 			if (j.error) throw new Error(j.error);
 			calibragePre = j as CalibragePrefill;
-			calibrageInputs = {
-				poidsKg: j.poids?.valeur ?? 0,
-				mgPct: j.masseGrasse?.valeur ?? 26,
-				pasMoyen: j.pasMoyen?.valeur ?? 0,
-				heuresTravail: 0,
-				ajustementTravail: 0,
-				adaptationPct: 0,
-				deficitPct: DEFICIT_PCT_DEFAUT,
-				proteinesParKgMasseMaigre: PROTEINES_PAR_KG_MM_DEFAUT,
-				seances: [],
-				apportsSemaine: [null, null, null, null, null, null, null]
-			};
+			const pre = j as CalibragePrefill;
+			/* La sauvegarde automatique reste MUETTE pendant la restauration. */
+			calBrouillonPret = false;
+			calBrouillonSavedAt = 0;
+			calBrouillonErreur = '';
+			/* DÉCISIONS : brouillon → dernier instantané → valeurs par défaut.
+			   MESURES : toujours relues du serveur (poids 7 j, MG, pas 14 j). */
+			if (pre.brouillon) {
+				calibrageInputs = calibrageRestaure(pre.brouillon.entrees);
+				ecartsSemaine = ecartsNormalises(pre.brouillon.ecartsSemaine);
+				calBrouillonSavedAt = Number(pre.brouillon.updatedAt) || 0;
+				calBrouillonSource = 'brouillon';
+			} else if (pre.dernierInstantane) {
+				calibrageInputs = calibrageRestaure(pre.dernierInstantane.entrees);
+				ecartsSemaine = ecartsDepuisInstantane(pre.dernierInstantane);
+				calBrouillonSource = 'instantane';
+			} else {
+				calibrageInputs = calibrageDefauts();
+				ecartsSemaine = [0, 0, 0, 0, 0, 0, 0];
+				calBrouillonSource = 'defauts';
+			}
+			calBrouillonClient = userId;
+			calBrouillonPret = true;
 		} catch (e) {
-			calibrageError = e instanceof Error ? e.message : 'Chargement du calibrage impossible.';
+			if (selectedId === userId && generation === calGeneration) calibrageError = e instanceof Error ? e.message : 'Chargement du calibrage impossible.';
 		} finally {
-			calibrageBusy = false;
+			if (selectedId === userId && generation === calGeneration) calibrageBusy = false;
 		}
+		if (selectedId !== userId || generation !== calGeneration) return;
 		/* Historique des objectifs : requête dédiée, même ouverture de fiche. */
 		await loadHistorique();
 	}
 	$effect(() => {
-		const id = selectedId;
-		if (!id) return;
+		selectedId;
 		untrack(() => loadCalibrage());
 	});
 
@@ -1794,7 +2123,7 @@
 			{ activiteId: 'musculation', seancesParSemaine: 2, dureeMinutes: 60, choix: 'recreative' }
 		];
 	}
-	function majSeance(index: number, patch: Partial<EntreesFicheCalibrage['seances'][number]>) {
+	function majSeance(index: number, patch: Partial<EntreesSaisieCalibrage['seances'][number]>) {
 		calibrageInputs.seances = calibrageInputs.seances.map((s, i) =>
 			i === index
 				? {
@@ -2003,7 +2332,8 @@
 		return Number.isFinite(valeur) && valeur > 0 ? valeur : undefined;
 	});
 	const calImpact = $derived.by((): ImpactObjectifApplique | null => {
-		if (!calR || !Number.isFinite(applyKcal) || applyKcal <= 0) return null;
+		/* Saisie incomplète : aucun impact (le module refuse un vide, on garde les « — »). */
+		if (!calR || !calEntreesCompletes || !Number.isFinite(applyKcal) || applyKcal <= 0) return null;
 		try {
 			return impactObjectifApplique({
 				entrees: calibrageInputs,
@@ -2019,7 +2349,8 @@
 	 *  saisi. Indépendante de l'objectif du bloc « Appliquer à la fiche » (même
 	 *  modifié à la main) : le déficit affiché est celui de la semaine simulée. */
 	const calSemaine = $derived.by((): SemaineCalibrage | null => {
-		if (!calR) return null;
+		/* Saisie incomplète : la semaine type garde ses « — » (repli plus bas). */
+		if (!calR || !calEntreesCompletes) return null;
 		try {
 			return semaineAvecEcarts(calibrageInputs, calR, ecartsSemaine);
 		} catch {
@@ -2066,6 +2397,10 @@
 	function demarrerApplication() {
 		applyError = '';
 		applyMsg = '';
+		if (!calEntreesCompletes) {
+			applyError = 'Complète les champs vides du calibrage avant d’appliquer à la fiche.';
+			return;
+		}
 		if (applyBlocageGlucides) {
 			applyError = applyBlocageGlucides;
 			return;
@@ -2080,22 +2415,32 @@
 		calConfirmOpen = true;
 	}
 	async function appliquerCalibrage() {
-		if (!selectedId || !calR || applyBusy) return;
+		/* Entrées STRICTES : un champ vide ne part jamais au validateur d'`apply`
+		   (aucun message technique brut ne peut donc s'afficher). */
+		const entrees = calEntreesCompletes;
+		if (!selectedId || !calR || !entrees || applyBusy) return;
 		/* Filet de sécurité : jamais d'écriture avec des glucides négatifs. */
 		if (applyBlocageGlucides) {
 			applyError = applyBlocageGlucides;
 			calConfirmOpen = false;
 			return;
 		}
+		const userId = selectedId;
+		const generation = ++calGeneration;
+		calBrouillonScheduler.invalidate();
+		calBrouillonPret = false;
+		calBrouillonBusy = false;
 		applyBusy = true;
 		applyError = '';
 		try {
+			await calBrouillonScheduler.wait();
+			if (selectedId !== userId || generation !== calGeneration) return;
 			const r = await fetch('/api/coach/calibrage', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					userId: selectedId,
-					entrees: calibrageInputs,
+					userId,
+					entrees,
 					kcal: applyKcal,
 					carbs: applyCarbs,
 					protein: applyProtein,
@@ -2106,9 +2451,13 @@
 				})
 			});
 			const j = await r.json();
+			if (selectedId !== userId || generation !== calGeneration) return;
 			if (j.error) throw new Error(j.error);
 			calConfirmOpen = false;
 			applyMsg = `Objectifs appliqués à la fiche — effectifs le ${fmtISO(applyDate)}. Instantané du calibrage enregistré.`;
+			/* Le serveur a réaligné le brouillon sur les valeurs appliquées. */
+			calBrouillonSavedAt = Number(j.brouillonSavedAt) || Date.now();
+			calBrouillonSource = 'brouillon';
 			/* La fiche « Objectifs journaliers » reflète IMMÉDIATEMENT l'écriture :
 			   méthode macros (g), objectif, macros et filet de sécurité. Le mode est
 			   mémorisé pour rester actif après un rechargement complet. */
@@ -2130,9 +2479,10 @@
 			/* L'historique reflète IMMÉDIATEMENT la nouvelle ligne d'objectif. */
 			await loadHistorique();
 		} catch (e) {
-			applyError = e instanceof Error ? e.message : "Application impossible — rien n'a été écrit.";
+			if (selectedId === userId && generation === calGeneration) applyError = e instanceof Error ? e.message : "Application impossible — rien n'a été écrit.";
 		} finally {
 			applyBusy = false;
+			if (selectedId === userId && generation === calGeneration) calBrouillonPret = true;
 		}
 	}
 
@@ -3827,8 +4177,37 @@
 							}}
 								onQty={setQty}
 								onRemove={removeEntry}
+								onEntryClick={(e) => (coachSheetEntry = e)}
 							/>
 						</div>
+
+						<!-- FICHE ALIMENT en CONSULTATION SEULE (clic sur le nom/l'image d'une
+						     ligne) : lecture intégrale — quantité saisie par la cliente FIGÉE,
+						     macros et fiche nutritionnelle dépliables, fermeture par la croix
+						     ou par le fond. Aucune écriture : − / + / corbeille restent sur la
+						     ligne du journal, jamais dans la fiche. `onSave` reste inerte
+						     (contrat du composant inchangé) : readOnly bloque toute écriture. -->
+						{#if coachSheetEntry && coachSheetFood}
+							<QuantitySheet
+								food={coachSheetFood}
+								source={coachSheetFood.ciqual ? 'ciqual' : undefined}
+								detailsSource={coachSheetEntry.ciqualLabel
+									? 'ciqual'
+									: coachSheetEntry.foodId
+										? 'food'
+										: coachSheetEntry.customFoodId
+											? 'custom'
+											: undefined}
+								detailsId={coachSheetEntry.ciqualLabel ?? coachSheetEntry.foodId ?? coachSheetEntry.customFoodId}
+								initialQtyGrams={coachSheetEntry.qtyGrams}
+								mealDefs={[]}
+								onSave={() => {}}
+								subtitle={`${MEAL_LABEL[coachSheetEntry.meal] ?? ''} · ${journalDate}`}
+								mode="edit"
+								readOnly
+								onClose={() => (coachSheetEntry = null)}
+							/>
+						{/if}
 					{:else if !journalBusy}
 						<p class="mt-4 rounded-xl border border-dashed border-line px-4 py-8 text-center text-sm text-mist">Clique sur « Charger » pour afficher la journée.</p>
 					{/if}
@@ -3893,21 +4272,31 @@
 									</div>
 									<div class="space-y-1">
 										{#each (foodSearch.state.ciqualExpanded ? foodSearch.state.ciqual : foodSearch.state.ciqual.slice(0, 3)) as hit (hit._id)}
-											<button
-												onclick={() => addFood(hit)}
-												class="flex w-full items-center gap-3 rounded-xl border border-brand/30 bg-brand-light/40 px-3 py-2 text-left transition hover:border-brand"
-											>
-												<span class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-light"><Icon name="salad" size={18} class="text-brand" /></span>
-												<div class="min-w-0 flex-1">
-													<div class="line-clamp-2 text-sm font-semibold leading-snug text-ink">{hit.name}</div>
-													<div class="mt-0.5 text-[11px] text-mist">{hit.kcal100} kcal/100 g</div>
-													<div class="mt-1 flex flex-wrap items-center gap-1.5">
-														{#if hit.gflux}<span data-gflux-badge class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence G-Flux</span>{:else}<span class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>{/if}
-														{#if hit.cookLabel}<span data-cook-badge class="rounded-full bg-[#F1F0EC] px-2 py-0.5 text-[9px] font-semibold text-[#6E6A62]">{hit.cookLabel}</span>{/if}
+											<div class="flex w-full items-center gap-2 rounded-xl border border-brand/30 bg-brand-light/40 px-3 py-2 transition hover:border-brand">
+												<!-- Ligne = fiche quantité (choisir AVANT d'écrire) · ＋ = ajout rapide. -->
+												<button
+													type="button"
+													onclick={() => openAddSheet(hit)}
+													class="flex min-w-0 flex-1 items-center gap-3 text-left"
+												>
+													<span class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-light"><Icon name="salad" size={18} class="text-brand" /></span>
+													<div class="min-w-0 flex-1">
+														<div class="line-clamp-2 text-sm font-semibold leading-snug text-ink">{hit.name}</div>
+														<div class="mt-0.5 text-[11px] text-mist">{hit.kcal100} kcal/100 g</div>
+														<div class="mt-1 flex flex-wrap items-center gap-1.5">
+															{#if hit.gflux}<span data-gflux-badge class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence G-Flux</span>{:else}<span class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>{/if}
+															{#if hit.cookLabel}<span data-cook-badge class="rounded-full bg-[#F1F0EC] px-2 py-0.5 text-[9px] font-semibold text-[#6E6A62]">{hit.cookLabel}</span>{/if}
+														</div>
 													</div>
-												</div>
-												<span class="text-brand">＋</span>
-											</button>
+												</button>
+												<button
+													type="button"
+													onclick={() => addFood(hit)}
+													class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-lg font-bold text-brand transition hover:bg-brand-light"
+													aria-label={`Ajout rapide : ${hit.name}`}
+													title={`Ajouter ${Number(addQty) || 100} g au ${MEAL_LABEL[addMeal] ?? 'repas'}`}
+												>＋</button>
+											</div>
 										{/each}
 									</div>
 									{#if foodSearch.state.ciqual.length > 3}
@@ -3929,21 +4318,31 @@
 									<p class="px-1 pb-1 pt-2 text-[10px] font-bold uppercase tracking-widest text-mist">Produits · Open Food Facts</p>
 									<div class="space-y-1 transition-opacity {foodSearch.state.searching ? 'opacity-50' : ''}">
 										{#each foodSearch.state.products as hit (hit._id)}
-											<button
-												onclick={() => addFood(hit)}
-												class="flex w-full items-center gap-3 rounded-xl border border-line bg-white px-3 py-2 text-left transition hover:border-brand"
-											>
-												{#if hit.thumbUrl || hit.imageUrl}
-													<FoodImg src={hit.thumbUrl} fallbackSrc={hit.imageUrl} alt="" class="h-9 w-9 shrink-0 rounded-lg" />
-												{:else}
-													<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-line/60"><Icon name="apple" size={16} class="text-mist" /></div>
-												{/if}
-												<div class="min-w-0 flex-1">
-													<div class="truncate text-sm font-semibold text-ink">{hit.name}</div>
-													<div class="text-[11px] text-mist">{hit.kcal100} kcal/100 g{#if hit.kcalRecalculated}<span class="ml-1 rounded bg-line/70 px-1 py-px text-[9px] font-semibold text-mist">Valeur recalculée</span>{/if}{hit.brand ? ` · ${hit.brand}` : ''}</div>
-												</div>
-												<span class="text-brand">＋</span>
-											</button>
+											<div class="flex w-full items-center gap-2 rounded-xl border border-line bg-white px-3 py-2 transition hover:border-brand">
+												<!-- Ligne = fiche quantité (choisir AVANT d'écrire) · ＋ = ajout rapide. -->
+												<button
+													type="button"
+													onclick={() => openAddSheet(hit)}
+													class="flex min-w-0 flex-1 items-center gap-3 text-left"
+												>
+													{#if hit.thumbUrl || hit.imageUrl}
+														<FoodImg src={hit.thumbUrl} fallbackSrc={hit.imageUrl} alt="" class="h-9 w-9 shrink-0 rounded-lg" />
+													{:else}
+														<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-line/60"><Icon name="apple" size={16} class="text-mist" /></div>
+													{/if}
+													<div class="min-w-0 flex-1">
+														<div class="truncate text-sm font-semibold text-ink">{hit.name}</div>
+														<div class="text-[11px] text-mist">{hit.kcal100} kcal/100 g{#if hit.kcalRecalculated}<span class="ml-1 rounded bg-line/70 px-1 py-px text-[9px] font-semibold text-mist">Valeur recalculée</span>{/if}{hit.brand ? ` · ${hit.brand}` : ''}</div>
+													</div>
+												</button>
+												<button
+													type="button"
+													onclick={() => addFood(hit)}
+													class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-lg font-bold text-brand transition hover:bg-line/60"
+													aria-label={`Ajout rapide : ${hit.name}`}
+													title={`Ajouter ${Number(addQty) || 100} g au ${MEAL_LABEL[addMeal] ?? 'repas'}`}
+												>＋</button>
+											</div>
 										{/each}
 									</div>
 									{#if foodSearch.state.loadingMore}<p class="py-2 text-center text-xs text-mist">Chargement…</p>{/if}
@@ -3951,6 +4350,26 @@
 							{/if}
 						</div>
 					</div>
+				{/if}
+
+				{#if addSheetHit && addSheetFood}
+					<!-- FICHE QUANTITÉ à l'ajout coach : mêmes contrôles que la PWA
+					     (clavier, −/+, raccourcis, portions/repères, macros en direct,
+					     fiche nutritionnelle) et même mutation que l'ajout existant.
+					     Le volet de recherche reste ouvert derrière : on enchaîne. -->
+					<QuantitySheet
+						food={addSheetFood}
+						mealDefs={MEALS}
+						source={addSheetFood.ciqual ? 'ciqual' : undefined}
+						initialQtyGrams={addSheetQty}
+						initialMeal={addSheetMeal}
+						mode="add"
+						saving={addSheetSaving}
+						error={addSheetError}
+						saveLabel={`Ajouter au journal de ${selected?.user.prenom ?? 'la cliente'}`}
+						onSave={(g, meal) => addFoodFromSheet(g, meal)}
+						onClose={() => { addSheetHit = null; }}
+					/>
 				{/if}
 
 			{:else if section === 'entrainement'}
@@ -4818,6 +5237,29 @@
 							<p class="rounded-xl border border-brand/40 bg-brand-light px-4 py-3 text-sm font-semibold text-ink">{applyMsg}</p>
 						{/if}
 
+						<!-- MÉMOIRE DU CALIBRAGE : brouillon enregistré automatiquement (aucun
+						     objectif écrit) ou décisions reprises du dernier calibrage appliqué. -->
+						<div class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-cream/60 px-3.5 py-2.5">
+							<p class="text-[11px] font-semibold text-mist" aria-live="polite">
+								{#if calBrouillonErreur}
+									{calBrouillonErreur}
+								{:else if calBrouillonBusy}
+									Enregistrement du brouillon…
+								{:else if calBrouillonSavedAt}
+									Brouillon enregistré · {fmtHorodatage(calBrouillonSavedAt)}
+								{:else if calBrouillonSource === 'instantane'}
+									Décisions reprises du dernier calibrage appliqué — mesures rafraîchies
+								{:else}
+									Brouillon automatique — rien n'est appliqué avant confirmation
+								{/if}
+							</p>
+							<button
+								type="button"
+								onclick={() => (calResetOpen = true)}
+								class="rounded-full border-2 border-line bg-white px-3 py-1.5 text-[11.5px] font-bold text-ink transition hover:border-brand"
+							>Repartir des valeurs par défaut</button>
+						</div>
+
 						<!-- ENTRÉES : pré-remplies, toutes modifiables -->
 						<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
 							<h3 class="flex items-center gap-2 font-display text-base font-semibold text-ink"><Icon name="settings" size={17} class="shrink-0 text-brand" /> Entrées</h3>
@@ -4829,6 +5271,9 @@
 									{#if calibragePre?.poids.source}
 										<span class="mt-1 block text-[11px] text-mist">{calibragePre.poids.source === 'moyenne7j' ? `Moyenne de ${calibragePre.poids.nbPesees} pesée(s) sur 7 jours` : 'Dernière pesée'}{calibragePre.poids.date ? ` · ${fmtISO(calibragePre.poids.date)}` : ''}</span>
 									{/if}
+									{#if calibragePre?.poids.precedent !== null && calibragePre?.poids.precedent !== undefined}
+										<span class="mt-0.5 block text-[11px] font-semibold text-mist">précédent : {decimalFr(calibragePre.poids.precedent)} kg</span>
+									{/if}
 								</label>
 								<label class="block">
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Taux de masse grasse (%)</span>
@@ -4837,6 +5282,9 @@
 									{#if calibragePre?.masseGrasse.source}
 										<span class="mt-1 block text-[11px] text-mist">Dernière estimation US Navy{calibragePre.masseGrasse.date ? ` · ${fmtISO(calibragePre.masseGrasse.date)}` : ''}</span>
 									{/if}
+									{#if calibragePre?.masseGrasse.precedent !== null && calibragePre?.masseGrasse.precedent !== undefined}
+										<span class="mt-0.5 block text-[11px] font-semibold text-mist">précédent : {decimalFr(calibragePre.masseGrasse.precedent)} %</span>
+									{/if}
 								</label>
 								<label class="block">
 									<span class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist">Moyenne de pas sur 14 jours</span>
@@ -4844,6 +5292,9 @@
 									<p class="mt-1 min-h-[15px] text-[11px] font-semibold text-danger">{calErreursChamps.pasMoyen ?? ''}</p>
 									{#if calibragePre?.pasMoyen.jours}
 										<span class="mt-1 block text-[11px] text-mist">{calibragePre.pasMoyen.jours} jour(s) renseigné(s) sur 14</span>
+									{/if}
+									{#if calibragePre?.pasMoyen.precedent !== null && calibragePre?.pasMoyen.precedent !== undefined}
+										<span class="mt-0.5 block text-[11px] font-semibold text-mist">précédent : {Math.round(calibragePre.pasMoyen.precedent).toLocaleString('fr-FR')}</span>
 									{/if}
 								</label>
 								<div class="block">
@@ -5405,6 +5856,19 @@
 					{#if applyError}
 						<p class="mt-2 rounded-lg bg-danger-light px-3 py-2 text-xs font-semibold text-danger">{applyError}</p>
 					{/if}					</ConfirmDialog>
+
+				<!-- « Repartir des valeurs par défaut » : confirmation obligatoire,
+				     efface le brouillon de la cliente — les objectifs de la fiche
+				     (clientGoals) ne sont jamais touchés. -->
+				<ConfirmDialog
+					open={calResetOpen}
+					title={`Repartir des valeurs par défaut pour ${selected.user.prenom} ?`}
+					message="Les décisions enregistrées (phase, déficit, profil sportif, semaine type) seront remplacées par les valeurs par défaut. Les mesures sont relues et les objectifs de la fiche ne changent pas."
+					confirmLabel="Repartir des valeurs par défaut"
+					busy={calResetBusy}
+					onconfirm={repartirValeursDefaut}
+					oncancel={() => (calResetOpen = false)}
+				/>
 				{/if}
 				{:else if section === 'rdv'}
 				<!-- Rendez-vous (Vision 360) : UNIQUEMENT les RDV de cette cliente.

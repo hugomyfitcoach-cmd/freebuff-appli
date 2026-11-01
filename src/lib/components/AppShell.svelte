@@ -11,6 +11,7 @@
 	import { registerServiceWorker } from '../push';
 	import { onCoachState, onNotificationCounts, refreshNotificationsNow, startNotificationPolling } from '../notificationPoll';
 	import { COACH_WHATSAPP_URL } from '../contact';
+	import { keyboard, settleNavVisibility, startKeyboardWatch } from '../keyboardViewport.svelte';
 
 	type Role = 'client' | 'coach';
 	type SessionUser = { prenom: string; email: string; role: Role };
@@ -48,58 +49,17 @@
 
 	const path = $derived(page.url.pathname);
 
-	/* La navigation mobile cède la place au clavier sans modifier la page active. */
-	let keyboardOpen = $state(false);
-	function isEditableElement(active: Element | null): boolean {
-		if (active instanceof HTMLInputElement) {
-			return (
-				!active.disabled &&
-				!active.readOnly &&
-				!['button', 'submit', 'reset', 'checkbox', 'radio', 'file', 'image', 'hidden'].includes(active.type)
-			);
-		}
-		return (
-			active instanceof HTMLTextAreaElement ||
-			active instanceof HTMLSelectElement ||
-			(active instanceof HTMLElement && active.isContentEditable)
-		);
-	}
-	function syncKeyboardOpen() {
-		const fieldFocused = isEditableElement(document.activeElement);
-		const vv = window.visualViewport;
-		/* Sur iOS/Android, lors de la fermeture d'une fiche ou recherche après
-		   validation, l'input est retiré du DOM avant la fin du repli du clavier
-		   (~250-300 ms où visualViewport.height est encore amputé). Tant que le
-		   viewport visible reste réduit de plus de 140 px, le clavier occupe
-		   encore le bas de l'écran : on attend sa fermeture complète avant de
-		   réafficher la barre fixe pour que WebKit ne l'ancre jamais au-dessus
-		   de l'ancien clavier. */
-		const vvShrunk = !!vv && window.innerHeight - vv.height > 140;
-		const next = fieldFocused || vvShrunk;
-		const wasOpen = keyboardOpen;
-		keyboardOpen = next;
-		if (wasOpen && !next) {
-			/* Le clavier vient de se refermer complètement : force WebKit iOS à
-			   réconcilier le layout viewport des éléments position:fixed (bottom:0). */
-			window.requestAnimationFrame(() => {
-				window.scrollTo(window.scrollX, window.scrollY);
-			});
-		}
-	}
+	/* La navigation mobile cède la place au clavier sans modifier la page active.
+	   ÉTAT PARTAGÉ (lib/keyboardViewport.svelte.ts) : la même source de vérité
+	   pilote la barre du bas ICI et le bouton « + » du Journal. Deux booléens
+	   locaux déduits du visualViewport pouvaient rester bloqués à `true` après
+	   la fermeture d'un volet (métrique iOS figée) — la barre et le « + »
+	   disparaissaient jusqu'à la réouverture de l'app.
+	   Écoute globale (focus, visualViewport, retour au premier plan) + mesure
+	   immédiate : un seul branchement pour toute l'app. */
 	$effect(() => {
 		if (typeof window === 'undefined') return;
-		const onFocusOut = () => window.requestAnimationFrame(syncKeyboardOpen);
-		document.addEventListener('focusin', syncKeyboardOpen);
-		document.addEventListener('focusout', onFocusOut);
-		window.visualViewport?.addEventListener('resize', syncKeyboardOpen);
-		window.visualViewport?.addEventListener('scroll', syncKeyboardOpen);
-		syncKeyboardOpen();
-		return () => {
-			document.removeEventListener('focusin', syncKeyboardOpen);
-			document.removeEventListener('focusout', onFocusOut);
-			window.visualViewport?.removeEventListener('resize', syncKeyboardOpen);
-			window.visualViewport?.removeEventListener('scroll', syncKeyboardOpen);
-		};
+		return startKeyboardWatch();
 	});
 
 	/* Rafraîchir : re-fetch NON destructif des données de la page (re-run des
@@ -182,7 +142,9 @@
 	// chargement — le compteur doit retomber aussitôt, pas au prochain tick.
 	afterNavigate(() => {
 		if (role !== 'client') return;
-		keyboardOpen = false;
+		/* GARDE-FOU : à chaque navigation, sans volet réellement ouvert, la barre
+		   et le « + » reviennent et tout verrou de défilement restant est libéré. */
+		settleNavVisibility('navigate');
 		refreshNotificationsNow();
 	});
 
@@ -776,7 +738,7 @@
 
 	<!-- Barre de navigation mobile FLOTTANTE (Accueil · Journal · Progression) :
 	     capsule arrondie, centrée, au-dessus de la safe-area — jamais collée au bord. -->
-	{#if role === 'client' && primaryLinks.length > 0 && !keyboardOpen}
+	{#if role === 'client' && primaryLinks.length > 0 && !keyboard.open}
 		<nav
 			class="gflux-primary-nav pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-5 md:hidden"
 			aria-label="Navigation principale"

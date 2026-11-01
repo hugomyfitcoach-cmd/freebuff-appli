@@ -94,6 +94,33 @@ export function saisiesCalibrageValides(saisies: SaisiesCalibrage): boolean {
 	return CHAMPS_CALIBRAGE.every((champ) => messageChampCalibrage(champ, saisies[champ]) === null);
 }
 
+/** Sérialise les sauvegardes et associe chaque délai et réponse à sa cliente. */
+export function createCalibrageDraftScheduler(currentClient: () => string | null, delay: number) {
+	let generation = 0;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	let pending: Promise<void> = Promise.resolve();
+
+	function invalidate(): void {
+		generation += 1;
+		if (timer !== undefined) clearTimeout(timer);
+		timer = undefined;
+	}
+	function isCurrent(clientId: string, version: number): boolean {
+		return generation === version && currentClient() === clientId;
+	}
+	function schedule(clientId: string, save: (isCurrent: () => boolean) => Promise<void>): void {
+		invalidate();
+		const version = generation;
+		timer = setTimeout(() => {
+			timer = undefined;
+			pending = pending.then(async () => {
+				if (isCurrent(clientId, version)) await save(() => isCurrent(clientId, version));
+			});
+		}, delay);
+	}
+	return { invalidate, schedule, wait: () => pending };
+}
+
 /** Message du refus d'une date d'effet future (Europe/Paris). */
 export const MESSAGE_DATE_FUTURE =
 	"La date d'effet ne peut pas être dans le futur : au maximum aujourd'hui (Europe/Paris).";

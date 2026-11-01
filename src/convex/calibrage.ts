@@ -1,13 +1,13 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, type MutationCtx } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
 import { addDaysISO, assertCoachOwnsClient, getSessionUser, localTodayISO } from "./helpers";
 import { bodyFatSeries } from "./metrics";
 import { DEFAULT_GOALS, baselineLegacyGoalHistory, loadGoalHistory, upsertGoalHistoryToday } from "./journal";
 import { CalibrageError, VERSION_FORMULES_CALIBRAGE } from "../lib/calibrage";
-import { resultatsFiche, type EntreesFicheCalibrage } from "../lib/calibrageFiche";
+import { resultatsFiche, type EntreesBrouillonCalibrage, type EntreesFicheCalibrage } from "../lib/calibrageFiche";
 import { messageDateEffetFuture } from "../lib/calibrageSaisie";
 import { phaseDepuisMode, validerObjectifPhase } from "../lib/phase";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 
 /**
  * Onglet « Calibrage » du CRM — CÔTÉ COACH UNIQUEMENT (aucune donnée ni
@@ -57,10 +57,11 @@ const seanceValidator = v.object({
 });
 
 /**
- * Entrées du calibrage — validateur Convex STRICT : la forme exacte attendue
- * par `resultatsFiche`, rien d'autre n'est accepté (champ inconnu refusé à la
- * frontière). La semaine type (`apportsSemaine`, 7 apports ou null) en fait
- * partie : les résultats recalculés côté serveur l'intègrent toujours.
+ * Entrées du calibrage — validateur Convex STRICT (chemin « Appliquer à la
+ * fiche ») : la forme exacte attendue par `resultatsFiche`, rien d'autre n'est
+ * accepté (champ inconnu refusé à la frontière, aucun `null`). La semaine type
+ * (`apportsSemaine`, 7 apports ou null) en fait partie : les résultats
+ * recalculés côté serveur l'intègrent toujours.
  */
 const entreesValidator = v.object({
 	poidsKg: v.number(),
@@ -79,6 +80,92 @@ const entreesValidator = v.object({
 	apportsSemaine: v.array(v.union(v.number(), v.null()))
 });
 
+/**
+ * Validateur du BROUILLON : le coach écrit au fil de la frappe, donc tout champ
+ * numérique vidé vaut `null` (jamais refusé) et la semaine type comme la liste
+ * de séances peuvent être absentes ou incomplètes. Les BORNES de taille (50
+ * séances, 7 apports, 128 caractères) restent contrôlées par
+ * `validerTailleBrouillon` : la seule différence avec `entreesValidator`, c'est
+ * l'acceptation du vide — la forme des clés reste fermée.
+ */
+const nombreBrouillon = v.union(v.number(), v.null());
+const seanceBrouillonValidator = v.object({
+	activiteId: v.string(),
+	seancesParSemaine: nombreBrouillon,
+	dureeMinutes: nombreBrouillon,
+	choix: v.string()
+});
+const entreesBrouillonValidator = v.object({
+	poidsKg: nombreBrouillon,
+	mgPct: nombreBrouillon,
+	pasMoyen: nombreBrouillon,
+	heuresTravail: nombreBrouillon,
+	ajustementTravail: v.optional(nombreBrouillon),
+	adaptationPct: v.optional(nombreBrouillon),
+	deficitPct: v.optional(nombreBrouillon),
+	mode: v.optional(v.union(v.literal("deficit"), v.literal("maintenance"), v.literal("surplus"))),
+	surplusPct: v.optional(nombreBrouillon),
+	proteinesParKgMasseMaigre: v.optional(nombreBrouillon),
+	seances: v.optional(v.array(seanceBrouillonValidator)),
+	apportsSemaine: v.optional(v.array(nombreBrouillon))
+});
+
+/* ── MÉMOIRE DU CALIBRAGE — un seul brouillon par cliente ──
+
+   Le brouillon ne contient QUE des décisions de saisie (entrées + semaine
+   type). Il n'écrit jamais clientGoals ni clientGoalHistory : seul
+   « Appliquer à la fiche » écrit les objectifs. Upsert par `userId` → jamais
+   deux brouillons pour la même cliente. */
+
+/** Les brouillons peuvent être incomplets, mais leur taille reste bornée. */
+function validerTailleBrouillon(inputs: EntreesBrouillonCalibrage): void {
+	const seances = inputs.seances ?? [];
+	const apports = inputs.apportsSemaine ?? [];
+	if (seances.length > 50) {
+		throw new ConvexError("Brouillon invalide : 50 séances maximum.");
+	}
+	/* Semaine type ABSENTE ou en cours de saisie acceptée (0 à 7 apports) :
+	   jamais plus de sept jours. */
+	if (apports.length > 7) {
+		throw new ConvexError("Brouillon invalide : 7 apports journaliers maximum.");
+	}
+	if (seances.some((s) => (s.activiteId?.length ?? 0) > 128 || (s.choix?.length ?? 0) > 128)) {
+		throw new ConvexError("Brouillon invalide : identifiant ou choix limité à 128 caractères.");
+	}
+}
+
+/** Écarts de semaine type : exactement 7 nombres finis (kcal vs objectif). */
+function ecartsValides(ecarts: readonly number[]): number[] {
+	if (ecarts.length !== 7 || ecarts.some((e) => typeof e !== "number" || !isFinite(e))) {
+		throw new ConvexError("Semaine type invalide : 7 écarts attendus (kcal).");
+	}
+	return ecarts.map((e) => Math.round(e));
+}
+
+async function enregistrerBrouillon(
+	ctx: Pick<MutationCtx, "db">,
+	userId: Id<"users">,
+	inputs: EntreesBrouillonCalibrage,
+	ecartsSemaine: number[],
+	coachId: Id<"users">,
+	updatedAt: number
+): Promise<number> {
+	validerTailleBrouillon(inputs);
+	const rows = await ctx.db
+		.query("calibrageDrafts")
+		.withIndex("by_user", (q) => q.eq("userId", userId))
+		.collect();
+	const [premier, ...doublons] = rows;
+	if (premier) {
+		await ctx.db.patch(premier._id, { inputs, ecartsSemaine, updatedBy: coachId, updatedAt });
+		/* Invariant « un seul brouillon » : aucun doublon n'est conservé. */
+		for (const row of doublons) await ctx.db.delete(row._id);
+	} else {
+		await ctx.db.insert("calibrageDrafts", { userId, inputs, ecartsSemaine, updatedBy: coachId, updatedAt });
+	}
+	return updatedAt;
+}
+
 export const fiche = query({
 	args: {
 		sessionToken: v.optional(v.string()),
@@ -94,17 +181,23 @@ export const fiche = query({
 		if (!target || target.role !== "client") {
 			throw new ConvexError("Cliente introuvable.");
 		}
+		/* APPARTENANCE : seul le coach DE la cliente lit son calibrage — donc son
+		   brouillon (même règle que `apply`, source unique dans helpers). */
+		await assertCoachOwnsClient(ctx, target, coach);
 
 		const today = localTodayISO();
-		const [metricRows, stepRows, intakeRow, goalsRow, snapshotRows] = await Promise.all([
+		/* 28 jours de pas : la fenêtre courante (14 j) ET la précédente (14 j),
+		   affichée en repère « précédent : X » — jamais un zéro inventé. */
+		const [metricRows, stepRows, intakeRow, goalsRow, snapshotRows, draftRows] = await Promise.all([
 			ctx.db.query("bodyMetrics").withIndex("by_user", (q) => q.eq("userId", userId)).order("asc").collect(),
 			ctx.db
 				.query("dailySteps")
-				.withIndex("by_user_date", (q) => q.eq("userId", userId).gte("date", addDaysISO(today, -13)))
+				.withIndex("by_user_date", (q) => q.eq("userId", userId).gte("date", addDaysISO(today, -27)))
 				.collect(),
 			ctx.db.query("intakes").withIndex("by_user", (q) => q.eq("userId", userId)).first(),
 			ctx.db.query("clientGoals").withIndex("by_userId", (q) => q.eq("userId", userId)).first(),
 			ctx.db.query("calibrageSnapshots").withIndex("by_user", (q) => q.eq("userId", userId)).collect(),
+			ctx.db.query("calibrageDrafts").withIndex("by_user", (q) => q.eq("userId", userId)).collect(),
 		]);
 
 		/* Poids : moyenne des pesées sur 7 jours, sinon dernière pesée. Une
@@ -114,6 +207,18 @@ export const fiche = query({
 			.map((m) => ({ date: m.date, weightKg: m.weightKg as number }));
 		const recent = poidsRows.filter((p) => p.date >= addDaysISO(today, -6));
 		const derniere = poidsRows.length > 0 ? poidsRows[poidsRows.length - 1] : null;
+		/* « précédent » : moyenne de la fenêtre de 7 jours PRÉCÉDENTE (J-13 → J-7),
+		   sinon dernière pesée antérieure à la fenêtre courante. */
+		const precedenteFenetre = poidsRows.filter(
+			(p) => p.date >= addDaysISO(today, -13) && p.date <= addDaysISO(today, -7)
+		);
+		const precedenteIsolee = poidsRows.filter((p) => p.date < addDaysISO(today, -6));
+		const precedentPoids =
+			precedenteFenetre.length > 0
+				? arrondi1(precedenteFenetre.reduce((s, p) => s + p.weightKg, 0) / precedenteFenetre.length)
+				: precedenteIsolee.length > 0
+					? arrondi1(precedenteIsolee[precedenteIsolee.length - 1].weightKg)
+					: null;
 		const poids =
 			recent.length > 0
 				? {
@@ -121,24 +226,38 @@ export const fiche = query({
 						source: "moyenne7j" as const,
 						nbPesees: recent.length,
 						date: derniere?.date ?? null,
+						precedent: precedentPoids,
 					}
 				: derniere
-					? { valeur: arrondi1(derniere.weightKg), source: "derniere" as const, nbPesees: 0, date: derniere.date }
-					: { valeur: null, source: null, nbPesees: 0, date: null };
+					? {
+							valeur: arrondi1(derniere.weightKg),
+							source: "derniere" as const,
+							nbPesees: 0,
+							date: derniere.date,
+							precedent: precedentPoids,
+						}
+					: { valeur: null, source: null, nbPesees: 0, date: null, precedent: precedentPoids };
 
 		/* Masse grasse : dernier point de la série US Navy DÉRIVÉE (même source
 		   de vérité que « Ma progression » et la Vision 360), sinon saisie. */
 		const bodyFat = bodyFatSeries(metricRows, target.heightCm ?? null);
 		const derniereMg = bodyFat.length > 0 ? bodyFat[bodyFat.length - 1] : null;
 
-		/* Moyenne de pas sur 14 jours — jours RENSEIGNÉS uniquement. */
+		/* Moyenne de pas sur 14 jours — jours RENSEIGNÉS uniquement. « précédent »
+		   = même moyenne sur les 14 jours d'avant (J-27 → J-14), si renseignée. */
+		const pasRecents = stepRows.filter((r) => r.date >= addDaysISO(today, -13));
+		const pasPrecedents = stepRows.filter((r) => r.date < addDaysISO(today, -13));
 		const pasMoyen =
-			stepRows.length > 0
+			pasRecents.length > 0
 				? {
-						valeur: arrondi1(stepRows.reduce((s, r) => s + r.count, 0) / stepRows.length),
-						jours: stepRows.length,
+						valeur: arrondi1(pasRecents.reduce((s, r) => s + r.count, 0) / pasRecents.length),
+						jours: pasRecents.length,
+						precedent:
+							pasPrecedents.length > 0
+								? arrondi1(pasPrecedents.reduce((s, r) => s + r.count, 0) / pasPrecedents.length)
+								: null,
 					}
-				: { valeur: null, jours: 0 };
+				: { valeur: null, jours: 0, precedent: null };
 
 		/* Réponse « sport » du formulaire de démarrage — affichée en AIDE, telle
 		   quelle (jamais convertie en profil sportif). */
@@ -149,14 +268,29 @@ export const fiche = query({
 			sportFrequency: answers.sportFrequency ?? null,
 		};
 
-		const dernier = snapshotRows.length > 0 ? snapshotRows[snapshotRows.length - 1] : null;
+		/* « précédent » MG : avant-dernière estimation US Navy (la dernière reste
+		   la valeur proposée). */
+		const mgPrecedente = bodyFat.length > 1 ? bodyFat[bodyFat.length - 2] : null;
+
+		/* Instantanés : tri par création, le plus récent fait foi (repli de
+		   restauration quand aucun brouillon n'existe). */
+		const snapsTries = [...snapshotRows].sort((a, b) => a.createdAt - b.createdAt);
+		const dernier = snapsTries.length > 0 ? snapsTries[snapsTries.length - 1] : null;
+		const brouillon = draftRows.length > 0
+			? [...draftRows].sort((a, b) => b.updatedAt - a.updatedAt)[0]
+			: null;
 
 		return {
 			today,
 			poids,
 			masseGrasse: derniereMg
-				? { valeur: derniereMg.value, source: "usNavy" as const, date: derniereMg.date }
-				: { valeur: null, source: null, date: null },
+				? {
+						valeur: derniereMg.value,
+						source: "usNavy" as const,
+						date: derniereMg.date,
+						precedent: mgPrecedente ? mgPrecedente.value : null,
+					}
+				: { valeur: null, source: null, date: null, precedent: mgPrecedente ? mgPrecedente.value : null },
 			pasMoyen,
 			sportOnboarding,
 			goals: goalsRow
@@ -172,6 +306,25 @@ export const fiche = query({
 				: { ...DEFAULT_GOALS, maintenanceKcal: null, stepGoal: null, goalsSet: false },
 			dernierCalibrage: dernier
 				? { date: dernier.date, effectiveFrom: dernier.effectiveFrom, createdAt: dernier.createdAt }
+				: null,
+			/* MÉMOIRE : décisions en cours de saisie (brouillon) et dernier
+			   calibrage appliqué (repli). La page restaure, dans cet ordre,
+			   brouillon → dernier instantané → valeurs par défaut. */
+			brouillon: brouillon
+				? {
+						entrees: brouillon.inputs,
+						ecartsSemaine: brouillon.ecartsSemaine,
+						updatedAt: brouillon.updatedAt,
+					}
+				: null,
+			dernierInstantane: dernier
+				? {
+						date: dernier.date,
+						effectiveFrom: dernier.effectiveFrom,
+						createdAt: dernier.createdAt,
+						entrees: dernier.inputs,
+						objectifJournalierKcal: nombre(dernier.results?.objectifJournalierKcal),
+					}
 				: null,
 		};
 	},
@@ -292,7 +445,86 @@ export const apply = mutation({
 			createdAt: Date.now(),
 		});
 
-		return { ok: true, effectiveFrom };
+		/* BROUILLON RÉALIGNÉ : la mémoire de saisie repart exactement de ce qui
+		   vient d'être appliqué — une réouverture ne rejoue pas d'anciennes
+		   décisions. Écrit APRÈS l'instantané : aucun impact sur les objectifs. */
+		const objectif = resultats.objectifJournalierKcal;
+		const ecartsAppliques = ecartsValides(
+			(entrees.apportsSemaine ?? []).map((apport) =>
+				typeof apport === "number" ? apport - objectif : 0
+			)
+		);
+		const brouillonSavedAt = await enregistrerBrouillon(
+			ctx,
+			userId,
+			entrees,
+			ecartsAppliques,
+			coach._id,
+			Date.now()
+		);
+
+		return { ok: true, effectiveFrom, brouillonSavedAt };
+	},
+});
+
+/* ── SAUVEGARDE AUTOMATIQUE DU BROUILLON (mémoire du calibrage) ──
+   Réservée au coach PROPRIÉTAIRE de la cliente (assertCoachOwnsClient).
+   N'écrit QUE `calibrageDrafts` : aucun objectif, aucun historique, aucun
+   instantané — « Appliquer à la fiche » reste la SEULE écriture des objectifs. */
+
+export const saveDraft = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		userId: v.id("users"),
+		/* Vide ACCEPTÉ : un champ vidé en cours de saisie ne bloque plus la
+		   sauvegarde (le validateur d'`apply` reste strict). */
+		entrees: entreesBrouillonValidator,
+		ecartsSemaine: v.array(v.number()),
+	},
+	handler: async (ctx, { sessionToken, userId, entrees, ecartsSemaine }) => {
+		const coach = await getSessionUser(ctx, sessionToken);
+		if (!coach || coach.role !== "coach") {
+			throw new ConvexError("Réservé au coach (CRM).");
+		}
+		const target = await ctx.db.get(userId);
+		if (!target || target.role !== "client") {
+			throw new ConvexError("Cliente introuvable.");
+		}
+		await assertCoachOwnsClient(ctx, target, coach);
+		const savedAt = await enregistrerBrouillon(
+			ctx,
+			userId,
+			entrees,
+			ecartsValides(ecartsSemaine),
+			coach._id,
+			Date.now()
+		);
+		return { ok: true, savedAt };
+	},
+});
+
+/** « Repartir des valeurs par défaut » : efface le brouillon de la cliente. */
+export const clearDraft = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		userId: v.id("users"),
+	},
+	handler: async (ctx, { sessionToken, userId }) => {
+		const coach = await getSessionUser(ctx, sessionToken);
+		if (!coach || coach.role !== "coach") {
+			throw new ConvexError("Réservé au coach (CRM).");
+		}
+		const target = await ctx.db.get(userId);
+		if (!target || target.role !== "client") {
+			throw new ConvexError("Cliente introuvable.");
+		}
+		await assertCoachOwnsClient(ctx, target, coach);
+		const rows = await ctx.db
+			.query("calibrageDrafts")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.collect();
+		for (const row of rows) await ctx.db.delete(row._id);
+		return { ok: true, cleared: rows.length };
 	},
 });
 

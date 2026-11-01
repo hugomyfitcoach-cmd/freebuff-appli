@@ -793,7 +793,20 @@ import { formatDetailValue } from '$lib/foodDetailsFormat';
 		</div>
 	{:else}
 		<div class="flex w-full items-center {compact ? 'gap-2 px-2 py-0.5' : 'gap-2.5 px-2 py-1.5'}">
-			{@render entryBody(e)}
+			<!-- Mode coach : le NOM ou l'IMAGE ouvre la fiche de l'aliment en
+			     CONSULTATION SEULE. Les commandes − / + / corbeille restent HORS
+			     du bouton : aucun geste d'écriture ne passe par la fiche. -->
+			{#if onEntryClick}
+				<button
+					type="button"
+					class="flex min-w-0 flex-1 items-center text-left transition hover:bg-line/40 {compact ? 'gap-2' : 'gap-2.5'}"
+					onclick={() => onEntryClick(e)}
+				>
+					{@render entryBody(e)}
+				</button>
+			{:else}
+				{@render entryBody(e)}
+			{/if}
 			{#if mode === 'coach' && onQty && onRemove}
 				<div class="flex shrink-0 items-center gap-1">
 					<button
@@ -919,5 +932,21 @@ import { formatDetailValue } from '$lib/foodDetailsFormat';
 				· {fmt(e.qtyGrams)} g
 			{/if}
 		</span>
+		{#if mode === 'coach'}
+			<!-- MACROS de la quantité saisie (mode coach uniquement : l'espace
+			     cliente est inchangé). Mêmes couleurs que le Journal
+			     (protéines bleu · glucides rose · lipides orange) et même format
+			     français que la fiche nutritionnelle (une décimale sous 10 g) :
+			     « P 25 g · G 10 g · L 0,5 g ». flex-wrap : sur écran étroit elles
+			     passent SOUS le nom, les boutons − / + / corbeille ne sont jamais
+			     comprimés (shrink-0). -->
+			<span class="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-[11px] font-semibold tabular-nums">
+				<span class="whitespace-nowrap" style:color="#3b82f6">P {formatDetailValue(e.protein, 'g')} g</span>
+				<span class="text-mist/60" aria-hidden="true">·</span>
+				<span class="whitespace-nowrap" style:color="#ec4899">G {formatDetailValue(e.carbs, 'g')} g</span>
+				<span class="text-mist/60" aria-hidden="true">·</span>
+				<span class="whitespace-nowrap" style:color="#f97316">L {formatDetailValue(e.fat, 'g')} g</span>
+			</span>
+		{/if}
 	</span>
 {/snippet}

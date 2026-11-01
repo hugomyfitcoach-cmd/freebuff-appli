@@ -308,9 +308,21 @@ export default defineSchema({
 		/** Portion suggérée par OFF (g/ml), quand elle existe. */
 		servingQty: v.optional(v.number()),
 		servingUnit: v.optional(v.string()),
+		/**
+		 * Texte de recherche unifié : NOM + MARQUE normalisés (voir
+		 * `foodRanking.searchTextOf`). Champ OPTIONNEL — aucune migration : les
+		 * fiches antérieures en sont dépourvues et restent trouvées par l'index
+		 * `by_name` (repli de la recherche), le temps que le rattrapage interne
+		 * (`journal.backfillFoodSearchText`, toutes les 2 minutes) les complète.
+		 */
+		searchText: v.optional(v.string()),
 	})
 		.index("by_offId", ["offId"])
-		.searchIndex("by_name", { searchField: "name" }),
+		.index("by_searchText_pending", ["searchText"])
+		.searchIndex("by_name", { searchField: "name" })
+		// Index de recherche dédié « nom + marque » : un produit se trouve par sa
+		// marque (« bodymass ») comme par son nom.
+		.searchIndex("by_searchText", { searchField: "searchText" }),
 
 	/** Aliments créés par les clients (produit non présent dans la base OFF). */
 	customFoods: defineTable({
@@ -489,6 +501,31 @@ export default defineSchema({
 	})
 		.index("by_user", ["userId"])
 		.index("by_user_date", ["userId", "date"]),
+
+	/**
+	 * MÉMOIRE DU CALIBRAGE — un SEUL brouillon par cliente, réécrit au fil de
+	 * la saisie du coach (sauvegarde automatique, debounce côté page).
+	 *
+	 * Rétrocompatibilité : table NOUVELLE, aucun champ existant touché — les
+	 * fiches déjà calibrées n'ont besoin d'aucune migration (pas de brouillon =
+	 * repli sur le dernier instantané `calibrageSnapshots`, puis sur les
+	 * valeurs par défaut). Le brouillon ne contient QUE des décisions de
+	 * saisie : il n'écrit jamais `clientGoals` ni `clientGoalHistory` — seul
+	 * « Appliquer à la fiche » (mutation `calibrage.apply`) écrit les objectifs.
+	 * Clé d'unicité fonctionnelle : `userId` (upsert, jamais d'accumulation).
+	 */
+	calibrageDrafts: defineTable({
+		/** Cliente concernée — un brouillon par cliente. */
+		userId: v.id("users"),
+		/** Entrées du calibrage (mêmes clés que `calibrageSnapshots.inputs`). */
+		inputs: v.record(v.string(), v.any()),
+		/** Écarts de la semaine type (7 nombres, kcal vs objectif journalier). */
+		ecartsSemaine: v.array(v.number()),
+		/** Coach qui a enregistré la dernière modification (traçabilité). */
+		updatedBy: v.id("users"),
+		/** Horodatage de la dernière sauvegarde (affiché « Brouillon enregistré · … »). */
+		updatedAt: v.number(),
+	}).index("by_user", ["userId"]),
 
 	/** Pas quotidiens saisis par la cliente — une seule valeur par jour. */
 	dailySteps: defineTable({

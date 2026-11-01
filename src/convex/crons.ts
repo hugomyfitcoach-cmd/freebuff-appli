@@ -19,6 +19,10 @@ import { api, internal } from "./_generated/api";
  * 4) Rattrapage du message global (toutes les 5 minutes) : les clientes
  *    devenues actives après la publication reçoivent le même message du jour
  *    à leur prochaine visite — sans jamais doubler celles déjà servies.
+ * 5) RATTRAPAGE `searchText` des aliments (toutes les 2 minutes) : les fiches
+ *    mises en cache avant l'index nom + marque reçoivent leur texte de
+ *    recherche par lots de 200, sans réseau et sans geste manuel. Le job ne
+ *    fait rien quand tout est rempli.
  */
 const crons = cronJobs();
 
@@ -37,6 +41,13 @@ crons.interval(
 	"message-global-rattrapage",
 	{ minutes: 5 },
 	internal.dashboard.coachBroadcastCatchUp,
+	{}
+);
+
+crons.interval(
+	"foods-search-text-rattrapage",
+	{ minutes: 2 },
+	internal.journal.backfillFoodSearchText,
 	{}
 );
 

@@ -6,7 +6,8 @@
  * Convex `foodDetails` (pour 100 g) et sont seulement mises à l'échelle de la
  * quantité choisie, puis formatées à la française :
  *  - virgule décimale, jamais de point ;
- *  - une décimale sous 10 g, entier au-delà ;
+ *  - une décimale sous 10 g, entier au-delà ; un zéro exact s'affiche
+ *    « 0 » (jamais « 0,0 ») — 0,7 g garde sa décimale ;
  *  - sel : deux décimales sous 1 g (une pincée reste lisible) ;
  *  - énergie : entier (kcal) ;
  *  - micros (mg / µg) : une décimale sous 10, entier au-delà ;
@@ -68,11 +69,15 @@ export function formatDetailValue(value: number | null | undefined, kind: Detail
 	if (!isKnown(value)) return UNKNOWN_VALUE;
 	if (kind === 'kcal') return String(Math.round(value));
 	if (kind === 'salt') {
+		// Un zéro s'affiche « 0 » (jamais « 0,00 ») ; une pincée reste lisible.
+		if (roundTo(value, 2) === 0) return '0';
 		if (value < 1) return decimal(value, 2);
 		if (value < 10) return decimal(value, 1);
 		return String(Math.round(value));
 	}
-	// g / mg / µg : une décimale sous 10, entier au-delà.
+	// g / mg / µg : une décimale sous 10, entier au-delà — sauf le zéro exact,
+	// qui s'affiche « 0 » et non « 0,0 » (macro à 0 g dans le journal coach).
+	if (roundTo(value, 1) === 0) return '0';
 	if (value < 10) return decimal(value, 1);
 	return String(Math.round(value));
 }
