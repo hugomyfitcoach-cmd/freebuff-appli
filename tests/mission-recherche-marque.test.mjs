@@ -170,8 +170,8 @@ test('rattrapage : lot borné de 200, idempotent, sans réseau, planifié toutes
 	);
 	assert.ok(backfill.includes('internalMutation'), 'mutation interne (jamais exposée au client)');
 	assert.ok(
-		backfill.includes('.filter((q) => q.eq(q.field("searchText"), undefined))'),
-		'ne cible QUE les fiches sans searchText'
+		backfill.includes('.withIndex("by_searchText_pending", (q) => q.eq("searchText", undefined))'),
+		'ne cible QUE les fiches sans searchText via un index'
 	);
 	assert.ok(backfill.includes('.take(limit)'), 'lecture bornée (aucune boucle infinie)');
 	assert.ok(backfill.includes('await ctx.db.patch(f._id, { searchText });'), 'n’écrit que searchText');
@@ -182,6 +182,27 @@ test('rattrapage : lot borné de 200, idempotent, sans réseau, planifié toutes
 	const job = crons.slice(crons.indexOf('foods-search-text-rattrapage'));
 	assert.ok(job.includes('internal.journal.backfillFoodSearchText'), 'tâche planifiée branchée');
 	assert.ok(/\{ minutes: 2 \}/.test(job.slice(0, 200)), 'toutes les 2 minutes');
+});
+
+test('rattrapage : un nom et une marque vides sont marqués une seule fois', async () => {
+	const { backfillFoodSearchText } = await import('../src/convex/journal.ts');
+	const rows = [{ _id: 'vide', name: '!!!', brand: '???' }, { _id: 'normal', name: 'Tomate' }];
+	const writes = [];
+	const ctx = { db: {
+		query(table) {
+			assert.equal(table, 'foods');
+			return { withIndex(index, fn) {
+				assert.equal(index, 'by_searchText_pending');
+				fn({ eq(field, value) { assert.equal(field, 'searchText'); assert.equal(value, undefined); } });
+				return { async take(limit) { return rows.filter((row) => row.searchText === undefined).slice(0, limit); } };
+			} };
+		},
+		async patch(id, patch) { Object.assign(rows.find((row) => row._id === id), patch); writes.push(id); }
+	} };
+	assert.equal((await backfillFoodSearchText._handler(ctx, {})).processed, 2);
+	assert.equal(rows[0].searchText, '');
+	assert.equal((await backfillFoodSearchText._handler(ctx, {})).processed, 0);
+	assert.deepEqual(writes, ['vide', 'normal']);
 });
 
 /* ─── 7) Affichage : une macro à zéro s'écrit « 0 g » ─── */

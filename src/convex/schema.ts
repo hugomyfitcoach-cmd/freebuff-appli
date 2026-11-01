@@ -318,6 +318,7 @@ export default defineSchema({
 		searchText: v.optional(v.string()),
 	})
 		.index("by_offId", ["offId"])
+		.index("by_searchText_pending", ["searchText"])
 		.searchIndex("by_name", { searchField: "name" })
 		// Index de recherche dédié « nom + marque » : un produit se trouve par sa
 		// marque (« bodymass ») comme par son nom.

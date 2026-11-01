@@ -579,12 +579,12 @@ export const backfillFoodSearchText = internalMutation({
 		const limit = Math.min(Math.max(requested, 1), FOOD_SEARCH_TEXT_BATCH);
 		const pending = await ctx.db
 			.query("foods")
-			.filter((q) => q.eq(q.field("searchText"), undefined))
+			.withIndex("by_searchText_pending", (q) => q.eq("searchText", undefined))
 			.take(limit);
 		let processed = 0;
 		for (const f of pending) {
 			const searchText = searchTextOf(f.name, f.brand);
-			if (!searchText || !needsSearchTextUpdate(f, searchText)) continue;
+			if (!needsSearchTextUpdate(f, searchText)) continue;
 			await ctx.db.patch(f._id, { searchText });
 			processed += 1;
 		}
