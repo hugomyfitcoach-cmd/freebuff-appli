@@ -225,6 +225,16 @@ function installListeners(): () => void {
 		focusUntrusted = false;
 		syncKeyboardOpen();
 	};
+	/* Toucher un champ DÉJÀ focalisé (cas iOS après rotation) ne change pas le
+	   focus : aucun `focusin` n'est émis. Le tap reste une demande de clavier
+	   — nécessaire sur Android (`resizes-content`), où la hauteur ne prouve
+	   jamais le clavier : sans ça, la navigation s'afficherait par-dessus un
+	   clavier réellement ouvert (#31). */
+	const onPointerDown = (e: Event) => {
+		if (!isEditableElement(e.target as Element | null)) return;
+		focusUntrusted = false;
+		syncKeyboardOpen();
+	};
 	const onFocusOut = () => window.requestAnimationFrame(() => syncKeyboardOpen());
 	const onVv = () => {
 		syncKeyboardOpen();
@@ -249,6 +259,7 @@ function installListeners(): () => void {
 
 	document.addEventListener('focusin', onFocusIn);
 	document.addEventListener('focusout', onFocusOut);
+	document.addEventListener('pointerdown', onPointerDown, true);
 	window.visualViewport?.addEventListener('resize', onVv);
 	window.visualViewport?.addEventListener('scroll', onVv);
 	document.addEventListener('visibilitychange', onVisibility);
@@ -260,6 +271,7 @@ function installListeners(): () => void {
 		clearTimeout(settleTimer);
 		document.removeEventListener('focusin', onFocusIn);
 		document.removeEventListener('focusout', onFocusOut);
+		document.removeEventListener('pointerdown', onPointerDown, true);
 		window.visualViewport?.removeEventListener('resize', onVv);
 		window.visualViewport?.removeEventListener('scroll', onVv);
 		document.removeEventListener('visibilitychange', onVisibility);
