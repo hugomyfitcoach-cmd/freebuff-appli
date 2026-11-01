@@ -141,7 +141,7 @@ test('la recherche locale interroge le nouvel index, avec repli sur by_name', ()
 	]) {
 		assert.ok(code.includes('withSearchIndex("by_searchText"'), 'index nom + marque interrogé');
 		assert.ok(code.includes('withSearchIndex("by_name"'), 'repli par nom conservé');
-		assert.ok(/byName\.filter\(\(f\) => !f\.searchText && !seenIds\.has\(f\._id\)\)/.test(code), 'repli limité aux fiches sans searchText');
+		assert.ok(/byName\.filter\(\(f\) => !seenIds\.has\(f\._id\)\)/.test(code), 'fusion dédoublonnée sans exclure les fiches indexées');
 		assert.ok(/filterByQueryWords\(foods\.map\(toHit\), term\)/.test(code), 'même filtre d’éligibilité');
 	}
 });

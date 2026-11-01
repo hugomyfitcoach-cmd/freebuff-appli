@@ -175,7 +175,7 @@ export const searchForCoach = query({
 				.take(FOOD_SEARCH_CANDIDATES),
 		]);
 		const seenIds = new Set(byText.map((f) => f._id));
-		const foods = [...byText, ...byName.filter((f) => !f.searchText && !seenIds.has(f._id))];
+		const foods = [...byText, ...byName.filter((f) => !seenIds.has(f._id))];
 		// Éligibilité : l'index plein texte admet un candidat sur UN SEUL mot (« de ») —
 		// voir filterByQueryWords. Le classement R1 des candidats restants est inchangé.
 		// Miniatures miroir G-FLUX prêtes → thumbUrl (même lecture que côté client).
@@ -449,10 +449,10 @@ export const searchLocal = query({
 				.filter((q) => q.eq(q.field("userId"), user._id))
 				.take(10),
 		]);
-		// Liste unique : `by_searchText` (nom + marque) d'abord, puis le repli
-		// `by_name` pour les fiches sans `searchText` (rattrapage pas encore passé).
+		// Liste unique : tous les candidats des deux index, dédoublonnés par ID,
+		// y compris ceux qui sont déjà indexés mais absents des 150 premiers.
 		const seenIds = new Set(byText.map((f) => f._id));
-		const foods = [...byText, ...byName.filter((f) => !f.searchText && !seenIds.has(f._id))];
+		const foods = [...byText, ...byName.filter((f) => !seenIds.has(f._id))];
 		// Éligibilité commune (base OFF ET aliments personnels) : un nom qui ne
 		// partage qu'un mot vide avec la requête n'est pas un résultat. Chaque
 		// tranche suit le MÊME classement R1 : un lot suivant complète la liste,
