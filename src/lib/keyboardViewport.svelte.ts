@@ -42,6 +42,13 @@ let settleTimer: ReturnType<typeof setTimeout> | undefined;
  */
 let refHeight = 0;
 let refWidth = 0;
+/**
+ * Le focus seul ne prouve plus un clavier juste après une rotation : iOS garde
+ * l'input focalisé alors que le clavier a été refermé en tournant l'appareil.
+ * Il redevient une preuve au prochain `focusin` (l'utilisateur a retapé un
+ * champ), ou dès qu'un rétrécissement du viewport est mesuré.
+ */
+let focusUntrusted = false;
 
 /** UNE SEULE source de vérité, lue par AppShell ET par le Journal. */
 export const keyboard = $state<{ open: boolean }>({ open: false });
@@ -114,10 +121,14 @@ function nudgeWebKitLayout(): void {
 export function syncKeyboardOpen(options: { trustViewport?: boolean } = {}): boolean {
 	if (typeof document === 'undefined') return false;
 	const trustViewport = options.trustViewport ?? true;
-	/* ROTATION : nouvelle mise en page. La référence est réinitialisée et la
-	   mesure héritée invalidée — une rotation n'ouvre jamais un clavier. */
-	if (noteLayoutChange()) viewportStale = true;
-	const focused = isEditableElement(document.activeElement);
+	/* ROTATION : nouvelle mise en page. La référence de hauteur est réinitialisée
+	   et toute mesure héritée invalidée : une rotation n'ouvre JAMAIS un clavier
+	   (ni par la hauteur, ni par le focus conservé par iOS). */
+	if (noteLayoutChange()) {
+		viewportStale = true;
+		focusUntrusted = true;
+	}
+	const focused = !focusUntrusted && isEditableElement(document.activeElement);
 	const shrunk = viewportShrunk();
 	if (focused || !shrunk) viewportStale = false;
 	const next = focused || (trustViewport && !viewportStale && shrunk);
@@ -208,7 +219,12 @@ let stopListeners: (() => void) | null = null;
 let visibilityTimer: ReturnType<typeof setTimeout> | undefined;
 
 function installListeners(): () => void {
-	const onFocusIn = () => syncKeyboardOpen();
+	const onFocusIn = () => {
+		/* Un tap sur un champ est une demande explicite de clavier : le focus
+		   redevient une preuve après une rotation. */
+		focusUntrusted = false;
+		syncKeyboardOpen();
+	};
 	const onFocusOut = () => window.requestAnimationFrame(() => syncKeyboardOpen());
 	const onVv = () => {
 		syncKeyboardOpen();
@@ -227,6 +243,7 @@ function installListeners(): () => void {
 	   le layout stabilisé — un champ réellement focalisé reste un clavier. */
 	const onOrientation = () => {
 		viewportStale = true;
+		focusUntrusted = true;
 		window.requestAnimationFrame(() => syncKeyboardOpen());
 	};
 
