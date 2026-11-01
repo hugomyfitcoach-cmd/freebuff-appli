@@ -117,6 +117,107 @@ export type EntreesFicheCalibrage = {
 	apportsSemaine: (number | null)[];
 };
 
+/** Une séance EN COURS DE SAISIE : ses nombres peuvent être vidés (null). */
+export type SeanceSaisieCalibrage = {
+	activiteId: string;
+	seancesParSemaine: number | null;
+	dureeMinutes: number | null;
+	choix: string;
+};
+
+/**
+ * Entrées de l'onglet TELLES QUE SAISIES par le coach : un champ numérique
+ * vidé (frappe en cours) vaut `null` — jamais `NaN`, jamais une valeur
+ * inventée. `entreesCalibrageCompletes` les convertit dans la forme STRICTE
+ * `EntreesFicheCalibrage` dès que la saisie est complète : aucun calcul ne
+ * reçoit jamais un vide.
+ */
+export type EntreesSaisieCalibrage = {
+	poidsKg: number | null;
+	mgPct: number | null;
+	pasMoyen: number | null;
+	heuresTravail: number | null;
+	ajustementTravail?: number | null;
+	adaptationPct?: number | null;
+	deficitPct?: number | null;
+	mode?: ModePhase;
+	surplusPct?: number | null;
+	proteinesParKgMasseMaigre?: number | null;
+	seances: SeanceSaisieCalibrage[];
+	apportsSemaine: (number | null)[];
+};
+
+/**
+ * Brouillon serveur (`calibrageDrafts.inputs`) : les mêmes valeurs, avec une
+ * semaine type et une liste de séances éventuellement absentes ou en cours de
+ * saisie — la taille reste bornée côté mutation.
+ */
+export type EntreesBrouillonCalibrage = Omit<
+	EntreesSaisieCalibrage,
+	'seances' | 'apportsSemaine'
+> & {
+	seances?: SeanceSaisieCalibrage[];
+	apportsSemaine?: (number | null)[];
+};
+
+/** Nombre fini ou `undefined` — un champ vidé n'est jamais transformé en 0. */
+function nombreSaisi(valeur: number | null | undefined): number | undefined {
+	return typeof valeur === 'number' && Number.isFinite(valeur) ? valeur : undefined;
+}
+
+/**
+ * Entrées STRICTES (forme attendue par `resultatsFiche`) ou `null` tant qu'un
+ * champ chiffré de l'onglet reste vide : aucun calcul n'est lancé sur une
+ * valeur absente, l'écran garde alors ses « — » et ses derniers résultats.
+ * Un champ facultatif vidé redevient absent (le module applique son défaut).
+ */
+export function entreesCalibrageCompletes(
+	saisie: EntreesSaisieCalibrage
+): EntreesFicheCalibrage | null {
+	const poidsKg = nombreSaisi(saisie.poidsKg);
+	const mgPct = nombreSaisi(saisie.mgPct);
+	const pasMoyen = nombreSaisi(saisie.pasMoyen);
+	const heuresTravail = nombreSaisi(saisie.heuresTravail);
+	const adaptationPct = nombreSaisi(saisie.adaptationPct);
+	const deficitPct = nombreSaisi(saisie.deficitPct);
+	const proteines = nombreSaisi(saisie.proteinesParKgMasseMaigre);
+	if (
+		poidsKg === undefined ||
+		mgPct === undefined ||
+		pasMoyen === undefined ||
+		heuresTravail === undefined ||
+		adaptationPct === undefined ||
+		deficitPct === undefined ||
+		proteines === undefined
+	) {
+		return null;
+	}
+	const apports = Array.isArray(saisie.apportsSemaine) ? saisie.apportsSemaine : [];
+	const apportsSemaine: (number | null)[] = [];
+	for (let i = 0; i < JOURS_SEMAINE; i += 1) {
+		apportsSemaine.push(nombreSaisi(apports[i]) ?? null);
+	}
+	return {
+		poidsKg,
+		mgPct,
+		pasMoyen,
+		heuresTravail,
+		ajustementTravail: nombreSaisi(saisie.ajustementTravail),
+		adaptationPct,
+		deficitPct,
+		mode: saisie.mode,
+		surplusPct: nombreSaisi(saisie.surplusPct),
+		proteinesParKgMasseMaigre: proteines,
+		seances: (saisie.seances ?? []).map((seance) => ({
+			activiteId: seance.activiteId,
+			seancesParSemaine: nombreSaisi(seance.seancesParSemaine) ?? 0,
+			dureeMinutes: nombreSaisi(seance.dureeMinutes) ?? 0,
+			choix: seance.choix
+		})),
+		apportsSemaine
+	};
+}
+
 /** Niveau de disponibilité en énergie face aux seuils 30 / 24 kcal/kg de MM. */
 export type NiveauDisponibilite = 'haute' | 'intermediaire' | 'basse';
 
@@ -351,8 +452,10 @@ export function phraseSupplementTravail(): string {
  * heures sont invalides (le module refuse alors la saisie).
  */
 export function supplementTravailTextes(
-	heures: number
+	heures: number | null | undefined
 ): { total: string; detail: string } | null {
+	/* Champ vidé (null) : aucun texte de supplément — jamais un nombre deviné. */
+	if (typeof heures !== 'number' || !Number.isFinite(heures)) return null;
 	let total: number;
 	try {
 		total = supplementTravail({ heures });

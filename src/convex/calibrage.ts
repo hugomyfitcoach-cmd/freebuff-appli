@@ -4,7 +4,7 @@ import { addDaysISO, assertCoachOwnsClient, getSessionUser, localTodayISO } from
 import { bodyFatSeries } from "./metrics";
 import { DEFAULT_GOALS, baselineLegacyGoalHistory, loadGoalHistory, upsertGoalHistoryToday } from "./journal";
 import { CalibrageError, VERSION_FORMULES_CALIBRAGE } from "../lib/calibrage";
-import { resultatsFiche, type EntreesFicheCalibrage } from "../lib/calibrageFiche";
+import { resultatsFiche, type EntreesBrouillonCalibrage, type EntreesFicheCalibrage } from "../lib/calibrageFiche";
 import { messageDateEffetFuture } from "../lib/calibrageSaisie";
 import { phaseDepuisMode, validerObjectifPhase } from "../lib/phase";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -57,10 +57,11 @@ const seanceValidator = v.object({
 });
 
 /**
- * Entrées du calibrage — validateur Convex STRICT : la forme exacte attendue
- * par `resultatsFiche`, rien d'autre n'est accepté (champ inconnu refusé à la
- * frontière). La semaine type (`apportsSemaine`, 7 apports ou null) en fait
- * partie : les résultats recalculés côté serveur l'intègrent toujours.
+ * Entrées du calibrage — validateur Convex STRICT (chemin « Appliquer à la
+ * fiche ») : la forme exacte attendue par `resultatsFiche`, rien d'autre n'est
+ * accepté (champ inconnu refusé à la frontière, aucun `null`). La semaine type
+ * (`apportsSemaine`, 7 apports ou null) en fait partie : les résultats
+ * recalculés côté serveur l'intègrent toujours.
  */
 const entreesValidator = v.object({
 	poidsKg: v.number(),
@@ -79,6 +80,36 @@ const entreesValidator = v.object({
 	apportsSemaine: v.array(v.union(v.number(), v.null()))
 });
 
+/**
+ * Validateur du BROUILLON : le coach écrit au fil de la frappe, donc tout champ
+ * numérique vidé vaut `null` (jamais refusé) et la semaine type comme la liste
+ * de séances peuvent être absentes ou incomplètes. Les BORNES de taille (50
+ * séances, 7 apports, 128 caractères) restent contrôlées par
+ * `validerTailleBrouillon` : la seule différence avec `entreesValidator`, c'est
+ * l'acceptation du vide — la forme des clés reste fermée.
+ */
+const nombreBrouillon = v.union(v.number(), v.null());
+const seanceBrouillonValidator = v.object({
+	activiteId: v.string(),
+	seancesParSemaine: nombreBrouillon,
+	dureeMinutes: nombreBrouillon,
+	choix: v.string()
+});
+const entreesBrouillonValidator = v.object({
+	poidsKg: nombreBrouillon,
+	mgPct: nombreBrouillon,
+	pasMoyen: nombreBrouillon,
+	heuresTravail: nombreBrouillon,
+	ajustementTravail: v.optional(nombreBrouillon),
+	adaptationPct: v.optional(nombreBrouillon),
+	deficitPct: v.optional(nombreBrouillon),
+	mode: v.optional(v.union(v.literal("deficit"), v.literal("maintenance"), v.literal("surplus"))),
+	surplusPct: v.optional(nombreBrouillon),
+	proteinesParKgMasseMaigre: v.optional(nombreBrouillon),
+	seances: v.optional(v.array(seanceBrouillonValidator)),
+	apportsSemaine: v.optional(v.array(nombreBrouillon))
+});
+
 /* ── MÉMOIRE DU CALIBRAGE — un seul brouillon par cliente ──
 
    Le brouillon ne contient QUE des décisions de saisie (entrées + semaine
@@ -87,14 +118,18 @@ const entreesValidator = v.object({
    deux brouillons pour la même cliente. */
 
 /** Les brouillons peuvent être incomplets, mais leur taille reste bornée. */
-function validerTailleBrouillon(inputs: EntreesFicheCalibrage): void {
-	if (inputs.seances.length > 50) {
+function validerTailleBrouillon(inputs: EntreesBrouillonCalibrage): void {
+	const seances = inputs.seances ?? [];
+	const apports = inputs.apportsSemaine ?? [];
+	if (seances.length > 50) {
 		throw new ConvexError("Brouillon invalide : 50 séances maximum.");
 	}
-	if (inputs.apportsSemaine.length !== 7) {
-		throw new ConvexError("Brouillon invalide : 7 apports journaliers attendus.");
+	/* Semaine type ABSENTE ou en cours de saisie acceptée (0 à 7 apports) :
+	   jamais plus de sept jours. */
+	if (apports.length > 7) {
+		throw new ConvexError("Brouillon invalide : 7 apports journaliers maximum.");
 	}
-	if (inputs.seances.some((s) => s.activiteId.length > 128 || s.choix.length > 128)) {
+	if (seances.some((s) => (s.activiteId?.length ?? 0) > 128 || (s.choix?.length ?? 0) > 128)) {
 		throw new ConvexError("Brouillon invalide : identifiant ou choix limité à 128 caractères.");
 	}
 }
@@ -110,7 +145,7 @@ function ecartsValides(ecarts: readonly number[]): number[] {
 async function enregistrerBrouillon(
 	ctx: Pick<MutationCtx, "db">,
 	userId: Id<"users">,
-	inputs: EntreesFicheCalibrage,
+	inputs: EntreesBrouillonCalibrage,
 	ecartsSemaine: number[],
 	coachId: Id<"users">,
 	updatedAt: number
@@ -441,7 +476,9 @@ export const saveDraft = mutation({
 	args: {
 		sessionToken: v.optional(v.string()),
 		userId: v.id("users"),
-		entrees: entreesValidator,
+		/* Vide ACCEPTÉ : un champ vidé en cours de saisie ne bloque plus la
+		   sauvegarde (le validateur d'`apply` reste strict). */
+		entrees: entreesBrouillonValidator,
 		ecartsSemaine: v.array(v.number()),
 	},
 	handler: async (ctx, { sessionToken, userId, entrees, ecartsSemaine }) => {

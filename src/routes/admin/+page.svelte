@@ -32,6 +32,7 @@
 	import {
 		DEFICIT_PCT_DEFAUT,
 		DISPONIBILITE_NIVEAUX,
+		entreesCalibrageCompletes,
 		phraseSupplementTravail,
 		supplementTravailTextes,
 		PROTEINES_PAR_KG_MM_DEFAUT,
@@ -40,7 +41,7 @@
 		perteGraisseKgSemaine,
 		resultatsFiche,
 		semaineAvecEcarts,
-		type EntreesFicheCalibrage,
+		type EntreesSaisieCalibrage,
 		type ImpactObjectifApplique,
 		type ResultatsFicheCalibrage,
 		type SemaineCalibrage
@@ -1744,7 +1745,7 @@
 		dernierCalibrage: { date: string; effectiveFrom: string; createdAt: number } | null;
 		/** Mémoire du calibrage : brouillon de saisie (un seul par cliente). */
 		brouillon: {
-			entrees: Partial<EntreesFicheCalibrage>;
+			entrees: Partial<EntreesSaisieCalibrage>;
 			ecartsSemaine: number[];
 			updatedAt: number;
 		} | null;
@@ -1753,12 +1754,12 @@
 			date: string;
 			effectiveFrom: string;
 			createdAt: number;
-			entrees: Partial<EntreesFicheCalibrage>;
+			entrees: Partial<EntreesSaisieCalibrage>;
 			objectifJournalierKcal: number | null;
 		} | null;
 	};
 	let calibragePre = $state<CalibragePrefill | null>(null);
-	let calibrageInputs = $state<EntreesFicheCalibrage>({
+	let calibrageInputs = $state<EntreesSaisieCalibrage>({
 		poidsKg: 0,
 		mgPct: 26,
 		pasMoyen: 0,
@@ -1796,7 +1797,7 @@
 	let calResetBusy = $state(false);
 
 	/** Valeurs par défaut de l'onglet — mesures relues du serveur. */
-	function calibrageDefauts(): EntreesFicheCalibrage {
+	function calibrageDefauts(): EntreesSaisieCalibrage {
 		return {
 			poidsKg: calibragePre?.poids.valeur ?? 0,
 			mgPct: calibragePre?.masseGrasse.valeur ?? 26,
@@ -1815,22 +1816,25 @@
 
 	/** Décisions restaurées + MESURES TOUJOURS FRAÎCHES (mesure absente : valeur mémorisée). */
 	function calibrageRestaure(
-		entrees: Partial<EntreesFicheCalibrage> | null | undefined
-	): EntreesFicheCalibrage {
+		entrees: Partial<EntreesSaisieCalibrage> | null | undefined
+	): EntreesSaisieCalibrage {
 		const base = calibrageDefauts();
 		if (!entrees) return base;
-		const poids = calibragePre?.poids.valeur;
-		const mg = calibragePre?.masseGrasse.valeur;
-		const pas = calibragePre?.pasMoyen.valeur;
+		const poids = calibragePre?.poids.valeur ?? null;
+		const mg = calibragePre?.masseGrasse.valeur ?? null;
+		const pas = calibragePre?.pasMoyen.valeur ?? null;
 		return {
 			...base,
 			...entrees,
-			poidsKg: poids ?? entrees.poidsKg ?? base.poidsKg,
-			mgPct: mg ?? entrees.mgPct ?? base.mgPct,
-			pasMoyen: pas ?? entrees.pasMoyen ?? base.pasMoyen,
+			/* MESURE fraîche prioritaire ; sinon la décision mémorisée TELLE QUELLE :
+			   un `null` du brouillon (champ vidé) se restaure VIDE, jamais à 0. */
+			poidsKg: poids ?? (entrees.poidsKg !== undefined ? entrees.poidsKg : base.poidsKg),
+			mgPct: mg ?? (entrees.mgPct !== undefined ? entrees.mgPct : base.mgPct),
+			pasMoyen: pas ?? (entrees.pasMoyen !== undefined ? entrees.pasMoyen : base.pasMoyen),
 			seances: Array.isArray(entrees.seances) ? entrees.seances.map((s) => ({ ...s })) : base.seances,
+			/* Semaine type partielle acceptée telle quelle (7 jours au maximum). */
 			apportsSemaine:
-				Array.isArray(entrees.apportsSemaine) && entrees.apportsSemaine.length === 7
+				Array.isArray(entrees.apportsSemaine) && entrees.apportsSemaine.length <= 7
 					? [...entrees.apportsSemaine]
 					: base.apportsSemaine
 		};
@@ -1855,6 +1859,10 @@
 		return `${d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })} ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
 	}
 
+	/** Mention discrète d'un échec de sauvegarde : jamais le message technique
+	 *  du serveur dans le CRM, et nouvel essai à la modification suivante. */
+	const MESSAGE_BROUILLON_ECHEC = 'Brouillon non enregistré, nouvel essai…';
+
 	/** Signature des décisions : toute saisie déclenche la sauvegarde automatique.
 	 *  Fonction (et non $derived) : `ecartsSemaine` est déclaré plus bas, avec
 	 *  le simulateur de semaine type. */
@@ -1878,8 +1886,15 @@
 			if (j.error) throw new Error(j.error);
 			calBrouillonSavedAt = Number(j.savedAt) || Date.now();
 			calBrouillonSource = 'brouillon';
-		} catch (e) {
-			if (estCourant()) calBrouillonErreur = e instanceof Error ? e.message : 'Brouillon non enregistré.';
+			calBrouillonErreur = '';
+		} catch {
+			/* Échec réel (réseau, refus) : AUCUN message technique à l'écran —
+			   mention discrète seulement, et nouvel essai à la prochaine
+			   modification (nouvelle signature → nouvelle sauvegarde). */
+			if (estCourant()) {
+				calBrouillonSavedAt = 0;
+				calBrouillonErreur = MESSAGE_BROUILLON_ECHEC;
+			}
 		} finally {
 			if (estCourant()) calBrouillonBusy = false;
 		}
@@ -1921,8 +1936,10 @@
 			calBrouillonSavedAt = 0;
 			calBrouillonSource = 'defauts';
 			calResetOpen = false;
-		} catch (e) {
-			if (selectedId === userId && generation === calGeneration) calBrouillonErreur = e instanceof Error ? e.message : 'Remise à zéro impossible.';
+		} catch {
+			if (selectedId === userId && generation === calGeneration) {
+				calBrouillonErreur = 'Remise à zéro impossible, réessaie.';
+			}
 		} finally {
 			if (selectedId === userId && generation === calGeneration) {
 				calResetBusy = false;
@@ -1933,13 +1950,18 @@
 	/** Messages SOUS les champs : valeur vide ou hors limites (module PUR
 	 *  $lib/calibrageSaisie, bornes partagées avec le module calibrage). */
 	const calErreursChamps = $derived(messagesChampsCalibrage(calibrageInputs));
+	/** Entrées STRICTES (aucun champ vide) : `null` tant que la saisie est
+	 *  incomplète — aucun calcul ne reçoit un vide (« — » conservés à l'écran). */
+	const calEntreesCompletes = $derived(entreesCalibrageCompletes(calibrageInputs));
 	/** Résultats = sortie du module ($lib/calibrageFiche) — jamais recalculés ici.
 	 *  Une saisie invalide n'empêche QUE le calcul : elle affiche son message
 	 *  sous son champ et ne vide jamais l'écran des résultats. */
 	const calResults = $derived.by((): { results: ResultatsFicheCalibrage | null; error: string | null } => {
 		if (!saisiesCalibrageValides(calibrageInputs)) return { results: null, error: null };
+		const entrees = calEntreesCompletes;
+		if (!entrees) return { results: null, error: null };
 		try {
-			return { results: resultatsFiche(calibrageInputs), error: null };
+			return { results: resultatsFiche(entrees), error: null };
 		} catch (e) {
 			return {
 				results: null,
@@ -2101,7 +2123,7 @@
 			{ activiteId: 'musculation', seancesParSemaine: 2, dureeMinutes: 60, choix: 'recreative' }
 		];
 	}
-	function majSeance(index: number, patch: Partial<EntreesFicheCalibrage['seances'][number]>) {
+	function majSeance(index: number, patch: Partial<EntreesSaisieCalibrage['seances'][number]>) {
 		calibrageInputs.seances = calibrageInputs.seances.map((s, i) =>
 			i === index
 				? {
@@ -2310,10 +2332,11 @@
 		return Number.isFinite(valeur) && valeur > 0 ? valeur : undefined;
 	});
 	const calImpact = $derived.by((): ImpactObjectifApplique | null => {
-		if (!calR || !Number.isFinite(applyKcal) || applyKcal <= 0) return null;
+		const entrees = calEntreesCompletes;
+		if (!calR || !entrees || !Number.isFinite(applyKcal) || applyKcal <= 0) return null;
 		try {
 			return impactObjectifApplique({
-				entrees: calibrageInputs,
+				entrees,
 				resultats: calR,
 				objectifKcal: applyKcal,
 				maintenanceTotaleKcal: applyMaintenanceKcal
@@ -2326,9 +2349,10 @@
 	 *  saisi. Indépendante de l'objectif du bloc « Appliquer à la fiche » (même
 	 *  modifié à la main) : le déficit affiché est celui de la semaine simulée. */
 	const calSemaine = $derived.by((): SemaineCalibrage | null => {
-		if (!calR) return null;
+		const entrees = calEntreesCompletes;
+		if (!calR || !entrees) return null;
 		try {
-			return semaineAvecEcarts(calibrageInputs, calR, ecartsSemaine);
+			return semaineAvecEcarts(entrees, calR, ecartsSemaine);
 		} catch {
 			return calR.semaine;
 		}
@@ -2373,6 +2397,10 @@
 	function demarrerApplication() {
 		applyError = '';
 		applyMsg = '';
+		if (!calEntreesCompletes) {
+			applyError = 'Complète les champs vides du calibrage avant d’appliquer à la fiche.';
+			return;
+		}
 		if (applyBlocageGlucides) {
 			applyError = applyBlocageGlucides;
 			return;
@@ -2387,7 +2415,10 @@
 		calConfirmOpen = true;
 	}
 	async function appliquerCalibrage() {
-		if (!selectedId || !calR || applyBusy) return;
+		/* Entrées STRICTES : un champ vide ne part jamais au validateur d'`apply`
+		   (aucun message technique brut ne peut donc s'afficher). */
+		const entrees = calEntreesCompletes;
+		if (!selectedId || !calR || !entrees || applyBusy) return;
 		/* Filet de sécurité : jamais d'écriture avec des glucides négatifs. */
 		if (applyBlocageGlucides) {
 			applyError = applyBlocageGlucides;
@@ -2409,7 +2440,7 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					userId,
-					entrees: calibrageInputs,
+					entrees,
 					kcal: applyKcal,
 					carbs: applyCarbs,
 					protein: applyProtein,
@@ -5210,7 +5241,9 @@
 						     objectif écrit) ou décisions reprises du dernier calibrage appliqué. -->
 						<div class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-cream/60 px-3.5 py-2.5">
 							<p class="text-[11px] font-semibold text-mist" aria-live="polite">
-								{#if calBrouillonBusy}
+								{#if calBrouillonErreur}
+									{calBrouillonErreur}
+								{:else if calBrouillonBusy}
 									Enregistrement du brouillon…
 								{:else if calBrouillonSavedAt}
 									Brouillon enregistré · {fmtHorodatage(calBrouillonSavedAt)}
@@ -5226,9 +5259,6 @@
 								class="rounded-full border-2 border-line bg-white px-3 py-1.5 text-[11.5px] font-bold text-ink transition hover:border-brand"
 							>Repartir des valeurs par défaut</button>
 						</div>
-						{#if calBrouillonErreur}
-							<p class="rounded-lg bg-danger-light px-3 py-2 text-[11px] font-semibold text-danger">{calBrouillonErreur}</p>
-						{/if}
 
 						<!-- ENTRÉES : pré-remplies, toutes modifiables -->
 						<div class="rounded-2xl border border-line bg-card px-5 py-4 shadow-sm">
