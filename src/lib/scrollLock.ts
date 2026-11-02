@@ -39,6 +39,101 @@ let locked: LockedState | null = null;
 
 const isBrowser = () => typeof window !== 'undefined' && typeof document !== 'undefined';
 
+/**
+ * Un champ éditable a-t-il le focus ? iOS peut alors décaler légitimement la
+ * vue (le clavier amène le champ visible) : on ne la lui reprend pas.
+ *
+ * Détection locale, sans importer `keyboardViewport` (qui importe déjà ce
+ * module) : même règle, aucune dépendance circulaire.
+ */
+function editableFocused(): boolean {
+	if (typeof document === 'undefined') return false;
+	const active = document.activeElement as
+		| (Element & { disabled?: boolean; readOnly?: boolean; type?: string; isContentEditable?: boolean })
+		| null;
+	if (!active) return false;
+	const g = globalThis as unknown as Record<string, unknown>;
+	const Input = g.HTMLInputElement as (new () => object) | undefined;
+	const TextArea = g.HTMLTextAreaElement as (new () => object) | undefined;
+	const Select = g.HTMLSelectElement as (new () => object) | undefined;
+	const HtmlElement = g.HTMLElement as (new () => object) | undefined;
+	if (Input && active instanceof Input) {
+		return (
+			!active.disabled &&
+			!active.readOnly &&
+			!['button', 'submit', 'reset', 'checkbox', 'radio', 'file', 'image', 'hidden'].includes(
+				String(active.type)
+			)
+		);
+	}
+	if (TextArea && active instanceof TextArea) return true;
+	if (Select && active instanceof Select) return true;
+	return Boolean(HtmlElement && active instanceof HtmlElement && active.isContentEditable);
+}
+
+/**
+ * Le document est-il décalé alors qu'il est verrouillé ? (`scrollY = 62` mesuré
+ * sur iPhone PWA : la barre d'état restait comptée dans le décalage, la couche
+ * affichée glissait de 62 px et `elementFromPoint` ne touchait plus rien.)
+ */
+function documentOffset(): number {
+	if (typeof window === 'undefined') return 0;
+	const x = window.scrollX || 0;
+	const y = window.scrollY || document.documentElement.scrollTop || 0;
+	return x || y ? 1 : 0;
+}
+
+/** Ramène le document à zéro — une passe immédiate, une au tick suivant. */
+function reassertDocumentZero(): void {
+	if (!locked || locks === 0) return;
+	/* Clavier légitime : ne jamais lutter contre iOS. */
+	if (editableFocused()) return;
+	if (!documentOffset()) return;
+	window.scrollTo(0, 0);
+}
+
+/**
+ * Maintien à zéro pendant TOUT le verrou (PWA-DECALAGE).
+ *
+ * iOS applique le décalage de la barre d'état EN DIFFÉRÉ, après `resize` et
+ * `orientationchange` : corriger une seule fois, à l'instant de l'événement,
+ * laissait la fenêtre défilée. On réaffirme donc à chaque événement ET au tick
+ * suivant (`requestAnimationFrame`), tant que la page est verrouillée.
+ */
+function holdDocumentAtZero(): void {
+	if (!locked || locks === 0) return;
+	reassertDocumentZero();
+	window.requestAnimationFrame(reassertDocumentZero);
+}
+
+let stopHold: (() => void) | null = null;
+
+/** Abonne le verrou aux changements de viewport (rotation, clavier, décalage). */
+function startHoldDocumentAtZero(): void {
+	if (stopHold) return;
+	/* Harnais de test minimal : pas d'écouteurs, la correction explicite reste. */
+	if (typeof window.addEventListener !== 'function') return;
+	const vv = window.visualViewport;
+	window.addEventListener('resize', holdDocumentAtZero);
+	window.addEventListener('orientationchange', holdDocumentAtZero);
+	window.addEventListener('scroll', holdDocumentAtZero);
+	vv?.addEventListener?.('resize', holdDocumentAtZero);
+	vv?.addEventListener?.('scroll', holdDocumentAtZero);
+	stopHold = () => {
+		window.removeEventListener?.('resize', holdDocumentAtZero);
+		window.removeEventListener?.('orientationchange', holdDocumentAtZero);
+		window.removeEventListener?.('scroll', holdDocumentAtZero);
+		vv?.removeEventListener?.('resize', holdDocumentAtZero);
+		vv?.removeEventListener?.('scroll', holdDocumentAtZero);
+		stopHold = null;
+	};
+}
+
+/** Détache les écouteurs AVANT toute restauration de position. */
+function stopHoldDocumentAtZero(): void {
+	stopHold?.();
+}
+
 /** Position de défilement réellement visible (celle d'avant le verrou si figé). */
 export function currentScrollY(): number {
 	if (typeof window === 'undefined') return 0;
@@ -86,6 +181,8 @@ export function lockScroll(): void {
 	if (scrollbar > 0) body.style.paddingRight = `${scrollbar}px`;
 	/* Ceinture et bretelles : html ne doit rien avoir à faire défiler non plus. */
 	html.style.overflow = 'hidden';
+	/* PWA-DECALAGE : tant que le verrou tient, aucun décalage ne survit. */
+	startHoldDocumentAtZero();
 }
 
 /**
@@ -115,8 +212,10 @@ export function rebaseScrollLock(): void {
 	html.style.overflow = 'hidden';
 
 	/* Aucune autre couche ne doit défiler : la position du document est
-	   entièrement portée par le body figé. */
-	if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
+	   entièrement portée par le body figé. La correction est réaffirmée au tick
+	   suivant (iOS applique son décalage après l'événement). */
+	startHoldDocumentAtZero();
+	holdDocumentAtZero();
 }
 
 /** Rend le document défilable et restaure la position exacte d'avant le verrou. */
@@ -128,6 +227,9 @@ export function unlockScroll(): void {
 
 	const state = locked;
 	locked = null;
+	/* Plus aucun maintien : la restauration de position ci-dessous est la
+	   seule à décider où le document revient. */
+	stopHoldDocumentAtZero();
 	const body = document.body;
 	body.style.position = state.body.position;
 	body.style.top = state.body.top;
@@ -151,6 +253,7 @@ export function resetScrollLock(): void {
 	if (locked) {
 		const state = locked;
 		locked = null;
+		stopHoldDocumentAtZero();
 		const body = document.body;
 		body.style.position = state.body.position;
 		body.style.top = state.body.top;
