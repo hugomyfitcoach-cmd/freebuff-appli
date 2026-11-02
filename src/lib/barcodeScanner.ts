@@ -401,7 +401,8 @@ function getNativeDetector(): NativeDetector | null {
  */
 export async function startBarcodeScanner(
 	container: HTMLElement,
-	onDecoded: (text: string) => void
+	onDecoded: (text: string) => void,
+	options: { signal?: AbortSignal; onInterrupted?: () => void } = {}
 ): Promise<BarcodeScannerHandle & TorchHandle> {
 	container.replaceChildren();
 	sessionsStarted++;
@@ -410,7 +411,46 @@ export async function startBarcodeScanner(
 
 	let stopped = false;
 	let stream: MediaStream | null = null;
+	const video = document.createElement('video');
+	const guide = document.createElement('div');
 	let timer: ReturnType<typeof setTimeout> | null = null;
+	let greenTimer: ReturnType<typeof setTimeout> | null = null;
+	let debugTimer: ReturnType<typeof setInterval> | null = null;
+	let onVisibility: (() => void) | null = null;
+	const onInterrupted = () => { if (!stopped) options.onInterrupted?.(); };
+	const stop = () => {
+		if (stopped) return;
+		stopped = true;
+		sessionsAlive = Math.max(0, sessionsAlive - 1);
+		if (timer) clearTimeout(timer);
+		if (greenTimer) clearTimeout(greenTimer);
+		if (debugTimer) clearInterval(debugTimer);
+		if (onVisibility) document.removeEventListener('visibilitychange', onVisibility);
+		options.signal?.removeEventListener('abort', stop);
+		if (stream) {
+			for (const t of stream.getTracks()) {
+				t.removeEventListener('ended', onInterrupted);
+				t.removeEventListener('mute', onInterrupted);
+				try { t.stop(); } catch { /* Arrêter aussi les autres pistes. */ }
+			}
+			cameraStreamsOpen = Math.max(0, cameraStreamsOpen - 1);
+			stream = null;
+		}
+		if (video) {
+			try { if (!video.paused) video.pause(); } catch { /* Nettoyage best effort. */ }
+			video.srcObject = null;
+			video.removeAttribute('src');
+			video.remove();
+		}
+		guide?.remove();
+	};
+	const checkStopped = () => {
+		if (stopped) throw new DOMException('Scanner arrêté', 'AbortError');
+	};
+	options.signal?.addEventListener('abort', stop, { once: true });
+	if (options.signal?.aborted) stop();
+	try {
+	checkStopped();
 	let decoding = false;
 	/** Décodage suspendu (mode « saisie manuelle ») : caméra allumée, boucle
 	 *  vivante, mais plus aucune frame décodée ni callback émis. */
@@ -450,13 +490,25 @@ export async function startBarcodeScanner(
 				},
 			});
 			cameraStreamsOpen++; // flux obtenu : suivi de ressources (sonde V3.2)
+			if (stopped) {
+				for (const t of stream.getTracks()) { try { t.stop(); } catch { /* best effort */ } }
+				cameraStreamsOpen = Math.max(0, cameraStreamsOpen - 1);
+				stream = null;
+				throw new DOMException('Scanner arrêté', 'AbortError');
+			}
+			for (const track of stream.getVideoTracks()) {
+				track.addEventListener('ended', onInterrupted);
+				track.addEventListener('mute', onInterrupted);
+				if (track.readyState === 'ended' || track.muted) onInterrupted();
+			}
+			checkStopped();
 			break;
 		} catch (e) {
+			checkStopped();
 			lastError = e;
 		}
 	}
 	if (!stream) {
-		sessionsAlive--; // échec d'ouverture : la session n'entre jamais en boucle
 		const e = lastError;
 		const name = e instanceof DOMException ? e.name : '';
 		if (name === 'NotAllowedError' || name === 'SecurityError' || name === 'NotFoundError') {
@@ -467,41 +519,6 @@ export async function startBarcodeScanner(
 			);
 		}
 		throw e instanceof Error ? e : new Error('Caméra indisponible.');
-	}
-	if (stopped) {
-		for (const t of stream.getTracks()) t.stop();
-		sessionsAlive--;
-		return {
-			stop: async () => {},
-			setPaused: () => {},
-			resolution: () => ({ width: 0, height: 0 }),
-			debugInfo: () => ({
-				mode: 'A' as const,
-				engine: 'native' as const,
-				requestedResolution: { width: 0, height: 0 },
-				trackResolution: { width: 0, height: 0 },
-				videoResolution: { width: 0, height: 0 },
-				detectFps: 0,
-				msToFirstValid: null,
-				msSinceFirstFrame: null,
-				msValidToConfirm: null,
-				zoom: null,
-				lastError: null,
-				resources: scannerResourceProbe(),
-				zxingLightFrames: 0,
-				zxingHardFrames: 0,
-				zxingHardMs: 0,					thStrategy: 'fixed-1of4' as const,
-					cropExperiment: false,
-					tightFrames: 0,
-					tightMs: 0,
-				}),
-			toggleTorch: async () => false,
-			hasTorch: () => false,
-			zoom: async () => false,
-			hasZoom: () => false,
-			zoomRange: null,
-			currentZoom: () => 0,
-		};
 	}
 
 	// -- Résolution réelle du track (mission scanner V3) ---------------------
@@ -561,10 +578,10 @@ export async function startBarcodeScanner(
 		// Focus non pilotable (ancien iOS, desktop…) : le décodage reste tel quel.
 	}
 
+	checkStopped();
 	// -- Éléments visuels ----------------------------------------------------
 	// La vidéo remplit TOUJOURS le conteneur (cadre portrait stable, même si
 	// la source caméra est paysage) : object-fit cover + position absolute.
-	const video = document.createElement('video');
 	video.playsInline = true;
 	video.muted = true;
 	video.setAttribute('muted', '');
@@ -581,7 +598,6 @@ export async function startBarcodeScanner(
 
 	// Repères : 4 coins + bande centrale (purement indicatif — le décodage
 	// porte sur toute l'image).
-	const guide = document.createElement('div');
 	Object.assign(guide.style, {
 		position: 'absolute',
 		inset: '0',
@@ -605,7 +621,7 @@ export async function startBarcodeScanner(
 		height: `${FRAME_TOP_PCT}%`,
 		background: 'rgba(0,0,0,.38)',
 	} as Partial<CSSStyleDeclaration>);
-	frame.append(dim);
+	guide.append(dim);
 	const dim2 = document.createElement('div');
 	Object.assign(dim2.style, {
 		position: 'absolute',
@@ -615,7 +631,7 @@ export async function startBarcodeScanner(
 		height: `${100 - FRAME_TOP_PCT - FRAME_HEIGHT_PCT}%`,
 		background: 'rgba(0,0,0,.38)',
 	} as Partial<CSSStyleDeclaration>);
-	frame.append(dim2);
+	guide.append(dim2);
 	for (const side of ['left', 'right'] as const) {
 		const sideDim = document.createElement('div');
 		Object.assign(sideDim.style, {
@@ -626,7 +642,7 @@ export async function startBarcodeScanner(
 			width: `${FRAME_LEFT_RIGHT_PCT}%`,
 			background: 'rgba(0,0,0,.38)',
 		} as Partial<CSSStyleDeclaration>);
-		frame.append(sideDim);
+		guide.append(sideDim);
 	}
 	// Coins : mémorisés avec leurs côtés bordés pour le flash vert.
 	const cornerDefs: { styles: Partial<CSSStyleDeclaration>; sides: ('Top' | 'Right' | 'Bottom' | 'Left')[] }[] = [
@@ -721,7 +737,6 @@ export async function startBarcodeScanner(
 	// (lueur + coins verts) pendant GREEN_FLASH_MS. Déclenché au même moment
 	// que la vibration : la cliente SAIT instantanément que c'est reconnu,
 	// même si la feuille produit met un instant à s'ouvrir.
-	let greenTimer: ReturnType<typeof setTimeout> | null = null;
 	let lastGreenAt = 0;
 	function flashGreen(): void {
 		const now = Date.now();
@@ -752,6 +767,7 @@ export async function startBarcodeScanner(
 		// quand on en a besoin et uniquement côté navigateur.
 		zxingMod = (await import('html5-qrcode/third_party/zxing-js.umd')) as unknown as ZXing;
 	}
+	checkStopped();
 
 	const canvas = document.createElement('canvas');
 	const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -997,7 +1013,7 @@ export async function startBarcodeScanner(
 	// réinitialiser la porte + l'anti-doublon au retour : deux frames encadrant
 	// une mise en arrière-plan ne doivent JAMAIS se confirmer mutuellement.
 	let hiddenPaused = false;
-	const onVisibility = () => {
+	onVisibility = () => {
 		if (document.hidden) {
 			hiddenPaused = true;
 		} else {
@@ -1059,15 +1075,15 @@ export async function startBarcodeScanner(
 				decoding = false;
 			}
 		}
-		timer = setTimeout(tick, FRAME_INTERVAL_MS);
+		if (!stopped) timer = setTimeout(tick, FRAME_INTERVAL_MS);
 	};
 
 	await video.play().catch(() => {
 		// Autoplay refusé : on attend un geste — l'ouverture du scan EST un geste.
 	});
+	checkStopped();
 	video.addEventListener('loadedmetadata', resizeCanvas, { once: true });
 	/* Rafraîchissement de la pastille debug 1×/s (aucune télémétrie réseau). */
-	let debugTimer: ReturnType<typeof setInterval> | null = null;
 	if (debugEnabled) {
 		debugTimer = setInterval(() => {
 			if (!debugEl || stopped) return;
@@ -1110,6 +1126,7 @@ export async function startBarcodeScanner(
 			// Zoom refusé au démarrage : on reste au min, sans erreur.
 		}
 	}
+	checkStopped();
 	const torch: TorchHandle = {
 		hasTorch: () => hasTorch,
 		async toggleTorch() {
@@ -1169,27 +1186,7 @@ export async function startBarcodeScanner(
 	}
 
 	return {
-		stop: async () => {
-			if (stopped) return; // idempotent : pas de double décrément
-			stopped = true;
-			sessionsAlive = Math.max(0, sessionsAlive - 1);
-			if (timer) clearTimeout(timer);
-			if (greenTimer) clearTimeout(greenTimer);
-			if (debugTimer) clearInterval(debugTimer);
-			document.removeEventListener('visibilitychange', onVisibility);
-			if (stream) {
-				for (const t of stream.getTracks()) t.stop();
-				cameraStreamsOpen = Math.max(0, cameraStreamsOpen - 1);
-				stream = null;
-			}
-			/* Lecture RÉELLEMENT arrêtée avant de détacher le flux : sur iOS un
-			   <video> encore en lecture garde le décodeur — et parfois une couche
-			   native qui capte les touches — après la fermeture du volet. */
-			if (!video.paused) video.pause();
-			if (video.srcObject) video.srcObject = null; // libère la référence média
-			video.removeAttribute('src');
-			container.replaceChildren();
-		},
+		stop: async () => stop(),
 		resolution: () => ({ ...trackResolution }),
 		debugInfo: buildDebugInfo,
 		captureLastFrame: frameDumpEnabled ? () => lastFrameDataUrl : undefined,
@@ -1209,4 +1206,8 @@ export async function startBarcodeScanner(
 		},
 		...torch,
 	};
+	} catch (error) {
+		stop();
+		throw error;
+	}
 }

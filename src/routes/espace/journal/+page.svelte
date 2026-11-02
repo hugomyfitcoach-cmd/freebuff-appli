@@ -1279,7 +1279,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		   lecteur sont réellement coupés et l'écran de scan remis à neuf, pour
 		   qu'une réouverture reparte d'un état vierge. */
 		logOpen = false;
-		await stopScanner();
+		void stopScanner();
 		resetScanState();
 	}
 	/** État de l'écran Code-barres remis à zéro (fermeture, réouverture). */
@@ -2906,6 +2906,16 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	let barcodePermBlocked = $state(false);
 	let scanner: (BarcodeScannerHandle & TorchHandle) | null = null;
 	let scannerBusy = false;
+	type ScannerSession = {
+		el: HTMLElement;
+		target: 'journal' | 'meal' | 'editor';
+		controller: AbortController | null;
+		generation: number;
+		timer: ReturnType<typeof setTimeout> | undefined;
+		cleanup: () => void;
+		restart: () => void;
+	};
+	let scannerSession: ScannerSession | null = null;
 	/** Capacités caméra du scan en cours (lampe/zoom si supportés) — affiche
 	 *  les contrôles sous le lecteur, best effort selon l'appareil. */
 	let scannerCaps = $state<{ torch: boolean; zoom: boolean; zoomMin: number; zoomMax: number; zoomStep: number } | null>(null);
@@ -2927,22 +2937,69 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	 *  un aliment ») ou « meal-bc-reader » (fenêtre produit de l'éditeur de
 	 *  repas). Le résultat est routé vers la feuille correspondante. */
 	async function startScanner(elId: string = 'bc-reader', target: 'journal' | 'meal' | 'editor' = 'journal') {
-		if (scanner || scannerBusy || typeof document === 'undefined') return;
+		if (scannerSession || typeof document === 'undefined') return;
 		const el = document.getElementById(elId);
 		if (!el) return;
+		const session: ScannerSession = { el, target, controller: null, generation: 0, timer: undefined, cleanup: () => {}, restart: () => {} };
+		scannerSession = session;
+		let width = window.innerWidth;
+		const restart = () => {
+			if (scannerSession !== session) return;
+			session.generation++;
+			session.controller?.abort();
+			session.controller = null;
+			scanner = null;
+			scannerBusy = false;
+			scannerCaps = null;
+			torchOn = false;
+			clearTimeout(session.timer);
+			if (!document.hidden) session.timer = setTimeout(() => void runScanner(session), 250);
+		};
+		session.restart = restart;
+		const onResize = () => {
+			if (window.innerWidth !== width) {
+				width = window.innerWidth;
+				restart();
+			}
+		};
+		const onVisible = () => { if (!document.hidden) restart(); };
+		window.addEventListener('resize', onResize);
+		window.addEventListener('orientationchange', restart);
+		window.addEventListener('pageshow', onVisible);
+		document.addEventListener('visibilitychange', onVisible);
+		session.cleanup = () => {
+			window.removeEventListener('resize', onResize);
+			window.removeEventListener('orientationchange', restart);
+			window.removeEventListener('pageshow', onVisible);
+			document.removeEventListener('visibilitychange', onVisible);
+		};
+		await runScanner(session);
+	}
+	async function runScanner(session: ScannerSession) {
+		if (scannerSession !== session || !session.el.isConnected || document.hidden) return;
+		const { el, target } = session;
+		const elId = el.id;
+		const generation = ++session.generation;
+		const controller = new AbortController();
+		session.controller = controller;
 		scannerBusy = true;
 		barcodeStatus = 'scanning';
 		try {
 		const handle = await startBarcodeScanner(el, (decoded) => {
-			void handleScan(decoded, target);
-		});
+			if (scannerSession === session && generation === session.generation) void handleScan(decoded, target);
+		}, { signal: controller.signal, onInterrupted: () => {
+			if (scannerSession === session && generation === session.generation) {
+				// Le même chemin que rotation / retour : invalide immédiatement le flux.
+				session.restart();
+			}
+		} });
 		/* SCAN-ROTATION — volet fermé (croix, fond, navigation) ou lecteur
 		   démonté PENDANT l'ouverture de la caméra (getUserMedia lent,
 		   rotation) : le flux obtenu après coup ne doit pas survivre à
 		   l'écran qui l'a demandé — sinon la caméra reste allumée derrière un
 		   volet fermé et la réouverture hérite d'un lecteur orphelin (écran
 		   noir, plus rien ne répond). On l'arrête immédiatement. */
-		if (!el.isConnected || (elId === 'bc-reader' && !logOpen)) {
+		if (!el.isConnected || (elId === 'bc-reader' && !logOpen) || scannerSession !== session || generation !== session.generation) {
 			try {
 				await handle.stop();
 			} catch {
@@ -2951,6 +3008,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 			return;
 		}
 		scanner = handle;
+		if (bcManualMode) handle.setPaused(true);
 		scannerCaps = {
 			torch: scanner.hasTorch(),
 			zoom: scanner.hasZoom(),
@@ -2964,6 +3022,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		   (et non plus au min), sinon il afficherait un état mensonger. */
 		zoomLevel = scanner.currentZoom?.() || scanner.zoomRange?.min || 1;
 		} catch (e) {
+			if (scannerSession !== session || generation !== session.generation) return;
 			if (e instanceof CameraPermissionError) {
 				/* Refus/blocage caméra : message clair + « Réessayer » + comment
 				   réautoriser. La saisie manuelle reste utilisable en dessous. */
@@ -2974,6 +3033,10 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 			}
 			barcodeError = e instanceof Error ? e.message : 'Caméra indisponible — saisis le code-barres à la main ci-dessous.';
 			if (target === 'editor') bcError = barcodeError;
+			session.cleanup();
+			scannerSession = null;
+			controller.abort();
+			scannerBusy = false;
 			if (scanner) {
 				try {
 					await scanner.stop();
@@ -2983,7 +3046,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 				scanner = null;
 			}
 		} finally {
-			scannerBusy = false;
+			if (scannerSession === session && generation === session.generation) scannerBusy = false;
 		}
 	}
 	/** Ouvrir un formulaire (repas / aliment) : on quitte TOUJOURS le mode
@@ -2996,14 +3059,17 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		}
 	}
 	async function stopScanner() {
-		if (scanner) {
-			try {
-				await scanner.stop();
-			} catch {
-				// déjà arrêté
-			}
-			scanner = null;
+		const session = scannerSession;
+		scannerSession = null;
+		if (session) {
+			clearTimeout(session.timer);
+			session.cleanup();
+			session.controller?.abort();
 		}
+		const handle = scanner;
+		scanner = null;
+		scannerBusy = false;
+		if (handle) void handle.stop().catch(() => {});
 		scannerCaps = null;
 		torchOn = false;
 		/* Scanner arrêté (produit trouvé, changement de mode, fermeture) → on
@@ -4845,7 +4911,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 							{:else if bcStep === 'scan'}
 								<!-- Scan DANS l'éditeur (résultat routé vers cette feuille). -->
 								<div class="mt-3 overflow-hidden rounded-xl border-2 border-line">
-									<div id="editor-bc-reader" class="aspect-[4/3] w-full bg-ink"></div>
+									<div id="editor-bc-reader" class="relative aspect-[4/3] w-full bg-ink"></div>
 								</div>
 								<p class="mt-2 text-center text-xs text-mist">Vise le code-barres du produit… <button type="button" class="font-semibold text-brand hover:underline" onclick={() => { bcStep = cfEditingId ? 'add' : 'choose'; void stopScanner(); }}>Annuler</button></p>
 								{#if bcError}
@@ -5064,7 +5130,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 					<div class="bc-stage relative order-2 mx-auto aspect-[3/4.6] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-[max-height,border-color,box-shadow] duration-300 ease-out {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}" style:max-height={bcManualMode ? '7rem' : '120vh'}>
 						<div id="bc-reader" class="absolute inset-0"></div>
 						<!-- Croix de fermeture DIRECTEMENT sur la zone caméra : -->
-						<button type="button" class="absolute right-2 top-2 z-10 grid h-9 w-9 place-items-center rounded-full bg-ink/55 text-white backdrop-blur transition hover:bg-ink/75" aria-label="Fermer" onclick={() => closeLog()}><Icon name="x" size={18} /></button>
+						<button type="button" class="absolute right-2 top-2 z-20 grid h-11 w-11 place-items-center rounded-full bg-ink/55 text-white backdrop-blur transition hover:bg-ink/75" aria-label="Fermer" onclick={() => closeLog()}><Icon name="x" size={18} /></button>
 						<!-- Consigne : simplifiée (mission scanner V3) et remontée au-dessus
 						     de la pill lampe/zoom — plus de superposition texte/contrôles,
 						     lisibilité garantie sur petits écrans et safe areas. -->
@@ -5690,7 +5756,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		<div class="journal-sheet absolute inset-x-0 top-0 flex h-full w-full flex-col overflow-hidden bg-soft sm:relative sm:h-[min(92dvh,720px)] sm:max-w-lg sm:rounded-3xl sm:bg-white sm:shadow-2xl" style:top={mobile ? `${vvTop}px` : undefined} style:height={mobile ? `${vvH}px` : undefined}>
 			<!-- En-tête fixe (safe-area top, cf. « Ajouter un aliment ») -->
 			<div class="flex shrink-0 items-center justify-between border-b border-line bg-white/95 px-3 pt-[max(env(safe-area-inset-top),10px)] pb-2.5 backdrop-blur">
-				<button type="button" class="grid h-9 w-9 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={() => void closeMealSearch()}><Icon name="x" size={20} /></button>
+				<button type="button" class="relative z-20 grid h-11 w-11 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer" onclick={() => void closeMealSearch()}><Icon name="x" size={20} /></button>
 				<h2 class="font-display text-[15px] font-semibold text-ink">{mealSearchMode === 'barcode' ? 'Code-barres' : 'Ajouter un produit'}</h2>
 				<span class="w-9"></span>
 			</div>
