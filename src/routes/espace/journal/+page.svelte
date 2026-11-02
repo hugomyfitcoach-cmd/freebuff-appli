@@ -4527,7 +4527,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	     derrière l'écran « Ajouter un aliment », même clavier ouvert (le fond ne
 	     rétrécit plus avec le visualViewport — seule la zone de contenu se
 	     positionne au-dessus du clavier). Desktop : backdrop + panneau centré. -->
-	<div role="presentation" class="journal-sheet-backdrop fixed inset-0 z-50 bg-soft sm:flex sm:items-center sm:justify-center sm:bg-ink/40 sm:p-6" onclick={(e) => { if (e.target === e.currentTarget) closeLog(); }} onkeydown={(e) => { if (e.key === 'Escape') closeLog(); }}>
+	<div role="presentation" class="fixed inset-0 z-50 bg-soft sm:flex sm:items-center sm:justify-center sm:bg-ink/40 sm:p-6 journal-sheet-backdrop" onclick={(e) => { if (e.target === e.currentTarget) closeLog(); }} onkeydown={(e) => { if (e.key === 'Escape') closeLog(); }}>
 		<div class="journal-sheet absolute inset-x-0 top-0 flex h-full w-full flex-col overflow-hidden bg-soft sm:relative sm:h-[min(92dvh,720px)] sm:max-w-lg sm:rounded-3xl sm:bg-white sm:shadow-2xl" style:top={mobile ? `${vvTop}px` : undefined} style:height={mobile ? `${vvH}px` : undefined}>
 			<!-- En-tête fixe (respire sous l'encoche en PWA installée, cf. convention safe-area de l'app).
 			     MODE CODE-BARRES : en-tête MINIMAL (pas de titre, pas d'explication) —
@@ -5686,7 +5686,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	     produit ou un scan referme CETTE fenêtre et ouvre la feuille existante. -->
 	<!-- Même principe que « Ajouter un aliment » : fond OPAQUE plein viewport,
 	     panneau de contenu positionné au-dessus du clavier (visualViewport). -->
-	<div role="presentation" class="journal-sheet-backdrop fixed inset-0 z-[70] bg-soft sm:flex sm:items-center sm:justify-center sm:bg-ink/40 sm:p-6" onclick={(e) => { if (e.target === e.currentTarget) void closeMealSearch(); }} onkeydown={(e) => { if (e.key === 'Escape') void closeMealSearch(); }}>
+	<div role="presentation" class="fixed inset-0 z-[70] bg-soft sm:flex sm:items-center sm:justify-center sm:bg-ink/40 sm:p-6 journal-sheet-backdrop" onclick={(e) => { if (e.target === e.currentTarget) void closeMealSearch(); }} onkeydown={(e) => { if (e.key === 'Escape') void closeMealSearch(); }}>
 		<div class="journal-sheet absolute inset-x-0 top-0 flex h-full w-full flex-col overflow-hidden bg-soft sm:relative sm:h-[min(92dvh,720px)] sm:max-w-lg sm:rounded-3xl sm:bg-white sm:shadow-2xl" style:top={mobile ? `${vvTop}px` : undefined} style:height={mobile ? `${vvH}px` : undefined}>
 			<!-- En-tête fixe (safe-area top, cf. « Ajouter un aliment ») -->
 			<div class="flex shrink-0 items-center justify-between border-b border-line bg-white/95 px-3 pt-[max(env(safe-area-inset-top),10px)] pb-2.5 backdrop-blur">
