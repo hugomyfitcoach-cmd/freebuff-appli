@@ -347,8 +347,12 @@ test('SCAN-ROTATION-3. rotation, reprise, piste interrompue et fermeture libère
 		doc.hidden = false; doc.dispatchEvent(new Event('visibilitychange')); win.dispatchEvent(new Event('pageshow'));
 		assert.equal(tracks[1].stopCount, 1); await settle();
 		assert.equal(tracks.length, 3); assert.equal(reader.children.length, 2);
+		reader.children[0].readyState = 2; reader.children[0].videoWidth = 1920; reader.children[0].videoHeight = 1080;
+		reader.children[0].dispatchEvent(new Event('loadeddata'));
 		tracks[2].dispatchEvent(new Event('mute')); await settle();
 		assert.equal(tracks[2].stopCount, 1); assert.equal(tracks.length, 4); assert.equal(reader.children.length, 2);
+		reader.children[0].readyState = 2; reader.children[0].videoWidth = 1920; reader.children[0].videoHeight = 1080;
+		reader.children[0].dispatchEvent(new Event('loadeddata'));
 		tracks[3].dispatchEvent(new Event('ended')); await settle();
 		assert.equal(tracks[3].stopCount, 1); assert.equal(tracks.length, 5);
 		win.dispatchEvent(new Event('orientationchange'));
@@ -409,9 +413,19 @@ test('SCAN-ROTATION-3. rotation, reprise, piste interrompue et fermeture libère
 		const image = reader.children[0];
 		image.readyState = 2; image.videoWidth = 1920; image.videoHeight = 1080;
 		image.dispatchEvent(new Event('loadeddata'));
-		assert.equal(app.state().scannerSession.playbackRestarts, 0);
+		assert.equal(app.state().scannerSession.automaticRestarts, 0);
 		await app.stopScanner();
 		assert.equal(app.state().scannerNeedsGesture, null);
+
+		// Une piste muette répétée sans image ne doit pas non plus boucler.
+		await app.startScanner();
+		for (let i = 0; i < 3; i++) {
+			tracks.at(-1).dispatchEvent(new Event('mute'));
+			if (i < 2) await settle();
+		}
+		assert.equal(app.state().scannerNeedsGesture, 'bc-reader');
+		assert.equal(scannerResourceProbe().cameraStreamsOpen, 0);
+		await app.stopScanner();
 
 		// Deux relances pendant une permission en attente : seule la génération
 		// courante peut s'installer, les anciens flux tardifs sont coupés.

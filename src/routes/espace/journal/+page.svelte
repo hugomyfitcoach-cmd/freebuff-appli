@@ -2911,7 +2911,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		target: 'journal' | 'meal' | 'editor';
 		controller: AbortController | null;
 		generation: number;
-		playbackRestarts: number;
+		automaticRestarts: number;
 		waitingForGesture: boolean;
 		timer: ReturnType<typeof setTimeout> | undefined;
 		cleanup: () => void;
@@ -2942,7 +2942,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		if (scannerSession || typeof document === 'undefined') return;
 		const el = document.getElementById(elId);
 		if (!el) return;
-		const session: ScannerSession = { el, target, controller: null, generation: 0, playbackRestarts: 0, waitingForGesture: false, timer: undefined, cleanup: () => {}, restart: () => {} };
+		const session: ScannerSession = { el, target, controller: null, generation: 0, automaticRestarts: 0, waitingForGesture: false, timer: undefined, cleanup: () => {}, restart: () => {} };
 		scannerSession = session;
 		let width = window.innerWidth;
 		const restart = (reason?: 'playback' | 'track') => {
@@ -2954,14 +2954,14 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 			scannerCaps = null;
 			torchOn = false;
 			clearTimeout(session.timer);
-			if (reason === 'playback') {
-				if (session.playbackRestarts >= 2) {
+			if (reason === 'playback' || reason === 'track') {
+				if (session.automaticRestarts >= 2) {
 					session.waitingForGesture = true;
 					scannerNeedsGesture = el.id;
 					barcodeStatus = 'idle';
 					return;
 				}
-				session.playbackRestarts++;
+				session.automaticRestarts++;
 			}
 			if (!document.hidden) session.timer = setTimeout(() => void runScanner(session), 250);
 		};
@@ -3000,7 +3000,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		}, { signal: controller.signal, onInterrupted: (reason) => {
 			if (scannerSession === session && generation === session.generation) session.restart(reason);
 		}, onFrame: () => {
-			if (scannerSession === session && generation === session.generation) session.playbackRestarts = 0;
+			if (scannerSession === session && generation === session.generation) session.automaticRestarts = 0;
 		} });
 		/* SCAN-ROTATION — volet fermé (croix, fond, navigation) ou lecteur
 		   démonté PENDANT l'ouverture de la caméra (getUserMedia lent,
