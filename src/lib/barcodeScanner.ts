@@ -428,6 +428,50 @@ export async function startBarcodeScanner(
 		frameReported = true;
 		options.onFrame?.();
 	};
+
+	/* — Mission PORTRAIT : apparition nette de l'image caméra —
+	 * Constat : à chaque ouverture, la vidéo s'affichait d'abord PETITE et
+	 * ÉTROITE au centre du cadre, puis grandissait (dimensions intrinsèques
+	 * avant que la vidéo ne joue aux dimensions définitives). La vidéo reste
+	 * donc invisible (opacity 0, le fond noir `bg-ink` du cadre est conservé)
+	 * jusqu'à ce qu'elle JOUE avec des dimensions non nulles et STABLES
+	 * (`playing`, ou première image via requestVideoFrameCallback quand il
+	 * existe), puis apparaît en fondu court. Même règle à chaque relance du
+	 * scanner : cet état vit dans la session. */
+	const VIDEO_REVEAL_MS = 150;
+	/** Durée pendant laquelle les dimensions doivent rester identiques. */
+	const VIDEO_DIMENSIONS_STABLE_MS = 80;
+	let videoVisible = false;
+	let videoPlayable = false;
+	let stableDims = '';
+	let stableSince = 0;
+	let stableTimer: ReturnType<typeof setTimeout> | null = null;
+	const tryRevealVideo = () => {
+		if (stopped || videoVisible || !videoPlayable) return;
+		if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
+		const dims = `${video.videoWidth}x${video.videoHeight}`;
+		const now = Date.now();
+		if (dims !== stableDims) {
+			stableDims = dims;
+			stableSince = now;
+		}
+		const wait = VIDEO_DIMENSIONS_STABLE_MS - (now - stableSince);
+		if (wait > 0) {
+			if (!stableTimer) {
+				stableTimer = setTimeout(() => {
+					stableTimer = null;
+					tryRevealVideo();
+				}, wait);
+			}
+			return;
+		}
+		videoVisible = true;
+		video.style.opacity = '1';
+	};
+	const markVideoPlayable = () => {
+		videoPlayable = true;
+		tryRevealVideo();
+	};
 	function resumeVideo(retry = false): Promise<void> {
 		if (stopped || document.hidden) return Promise.resolve();
 		if (playPending) return playPending;
@@ -471,6 +515,10 @@ export async function startBarcodeScanner(
 		options.signal?.removeEventListener('abort', stop);
 		video.removeEventListener('pause', onPause);
 		video.removeEventListener('loadeddata', onFrame);
+		video.removeEventListener('playing', markVideoPlayable);
+		video.removeEventListener('loadeddata', markVideoPlayable);
+		video.removeEventListener('resize', tryRevealVideo);
+		if (stableTimer) clearTimeout(stableTimer);
 		if (frameCallbackId !== null) video.cancelVideoFrameCallback?.(frameCallbackId);
 		releaseStream();
 		try { if (!video.paused) video.pause(); } catch { /* Nettoyage best effort. */ }
@@ -629,11 +677,18 @@ export async function startBarcodeScanner(
 	video.setAttribute('disablepictureinpicture', '');
 	video.addEventListener('pause', onPause);
 	video.addEventListener('loadeddata', onFrame);
+	/* Révélation : `playing` (lecture réelle) ou première image décodée. Les
+	   dimensions changent parfois APRÈS la première frame (négociation du
+	   track) : `resize` remesure avant d'afficher. */
+	video.addEventListener('playing', markVideoPlayable);
+	video.addEventListener('loadeddata', markVideoPlayable);
+	video.addEventListener('resize', tryRevealVideo);
 	video.srcObject = stream;
 	if (typeof video.requestVideoFrameCallback === 'function') {
 		frameCallbackId = video.requestVideoFrameCallback(() => {
 			frameCallbackId = null;
 			onFrame();
+			markVideoPlayable();
 		});
 	}
 	Object.assign(video.style, {
@@ -644,6 +699,10 @@ export async function startBarcodeScanner(
 		objectFit: 'cover',
 		display: 'block',
 		pointerEvents: 'none',
+		/* Invisible jusqu'à des dimensions définitives ; le cadre garde son fond
+		   noir (bg-ink) pendant l'attente. */
+		opacity: '0',
+		transition: `opacity ${VIDEO_REVEAL_MS}ms ease`,
 	} as CSSStyleDeclaration);
 
 	// Repères : 4 coins + bande centrale (purement indicatif — le décodage

@@ -2988,6 +2988,14 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	}
 	async function runScanner(session: ScannerSession) {
 		if (scannerSession !== session || session.waitingForGesture || !session.el.isConnected || document.hidden) return;
+		/* MODE PORTRAIT (téléphone en paysage) : la couche « Tourne ton
+		   téléphone » couvre l'app — la caméra est mise en PAUSE (aucun flux
+		   ouvert, aucune lumière allumée) et la session reste en place.
+		   Le drapeau est posé par lib/portraitOnly (état partagé, également
+		   lu par l'overlay). Au retour en portrait, `orientationchange` /
+		   `resize` déclenche la reconstruction existante (session.restart →
+		   runScanner → caméra relancée). */
+		if (document.documentElement?.hasAttribute?.('data-portrait-lock')) return;
 		const { el, target } = session;
 		const elId = el.id;
 		const generation = ++session.generation;
