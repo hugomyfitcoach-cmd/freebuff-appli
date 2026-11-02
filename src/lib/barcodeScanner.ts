@@ -418,7 +418,30 @@ export async function startBarcodeScanner(
 	let greenTimer: ReturnType<typeof setTimeout> | null = null;
 	let debugTimer: ReturnType<typeof setInterval> | null = null;
 	let onVisibility: (() => void) | null = null;
+	let playPending: Promise<void> | null = null;
 	const onInterrupted = () => { if (!stopped) options.onInterrupted?.(); };
+	function resumeVideo(retry = false): Promise<void> {
+		if (stopped || document.hidden) return Promise.resolve();
+		if (playPending) return playPending;
+		playPending = (async () => {
+			try {
+				await video.play();
+			} catch {
+				if (stopped || document.hidden) return;
+				if (retry) {
+					try {
+						await video.play();
+						return;
+					} catch {
+						// La relance a également été refusée : reconstruire le scanner.
+					}
+				}
+				if (!stopped && !document.hidden) onInterrupted();
+			}
+		})().finally(() => { playPending = null; });
+		return playPending;
+	}
+	const onPause = () => { void resumeVideo(); };
 	const releaseStream = () => {
 		if (!stream) return;
 		for (const t of stream.getTracks()) {
@@ -438,6 +461,7 @@ export async function startBarcodeScanner(
 		if (debugTimer) clearInterval(debugTimer);
 		if (onVisibility) document.removeEventListener('visibilitychange', onVisibility);
 		options.signal?.removeEventListener('abort', stop);
+		video.removeEventListener('pause', onPause);
 		releaseStream();
 		try { if (!video.paused) video.pause(); } catch { /* Nettoyage best effort. */ }
 		if (video.srcObject) video.srcObject = null;
@@ -583,10 +607,17 @@ export async function startBarcodeScanner(
 	// -- Éléments visuels ----------------------------------------------------
 	// La vidéo remplit TOUJOURS le conteneur (cadre portrait stable, même si
 	// la source caméra est paysage) : object-fit cover + position absolute.
+	video.className = 'scanner-camera-video';
 	video.playsInline = true;
 	video.muted = true;
+	video.autoplay = true;
+	video.controls = false;
+	video.disablePictureInPicture = true;
+	video.setAttribute('playsinline', '');
 	video.setAttribute('muted', '');
 	video.setAttribute('autoplay', '');
+	video.setAttribute('disablepictureinpicture', '');
+	video.addEventListener('pause', onPause);
 	video.srcObject = stream;
 	Object.assign(video.style, {
 		position: 'absolute',
@@ -595,6 +626,7 @@ export async function startBarcodeScanner(
 		height: '100%',
 		objectFit: 'cover',
 		display: 'block',
+		pointerEvents: 'none',
 	} as CSSStyleDeclaration);
 
 	// Repères : 4 coins + bande centrale (purement indicatif — le décodage
@@ -1079,9 +1111,8 @@ export async function startBarcodeScanner(
 		if (!stopped) timer = setTimeout(tick, FRAME_INTERVAL_MS);
 	};
 
-	await video.play().catch(() => {
-		// Autoplay refusé : on attend un geste — l'ouverture du scan EST un geste.
-	});
+	// Un premier refus d'autoplay reçoit une nouvelle tentative avant relance.
+	await resumeVideo(true);
 	checkStopped();
 	video.addEventListener('loadedmetadata', resizeCanvas, { once: true });
 	/* Rafraîchissement de la pastille debug 1×/s (aucune télémétrie réseau). */

@@ -6212,6 +6212,14 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 {/if}
 
 <style>
+	/* Safari peut afficher ses commandes même sans attribut controls. */
+	:global(.scanner-camera-video::-webkit-media-controls) { display: none !important; }
+	:global(.scanner-camera-video::-webkit-media-controls-enclosure) { display: none !important; }
+	:global(.scanner-camera-video::-webkit-media-controls-panel) { display: none !important; }
+	:global(.scanner-camera-video::-webkit-media-controls-play-button) { display: none !important; }
+	:global(.scanner-camera-video::-webkit-media-controls-overlay-play-button) { display: none !important; }
+	:global(.scanner-camera-video::-webkit-media-controls-start-playback-button) { display: none !important; }
+
 	/* ROTATION (téléphone en paysage) : le volet « Ajouter un aliment » reste un
 	   ÉCRAN PLEIN. Sans ça, la largeur paysage (844 px) déclenchait les
 	   utilitaires `sm:` = gabarit DESKTOP (modal centré, tassé, Journal visible
