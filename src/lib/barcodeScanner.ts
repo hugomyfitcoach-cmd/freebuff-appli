@@ -402,7 +402,7 @@ function getNativeDetector(): NativeDetector | null {
 export async function startBarcodeScanner(
 	container: HTMLElement,
 	onDecoded: (text: string) => void,
-	options: { signal?: AbortSignal; onInterrupted?: () => void } = {}
+	options: { signal?: AbortSignal; onInterrupted?: (reason: 'track' | 'playback') => void; onFrame?: () => void } = {}
 ): Promise<BarcodeScannerHandle & TorchHandle> {
 	container.replaceChildren();
 	sessionsStarted++;
@@ -419,7 +419,15 @@ export async function startBarcodeScanner(
 	let debugTimer: ReturnType<typeof setInterval> | null = null;
 	let onVisibility: (() => void) | null = null;
 	let playPending: Promise<void> | null = null;
-	const onInterrupted = () => { if (!stopped) options.onInterrupted?.(); };
+	const onInterrupted = (reason: 'track' | 'playback') => { if (!stopped) options.onInterrupted?.(reason); };
+	const onTrackInterrupted = () => onInterrupted('track');
+	let frameCallbackId: number | null = null;
+	let frameReported = false;
+	const onFrame = () => {
+		if (stopped || frameReported || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
+		frameReported = true;
+		options.onFrame?.();
+	};
 	function resumeVideo(retry = false): Promise<void> {
 		if (stopped || document.hidden) return Promise.resolve();
 		if (playPending) return playPending;
@@ -436,7 +444,7 @@ export async function startBarcodeScanner(
 						// La relance a également été refusée : reconstruire le scanner.
 					}
 				}
-				if (!stopped && !document.hidden) onInterrupted();
+				if (!stopped && !document.hidden) onInterrupted('playback');
 			}
 		})().finally(() => { playPending = null; });
 		return playPending;
@@ -445,8 +453,8 @@ export async function startBarcodeScanner(
 	const releaseStream = () => {
 		if (!stream) return;
 		for (const t of stream.getTracks()) {
-			t.removeEventListener('ended', onInterrupted);
-			t.removeEventListener('mute', onInterrupted);
+			t.removeEventListener('ended', onTrackInterrupted);
+			t.removeEventListener('mute', onTrackInterrupted);
 			try { t.stop(); } catch { /* Arrêter aussi les autres pistes. */ }
 		}
 		cameraStreamsOpen = Math.max(0, cameraStreamsOpen - 1);
@@ -462,6 +470,8 @@ export async function startBarcodeScanner(
 		if (onVisibility) document.removeEventListener('visibilitychange', onVisibility);
 		options.signal?.removeEventListener('abort', stop);
 		video.removeEventListener('pause', onPause);
+		video.removeEventListener('loadeddata', onFrame);
+		if (frameCallbackId !== null) video.cancelVideoFrameCallback?.(frameCallbackId);
 		releaseStream();
 		try { if (!video.paused) video.pause(); } catch { /* Nettoyage best effort. */ }
 		if (video.srcObject) video.srcObject = null;
@@ -520,9 +530,9 @@ export async function startBarcodeScanner(
 				throw new DOMException('Scanner arrêté', 'AbortError');
 			}
 			for (const track of stream.getVideoTracks()) {
-				track.addEventListener('ended', onInterrupted);
-				track.addEventListener('mute', onInterrupted);
-				if (track.readyState === 'ended' || track.muted) onInterrupted();
+				track.addEventListener('ended', onTrackInterrupted);
+				track.addEventListener('mute', onTrackInterrupted);
+				if (track.readyState === 'ended' || track.muted) onTrackInterrupted();
 			}
 			checkStopped();
 			break;
@@ -618,7 +628,14 @@ export async function startBarcodeScanner(
 	video.setAttribute('autoplay', '');
 	video.setAttribute('disablepictureinpicture', '');
 	video.addEventListener('pause', onPause);
+	video.addEventListener('loadeddata', onFrame);
 	video.srcObject = stream;
+	if (typeof video.requestVideoFrameCallback === 'function') {
+		frameCallbackId = video.requestVideoFrameCallback(() => {
+			frameCallbackId = null;
+			onFrame();
+		});
+	}
 	Object.assign(video.style, {
 		position: 'absolute',
 		inset: '0',

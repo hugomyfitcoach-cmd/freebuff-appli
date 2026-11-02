@@ -2905,15 +2905,17 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	/* Caméra refusée/bloquée : message dédié + « Réessayer » (voir startScanner). */
 	let barcodePermBlocked = $state(false);
 	let scanner: (BarcodeScannerHandle & TorchHandle) | null = null;
-	let scannerBusy = false;
+	let scannerNeedsGesture = $state<string | null>(null);
 	type ScannerSession = {
 		el: HTMLElement;
 		target: 'journal' | 'meal' | 'editor';
 		controller: AbortController | null;
 		generation: number;
+		playbackRestarts: number;
+		waitingForGesture: boolean;
 		timer: ReturnType<typeof setTimeout> | undefined;
 		cleanup: () => void;
-		restart: () => void;
+		restart: (reason?: 'playback' | 'track') => void;
 	};
 	let scannerSession: ScannerSession | null = null;
 	/** Capacités caméra du scan en cours (lampe/zoom si supportés) — affiche
@@ -2940,19 +2942,27 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		if (scannerSession || typeof document === 'undefined') return;
 		const el = document.getElementById(elId);
 		if (!el) return;
-		const session: ScannerSession = { el, target, controller: null, generation: 0, timer: undefined, cleanup: () => {}, restart: () => {} };
+		const session: ScannerSession = { el, target, controller: null, generation: 0, playbackRestarts: 0, waitingForGesture: false, timer: undefined, cleanup: () => {}, restart: () => {} };
 		scannerSession = session;
 		let width = window.innerWidth;
-		const restart = () => {
-			if (scannerSession !== session) return;
+		const restart = (reason?: 'playback' | 'track') => {
+			if (scannerSession !== session || session.waitingForGesture) return;
 			session.generation++;
 			session.controller?.abort();
 			session.controller = null;
 			scanner = null;
-			scannerBusy = false;
 			scannerCaps = null;
 			torchOn = false;
 			clearTimeout(session.timer);
+			if (reason === 'playback') {
+				if (session.playbackRestarts >= 2) {
+					session.waitingForGesture = true;
+					scannerNeedsGesture = el.id;
+					barcodeStatus = 'idle';
+					return;
+				}
+				session.playbackRestarts++;
+			}
 			if (!document.hidden) session.timer = setTimeout(() => void runScanner(session), 250);
 		};
 		session.restart = restart;
@@ -2964,34 +2974,33 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		};
 		const onVisible = () => { if (!document.hidden) restart(); };
 		window.addEventListener('resize', onResize);
-		window.addEventListener('orientationchange', restart);
+		const onScannerOrientation = () => restart();
+		window.addEventListener('orientationchange', onScannerOrientation);
 		window.addEventListener('pageshow', onVisible);
 		document.addEventListener('visibilitychange', onVisible);
 		session.cleanup = () => {
 			window.removeEventListener('resize', onResize);
-			window.removeEventListener('orientationchange', restart);
+			window.removeEventListener('orientationchange', onScannerOrientation);
 			window.removeEventListener('pageshow', onVisible);
 			document.removeEventListener('visibilitychange', onVisible);
 		};
 		await runScanner(session);
 	}
 	async function runScanner(session: ScannerSession) {
-		if (scannerSession !== session || !session.el.isConnected || document.hidden) return;
+		if (scannerSession !== session || session.waitingForGesture || !session.el.isConnected || document.hidden) return;
 		const { el, target } = session;
 		const elId = el.id;
 		const generation = ++session.generation;
 		const controller = new AbortController();
 		session.controller = controller;
-		scannerBusy = true;
 		barcodeStatus = 'scanning';
 		try {
 		const handle = await startBarcodeScanner(el, (decoded) => {
 			if (scannerSession === session && generation === session.generation) void handleScan(decoded, target);
-		}, { signal: controller.signal, onInterrupted: () => {
-			if (scannerSession === session && generation === session.generation) {
-				// Le même chemin que rotation / retour : invalide immédiatement le flux.
-				session.restart();
-			}
+		}, { signal: controller.signal, onInterrupted: (reason) => {
+			if (scannerSession === session && generation === session.generation) session.restart(reason);
+		}, onFrame: () => {
+			if (scannerSession === session && generation === session.generation) session.playbackRestarts = 0;
 		} });
 		/* SCAN-ROTATION — volet fermé (croix, fond, navigation) ou lecteur
 		   démonté PENDANT l'ouverture de la caméra (getUserMedia lent,
@@ -3036,7 +3045,6 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 			session.cleanup();
 			scannerSession = null;
 			controller.abort();
-			scannerBusy = false;
 			if (scanner) {
 				try {
 					await scanner.stop();
@@ -3045,8 +3053,6 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 				}
 				scanner = null;
 			}
-		} finally {
-			if (scannerSession === session && generation === session.generation) scannerBusy = false;
 		}
 	}
 	/** Ouvrir un formulaire (repas / aliment) : on quitte TOUJOURS le mode
@@ -3061,6 +3067,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	async function stopScanner() {
 		const session = scannerSession;
 		scannerSession = null;
+		scannerNeedsGesture = null;
 		if (session) {
 			clearTimeout(session.timer);
 			session.cleanup();
@@ -3068,13 +3075,19 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		}
 		const handle = scanner;
 		scanner = null;
-		scannerBusy = false;
 		if (handle) void handle.stop().catch(() => {});
 		scannerCaps = null;
 		torchOn = false;
 		/* Scanner arrêté (produit trouvé, changement de mode, fermeture) → on
 		   sort proprement du mode saisie manuelle. */
 		exitBcManual();
+	}
+	function resumeScannerFromGesture() {
+		const session = scannerSession;
+		if (!session || !session.waitingForGesture) return;
+		session.waitingForGesture = false;
+		scannerNeedsGesture = null;
+		void runScanner(session);
 	}
 	/**
 	 * REPRISE DU LECTEUR après fermeture d'une feuille ouverte DEPUIS un scan
@@ -3127,7 +3140,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		}
 	}
 	async function handleScan(decoded: string, target: 'journal' | 'meal' | 'editor' = 'journal') {
-		if (scannerBusy || barcodeBusy) return;
+		if (barcodeBusy) return;
 		// Le scanner (createScanGate) ne délivre que des GTIN normalisés validés
 		// (longueur + checksum + 2 lectures identiques) : on refait ici les
 		// mêmes vérifications pures, au cas où un autre appelant existerait un
@@ -4911,7 +4924,12 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 							{:else if bcStep === 'scan'}
 								<!-- Scan DANS l'éditeur (résultat routé vers cette feuille). -->
 								<div class="mt-3 overflow-hidden rounded-xl border-2 border-line">
-									<div id="editor-bc-reader" class="relative aspect-[4/3] w-full bg-ink"></div>
+									<div class="relative aspect-[4/3] w-full bg-ink">
+										<div id="editor-bc-reader" class="pointer-events-none absolute inset-0"></div>
+										{#if scannerNeedsGesture === 'editor-bc-reader'}
+											<button type="button" class="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand px-4 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark" onclick={resumeScannerFromGesture}>Toucher pour relancer la caméra</button>
+										{/if}
+									</div>
 								</div>
 								<p class="mt-2 text-center text-xs text-mist">Vise le code-barres du produit… <button type="button" class="font-semibold text-brand hover:underline" onclick={() => { bcStep = cfEditingId ? 'add' : 'choose'; void stopScanner(); }}>Annuler</button></p>
 								{#if bcError}
@@ -5128,7 +5146,10 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 				     (mécanismes validés mission saisie manuelle). -->
 				<div bind:this={bcListEl} class="flex flex-1 flex-col overflow-y-auto overscroll-contain px-3 pb-28 pt-3" in:fly={{ x: modeSlideX, duration: modeSlideDuration }}>
 					<div class="bc-stage relative order-2 mx-auto aspect-[3/4.6] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-[max-height,border-color,box-shadow] duration-300 ease-out {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}" style:max-height={bcManualMode ? '7rem' : '120vh'}>
-						<div id="bc-reader" class="absolute inset-0"></div>
+						<div id="bc-reader" class="pointer-events-none absolute inset-0"></div>
+						{#if scannerNeedsGesture === 'bc-reader'}
+							<button type="button" class="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand px-4 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark" onclick={resumeScannerFromGesture}>Toucher pour relancer la caméra</button>
+						{/if}
 						<!-- Croix de fermeture DIRECTEMENT sur la zone caméra : -->
 						<button type="button" class="absolute right-2 top-2 z-20 grid h-11 w-11 place-items-center rounded-full bg-ink/55 text-white backdrop-blur transition hover:bg-ink/75" aria-label="Fermer" onclick={() => closeLog()}><Icon name="x" size={18} /></button>
 						<!-- Consigne : simplifiée (mission scanner V3) et remontée au-dessus
@@ -5861,7 +5882,10 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 				     overlay, lampe/zoom en pill compacte. Mécanismes validés conservés. -->
 				<div bind:this={mealBcListEl} class="flex flex-1 flex-col overflow-y-auto overscroll-contain px-3 pb-28 pt-3" in:fly={{ x: modeSlideX, duration: modeSlideDuration }}>
 					<div class="bc-stage relative order-2 mx-auto aspect-[3/4.6] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-[max-height,border-color,box-shadow] duration-300 ease-out {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}" style:max-height={bcManualMode ? '7rem' : '120vh'}>
-						<div id="meal-bc-reader" class="absolute inset-0"></div>
+						<div id="meal-bc-reader" class="pointer-events-none absolute inset-0"></div>
+						{#if scannerNeedsGesture === 'meal-bc-reader'}
+							<button type="button" class="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand px-4 py-2.5 text-sm font-bold text-white transition hover:bg-brand-dark" onclick={resumeScannerFromGesture}>Toucher pour relancer la caméra</button>
+						{/if}
 						{#if !bcManualMode && barcodeStatus === 'scanning' && !barcodeBusy}
 							<p class="pointer-events-none absolute inset-x-3 bottom-2.5 z-10 text-center text-[11px] font-semibold text-white/85 drop-shadow">{BARCODE_HINT}</p>
 						{/if}
