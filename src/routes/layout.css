@@ -262,6 +262,10 @@
 .ds-crm .kpi-crm-plain::before {
 	display: none;
 }
+/* Tableau de bord coach : mêmes contenus, hauteur réduite (marges resserrées). */
+.ds-crm .kpi-compact .kpi-crm {
+	padding: 0.7rem 1rem 0.6rem;
+}
 
 /* ── Ligne « à traiter » compacte (3 visibles, chevron, badge) ── */
 .ds-crm .todo-row-crm {
