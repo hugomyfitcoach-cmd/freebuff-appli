@@ -27,6 +27,7 @@
 	import CountUp from '$lib/components/CountUp.svelte';
 	import CoachIdentity from '$lib/components/CoachIdentity.svelte';
 	import { coachIdentity, type CoachUserLike } from '$lib/coachIdentity';
+	import { searchCoachClients } from '$lib/coachSearch';
 	import ConfirmDialog from '../../lib/components/ConfirmDialog.svelte';
 	import { ADAPTATION_AIDE, ADAPTATION_REPERES, CalibrageError, decimalFr } from '$lib/calibrage';
 	import {
@@ -291,6 +292,62 @@
 			`${fullName(c.user)} ${c.user.email}`.toLowerCase().includes(q)
 		);
 	});
+
+	/* ── Recherche de l'en-tête (liste déroulante juste sous la barre) ──
+	   Même source que la vue rapide — la liste `clients` déjà chargée, aucun
+	   accès ni requête supplémentaire. La vue rapide garde SON propre champ
+	   (`query`) : taper ici ne la filtre plus. */
+	let coachSearch = $state('');
+	let coachSearchOpen = $state(false);
+	let coachSearchIndex = $state(-1);
+	let coachSearchEl = $state<HTMLElement | null>(null);
+	const coachResults = $derived(searchCoachClients(clients, coachSearch));
+
+	/** Clic hors du bloc recherche (souris / tactile) : la liste se referme. */
+	$effect(() => {
+		if (!coachSearchOpen || !coachSearchEl) return;
+		const onPointerDown = (e: PointerEvent) => {
+			if (!coachSearchEl?.contains(e.target as Node)) coachSearchOpen = false;
+		};
+		document.addEventListener('pointerdown', onPointerDown);
+		return () => document.removeEventListener('pointerdown', onPointerDown);
+	});
+
+	/** ↑ ↓ naviguent, Entrée ouvre la Vision 360°, Échap referme. */
+	function onCoachSearchKey(e: KeyboardEvent) {
+		const n = coachResults.length;
+		if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			if (!coachSearchOpen) coachSearchOpen = true;
+			coachSearchIndex = n ? (coachSearchIndex + 1) % n : -1;
+		} else if (e.key === 'ArrowUp') {
+			e.preventDefault();
+			if (!coachSearchOpen) coachSearchOpen = true;
+			coachSearchIndex = n ? (coachSearchIndex - 1 + n) % n : -1;
+		} else if (e.key === 'Enter') {
+			if (!coachSearchOpen || n === 0) return;
+			e.preventDefault();
+			const target = coachResults[coachSearchIndex >= 0 ? coachSearchIndex : 0];
+			if (target) coachSearchGo(target.user._id);
+		} else if (e.key === 'Escape') {
+			coachSearchOpen = false;
+			coachSearchIndex = -1;
+		}
+	}
+
+	/** Entrée ou « Vision 360 › » : ouvre la fiche (liste refermée). */
+	function coachSearchGo(clientId: string) {
+		coachSearchOpen = false;
+		coachSearchIndex = -1;
+		void openClient(clientId);
+	}
+
+	/** Raccourcis Journal / Calibrage / Bilans : même tiroir, onglet visé. */
+	function coachSearchSection(clientId: string, target: 'journal' | 'calibrage' | 'bilans') {
+		coachSearchOpen = false;
+		coachSearchIndex = -1;
+		void openClientSection(clientId, target);
+	}
 
 	/** Âge calculé depuis la date de naissance (jamais saisi à la main) — jour/mois d'anniversaire inclus. */
 	const ageOf = $derived.by(() => {
@@ -1694,6 +1751,11 @@
 		dashScrollY = window.scrollY;
 		await goto(`/admin?client=${clientId}`, { noScroll: true });
 	}
+	/** Même ouverture, directement sur un onglet du tiroir (raccourcis recherche). */
+	async function openClientSection(clientId: string, target: 'journal' | 'calibrage' | 'bilans') {
+		dashScrollY = window.scrollY;
+		await goto(`/admin?client=${clientId}&section=${target}`, { noScroll: true });
+	}
 	/** Ferme la Vision 360° et revient au tableau de bord (même scroll, même recherche). */
 	async function closeVision() {
 		const q = new URLSearchParams(page.url.searchParams);
@@ -2665,16 +2727,67 @@
 		<p class="mt-0.5 text-sm font-medium text-mist">Voici ce qui demande ton attention aujourd'hui.{#if dashLive}&nbsp;<span class="hidden lg:inline">· {dashDateLine}</span>{/if}</p>
 	</div>
 	<div class="ml-auto flex items-center gap-2 sm:gap-2.5">
-		<label class="relative hidden sm:block">
-			<span class="sr-only">Rechercher une cliente</span>
-			<Icon name="search" size={15} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-mist" />
-			<input
-				type="search"
-				bind:value={query}
-				placeholder="Rechercher une cliente (nom, email)…"
-				class="w-44 rounded-xl border border-line bg-white py-2 pl-9 pr-3 text-sm text-ink outline-none transition placeholder:text-mist focus:border-brand md:w-56"
-			/>
-		</label>
+		<!-- Recherche cliente : les résultats s'ouvrent JUSTE SOUS la barre, la
+		     « Vue rapide » du bas n'est plus filtrée par ce champ. -->
+		<div class="coach-search relative hidden sm:block" bind:this={coachSearchEl}>
+			<label class="relative block">
+				<span class="sr-only">Rechercher une cliente</span>
+				<Icon name="search" size={15} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-mist" />
+				<input
+					type="search"
+					bind:value={coachSearch}
+					oninput={() => { coachSearchOpen = true; coachSearchIndex = -1; }}
+					onfocus={() => { if (coachSearch.trim()) coachSearchOpen = true; }}
+					onkeydown={onCoachSearchKey}
+					placeholder="Rechercher une cliente (nom, email)…"
+					class="w-44 rounded-xl border border-line bg-white py-2 pl-9 pr-3 text-sm text-ink outline-none transition placeholder:text-mist focus:border-brand md:w-56"
+					aria-expanded={coachSearchOpen && coachResults.length > 0}
+					aria-controls="coach-search-results"
+					aria-autocomplete="list"
+					autocomplete="off"
+				/>
+			</label>
+			{#if coachSearchOpen && coachSearch.trim()}
+				<div
+					id="coach-search-results"
+					class="absolute right-0 top-full z-50 mt-2 w-[23rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-line bg-card shadow-xl"
+				>
+					{#if coachResults.length === 0}
+						<p class="px-4 py-3 text-[12.5px] text-mist">Aucune cliente pour « {coachSearch.trim()} ».</p>
+					{:else}
+						<ul class="divide-y divide-line/60">
+							{#each coachResults as c, i (c.user._id)}
+								<li class={i === coachSearchIndex ? 'bg-brand-light/60' : ''}>
+									<button
+										type="button"
+										onclick={() => coachSearchGo(c.user._id)}
+										onmouseenter={() => (coachSearchIndex = i)}
+										class="flex w-full items-center gap-2.5 px-3 py-2 text-left transition hover:bg-soft/70"
+										aria-label={`Ouvrir la Vision 360° de ${fullName(c.user)}`}
+									>
+										<span class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-accent-light text-[13px] font-black text-brand-deep">{initial(fullName(c.user))}</span>
+										<span class="min-w-0 flex-1">
+											<span class="flex items-center gap-1.5">
+												<span class="truncate text-[13px] font-bold text-ink">{fullName(c.user)}</span>
+												<span class="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold {statusLabel(c.user.lastSeenAt).cls}">{statusLabel(c.user.lastSeenAt).label}</span>
+											</span>
+											<span class="block truncate text-[11px] text-mist">{fmtLastSeen(c.user.lastSeenAt)}</span>
+										</span>
+										<span class="inline-flex shrink-0 items-center gap-0.5 text-[11.5px] font-bold text-brand-deep">Vision 360 <Icon name="chevronRight" size={11} /></span>
+									</button>
+									<div class="flex flex-wrap items-center gap-1 px-3 pb-2">
+										<button type="button" onclick={() => coachSearchSection(c.user._id, 'journal')} class="rounded-full border border-line bg-white px-2 py-0.5 text-[11px] font-bold text-ink transition hover:border-brand hover:text-brand">Journal</button>
+										<button type="button" onclick={() => coachSearchSection(c.user._id, 'calibrage')} class="rounded-full border border-line bg-white px-2 py-0.5 text-[11px] font-bold text-ink transition hover:border-brand hover:text-brand">Calibrage</button>
+										<button type="button" onclick={() => coachSearchSection(c.user._id, 'bilans')} class="rounded-full border border-line bg-white px-2 py-0.5 text-[11px] font-bold text-ink transition hover:border-brand hover:text-brand">Bilans</button>
+										<span class="ml-auto hidden text-[10px] text-mist md:inline">↑ ↓ naviguer · Entrée ouvrir · Échap fermer</span>
+									</div>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</div>
+			{/if}
+		</div>
 		<a
 			href="/admin/notifications"
 			aria-label="Notifications"
@@ -2695,7 +2808,7 @@
 
 <!-- ══════════ KPI CARDS (PASS 2 — tuile XL + sparkline, mockup) ══════════
      Valeurs réelles existantes ; sparklines décoratives (pur CSS). -->
-<section class="m-in-crm mt-1 grid gap-3.5 sm:grid-cols-2 xl:grid-cols-4" style="--m-i: 2">
+<section class="kpi-compact m-in-crm mt-1 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" style="--m-i: 2">
 	<div class="kpi-crm kpi-crm-plain card-crm-hover" style="--kpi-tile-bg: var(--accent-light); --kpi-tile-fg: var(--brand-deep); --m-i: 0">
 		<div class="flex items-start justify-between gap-2">
 			<span class="kpi-tile-lg"><Icon name="users" size={20} /></span>
@@ -2703,9 +2816,9 @@
 				<i style="--h: 30; --m-i: 0"></i><i style="--h: 46; --m-i: 1"></i><i style="--h: 38; --m-i: 2"></i><i style="--h: 62; --m-i: 3"></i><i style="--h: 54; --m-i: 4"></i><i style="--h: 80; --m-i: 5"></i><i style="--h: 100; --m-i: 6"></i>
 			</span>
 		</div>
-		<div class="kpi-num-crm mt-2.5 text-[2rem] text-ink"><CountUp value={dashKpiClients} /></div>
+		<div class="kpi-num-crm mt-1.5 text-[2rem] text-ink"><CountUp value={dashKpiClients} /></div>
 		<div class="mt-0.5 text-[13px] font-bold text-ink">clientes</div>
-		<div class="mt-2 flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11.5px] text-mist">
+		<div class="mt-1.5 flex items-center gap-1.5 border-t border-line/60 pt-1.5 text-[11.5px] text-mist">
 			<span class="inline-flex items-center gap-1 font-bold text-brand-deep"><Icon name="trendingUp" size={12} /> {dashKpiActive}</span>
 			<span>active{dashKpiActive > 1 ? 's' : ''} aujourd'hui</span>
 		</div>
@@ -2717,9 +2830,9 @@
 				<i style="--h: 42; --m-i: 0"></i><i style="--h: 58; --m-i: 1"></i><i style="--h: 50; --m-i: 2"></i><i style="--h: 70; --m-i: 3"></i><i style="--h: 88; --m-i: 4"></i><i style="--h: 76; --m-i: 5"></i><i style="--h: 100; --m-i: 6"></i>
 			</span>
 		</div>
-		<div class="kpi-num-crm mt-2.5 text-[2rem] text-ink"><CountUp value={dashKpiActive} /></div>
+		<div class="kpi-num-crm mt-1.5 text-[2rem] text-ink"><CountUp value={dashKpiActive} /></div>
 		<div class="mt-0.5 text-[13px] font-bold text-ink">actives aujourd'hui</div>
-		<div class="mt-2 flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11.5px] text-mist">
+		<div class="mt-1.5 flex items-center gap-1.5 border-t border-line/60 pt-1.5 text-[11.5px] text-mist">
 			<span class="inline-flex items-center gap-1 font-bold text-brand-deep"><Icon name="trendingUp" size={12} /> {dashKpiClients > 0 ? Math.round((dashKpiActive / dashKpiClients) * 100) : 0} %</span>
 			<span>de ton total</span>
 		</div>
@@ -2731,9 +2844,9 @@
 				<i style="--h: 90; --m-i: 0"></i><i style="--h: 45; --m-i: 1"></i><i style="--h: 70; --m-i: 2"></i><i style="--h: 100; --m-i: 3"></i><i style="--h: 60; --m-i: 4"></i><i style="--h: 82; --m-i: 5"></i><i style="--h: 50; --m-i: 6"></i>
 			</span>
 		</div>
-		<div class="kpi-num-crm mt-2.5 text-[2rem] text-ink"><CountUp value={dashKpiWaiting} /></div>
+		<div class="kpi-num-crm mt-1.5 text-[2rem] text-ink"><CountUp value={dashKpiWaiting} /></div>
 		<div class="mt-0.5 text-[13px] font-bold text-ink">retours à envoyer</div>
-		<div class="mt-2 flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11.5px] text-mist">
+		<div class="mt-1.5 flex items-center gap-1.5 border-t border-line/60 pt-1.5 text-[11.5px] text-mist">
 			{#if dashKpiWaiting > 0}
 				<span class="inline-flex items-center gap-1 font-bold text-warn"><Icon name="clock" size={12} /> À traiter aujourd'hui</span>
 			{:else}
@@ -2748,9 +2861,9 @@
 				<i style="--h: 45; --m-i: 0"></i><i style="--h: 60; --m-i: 1"></i><i style="--h: 35; --m-i: 2"></i><i style="--h: 70; --m-i: 3"></i><i style="--h: 50; --m-i: 4"></i><i style="--h: 85; --m-i: 5"></i><i style="--h: 65; --m-i: 6"></i>
 			</span>
 		</div>
-		<div class="kpi-num-crm mt-2.5 text-[2rem] text-ink"><CountUp value={kpiRdvToday.length} /></div>
+		<div class="kpi-num-crm mt-1.5 text-[2rem] text-ink"><CountUp value={kpiRdvToday.length} /></div>
 		<div class="mt-0.5 text-[13px] font-bold text-ink">rendez-vous du jour</div>
-		<div class="mt-2 flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11.5px] text-mist">
+		<div class="mt-1.5 flex items-center gap-1.5 border-t border-line/60 pt-1.5 text-[11.5px] text-mist">
 			{#if kpiRdvLoading}
 				<span>Chargement des rendez-vous…</span>
 			{:else if kpiRdvToday.length === 0}
@@ -2762,10 +2875,151 @@
 	</div>
 </section>
 
-<!-- ══════════ GRILLE COCKPIT (PASS 2) : GAUCHE = À traiter · DROITE = Google Calendar + Message global ══════════ -->
-<div class="m-in-crm mt-1 grid items-start gap-3.5 xl:grid-cols-12" style="--m-i: 3">
-	<!-- Colonne gauche : À traiter aujourd'hui -->
-	<div class="min-w-0 xl:col-span-5">
+<!-- ══════════ BANDEAUX (retour de formulaire · connexion Google) ══════════ -->
+<div class="m-in-crm mt-3.5 grid gap-2" style="--m-i: 3">
+	{#if alert && !(selected && view)}
+		<div class="flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm {alert.error ? 'border-danger/40 bg-danger-light text-danger' : 'border-brand/40 bg-brand-light text-ink'}">
+			<span>{alert.error ?? alert.ok}</span>
+			<Icon name="info" size={15} class="shrink-0 text-mist" />
+		</div>
+	{/if}
+	{#if googleBanner}
+		<div class="flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm {googleBanner.startsWith('google-error') ? 'border-danger/40 bg-danger-light text-danger' : 'border-brand/40 bg-brand-light text-ink'}">
+			<span>
+				{#if googleBanner === 'google-ok'}
+					<strong>Google Calendar connecté ✓</strong> — les rendez-vous peuvent être synchronisés avec ton agenda.
+				{:else}
+					<strong>Connexion Google échouée :</strong> {googleBanner.slice('google-error:'.length)}
+				{/if}
+			</span>
+			<Icon name={googleBanner.startsWith('google-error') ? 'info' : 'calendarCheck'} size={15} class="shrink-0 text-mist" />
+		</div>
+	{/if}
+</div>
+
+<!-- ══════════ TABLEAU DE BORD : VUE RAPIDE (≈ 2/3) + COLONNE DROITE (≈ 1/3) ══════════ -->
+<div class="dash-grid m-in-crm mt-3.5" style="--m-i: 4">
+	<div class="min-w-0">
+		<!-- ══════════ VUE RAPIDE DES CLIENTES (PASS 2) ══════════ -->
+		<section class="card-crm overflow-hidden">
+			<div class="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3.5">
+				<div class="flex min-w-0 items-center gap-2.5">
+					<span class="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-brand-light text-brand-deep"><Icon name="users" size={16} /></span>
+					<h2 class="h2-crm text-base">Vue rapide des clientes</h2>
+					<span class="badge-in rounded-full bg-brand-light px-2 py-0.5 text-[11px] font-bold text-brand-deep">{clientCounts.all}</span>
+				</div>
+				<div class="flex flex-wrap items-center gap-2">
+					<label class="relative">
+						<span class="sr-only">Rechercher une cliente</span>
+						<Icon name="search" size={14} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-mist" />
+						<input
+							type="search"
+							bind:value={query}
+							placeholder="Rechercher une cliente…"
+							class="w-44 rounded-full border border-line bg-white py-1.5 pl-8 pr-3 text-[13px] outline-none transition placeholder:text-mist focus:border-brand md:w-52"
+						/>
+					</label>
+					<div class="flex items-center rounded-full border border-line bg-white p-0.5" role="group" aria-label="Filtrer les clientes">
+						<button type="button" class="chip-crm {clientFilter === 'all' ? 'active-crm' : ''}" onclick={() => (clientFilter = 'all')} aria-pressed={clientFilter === 'all'}>Toutes</button>
+						<button type="button" class="chip-crm {clientFilter === 'active' ? 'active-crm' : ''}" onclick={() => (clientFilter = 'active')} aria-pressed={clientFilter === 'active'}>Actives ({clientCounts.active})</button>
+						<button type="button" class="chip-crm {clientFilter === 'inactive' ? 'active-crm' : ''}" onclick={() => (clientFilter = 'inactive')} aria-pressed={clientFilter === 'inactive'}>Inactives ({clientCounts.inactive})</button>
+						<button type="button" class="chip-crm {clientFilter === 'coaching' ? 'active-crm' : ''}" onclick={() => (clientFilter = 'coaching')} aria-pressed={clientFilter === 'coaching'}>Coaching ({clientCounts.coaching})</button>
+						<button type="button" class="chip-crm {clientFilter === 'autonomy' ? 'active-crm' : ''}" onclick={() => (clientFilter = 'autonomy')} aria-pressed={clientFilter === 'autonomy'}>Autonomie ({clientCounts.autonomy})</button>
+					</div>
+					<details class="group relative">
+						<summary class="btn-crm inline-flex cursor-pointer list-none items-center gap-1.5 rounded-full bg-brand px-3.5 py-2 text-[12.5px] font-bold text-white shadow-sm transition hover:bg-brand-dark">
+							<Icon name="plus" size={14} strokeWidth={2.6} class="shrink-0" /> Ajouter une cliente
+						</summary>
+						<form method="POST" action="?/createClient" class="absolute right-0 top-11 z-20 w-80 rounded-2xl border border-line bg-white p-4 shadow-xl">
+							<label class="mb-1 block text-xs font-bold uppercase tracking-wide text-mist" for="nc-prenom">Prénom</label>
+							<input id="nc-prenom" name="prenom" required placeholder="Ex. Julie" class="mb-3 w-full rounded-xl border-2 border-line px-3 py-2 text-sm outline-none focus:border-brand" />
+							<label class="mb-1 block text-xs font-bold uppercase tracking-wide text-mist" for="nc-email">Email (identifiant de connexion)</label>
+							<input id="nc-email" name="email" type="email" required placeholder="julie@exemple.fr" class="mb-3 w-full rounded-xl border-2 border-line px-3 py-2 text-sm outline-none focus:border-brand" />
+							<label class="mb-1 block text-xs font-bold uppercase tracking-wide text-mist" for="nc-pass">Mot de passe (8 caractères min.)</label>
+							<input id="nc-pass" name="password" type="text" required minlength="8" placeholder="Choisi avec la cliente…" class="mb-4 w-full rounded-xl border-2 border-line px-3 py-2 text-sm outline-none focus:border-brand" />
+							<button type="submit" class="w-full rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-dark">Créer le compte</button>
+						</form>
+					</details>
+				</div>
+			</div>
+
+			{#if filteredClients.length === 0}
+				<p class="px-6 py-14 text-center text-sm text-mist">
+					Aucune cliente{query.trim() || clientFilter !== 'all' ? ' trouvée' : ' pour l’instant'}.<br />Crée la première avec « Ajouter une cliente ».
+				</p>
+			{:else}
+				<div class="table-wrap overflow-x-auto">
+					<table class="tbl-crm w-full min-w-[860px] text-left">
+						<thead>
+							<tr>
+								<th class="px-5 py-2.5">Cliente</th>
+								<th class="px-3 py-2.5">Dernière connexion</th>
+								<th class="px-3 py-2.5">Bilans</th>
+								<th class="px-3 py-2.5">Retours</th>
+								<th class="px-3 py-2.5">Dernier bilan</th>
+								<th class="px-3 py-2.5">Statut</th>
+								<th class="px-5 py-2.5 text-right">Actions</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each filteredClients as client (client.user._id)}
+								<tr
+									class="crow-crm border-b border-line/50 last:border-0"
+									tabindex="0"
+									role="link"
+									onclick={() => openClient(client.user._id)}
+									onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openClient(client.user._id); } }}
+									aria-label={`Ouvrir la Vision 360° de ${fullName(client.user)}`}
+								>
+									<td class="px-5 py-2.5">
+										<div class="flex items-center gap-3">
+											<ClientAvatar name={fullName(client.user)} url={client.profilePhotoUrl} class="h-9 w-9 text-sm" />
+											<div class="min-w-0">
+												<div class="flex items-center gap-2">
+													<span class="truncate font-bold text-ink">{fullName(client.user)}</span>
+													<span class="presence-crm {isOnline(client.user.lastSeenAt) ? 'on' : ''}" title={isOnline(client.user.lastSeenAt) ? 'En ligne' : 'Hors ligne'}></span>
+												</div>
+												<div class="truncate text-[11px] text-mist">{client.user.email}</div>
+											</div>
+										</div>
+									</td>
+									<td class="whitespace-nowrap px-3 py-2.5 text-[13px] text-mist">{fmtLastSeen(client.user.lastSeenAt)}</td>
+									<td class="px-3 py-2.5 text-[13px] font-semibold text-ink">{client.count}</td>
+									<td class="px-3 py-2.5">
+										{#if client.waiting > 0}
+											<span class="badge-in grid h-5 min-w-5 place-items-center rounded-full bg-warn px-1.5 text-[11px] font-bold text-white">{client.waiting}</span>
+										{:else}
+											<span class="text-[13px] text-mist">—</span>
+										{/if}
+									</td>
+									<td class="whitespace-nowrap px-3 py-2.5 text-[13px] text-mist">{client.latest?.weekLabel ?? '—'}</td>
+									<td class="px-3 py-2.5">
+										<div class="flex flex-wrap items-center gap-1">
+											<span class="rounded-full px-2.5 py-1 text-[11.5px] font-bold {statusLabel(client.user.lastSeenAt).cls}">{statusLabel(client.user.lastSeenAt).label}</span>
+											{#if coachingModeOf(client.user) === 'autonomy'}
+												<span class="rounded-full bg-warn-light px-2.5 py-1 text-[11.5px] font-bold text-warn" title="Mode Autonomie : sollicitations de coaching coupées, accès app et historique conservés">Autonomie</span>
+											{/if}
+										</div>
+									</td>
+									<td class="px-5 py-2.5 text-right">
+										<a
+											href={`/admin?client=${client.user._id}`}
+											onclick={(e) => { e.preventDefault(); openClient(client.user._id); }}
+											class="btn-crm inline-flex items-center gap-1 rounded-full border border-line bg-white px-3 py-1.5 text-[12px] font-bold text-ink transition hover:border-brand hover:text-brand"
+										>Vision 360 <Icon name="arrowRight" size={12} /></a>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		</section>
+	</div>
+
+	<!-- Colonne droite : À traiter aujourd'hui · Message global · Google Calendar -->
+	<aside class="dash-side min-w-0 grid gap-3.5 content-start">
+
 		<section class="card-crm p-4">
 			<div class="flex items-center justify-between gap-2">
 				<h2 class="h2-crm flex items-center gap-2 text-[15px]">
@@ -2797,64 +3051,6 @@
 				{#if dashTodos.length >= 3}
 					<a href="/admin/bilans" class="mt-2.5 block text-center text-[11.5px] font-bold text-mist transition hover:text-brand">Voir tout →</a>
 				{/if}
-			{/if}
-		</section>
-	</div>
-
-	<!-- Colonne droite : Google Calendar (haut) + Message global (bas) -->
-	<div class="min-w-0 grid gap-3.5 xl:col-span-7">
-		{#if alert && !(selected && view)}
-			<div class="flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm {alert.error ? 'border-danger/40 bg-danger-light text-danger' : 'border-brand/40 bg-brand-light text-ink'}">
-				<span>{alert.error ?? alert.ok}</span>
-				<Icon name="info" size={15} class="shrink-0 text-mist" />
-			</div>
-		{/if}
-		{#if googleBanner}
-			<div class="flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm {googleBanner.startsWith('google-error') ? 'border-danger/40 bg-danger-light text-danger' : 'border-brand/40 bg-brand-light text-ink'}">
-				<span>
-					{#if googleBanner === 'google-ok'}
-						<strong>Google Calendar connecté ✓</strong> — les rendez-vous peuvent être synchronisés avec ton agenda.
-					{:else}
-						<strong>Connexion Google échouée :</strong> {googleBanner.slice('google-error:'.length)}
-					{/if}
-				</span>
-				<Icon name={googleBanner.startsWith('google-error') ? 'info' : 'calendarCheck'} size={15} class="shrink-0 text-mist" />
-			</div>
-		{/if}
-
-		<!-- ══ Google Calendar (compte du coach) — logique conservée, carte cockpit ══ -->			<section class="card-crm p-4">
-				<div class="flex flex-wrap items-center justify-between gap-3">
-					<div class="flex min-w-0 items-center gap-2">
-						<h2 class="h2-crm flex items-center gap-2 text-[15px]"><Icon name="calendarCheck" size={16} class="shrink-0 text-brand" /> Google Calendar</h2>
-					{#if google}
-						<span class="rounded-full bg-brand px-2 py-0.5 text-[10.5px] font-bold text-white">Connecté ✓</span>
-					{:else}
-						<span class="rounded-full bg-cream px-2 py-0.5 text-[10.5px] font-bold text-mist">Non connecté</span>
-					{/if}
-				</div>
-				{#if google}
-					<button
-						type="button"
-						onclick={googleDisconnect}
-						disabled={googleBusy}
-						class="btn-crm rounded-full border border-line bg-white px-3 py-1.5 text-[12px] font-bold text-ink transition hover:border-danger hover:text-danger disabled:opacity-50"
-					>Gérer</button>
-				{:else}
-					<a
-						href="/api/google/connect"
-						class="btn-crm inline-flex items-center gap-1 rounded-full bg-brand px-3.5 py-1.5 text-[12px] font-bold text-white transition hover:bg-brand-dark"
-					><Icon name="calendarRange" size={13} class="shrink-0" /> Connecter</a>
-				{/if}
-			</div>
-			<div class="mt-2.5 flex items-center gap-3 rounded-xl bg-soft/70 px-3 py-2.5">
-				<img src="/img/google-calendar.svg" alt="Logo Google Calendar" class="h-9 w-9 shrink-0" />
-				<div class="min-w-0">
-					<p class="truncate text-[13px] font-bold text-ink">{google ? (google.email || 'Compte Google connecté') : 'Compte Google non connecté'}</p>
-					<p class="text-[11.5px] text-mist">{google ? 'Tes rendez-vous sont synchronisés automatiquement.' : 'Connecte ton agenda pour synchroniser tes rendez-vous.'}</p>
-				</div>
-			</div>
-			{#if google}
-				<p class="mt-1.5 text-[10px] text-mist">Tokens chiffrés côté serveur · déconnexion possible à tout moment.</p>
 			{/if}
 		</section>
 
@@ -2918,124 +3114,46 @@
 				</form>
 			{/if}
 		</section>
-	</div>
-</div>
 
-<!-- ══════════ VUE RAPIDE DES CLIENTES (PASS 2) ══════════ -->
-<section class="card-crm m-in-crm mt-3.5 overflow-hidden" style="--m-i: 4">
-	<div class="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3.5">
-		<div class="flex min-w-0 items-center gap-2.5">
-			<span class="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-brand-light text-brand-deep"><Icon name="users" size={16} /></span>
-			<h2 class="h2-crm text-base">Vue rapide des clientes</h2>
-			<span class="badge-in rounded-full bg-brand-light px-2 py-0.5 text-[11px] font-bold text-brand-deep">{clientCounts.all}</span>
-		</div>
-		<div class="flex flex-wrap items-center gap-2">
-			<label class="relative">
-				<span class="sr-only">Rechercher une cliente</span>
-				<Icon name="search" size={14} class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-mist" />
-				<input
-					type="search"
-					bind:value={query}
-					placeholder="Rechercher une cliente…"
-					class="w-44 rounded-full border border-line bg-white py-1.5 pl-8 pr-3 text-[13px] outline-none transition placeholder:text-mist focus:border-brand md:w-52"
-				/>
-			</label>
-			<div class="flex items-center rounded-full border border-line bg-white p-0.5" role="group" aria-label="Filtrer les clientes">
-				<button type="button" class="chip-crm {clientFilter === 'all' ? 'active-crm' : ''}" onclick={() => (clientFilter = 'all')} aria-pressed={clientFilter === 'all'}>Toutes</button>
-				<button type="button" class="chip-crm {clientFilter === 'active' ? 'active-crm' : ''}" onclick={() => (clientFilter = 'active')} aria-pressed={clientFilter === 'active'}>Actives ({clientCounts.active})</button>
-				<button type="button" class="chip-crm {clientFilter === 'inactive' ? 'active-crm' : ''}" onclick={() => (clientFilter = 'inactive')} aria-pressed={clientFilter === 'inactive'}>Inactives ({clientCounts.inactive})</button>
-				<button type="button" class="chip-crm {clientFilter === 'coaching' ? 'active-crm' : ''}" onclick={() => (clientFilter = 'coaching')} aria-pressed={clientFilter === 'coaching'}>Coaching ({clientCounts.coaching})</button>
-				<button type="button" class="chip-crm {clientFilter === 'autonomy' ? 'active-crm' : ''}" onclick={() => (clientFilter = 'autonomy')} aria-pressed={clientFilter === 'autonomy'}>Autonomie ({clientCounts.autonomy})</button>
+		<!-- ══ Google Calendar (compte du coach) — logique conservée, carte cockpit ══ -->
+		<section class="card-crm p-4">
+			<div class="flex flex-wrap items-center justify-between gap-3">
+				<div class="flex min-w-0 items-center gap-2">
+					<h2 class="h2-crm flex items-center gap-2 text-[15px]"><Icon name="calendarCheck" size={16} class="shrink-0 text-brand" /> Google Calendar</h2>
+				{#if google}
+					<span class="rounded-full bg-brand px-2 py-0.5 text-[10.5px] font-bold text-white">Connecté ✓</span>
+				{:else}
+					<span class="rounded-full bg-cream px-2 py-0.5 text-[10.5px] font-bold text-mist">Non connecté</span>
+				{/if}
 			</div>
-			<details class="group relative">
-				<summary class="btn-crm inline-flex cursor-pointer list-none items-center gap-1.5 rounded-full bg-brand px-3.5 py-2 text-[12.5px] font-bold text-white shadow-sm transition hover:bg-brand-dark">
-					<Icon name="plus" size={14} strokeWidth={2.6} class="shrink-0" /> Ajouter une cliente
-				</summary>
-				<form method="POST" action="?/createClient" class="absolute right-0 top-11 z-20 w-80 rounded-2xl border border-line bg-white p-4 shadow-xl">
-					<label class="mb-1 block text-xs font-bold uppercase tracking-wide text-mist" for="nc-prenom">Prénom</label>
-					<input id="nc-prenom" name="prenom" required placeholder="Ex. Julie" class="mb-3 w-full rounded-xl border-2 border-line px-3 py-2 text-sm outline-none focus:border-brand" />
-					<label class="mb-1 block text-xs font-bold uppercase tracking-wide text-mist" for="nc-email">Email (identifiant de connexion)</label>
-					<input id="nc-email" name="email" type="email" required placeholder="julie@exemple.fr" class="mb-3 w-full rounded-xl border-2 border-line px-3 py-2 text-sm outline-none focus:border-brand" />
-					<label class="mb-1 block text-xs font-bold uppercase tracking-wide text-mist" for="nc-pass">Mot de passe (8 caractères min.)</label>
-					<input id="nc-pass" name="password" type="text" required minlength="8" placeholder="Choisi avec la cliente…" class="mb-4 w-full rounded-xl border-2 border-line px-3 py-2 text-sm outline-none focus:border-brand" />
-					<button type="submit" class="w-full rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-dark">Créer le compte</button>
-				</form>
-			</details>
+			{#if google}
+				<button
+					type="button"
+					onclick={googleDisconnect}
+					disabled={googleBusy}
+					class="btn-crm rounded-full border border-line bg-white px-3 py-1.5 text-[12px] font-bold text-ink transition hover:border-danger hover:text-danger disabled:opacity-50"
+				>Gérer</button>
+			{:else}
+				<a
+					href="/api/google/connect"
+					class="btn-crm inline-flex items-center gap-1 rounded-full bg-brand px-3.5 py-1.5 text-[12px] font-bold text-white transition hover:bg-brand-dark"
+				><Icon name="calendarRange" size={13} class="shrink-0" /> Connecter</a>
+			{/if}
 		</div>
-	</div>
+		<div class="mt-2.5 flex items-center gap-3 rounded-xl bg-soft/70 px-3 py-2.5">
+			<img src="/img/google-calendar.svg" alt="Logo Google Calendar" class="h-9 w-9 shrink-0" />
+			<div class="min-w-0">
+				<p class="truncate text-[13px] font-bold text-ink">{google ? (google.email || 'Compte Google connecté') : 'Compte Google non connecté'}</p>
+				<p class="text-[11.5px] text-mist">{google ? 'Tes rendez-vous sont synchronisés automatiquement.' : 'Connecte ton agenda pour synchroniser tes rendez-vous.'}</p>
+			</div>
+		</div>
+		{#if google}
+			<p class="mt-1.5 text-[10px] text-mist">Tokens chiffrés côté serveur · déconnexion possible à tout moment.</p>
+		{/if}
+		</section>
 
-	{#if filteredClients.length === 0}
-		<p class="px-6 py-14 text-center text-sm text-mist">
-			Aucune cliente{query.trim() || clientFilter !== 'all' ? ' trouvée' : ' pour l’instant'}.<br />Crée la première avec « Ajouter une cliente ».
-		</p>
-	{:else}
-		<div class="table-wrap overflow-x-auto">
-			<table class="tbl-crm w-full min-w-[860px] text-left">
-				<thead>
-					<tr>
-						<th class="px-5 py-2.5">Cliente</th>
-						<th class="px-3 py-2.5">Dernière connexion</th>
-						<th class="px-3 py-2.5">Bilans</th>
-						<th class="px-3 py-2.5">Retours</th>
-						<th class="px-3 py-2.5">Dernier bilan</th>
-						<th class="px-3 py-2.5">Statut</th>
-						<th class="px-5 py-2.5 text-right">Actions</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each filteredClients as client (client.user._id)}
-						<tr
-							class="crow-crm border-b border-line/50 last:border-0"
-							tabindex="0"
-							role="link"
-							onclick={() => openClient(client.user._id)}
-							onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openClient(client.user._id); } }}
-							aria-label={`Ouvrir la Vision 360° de ${fullName(client.user)}`}
-						>
-							<td class="px-5 py-2.5">
-								<div class="flex items-center gap-3">
-									<ClientAvatar name={fullName(client.user)} url={client.profilePhotoUrl} class="h-9 w-9 text-sm" />
-									<div class="min-w-0">
-										<div class="flex items-center gap-2">
-											<span class="truncate font-bold text-ink">{fullName(client.user)}</span>
-											<span class="presence-crm {isOnline(client.user.lastSeenAt) ? 'on' : ''}" title={isOnline(client.user.lastSeenAt) ? 'En ligne' : 'Hors ligne'}></span>
-										</div>
-										<div class="truncate text-[11px] text-mist">{client.user.email}</div>
-									</div>
-								</div>
-							</td>
-							<td class="whitespace-nowrap px-3 py-2.5 text-[13px] text-mist">{fmtLastSeen(client.user.lastSeenAt)}</td>
-							<td class="px-3 py-2.5 text-[13px] font-semibold text-ink">{client.count}</td>
-							<td class="px-3 py-2.5">
-								{#if client.waiting > 0}
-									<span class="badge-in grid h-5 min-w-5 place-items-center rounded-full bg-warn px-1.5 text-[11px] font-bold text-white">{client.waiting}</span>
-								{:else}
-									<span class="text-[13px] text-mist">—</span>
-								{/if}
-							</td>
-							<td class="whitespace-nowrap px-3 py-2.5 text-[13px] text-mist">{client.latest?.weekLabel ?? '—'}</td>
-							<td class="px-3 py-2.5">
-								<div class="flex flex-wrap items-center gap-1">
-									<span class="rounded-full px-2.5 py-1 text-[11.5px] font-bold {statusLabel(client.user.lastSeenAt).cls}">{statusLabel(client.user.lastSeenAt).label}</span>
-									{#if coachingModeOf(client.user) === 'autonomy'}
-										<span class="rounded-full bg-warn-light px-2.5 py-1 text-[11.5px] font-bold text-warn" title="Mode Autonomie : sollicitations de coaching coupées, accès app et historique conservés">Autonomie</span>
-									{/if}
-								</div>
-							</td>
-							<td class="px-5 py-2.5 text-right">
-								<a
-									href={`/admin?client=${client.user._id}`}
-									onclick={(e) => { e.preventDefault(); openClient(client.user._id); }}
-									class="btn-crm inline-flex items-center gap-1 rounded-full border border-line bg-white px-3 py-1.5 text-[12px] font-bold text-ink transition hover:border-brand hover:text-brand"
-								>Vision 360 <Icon name="arrowRight" size={12} /></a>
-							</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
-	{/if}
-</section>
+	</aside>
+</div>
 
 <!-- ═══ Vision 360° : occupe TOUT l'espace restant à droite de la sidebar
 	     CRM (md:pl-64 = largeur sidebar). Sur mobile, plein écran. ═══ -->
@@ -5970,6 +6088,19 @@
 {/if}
 
 <style>
+	/* Tableau de bord coach : vue rapide (≈ 2/3) + colonne droite (≈ 1/3).
+	   Sous 1100 px, les colonnes s'empilent — vue rapide d'abord (ordre DOM). */
+	.dash-grid {
+		display: grid;
+		gap: 0.875rem;
+		align-items: start;
+	}
+	@media (min-width: 1100px) {
+		.dash-grid {
+			grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+		}
+	}
+
 	.chart-bar {
 		transform-origin: bottom;
 		animation: barGrow 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) both;

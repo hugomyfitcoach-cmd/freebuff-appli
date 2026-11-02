@@ -5,6 +5,7 @@
 	import { BUILD_VERSION } from '$lib/buildVersion';
 	import { clearAppCaches } from '$lib/appCaches';
 	import { flushDeferredShellReload, installShellRecovery } from '$lib/shellRecovery';
+	import PortraitOnlyOverlay from '$lib/components/PortraitOnlyOverlay.svelte';
 
 	let { children } = $props();
 
@@ -50,3 +51,6 @@
 	<meta name="app-build" content={BUILD_VERSION} />
 </svelte:head>
 {@render children()}
+<!-- Téléphone en paysage : couche « Tourne ton téléphone » au-dessus de TOUTE
+     l'app (Journal, CRM coach, volets ouverts) — montée ici, jamais démontée. -->
+<PortraitOnlyOverlay />

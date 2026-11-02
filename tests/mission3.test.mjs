@@ -150,7 +150,7 @@ test('Scanner : reprise du lecteur après fermeture de fiche (jamais deux stream
 	assert.ok(/qtyFood = null; void resumeBarcodeIfNeeded\(\)/.test(src), 'reprise à la fermeture de la fiche aliment');
 	assert.ok(/closeCreateSheet[\s\S]{0,200}resumeBarcodeIfNeeded/.test(src), 'reprise à la fermeture de la feuille création');
 	// Garde anti double stream : startScanner reste singleton.
-	assert.ok(/if \(scanner \|\| scannerBusy/.test(src), 'singleton scanner conservé');
+	assert.ok(/if \(scannerSession \|\| typeof document/.test(src), 'singleton scanner conservé');
 });
 
 test('Images : fallback Safari (loadImageElement) — createImageBitmap jamais appelé sans garde', () => {
