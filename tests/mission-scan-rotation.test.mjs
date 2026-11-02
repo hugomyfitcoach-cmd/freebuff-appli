@@ -17,7 +17,7 @@
  *
  * Invariants : la croix ferme toujours le volet (même si la caméra est en
  * train de s'arrêter), la caméra est réellement coupée et l'écran remis à
- * neuf, une rotation ne relance jamais le scan, le verrou de défilement est
+ * neuf, une rotation reconstruit le scan, le verrou de défilement est
  * re-basé, et un écran réellement grand (ordinateur / tablette) garde
  * exactement l'affichage ordinateur.
  *
@@ -123,7 +123,7 @@ test('C1. la fermeture du volet précède l’arrêt caméra (croix jamais inert
 	const fn = journal.slice(journal.indexOf('async function closeLog()'), journal.indexOf('function resetScanState()'));
 	assert.ok(fn.length > 0, 'closeLog existe');
 	assert.ok(
-		fn.indexOf('logOpen = false') < fn.indexOf('await stopScanner()'),
+		fn.indexOf('logOpen = false') < fn.indexOf('void stopScanner()'),
 		'le volet se referme AVANT d’attendre l’arrêt du flux'
 	);
 	assert.ok(/resetScanState\(\)/.test(fn), 'l’état de scan est remis à zéro à la fermeture');
@@ -137,7 +137,7 @@ test('C2. fermeture : caméra ET lecteur arrêtés, état de scan neuf pour la r
 	assert.match(fn, /exitBcManual\(\);/, 'le mode saisie manuelle est abandonné');
 
 	const stop = journal.slice(journal.indexOf('async function stopScanner()'), journal.indexOf('/**\n\t * REPRISE DU LECTEUR'));
-	assert.match(stop, /await scanner\.stop\(\)/, 'le flux caméra est arrêté');
+	assert.match(stop, /session\.controller\?\.abort\(\)/, 'le flux caméra est arrêté immédiatement');
 	assert.match(stop, /scanner = null/, 'le handle est libéré');
 });
 
@@ -152,11 +152,11 @@ test('C3. un flux obtenu APRÈS la fermeture est coupé immédiatement (pas de c
 });
 
 test('C4. arrêt réel du média : lecture en pause, flux détaché, conteneur vidé', () => {
-	const stop = scanner.slice(scanner.indexOf('stop: async () =>'), scanner.indexOf('resolution: () => ({ ...trackResolution })'));
+	const stop = scanner.slice(scanner.indexOf('const releaseStream = () => {'), scanner.indexOf('const checkStopped = () =>'));
 	const iTracks = stop.indexOf('t.stop()');
 	const iPause = stop.indexOf('video.pause()');
 	const iDetach = stop.indexOf('video.srcObject = null');
-	const iClear = stop.indexOf('container.replaceChildren()');
+	const iClear = stop.indexOf('video.remove()');
 	assert.ok(iTracks > 0 && iPause > iTracks, 'les pistes sont coupées puis la lecture arrêtée');
 	assert.ok(iDetach > iPause, 'le flux est détaché après la mise en pause');
 	assert.ok(iClear > iDetach, 'le lecteur est vidé en dernier');
@@ -164,16 +164,16 @@ test('C4. arrêt réel du média : lecture en pause, flux détaché, conteneur v
 	assert.match(stop, /if \(stopped\) return/, 'arrêt idempotent (3 cycles sans fuite)');
 });
 
-/* ─── 3. Rotation : ni coupure ni relance de la caméra ─── */
+/* ─── 3. Rotation : relance de la caméra et conservation du layout ─── */
 
-test('R4. une rotation ne coupe et ne relance jamais le scan', () => {
+test('R4. la rotation reconstruit le scan et maintient le layout', () => {
 	const i = journal.indexOf('const onOrientation = () => {');
 	const fn = journal.slice(i, journal.indexOf("window.addEventListener('resize', setVh)"));
 	assert.ok(fn.length > 0, 'gestionnaire de rotation présent');
 	assert.match(fn, /rebaseScrollLock\(\)/, 'le verrou de défilement est re-basé');
 	assert.match(fn, /onMq\(\)/, 'le gabarit du volet est réévalué');
 	assert.match(fn, /relayout\(\)/, 'les dimensions sont remesurées');
-	assert.ok(!/startScanner|stopScanner/.test(fn), 'aucun redémarrage/arrêt caméra sur rotation');
+	assert.match(journal, /window\.addEventListener\('orientationchange', restart\)/, 'rotation → reconstruction du scanner');
 });
 
 /* ─── 4. Paysage téléphone = affichage mobile ─── */
@@ -243,3 +243,96 @@ test('M1. manifest PWA : orientation portrait (Android installé)', () => {
 	assert.equal(manifest.display, 'standalone');
 });
 
+
+/* Exécution du vrai cycle de vie journal + moteur avec caméra et DOM simulés. */
+test('SCAN-ROTATION-3. rotation, reprise, piste interrompue et fermeture libèrent les flux', async () => {
+	const ts = await import('typescript');
+	globalThis.__SCANNER_EXPERIMENT__ = false;
+	const { startBarcodeScanner, CameraPermissionError, scannerResourceProbe } = await import('../src/lib/barcodeScanner.ts');
+	class Element extends EventTarget {
+		constructor(tag = 'div') {
+			super(); this.tag = tag; this.children = []; this.parent = null; this.isConnected = true;
+			this.style = { setProperty(name, value) { this[name] = value; } };
+			this.paused = true; this.readyState = 0; this.videoWidth = 0; this.videoHeight = 0;
+		}
+		append(...els) { for (const el of els) { el.parent = this; this.children.push(el); } }
+		replaceChildren(...els) { for (const el of this.children) el.parent = null; this.children = []; this.append(...els); }
+		remove() { if (this.parent) { this.parent.children = this.parent.children.filter((x) => x !== this); this.parent = null; } }
+		setAttribute() {} removeAttribute() {} pause() { this.paused = true; }
+		play() { this.paused = false; return Promise.resolve(); }
+		getContext() { return {}; }
+	}
+	class Track extends EventTarget {
+		constructor() { super(); this.readyState = 'live'; this.muted = false; this.stopCount = 0; }
+		stop() { this.stopCount++; this.readyState = 'ended'; }
+		getSettings() { return { width: 1920, height: 1080 }; }
+		getCapabilities() { return {}; }
+		async applyConstraints() {}
+	}
+	const originalDocument = globalThis.document;
+	const originalWindow = globalThis.window;
+	const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+	const reader = new Element(); reader.id = 'bc-reader';
+	const doc = new EventTarget();
+	doc.hidden = false; doc.createElement = (tag) => new Element(tag); doc.getElementById = (id) => id === reader.id ? reader : null;
+	const win = new EventTarget(); win.innerWidth = 390; win.location = { search: '' };
+	win.BarcodeDetector = class { async detect() { return []; } };
+	const tracks = [];
+	let pending;
+	const media = { getUserMedia: async () => {
+		if (pending) return await pending;
+		const track = new Track(); tracks.push(track);
+		return { getTracks: () => [track], getVideoTracks: () => [track] };
+	} };
+	globalThis.document = doc; globalThis.window = win;
+	Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { mediaDevices: media } });
+	const start = journal.indexOf('\tasync function startScanner(');
+	const end = journal.indexOf('\t/** Ouvrir un formulaire', start);
+	const stopStart = journal.indexOf('\tasync function stopScanner()');
+	const stopEnd = journal.indexOf('\t/**\n\t * REPRISE DU LECTEUR', stopStart);
+	const harness = `let scanner = null, scannerSession = null, scannerBusy = false, barcodeStatus = 'idle', barcodePermBlocked = false, barcodeError = '', bcError = '', scannerCaps = null, torchOn = false, zoomLevel = 1, bcManualMode = false, logOpen = true;
+	function handleScan() {} function exitBcManual() { bcManualMode = false; }
+	${journal.slice(start, end)} ${journal.slice(stopStart, stopEnd)}
+	return { startScanner, stopScanner };`;
+	const javascript = ts.transpileModule(harness, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+	const app = new Function('startBarcodeScanner', 'CameraPermissionError', javascript)(startBarcodeScanner, CameraPermissionError);
+	const settle = () => new Promise((resolve) => setTimeout(resolve, 320));
+	try {
+		await app.startScanner();
+		assert.equal(reader.children.length, 2);
+		const [video, guide] = reader.children;
+		assert.equal(video.style.objectFit, 'cover'); assert.equal(video.style.width, '100%'); assert.equal(video.style.height, '100%');
+		assert.equal(guide.style.pointerEvents, 'none');
+		assert.equal(guide.children.length, 6, 'quatre voiles, un cadre et une pastille');
+		win.innerWidth = 844; win.dispatchEvent(new Event('resize')); win.dispatchEvent(new Event('orientationchange'));
+		assert.equal(tracks[0].stopCount, 1);
+		await settle();
+		assert.equal(tracks.length, 2); assert.equal(reader.children.length, 2); assert.notEqual(reader.children[1], guide);
+		doc.hidden = true; doc.dispatchEvent(new Event('visibilitychange'));
+		doc.hidden = false; doc.dispatchEvent(new Event('visibilitychange')); win.dispatchEvent(new Event('pageshow'));
+		assert.equal(tracks[1].stopCount, 1); await settle();
+		assert.equal(tracks.length, 3); assert.equal(reader.children.length, 2);
+		tracks[2].dispatchEvent(new Event('mute')); await settle();
+		assert.equal(tracks[2].stopCount, 1); assert.equal(tracks.length, 4); assert.equal(reader.children.length, 2);
+		tracks[3].dispatchEvent(new Event('ended')); await settle();
+		assert.equal(tracks[3].stopCount, 1); assert.equal(tracks.length, 5);
+		win.dispatchEvent(new Event('orientationchange'));
+		await app.stopScanner(); await settle();
+		assert.equal(reader.children.length, 0); assert.ok(tracks.every((track) => track.stopCount === 1));
+		assert.equal(scannerResourceProbe().cameraStreamsOpen, 0);
+		let resolvePending;
+		pending = new Promise((resolve) => { resolvePending = resolve; });
+		const opening = app.startScanner();
+		await app.stopScanner();
+		const late = new Track(); tracks.push(late);
+		resolvePending({ getTracks: () => [late], getVideoTracks: () => [late] });
+		await opening;
+		assert.equal(late.stopCount, 1, 'flux obtenu après fermeture arrêté');
+		assert.equal(reader.children.length, 0); assert.equal(scannerResourceProbe().cameraStreamsOpen, 0);
+	} finally {
+		await app.stopScanner();
+		globalThis.document = originalDocument; globalThis.window = originalWindow;
+		if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
+		else delete globalThis.navigator;
+	}
+});

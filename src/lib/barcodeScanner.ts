@@ -410,6 +410,7 @@ export async function startBarcodeScanner(
 	maxConcurrentLoops = Math.max(maxConcurrentLoops, sessionsAlive);
 
 	let stopped = false;
+	let sessionCounted = true;
 	let stream: MediaStream | null = null;
 	const video = document.createElement('video');
 	const guide = document.createElement('div');
@@ -418,31 +419,31 @@ export async function startBarcodeScanner(
 	let debugTimer: ReturnType<typeof setInterval> | null = null;
 	let onVisibility: (() => void) | null = null;
 	const onInterrupted = () => { if (!stopped) options.onInterrupted?.(); };
+	const releaseStream = () => {
+		if (!stream) return;
+		for (const t of stream.getTracks()) {
+			t.removeEventListener('ended', onInterrupted);
+			t.removeEventListener('mute', onInterrupted);
+			try { t.stop(); } catch { /* Arrêter aussi les autres pistes. */ }
+		}
+		cameraStreamsOpen = Math.max(0, cameraStreamsOpen - 1);
+		stream = null;
+	};
 	const stop = () => {
-		if (stopped) return;
+		if (stopped) return; // idempotent
 		stopped = true;
-		sessionsAlive = Math.max(0, sessionsAlive - 1);
+		if (sessionCounted) sessionsAlive = Math.max(0, sessionsAlive - 1);
 		if (timer) clearTimeout(timer);
 		if (greenTimer) clearTimeout(greenTimer);
 		if (debugTimer) clearInterval(debugTimer);
 		if (onVisibility) document.removeEventListener('visibilitychange', onVisibility);
 		options.signal?.removeEventListener('abort', stop);
-		if (stream) {
-			for (const t of stream.getTracks()) {
-				t.removeEventListener('ended', onInterrupted);
-				t.removeEventListener('mute', onInterrupted);
-				try { t.stop(); } catch { /* Arrêter aussi les autres pistes. */ }
-			}
-			cameraStreamsOpen = Math.max(0, cameraStreamsOpen - 1);
-			stream = null;
-		}
-		if (video) {
-			try { if (!video.paused) video.pause(); } catch { /* Nettoyage best effort. */ }
-			video.srcObject = null;
-			video.removeAttribute('src');
-			video.remove();
-		}
-		guide?.remove();
+		releaseStream();
+		try { if (!video.paused) video.pause(); } catch { /* Nettoyage best effort. */ }
+		if (video.srcObject) video.srcObject = null;
+		video.removeAttribute('src');
+		video.remove();
+		guide.remove();
 	};
 	const checkStopped = () => {
 		if (stopped) throw new DOMException('Scanner arrêté', 'AbortError');
@@ -491,9 +492,7 @@ export async function startBarcodeScanner(
 			});
 			cameraStreamsOpen++; // flux obtenu : suivi de ressources (sonde V3.2)
 			if (stopped) {
-				for (const t of stream.getTracks()) { try { t.stop(); } catch { /* best effort */ } }
-				cameraStreamsOpen = Math.max(0, cameraStreamsOpen - 1);
-				stream = null;
+				releaseStream();
 				throw new DOMException('Scanner arrêté', 'AbortError');
 			}
 			for (const track of stream.getVideoTracks()) {
@@ -509,6 +508,8 @@ export async function startBarcodeScanner(
 		}
 	}
 	if (!stream) {
+		sessionsAlive--;
+		sessionCounted = false;
 		const e = lastError;
 		const name = e instanceof DOMException ? e.name : '';
 		if (name === 'NotAllowedError' || name === 'SecurityError' || name === 'NotFoundError') {
