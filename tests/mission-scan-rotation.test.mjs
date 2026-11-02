@@ -173,7 +173,7 @@ test('R4. la rotation reconstruit le scan et maintient le layout', () => {
 	assert.match(fn, /rebaseScrollLock\(\)/, 'le verrou de défilement est re-basé');
 	assert.match(fn, /onMq\(\)/, 'le gabarit du volet est réévalué');
 	assert.match(fn, /relayout\(\)/, 'les dimensions sont remesurées');
-	assert.match(journal, /window\.addEventListener\('orientationchange', restart\)/, 'rotation → reconstruction du scanner');
+	assert.match(journal, /const onScannerOrientation = \(\) => restart\(\)/, 'rotation → reconstruction du scanner');
 });
 
 /* ─── 4. Paysage téléphone = affichage mobile ─── */
@@ -240,6 +240,20 @@ test('L4. aucun élément invisible ne capte les touches sur l’écran de scan'
 	assert.equal((journal.match(/pointer-events-auto flex h-\[50px\]/g) ?? []).length, 2, 'capsules cliquables uniquement');
 });
 
+test('B1. croix et saisie ne dépendent pas des reconstructions ou du geste de reprise', () => {
+	const stage = journal.slice(journal.indexOf('<div id="bc-reader"'), journal.indexOf('<!-- Capsule flottante Recherche', journal.indexOf('<div id="bc-reader"')));
+	const close = stage.match(/<button[^\n]*aria-label="Fermer"[^\n]*<\/button>/)?.[0];
+	assert.ok(close);
+	assert.doesNotMatch(close, /disabled|inert|pointer-events-none/);
+	assert.match(close, /onclick=\{\(\) => closeLog\(\)\}/);
+	const input = stage.match(/<input[\s\S]*?placeholder="Ou saisis le code[\s\S]*?\/>/)?.[0];
+	assert.ok(input);
+	assert.doesNotMatch(input, /disabled|inert|pointer-events-none/);
+	assert.match(stage, /disabled=\{barcodeBusy\} onclick=\{\(\) => submitManual\(\)\}/);
+	assert.match(stage, /scannerNeedsGesture === 'bc-reader'[\s\S]*?onclick=\{resumeScannerFromGesture\}>Toucher pour relancer la caméra/);
+	assert.doesNotMatch(journal, /scannerBusy/);
+});
+
 test('M1. manifest PWA : orientation portrait (Android installé)', () => {
 	const manifest = JSON.parse(source('static/manifest.webmanifest'));
 	assert.equal(manifest.orientation, 'portrait');
@@ -301,10 +315,10 @@ test('SCAN-ROTATION-3. rotation, reprise, piste interrompue et fermeture libère
 	const end = journal.indexOf('\t/** Ouvrir un formulaire', start);
 	const stopStart = journal.indexOf('\tasync function stopScanner()');
 	const stopEnd = journal.indexOf('\t/**\n\t * REPRISE DU LECTEUR', stopStart);
-	const harness = `let scanner = null, scannerSession = null, scannerBusy = false, barcodeStatus = 'idle', barcodePermBlocked = false, barcodeError = '', bcError = '', scannerCaps = null, torchOn = false, zoomLevel = 1, bcManualMode = false, logOpen = true;
+	const harness = `let scanner = null, scannerSession = null, scannerNeedsGesture = null, barcodeStatus = 'idle', barcodePermBlocked = false, barcodeError = '', bcError = '', scannerCaps = null, torchOn = false, zoomLevel = 1, bcManualMode = false, logOpen = true, barcodeBusy = false;
 	function handleScan() {} function exitBcManual() { bcManualMode = false; }
 	${journal.slice(start, end)} ${journal.slice(stopStart, stopEnd)}
-	return { startScanner, stopScanner };`;
+	return { startScanner, stopScanner, resumeScannerFromGesture, state: () => ({ scannerSession, scannerNeedsGesture, barcodeStatus, barcodeBusy, logOpen }) };`;
 	const javascript = ts.transpileModule(harness, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 	const app = new Function('startBarcodeScanner', 'CameraPermissionError', javascript)(startBarcodeScanner, CameraPermissionError);
 	const settle = () => new Promise((resolve) => setTimeout(resolve, 320));
@@ -373,6 +387,63 @@ test('SCAN-ROTATION-3. rotation, reprise, piste interrompue et fermeture libère
 		await app.stopScanner();
 		assert.equal(lastVideo.playCalls, callsBeforeClose, 'la fermeture ne relance pas la lecture');
 		assert.equal(scannerResourceProbe().cameraStreamsOpen, 0);
+
+		// Refus successifs : une ouverture + au plus deux reconstructions.
+		playFailures = 20;
+		const beforeFailures = tracks.length;
+		await app.startScanner();
+		await settle(); await settle(); await settle();
+		assert.equal(tracks.length - beforeFailures, 3);
+		assert.equal(app.state().scannerNeedsGesture, 'bc-reader');
+		assert.equal(app.state().scannerSession.waitingForGesture, true);
+		assert.equal(app.state().barcodeBusy, false, 'la saisie reste disponible');
+		assert.equal(reader.children.length, 0);
+		assert.equal(scannerResourceProbe().cameraStreamsOpen, 0);
+		win.dispatchEvent(new Event('orientationchange')); win.dispatchEvent(new Event('pageshow'));
+		await settle(); assert.equal(tracks.length - beforeFailures, 3, 'aucune reprise sans geste');
+		playFailures = 0;
+		app.resumeScannerFromGesture(); await settle();
+		assert.equal(app.state().scannerNeedsGesture, null);
+		assert.equal(reader.children.length, 2);
+		// Une image reçue, même en mode manuel, remet le compteur à zéro.
+		const image = reader.children[0];
+		image.readyState = 2; image.videoWidth = 1920; image.videoHeight = 1080;
+		image.dispatchEvent(new Event('loadeddata'));
+		assert.equal(app.state().scannerSession.playbackRestarts, 0);
+		await app.stopScanner();
+		assert.equal(app.state().scannerNeedsGesture, null);
+
+		// Deux relances pendant une permission en attente : seule la génération
+		// courante peut s'installer, les anciens flux tardifs sont coupés.
+		let resolveFirst, resolveSecond;
+		pending = new Promise((resolve) => { resolveFirst = resolve; });
+		const initial = app.startScanner();
+		pending = new Promise((resolve) => { resolveSecond = resolve; });
+		win.dispatchEvent(new Event('orientationchange')); await settle();
+		pending = undefined;
+		win.dispatchEvent(new Event('orientationchange')); await settle();
+		assert.equal(app.state().scannerNeedsGesture, null);
+		assert.equal(app.state().barcodeBusy, false);
+		assert.equal(reader.children.length, 2);
+		const activeTrack = tracks.at(-1);
+		for (const resolve of [resolveFirst, resolveSecond]) {
+			const stale = new Track(); tracks.push(stale);
+			resolve({ getTracks: () => [stale], getVideoTracks: () => [stale] });
+		}
+		await initial; await Promise.resolve(); await Promise.resolve();
+		assert.equal(tracks.at(-1).stopCount, 1);
+		assert.equal(tracks.at(-2).stopCount, 1);
+		assert.equal(activeTrack.stopCount, 0);
+		assert.equal(reader.children.length, 2);
+		await app.stopScanner();
+
+		// Une ouverture échouée ne garde pas de session de reconstruction.
+		pending = Promise.reject(new DOMException('refus', 'NotAllowedError'));
+		await app.startScanner();
+		assert.equal(app.state().scannerSession, null);
+		assert.equal(app.state().scannerNeedsGesture, null);
+		assert.equal(app.state().barcodeBusy, false);
+		assert.equal(app.state().barcodeStatus, 'perm');
 	} finally {
 		await app.stopScanner();
 		globalThis.document = originalDocument; globalThis.window = originalWindow;
