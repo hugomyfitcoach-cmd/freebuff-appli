@@ -88,6 +88,37 @@ export function lockScroll(): void {
 	html.style.overflow = 'hidden';
 }
 
+/**
+ * RE-BASE DU VERROU APRÈS ROTATION (SCAN-ROTATION).
+ *
+ * Le body figé porte la position (`top: -y`) : le document lui-même doit
+ * rester à `scrollY = 0`. Après une rotation, iOS peut y laisser une position
+ * héritée de l'orientation précédente — la couche AFFICHÉE glisse alors par
+ * rapport à la couche qui REÇOIT LES TOUCHES : le volet et sa croix semblent
+ * inertes alors qu'ils sont toujours là. On réaffirme le verrou (jamais de
+ * document défilable sous un volet) et on remet le document à zéro.
+ *
+ * Le décalage mémorisé est conservé : au déverrouillage, la position d'avant
+ * l'ouverture est restaurée comme d'habitude.
+ */
+export function rebaseScrollLock(): void {
+	if (!isBrowser() || !locked || locks === 0) return;
+	const body = document.body;
+	const html = document.documentElement;
+
+	body.style.position = 'fixed';
+	body.style.top = `-${locked.y}px`;
+	body.style.left = '0';
+	body.style.right = '0';
+	body.style.width = '100%';
+	body.style.overflow = 'hidden';
+	html.style.overflow = 'hidden';
+
+	/* Aucune autre couche ne doit défiler : la position du document est
+	   entièrement portée par le body figé. */
+	if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
+}
+
 /** Rend le document défilable et restaure la position exacte d'avant le verrou. */
 export function unlockScroll(): void {
 	if (!isBrowser()) return;

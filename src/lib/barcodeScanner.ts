@@ -1180,8 +1180,14 @@ export async function startBarcodeScanner(
 			if (stream) {
 				for (const t of stream.getTracks()) t.stop();
 				cameraStreamsOpen = Math.max(0, cameraStreamsOpen - 1);
+				stream = null;
 			}
+			/* Lecture RÉELLEMENT arrêtée avant de détacher le flux : sur iOS un
+			   <video> encore en lecture garde le décodeur — et parfois une couche
+			   native qui capte les touches — après la fermeture du volet. */
+			if (!video.paused) video.pause();
 			if (video.srcObject) video.srcObject = null; // libère la référence média
+			video.removeAttribute('src');
 			container.replaceChildren();
 		},
 		resolution: () => ({ ...trackResolution }),

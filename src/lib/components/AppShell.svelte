@@ -448,7 +448,7 @@
 	{/if}
 	<!-- Sidebar desktop : coach = fond blanc premium (PASS 2, mockup) ;
 	     cliente = crème (inchangé). -->
-	<aside class="fixed inset-y-0 left-0 z-50 hidden w-64 flex-col border-r border-line md:flex {role === 'coach' ? 'ds-shell-crm' : 'bg-cream'}">
+	<aside class="gflux-shell-sidebar fixed inset-y-0 left-0 z-50 hidden w-64 flex-col border-r border-line md:flex {role === 'coach' ? 'ds-shell-crm' : 'bg-cream'}">
 		<div class="flex items-center gap-3 border-b border-line px-5 py-4">
 			<a href={role === 'coach' ? '/admin' : '/espace'} class="flex shrink-0 items-center">
 				<img src="/logo-header.png" alt="G-Flux" class="h-9 w-auto" />
@@ -530,11 +530,11 @@
 		</div>
 	</aside>
 
-	<div class="flex min-w-0 flex-1 flex-col md:pl-64 {role === 'client' ? 'bg-white' : 'ds-page-crm'}">
+	<div class="gflux-shell-main flex min-w-0 flex-1 flex-col md:pl-64 {role === 'client' ? 'bg-white' : 'ds-page-crm'}">
 		<!-- Barre mobile : logo (Accueil) + pilule Retour (écrans secondaires) + Rafraîchir + menu utilisateur.
 		     Le Journal (vue plein écran) n'affiche AUCUN header global. -->
 		{#if !journalFullScreen}
-		<header bind:this={headerEl} class="sticky top-0 z-40 border-b border-line backdrop-blur md:hidden bg-white/95 {role === 'client' && path === '/espace' ? 'gflux-home-header' : ''}">
+		<header bind:this={headerEl} class="gflux-shell-mobile-header sticky top-0 z-40 border-b border-line backdrop-blur md:hidden bg-white/95 {role === 'client' && path === '/espace' ? 'gflux-home-header' : ''}">
 			<div class="flex items-center justify-between gap-2 px-5 py-2.5">
 				{#if showBrand}
 					<a href={role === 'coach' ? '/admin' : '/espace'} class="flex items-center py-0.5" aria-label="Accueil G-FLUX">
@@ -732,7 +732,7 @@
 
 		<!-- Espace pour la barre flottante mobile (cliente) — jamais de contenu masqué -->
 		{#if role === 'client'}
-			<div class="h-[calc(5.25rem+env(safe-area-inset-bottom))] shrink-0 md:hidden" aria-hidden="true"></div>
+			<div class="gflux-shell-nav-spacer h-[calc(5.25rem+env(safe-area-inset-bottom))] shrink-0 md:hidden" aria-hidden="true"></div>
 		{/if}
 	</div>
 
@@ -740,7 +740,7 @@
 	     capsule arrondie, centrée, au-dessus de la safe-area — jamais collée au bord. -->
 	{#if role === 'client' && primaryLinks.length > 0 && !keyboard.open}
 		<nav
-			class="gflux-primary-nav pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-5 md:hidden"
+			class="gflux-primary-nav gflux-shell-mobile-nav pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-5 md:hidden"
 			aria-label="Navigation principale"
 			style="padding-bottom:calc(env(safe-area-inset-bottom) + 12px)"
 		>
@@ -786,3 +786,32 @@
 		/>
 	{/if}
 </div>
+
+<style>
+	/* TELEPHONE EN PAYSAGE (SCAN-ROTATION) — le shell reste l'affichage MOBILE.
+
+	   Les utilitaires `md:` ne testent QUE la largeur (768 px) : un iPhone
+	   couche (844 × 390) les déclenchait et faisait apparaître la sidebar
+	   « Espace client » + masquait le header et la barre du bas — mise en page
+	   ordinateur sur un téléphone. L'affichage ordinateur n'est légitime que
+	   sur un écran réellement grand : largeur ET hauteur suffisantes, ou
+	   pointeur fin (souris/trackpad). Ici on ne cible que le cas inverse
+	   (hauteur courte + pointeur tactile) : ordinateur et tablette intacts. */
+	@media (max-height: 540px) and (pointer: coarse) {
+		.gflux-shell-sidebar {
+			display: none !important;
+		}
+		.gflux-shell-main {
+			padding-left: 0 !important;
+		}
+		.gflux-shell-mobile-header {
+			display: block !important;
+		}
+		.gflux-shell-nav-spacer {
+			display: block !important;
+		}
+		.gflux-shell-mobile-nav {
+			display: flex !important;
+		}
+	}
+</style>

@@ -8,7 +8,7 @@
 	import { cookingBadgeOf } from '$lib/cookedState';
 	import { currentLocalDay } from '$lib/currentDay.svelte';
 	import { appWarm, firstVisit, isFresh, noteSync, restoreScroll, saveScroll } from '$lib/navMemory';
-	import { lockScroll, unlockScroll } from '$lib/scrollLock';
+	import { lockScroll, rebaseScrollLock, unlockScroll } from '$lib/scrollLock';
 	import { keyboard, registerSheetOwner, settleNavVisibility } from '$lib/keyboardViewport.svelte';
 	import { onSheetExitEnd } from '$lib/sheetMotion';
 	import JournalDay from '$lib/components/JournalDay.svelte';
@@ -1273,8 +1273,26 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		loadCustomFoods();
 	}
 	async function closeLog() {
-		await stopScanner();
+		/* SCAN-ROTATION : la fermeture ne dépend JAMAIS de l'état de la caméra.
+		   Le volet se referme D'ABORD (la croix et le fond restent réactifs même
+		   si un arrêt de flux est encore en vol) ; ensuite la caméra et le
+		   lecteur sont réellement coupés et l'écran de scan remis à neuf, pour
+		   qu'une réouverture reparte d'un état vierge. */
 		logOpen = false;
+		await stopScanner();
+		resetScanState();
+	}
+	/** État de l'écran Code-barres remis à zéro (fermeture, réouverture). */
+	function resetScanState() {
+		barcodeStatus = 'idle';
+		barcodeError = '';
+		barcodePermBlocked = false;
+		barcodeManual = '';
+		barcodeBusy = false;
+		scannerCaps = null;
+		torchOn = false;
+		zoomLevel = 1;
+		exitBcManual();
 	}
 
 	/* ————— Favoris ————— */
@@ -2915,9 +2933,24 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		scannerBusy = true;
 		barcodeStatus = 'scanning';
 		try {
-		scanner = await startBarcodeScanner(el, (decoded) => {
+		const handle = await startBarcodeScanner(el, (decoded) => {
 			void handleScan(decoded, target);
 		});
+		/* SCAN-ROTATION — volet fermé (croix, fond, navigation) ou lecteur
+		   démonté PENDANT l'ouverture de la caméra (getUserMedia lent,
+		   rotation) : le flux obtenu après coup ne doit pas survivre à
+		   l'écran qui l'a demandé — sinon la caméra reste allumée derrière un
+		   volet fermé et la réouverture hérite d'un lecteur orphelin (écran
+		   noir, plus rien ne répond). On l'arrête immédiatement. */
+		if (!el.isConnected || (elId === 'bc-reader' && !logOpen)) {
+			try {
+				await handle.stop();
+			} catch {
+				// déjà arrêté
+			}
+			return;
+		}
+		scanner = handle;
 		scannerCaps = {
 			torch: scanner.hasTorch(),
 			zoom: scanner.hasZoom(),
@@ -3930,6 +3963,16 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 			setBarPos();
 		};
 		const onOrientation = () => {
+			/* SCAN-ROTATION : le verrou de défilement fige le body en
+			   `position: fixed` avec un décalage hérité de l'orientation
+			   précédente. Sans re-base, la couche affichée et la couche qui
+			   reçoit les touches divergent : la croix et les boutons semblent
+			   inertes alors que le volet est toujours là. */
+			rebaseScrollLock();
+			/* `orientationchange` peut précéder le recalcul des media queries
+			   (iOS) : on réévalue ici le gabarit du volet, jamais seulement au
+			   prochain `change`. */
+			onMq();
 			relayout();
 			requestAnimationFrame(relayout);
 			setTimeout(relayout, 260);
@@ -4484,7 +4527,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	     derrière l'écran « Ajouter un aliment », même clavier ouvert (le fond ne
 	     rétrécit plus avec le visualViewport — seule la zone de contenu se
 	     positionne au-dessus du clavier). Desktop : backdrop + panneau centré. -->
-	<div role="presentation" class="fixed inset-0 z-50 bg-soft sm:flex sm:items-center sm:justify-center sm:bg-ink/40 sm:p-6" onclick={(e) => { if (e.target === e.currentTarget) closeLog(); }} onkeydown={(e) => { if (e.key === 'Escape') closeLog(); }}>
+	<div role="presentation" class="journal-sheet-backdrop fixed inset-0 z-50 bg-soft sm:flex sm:items-center sm:justify-center sm:bg-ink/40 sm:p-6" onclick={(e) => { if (e.target === e.currentTarget) closeLog(); }} onkeydown={(e) => { if (e.key === 'Escape') closeLog(); }}>
 		<div class="journal-sheet absolute inset-x-0 top-0 flex h-full w-full flex-col overflow-hidden bg-soft sm:relative sm:h-[min(92dvh,720px)] sm:max-w-lg sm:rounded-3xl sm:bg-white sm:shadow-2xl" style:top={mobile ? `${vvTop}px` : undefined} style:height={mobile ? `${vvH}px` : undefined}>
 			<!-- En-tête fixe (respire sous l'encoche en PWA installée, cf. convention safe-area de l'app).
 			     MODE CODE-BARRES : en-tête MINIMAL (pas de titre, pas d'explication) —
@@ -5018,7 +5061,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 				     flex, la transition max-height et l'id bc-reader sont conservés
 				     (mécanismes validés mission saisie manuelle). -->
 				<div bind:this={bcListEl} class="flex flex-1 flex-col overflow-y-auto overscroll-contain px-3 pb-28 pt-3" in:fly={{ x: modeSlideX, duration: modeSlideDuration }}>
-					<div class="relative order-2 mx-auto aspect-[3/4.6] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-[max-height,border-color,box-shadow] duration-300 ease-out {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}" style:max-height={bcManualMode ? '7rem' : '120vh'}>
+					<div class="bc-stage relative order-2 mx-auto aspect-[3/4.6] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-[max-height,border-color,box-shadow] duration-300 ease-out {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}" style:max-height={bcManualMode ? '7rem' : '120vh'}>
 						<div id="bc-reader" class="absolute inset-0"></div>
 						<!-- Croix de fermeture DIRECTEMENT sur la zone caméra : -->
 						<button type="button" class="absolute right-2 top-2 z-10 grid h-9 w-9 place-items-center rounded-full bg-ink/55 text-white backdrop-blur transition hover:bg-ink/75" aria-label="Fermer" onclick={() => closeLog()}><Icon name="x" size={18} /></button>
@@ -5643,7 +5686,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	     produit ou un scan referme CETTE fenêtre et ouvre la feuille existante. -->
 	<!-- Même principe que « Ajouter un aliment » : fond OPAQUE plein viewport,
 	     panneau de contenu positionné au-dessus du clavier (visualViewport). -->
-	<div role="presentation" class="fixed inset-0 z-[70] bg-soft sm:flex sm:items-center sm:justify-center sm:bg-ink/40 sm:p-6" onclick={(e) => { if (e.target === e.currentTarget) void closeMealSearch(); }} onkeydown={(e) => { if (e.key === 'Escape') void closeMealSearch(); }}>
+	<div role="presentation" class="journal-sheet-backdrop fixed inset-0 z-[70] bg-soft sm:flex sm:items-center sm:justify-center sm:bg-ink/40 sm:p-6" onclick={(e) => { if (e.target === e.currentTarget) void closeMealSearch(); }} onkeydown={(e) => { if (e.key === 'Escape') void closeMealSearch(); }}>
 		<div class="journal-sheet absolute inset-x-0 top-0 flex h-full w-full flex-col overflow-hidden bg-soft sm:relative sm:h-[min(92dvh,720px)] sm:max-w-lg sm:rounded-3xl sm:bg-white sm:shadow-2xl" style:top={mobile ? `${vvTop}px` : undefined} style:height={mobile ? `${vvH}px` : undefined}>
 			<!-- En-tête fixe (safe-area top, cf. « Ajouter un aliment ») -->
 			<div class="flex shrink-0 items-center justify-between border-b border-line bg-white/95 px-3 pt-[max(env(safe-area-inset-top),10px)] pb-2.5 backdrop-blur">
@@ -5751,7 +5794,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 				     immersive que « Ajouter un aliment » : caméra haute, indication en
 				     overlay, lampe/zoom en pill compacte. Mécanismes validés conservés. -->
 				<div bind:this={mealBcListEl} class="flex flex-1 flex-col overflow-y-auto overscroll-contain px-3 pb-28 pt-3" in:fly={{ x: modeSlideX, duration: modeSlideDuration }}>
-					<div class="relative order-2 mx-auto aspect-[3/4.6] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-[max-height,border-color,box-shadow] duration-300 ease-out {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}" style:max-height={bcManualMode ? '7rem' : '120vh'}>
+					<div class="bc-stage relative order-2 mx-auto aspect-[3/4.6] w-full max-w-sm overflow-hidden rounded-2xl border-2 bg-ink transition-[max-height,border-color,box-shadow] duration-300 ease-out {barcodeBusy ? 'border-brand ring-4 ring-brand/40' : 'border-line'}" style:max-height={bcManualMode ? '7rem' : '120vh'}>
 						<div id="meal-bc-reader" class="absolute inset-0"></div>
 						{#if !bcManualMode && barcodeStatus === 'scanning' && !barcodeBusy}
 							<p class="pointer-events-none absolute inset-x-3 bottom-2.5 z-10 text-center text-[11px] font-semibold text-white/85 drop-shadow">{BARCODE_HINT}</p>
@@ -6119,6 +6162,29 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 			border-radius: 0 !important;
 			box-shadow: none !important;
 			background-color: var(--color-soft, #f6f8f6) !important;
+		}
+		/* Le CONTENEUR aussi : `sm:` (640 px de large) transformait le fond
+		   plein écran en « voile + modal centré » desktop dès que le téléphone
+		   passait en paysage (844 px), alors que le panneau, lui, était déjà
+		   re-forcé en plein écran. Le voile desktop restait donc en place
+		   derrière/autour du panneau et décalait la couche qui reçoit les
+		   touches : croix et boutons inertes. Ici, téléphone couché =
+		   gabarit mobile, identique au portrait. */
+		.journal-sheet-backdrop {
+			display: block !important;
+			padding: 0 !important;
+			background-color: var(--color-soft, #f6f8f6) !important;
+		}
+		/* Écran de scan en paysage : la caméra occupe la hauteur libre
+		   (vidéo plein écran, cadre centré) au lieu d'un cadre portrait qui
+		   débordait — la croix, le curseur et la barre inférieure sortaient
+		   de la zone visible. La croix reste en haut de la caméra, le texte
+		   et le curseur sous le cadre guide (26 %–70 % de la hauteur). */
+		.bc-stage {
+			aspect-ratio: auto !important;
+			max-width: none !important;
+			flex: 1 1 auto;
+			min-height: 0;
 		}
 	}
 </style>
