@@ -3809,6 +3809,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	let customFormEl = $state<HTMLElement | undefined>();
 	let logListEl = $state<HTMLElement | undefined>();
 	let bcListEl = $state<HTMLElement | undefined>();
+	let journalScannerSheet = $state<HTMLElement | undefined>();
 	/** Consigne unique du scanner code-barres (affichée une seule fois par écran). */
 	const BARCODE_HINT = 'Place le code-barres dans le cadre. La lecture est automatique.';
 	let mealSearchListEl = $state<HTMLElement | undefined>();
@@ -4040,6 +4041,16 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 		const relayout = () => {
 			setVh();
 			setBarPos();
+			if (logOpen && logMode === 'barcode' && journalScannerSheet) {
+				// Repartir des règles CSS du volet puis réappliquer le viewport courant.
+				for (const prop of ['position', 'left', 'right', 'bottom', 'width', 'top', 'height']) {
+					journalScannerSheet.style.removeProperty(prop);
+				}
+				if (mobile) {
+					journalScannerSheet.style.top = `${vvTop}px`;
+					journalScannerSheet.style.height = `${vvH}px`;
+				}
+			}
 		};
 		const onOrientation = () => {
 			/* SCAN-ROTATION : le verrou de défilement fige le body en
@@ -4607,7 +4618,7 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	     rétrécit plus avec le visualViewport — seule la zone de contenu se
 	     positionne au-dessus du clavier). Desktop : backdrop + panneau centré. -->
 	<div role="presentation" class="fixed inset-0 z-50 bg-soft sm:flex sm:items-center sm:justify-center sm:bg-ink/40 sm:p-6 journal-sheet-backdrop" onclick={(e) => { if (e.target === e.currentTarget) closeLog(); }} onkeydown={(e) => { if (e.key === 'Escape') closeLog(); }}>
-		<div class="journal-sheet absolute inset-x-0 top-0 flex h-full w-full flex-col overflow-hidden bg-soft sm:relative sm:h-[min(92dvh,720px)] sm:max-w-lg sm:rounded-3xl sm:bg-white sm:shadow-2xl" style:top={mobile ? `${vvTop}px` : undefined} style:height={mobile ? `${vvH}px` : undefined}>
+		<div bind:this={journalScannerSheet} class:scanner-sheet={logMode === 'barcode'} class="journal-sheet absolute inset-x-0 top-0 flex h-full w-full flex-col overflow-hidden bg-soft sm:relative sm:h-[min(92dvh,720px)] sm:max-w-lg sm:rounded-3xl sm:bg-white sm:shadow-2xl" style:top={mobile ? `${vvTop}px` : undefined} style:height={mobile ? `${vvH}px` : undefined}>
 			<!-- En-tête fixe (respire sous l'encoche en PWA installée, cf. convention safe-area de l'app).
 			     MODE CODE-BARRES : en-tête MINIMAL (pas de titre, pas d'explication) —
 			     la croix vit SUR la caméra (overlay) et l'écran est immersif. -->
@@ -6243,6 +6254,11 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	:global(.scanner-camera-video::-webkit-media-controls-play-button) { display: none !important; }
 	:global(.scanner-camera-video::-webkit-media-controls-overlay-play-button) { display: none !important; }
 	:global(.scanner-camera-video::-webkit-media-controls-start-playback-button) { display: none !important; }
+
+	/* Le scanner garde le même repère fixe en portrait et en paysage. */
+	@media (max-width: 639px) {
+		.journal-sheet.scanner-sheet { position: fixed; }
+	}
 
 	/* ROTATION (téléphone en paysage) : le volet « Ajouter un aliment » reste un
 	   ÉCRAN PLEIN. Sans ça, la largeur paysage (844 px) déclenchait les
