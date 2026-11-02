@@ -229,6 +229,9 @@ test('L4. aucun élément invisible ne capte les touches sur l’écran de scan'
 	   gestes : la croix et la barre inférieure restent cliquables. */
 	assert.match(scanner, /pointerEvents: 'none',/);
 	assert.match(scanner, /container\.append\(video, guide\)/);
+	for (const control of ['media-controls', 'media-controls-enclosure', 'media-controls-panel', 'media-controls-play-button', 'media-controls-overlay-play-button', 'media-controls-start-playback-button']) {
+		assert.ok(journal.includes(`.scanner-camera-video::-webkit-${control}`), `${control} masqué sur la vidéo du scanner`);
+	}
 	/* La barre inférieure du volet est hors flux et ne capte que ses boutons. */
 	assert.match(
 		journal,
@@ -249,17 +252,25 @@ test('SCAN-ROTATION-3. rotation, reprise, piste interrompue et fermeture libère
 	const ts = await import('typescript');
 	globalThis.__SCANNER_EXPERIMENT__ = false;
 	const { startBarcodeScanner, CameraPermissionError, scannerResourceProbe } = await import('../src/lib/barcodeScanner.ts');
+	let playFailures = 0;
 	class Element extends EventTarget {
 		constructor(tag = 'div') {
 			super(); this.tag = tag; this.children = []; this.parent = null; this.isConnected = true;
+			this.attributes = new Map(); this.playCalls = 0;
 			this.style = { setProperty(name, value) { this[name] = value; } };
 			this.paused = true; this.readyState = 0; this.videoWidth = 0; this.videoHeight = 0;
 		}
 		append(...els) { for (const el of els) { el.parent = this; this.children.push(el); } }
 		replaceChildren(...els) { for (const el of this.children) el.parent = null; this.children = []; this.append(...els); }
 		remove() { if (this.parent) { this.parent.children = this.parent.children.filter((x) => x !== this); this.parent = null; } }
-		setAttribute() {} removeAttribute() {} pause() { this.paused = true; }
-		play() { this.paused = false; return Promise.resolve(); }
+		setAttribute(name, value) { this.attributes.set(name, value); }
+		removeAttribute(name) { this.attributes.delete(name); }
+		pause() { this.paused = true; this.dispatchEvent(new Event('pause')); }
+		play() {
+			this.playCalls++;
+			if (playFailures > 0) { playFailures--; return Promise.reject(new Error('play refusé')); }
+			this.paused = false; return Promise.resolve();
+		}
 		getContext() { return {}; }
 	}
 	class Track extends EventTarget {
@@ -301,6 +312,16 @@ test('SCAN-ROTATION-3. rotation, reprise, piste interrompue et fermeture libère
 		await app.startScanner();
 		assert.equal(reader.children.length, 2);
 		const [video, guide] = reader.children;
+		assert.equal(video.controls, false); assert.equal(video.playsInline, true); assert.equal(video.muted, true);
+		assert.equal(video.autoplay, true); assert.equal(video.disablePictureInPicture, true);
+		for (const attr of ['playsinline', 'muted', 'autoplay', 'disablepictureinpicture']) assert.ok(video.attributes.has(attr));
+		assert.equal(video.attributes.has('controls'), false);
+		assert.equal(video.style.pointerEvents, 'none');
+		const previousPlayCalls = video.playCalls;
+		video.pause();
+		await Promise.resolve();
+		assert.equal(video.playCalls, previousPlayCalls + 1, 'pause → nouvelle tentative play');
+		assert.equal(video.paused, false);
 		assert.equal(video.style.objectFit, 'cover'); assert.equal(video.style.width, '100%'); assert.equal(video.style.height, '100%');
 		assert.equal(guide.style.pointerEvents, 'none');
 		assert.equal(guide.children.length, 6, 'quatre voiles, un cadre et une pastille');
@@ -329,6 +350,29 @@ test('SCAN-ROTATION-3. rotation, reprise, piste interrompue et fermeture libère
 		await opening;
 		assert.equal(late.stopCount, 1, 'flux obtenu après fermeture arrêté');
 		assert.equal(reader.children.length, 0); assert.equal(scannerResourceProbe().cameraStreamsOpen, 0);
+
+		pending = undefined;
+		playFailures = 2;
+		await app.startScanner();
+		const refusedTrack = tracks.at(-1);
+		assert.equal(refusedTrack.stopCount, 1, 'double refus initial → flux arrêté');
+		await settle();
+		assert.equal(reader.children.length, 2, 'double refus initial → scanner reconstruit');
+		assert.notEqual(tracks.at(-1), refusedTrack);
+		const resumedVideo = reader.children[0];
+		playFailures = 1;
+		resumedVideo.pause();
+		await Promise.resolve(); await Promise.resolve();
+		const pausedTrack = tracks.at(-1);
+		assert.equal(pausedTrack.stopCount, 1, 'reprise refusée → flux arrêté');
+		await settle();
+		assert.notEqual(tracks.at(-1), pausedTrack, 'reprise refusée → scanner reconstruit');
+		assert.equal(reader.children.length, 2);
+		const lastVideo = reader.children[0];
+		const callsBeforeClose = lastVideo.playCalls;
+		await app.stopScanner();
+		assert.equal(lastVideo.playCalls, callsBeforeClose, 'la fermeture ne relance pas la lecture');
+		assert.equal(scannerResourceProbe().cameraStreamsOpen, 0);
 	} finally {
 		await app.stopScanner();
 		globalThis.document = originalDocument; globalThis.window = originalWindow;
