@@ -316,6 +316,7 @@
 
 <svelte:head><title>Plans de repas — CRM G-Flux</title></svelte:head>
 
+{#if !editorOpen}
 <div class="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6">
 	<header class="mb-5 flex flex-wrap items-center justify-between gap-3">
 		<div class="min-w-0">
@@ -388,11 +389,14 @@
 		</ul>
 	{/if}
 </div>
+{/if}
 
-<!-- ═══════ Éditeur de plan (réutilise le moteur du Journal) ═══════ -->
+<!-- ═══════ Éditeur de plan (réutilise le moteur du Journal) ═══════
+     Dans le cadre coach : sidebar, fond et en-tête du CRM restent visibles.
+     La liste est masquée pendant l'édition ; fermer ramène à la liste. -->
 {#if editorOpen}
-	<div class="fixed inset-0 z-50 overflow-y-auto bg-soft">
-		<div class="mx-auto w-full max-w-2xl px-4 py-6 sm:px-6">
+	<div class="w-full">
+		<div class="w-full">
 			<header class="mb-4 flex items-center justify-between gap-3">
 				<h2 class="font-display text-xl font-semibold text-ink">{editingId ? 'Modifier le plan' : 'Nouveau plan'}</h2>
 				<button type="button" onclick={() => (editorOpen = false)} class="grid h-10 w-10 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer"><Icon name="x" size={20} /></button>
@@ -473,7 +477,7 @@
 			</div>
 
 			<!-- Barre de recherche : ouvre le même modal de recherche alimentaire que le CRM coach -->
-			<div class="sticky bottom-0 mt-4 bg-soft pb-4 pt-2">
+			<div class="sticky bottom-0 mt-4 pb-4 pt-2" style="background: var(--crm-bg)">
 				<button type="button" class="flex w-full items-center gap-2 rounded-xl border-2 border-line bg-white px-3 py-2.5 text-left transition hover:border-brand" onclick={() => openSearch()}>
 					<Icon name="search" size={17} class="shrink-0 text-mist" />
 					<span class="w-full bg-transparent text-sm text-mist">Rechercher un aliment pour « {MEAL_LABEL[searchForMeal] ?? searchForMeal} »…</span>
