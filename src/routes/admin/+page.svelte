@@ -25,6 +25,7 @@
 	import { foodAverages } from '$lib/vision360';
 	import { createFoodSearch, type SearchFood } from '$lib/foodSearch.svelte';
 	import type { BilanJourData } from '$lib/bilanJour';
+	import { cleFibresCoachJour, memoFibres, memoriserFibres } from '$lib/fibresMemo';
 	import CountUp from '$lib/components/CountUp.svelte';
 	import CoachIdentity from '$lib/components/CoachIdentity.svelte';
 	import { coachIdentity, type CoachUserLike } from '$lib/coachIdentity';
@@ -962,8 +963,12 @@
 		if (day && day.date !== journalDate) day = null;
 		// Fibres du jour : la carte coach suit la date affichée. Échec silencieux
 		// (carte « — »), le journal n'est jamais bloqué par ce second appel.
-		journalBilan = null;
-		journalBilanEtat = 'chargement';
+		/* Mission FIBRES-INSTANT — cliente × journée déjà vue : la dernière valeur
+		   connue (mémoire de session) est peinte immédiatement, puis remplacée
+		   sans clignotement par la réponse. Jour jamais vu : barre grise. */
+		const bilanConnu = selectedId ? memoFibres(cleFibresCoachJour(selectedId, journalDate)) : null;
+		journalBilan = bilanConnu;
+		journalBilanEtat = bilanConnu ? 'pret' : 'chargement';
 		void loadJournalBilan(req);
 		try {
 			const res = await fetch(`/api/coach/journal?userId=${selectedId}&date=${journalDate}`);
@@ -981,16 +986,21 @@
 
 	/** Bilan nutritionnel du jour d'une cliente (carte Fibres) — lecture seule. */
 	async function loadJournalBilan(req: number) {
+		const userId = selectedId;
+		const d = journalDate;
 		try {
 			const res = await fetch(`/api/coach/journal/bilan?userId=${selectedId}&date=${journalDate}`);
 			const data = await res.json();
 			if (req !== journalReq) return;
 			if (!res.ok) throw new Error(data.error ?? 'Bilan indisponible.');
-			journalBilan = data as BilanJourData;
+			const bilan = data as BilanJourData;
+			if (userId) memoriserFibres(cleFibresCoachJour(userId, d), bilan);
+			journalBilan = bilan;
 			journalBilanEtat = 'pret';
 		} catch {
 			if (req !== journalReq) return;
-			journalBilan = null;
+			/* Échec silencieux : la dernière valeur connue reste affichée ; « — »
+			   seulement si ce jour n'a jamais été vu. */
 			journalBilanEtat = 'erreur';
 		}
 	}

@@ -14,6 +14,7 @@
 	import JournalDay from '$lib/components/JournalDay.svelte';
 	import BilanJourSheet from '$lib/components/BilanJourSheet.svelte';
 	import type { BilanJourData } from '$lib/bilanJour';
+	import { cleFibresJour, memoFibres, memoriserFibres } from '$lib/fibresMemo';
 	import QuantitySheet from '$lib/components/QuantitySheet.svelte';
 	import FoodImg from '$lib/components/FoodImg.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -315,7 +316,17 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 	   puis se revalide en silence. Une erreur n'est jamais bloquante — la carte
 	   affiche « — » et reste cliquable. */
 	type BilanEntry = { etat: 'chargement' | 'pret' | 'erreur'; data?: BilanJourData };
-	let bilanByDay = $state<Record<string, BilanEntry>>({});
+	/** Mission FIBRES-INSTANT — la dernière valeur connue d'une journée (mémoire
+	 *  de session). Lue de façon SYNCHRONE : au retour sur une journée déjà vue,
+	 *  les fibres sont peintes dans la même image que les kcal et les macros. */
+	function bilanEnMemoire(d: string): BilanEntry | null {
+		const memo = memoFibres(cleFibresJour(d));
+		return memo ? { etat: 'pret', data: memo } : null;
+	}
+	let bilanByDay = $state<Record<string, BilanEntry>>((() => {
+		const memo = bilanEnMemoire(date);
+		return memo ? { [date]: memo } : {};
+	})());
 	let bilanOpen = $state(false);
 	let bilanSeq = 0;
 
@@ -326,18 +337,31 @@ import { recipeIngredientFoods } from '$lib/foodSearch.svelte';
 
 	async function loadBilanJour(d: string) {
 		const seq = ++bilanSeq;
-		/* Rien en mémoire pour ce jour : état de chargement immédiat (la carte
-		   garde sa place, jauge vide). Une donnée déjà vue reste affichée. */
-		if (bilanByDay[d]?.etat !== 'pret') bilanByDay = { ...bilanByDay, [d]: { etat: 'chargement' } };
+		/* Mission FIBRES-INSTANT — journée déjà vue : la dernière valeur connue
+		   (état courant, sinon mémoire de session) reste affichée pendant que la
+		   requête repart, puis la réponse la remplace sans clignotement. Jour
+		   jamais vu : état de chargement immédiat (barre grise, place réservée). */
+		const connue = bilanByDay[d]?.data ?? bilanEnMemoire(d)?.data ?? null;
+		bilanByDay = {
+			...bilanByDay,
+			[d]: connue ? { etat: 'pret', data: connue } : { etat: 'chargement' },
+		};
 		try {
 			const r = await fetch(`/api/journal/nutrition?date=${d}`);
 			if (seq !== bilanSeq) return; // une requête plus récente a pris la main
 			const j = await r.json();
 			if (seq !== bilanSeq) return;
 			const ok = r.ok && j && !j.error;
-			bilanByDay = { ...bilanByDay, [d]: ok ? { etat: 'pret', data: j as BilanJourData } : { etat: 'erreur' } };
+			if (ok) memoriserFibres(cleFibresJour(d), j as BilanJourData);
+			bilanByDay = {
+				...bilanByDay,
+				/* Un échec ne remplace jamais une valeur déjà connue : la carte
+				   garde la dernière valeur affichée, « — » seulement si aucune. */
+				[d]: ok ? { etat: 'pret', data: j as BilanJourData } : { etat: 'erreur', ...(connue ? { data: connue } : {}) },
+			};
 		} catch {
-			if (seq === bilanSeq) bilanByDay = { ...bilanByDay, [d]: { etat: 'erreur' } };
+			if (seq !== bilanSeq) return;
+			bilanByDay = { ...bilanByDay, [d]: { etat: 'erreur', ...(connue ? { data: connue } : {}) } };
 		}
 	}
 

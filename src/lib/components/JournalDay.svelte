@@ -392,6 +392,11 @@ import { formatDetailValue } from '$lib/foodDetailsFormat';
 	const fibresCoach = $derived(mode === 'coach' && bilanEtat !== 'inactif');
 	/** Note discrète (jamais rouge) : un aliment du jour a des fibres inconnues. */
 	const fibresEstimation = $derived(fibresCoach && !!bilanJour && bilanJour.fibresInconnues > 0);
+	/** Mission FIBRES-INSTANT — première ouverture d'une journée côté coach
+	 *  (aucune valeur en mémoire) : barre de chargement grisée à la place du
+	 *  « — », même gabarit que la valeur. Une journée déjà vue affiche sa
+	 *  dernière valeur connue, jamais la barre. */
+	const fibresCoachLoading = $derived(fibresCoach && !bilanJour && bilanEtat === 'chargement');
 	const rings = $derived([
 		{ label: 'Glucides', icon: 'wheat', color: '#ec4899', eaten: macrosShown.carbs, goal: day.goals.carbs },
 		{ label: 'Protéines', icon: 'drumstick', color: '#3b82f6', eaten: macrosShown.protein, goal: day.goals.protein },
@@ -425,7 +430,9 @@ import { formatDetailValue } from '$lib/foodDetailsFormat';
 	   toujours cliquable). Aucun saut de mise en page à l'arrivée des fibres.
 	   `inactif` (CRM coach, aucune requête) → aucune carte, rendu inchangé. */
 	const fibresCard = $derived(compact && bilanEtat !== 'inactif');
-	/** Données pas encore là (hors erreur) : valeur neutre pulsée. */
+	/** Première ouverture d'une journée, aucune valeur en mémoire (hors
+	 *  erreur) : barre de chargement grisée. Mission FIBRES-INSTANT — une
+	 *  journée déjà vue peint sa dernière valeur connue, jamais la barre. */
 	const fibresLoading = $derived(fibresCard && !fibresLine && bilanEtat !== 'erreur');
 	/** Requête en échec : « — », le journal n'est jamais bloqué. */
 	const fibresError = $derived(fibresCard && !fibresLine && bilanEtat === 'erreur');
@@ -548,12 +555,20 @@ import { formatDetailValue } from '$lib/foodDetailsFormat';
 					/>
 				</svg>
 				<span class="absolute inset-0 grid place-items-center font-black leading-none" style:color={macrosPlanned ? PLANNED_GRAY : ring.color}>
-					<span class="{compact ? 'text-[14px]' : 'text-[14px] md:text-[18px]'}">{#if ring.label === 'Fibres' && !bilanJour}—{:else}{Math.round(pct)}%{/if}</span>
+					<span class="{compact ? 'text-[14px]' : 'text-[14px] md:text-[18px]'}">{#if ring.label === 'Fibres' && !bilanJour}{#if fibresCoachLoading}<span class="block h-2.5 w-6 animate-pulse rounded-full bg-[#e8edea]" aria-hidden="true"></span><span class="sr-only">Chargement des fibres</span>{:else}—{/if}{:else}{Math.round(pct)}%{/if}</span>
 				</span>		</div>
 		<p class="{macrosPlanned ? 'text-mist' : 'text-ink'} {compact ? 'mt-1.5 text-[12.5px]' : 'mt-0.5 text-[12.5px]'}">
 			{#if ring.label === 'Fibres' && !bilanJour}
-				<!-- Bilan pas encore là (ou indisponible) : jamais un 0 inventé. -->
-				<strong class="font-bold text-mist">—</strong>
+				{#if fibresCoachLoading}
+					<!-- Mission FIBRES-INSTANT — première ouverture : barre grise
+					     discrète, hauteur de ligne réservée. Jamais un 0 inventé. -->
+					<span class="mx-auto flex h-[18px] items-center justify-center" aria-hidden="true"
+						><span class="block h-2.5 w-10 animate-pulse rounded-full bg-[#e8edea]"></span></span
+					>
+				{:else}
+					<!-- Bilan indisponible : jamais un 0 inventé. -->
+					<strong class="font-bold text-mist">—</strong>
+				{/if}
 			{:else}
 				<strong class="font-bold tabular-nums {macrosPlanned ? 'text-mist' : 'text-ink'}">{fmt(Math.round(ring.eaten))}</strong><span class="text-mist">/{fmt(ring.goal)}g</span>
 			{/if}
@@ -602,7 +617,13 @@ import { formatDetailValue } from '$lib/foodDetailsFormat';
 					>
 				{:else if fibresLoading}
 					<span class="shrink-0 text-[13px] font-bold text-ink">Fibres</span>
-					<span class="shrink-0 animate-pulse text-[13px] font-bold text-mist tabular-nums" aria-hidden="true">—</span>
+					<!-- Mission FIBRES-INSTANT — première ouverture d'une journée :
+					     barre de chargement grisée discrète à la place du « — ».
+					     Hauteur de ligne réservée (18 px) : les fibres qui arrivent
+					     ne décalent jamais la carte. -->
+					<span class="flex h-[18px] shrink-0 items-center" aria-hidden="true"
+						><span class="block h-2.5 w-[52px] animate-pulse rounded-full bg-[#e8edea]"></span></span
+					>
 					<span class="sr-only">Chargement des fibres</span>
 				{:else if fibresLine}
 					<span class="shrink-0 text-[13px] font-bold text-ink">Fibres</span>
