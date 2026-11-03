@@ -706,7 +706,7 @@
       Le guide est partagé avec la cliente : ces règles ne s'appliquent QUE
       dans le contenu coach (.ds-crm), jamais dans /espace. Fond, cartes,
       couleurs et contenus restent identiques ; seules la largeur utile et
-      la disposition des grilles changent (2 colonnes, 3 au-delà de 1440 px).
+      la disposition des grilles changent (colonnes fluides ≥ 260 px).
       ══════════════════════════════════════════════════════════════════ */
 @media (min-width: 1024px) {
     .ds-crm .guide-root{
@@ -734,26 +734,60 @@
     .ds-crm .guide-root .main{ padding: 0 24px 120px; }
     .ds-crm .guide-root .footer{ padding: 8px 24px 48px; }
 
-    /* Catégories : grille de 2 colonnes (3 sur très grand écran). */
+    /* Le contenu interne de l'accueil porte encore une largeur mobile
+       (max-w-[560px]) : sur desktop il doit suivre la largeur utile.
+       Hors .ds-crm (espace cliente, mobile) RIEN ne change. */
+    .ds-crm .guide-root .home-inner{ max-width: none; }
+
+    /* Catégories : autant de colonnes que la largeur le permet, jamais
+       moins de 260 px par carte (évite titres tronqués / pastilles à
+       l'étroit). */
     .ds-crm .guide-root .home-items{
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 12px;
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+        gap: 14px;
     }
-    .ds-crm .guide-root .home-btn{ height: 100%; }
+    /* Cartes catégories desktop : icône à gauche, titre plus compact qu'en
+       mobile, pastille de nombre à droite toujours entière (jamais rognée). */
+    .ds-crm .guide-root .home-btn{
+        height: 100%;
+        gap: 12px;
+        padding: 12px 14px 12px 12px;
+        border-radius: 18px;
+    }
+    .ds-crm .guide-root .home-btn-icon{
+        width: 40px;
+        height: 40px;
+        border-radius: 13px;
+    }
+    .ds-crm .guide-root .home-btn-text{
+        flex: 1 1 auto;
+        min-width: 0;
+        font-size: 15px;
+        line-height: 1.22;
+        letter-spacing: -0.01em;
+        hyphens: none;
+        overflow-wrap: normal;
+        word-break: normal;
+        text-wrap: pretty;
+    }
+    .ds-crm .guide-root .home-btn-count{
+        flex: 0 0 auto;
+        min-width: 0;
+        padding: 5px 9px;
+        border-radius: 12px;
+        font-size: 13px;
+        line-height: 1.2;
+        white-space: nowrap;
+    }
 
-    /* Listes de recettes : grille, chaque carte garde sa hauteur (dépliage). */
+    /* Listes de recettes : même grille fluide, chaque carte garde sa hauteur
+       (dépliage d'une recette). */
     .ds-crm .guide-root .recipe-grid,
     .ds-crm .guide-root .dessert-grid{
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
         gap: 14px;
         align-items: start;
     }
-}
-
-@media (min-width: 1440px) {
-    .ds-crm .guide-root .home-items{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .ds-crm .guide-root .recipe-grid,
-    .ds-crm .guide-root .dessert-grid{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
