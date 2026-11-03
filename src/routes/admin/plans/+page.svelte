@@ -4,10 +4,12 @@
 	 * Chaque plan = une JOURNÉE type réutilisable (assignable à plusieurs clientes).
 	 * L'éditeur réutilise le moteur du Journal : même recherche, mêmes kcal/100 g.
 	 */
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
+	import { beforeNavigate, goto } from '$app/navigation';
 	import Icon from '$lib/components/Icon.svelte';
 	import FoodImg from '$lib/components/FoodImg.svelte';
 	import QuantitySheet from '$lib/components/QuantitySheet.svelte';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import { createFoodSearch } from '$lib/foodSearch.svelte';
 
 	type PlanRow = {
@@ -103,11 +105,98 @@
 	/** Repas ciblé par l'ajout en cours (défini par « + Ajouter » du repas ou la barre de recherche). */
 	let searchForMeal = $state<string>('petit-dej');
 
+	/* ————— Écran large (≥ 1280 px) : panneau de recherche FIXE à droite —————
+	   Sous ce seuil, l'éditeur garde son tiroir historique (comportement intact). */
+	let wide = $state(false);
+	onMount(() => {
+		const mq = window.matchMedia('(min-width: 1280px)');
+		const sync = () => (wide = mq.matches);
+		sync();
+		mq.addEventListener('change', sync);
+		return () => mq.removeEventListener('change', sync);
+	});
+	/** Champ de recherche du panneau : « + Ajouter » y place le focus. */
+	let searchInputEl = $state<HTMLInputElement>();
+
 	function openSearch() {
+		if (wide) {
+			/* Panneau fixe : il reste ouvert et garde le texte déjà saisi. */
+			void tick().then(() => searchInputEl?.focus());
+			return;
+		}
 		foodSearch.clear();
 		searchOpen = true;
 	}
 	let pendingFood = $state<Food | null>(null);
+
+	/* ————— Garde-fou « plan non enregistré » —————
+	   Même confirmation que le brouillon de recette (ConfirmDialog) avant de
+	   perdre un plan modifié : croix, Annuler et navigation (barre latérale). */
+	let leaveConfirm = $state(false);
+	/** Destination interne mise en attente le temps de la confirmation. */
+	let pendingNav = $state<string | null>(null);
+	let leaveAction: (() => void) | null = null;
+	/** Empreinte du plan à l'ouverture : détecte une VRAIE modification. */
+	let baseline = $state('');
+
+	function snapshot() {
+		return JSON.stringify({
+			name: planName.trim(),
+			desc: planDesc.trim(),
+			items: items.map((it) => [it.meal, it.food._id, it.qty]),
+		});
+	}
+	const dirty = $derived(editorOpen && !saving && snapshot() !== baseline);
+
+	function closeEditor() {
+		leaveConfirm = false;
+		pendingNav = null;
+		leaveAction = null;
+		editorOpen = false;
+		searchOpen = false;
+		editKey = null;
+		pendingFood = null;
+	}
+	/** Croix / Annuler : demande confirmation si le plan a changé. */
+	function requestClose() {
+		if (dirty) {
+			leaveAction = closeEditor;
+			leaveConfirm = true;
+			return;
+		}
+		closeEditor();
+	}
+	function confirmLeave() {
+		const dest = pendingNav;
+		const action = leaveAction;
+		leaveConfirm = false;
+		pendingNav = null;
+		leaveAction = null;
+		if (dest) {
+			editorOpen = false;
+			searchOpen = false;
+			void goto(dest);
+			return;
+		}
+		action?.();
+	}
+	function cancelLeave() {
+		leaveConfirm = false;
+		pendingNav = null;
+		leaveAction = null;
+	}
+
+	/* Navigation (barre latérale, lien, retour) : on intercepte AVANT de perdre
+	   le plan. `goto` rejoue la destination une fois la confirmation acceptée. */
+	beforeNavigate((nav) => {
+		if (!dirty || nav.willUnload) return;
+		const dest = nav.to?.url.href;
+		if (!dest) return;
+		nav.cancel();
+		leaveAction = null;
+		pendingNav = dest;
+		leaveConfirm = true;
+	});
 
 	/* ————— Feuille de quantité (composant partagé avec l'espace cliente) —————
 	   Un clic sur un aliment du plan ouvre la même feuille que le Journal :
@@ -148,6 +237,7 @@
 		foodSearch.clear();
 		editKey = null;
 		editorOpen = true;
+		baseline = snapshot(); // plan vide = état de départ
 	}
 	async function openEdit(id: string) {
 		try {
@@ -179,6 +269,7 @@
 			foodSearch.clear();
 			editKey = null;
 			editorOpen = true;
+			baseline = snapshot(); // plan chargé = état de départ
 		} catch (e) {
 			pageErr = e instanceof Error ? e.message : String(e);
 		}
@@ -186,7 +277,9 @@
 
 	/** Ouvre la feuille de quantité pour un NOUVEL aliment (repas présélectionné). */
 	function addItem(food: Food) {
-		foodSearch.clear();
+		/* Panneau desktop : la recherche reste ouverte et garde son texte
+		   (ajouts en série sans rouvrir le tiroir). */
+		if (!wide) foodSearch.clear();
 		pendingFood = food;
 		editKey = ''; // feuille en mode « ajout »
 	}
@@ -316,6 +409,100 @@
 
 <svelte:head><title>Plans de repas — CRM G-Flux</title></svelte:head>
 
+<!-- Recherche alimentaire de l'éditeur — rendue UNE seule fois ici, puis
+     instanciée par le panneau fixe desktop ou le tiroir mobile/tablette.
+     Même moteur partagé, mêmes blocs Ciqual puis produits OFF. -->
+{#snippet searchResults(listClass: string)}
+	<!-- Recherche RÉACTIVE (moteur PWA) : résultats pendant la frappe,
+	     Enter = accélérateur — plus de bouton « Chercher ». -->
+	<div class="mt-3 flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2 focus-within:border-brand">
+		<Icon name="search" size={17} class="shrink-0 text-mist" />
+		<input
+			bind:this={searchInputEl}
+			type="search"
+			bind:value={foodSearch.state.q}
+			oninput={() => foodSearch.setQuery(foodSearch.state.q)}
+			onkeydown={(e) => e.key === 'Enter' && foodSearch.runNow()}
+			placeholder="Rechercher un aliment (ex. riz)…"
+			class="w-full bg-transparent text-sm text-ink outline-none placeholder:text-mist"
+		/>
+		{#if foodSearch.state.q}
+			<button
+				type="button"
+				class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-line/70 text-mist transition hover:bg-line"
+				aria-label="Effacer la recherche"
+				onclick={() => foodSearch.clear()}
+			><Icon name="x" size={13} /></button>
+		{/if}
+	</div>
+	{#if foodSearch.state.searching}<p class="mt-2 text-[11px] text-mist">Recherche…</p>{/if}
+	<div class={listClass}>
+		{#if foodSearch.state.q.trim().length < 2}
+			<p class="py-6 text-center text-xs text-mist">Tape au moins 2 lettres pour chercher dans la base.</p>
+		{:else if foodSearch.state.products.length === 0 && foodSearch.state.ciqual.length === 0 && !foodSearch.state.searching && !foodSearch.state.productsUnavailable}
+			<p class="py-6 text-center text-xs text-mist">Aucun résultat pour « {foodSearch.state.q.trim()} ».</p>
+		{:else}
+			<!-- 1. CIQUAL : aliments de RÉFÉRENCE — bloc séparé, toujours en tête ;
+			     aucun résultat pertinent = pas de bloc (jamais de section vide). -->
+			{#if foodSearch.state.ciqual.length > 0}
+				<div class="flex items-baseline justify-between px-1 pb-1">
+					<p class="text-[10px] font-bold uppercase tracking-widest text-mist">Aliments de référence</p>
+					<span class="text-[10px] text-mist">Ciqual – ANSES</span>
+				</div>
+				<div class="space-y-1">
+					{#each foodSearch.state.ciqual as hit (hit._id)}
+						<button
+							type="button"
+							onclick={() => addItem(hit)}
+							class="flex w-full items-center gap-3 rounded-xl border border-brand/30 bg-brand-light/40 px-3 py-2 text-left transition hover:border-brand"
+						>
+							<span class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-light"><Icon name="salad" size={18} class="text-brand" /></span>
+							<div class="min-w-0 flex-1">
+								<div class="line-clamp-2 text-sm font-semibold leading-snug text-ink">{hit.name}</div>
+								<div class="mt-0.5 text-[11px] text-mist">{hit.kcal100} kcal/100 g</div>
+								<div class="mt-1 flex flex-wrap items-center gap-1.5">
+									{#if hit.gflux}<span data-gflux-badge class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence G-Flux</span>{:else}<span class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>{/if}
+									{#if hit.cookLabel}<span data-cook-badge class="rounded-full bg-[#F1F0EC] px-2 py-0.5 text-[9px] font-semibold text-[#6E6A62]">{hit.cookLabel}</span>{/if}
+								</div>
+							</div>
+							<span class="text-brand">＋</span>
+						</button>
+					{/each}
+				</div>
+			{/if}
+			<!-- 2. PRODUITS : Open Food Facts (moteur classé PWA, ranking identique
+			     côté cliente ; la liste reste affichée pendant une nouvelle frappe). -->
+			{#if foodSearch.state.productsUnavailable}
+				<p class="px-1 pt-3 text-[11px] text-mist">Produits indisponibles pour le moment.</p>
+			{/if}
+			{#if foodSearch.state.products.length > 0}
+				<p class="px-1 pb-1 pt-2 text-[10px] font-bold uppercase tracking-widest text-mist">Produits · Open Food Facts</p>
+				<div class="space-y-1 transition-opacity {foodSearch.state.searching ? 'opacity-50' : ''}">
+					{#each foodSearch.state.products as hit (hit._id)}
+						<button
+							type="button"
+							onclick={() => addItem(hit)}
+							class="flex w-full items-center gap-3 rounded-xl border border-line bg-white px-3 py-2 text-left transition hover:border-brand"
+						>
+							{#if hit.thumbUrl || hit.imageUrl}
+								<FoodImg src={hit.thumbUrl} fallbackSrc={hit.imageUrl} alt="" class="h-9 w-9 shrink-0 rounded-lg" />
+							{:else}
+								<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-line/60"><Icon name="apple" size={16} class="text-mist" /></div>
+							{/if}
+							<div class="min-w-0 flex-1">
+								<div class="truncate text-sm font-semibold text-ink">{hit.name}</div>
+								<div class="text-[11px] text-mist">{hit.kcal100} kcal/100 g{#if hit.kcalRecalculated}<span class="ml-1 rounded bg-line/70 px-1 py-px text-[9px] font-semibold text-mist">Valeur recalculée</span>{/if}{hit.brand ? ` · ${hit.brand}` : ''}</div>
+							</div>
+							<span class="text-brand">＋</span>
+						</button>
+					{/each}
+				</div>
+				{#if foodSearch.state.loadingMore}<p class="py-2 text-center text-xs text-mist">Chargement…</p>{/if}
+			{/if}
+		{/if}
+	</div>
+{/snippet}
+
 {#if !editorOpen}
 <div class="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6">
 	<header class="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -396,210 +583,166 @@
      La liste est masquée pendant l'édition ; fermer ramène à la liste. -->
 {#if editorOpen}
 	<div class="w-full">
-		<div class="w-full">
-			<header class="mb-4 flex items-center justify-between gap-3">
-				<h2 class="font-display text-xl font-semibold text-ink">{editingId ? 'Modifier le plan' : 'Nouveau plan'}</h2>
-				<button type="button" onclick={() => (editorOpen = false)} class="grid h-10 w-10 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer"><Icon name="x" size={20} /></button>
-			</header>
+		<header class="mb-4 flex items-center justify-between gap-3">
+			<h2 class="font-display text-xl font-semibold text-ink">{editingId ? 'Modifier le plan' : 'Nouveau plan'}</h2>
+			<button type="button" onclick={requestClose} class="grid h-10 w-10 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer"><Icon name="x" size={20} /></button>
+		</header>
 
-			<label class="block">
-				<span class="mb-1 block text-[11px] font-bold uppercase tracking-wider text-mist">Nom du plan *</span>
-				<input type="text" bind:value={planName} placeholder="Ex. Plan 1 800 kcal" class="w-full rounded-xl border-2 border-line bg-white px-3 py-2.5 text-sm font-semibold text-ink outline-none focus:border-brand" />
-			</label>
-			<label class="mt-2 block">
-				<span class="mb-1 block text-[11px] font-bold uppercase tracking-wider text-mist">Description (optionnel)</span>
-				<input type="text" bind:value={planDesc} placeholder="Ex. journée type sans produit laitier" class="w-full rounded-xl border-2 border-line bg-white px-3 py-2.5 text-sm text-ink outline-none focus:border-brand" />
-			</label>
+		<!-- Deux colonnes (≥ 1280 px) : plan à gauche (~60 %), recherche d'aliments
+		     fixe à droite (~40 %). En dessous de 1280 px, mise en page historique. -->
+		<div class="grid items-start gap-5 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+			<!-- Colonne gauche : plan, totaux, repas, actions collées en bas -->
+			<div class="min-w-0">
+				<label class="block">
+					<span class="mb-1 block text-[11px] font-bold uppercase tracking-wider text-mist">Nom du plan *</span>
+					<input type="text" bind:value={planName} placeholder="Ex. Plan 1 800 kcal" class="w-full rounded-xl border-2 border-line bg-white px-3 py-2.5 text-sm font-semibold text-ink outline-none focus:border-brand" />
+				</label>
+				<label class="mt-2 block">
+					<span class="mb-1 block text-[11px] font-bold uppercase tracking-wider text-mist">Description (optionnel)</span>
+					<input type="text" bind:value={planDesc} placeholder="Ex. journée type sans produit laitier" class="w-full rounded-xl border-2 border-line bg-white px-3 py-2.5 text-sm text-ink outline-none focus:border-brand" />
+				</label>
 
-			<!-- Résumé nutritionnel du TEMPLATE (valeurs PRÉVUES du plan, pas une consommation) -->
-			<div class="mt-4 grid grid-cols-4 gap-2">
-				<div class="rounded-xl border border-line bg-white p-2 text-center">
-					<Icon name="flame" size={16} class="mx-auto block text-brand" />
-					<span class="block text-sm font-bold text-ink">{fmt(totals.kcal)}</span>
-					<span class="block text-[10px] text-mist">kcal</span>
+				<!-- Résumé nutritionnel du TEMPLATE (valeurs PRÉVUES du plan, pas une consommation) -->
+				<div class="mt-4 grid grid-cols-4 gap-2">
+					<div class="rounded-xl border border-line bg-white p-2 text-center">
+						<Icon name="flame" size={16} class="mx-auto block text-brand" />
+						<span class="block text-sm font-bold text-ink">{fmt(totals.kcal)}</span>
+						<span class="block text-[10px] text-mist">kcal</span>
+					</div>
+					<div class="rounded-xl border border-line bg-white p-2 text-center">
+						<span class="mx-auto block text-sm font-bold text-ink">{fmt(totals.carbs)} g</span>
+						<span class="block text-[10px] text-mist">glucides</span>
+					</div>
+					<div class="rounded-xl border border-line bg-white p-2 text-center">
+						<span class="mx-auto block text-sm font-bold text-ink">{fmt(totals.protein)} g</span>
+						<span class="block text-[10px] text-mist">protéines</span>
+					</div>
+					<div class="rounded-xl border border-line bg-white p-2 text-center">
+						<span class="mx-auto block text-sm font-bold text-ink">{fmt(totals.fat)} g</span>
+						<span class="block text-[10px] text-mist">lipides</span>
+					</div>
 				</div>
-				<div class="rounded-xl border border-line bg-white p-2 text-center">
-					<span class="mx-auto block text-sm font-bold text-ink">{fmt(totals.carbs)} g</span>
-					<span class="block text-[10px] text-mist">glucides</span>
+
+				<!-- Repas du plan -->
+				<div class="mt-4 flex flex-col gap-3">
+					{#each MEAL_DEFS as meal (meal.id)}
+						{@const mealItems = items.filter((it) => it.meal === meal.id)}
+						<!-- Repas ciblé par la recherche : bordure verte sur desktop. -->
+						<section class="rounded-2xl border bg-card p-3 {wide && searchForMeal === meal.id ? 'border-brand ring-1 ring-brand/25' : 'border-line'}">
+							<div class="mb-2 flex items-center justify-between gap-2">
+								<h3 class="flex items-center gap-1.5 text-sm font-bold text-ink">
+									<Icon name={meal.icon} size={15} class="text-brand" />
+									{meal.label}
+									{#if mealItems.length > 0}<span class="text-[11px] font-semibold text-brand tabular-nums">{fmt(mealKcalOf(meal.id))} kcal</span>{/if}
+								</h3>
+								<button type="button" class="rounded-full border border-brand/40 px-2.5 py-1 text-[11px] font-bold text-brand transition hover:bg-brand-light" onclick={() => { searchForMeal = meal.id; openSearch(); }}>
+									+ Ajouter
+								</button>
+							</div>
+							{#if mealItems.length === 0}
+								<p class="rounded-xl border border-dashed border-line px-3 py-3 text-center text-xs text-mist">Aucun aliment — utilise « + Ajouter ».</p>
+							{:else}
+								<ul class="flex flex-col divide-y divide-line/60">
+									{#each mealItems as it (it.key)}
+									<!-- Clic sur l'aliment → feuille de quantité (déplacer / grammage / portions) ;
+									     le bouton ✕ reste un raccourci de retrait direct. -->
+									<li class="flex items-center gap-2 py-1.5">
+										<button type="button" class="flex min-w-0 flex-1 items-center gap-2 text-left" aria-label={`Modifier ${it.food.name}`} onclick={() => (editKey = it.key)}>
+											{#if it.food.thumbUrl || it.food.imageUrl}
+												<FoodImg src={it.food.thumbUrl} fallbackSrc={it.food.imageUrl} alt="" class="h-9 w-9 rounded-lg" />
+											{:else}
+												<div class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={15} class="text-brand" /></div>
+											{/if}
+											<span class="min-w-0 flex-1">
+												<span class="block truncate text-[13px] font-semibold text-ink">{it.food.name}</span>
+												<span class="block text-[11px] text-mist tabular-nums"><strong class="text-brand">{fmt(itemKcal(it))} kcal</strong> · {fmt(it.qty)} g · {MEAL_LABEL[it.meal] ?? it.meal}</span>
+											</span>
+											<span class="shrink-0 text-mist"><Icon name="pencil" size={14} /></span>
+										</button>
+										<button type="button" class="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-mist hover:bg-danger-light hover:text-danger" aria-label="Retirer" onclick={() => removeItem(it.key)}>✕</button>
+									</li>
+									{/each}
+								</ul>
+							{/if}
+						</section>
+					{/each}
 				</div>
-				<div class="rounded-xl border border-line bg-white p-2 text-center">
-					<span class="mx-auto block text-sm font-bold text-ink">{fmt(totals.protein)} g</span>
-					<span class="block text-[10px] text-mist">protéines</span>
-				</div>
-				<div class="rounded-xl border border-line bg-white p-2 text-center">
-					<span class="mx-auto block text-sm font-bold text-ink">{fmt(totals.fat)} g</span>
-					<span class="block text-[10px] text-mist">lipides</span>
+
+				{#if !wide}
+					<!-- Barre de recherche historique : ouvre le tiroir (< 1280 px). -->
+					<div class="sticky bottom-0 mt-4 pb-4 pt-2" style="background: var(--crm-bg)">
+						<button type="button" class="flex w-full items-center gap-2 rounded-xl border-2 border-line bg-white px-3 py-2.5 text-left transition hover:border-brand" onclick={() => openSearch()}>
+							<Icon name="search" size={17} class="shrink-0 text-mist" />
+							<span class="w-full bg-transparent text-sm text-mist">Rechercher un aliment pour « {MEAL_LABEL[searchForMeal] ?? searchForMeal} »…</span>
+						</button>
+					</div>
+				{/if}
+
+				{#if editorErr}
+					<p class="mt-2 rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{editorErr}</p>
+				{/if}
+
+				<div class="mt-2 flex gap-2 {wide ? 'sticky bottom-0 z-10 pb-3 pt-3' : ''}" style={wide ? 'background: var(--crm-bg)' : undefined}>
+					<button type="button" onclick={requestClose} class="flex-1 rounded-full border-2 border-line px-3 py-3 text-sm font-bold text-ink transition hover:border-brand">Annuler</button>
+					<button
+						type="button"
+						class="flex-[2] rounded-full bg-brand px-3 py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
+						disabled={saving || planName.trim().length < 2 || items.length === 0}
+						onclick={savePlan}
+					>
+						{saving ? 'Enregistrement…' : 'Enregistrer le plan'}
+					</button>
 				</div>
 			</div>
 
-			<!-- Repas du plan -->
-			<div class="mt-4 flex flex-col gap-3">
-				{#each MEAL_DEFS as meal (meal.id)}
-					{@const mealItems = items.filter((it) => it.meal === meal.id)}
-					<section class="rounded-2xl border border-line bg-card p-3">
-						<div class="mb-2 flex items-center justify-between gap-2">
-							<h3 class="flex items-center gap-1.5 text-sm font-bold text-ink">
-								<Icon name={meal.icon} size={15} class="text-brand" />
+			{#if wide}
+				<!-- Panneau fixe : repas cible, recherche et résultats (défilement interne). -->
+				<aside class="sticky top-6 flex h-[calc(100dvh-3rem)] flex-col rounded-2xl border border-line bg-card p-4 shadow-sm" aria-label="Recherche d'aliments">
+					<p class="text-[11px] font-bold uppercase tracking-wider text-mist">Ajouter à :</p>
+					<div class="mt-2 flex flex-wrap gap-1.5">
+						{#each MEAL_DEFS as meal (meal.id)}
+							<button
+								type="button"
+								aria-pressed={searchForMeal === meal.id}
+								onclick={() => { searchForMeal = meal.id; openSearch(); }}
+								class="rounded-full border px-3 py-1.5 text-[11px] font-bold transition {searchForMeal === meal.id
+									? 'border-brand bg-brand-light text-brand-deep'
+									: 'border-line text-mist hover:border-brand/50 hover:text-ink'}"
+							>
 								{meal.label}
-								{#if mealItems.length > 0}<span class="text-[11px] font-semibold text-brand tabular-nums">{fmt(mealKcalOf(meal.id))} kcal</span>{/if}
-							</h3>
-							<button type="button" class="rounded-full border border-brand/40 px-2.5 py-1 text-[11px] font-bold text-brand transition hover:bg-brand-light" onclick={() => { searchForMeal = meal.id; openSearch(); }}>
-								+ Ajouter
 							</button>
-						</div>
-						{#if mealItems.length === 0}
-							<p class="rounded-xl border border-dashed border-line px-3 py-3 text-center text-xs text-mist">Aucun aliment — utilise « + Ajouter ».</p>
-						{:else}
-							<ul class="flex flex-col divide-y divide-line/60">
-								{#each mealItems as it (it.key)}
-								<!-- Clic sur l'aliment → feuille de quantité (déplacer / grammage / portions) ;
-								     le bouton ✕ reste un raccourci de retrait direct. -->
-								<li class="flex items-center gap-2 py-1.5">
-									<button type="button" class="flex min-w-0 flex-1 items-center gap-2 text-left" aria-label={`Modifier ${it.food.name}`} onclick={() => (editKey = it.key)}>
-										{#if it.food.thumbUrl || it.food.imageUrl}
-											<FoodImg src={it.food.thumbUrl} fallbackSrc={it.food.imageUrl} alt="" class="h-9 w-9 rounded-lg" />
-										{:else}
-											<div class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-light"><Icon name="utensils" size={15} class="text-brand" /></div>
-										{/if}
-										<span class="min-w-0 flex-1">
-											<span class="block truncate text-[13px] font-semibold text-ink">{it.food.name}</span>
-											<span class="block text-[11px] text-mist tabular-nums"><strong class="text-brand">{fmt(itemKcal(it))} kcal</strong> · {fmt(it.qty)} g · {MEAL_LABEL[it.meal] ?? it.meal}</span>
-										</span>
-										<span class="shrink-0 text-mist"><Icon name="pencil" size={14} /></span>
-									</button>
-									<button type="button" class="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-mist hover:bg-danger-light hover:text-danger" aria-label="Retirer" onclick={() => removeItem(it.key)}>✕</button>
-								</li>
-								{/each}
-							</ul>
-						{/if}
-					</section>
-				{/each}
-			</div>
-
-			<!-- Barre de recherche : ouvre le même modal de recherche alimentaire que le CRM coach -->
-			<div class="sticky bottom-0 mt-4 pb-4 pt-2" style="background: var(--crm-bg)">
-				<button type="button" class="flex w-full items-center gap-2 rounded-xl border-2 border-line bg-white px-3 py-2.5 text-left transition hover:border-brand" onclick={() => openSearch()}>
-					<Icon name="search" size={17} class="shrink-0 text-mist" />
-					<span class="w-full bg-transparent text-sm text-mist">Rechercher un aliment pour « {MEAL_LABEL[searchForMeal] ?? searchForMeal} »…</span>
-				</button>
-			</div>
-
-			{#if editorErr}
-				<p class="mt-2 rounded-xl bg-danger-light px-3 py-2 text-sm text-danger">{editorErr}</p>
+						{/each}
+					</div>
+					{@render searchResults('mt-3 min-h-0 flex-1 space-y-1 overflow-y-auto pr-1')}
+				</aside>
 			{/if}
-
-			<div class="mt-2 flex gap-2">
-				<button type="button" onclick={() => (editorOpen = false)} class="flex-1 rounded-full border-2 border-line px-3 py-3 text-sm font-bold text-ink transition hover:border-brand">Annuler</button>
-				<button
-					type="button"
-					class="flex-[2] rounded-full bg-brand px-3 py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
-					disabled={saving || planName.trim().length < 2 || items.length === 0}
-					onclick={savePlan}
-				>
-					{saving ? 'Enregistrement…' : 'Enregistrer le plan'}
-				</button>
-			</div>
 		</div>
 	</div>
 {/if}
 
-<!-- ═══════ Modal de recherche alimentaire (même UI que le CRM coach) ═══════ -->
-{#if searchOpen}
+<!-- ═══════ Recherche alimentaire — tiroir (< 1280 px) ; au-delà : panneau fixe ═══════ -->
+{#if searchOpen && !wide}
 	<button type="button" class="fixed inset-0 z-[60] cursor-pointer bg-ink/50" aria-label="Fermer la recherche" onclick={() => (searchOpen = false)}></button>
 	<div class="fixed inset-x-0 bottom-0 z-[60] mx-auto w-full max-w-2xl rounded-t-3xl border-t border-line bg-card p-5 shadow-2xl sm:inset-y-0 sm:right-0 sm:left-auto sm:w-96 sm:rounded-l-3xl sm:rounded-tr-none sm:rounded-br-none sm:border-l">
 		<div class="flex items-center justify-between">
 			<h4 class="font-display text-base font-semibold text-ink">＋ Ajouter un aliment — {MEAL_LABEL[searchForMeal] ?? searchForMeal}</h4>
 			<button type="button" onclick={() => (searchOpen = false)} class="rounded-lg px-2 py-1 text-lg text-mist hover:text-ink" aria-label="Fermer">✕</button>
 		</div>
-		<!-- Recherche RÉACTIVE (moteur PWA) : résultats pendant la frappe,
-		     Enter = accéléateur — plus de bouton « Chercher ». -->
-		<div class="mt-3 flex items-center gap-2 rounded-xl border-2 border-line bg-cream px-3 py-2 focus-within:border-brand">
-			<Icon name="search" size={17} class="shrink-0 text-mist" />
-			<input
-				type="search"
-				bind:value={foodSearch.state.q}
-				oninput={() => foodSearch.setQuery(foodSearch.state.q)}
-				onkeydown={(e) => e.key === 'Enter' && foodSearch.runNow()}
-				placeholder="Rechercher un aliment (ex. riz)…"
-				class="w-full bg-transparent text-sm text-ink outline-none placeholder:text-mist"
-			/>
-			{#if foodSearch.state.q}
-				<button
-					type="button"
-					class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-line/70 text-mist transition hover:bg-line"
-					aria-label="Effacer la recherche"
-					onclick={() => foodSearch.clear()}
-				><Icon name="x" size={13} /></button>
-			{/if}
-		</div>
-		{#if foodSearch.state.searching}<p class="mt-2 text-[11px] text-mist">Recherche…</p>{/if}
-		<div class="mt-3 max-h-[50vh] space-y-1 overflow-y-auto">
-			{#if foodSearch.state.q.trim().length < 2}
-				<p class="py-6 text-center text-xs text-mist">Tape au moins 2 lettres pour chercher dans la base.</p>
-			{:else if foodSearch.state.products.length === 0 && foodSearch.state.ciqual.length === 0 && !foodSearch.state.searching && !foodSearch.state.productsUnavailable}
-				<p class="py-6 text-center text-xs text-mist">Aucun résultat pour « {foodSearch.state.q.trim()} ».</p>
-			{:else}
-				<!-- 1. CIQUAL : aliments de RÉFÉRENCE — bloc séparé, toujours en tête ;
-				     aucun résultat pertinent = pas de bloc (jamais de section vide). -->
-				{#if foodSearch.state.ciqual.length > 0}
-					<div class="flex items-baseline justify-between px-1 pb-1">
-						<p class="text-[10px] font-bold uppercase tracking-widest text-mist">Aliments de référence</p>
-						<span class="text-[10px] text-mist">Ciqual – ANSES</span>
-					</div>
-					<div class="space-y-1">
-						{#each foodSearch.state.ciqual as hit (hit._id)}
-							<button
-								type="button"
-								onclick={() => addItem(hit)}
-								class="flex w-full items-center gap-3 rounded-xl border border-brand/30 bg-brand-light/40 px-3 py-2 text-left transition hover:border-brand"
-							>
-								<span class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-light"><Icon name="salad" size={18} class="text-brand" /></span>
-								<div class="min-w-0 flex-1">
-									<div class="line-clamp-2 text-sm font-semibold leading-snug text-ink">{hit.name}</div>
-									<div class="mt-0.5 text-[11px] text-mist">{hit.kcal100} kcal/100 g</div>
-									<div class="mt-1 flex flex-wrap items-center gap-1.5">
-										{#if hit.gflux}<span data-gflux-badge class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence G-Flux</span>{:else}<span class="rounded-full bg-brand-light px-2 py-0.5 text-[9px] font-bold text-brand">Référence Ciqual – ANSES</span>{/if}
-										{#if hit.cookLabel}<span data-cook-badge class="rounded-full bg-[#F1F0EC] px-2 py-0.5 text-[9px] font-semibold text-[#6E6A62]">{hit.cookLabel}</span>{/if}
-									</div>
-								</div>
-								<span class="text-brand">＋</span>
-							</button>
-						{/each}
-					</div>
-				{/if}
-				<!-- 2. PRODUITS : Open Food Facts (moteur classé PWA, ranking identique
-				     côté cliente ; la liste reste affichée pendant une nouvelle frappe). -->
-				{#if foodSearch.state.productsUnavailable}
-					<p class="px-1 pt-3 text-[11px] text-mist">Produits indisponibles pour le moment.</p>
-				{/if}
-				{#if foodSearch.state.products.length > 0}
-					<p class="px-1 pb-1 pt-2 text-[10px] font-bold uppercase tracking-widest text-mist">Produits · Open Food Facts</p>
-					<div class="space-y-1 transition-opacity {foodSearch.state.searching ? 'opacity-50' : ''}">
-						{#each foodSearch.state.products as hit (hit._id)}
-							<button
-								type="button"
-								onclick={() => addItem(hit)}
-								class="flex w-full items-center gap-3 rounded-xl border border-line bg-white px-3 py-2 text-left transition hover:border-brand"
-							>
-								{#if hit.thumbUrl || hit.imageUrl}
-									<FoodImg src={hit.thumbUrl} fallbackSrc={hit.imageUrl} alt="" class="h-9 w-9 shrink-0 rounded-lg" />
-								{:else}
-									<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-line/60"><Icon name="apple" size={16} class="text-mist" /></div>
-								{/if}
-								<div class="min-w-0 flex-1">
-									<div class="truncate text-sm font-semibold text-ink">{hit.name}</div>
-									<div class="text-[11px] text-mist">{hit.kcal100} kcal/100 g{#if hit.kcalRecalculated}<span class="ml-1 rounded bg-line/70 px-1 py-px text-[9px] font-semibold text-mist">Valeur recalculée</span>{/if}{hit.brand ? ` · ${hit.brand}` : ''}</div>
-								</div>
-								<span class="text-brand">＋</span>
-							</button>
-						{/each}
-					</div>
-					{#if foodSearch.state.loadingMore}<p class="py-2 text-center text-xs text-mist">Chargement…</p>{/if}
-				{/if}
-			{/if}
-		</div>
+		{@render searchResults('mt-3 max-h-[50vh] space-y-1 overflow-y-auto')}
 	</div>
 {/if}
+
+<!-- ═══════ Quitter un plan modifié (même confirmation que le brouillon de recette) ═══════ -->
+<ConfirmDialog
+	open={leaveConfirm}
+	title="Quitter le plan ?"
+	message="Les modifications non enregistrées de ce plan seront perdues."
+	confirmLabel="Quitter"
+	cancelLabel="Continuer l'édition"
+	danger
+	onconfirm={confirmLeave}
+	oncancel={cancelLeave}
+/>
 
 <!-- ═══════ Feuille de quantité (composant partagé avec le Journal cliente) ═══════ -->
 {#if sheetFood}
