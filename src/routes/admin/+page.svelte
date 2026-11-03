@@ -4484,6 +4484,7 @@
 						initialQtyGrams={addSheetQty}
 						initialMeal={addSheetMeal}
 						mode="add"
+						coach
 						saving={addSheetSaving}
 						error={addSheetError}
 						saveLabel={`Ajouter au journal de ${selected?.user.prenom ?? 'la cliente'}`}

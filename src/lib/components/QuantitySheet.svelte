@@ -76,6 +76,11 @@
 		 *  aucun choix de repas, aucune action d'écriture. Fermeture par la
 		 *  croix ou par le fond (voile sombre). */
 		readOnly = false,
+		/** ESPACE COACH (CRM) : sur écran ≥ 1024 px, la fiche devient une
+		 *  fenêtre compacte centrée (440 px) sur un voile sombre — le plan et le
+		 *  panneau de recherche restent visibles derrière. Sous 1024 px (et
+		 *  partout côté cliente), rendu strictement inchangé. */
+		coach = false,
 		onSave,
 		onEat,
 		onReplace,
@@ -135,6 +140,8 @@
 		sheetHeight?: number;
 		/** Consultation seule (CRM coach) : lecture intégrale, zéro écriture. */
 		readOnly?: boolean;
+		/** Espace coach : fiche compacte centrée sur écran ≥ 1024 px. */
+		coach?: boolean;
 		onSave: (qtyGrams: number, meal: string) => void;
 		/** Mode planned uniquement : valider « Mangé » (planned → consommé). */
 		onEat?: () => void;
@@ -153,6 +160,50 @@
 	   rend jamais côté serveur (ouverte par une interaction) — sheetHeight y
 	   est donc toujours undefined, soit le comportement desktop. */
 	const mobileSheet = $derived(sheetHeight != null);
+
+	/* FICHE COMPACTE COACH (CRM, ≥ 1024 px) : fenêtre centrée de ~440 px sur
+	   un voile sombre — le plan et le panneau « Ajouter à : » restent visibles
+	   derrière (plus de fond blanc plein écran). Ailleurs — espace cliente,
+	   mobile, `< 1024 px` — `compactModal` reste faux et le rendu est
+	   strictement celui d'avant. */
+	let wideCoach = $state(
+		typeof window !== 'undefined' &&
+			typeof window.matchMedia === 'function' &&
+			window.matchMedia('(min-width: 1024px)').matches
+	);
+	$effect(() => {
+		if (!coach || typeof window.matchMedia !== 'function') return;
+		const mq = window.matchMedia('(min-width: 1024px)');
+		wideCoach = mq.matches;
+		const sync = () => (wideCoach = mq.matches);
+		mq.addEventListener('change', sync);
+		return () => mq.removeEventListener('change', sync);
+	});
+	const compactModal = $derived(coach && wideCoach && !mobileSheet);
+
+	/* Fenêtre centrée : 440 px, ombre du CRM, hauteur plafonnée à l'écran
+	   (le contenu défile à l'intérieur, le footer d'actions reste visible).
+	   Hors mode compact : colonne pleine hauteur historique, inchangée. */
+	const cardClass = $derived(
+		compactModal
+			? 'relative mx-auto flex max-h-[calc(100dvh-3rem)] w-full max-w-[440px] flex-col overflow-hidden rounded-[1.5rem] bg-white shadow-[0_2px_6px_rgba(17,17,16,0.05),0_24px_60px_-24px_rgba(17,17,16,0.28)]'
+			: `absolute inset-x-0 top-0 mx-auto flex w-full max-w-lg flex-col overflow-hidden bg-white sm:relative sm:top-auto sm:h-[min(92dvh,720px)] sm:rounded-[2rem] sm:shadow-2xl ${readOnly ? 'max-h-[100dvh] rounded-b-[2rem]' : ''}`
+	);
+
+	/* Fenêtre compacte : Échap ferme sans rien ajouter, et le document ne
+	   défile pas sous le voile (même verrou partagé que les autres volets). */
+	$effect(() => {
+		if (!compactModal) return;
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === 'Escape' && !saving) onClose();
+		};
+		window.addEventListener('keydown', onKey);
+		lockScroll();
+		return () => {
+			window.removeEventListener('keydown', onKey);
+			unlockScroll();
+		};
+	});
 
 	/* Portion OFF « fiable » : nombre positif raisonnable (5 g à 2 kg). */
 	const hasServing = !!food.servingQty && food.servingQty > 0 && food.servingQty <= 2000;
@@ -486,19 +537,29 @@
 <div
 	role="presentation"
 	class="fixed inset-0 z-[60] bg-white sm:flex sm:items-center sm:justify-center sm:p-6"
-	style:background-color={readOnly ? 'transparent' : undefined}
+	style:background-color={readOnly || compactModal ? 'transparent' : undefined}
 	onclick={(e) => {
-		/* Consultation seule : le fond (zone hors panneau) ferme la fiche, comme
-		   les autres volets du CRM. En écriture, AUCUN clic de fond ne ferme
-		   (jamais de saisie perdue) — la croix et Échap restent les sorties. */
-		if (readOnly && !saving && e.target === e.currentTarget) onClose();
+		/* Consultation seule et fenêtre coach compacte : le fond (zone hors
+		   panneau) ferme la fiche, comme les autres volets du CRM. En écriture
+		   plein écran, AUCUN clic de fond ne ferme (jamais de saisie perdue) —
+		   la croix et Échap restent les sorties. */
+		if ((readOnly || compactModal) && !saving && e.target === e.currentTarget) onClose();
 	}}
 	onkeydown={(e) => {
 		if (e.key === 'Escape' && !saving) onClose();
 	}}
 >
+	{#if compactModal}
+		<!-- Voile sombre semi-transparent + léger flou : la page (plan, panneau
+		     de recherche) reste visible derrière ; un clic ferme sans rien ajouter. -->
+		<div
+			class="absolute inset-0 bg-[rgba(20,20,19,0.35)] backdrop-blur-[2px]"
+			aria-hidden="true"
+			onclick={() => { if (!saving) onClose(); }}
+		></div>
+	{/if}
 	<div
-		class="absolute inset-x-0 top-0 mx-auto flex w-full max-w-lg flex-col overflow-hidden bg-white sm:relative sm:top-auto sm:h-[min(92dvh,720px)] sm:rounded-[2rem] sm:shadow-2xl {readOnly ? 'max-h-[100dvh] rounded-b-[2rem]' : ''}"
+		class={cardClass}
 		style:top={mobileSheet ? `${sheetTop}px` : undefined}
 		style:height={mobileSheet ? `${sheetHeight}px` : undefined}
 	>
@@ -554,6 +615,7 @@
 		     tient sans scroll sur un écran de 390×844. object-contain via
 		     FoodImg : JAMAIS d'étirement ni de recadrage ; fond cream si
 		     l'image est plus petite que la zone ; placeholder G-FLUX. -->
+			{#if !compactModal}
 			<div class="relative shrink-0 bg-cream" bind:this={heroEl}>
 				{#if heroSrc}
 					<div class="h-[min(24dvh,180px)] sm:h-[180px]">
@@ -569,10 +631,26 @@
 				{/if}
 			</div>
 			{/if}
+			{/if}
 
 			<!-- ─── Identité : nom complet (JAMAIS tronqué) + marque + référence ─── -->
 			<div class="px-5 {qtyFocused ? 'pt-[calc(max(env(safe-area-inset-top),12px)+44px)]' : 'pt-3'}">
-				<h2 class="break-words text-[22px] font-black leading-[1.2] tracking-[-0.02em] text-ink">{food.name}</h2>
+				{#if compactModal}
+					<!-- Fenêtre coach : petite vignette (photo) ou pictogramme de 40 px à
+					     côté du titre — plus de grande zone d'icône vide en haut. -->
+					<div class="flex items-start gap-2.5">
+						<span class="mt-0.5 grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-brand-light">
+							{#if heroSrc}
+								<FoodImg src={heroSrc} fallbackSrc={food.thumbUrl} alt="" class="h-full w-full" fit="cover" eager />
+							{:else}
+								<Icon name="utensils" size={18} class="text-brand" />
+							{/if}
+						</span>
+						<h2 class="min-w-0 flex-1 break-words pr-12 text-[22px] font-black leading-[1.2] tracking-[-0.02em] text-ink">{food.name}</h2>
+					</div>
+				{:else}
+					<h2 class="break-words text-[22px] font-black leading-[1.2] tracking-[-0.02em] text-ink">{food.name}</h2>
+				{/if}
 				{#if qtyFocused}
 					<!-- Mode focus : le nom reste visible au-dessus du clavier, la ligne
 				     kcal/100g et les badges sont masqués pour garder la quantité,

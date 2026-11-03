@@ -752,6 +752,7 @@
 		initialQtyGrams={sheetQty}
 		initialMeal={sheetMeal}
 		mode="add"
+		coach
 		source={sheetFood.ciqual ? 'ciqual' : undefined}
 		saveLabel={editKey === '' ? 'Ajouter au plan' : 'Enregistrer'}
 		saving={editSaving}
