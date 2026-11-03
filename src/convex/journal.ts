@@ -1345,6 +1345,50 @@ export async function bilanJourAliments(
  * Un jour VIDE n'est pas une erreur : le bilan est renvoyé avec 0 aliment,
  * 0 kcal et 0 g (la carte Fibres du Journal reste affichée, « 0 g / repère »).
  */
+/**
+ * CORPS PARTAGÉ du bilan du jour — UNE seule formule pour l'espace cliente
+ * (`dayNutritionDetails`) et pour le journal coach
+ * (`dayNutritionDetailsForCoach`) : mêmes entrées, même objectif calorique
+ * daté, même résolution des fiches, donc EXACTEMENT les mêmes fibres et le
+ * même repère. L'appelant a déjà vérifié les droits d'accès.
+ */
+async function bilanJourForUser(
+	ctx: Pick<QueryCtx, "db">,
+	owner: Doc<"users">,
+	date: string
+): Promise<BilanJourData> {
+	if (!isValidDateISO(date)) throw new ConvexError("Date invalide.");
+
+	const [entries, goalsRow, goalHistory] = await Promise.all([
+		ctx.db
+			.query("diaryEntries")
+			.withIndex("by_user_date", (q) => q.eq("userId", owner._id).eq("date", date))
+			.order("asc")
+			.collect(),
+		ctx.db
+			.query("clientGoals")
+			.withIndex("by_userId", (q) => q.eq("userId", owner._id))
+			.first(),
+		loadGoalHistory(ctx, owner._id),
+	]);
+
+	// Objectif calorique DATÉ — celui affiché en haut du Journal, jamais
+	// les kcal mangées.
+	const objectifKcal = kcalGoalForDate(
+		goalHistory,
+		date,
+		(goalsRow?.kcal ?? DEFAULT_GOALS.kcal) as number
+	);
+
+	// Fiches G-Flux visibles par le compte (celles de son coach) : résolues
+	// par nom, aucune écriture, aucun identifiant inventé sur l'entrée.
+	// Résolution et calcul partagés avec la carte « Fibres / jour » du CRM.
+	const referenceByName = await referenceFoodsByName(ctx, owner);
+	const aliments = await bilanJourAliments(ctx, owner._id, referenceByName, entries);
+
+	return bilanJour(aliments, objectifKcal);
+}
+
 export const dayNutritionDetails = query({
 	args: {
 		sessionToken: v.optional(v.string()),
@@ -1353,37 +1397,33 @@ export const dayNutritionDetails = query({
 	handler: async (ctx, { sessionToken, date }): Promise<BilanJourData | null> => {
 		const user = await getSessionUser(ctx, sessionToken);
 		if (!user) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
-		if (!isValidDateISO(date)) throw new ConvexError("Date invalide.");
-		const ownerId = user._id;
+		return bilanJourForUser(ctx, user, date);
+	},
+});
 
-		const [entries, goalsRow, goalHistory] = await Promise.all([
-			ctx.db
-				.query("diaryEntries")
-				.withIndex("by_user_date", (q) => q.eq("userId", user._id).eq("date", date))
-				.order("asc")
-				.collect(),
-			ctx.db
-				.query("clientGoals")
-				.withIndex("by_userId", (q) => q.eq("userId", user._id))
-				.first(),
-			loadGoalHistory(ctx, user._id),
-		]);
-
-		// Objectif calorique DATÉ — celui affiché en haut du Journal, jamais
-		// les kcal mangées.
-		const objectifKcal = kcalGoalForDate(
-			goalHistory,
-			date,
-			(goalsRow?.kcal ?? DEFAULT_GOALS.kcal) as number
-		);
-
-		// Fiches G-Flux visibles par le compte (celles de son coach) : résolues
-		// par nom, aucune écriture, aucun identifiant inventé sur l'entrée.
-		// Résolution et calcul partagés avec la carte « Fibres / jour » du CRM.
-		const referenceByName = await referenceFoodsByName(ctx, user);
-		const aliments = await bilanJourAliments(ctx, ownerId, referenceByName, entries);
-
-		return bilanJour(aliments, objectifKcal);
+/**
+ * BILAN NUTRITIONNEL D'UN JOUR D'UNE CLIENTE (CRM coach) — carte « Fibres »
+ * du journal coach.
+ *
+ * MÊME fonction et MÊME objectif que la carte Fibres de l'espace cliente
+ * (`bilanJourForUser` → `bilanJour` / `repereFibres`) : aucune formule de
+ * fibres n'est réécrite ici. Accès : coach propriétaire de la cliente
+ * uniquement (`assertCoachOwnsClient`), lecture seule.
+ */
+export const dayNutritionDetailsForCoach = query({
+	args: {
+		sessionToken: v.optional(v.string()),
+		userId: v.id("users"),
+		date: v.string(),
+	},
+	handler: async (ctx, { sessionToken, userId, date }): Promise<BilanJourData> => {
+		const coach = await getSessionUser(ctx, sessionToken);
+		if (!coach) throw new ConvexError("Session invalide ou expirée. Reconnecte-toi.");
+		if (coach.role !== "coach") throw new ConvexError("Réservé au coach (CRM).");
+		const target = await ctx.db.get(userId);
+		if (!target || target.role !== "client") throw new ConvexError("Client introuvable.");
+		await assertCoachOwnsClient(ctx, target, coach);
+		return bilanJourForUser(ctx, target, date);
 	},
 });
 

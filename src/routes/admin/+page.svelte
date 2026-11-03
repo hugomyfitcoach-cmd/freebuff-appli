@@ -24,6 +24,7 @@
 	import { aggregateByDate, avgWindow, parisTodayISO, summarize, windowDaysCompleted } from '$lib/hydrationVision';
 	import { foodAverages } from '$lib/vision360';
 	import { createFoodSearch, type SearchFood } from '$lib/foodSearch.svelte';
+	import type { BilanJourData } from '$lib/bilanJour';
 	import CountUp from '$lib/components/CountUp.svelte';
 	import CoachIdentity from '$lib/components/CoachIdentity.svelte';
 	import { coachIdentity, type CoachUserLike } from '$lib/coachIdentity';
@@ -896,6 +897,10 @@
 	let day = $state<DayData | null>(null);
 	let journalBusy = $state(false);
 	let journalMsg = $state('');
+	/** Bilan du jour (fibres, repère) — MÊME calcul que la carte cliente, pour
+	 *  la carte Fibres du journal coach. Requête dédiée, jamais bloquante. */
+	let journalBilan = $state<BilanJourData | null>(null);
+	let journalBilanEtat = $state<'inactif' | 'chargement' | 'pret' | 'erreur'>('inactif');
 	/** Ligne dont la FICHE aliment est ouverte en CONSULTATION SEULE : aucun
 	 *  geste d'écriture (quantité figée, pas de repas, pas de bouton d'action). */
 	let coachSheetEntry = $state<Entry | null>(null);
@@ -955,6 +960,11 @@
 		// Jour différent de celui affiché : on retire l'ancienne journée pour ne
 		// jamais laisser croire que les aliments visibles sont ceux de la date demandée.
 		if (day && day.date !== journalDate) day = null;
+		// Fibres du jour : la carte coach suit la date affichée. Échec silencieux
+		// (carte « — »), le journal n'est jamais bloqué par ce second appel.
+		journalBilan = null;
+		journalBilanEtat = 'chargement';
+		void loadJournalBilan(req);
 		try {
 			const res = await fetch(`/api/coach/journal?userId=${selectedId}&date=${journalDate}`);
 			const data = await res.json();
@@ -966,6 +976,22 @@
 			journalMsg = e instanceof Error ? e.message : 'Chargement impossible.';
 		} finally {
 			if (req === journalReq) journalBusy = false;
+		}
+	}
+
+	/** Bilan nutritionnel du jour d'une cliente (carte Fibres) — lecture seule. */
+	async function loadJournalBilan(req: number) {
+		try {
+			const res = await fetch(`/api/coach/journal/bilan?userId=${selectedId}&date=${journalDate}`);
+			const data = await res.json();
+			if (req !== journalReq) return;
+			if (!res.ok) throw new Error(data.error ?? 'Bilan indisponible.');
+			journalBilan = data as BilanJourData;
+			journalBilanEtat = 'pret';
+		} catch {
+			if (req !== journalReq) return;
+			journalBilan = null;
+			journalBilanEtat = 'erreur';
 		}
 	}
 
@@ -4290,6 +4316,8 @@
 							<JournalDay
 								{day}
 								mode="coach"
+								bilanJour={journalBilan}
+								bilanEtat={journalBilanEtat}
 							onAdd={(meal) => {
 								addMeal = meal;
 								foodSearch.clear(); // panneau propre à chaque ouverture
