@@ -2752,7 +2752,7 @@
 			{#if coachSearchOpen && coachSearch.trim()}
 				<div
 					id="coach-search-results"
-					class="absolute right-0 top-full z-50 mt-2 w-[23rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-line bg-card shadow-xl"
+					class="absolute right-0 top-full left-0 z-50 mt-2 overflow-hidden rounded-2xl border border-line bg-card shadow-xl"
 				>
 					{#if coachResults.length === 0}
 						<p class="px-4 py-3 text-[12.5px] text-mist">Aucune cliente pour « {coachSearch.trim()} ».</p>

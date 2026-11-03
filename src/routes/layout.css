@@ -103,11 +103,11 @@
 	--red-l: #fff0f0;
 	--orange: #ff9500;
 	--orange-l: #fff8f0;
-	/* ── CRM coach : fond de page UNIQUE (mission CRM-FOND). La barre latérale
-	   est blanche, séparée du contenu par un filet de 1 px ; les cartes sont
-	   blanches avec ce même filet. Aucune de ces teintes ne touche la cliente.
-	   ── */
-	--crm-bg: #f7f8f6;
+	/* ── CRM coach : fond de page UNIQUE (mission CRM-FOND), aligné sur le fond
+	   très clair de l'espace cliente. La barre latérale est blanche, séparée du
+	   contenu par un filet de 1 px ; les cartes sont blanches avec ce même
+	   filet. Aucune de ces teintes ne touche la cliente. ── */
+	--crm-bg: #fafbf9;
 	--crm-surface: #ffffff;
 	--crm-line: #e5e7e3;
 	/* ── Design system CRM premium (refonte 2026) — consommé par les
