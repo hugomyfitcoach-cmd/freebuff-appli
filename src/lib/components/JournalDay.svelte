@@ -390,7 +390,7 @@ import { formatDetailValue } from '$lib/foodDetailsFormat';
 	   la page coach, même calcul Convex partagé) : aucun calcul de fibres ici.
 	   Espace cliente : la ligne reste à 3 cartes, rendu strictement inchangé. */
 	const fibresCoach = $derived(mode === 'coach' && bilanEtat !== 'inactif');
-	/** Note discrète (jamais rouge) : au moins un aliment du jour sans fibres. */
+	/** Note discrète (jamais rouge) : un aliment du jour a des fibres inconnues. */
 	const fibresEstimation = $derived(fibresCoach && !!bilanJour && bilanJour.fibresInconnues > 0);
 	const rings = $derived([
 		{ label: 'Glucides', icon: 'wheat', color: '#ec4899', eaten: macrosShown.carbs, goal: day.goals.carbs },
