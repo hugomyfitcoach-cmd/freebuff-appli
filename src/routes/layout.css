@@ -103,6 +103,13 @@
 	--red-l: #fff0f0;
 	--orange: #ff9500;
 	--orange-l: #fff8f0;
+	/* ── CRM coach : fond de page UNIQUE (mission CRM-FOND). La barre latérale
+	   est blanche, séparée du contenu par un filet de 1 px ; les cartes sont
+	   blanches avec ce même filet. Aucune de ces teintes ne touche la cliente.
+	   ── */
+	--crm-bg: #f7f8f6;
+	--crm-surface: #ffffff;
+	--crm-line: #e5e7e3;
 	/* ── Design system CRM premium (refonte 2026) — consommé par les
 	   composants des pages coach (/admin) via les classes ci-dessous. ── */
 	--ds-sh-sm: 0 1px 2px rgba(17, 17, 16, 0.05), 0 1px 3px rgba(17, 17, 16, 0.03);
@@ -140,24 +147,27 @@
 .ds-crm {
 	/* Rythme du stagger des entrées de cartes (pages coach). */
 	--ds-stagger: 30ms;
-	/* ── PASS 2 « fidélité mockup » : cockpit plus lumineux — la zone contenu du
-	   coach passe sur fond blanc cassé (cartes détourées par la bordure fine),
-	   la sidebar reste crème. Aucun impact sur l'espace cliente. ── */
-	background: #fbfaf8;
+	/* ── Fond de page coach UNIFORME (CRM-FOND) : une seule teinte claire et
+	   chaude derrière le contenu ; les cartes s'en détachent par leur filet.
+	   Aucun impact sur l'espace cliente. ── */
+	background: var(--crm-bg);
 }
 
 /* Wrapper plein écran coach (PASS 2) : même fond lumineux que <main> pour
    éviter les bandes crème autour du conteneur centré. Pose aussi le scope
    sidebar .ds-shell-crm — la cliente ne porte AUCUNE de ces classes. */
 .ds-page-crm {
-	background: #fbfaf8;
+	background: var(--crm-bg);
 }
 
 /* ── Sidebar coach (mockup PASS 2) : fond blanc, halo vert très clair sur
    l'item actif + indicateur latéral vert. Portée AppShell coach UNIQUEMENT
    (la cliente ne porte pas .ds-shell-crm). ── */
 .ds-shell-crm {
-	background: #fdfdfc;
+	background: var(--crm-surface);
+	/* Séparation sidebar / contenu : filet de 1 px, sans ombre ni autre teinte
+	   (remplace le border-line plus clair de l'aside). */
+	border-right: 1px solid var(--crm-line);
 }
 .ds-shell-crm .navlink-crm {
 	position: relative;
@@ -200,9 +210,10 @@
 	z-index: 30;
 	margin: -1.5rem -1rem 1.25rem;
 	padding: 0.8rem 1rem;
-	background: rgba(251, 250, 248, 0.92);
-	border-bottom: 1px solid var(--border);
-	backdrop-filter: blur(10px);
+	/* En-tête de page sur le MÊME fond que la page : plus de bandeau teinté ni
+	   de filet. Opaque pour rester lisible quand le contenu défile dessous. */
+	background: var(--crm-bg);
+	border-bottom: 0;
 }
 @media (min-width: 640px) {
 	.ds-crm .topbar-crm {
@@ -374,7 +385,7 @@
 /* ── Cartes ──────────────────────────────────────────────────────── */
 .ds-crm .card-crm {
 	background: var(--card);
-	border: 1px solid var(--border);
+	border: 1px solid var(--crm-line);
 	border-radius: 1.125rem;
 	box-shadow: var(--ds-sh-sm);
 }
@@ -392,7 +403,7 @@
 	position: relative;
 	overflow: hidden;
 	background: var(--card);
-	border: 1px solid var(--border);
+	border: 1px solid var(--crm-line);
 	border-radius: 1.125rem;
 	box-shadow: var(--ds-sh-sm);
 	padding: 1rem 1.125rem 0.875rem;

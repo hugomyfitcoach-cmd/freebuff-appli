@@ -576,12 +576,12 @@
 	);
 	const dashDateLine = $derived.by(() => {
 		if (!dashNow) return '';
-		const long = dashNow.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-		const time = dashNow.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+		// Jour + date sans l'année (ligne compacte sous la salutation).
+		const long = dashNow.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 		// Numéro de semaine ISO 8601 (semaine commençant lundi).
 		const thursday = new Date(dashNow.getFullYear(), dashNow.getMonth(), dashNow.getDate() + 3 - ((dashNow.getDay() + 6) % 7));
 		const week = 1 + Math.round((thursday.getTime() - new Date(thursday.getFullYear(), 0, 4).getTime()) / 604_800_000);
-		return `${long.charAt(0).toUpperCase()}${long.slice(1)} · ${time} · semaine ${week}`;
+		return `${long.charAt(0).toUpperCase()}${long.slice(1)} · semaine ${week}`;
 	});
 	/** KPI : clientes actives sur les 24 dernières heures — même définition
 	 *  que le compteur existant « Actif·ve·s aujourd’hui » (lastSeenAt). */
@@ -2724,12 +2724,14 @@
 <header class="topbar-crm m-in-crm flex flex-wrap items-center justify-between gap-3" style="--m-i: 0">
 	<div class="min-w-0">
 		<h1 class="h1-crm text-[1.55rem] sm:text-[1.8rem]">{dashTitle}</h1>
-		<p class="mt-0.5 text-sm font-medium text-mist">Voici ce qui demande ton attention aujourd'hui.{#if dashLive}&nbsp;<span class="hidden lg:inline">· {dashDateLine}</span>{/if}</p>
+		<p class="mt-0.5 text-sm font-medium text-mist">{#if dashLive}{dashDateLine}{/if}</p>
 	</div>
-	<div class="ml-auto flex items-center gap-2 sm:gap-2.5">
+	<div class="ml-auto flex flex-wrap items-center justify-end gap-2 sm:gap-2.5">
 		<!-- Recherche cliente : les résultats s'ouvrent JUSTE SOUS la barre, la
-		     « Vue rapide » du bas n'est plus filtrée par ce champ. -->
-		<div class="coach-search relative hidden sm:block" bind:this={coachSearchEl}>
+		     « Vue rapide » du bas n'est plus filtrée par ce champ. Largeur
+		     généreuse sur grand écran (448–520 px) pour lire tout le texte d'aide
+		     sans troncature ; elle se réduit proprement sur écran plus étroit. -->
+		<div class="coach-search relative hidden min-w-0 shrink-0 sm:block" bind:this={coachSearchEl}>
 			<label class="relative block">
 				<span class="sr-only">Rechercher une cliente</span>
 				<Icon name="search" size={15} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-mist" />
@@ -2740,7 +2742,7 @@
 					onfocus={() => { if (coachSearch.trim()) coachSearchOpen = true; }}
 					onkeydown={onCoachSearchKey}
 					placeholder="Rechercher une cliente (nom, email)…"
-					class="w-44 rounded-xl border border-line bg-white py-2 pl-9 pr-3 text-sm text-ink outline-none transition placeholder:text-mist focus:border-brand md:w-56"
+					class="w-72 rounded-xl border border-line bg-white py-2 pl-9 pr-3 text-sm text-ink outline-none transition placeholder:text-mist focus:border-brand lg:w-[24rem] xl:w-[28rem] 2xl:w-[32.5rem]"
 					aria-expanded={coachSearchOpen && coachResults.length > 0}
 					aria-controls="coach-search-results"
 					aria-autocomplete="list"
