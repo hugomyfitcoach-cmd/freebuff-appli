@@ -967,6 +967,15 @@ export default defineSchema({
 		endDate: v.string(),
 		/** Jours de semaine concernés : [1..7] = lundi..dimanche (tous par défaut). */
 		weekdays: v.optional(v.array(v.number())),
+		/**
+		 * Dates déjà MATÉRIALISÉES (copy-on-write) pour cette assignation —
+		 * ajout FACULTATIF, rétro-compatible (absent = aucune date encore résolue).
+		 * Une date présente ici ne se régénère plus jamais : le choix de la
+		 * cliente (aliment supprimé, quantité changée) survit au rechargement
+		 * même si elle a retiré TOUS les items du plan. Les jours suivants ne
+		 * sont pas concernés (chaque date a sa propre matérialisation).
+		 */
+		materializedDates: v.optional(v.array(v.string())),
 		/** Retrait par le coach (ms) — l'historique consommé reste intact. */
 		removedAt: v.optional(v.number()),
 		createdAt: v.number(),
