@@ -1,5 +1,11 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
+	import { viderMemoFibres } from '$lib/fibresMemo';
+
+	/* Mission FIBRES-INSTANT — nouvelle connexion : la mémoire de session des
+	   fibres est purgée, aucune valeur du compte précédent ne peut réapparaître
+	   dans le même onglet. Aucun effet sur l'authentification (100 % serveur). */
+	if (typeof window !== 'undefined') viderMemoFibres();
 
 	let { form, data } = $props();
 	const next = $derived(String(data?.next ?? ''));

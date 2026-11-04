@@ -94,6 +94,17 @@ export function cleFibresCoachJour(userId: string, date: string): string {
 	return `coach:${userId}:${date}`;
 }
 
+/** Purge la mémoire — appelée à la connexion : aucune fibre de la session
+ *  précédente ne peut réapparaître pour un autre compte dans le même onglet. */
+export function viderMemoFibres(): void {
+	hot = {};
+	try {
+		stockage()?.removeItem(STORAGE_KEY);
+	} catch {
+		/* Stockage indisponible : la couche chaude est déjà vide. */
+	}
+}
+
 /** Dernier résultat fibres connu pour cette clé (`null` = jamais vu). */
 export function memoFibres(cle: string): BilanJourData | null {
 	const map = memoire();
@@ -103,6 +114,9 @@ export function memoFibres(cle: string): BilanJourData | null {
 
 /** Mémorise un résultat fibres réellement reçu du serveur. */
 export function memoriserFibres(cle: string, data: BilanJourData): void {
+	/* Jamais côté serveur : la mémoire du module y est partagée entre toutes
+	   les requêtes, une valeur ne doit jamais passer d'une cliente à l'autre. */
+	if (typeof window === 'undefined') return;
 	if (!data || typeof data !== 'object') return;
 	const map = memoire();
 	/* Réécrire la clé la replace en fin d'ordre (les plus récentes gardées). */
