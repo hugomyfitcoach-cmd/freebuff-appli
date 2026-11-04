@@ -32,6 +32,19 @@ export function checkWeightKg(kg: number | undefined): string | null {
 	return null;
 }
 
+/**
+ * Pesée du jour déjà présente — À L'OUVERTURE d'une fiche de saisie.
+ * La feuille fige cette réponse : elle ne doit jamais être recalculée sur les
+ * données rafraîchies par l'enregistrement lui-même.
+ */
+export function peseeDuJourPresente(
+	lastKg: number | null,
+	lastDate: string | null,
+	date: string,
+): boolean {
+	return lastDate === date && lastKg !== null;
+}
+
 /** Enregistre la pesée du jour via l'endpoint existant (upsert par date). */
 export async function saveWeightKg(date: string, weightKg: number): Promise<void> {
 	const r = await fetch('/api/metrics', {
