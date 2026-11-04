@@ -24,6 +24,8 @@
 	import { aggregateByDate, avgWindow, parisTodayISO, summarize, windowDaysCompleted } from '$lib/hydrationVision';
 	import { foodAverages } from '$lib/vision360';
 	import { createFoodSearch, type SearchFood } from '$lib/foodSearch.svelte';
+	import type { BilanJourData } from '$lib/bilanJour';
+	import { cleFibresCoachJour, memoFibres, memoriserFibres } from '$lib/fibresMemo';
 	import CountUp from '$lib/components/CountUp.svelte';
 	import CoachIdentity from '$lib/components/CoachIdentity.svelte';
 	import { coachIdentity, type CoachUserLike } from '$lib/coachIdentity';
@@ -576,12 +578,12 @@
 	);
 	const dashDateLine = $derived.by(() => {
 		if (!dashNow) return '';
-		const long = dashNow.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-		const time = dashNow.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+		// Jour + date sans l'année (ligne compacte sous la salutation).
+		const long = dashNow.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 		// Numéro de semaine ISO 8601 (semaine commençant lundi).
 		const thursday = new Date(dashNow.getFullYear(), dashNow.getMonth(), dashNow.getDate() + 3 - ((dashNow.getDay() + 6) % 7));
 		const week = 1 + Math.round((thursday.getTime() - new Date(thursday.getFullYear(), 0, 4).getTime()) / 604_800_000);
-		return `${long.charAt(0).toUpperCase()}${long.slice(1)} · ${time} · semaine ${week}`;
+		return `${long.charAt(0).toUpperCase()}${long.slice(1)} · semaine ${week}`;
 	});
 	/** KPI : clientes actives sur les 24 dernières heures — même définition
 	 *  que le compteur existant « Actif·ve·s aujourd’hui » (lastSeenAt). */
@@ -896,6 +898,10 @@
 	let day = $state<DayData | null>(null);
 	let journalBusy = $state(false);
 	let journalMsg = $state('');
+	/** Bilan du jour (fibres, repère) — MÊME calcul que la carte cliente, pour
+	 *  la carte Fibres du journal coach. Requête dédiée, jamais bloquante. */
+	let journalBilan = $state<BilanJourData | null>(null);
+	let journalBilanEtat = $state<'inactif' | 'chargement' | 'pret' | 'erreur'>('inactif');
 	/** Ligne dont la FICHE aliment est ouverte en CONSULTATION SEULE : aucun
 	 *  geste d'écriture (quantité figée, pas de repas, pas de bouton d'action). */
 	let coachSheetEntry = $state<Entry | null>(null);
@@ -955,6 +961,15 @@
 		// Jour différent de celui affiché : on retire l'ancienne journée pour ne
 		// jamais laisser croire que les aliments visibles sont ceux de la date demandée.
 		if (day && day.date !== journalDate) day = null;
+		// Fibres du jour : la carte coach suit la date affichée. Échec silencieux
+		// (carte « — »), le journal n'est jamais bloqué par ce second appel.
+		/* Mission FIBRES-INSTANT — cliente × journée déjà vue : la dernière valeur
+		   connue (mémoire de session) est peinte immédiatement, puis remplacée
+		   sans clignotement par la réponse. Jour jamais vu : barre grise. */
+		const bilanConnu = selectedId ? memoFibres(cleFibresCoachJour(selectedId, journalDate)) : null;
+		journalBilan = bilanConnu;
+		journalBilanEtat = bilanConnu ? 'pret' : 'chargement';
+		void loadJournalBilan(req);
 		try {
 			const res = await fetch(`/api/coach/journal?userId=${selectedId}&date=${journalDate}`);
 			const data = await res.json();
@@ -966,6 +981,27 @@
 			journalMsg = e instanceof Error ? e.message : 'Chargement impossible.';
 		} finally {
 			if (req === journalReq) journalBusy = false;
+		}
+	}
+
+	/** Bilan nutritionnel du jour d'une cliente (carte Fibres) — lecture seule. */
+	async function loadJournalBilan(req: number) {
+		const userId = selectedId;
+		const d = journalDate;
+		try {
+			const res = await fetch(`/api/coach/journal/bilan?userId=${selectedId}&date=${journalDate}`);
+			const data = await res.json();
+			if (req !== journalReq) return;
+			if (!res.ok) throw new Error(data.error ?? 'Bilan indisponible.');
+			const bilan = data as BilanJourData;
+			if (userId) memoriserFibres(cleFibresCoachJour(userId, d), bilan);
+			journalBilan = bilan;
+			journalBilanEtat = 'pret';
+		} catch {
+			if (req !== journalReq) return;
+			/* Échec silencieux : la dernière valeur connue reste affichée ; « — »
+			   seulement si ce jour n'a jamais été vu. */
+			journalBilanEtat = 'erreur';
 		}
 	}
 
@@ -2724,12 +2760,14 @@
 <header class="topbar-crm m-in-crm flex flex-wrap items-center justify-between gap-3" style="--m-i: 0">
 	<div class="min-w-0">
 		<h1 class="h1-crm text-[1.55rem] sm:text-[1.8rem]">{dashTitle}</h1>
-		<p class="mt-0.5 text-sm font-medium text-mist">Voici ce qui demande ton attention aujourd'hui.{#if dashLive}&nbsp;<span class="hidden lg:inline">· {dashDateLine}</span>{/if}</p>
+		<p class="mt-0.5 text-sm font-medium text-mist">{#if dashLive}{dashDateLine}{/if}</p>
 	</div>
-	<div class="ml-auto flex items-center gap-2 sm:gap-2.5">
+	<div class="ml-auto flex flex-wrap items-center justify-end gap-2 sm:gap-2.5">
 		<!-- Recherche cliente : les résultats s'ouvrent JUSTE SOUS la barre, la
-		     « Vue rapide » du bas n'est plus filtrée par ce champ. -->
-		<div class="coach-search relative hidden sm:block" bind:this={coachSearchEl}>
+		     « Vue rapide » du bas n'est plus filtrée par ce champ. Largeur
+		     généreuse sur grand écran (448–520 px) pour lire tout le texte d'aide
+		     sans troncature ; elle se réduit proprement sur écran plus étroit. -->
+		<div class="coach-search relative hidden min-w-0 shrink-0 sm:block" bind:this={coachSearchEl}>
 			<label class="relative block">
 				<span class="sr-only">Rechercher une cliente</span>
 				<Icon name="search" size={15} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-mist" />
@@ -2740,7 +2778,7 @@
 					onfocus={() => { if (coachSearch.trim()) coachSearchOpen = true; }}
 					onkeydown={onCoachSearchKey}
 					placeholder="Rechercher une cliente (nom, email)…"
-					class="w-44 rounded-xl border border-line bg-white py-2 pl-9 pr-3 text-sm text-ink outline-none transition placeholder:text-mist focus:border-brand md:w-56"
+					class="w-72 rounded-xl border border-line bg-white py-2 pl-9 pr-3 text-sm text-ink outline-none transition placeholder:text-mist focus:border-brand lg:w-[24rem] xl:w-[28rem] 2xl:w-[32.5rem]"
 					aria-expanded={coachSearchOpen && coachResults.length > 0}
 					aria-controls="coach-search-results"
 					aria-autocomplete="list"
@@ -2750,7 +2788,7 @@
 			{#if coachSearchOpen && coachSearch.trim()}
 				<div
 					id="coach-search-results"
-					class="absolute right-0 top-full z-50 mt-2 w-[23rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-line bg-card shadow-xl"
+					class="absolute right-0 top-full left-0 z-50 mt-2 overflow-hidden rounded-2xl border border-line bg-card shadow-xl"
 				>
 					{#if coachResults.length === 0}
 						<p class="px-4 py-3 text-[12.5px] text-mist">Aucune cliente pour « {coachSearch.trim()} ».</p>
@@ -4288,6 +4326,8 @@
 							<JournalDay
 								{day}
 								mode="coach"
+								bilanJour={journalBilan}
+								bilanEtat={journalBilanEtat}
 							onAdd={(meal) => {
 								addMeal = meal;
 								foodSearch.clear(); // panneau propre à chaque ouverture
@@ -4482,6 +4522,7 @@
 						initialQtyGrams={addSheetQty}
 						initialMeal={addSheetMeal}
 						mode="add"
+						coach
 						saving={addSheetSaving}
 						error={addSheetError}
 						saveLabel={`Ajouter au journal de ${selected?.user.prenom ?? 'la cliente'}`}

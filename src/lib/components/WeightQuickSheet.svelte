@@ -13,7 +13,7 @@
 		sheetFly,
 		sheetFlyOut
 	} from '$lib/sheetMotion';
-	import { checkWeightKg, parseWeightKg, saveWeightKg } from '$lib/weightLog';
+	import { checkWeightKg, parseWeightKg, peseeDuJourPresente, saveWeightKg } from '$lib/weightLog';
 
 	/* Saisie rapide du poids depuis l'Accueil : feuille compacte, clavier décimal,
 	   enregistrement via le flux existant (saveWeightKg → /api/metrics). Une seule
@@ -53,7 +53,14 @@
 	});
 
 	const fmtKg = (n: number) => String(n).replace('.', ',');
-	const isToday = $derived(lastDate === date && lastKg !== null);
+	/* Pesée du jour déjà présente À L'OUVERTURE de la fiche — instantané figé,
+	   jamais recalculé. Les données de l'Accueil sont rafraîchies par
+	   l'enregistrement (onSaved) : si ce drapeau suivait les props, le bandeau
+	   « Une pesée existe déjà » apparaîtrait pendant la confirmation, alors que
+	   la cliente vient justement d'enregistrer, et décalerait la mise en page.
+	   Il conserve donc sa valeur pendant toute la vie de la fiche, y compris
+	   pendant la sortie animée. */
+	let isToday = $state(false);
 	const dateLabel = $derived(
 		`Aujourd'hui · ${new Date(date + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}`
 	);
@@ -63,12 +70,16 @@
 			: 'Première pesée enregistrée ici.'
 	);
 
-	/* À chaque ouverture : saisie vide, ou valeur du jour pré-remplie pour modification.
-	   untrack : ne réinitialise pas la saisie quand les données de l'Accueil changent. */
+	/* À chaque ouverture : instantané de l'état de départ (pesée du jour déjà
+	   enregistrée ou non), saisie vide ou valeur du jour pré-remplie.
+	   untrack : ne réinitialise rien quand les données de l'Accueil changent
+	   (l'instantané n'est posé qu'au passage à `open`). */
 	$effect(() => {
 		if (!open) return;
 		untrack(() => {
-			value = isToday && lastKg !== null ? fmtKg(lastKg) : '';
+			const dejaSaisie = peseeDuJourPresente(lastKg, lastDate, date);
+			isToday = dejaSaisie;
+			value = dejaSaisie && lastKg !== null ? fmtKg(lastKg) : '';
 			saving = false;
 			done = false;
 			error = '';

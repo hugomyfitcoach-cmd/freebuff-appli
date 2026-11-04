@@ -173,7 +173,7 @@
 	{#if view === 'home'}
 		<!-- ACCUEIL : choix d'une section (Nutrition.svelte) -->
 		<div class="home-screen">
-			<div class="w-full max-w-[560px]">
+			<div class="home-inner w-full max-w-[560px]">
 				<h1 class="home-title">Nutrition &amp; recettes</h1>
 				<p class="home-sub">Choisis une catégorie</p>
 

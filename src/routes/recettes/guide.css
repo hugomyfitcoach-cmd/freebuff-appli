@@ -700,3 +700,94 @@
 @media (prefers-reduced-motion: reduce){
     .guide-root *{ animation: none !important; transition: none !important; }
   }
+
+/* ══════════════════════════════════════════════════════════════════
+      ESPACE COACH (≥ 1024 px) — vraie mise en page desktop
+      Le guide est partagé avec la cliente : ces règles ne s'appliquent QUE
+      dans le contenu coach (.ds-crm), jamais dans /espace. Fond, cartes,
+      couleurs et contenus restent identiques ; seules la largeur utile et
+      la disposition des grilles changent (colonnes fluides ≥ 260 px).
+      ══════════════════════════════════════════════════════════════════ */
+@media (min-width: 1024px) {
+    .ds-crm .guide-root{
+        background: transparent;
+        min-height: 0;
+    }
+    /* Mêmes marges que le tableau de bord : 80 rem centrés, 24 px de gouttière. */
+    .ds-crm .guide-root .home-screen,
+    .ds-crm .guide-root .topbar,
+    .ds-crm .guide-root .hero-strip,
+    .ds-crm .guide-root .nav-tabs,
+    .ds-crm .guide-root .main,
+    .ds-crm .guide-root .footer{
+        max-width: 80rem;
+        margin-left: auto;
+        margin-right: auto;
+    }
+    .ds-crm .guide-root .home-screen{ padding: 0 24px 60px; }
+    .ds-crm .guide-root .topbar{ padding: 16px 24px 0; }
+    .ds-crm .guide-root .hero-strip{ padding: 24px 24px 0; }
+    .ds-crm .guide-root .nav-tabs{
+        padding: 12px 24px;
+        background: linear-gradient(to bottom, var(--crm-bg, #fafbf9) 78%, rgba(250,251,249,0));
+    }
+    .ds-crm .guide-root .main{ padding: 0 24px 120px; }
+    .ds-crm .guide-root .footer{ padding: 8px 24px 48px; }
+
+    /* Le contenu interne de l'accueil porte encore une largeur mobile
+       (max-w-[560px]) : sur desktop il doit suivre la largeur utile.
+       Hors .ds-crm (espace cliente, mobile) RIEN ne change. */
+    .ds-crm .guide-root .home-inner{ max-width: none; }
+
+    /* Catégories : autant de colonnes que la largeur le permet, jamais
+       moins de 260 px par carte (évite titres tronqués / pastilles à
+       l'étroit). */
+    .ds-crm .guide-root .home-items{
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+        gap: 14px;
+    }
+    /* Cartes catégories desktop : icône à gauche, titre plus compact qu'en
+       mobile, pastille de nombre à droite toujours entière (jamais rognée). */
+    .ds-crm .guide-root .home-btn{
+        height: 100%;
+        gap: 12px;
+        padding: 12px 14px 12px 12px;
+        border-radius: 18px;
+    }
+    .ds-crm .guide-root .home-btn-icon{
+        width: 40px;
+        height: 40px;
+        border-radius: 13px;
+    }
+    .ds-crm .guide-root .home-btn-text{
+        flex: 1 1 auto;
+        min-width: 0;
+        font-size: 15px;
+        line-height: 1.22;
+        letter-spacing: -0.01em;
+        hyphens: none;
+        overflow-wrap: normal;
+        word-break: normal;
+        text-wrap: pretty;
+    }
+    .ds-crm .guide-root .home-btn-count{
+        flex: 0 0 auto;
+        min-width: 0;
+        padding: 5px 9px;
+        border-radius: 12px;
+        font-size: 13px;
+        line-height: 1.2;
+        white-space: nowrap;
+    }
+
+    /* Listes de recettes : même grille fluide, chaque carte garde sa hauteur
+       (dépliage d'une recette). */
+    .ds-crm .guide-root .recipe-grid,
+    .ds-crm .guide-root .dessert-grid{
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+        gap: 14px;
+        align-items: start;
+    }
+}
