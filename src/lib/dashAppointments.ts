@@ -33,6 +33,14 @@ export function rdvEndMs(r: DashRdv): number {
 	return start + kindRule(r.kind ?? 'Suivi').durationMin * 60_000;
 }
 
+/**
+ * Libellé accordé de la carte, le nombre restant étant affiché à part :
+ * « 1 rendez-vous restant » au singulier, « 0 » et « 2+ » rendez-vous restants.
+ */
+export function rdvRestantsLabel(count: number): string {
+	return count === 1 ? 'rendez-vous restant' : 'rendez-vous restants';
+}
+
 export type DayAgenda<T extends DashRdv> = {
 	/** RDV du jour, triés par heure de début. */
 	today: T[];

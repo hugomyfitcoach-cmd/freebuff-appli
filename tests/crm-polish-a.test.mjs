@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 const agendaMod = await import(new URL('../src/lib/dashAppointments.ts', import.meta.url).href);
 const photosMod = await import(new URL('../src/lib/photos.ts', import.meta.url).href);
 
-const { dayAgenda, rdvEndMs } = agendaMod;
+const { dayAgenda, rdvEndMs, rdvRestantsLabel } = agendaMod;
 const { sortPhotosNewestFirst } = photosMod;
 
 /* Jour de référence : 5 novembre 2026 (heure LOCALE, comme la page Rendez-vous). */
@@ -100,6 +100,16 @@ test('Fin de créneau explicite prioritaire sur le barème du type', () => {
 	const items = [rdv({ time: '10:00', endTime: '11:30', kind: 'Démarrage' })];
 	assert.equal(dayAgenda(items, at(11, 0)).remaining.length, 1);
 	assert.equal(dayAgenda(items, at(11, 30)).remaining.length, 0);
+});
+
+test('Libellé accordé : « 1 rendez-vous restant », « 0 » et « 2+ » rendez-vous restants', () => {
+	/* La carte affiche le nombre restant à part : on teste le libellé tel qu'il
+	   se lit sous le compteur. */
+	const carte = (n) => `${n} ${rdvRestantsLabel(n)}`;
+	assert.equal(carte(1), '1 rendez-vous restant');
+	assert.equal(carte(0), '0 rendez-vous restants');
+	assert.equal(carte(2), '2 rendez-vous restants');
+	assert.equal(carte(5), '5 rendez-vous restants');
 });
 
 /* ═══════════ PHOTOS DE SUIVI — ORDRE DÉCROISSANT ═══════════ */

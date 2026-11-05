@@ -584,7 +584,7 @@
 {#if editorOpen}
 	<div class="w-full">
 		<header class="mb-4 flex items-center justify-between gap-3">
-			<h2 class="font-display text-xl font-semibold text-ink">{editingId ? 'Modifier le plan' : 'Nouveau plan'}</h2>
+			<h2 class="font-display text-xl font-black text-ink">{editingId ? 'Modifier le plan' : 'Nouveau plan'}</h2>
 			<button type="button" onclick={requestClose} class="grid h-10 w-10 place-items-center rounded-full text-mist transition hover:bg-line/50" aria-label="Fermer"><Icon name="x" size={20} /></button>
 		</header>
 

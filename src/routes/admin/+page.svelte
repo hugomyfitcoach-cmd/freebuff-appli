@@ -74,7 +74,7 @@
 		saisiesCalibrageValides
 	} from '$lib/calibrageSaisie';
 	import { MACRO_DEFS } from '$lib/macros';
-	import { dayAgenda, type DashRdv } from '$lib/dashAppointments';
+	import { dayAgenda, rdvRestantsLabel, type DashRdv } from '$lib/dashAppointments';
 	import { sortPhotosNewestFirst } from '$lib/photos';
 	import {
 		SPORT_CATALOG,
@@ -2816,14 +2816,14 @@
 					{#if coachResults.length === 0}
 						<p class="px-4 py-3 text-[12.5px] text-mist">Aucune cliente pour « {coachSearch.trim()} ».</p>
 					{:else}
-						<ul class="divide-y divide-line/60">
+						<ul class="flex flex-col gap-2 p-2">
 							{#each coachResults as c, i (c.user._id)}
-								<li class={i === coachSearchIndex ? 'bg-brand-light/60' : ''}>
+								<li class="rounded-2xl border bg-white transition-colors hover:border-brand {i === coachSearchIndex ? 'border-brand' : 'border-[#E5E7E3]'}">
 									<button
 										type="button"
 										onclick={() => coachSearchGo(c.user._id)}
 										onmouseenter={() => (coachSearchIndex = i)}
-										class="flex w-full items-center gap-2.5 px-3 py-2 text-left transition hover:bg-soft/70"
+										class="flex w-full items-center gap-2.5 px-3 py-2 text-left"
 										aria-label={`Ouvrir la Vision 360° de ${fullName(c.user)}`}
 									>
 										<span class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-accent-light text-[13px] font-black text-brand-deep">{initial(fullName(c.user))}</span>
@@ -2840,11 +2840,11 @@
 										<button type="button" onclick={() => coachSearchSection(c.user._id, 'journal')} class="rounded-full border border-line bg-white px-2 py-0.5 text-[11px] font-bold text-ink transition hover:border-brand hover:text-brand">Journal</button>
 										<button type="button" onclick={() => coachSearchSection(c.user._id, 'calibrage')} class="rounded-full border border-line bg-white px-2 py-0.5 text-[11px] font-bold text-ink transition hover:border-brand hover:text-brand">Calibrage</button>
 										<button type="button" onclick={() => coachSearchSection(c.user._id, 'bilans')} class="rounded-full border border-line bg-white px-2 py-0.5 text-[11px] font-bold text-ink transition hover:border-brand hover:text-brand">Bilans</button>
-										<span class="ml-auto hidden text-[10px] text-mist md:inline">↑ ↓ naviguer · Entrée ouvrir · Échap fermer</span>
 									</div>
 								</li>
 							{/each}
 						</ul>
+						<p class="hidden border-t border-line/60 px-3 py-2 text-[10px] text-mist md:block">↑ ↓ naviguer · Entrée ouvrir · Échap fermer</p>
 					{/if}
 				</div>
 			{/if}
@@ -2923,7 +2923,7 @@
 			</span>
 		</div>
 		<div class="kpi-num-crm mt-1.5 text-[2rem] text-ink"><CountUp value={kpiRdvAgenda.remaining.length} /></div>
-		<div class="mt-0.5 text-[13px] font-bold text-ink">rendez-vous restants</div>
+		<div class="mt-0.5 text-[13px] font-bold text-ink">{rdvRestantsLabel(kpiRdvAgenda.remaining.length)}</div>
 		<div class="mt-1.5 flex items-center gap-1.5 border-t border-line/60 pt-1.5 text-[11.5px] text-mist">
 			{#if kpiRdvLoading}
 				<span>Chargement des rendez-vous…</span>

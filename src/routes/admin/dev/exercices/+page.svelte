@@ -182,7 +182,7 @@
 		<p class="mb-1 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-brand">
 			<Icon name="info" size={13} /> Outil de validation — socle Entraînement
 		</p>
-		<h1 class="font-display text-2xl font-semibold text-ink">Bibliothèque d'exercices G-FLUX</h1>
+		<h1 class="font-display text-2xl font-black text-ink">Bibliothèque d'exercices G-FLUX</h1>
 		<p class="mt-0.5 text-sm text-mist">
 			Vérification des données importées — ce n'est ni la bibliothèque coach finale, ni le CRM.
 		</p>
