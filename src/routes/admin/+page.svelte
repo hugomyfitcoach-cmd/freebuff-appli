@@ -74,6 +74,8 @@
 		saisiesCalibrageValides
 	} from '$lib/calibrageSaisie';
 	import { MACRO_DEFS } from '$lib/macros';
+	import { dayAgenda, type DashRdv } from '$lib/dashAppointments';
+	import { sortPhotosNewestFirst } from '$lib/photos';
 	import {
 		SPORT_CATALOG,
 		SPORT_CATEGORIES,
@@ -98,7 +100,9 @@
 	const weekParam = $derived(data.weekParam ?? null);
 	const view = $derived(data.view ?? null);
 	const checkins = $derived(data.checkins ?? []);
-	const photos = $derived(data.photos ?? []);
+	// Photos de suivi (onglet Photos du 360°) : les plus récentes en haut, les
+	// plus anciennes (Démarrage) en bas — tri par date de réception côté coach.
+	const photos = $derived(sortPhotosNewestFirst(data.photos ?? []));
 	const mediaAll = $derived(data.media ?? []);
 	// Onboarding de démarrage : formulaire initial + statuts des deux étapes.
 	const onboardingView = $derived(data.onboardingView ?? null);
@@ -595,9 +599,9 @@
 		}).length
 	);
 	const dashKpiWaiting = $derived(totalWaiting);
-	/* ── KPI « Rendez-vous du jour » — API existante GET /api/appointments (tous
-	   les RDV du coach), simple lecture côté client : aucun changement backend. ── */
-	type DashRdv = { _id: string; date: string; time: string; clientName?: string };
+	/* ── KPI « Rendez-vous restants » — API existante GET /api/appointments (tous
+	   les RDV du coach), simple lecture côté client : aucun changement backend,
+	   aucun appel supplémentaire — les données déjà chargées suffisent. ── */
 	let kpiRdvAll = $state<DashRdv[]>([]);
 	let kpiRdvLoading = $state(true);
 	$effect(() => {
@@ -612,12 +616,31 @@
 			}
 		})();
 	});
-	/** RDV dont la date locale (yyyy-mm-dd) est aujourd'hui, triés par heure. */
-	const kpiRdvToday = $derived.by(() => {
-		const n = new Date();
-		const key = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
-		return kpiRdvAll.filter((r) => r.date === key).sort((a, b) => a.time.localeCompare(b.time));
+	/** Horloge de la carte : l'heure courante du NAVIGATEUR, recalculée chaque
+	 *  minute et au retour de focus / de visibilité de l'onglet. Aucun polling
+	 *  ni requête ajoutée : seules les données déjà chargées sont réévaluées. */
+	let kpiRdvNow = $state(Date.now());
+	$effect(() => {
+		const tick = () => {
+			kpiRdvNow = Date.now();
+		};
+		const timer = setInterval(tick, 60_000);
+		const onFocus = () => tick();
+		const onVisible = () => {
+			if (document.visibilityState === 'visible') tick();
+		};
+		window.addEventListener('focus', onFocus);
+		document.addEventListener('visibilitychange', onVisible);
+		return () => {
+			clearInterval(timer);
+			window.removeEventListener('focus', onFocus);
+			document.removeEventListener('visibilitychange', onVisible);
+		};
 	});
+	/** Agenda du jour à l'instant courant : rendez-vous pas encore terminés
+	 *  (début + durée > maintenant), celui en cours, le prochain — même fuseau
+	 *  que la page Rendez-vous (jour local, heures murales du planning). */
+	const kpiRdvAgenda = $derived(dayAgenda(kpiRdvAll, kpiRdvNow));
 	/** 5 actions prioritaires max, dérivées de données déjà chargées — aucune
 	 *  requête ajoutée, aucune logique métier modifiée (simple réordonnancement). */
 	type DashTodo = {
@@ -2899,15 +2922,19 @@
 				<i style="--h: 45; --m-i: 0"></i><i style="--h: 60; --m-i: 1"></i><i style="--h: 35; --m-i: 2"></i><i style="--h: 70; --m-i: 3"></i><i style="--h: 50; --m-i: 4"></i><i style="--h: 85; --m-i: 5"></i><i style="--h: 65; --m-i: 6"></i>
 			</span>
 		</div>
-		<div class="kpi-num-crm mt-1.5 text-[2rem] text-ink"><CountUp value={kpiRdvToday.length} /></div>
-		<div class="mt-0.5 text-[13px] font-bold text-ink">rendez-vous du jour</div>
+		<div class="kpi-num-crm mt-1.5 text-[2rem] text-ink"><CountUp value={kpiRdvAgenda.remaining.length} /></div>
+		<div class="mt-0.5 text-[13px] font-bold text-ink">rendez-vous restants</div>
 		<div class="mt-1.5 flex items-center gap-1.5 border-t border-line/60 pt-1.5 text-[11.5px] text-mist">
 			{#if kpiRdvLoading}
 				<span>Chargement des rendez-vous…</span>
-			{:else if kpiRdvToday.length === 0}
+			{:else if kpiRdvAgenda.today.length === 0}
 				<a href="/admin/rendez-vous" class="inline-flex items-center gap-1 transition hover:text-brand"><Icon name="calendarRange" size={12} /> Aucun rendez-vous aujourd'hui</a>
+			{:else if kpiRdvAgenda.inProgress}
+				<a href="/admin/rendez-vous" class="inline-flex min-w-0 items-center gap-1 font-bold text-warn transition hover:text-brand"><Icon name="clock" size={12} class="shrink-0" /> En cours · depuis {kpiRdvAgenda.inProgress.time}{#if kpiRdvAgenda.inProgress.clientName}&nbsp;· <span class="truncate">{kpiRdvAgenda.inProgress.clientName}</span>{/if}</a>
+			{:else if kpiRdvAgenda.next}
+				<a href="/admin/rendez-vous" class="inline-flex min-w-0 items-center gap-1 font-bold text-brand-deep transition hover:text-brand"><Icon name="clock" size={12} class="shrink-0" /> Prochain : {kpiRdvAgenda.next.time}{#if kpiRdvAgenda.next.clientName}&nbsp;· <span class="truncate">{kpiRdvAgenda.next.clientName}</span>{/if}</a>
 			{:else}
-				<a href="/admin/rendez-vous" class="inline-flex min-w-0 items-center gap-1 font-bold text-brand-deep transition hover:text-brand"><Icon name="clock" size={12} class="shrink-0" /> Prochain : {kpiRdvToday[0].time}{#if kpiRdvToday[0].clientName}&nbsp;· <span class="truncate">{kpiRdvToday[0].clientName}</span>{/if}</a>
+				<span class="inline-flex items-center gap-1 font-bold text-brand-deep"><Icon name="circleCheck" size={12} /> Terminé pour aujourd'hui ✓</span>
 			{/if}
 		</div>
 	</div>
