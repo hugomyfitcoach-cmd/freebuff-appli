@@ -115,7 +115,14 @@ export default defineSchema({
 		userId: v.optional(v.id("users")),
 		build: v.string(),
 		witness: v.string(),
-		styles: v.array(v.object({ path: v.string(), sheetNull: v.boolean(), rules: v.union(v.number(), v.null()) })),
+		/**
+		 * Feuilles CSS observées par la garde : chemin d'asset (motif fermé) et
+		 * ÉTAT énuméré (jamais le nombre de règles brut ni de texte libre).
+		 */
+		styles: v.array(v.object({
+			path: v.string(),
+			state: v.union(v.literal("missing"), v.literal("blocked"), v.literal("empty"), v.literal("loaded")),
+		})),
 		controller: v.boolean(),
 		caches: v.array(v.string()),
 		userAgent: v.string(),
