@@ -313,6 +313,12 @@
 		// Focus rendu au bouton « Fiche » qui a ouvert la fenêtre.
 		ficheTrigger?.focus();
 	}
+	/** Fermeture de « Ajouter une cliente » : la croix, Échap et le clic sur le
+	 *  fond passent tous par cette fonction — un seul chemin, exactement comme
+	 *  pour la fiche : impossible qu'une des trois voies se désynchronise. */
+	function closeAddClient() {
+		addClientOpen = false;
+	}
 	/** Croix, Échap et clic sur le fond : confirmation (ConfirmDialog) si une
 	 *  saisie non enregistrée est en attente, fermeture directe sinon. */
 	function requestCloseFiche() {
@@ -2848,7 +2854,7 @@
 		// Échap déjà traité par une fenêtre (ex. ConfirmDialog) : ne rien doubler.
 		if (e.key !== 'Escape' || e.defaultPrevented) return;
 		// Fenêtres du CRM : une seule ouverte à la fois, la plus récente d'abord.
-		if (addClientOpen) addClientOpen = false;
+		if (addClientOpen) closeAddClient();
 		else if (quickSheet) quickSheet = null;
 		// La confirmation de fermeture de la fiche gère elle-même son Échap.
 		else if (ficheConfirmClose) return;
@@ -3301,27 +3307,34 @@
      grille, quelle que soit la largeur (1024 → 1920 px et mobile).
      Fermeture : croix, Échap, clic sur le fond. Focus : premier champ. -->
 {#if addClientOpen}
-	<button
-		type="button"
-		class="qs-backdrop-crm fixed inset-0 z-[80] cursor-pointer bg-ink/45 backdrop-blur-[2px]"
-		aria-label="Fermer"
-		onclick={() => (addClientOpen = false)}
-	></button>
+	<!-- Même couche que la fiche cliente : UN seul élément plein écran porte le
+	     fond assombri (un bouton enfant, z-0) et la carte est explicitement
+	     au-dessus (relative z-10) — la croix ne peut donc jamais se retrouver
+	     sous une couche sœur au même niveau d'empilement. La carte est plafonnée
+	     à 90 % de la hauteur et son corps défile : l'en-tête et sa croix restent
+	     visibles même sur une fenêtre courte (clavier mobile). Fermeture :
+	     croix, Échap et clic sur le fond → closeAddClient(). -->
 	<div
-		class="fixed inset-x-4 top-1/2 z-[80] mx-auto max-w-sm -translate-y-1/2 sm:left-1/2 sm:right-auto sm:-translate-x-1/2"
+		class="fixed inset-0 z-[80] flex items-center justify-center p-4"
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="add-client-title"
 	>
-		<div class="qs-card-crm rounded-2xl bg-white p-5 shadow-2xl">
-			<div class="flex items-center justify-between gap-2 border-b border-line pb-3">
+		<button
+			type="button"
+			class="qs-backdrop-crm absolute inset-0 z-0 cursor-pointer bg-ink/45 backdrop-blur-[2px]"
+			aria-label="Fermer"
+			onclick={closeAddClient}
+		></button>
+		<div class="qs-card-crm relative z-10 flex max-h-[90dvh] w-full max-w-sm flex-col overflow-hidden rounded-2xl bg-white p-5 shadow-2xl">
+			<div class="flex shrink-0 items-center justify-between gap-2 border-b border-line pb-3">
 				<h2 id="add-client-title" class="flex items-center gap-2.5 font-display text-base font-bold text-ink">
 					<span class="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-brand-light text-brand-deep"><Icon name="plus" size={15} /></span>
 					Ajouter une cliente
 				</h2>
-				<button type="button" onclick={() => (addClientOpen = false)} class="grid h-7 w-7 place-items-center rounded-full text-mist transition hover:bg-soft hover:text-ink" aria-label="Fermer"><Icon name="x" size={14} /></button>
+				<button type="button" onclick={closeAddClient} class="grid h-7 w-7 place-items-center rounded-full text-mist transition hover:bg-soft hover:text-ink" aria-label="Fermer"><Icon name="x" size={14} /></button>
 			</div>
-			<form method="POST" action="?/createClient" class="mt-4">
+			<form method="POST" action="?/createClient" class="mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain">
 				<label class="mb-1 block text-xs font-bold uppercase tracking-wide text-mist" for="nc-prenom">Prénom</label>
 				<input bind:this={addClientFirstField} id="nc-prenom" name="prenom" required placeholder="Ex. Julie" class="mb-3 w-full rounded-xl border-2 border-line px-3 py-2 text-sm outline-none focus:border-brand" />
 				<label class="mb-1 block text-xs font-bold uppercase tracking-wide text-mist" for="nc-email">Email (identifiant de connexion)</label>
@@ -3413,25 +3426,25 @@
 					     seul le corps défile. Deux colonnes à partir de 1024 px, une seule
 					     en dessous (ordre actuel des champs). Fermeture : croix, Échap,
 					     clic sur le fond — confirmation si une saisie est en attente. -->
-					<button
-						type="button"
-						class="qs-backdrop-crm fixed inset-0 z-[80] cursor-pointer bg-ink/45 backdrop-blur-[2px]"
-						aria-label="Fermer"
-						onclick={requestCloseFiche}
-					></button>
 					<div
 						role="dialog"
 						aria-modal="true"
 						aria-labelledby="fiche-client-title"
-						class="pointer-events-none fixed inset-0 z-[80] flex items-center justify-center p-4"
+						class="fixed inset-0 z-[80] flex items-center justify-center p-4"
 					>
+						<button
+							type="button"
+							class="qs-backdrop-crm absolute inset-0 z-0 cursor-pointer bg-ink/45 backdrop-blur-[2px]"
+							aria-label="Fermer"
+							onclick={requestCloseFiche}
+						></button>
 						<form
 							bind:this={ficheForm}
 							oninput={ficheMarkDirty}
 							onchange={ficheMarkDirty}
 							method="POST"
 							action="?/updateFiche&client={selected.user._id}&section={section}"
-							class="qs-card-crm pointer-events-auto flex max-h-[90dvh] w-[90vw] max-w-[960px] flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-2xl"
+							class="qs-card-crm relative z-10 flex max-h-[90dvh] w-[90vw] max-w-[960px] flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-2xl"
 						>
 							<div class="flex shrink-0 items-center justify-between gap-2 border-b border-line px-5 py-3.5">
 								<h2 id="fiche-client-title" class="flex items-center gap-2.5 font-display text-base font-bold text-ink">
