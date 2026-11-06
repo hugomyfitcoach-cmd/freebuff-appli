@@ -110,6 +110,17 @@ export const coachNotifKind = v.union(
 );
 
 export default defineSchema({
+	appIncidents: defineTable({
+		createdAt: v.number(),
+		userId: v.optional(v.id("users")),
+		build: v.string(),
+		witness: v.string(),
+		styles: v.array(v.object({ path: v.string(), sheetNull: v.boolean(), rules: v.union(v.number(), v.null()) })),
+		controller: v.boolean(),
+		caches: v.array(v.string()),
+		userAgent: v.string(),
+		action: v.union(v.literal("reload"), v.literal("repair"), v.literal("banner"), v.literal("deferred")),
+	}).index("by_user_date", ["userId", "createdAt"]).index("by_date", ["createdAt"]),
 	users: defineTable({
 		/** Email normalisé (minuscules, sans espaces) — identifiant de connexion. */
 		email: v.string(),

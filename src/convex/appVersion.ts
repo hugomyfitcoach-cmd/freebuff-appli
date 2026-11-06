@@ -1,4 +1,5 @@
-import { action, query, internalMutation } from "./_generated/server";
+import { action, query, mutation, internalMutation } from "./_generated/server";
+import { getSessionUser } from "./helpers";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 
@@ -25,6 +26,39 @@ import { api, internal } from "./_generated/api";
 export const CURRENT_API_VERSION = 3;
 
 const META_KEY = "api";
+
+/** Plafond transactionnel par compte (et plafond global pour les visiteurs anonymes). */
+export function incidentAllowed(count: number): boolean { return count < 20; }
+
+export const recordIncident = mutation({
+	args: {
+		sessionToken: v.optional(v.string()), build: v.string(), witness: v.string(),
+		styles: v.array(v.object({ path: v.string(), sheetNull: v.boolean(), rules: v.union(v.number(), v.null()) })),
+		controller: v.boolean(), caches: v.array(v.string()), userAgent: v.string(),
+		action: v.union(v.literal("reload"), v.literal("repair"), v.literal("banner"), v.literal("deferred")),
+	},
+	handler: async (ctx, args) => {
+		// La mutation est publique : elle applique elle-même les bornes et ne
+		// conserve aucun texte libre ni URL pouvant contenir des données privées.
+		if (!/^[\w.-]{0,128}$/.test(args.build) || args.witness !== "missing" ||
+			args.styles.length > 30 || args.caches.length > 30 || args.userAgent.length > 256 ||
+			!/^[\w\s.()\/;:+-]*$/.test(args.userAgent) ||
+			args.caches.some((name) => !/^gflux-[\w.-]{1,128}$/.test(name)) ||
+			args.styles.some((s) => !/^\/_app\/immutable\/[\w./-]{1,200}\.css$/.test(s.path) ||
+				(s.rules !== null && (!Number.isInteger(s.rules) || s.rules < 0 || s.rules > 100000)))) {
+			throw new Error("Rapport invalide");
+		}
+		const user = await getSessionUser(ctx, args.sessionToken);
+		const now = Date.now();
+		const recent = await ctx.db.query("appIncidents")
+			.withIndex("by_user_date", (q) => q.eq("userId", user?._id).gte("createdAt", now - 86400000))
+			.take(20);
+		if (!incidentAllowed(recent.length)) return { recorded: false };
+		const { sessionToken: _token, ...report } = args;
+		await ctx.db.insert("appIncidents", { ...report, userId: user?._id, createdAt: now });
+		return { recorded: true };
+	},
+});
 
 /** Lit la version courante (usage BFF/outils). */
 export const getApiVersion = query({

@@ -113,6 +113,10 @@ function writeGuard(storage: Storage, guard: ReloadGuard): boolean {
  */
 export function requestShellReload(): boolean {
 	if (typeof window === 'undefined') return false;
+	// La garde inline prend seule en charge le CSS absent, y compris son budget
+	// de rechargements. Le filet historique reste actif pour les erreurs JS.
+	if (document.documentElement?.hasAttribute('data-gflux-css-guard') &&
+		getComputedStyle(document.documentElement).getPropertyValue('--gflux-css-ok').trim() !== '1') return false;
 	if (blockingUiOpen()) {
 		deferred = true;
 		return false;
