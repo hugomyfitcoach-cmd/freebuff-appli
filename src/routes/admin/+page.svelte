@@ -270,13 +270,7 @@
 	   ses validations et le retour après création ne changent pas. */
 	let addClientOpen = $state(false);
 	let addClientFirstField = $state<HTMLInputElement | null>(null);
-	$effect(() => {
-		if (!addClientOpen) return;
-		const previous = document.activeElement as HTMLElement | null;
-		addClientFirstField?.focus();
-		// Focus rendu au bouton d'ouverture à la fermeture.
-		return () => previous?.focus?.();
-	});
+	let addClientTrigger = $state<HTMLButtonElement | null>(null);
 	/* ── Fenêtre « Fiche cliente » (Vision 360) ──
 	   La fiche était un panneau de 320 px accroché sous le bouton « Fiche » :
 	   il fallait faire défiler une colonne étroite pour lire les champs. Elle
@@ -303,9 +297,20 @@
 	function ficheMarkDirty() {
 		ficheDirty = ficheSignature() !== ficheSnapshot;
 	}
-	function openFiche() {
+	/** Ouverture de la fiche : la fenêtre est montée, l'empreinte des valeurs
+	 *  d'origine est prise, puis le focus part sur le premier champ. Tout se
+	 *  joue DANS la fonction appelée par le clic (après `tick`), jamais dans un
+	 *  `$effect` : un effet qui relit `ficheForm`/`ficheFirstField` (les
+	 *  `bind:this`) et réécrit l'état de la fenêtre se relançait lui-même à
+	 *  chaque flush — jusqu'à `effect_update_depth_exceeded`, qui gelait
+	 *  ensuite tous les clics de la page (croix comprise). */
+	async function openFiche() {
 		ficheConfirmClose = false;
 		ficheOpen = true;
+		await tick();
+		ficheSnapshot = ficheSignature();
+		ficheDirty = false;
+		ficheFirstField?.focus();
 	}
 	function closeFiche() {
 		ficheOpen = false;
@@ -313,26 +318,30 @@
 		// Focus rendu au bouton « Fiche » qui a ouvert la fenêtre.
 		ficheTrigger?.focus();
 	}
+	/** Ouverture de « Ajouter une cliente » : le clic seul écrit l'état et pose
+	 *  le focus après le montage de la fenêtre (aucun `$effect`). */
+	async function openAddClient() {
+		if (addClientOpen) return;
+		addClientOpen = true;
+		await tick();
+		addClientFirstField?.focus();
+	}
 	/** Fermeture de « Ajouter une cliente » : la croix, Échap et le clic sur le
 	 *  fond passent tous par cette fonction — un seul chemin, exactement comme
 	 *  pour la fiche : impossible qu'une des trois voies se désynchronise. */
 	function closeAddClient() {
+		if (!addClientOpen) return;
 		addClientOpen = false;
+		// Focus rendu au bouton « Ajouter une cliente » qui a ouvert la fenêtre.
+		addClientTrigger?.focus();
 	}
 	/** Croix, Échap et clic sur le fond : confirmation (ConfirmDialog) si une
 	 *  saisie non enregistrée est en attente, fermeture directe sinon. */
 	function requestCloseFiche() {
+		if (!ficheOpen) return;
 		if (ficheDirty) ficheConfirmClose = true;
 		else closeFiche();
 	}
-	// À l'ouverture : empreinte des valeurs d'origine, puis focus sur le premier champ.
-	$effect(() => {
-		if (!ficheOpen) return;
-		ficheSnapshot = ficheSignature();
-		ficheDirty = false;
-		ficheFirstField?.focus();
-	});
-
 	/** Mode d'accompagnement : 'autonomy' si posé, sinon 'coaching' (clientes historiques). */
 	const coachingModeOf = (u: { coachingMode?: string | null }): 'coaching' | 'autonomy' =>
 		u.coachingMode === 'autonomy' ? 'autonomy' : 'coaching';
@@ -3079,7 +3088,8 @@
 					</div>
 					<button
 						type="button"
-						onclick={() => (addClientOpen = true)}
+						bind:this={addClientTrigger}
+						onclick={openAddClient}
 						aria-haspopup="dialog"
 						aria-expanded={addClientOpen}
 						class="btn-crm inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-brand px-3.5 py-2 text-[12.5px] font-bold text-white shadow-sm transition hover:bg-brand-dark"
