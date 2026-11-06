@@ -258,6 +258,25 @@
 	   liste `clients` déjà chargée, tri et statuts dérivés localement. */
 	type ClientFilter = 'all' | 'active' | 'inactive' | 'coaching' | 'autonomy';
 	let clientFilter = $state<ClientFilter>('all');
+	/* ── Fenêtre « Ajouter une cliente » (Vue rapide) ──
+	   Le formulaire était un panneau ABSOLU ancré `right-0` sur son `<details>`
+	   dans une carte `overflow-hidden` : dès que la vue rapide est passée dans
+	   la colonne ≈ 2/3 du tableau de bord (grille `dash-grid`), le bouton
+	   enroulé à gauche laissait les 320 px du panneau déborder hors carte et
+	   être rognés à gauche (champs + « Créer le compte » inaccessibles).
+	   La fenêtre est maintenant celle déjà utilisée dans le CRM (qs-*, centrée
+	   sur fond assombri, plein viewport) : croix, Échap et clic sur le fond la
+	   referment, le focus part sur le premier champ. Le POST `?/createClient`,
+	   ses validations et le retour après création ne changent pas. */
+	let addClientOpen = $state(false);
+	let addClientFirstField = $state<HTMLInputElement | null>(null);
+	$effect(() => {
+		if (!addClientOpen) return;
+		const previous = document.activeElement as HTMLElement | null;
+		addClientFirstField?.focus();
+		// Focus rendu au bouton d'ouverture à la fermeture.
+		return () => previous?.focus?.();
+	});
 	/** Mode d'accompagnement : 'autonomy' si posé, sinon 'coaching' (clientes historiques). */
 	const coachingModeOf = (u: { coachingMode?: string | null }): 'coaching' | 'autonomy' =>
 		u.coachingMode === 'autonomy' ? 'autonomy' : 'coaching';
@@ -2774,7 +2793,14 @@
 </script>
 
 <svelte:head><title>Espace Coach — G-Flux</title></svelte:head>
-<svelte:window onkeydown={(e) => { if (e.key === 'Escape' && quickSheet) quickSheet = null; }} />
+<svelte:window
+	onkeydown={(e) => {
+		if (e.key !== 'Escape') return;
+		// Fenêtres du CRM : une seule ouverte à la fois, la plus récente d'abord.
+		if (addClientOpen) addClientOpen = false;
+		else if (quickSheet) quickSheet = null;
+	}}
+/>
 
 <!-- ══════════ TOP HEADER COCKPIT (PASS 2 — mockup) ══════════
      Salutation + sous-titre à gauche · recherche cliente / cloche notifications
@@ -2991,20 +3017,15 @@
 						<button type="button" class="chip-crm {clientFilter === 'coaching' ? 'active-crm' : ''}" onclick={() => (clientFilter = 'coaching')} aria-pressed={clientFilter === 'coaching'}>Coaching ({clientCounts.coaching})</button>
 						<button type="button" class="chip-crm {clientFilter === 'autonomy' ? 'active-crm' : ''}" onclick={() => (clientFilter = 'autonomy')} aria-pressed={clientFilter === 'autonomy'}>Autonomie ({clientCounts.autonomy})</button>
 					</div>
-					<details class="group relative">
-						<summary class="btn-crm inline-flex cursor-pointer list-none items-center gap-1.5 rounded-full bg-brand px-3.5 py-2 text-[12.5px] font-bold text-white shadow-sm transition hover:bg-brand-dark">
-							<Icon name="plus" size={14} strokeWidth={2.6} class="shrink-0" /> Ajouter une cliente
-						</summary>
-						<form method="POST" action="?/createClient" class="absolute right-0 top-11 z-20 w-80 rounded-2xl border border-line bg-white p-4 shadow-xl">
-							<label class="mb-1 block text-xs font-bold uppercase tracking-wide text-mist" for="nc-prenom">Prénom</label>
-							<input id="nc-prenom" name="prenom" required placeholder="Ex. Julie" class="mb-3 w-full rounded-xl border-2 border-line px-3 py-2 text-sm outline-none focus:border-brand" />
-							<label class="mb-1 block text-xs font-bold uppercase tracking-wide text-mist" for="nc-email">Email (identifiant de connexion)</label>
-							<input id="nc-email" name="email" type="email" required placeholder="julie@exemple.fr" class="mb-3 w-full rounded-xl border-2 border-line px-3 py-2 text-sm outline-none focus:border-brand" />
-							<label class="mb-1 block text-xs font-bold uppercase tracking-wide text-mist" for="nc-pass">Mot de passe (8 caractères min.)</label>
-							<input id="nc-pass" name="password" type="text" required minlength="8" placeholder="Choisi avec la cliente…" class="mb-4 w-full rounded-xl border-2 border-line px-3 py-2 text-sm outline-none focus:border-brand" />
-							<button type="submit" class="w-full rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-dark">Créer le compte</button>
-						</form>
-					</details>
+					<button
+						type="button"
+						onclick={() => (addClientOpen = true)}
+						aria-haspopup="dialog"
+						aria-expanded={addClientOpen}
+						class="btn-crm inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-brand px-3.5 py-2 text-[12.5px] font-bold text-white shadow-sm transition hover:bg-brand-dark"
+					>
+						<Icon name="plus" size={14} strokeWidth={2.6} class="shrink-0" /> Ajouter une cliente
+					</button>
 				</div>
 			</div>
 
@@ -3219,6 +3240,45 @@
 
 	</aside>
 </div>
+
+<!-- ══════════ Fenêtre « Ajouter une cliente » ══════════
+     Même fenêtre que les fiches rapides du CRM (qs-*) : carte centrée sur un
+     fond assombri, ancrée au VIEWPORT → jamais rognée par une carte de la
+     grille, quelle que soit la largeur (1024 → 1920 px et mobile).
+     Fermeture : croix, Échap, clic sur le fond. Focus : premier champ. -->
+{#if addClientOpen}
+	<button
+		type="button"
+		class="qs-backdrop-crm fixed inset-0 z-[80] cursor-pointer bg-ink/45 backdrop-blur-[2px]"
+		aria-label="Fermer"
+		onclick={() => (addClientOpen = false)}
+	></button>
+	<div
+		class="fixed inset-x-4 top-1/2 z-[80] mx-auto max-w-sm -translate-y-1/2 sm:left-1/2 sm:right-auto sm:-translate-x-1/2"
+		role="dialog"
+		aria-modal="true"
+		aria-labelledby="add-client-title"
+	>
+		<div class="qs-card-crm rounded-2xl bg-white p-5 shadow-2xl">
+			<div class="flex items-center justify-between gap-2 border-b border-line pb-3">
+				<h2 id="add-client-title" class="flex items-center gap-2.5 font-display text-base font-bold text-ink">
+					<span class="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-brand-light text-brand-deep"><Icon name="plus" size={15} /></span>
+					Ajouter une cliente
+				</h2>
+				<button type="button" onclick={() => (addClientOpen = false)} class="grid h-7 w-7 place-items-center rounded-full text-mist transition hover:bg-soft hover:text-ink" aria-label="Fermer"><Icon name="x" size={14} /></button>
+			</div>
+			<form method="POST" action="?/createClient" class="mt-4">
+				<label class="mb-1 block text-xs font-bold uppercase tracking-wide text-mist" for="nc-prenom">Prénom</label>
+				<input bind:this={addClientFirstField} id="nc-prenom" name="prenom" required placeholder="Ex. Julie" class="mb-3 w-full rounded-xl border-2 border-line px-3 py-2 text-sm outline-none focus:border-brand" />
+				<label class="mb-1 block text-xs font-bold uppercase tracking-wide text-mist" for="nc-email">Email (identifiant de connexion)</label>
+				<input id="nc-email" name="email" type="email" required placeholder="julie@exemple.fr" class="mb-3 w-full rounded-xl border-2 border-line px-3 py-2 text-sm outline-none focus:border-brand" />
+				<label class="mb-1 block text-xs font-bold uppercase tracking-wide text-mist" for="nc-pass">Mot de passe (8 caractères min.)</label>
+				<input id="nc-pass" name="password" type="text" required minlength="8" placeholder="Choisi avec la cliente…" class="mb-4 w-full rounded-xl border-2 border-line px-3 py-2 text-sm outline-none focus:border-brand" />
+				<button type="submit" class="w-full rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-dark">Créer le compte</button>
+			</form>
+		</div>
+	</div>
+{/if}
 
 <!-- ═══ Vision 360° : occupe TOUT l'espace restant à droite de la sidebar
 	     CRM (md:pl-64 = largeur sidebar). Sur mobile, plein écran. ═══ -->
