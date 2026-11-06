@@ -46,7 +46,11 @@
 			(function () {
 				document.documentElement.setAttribute('data-gflux-css-guard', '');
 				var KEY = 'gflux-css-guard', REPORT = 'gflux-css-incident';
-				var running = false, banner = null;
+				var running = false, banner = null, loaded = false, restoring = false;
+				function ready() { return loaded && !restoring && !document.hidden && navigator.onLine !== false; }
+				function witnessPresent() {
+					return getComputedStyle(document.documentElement).getPropertyValue('--gflux-css-ok').trim() === '1';
+				}
 
 				// Fonction pure : testée directement depuis ce script inline.
 				function cssGuardDecision(witness, count, storageAvailable) {
@@ -106,41 +110,65 @@
 					(document.body || document.documentElement).appendChild(banner);
 				}
 				function execute(action, manual) {
-					if (running) return;
+					if (running || !ready()) return;
 					if (blocked()) { showBanner(); return; }
-					if (!manual) {
-						try { sessionStorage.setItem(KEY, action === 'reload' ? '1' : '2'); }
-						catch (_) { showBanner(); return; }
-					}
 					running = true;
-					report(action).then(function () {
-						if (blocked()) { running = false; showBanner(); return; }
-						if (action === 'reload') { location.reload(); return; }
-						var clear = 'caches' in window ? caches.keys().then(function (names) {
-							return Promise.all(names.filter(shellCache).map(function (name) { return caches.delete(name); }));
-						}) : Promise.resolve();
-						return clear.then(function () {
-							var update = navigator.serviceWorker ? navigator.serviceWorker.getRegistration().then(function (reg) { if (reg) return reg.update(); }) : Promise.resolve();
-							return Promise.race([update.catch(function () {}), new Promise(function (resolve) { setTimeout(resolve, 3000); })]);
-						}).then(function () {
+					// Le second essai ne doit jamais détruire le repli hors ligne.
+					var probe = action === 'repair'
+						? Promise.race([
+							fetch('/api/app/version', { cache: 'no-store', credentials: 'same-origin' }).then(function (res) { return res.ok; }).catch(function () { return false; }),
+							new Promise(function (resolve) { setTimeout(function () { resolve(false); }, 5000); })
+						]) : Promise.resolve(true);
+					probe.then(function (online) {
+						if (!ready()) { running = false; return; }
+						if (witnessPresent()) { running = false; check(); return; }
+						if (blocked() || !online) { running = false; showBanner(); return; }
+						if (!manual) {
+							try { sessionStorage.setItem(KEY, action === 'reload' ? '1' : '2'); }
+							catch (_) { running = false; showBanner(); return; }
+						}
+						return report(action).then(function () {
+							if (!ready()) { running = false; return; }
+							if (witnessPresent()) { running = false; check(); return; }
 							if (blocked()) { running = false; showBanner(); return; }
-							location.reload();
-						}).catch(function () { running = false; showBanner(); });
-					});
+							if (action === 'reload') { location.reload(); return; }
+							return ('caches' in window ? caches.keys() : Promise.resolve([])).then(function (names) {
+								if (!ready() || blocked() || witnessPresent()) return false;
+								return Promise.all(names.filter(shellCache).map(function (name) { return caches.delete(name); })).then(function () { return true; });
+							}).then(function (cleared) {
+								if (!cleared || !ready()) { running = false; return; }
+								var update = navigator.serviceWorker ? navigator.serviceWorker.getRegistration().then(function (reg) { if (reg) return reg.update(); }) : Promise.resolve();
+								return Promise.race([update.catch(function () {}), new Promise(function (resolve) { setTimeout(resolve, 3000); })]).then(function () {
+									if (!ready()) { running = false; return; }
+									if (blocked()) { running = false; showBanner(); return; }
+									location.reload();
+								});
+							}).catch(function () { running = false; if (ready()) showBanner(); });
+						});
+					}).catch(function () { running = false; if (ready()) showBanner(); });
 				}
 				function check() {
-					if (running) return;
-					var witness = getComputedStyle(document.documentElement).getPropertyValue('--gflux-css-ok').trim() === '1';
-					if (witness) { if (banner) { banner.remove(); banner = null; } return; }
+					if (running || !ready()) return;
+					if (witnessPresent()) {
+						try { sessionStorage.removeItem(KEY); sessionStorage.removeItem('gflux-shell-reload'); } catch (_) {}
+						if (banner) { banner.remove(); banner = null; } return;
+					}
 					var count = readCount();
 					var action = cssGuardDecision(false, count, count !== null);
 					if (blocked()) { showBanner(); void report('deferred'); return; }
 					if (action === 'banner') { showBanner(); void report('banner'); return; }
 					execute(action, false);
 				}
-				window.addEventListener('load', check, { once: true });
-				window.addEventListener('pageshow', function (e) { if (e.persisted) check(); });
-				setTimeout(check, 4000);
+				window.addEventListener('load', function () { loaded = true; check(); }, { once: true });
+				window.addEventListener('online', check);
+				document.addEventListener('visibilitychange', check);
+				window.addEventListener('pageshow', function (e) {
+					if (!e.persisted) return;
+					restoring = true;
+					requestAnimationFrame(function () { requestAnimationFrame(function () {
+						setTimeout(function () { restoring = false; check(); }, 500);
+					}); });
+				});
 			})();
 		</script>
 		<!-- Lato 400/700/900 — auto-hébergée (static/fonts/, @font-face dans
