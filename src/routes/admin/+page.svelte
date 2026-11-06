@@ -277,6 +277,56 @@
 		// Focus rendu au bouton d'ouverture à la fermeture.
 		return () => previous?.focus?.();
 	});
+	/* ── Fenêtre « Fiche cliente » (Vision 360) ──
+	   La fiche était un panneau de 320 px accroché sous le bouton « Fiche » :
+	   il fallait faire défiler une colonne étroite pour lire les champs. Elle
+	   s'ouvre maintenant dans la MÊME fenêtre que « Ajouter une cliente »
+	   (qs-backdrop-crm + qs-card-crm, fond assombri flouté, carte centrée) :
+	   960 px de large au plus (90 % de l'écran en dessous), 90 % de la hauteur
+	   d'écran au plus — en-tête et boutons fixes, seul le corps défile.
+	   Le POST `?/updateFiche` (méthode, action, section), les validations des
+	   champs et le retour après enregistrement ne changent pas. */
+	let ficheOpen = $state(false);
+	let ficheFirstField = $state<HTMLInputElement | null>(null);
+	let ficheTrigger = $state<HTMLButtonElement | null>(null);
+	let ficheForm = $state<HTMLFormElement | null>(null);
+	let ficheSnapshot = $state('');
+	let ficheDirty = $state(false);
+	let ficheConfirmClose = $state(false);
+
+	/** Valeurs du formulaire sérialisées — sert UNIQUEMENT à savoir si une saisie
+	 *  non enregistrée existe (aucune écriture, aucune validation). */
+	function ficheSignature(): string {
+		if (!ficheForm) return '';
+		return new URLSearchParams(new FormData(ficheForm) as unknown as Record<string, string>).toString();
+	}
+	function ficheMarkDirty() {
+		ficheDirty = ficheSignature() !== ficheSnapshot;
+	}
+	function openFiche() {
+		ficheConfirmClose = false;
+		ficheOpen = true;
+	}
+	function closeFiche() {
+		ficheOpen = false;
+		ficheConfirmClose = false;
+		// Focus rendu au bouton « Fiche » qui a ouvert la fenêtre.
+		ficheTrigger?.focus();
+	}
+	/** Croix, Échap et clic sur le fond : confirmation (ConfirmDialog) si une
+	 *  saisie non enregistrée est en attente, fermeture directe sinon. */
+	function requestCloseFiche() {
+		if (ficheDirty) ficheConfirmClose = true;
+		else closeFiche();
+	}
+	// À l'ouverture : empreinte des valeurs d'origine, puis focus sur le premier champ.
+	$effect(() => {
+		if (!ficheOpen) return;
+		ficheSnapshot = ficheSignature();
+		ficheDirty = false;
+		ficheFirstField?.focus();
+	});
+
 	/** Mode d'accompagnement : 'autonomy' si posé, sinon 'coaching' (clientes historiques). */
 	const coachingModeOf = (u: { coachingMode?: string | null }): 'coaching' | 'autonomy' =>
 		u.coachingMode === 'autonomy' ? 'autonomy' : 'coaching';
@@ -2795,10 +2845,14 @@
 <svelte:head><title>Espace Coach — G-Flux</title></svelte:head>
 <svelte:window
 	onkeydown={(e) => {
-		if (e.key !== 'Escape') return;
+		// Échap déjà traité par une fenêtre (ex. ConfirmDialog) : ne rien doubler.
+		if (e.key !== 'Escape' || e.defaultPrevented) return;
 		// Fenêtres du CRM : une seule ouverte à la fois, la plus récente d'abord.
 		if (addClientOpen) addClientOpen = false;
 		else if (quickSheet) quickSheet = null;
+		// La confirmation de fermeture de la fiche gère elle-même son Échap.
+		else if (ficheConfirmClose) return;
+		else if (ficheOpen) requestCloseFiche();
 	}}
 />
 
@@ -3344,75 +3398,134 @@
 				</div>
 			</div>
 			<div class="flex flex-wrap items-center gap-2">
-				<details class="group relative">
-					<summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-xl border border-line bg-white px-3.5 py-2 text-[13px] font-bold text-ink shadow-sm transition hover:border-brand hover:text-brand"><Icon name="clipboardList" size={14} class="shrink-0 text-brand" /> Fiche</summary>
-					<!-- DRAWER « Fiche » : limité au viewport (max-h) avec contenu scrollable
-							(overflow-y-auto + overscroll-contain) — les champs du bas restent
-							accessibles même avec un contenu plus long que l'écran. Le scroll
-							interne ne se propage jamais à la page derrière (overscroll-behavior).
-							Petits écrans : full-fixed avec safe-area (mobile-first). -->
-					<form method="POST" action="?/updateFiche&client={selected.user._id}&section={section}" class="fixed inset-x-0 bottom-0 z-20 max-h-[calc(100dvh-4rem)] w-full overflow-y-auto overscroll-contain rounded-t-2xl border border-line bg-white p-4 shadow-xl sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-10 sm:max-h-[min(42rem,calc(100vh-4.5rem))] sm:w-80 sm:rounded-xl">
-						<div class="sticky top-0 z-10 -mx-4 -mt-4 mb-3 flex items-center gap-2 border-b border-line bg-white/95 px-4 pb-2.5 pt-3 backdrop-blur">
-							<span class="text-[10px] font-bold uppercase tracking-widest text-mist">Fiche cliente</span>
-						</div>
-						<input type="hidden" name="userId" value={selected.user._id} />
-						<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-prenom">Prénom</label>
-						<input id="f-prenom" name="prenom" required value={selected.user.prenom} class="mb-3 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
-						<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-nom">Nom</label>
-						<input id="f-nom" name="nom" value={selected.user.nom ?? ''} placeholder="Ex. Dupont" class="mb-3 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
-						<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-email">Email (identifiant)</label>
-						<input id="f-email" name="email" type="email" required value={selected.user.email} class="mb-3 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
-						<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-birth">Date de naissance</label>
-						<input id="f-birth" name="birthDate" type="date" value={selected.user.birthDate ?? ''} class="mb-3 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
-						<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-start">Date de démarrage du suivi</label>
-						<input id="f-start" name="startDate" type="date" value={selected.user.startDate ?? ''} class="mb-3 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
-						<p class="-mt-1 mb-3 text-[10px] text-mist">Ancre les échéances : mensurations tous les 15 jours, photos tous les mois.</p>
-						<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-height">Taille (cm)</label>
-						<input id="f-height" name="heightCm" type="number" min="80" max="250" step="0.5" value={selected.user.heightCm ?? ''} placeholder="Ex. 168" class="mb-3 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
-						<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-gsheet">Tableur de suivi G-FLUX (lien Google Sheets)</label>
-						<input id="f-gsheet" name="gsheetUrl" type="url" value={selected.user.gsheetUrl ?? ''} placeholder="https://docs.google.com/spreadsheets/d/…" class="mb-3 w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
-						<p class="-mt-1.5 mb-3 text-[10px] text-mist">Réservé au coach — jamais visible côté cliente. S'ouvre dans un nouvel onglet.</p>
-						<div class="mb-3 rounded-lg border-2 border-line bg-cream/50 px-3 py-2.5">
-							<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-mode">Statut d'accompagnement</label>
-							<select id="f-mode" name="coachingMode" class="w-full rounded-lg border-2 border-line bg-white px-2 py-1.5 text-sm outline-none focus:border-brand">
-								<option value="coaching" selected={coachingModeOf(selected.user) === 'coaching'}>Coaching actif (défaut)</option>
-								<option value="autonomy" selected={coachingModeOf(selected.user) === 'autonomy'}>Autonomie / Post-coaching</option>
-							</select>
-							<p class="mt-1.5 text-[11px] leading-snug text-mist">En Autonomie, la cliente garde son compte, son historique et tous ses outils, mais les sollicitations de coaching s'arrêtent : bilans hebdo, rappels mensurations/photos, rappel RDV 12 h, alerte d'inactivité et notifications push.</p>
-						</div>
-						<!-- CONSENTEMENTS (M5) — section dédiée de la fiche. Le coach
-								 enregistre (ou retire) l'accord de LA cliente ; tant qu'il
-								 n'est pas enregistré, le brouillon IA reste désactivé. -->
-						<div class="mb-3 rounded-lg border-2 border-dashed border-line bg-cream/50 px-3 py-2.5">
-							<p class="mb-1 text-[10px] font-bold uppercase tracking-wider text-mist">Consentements</p>
-							<label class="flex cursor-pointer items-start gap-2 text-sm text-ink">
-								<input type="checkbox" name="aiConsent" value="1" checked={!!selected.user.aiConsentAt} class="mt-0.5 accent-brand" />
-								<span>
-									<span class="block text-[11px] font-bold text-ink">Consentement assistant IA</span>
-									{#if selected.user.aiConsentAt}
-										<span class="mt-0.5 block text-[11px] leading-snug text-mist">Accordé le {new Date(selected.user.aiConsentAt).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
-									{:else}
-										<span class="mt-0.5 block text-[11px] leading-snug text-mist">Tant qu'il n'est pas enregistré, la préparation de brouillon IA reste désactivée pour cette cliente.</span>
-									{/if}
-								</span>
-							</label>
-							<input type="hidden" name="aiConsent" value="0" />
-						</div>
-						<div class="mb-3 rounded-lg border-2 border-dashed border-line bg-cream/50 px-3 py-2.5">
-							<label class="flex cursor-pointer items-start gap-2 text-sm text-ink">
-								<input type="checkbox" name="onboardingEnabled" value="1" checked={selected.user.onboardingEnabled} class="accent-brand" />
-								<span>
-									<span class="block text-[10px] font-bold uppercase tracking-wider text-mist">Onboarding de démarrage requis</span>
-									<span class="mt-0.5 block text-[11px] leading-snug text-mist">Affiche le parcours 2 étapes (formulaire + mensurations/photos) côté cliente tant qu'il n'est pas terminé. Les réponses déjà envoyées sont conservées si tu désactives.</span>
-								</span>
-							</label>
-							<input type="hidden" name="onboardingEnabled" value="0" />
-						</div>
-						<button type="submit" class="w-full rounded-lg bg-brand px-3 py-2 text-sm font-semibold text-white hover:bg-brand-dark">Enregistrer la fiche</button>
-						<!-- Safe-area mobile (home indicator) : spacer nul sur desktop. -->
-						<div class="h-[env(safe-area-inset-bottom)]" aria-hidden="true"></div>
-					</form>
-				</details>
+				<button
+					type="button"
+					bind:this={ficheTrigger}
+					onclick={openFiche}
+					aria-haspopup="dialog"
+					class="flex cursor-pointer list-none items-center gap-1.5 rounded-xl border border-line bg-white px-3.5 py-2 text-[13px] font-bold text-ink shadow-sm transition hover:border-brand hover:text-brand"
+				><Icon name="clipboardList" size={14} class="shrink-0 text-brand" /> Fiche</button>
+				{#if ficheOpen}
+					<!-- WINDOW « Fiche cliente » : même fenêtre que « Ajouter une cliente »
+					     (qs-backdrop-crm + qs-card-crm, fond assombri/flouté, carte centrée).
+					     960 px de large au plus (90 % de l'écran en dessous), 90 % de la
+					     hauteur d'écran au plus : l'en-tête et les boutons restent fixes,
+					     seul le corps défile. Deux colonnes à partir de 1024 px, une seule
+					     en dessous (ordre actuel des champs). Fermeture : croix, Échap,
+					     clic sur le fond — confirmation si une saisie est en attente. -->
+					<button
+						type="button"
+						class="qs-backdrop-crm fixed inset-0 z-[80] cursor-pointer bg-ink/45 backdrop-blur-[2px]"
+						aria-label="Fermer"
+						onclick={requestCloseFiche}
+					></button>
+					<div
+						role="dialog"
+						aria-modal="true"
+						aria-labelledby="fiche-client-title"
+						class="pointer-events-none fixed inset-0 z-[80] flex items-center justify-center p-4"
+					>
+						<form
+							bind:this={ficheForm}
+							oninput={ficheMarkDirty}
+							onchange={ficheMarkDirty}
+							method="POST"
+							action="?/updateFiche&client={selected.user._id}&section={section}"
+							class="qs-card-crm pointer-events-auto flex max-h-[90dvh] w-[90vw] max-w-[960px] flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-2xl"
+						>
+							<div class="flex shrink-0 items-center justify-between gap-2 border-b border-line px-5 py-3.5">
+								<h2 id="fiche-client-title" class="flex items-center gap-2.5 font-display text-base font-bold text-ink">
+									<span class="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-brand-light text-brand-deep"><Icon name="clipboardList" size={15} /></span>
+									Fiche cliente
+								</h2>
+								<button type="button" onclick={requestCloseFiche} class="grid h-7 w-7 place-items-center rounded-full text-mist transition hover:bg-soft hover:text-ink" aria-label="Fermer"><Icon name="x" size={14} /></button>
+							</div>
+							<div class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+								<input type="hidden" name="userId" value={selected.user._id} />
+								<!-- `max-lg:contents` dissout les deux colonnes sous 1024 px : les
+								     champs redeviennent les seuls éléments d'une grille à une
+								     colonne, et les `max-lg:order-*` y conservent l'ordre actuel
+								     des champs (Taille avant Démarrage comme aujourd'hui). -->
+								<div class="grid gap-y-3 lg:grid-cols-2 lg:gap-x-6 lg:gap-y-0">
+									<div class="max-lg:contents lg:flex lg:min-w-0 lg:flex-col lg:gap-3">
+										<div class="max-lg:order-1">
+											<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-prenom">Prénom</label>
+											<input bind:this={ficheFirstField} id="f-prenom" name="prenom" required value={selected.user.prenom} class="w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
+										</div>
+										<div class="max-lg:order-2">
+											<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-nom">Nom</label>
+											<input id="f-nom" name="nom" value={selected.user.nom ?? ''} placeholder="Ex. Dupont" class="w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
+										</div>
+										<div class="max-lg:order-3">
+											<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-email">Email (identifiant)</label>
+											<input id="f-email" name="email" type="email" required value={selected.user.email} class="w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
+										</div>
+										<div class="max-lg:order-4">
+											<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-birth">Date de naissance</label>
+											<input id="f-birth" name="birthDate" type="date" value={selected.user.birthDate ?? ''} class="w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
+										</div>
+										<div class="max-lg:order-6">
+											<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-height">Taille (cm)</label>
+											<input id="f-height" name="heightCm" type="number" min="80" max="250" step="0.5" value={selected.user.heightCm ?? ''} placeholder="Ex. 168" class="w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
+										</div>
+									</div>
+									<div class="max-lg:contents lg:flex lg:min-w-0 lg:flex-col lg:gap-3">
+										<div class="max-lg:order-5">
+											<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-start">Date de démarrage du suivi</label>
+											<input id="f-start" name="startDate" type="date" value={selected.user.startDate ?? ''} class="w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
+											<p class="mt-1 text-[10px] text-mist">Ancre les échéances : mensurations tous les 15 jours, photos tous les mois.</p>
+										</div>
+										<div class="max-lg:order-7">
+											<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-gsheet">Tableur de suivi G-FLUX (lien Google Sheets)</label>
+											<input id="f-gsheet" name="gsheetUrl" type="url" value={selected.user.gsheetUrl ?? ''} placeholder="https://docs.google.com/spreadsheets/d/…" class="w-full rounded-lg border-2 border-line px-2 py-1.5 text-sm outline-none focus:border-brand" />
+											<p class="mt-1 text-[10px] text-mist">Réservé au coach — jamais visible côté cliente. S'ouvre dans un nouvel onglet.</p>
+										</div>
+										<div class="max-lg:order-8 rounded-lg border-2 border-line bg-cream/50 px-3 py-2.5">
+											<label class="mb-1 block text-[10px] font-bold uppercase tracking-wider text-mist" for="f-mode">Statut d'accompagnement</label>
+											<select id="f-mode" name="coachingMode" class="w-full rounded-lg border-2 border-line bg-white px-2 py-1.5 text-sm outline-none focus:border-brand">
+												<option value="coaching" selected={coachingModeOf(selected.user) === 'coaching'}>Coaching actif (défaut)</option>
+												<option value="autonomy" selected={coachingModeOf(selected.user) === 'autonomy'}>Autonomie / Post-coaching</option>
+											</select>
+											<p class="mt-1.5 text-[11px] leading-snug text-mist">En Autonomie, la cliente garde son compte, son historique et tous ses outils, mais les sollicitations de coaching s'arrêtent : bilans hebdo, rappels mensurations/photos, rappel RDV 12 h, alerte d'inactivité et notifications push.</p>
+										</div>
+										<!-- CONSENTEMENTS (M5) — section dédiée de la fiche. Le coach
+										     enregistre (ou retire) l'accord de LA cliente ; tant qu'il
+										     n'est pas enregistré, le brouillon IA reste désactivé. -->
+										<div class="max-lg:order-9 rounded-lg border-2 border-dashed border-line bg-cream/50 px-3 py-2.5">
+											<p class="mb-1 text-[10px] font-bold uppercase tracking-wider text-mist">Consentements</p>
+											<label class="flex cursor-pointer items-start gap-2 text-sm text-ink">
+												<input type="checkbox" name="aiConsent" value="1" checked={!!selected.user.aiConsentAt} class="mt-0.5 accent-brand" />
+												<span>
+													<span class="block text-[11px] font-bold text-ink">Consentement assistant IA</span>
+													{#if selected.user.aiConsentAt}
+														<span class="mt-0.5 block text-[11px] leading-snug text-mist">Accordé le {new Date(selected.user.aiConsentAt).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+													{:else}
+														<span class="mt-0.5 block text-[11px] leading-snug text-mist">Tant qu'il n'est pas enregistré, la préparation de brouillon IA reste désactivée pour cette cliente.</span>
+													{/if}
+												</span>
+											</label>
+											<input type="hidden" name="aiConsent" value="0" />
+										</div>
+										<div class="max-lg:order-10 rounded-lg border-2 border-dashed border-line bg-cream/50 px-3 py-2.5">
+											<label class="flex cursor-pointer items-start gap-2 text-sm text-ink">
+												<input type="checkbox" name="onboardingEnabled" value="1" checked={selected.user.onboardingEnabled} class="accent-brand" />
+												<span>
+													<span class="block text-[10px] font-bold uppercase tracking-wider text-mist">Onboarding de démarrage requis</span>
+													<span class="mt-0.5 block text-[11px] leading-snug text-mist">Affiche le parcours 2 étapes (formulaire + mensurations/photos) côté cliente tant qu'il n'est pas terminé. Les réponses déjà envoyées sont conservées si tu désactives.</span>
+												</span>
+											</label>
+											<input type="hidden" name="onboardingEnabled" value="0" />
+										</div>
+									</div>
+								</div>
+							</div>
+							<div class="flex shrink-0 items-center justify-end gap-2 border-t border-line bg-white px-5 pt-3 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
+								<button type="button" onclick={requestCloseFiche} class="rounded-lg border-2 border-line px-3.5 py-2 text-sm font-semibold text-ink transition hover:border-mist">Annuler</button>
+								<button type="submit" class="rounded-lg bg-brand px-3.5 py-2 text-sm font-semibold text-white hover:bg-brand-dark">Enregistrer la fiche</button>
+							</div>
+						</form>
+					</div>
+				{/if}
 				<details class="group relative">
 					<summary class="flex cursor-pointer list-none items-center gap-1.5 rounded-xl border border-line bg-white px-3.5 py-2 text-[13px] font-bold text-ink shadow-sm transition hover:border-brand hover:text-brand"><Icon name="shieldCheck" size={13} class="shrink-0 text-brand" /> Accès G-FLUX</summary>
 					<form method="POST" action="?/setBillingAccess&client={selected.user._id}&section={section}" class="absolute right-0 top-10 z-20 w-80 rounded-xl border border-line bg-white p-3 shadow-xl">
@@ -6214,6 +6327,20 @@
 		<p class="mt-3 text-sm text-ink">Crée un compte client pour démarrer le suivi.</p>
 	</div>
 {/if}
+
+<!-- Confirmation de fermeture de la fiche cliente — même composant que les
+     autres confirmations du CRM. Monté au niveau de la page (aucun dialogue
+     de confirmation ne contient de champ) : inerte tant qu'il est fermé. -->
+<ConfirmDialog
+	open={ficheConfirmClose}
+	title="Fermer la fiche sans enregistrer ?"
+	message="Des modifications ne sont pas encore enregistrées : elles seront perdues si tu fermes la fiche."
+	confirmLabel="Fermer sans enregistrer"
+	cancelLabel="Continuer la saisie"
+	danger
+	onconfirm={closeFiche}
+	oncancel={() => (ficheConfirmClose = false)}
+/>
 
 <style>
 	/* Tableau de bord coach : vue rapide (≈ 2/3) + colonne droite (≈ 1/3).
