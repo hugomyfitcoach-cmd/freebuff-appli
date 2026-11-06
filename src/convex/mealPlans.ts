@@ -410,13 +410,22 @@ export const assignTemplate = mutation({
 		}
 		const days = weekdays && weekdays.length > 0 ? [...new Set(weekdays)].filter((d) => WEEKDAYS.includes(d)).sort() : WEEKDAYS;
 
-		// Un seul plan actif à la fois : on retire les assignations actives.
+		// Un seul plan actif à la fois : on retire les assignations actives —
+		// jamais de suppression, l'historique reste intact.
 		const existing = await ctx.db
 			.query("mealPlanAssignments")
 			.withIndex("by_user", (q) => q.eq("userId", userId))
 			.collect();
+		// Réassignation le JOUR J : la journée en cours garde l'ancien plan (ses
+		// items sont déjà matérialisés, y compris mangés ou modifiés) ; le
+		// nouveau plan démarre le lendemain. On reporte donc la date du jour
+		// dans les dates matérialisées de la NOUVELLE assignation.
+		const today = localTodayOfTs(Date.now());
+		let keepToday = false;
 		for (const a of existing) {
-			if (!a.removedAt) await ctx.db.patch(a._id, { removedAt: Date.now() });
+			if (a.removedAt) continue;
+			if ((a.materializedDates ?? []).includes(today)) keepToday = true;
+			await ctx.db.patch(a._id, { removedAt: Date.now() });
 		}
 		await ctx.db.insert("mealPlanAssignments", {
 			userId,
@@ -425,6 +434,7 @@ export const assignTemplate = mutation({
 			startDate,
 			endDate,
 			weekdays: days,
+			...(keepToday ? { materializedDates: [today] } : {}),
 			createdAt: Date.now(),
 		});
 		// Mécanisme central de propagation : la cliente reçoit l'événement
