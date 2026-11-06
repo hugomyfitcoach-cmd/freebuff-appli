@@ -41,6 +41,136 @@
 			// Respect natif de prefers-reduced-motion côté CSS.
 			document.documentElement.classList.add('motion-armed');
 		</script>
+		<script>
+			/* Garde autonome : fonctionne même si les modules d'hydratation manquent. */
+			(function () {
+				document.documentElement.setAttribute('data-gflux-css-guard', '');
+				var KEY = 'gflux-css-guard', REPORT = 'gflux-css-incident';
+				var running = false, banner = null, loaded = false, restoring = false;
+				function ready() { return loaded && !restoring && !document.hidden && navigator.onLine !== false; }
+				function witnessPresent() {
+					return getComputedStyle(document.documentElement).getPropertyValue('--gflux-css-ok').trim() === '1';
+				}
+
+				// Fonction pure : testée directement depuis ce script inline.
+				function cssGuardDecision(witness, count, storageAvailable) {
+					if (witness) return 'none';
+					if (!storageAvailable || count >= 2) return 'banner';
+					return count === 0 ? 'reload' : 'repair';
+				}
+				function shellCache(name) {
+					return name.indexOf('gflux-') === 0 && name.indexOf('gflux-img-') !== 0;
+				}
+				function blocked() {
+					if (document.querySelector('[role="dialog"][aria-modal="true"], dialog[open]')) return true;
+					var el = document.activeElement;
+					return !!el && (['INPUT', 'TEXTAREA', 'SELECT'].indexOf(el.tagName) !== -1 || el.isContentEditable);
+				}
+				function readCount() {
+					try {
+						var raw = sessionStorage.getItem(KEY);
+						if (raw !== null && raw !== '0' && raw !== '1' && raw !== '2') return null;
+						return Number(raw || 0);
+					} catch (_) { return null; }
+				}
+				function report(action) {
+					try {
+						if (!navigator.sendBeacon || sessionStorage.getItem(REPORT)) return Promise.resolve();
+						// Écrire avant l'envoi évite les doublons même pendant le reload.
+						sessionStorage.setItem(REPORT, '1');
+					} catch (_) { return Promise.resolve(); }
+					var links = Array.from(document.querySelectorAll('link[rel="stylesheet"]')).map(function (link) {
+						var path;
+						try { path = new URL(link.href, location.href).pathname; } catch (_) { return null; }
+						if (!/^\/_app\/immutable\/[\w./-]+\.css$/.test(path)) return null;
+						var rules = null;
+						try { if (link.sheet) rules = link.sheet.cssRules.length; } catch (_) {}
+						return { path: path, sheetNull: !link.sheet, rules: rules };
+					}).filter(Boolean).slice(0, 30);
+					var build = (document.querySelector('meta[name="app-build"]') || {}).content || '';
+					if (!/^[\w.-]{0,128}$/.test(build)) build = '';
+					var ua = navigator.userAgent.slice(0, 256).replace(/[^\w\s.()\/;:+-]/g, '');
+					var cacheList = ('caches' in window ? caches.keys() : Promise.resolve([]));
+					return Promise.race([cacheList.catch(function () { return []; }), new Promise(function (resolve) { setTimeout(function () { resolve([]); }, 300); })]).then(function (names) {
+						names = names.filter(function (name) { return /^gflux-[\w.-]{1,128}$/.test(name); }).slice(0, 30);
+						navigator.sendBeacon('/api/app/incident', JSON.stringify({ build: build, witness: 'missing', styles: links, controller: !!(navigator.serviceWorker && navigator.serviceWorker.controller), caches: names, userAgent: ua, action: action }));
+					}).catch(function () {});
+				}
+				function showBanner() {
+					if (banner) return;
+					banner = document.createElement('div');
+					banner.setAttribute('role', 'status');
+					banner.style.cssText = 'position:fixed;z-index:2147483647;top:0;left:0;right:0;padding:14px;background:#fff;color:#111;font:16px system-ui,sans-serif;box-shadow:0 2px 8px #0004;text-align:center';
+					banner.appendChild(document.createTextNode("L'app n'a pas fini de se mettre à jour "));
+					var button = document.createElement('button');
+					button.textContent = 'Réparer';
+					button.style.cssText = 'margin-left:8px;padding:8px 14px;background:#1db954;color:#fff;border:0;border-radius:6px;font:inherit';
+					button.addEventListener('click', function () { if (!blocked()) execute('repair', true); });
+					banner.appendChild(button);
+					(document.body || document.documentElement).appendChild(banner);
+				}
+				function execute(action, manual) {
+					if (running || !ready()) return;
+					if (blocked()) { showBanner(); return; }
+					running = true;
+					// Le second essai ne doit jamais détruire le repli hors ligne.
+					var probe = action === 'repair'
+						? Promise.race([
+							fetch('/api/app/version', { cache: 'no-store', credentials: 'same-origin' }).then(function (res) { return res.ok; }).catch(function () { return false; }),
+							new Promise(function (resolve) { setTimeout(function () { resolve(false); }, 5000); })
+						]) : Promise.resolve(true);
+					probe.then(function (online) {
+						if (!ready()) { running = false; return; }
+						if (witnessPresent()) { running = false; check(); return; }
+						if (blocked() || !online) { running = false; showBanner(); return; }
+						if (!manual) {
+							try { sessionStorage.setItem(KEY, action === 'reload' ? '1' : '2'); }
+							catch (_) { running = false; showBanner(); return; }
+						}
+						return report(action).then(function () {
+							if (!ready()) { running = false; return; }
+							if (witnessPresent()) { running = false; check(); return; }
+							if (blocked()) { running = false; showBanner(); return; }
+							if (action === 'reload') { location.reload(); return; }
+							return ('caches' in window ? caches.keys() : Promise.resolve([])).then(function (names) {
+								if (!ready() || blocked() || witnessPresent()) return false;
+								return Promise.all(names.filter(shellCache).map(function (name) { return caches.delete(name); })).then(function () { return true; });
+							}).then(function (cleared) {
+								if (!cleared || !ready()) { running = false; return; }
+								var update = navigator.serviceWorker ? navigator.serviceWorker.getRegistration().then(function (reg) { if (reg) return reg.update(); }) : Promise.resolve();
+								return Promise.race([update.catch(function () {}), new Promise(function (resolve) { setTimeout(resolve, 3000); })]).then(function () {
+									if (!ready()) { running = false; return; }
+									if (blocked()) { running = false; showBanner(); return; }
+									location.reload();
+								});
+							}).catch(function () { running = false; if (ready()) showBanner(); });
+						});
+					}).catch(function () { running = false; if (ready()) showBanner(); });
+				}
+				function check() {
+					if (running || !ready()) return;
+					if (witnessPresent()) {
+						try { sessionStorage.removeItem(KEY); sessionStorage.removeItem('gflux-shell-reload'); } catch (_) {}
+						if (banner) { banner.remove(); banner = null; } return;
+					}
+					var count = readCount();
+					var action = cssGuardDecision(false, count, count !== null);
+					if (blocked()) { showBanner(); void report('deferred'); return; }
+					if (action === 'banner') { showBanner(); void report('banner'); return; }
+					execute(action, false);
+				}
+				window.addEventListener('load', function () { loaded = true; check(); }, { once: true });
+				window.addEventListener('online', check);
+				document.addEventListener('visibilitychange', check);
+				window.addEventListener('pageshow', function (e) {
+					if (!e.persisted) return;
+					restoring = true;
+					requestAnimationFrame(function () { requestAnimationFrame(function () {
+						setTimeout(function () { restoring = false; check(); }, 500);
+					}); });
+				});
+			})();
+		</script>
 		<!-- Lato 400/700/900 — auto-hébergée (static/fonts/, @font-face dans
 		     src/routes/layout.css, précache du service worker) : le CRM coach
 		     garde 900 (titres, KPI), 700 (boutons, labels, navigation) et 400

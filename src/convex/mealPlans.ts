@@ -410,13 +410,22 @@ export const assignTemplate = mutation({
 		}
 		const days = weekdays && weekdays.length > 0 ? [...new Set(weekdays)].filter((d) => WEEKDAYS.includes(d)).sort() : WEEKDAYS;
 
-		// Un seul plan actif à la fois : on retire les assignations actives.
+		// Un seul plan actif à la fois : on retire les assignations actives —
+		// jamais de suppression, l'historique reste intact.
 		const existing = await ctx.db
 			.query("mealPlanAssignments")
 			.withIndex("by_user", (q) => q.eq("userId", userId))
 			.collect();
+		// Réassignation le JOUR J : la journée en cours garde l'ancien plan (ses
+		// items sont déjà matérialisés, y compris mangés ou modifiés) ; le
+		// nouveau plan démarre le lendemain. On reporte donc la date du jour
+		// dans les dates matérialisées de la NOUVELLE assignation.
+		const today = localTodayOfTs(Date.now());
+		let keepToday = false;
 		for (const a of existing) {
-			if (!a.removedAt) await ctx.db.patch(a._id, { removedAt: Date.now() });
+			if (a.removedAt) continue;
+			if ((a.materializedDates ?? []).includes(today)) keepToday = true;
+			await ctx.db.patch(a._id, { removedAt: Date.now() });
 		}
 		await ctx.db.insert("mealPlanAssignments", {
 			userId,
@@ -425,6 +434,7 @@ export const assignTemplate = mutation({
 			startDate,
 			endDate,
 			weekdays: days,
+			...(keepToday ? { materializedDates: [today] } : {}),
 			createdAt: Date.now(),
 		});
 		// Mécanisme central de propagation : la cliente reçoit l'événement
@@ -517,7 +527,8 @@ export const ensurePlanForDate = mutation({
  * Règles :
  * - l'assignation doit couvrir la date (start/end/weekday, non retirée) ;
  * - une date PASSÉE n'est jamais résolue (l'historique n'est jamais reconstruit) ;
- * - items déjà matérialisés pour la même clé template → aucun doublon ;
+ * - une date déjà matérialisée ne se régénère JAMAIS (même si la cliente a
+ *   supprimé tous ses items) → son choix survit au rechargement ;
  * - un template modifié par le coach n'affecte que les dates PAS ENCORE matérialisées.
  */
 export async function resolveCoachPlanForDate(
@@ -550,14 +561,25 @@ export async function resolveCoachPlanForDate(
 		.query("plannedEntries")
 		.withIndex("by_user_date", (q) => q.eq("userId", userId).eq("date", date))
 		.collect();
-	const existingKeys = new Set(
-		existing.filter((e) => e.source === "coach_plan").map((e) => e.templateItemKey ?? e.name)
+	const templateRows = existing.filter(
+		(e) => e.source === "coach_plan" && e.templateId === template._id
 	);
+	const materialized = active.materializedDates ?? [];
+
+	// DATE DÉJÀ MATÉRIALISÉE → jamais reprojetée. La présence d'items coach_plan
+	// du même plan vaut matière (dates résolues avant l'ajout du marqueur) :
+	// sinon une suppression d'aliment serait annulée à chaque rechargement
+	// (le jour J ne se distingue plus d'une date vierge).
+	if (materialized.includes(date) || templateRows.length > 0) {
+		if (!materialized.includes(date)) {
+			await ctx.db.patch(active._id, { materializedDates: [...materialized, date] });
+		}
+		return;
+	}
 
 	for (let i = 0; i < template.items.length; i++) {
 		const item = template.items[i];
 		const key = templateItemKey(item, i);
-		if (existingKeys.has(key)) continue;
 		await ctx.db.insert("plannedEntries", {
 			userId,
 			date,
@@ -581,6 +603,9 @@ export async function resolveCoachPlanForDate(
 			createdAt: Date.now(),
 		});
 	}
+	// La date est désormais matérialisée : ses items sont la source de vérité
+	// du jour (modifications et suppressions de la cliente comprises).
+	await ctx.db.patch(active._id, { materializedDates: [...materialized, date] });
 }
 
 /** Clé stable d'un item de template (index + repas + nom). */

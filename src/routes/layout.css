@@ -91,6 +91,7 @@
 }
 
 :root {
+	--gflux-css-ok: 1;
 	--bg: #ffffff;
 	--text: #0f1512;
 	--accent: #1db954;

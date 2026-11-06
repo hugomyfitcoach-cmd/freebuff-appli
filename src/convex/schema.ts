@@ -110,6 +110,24 @@ export const coachNotifKind = v.union(
 );
 
 export default defineSchema({
+	appIncidents: defineTable({
+		createdAt: v.number(),
+		userId: v.optional(v.id("users")),
+		build: v.string(),
+		witness: v.string(),
+		/**
+		 * Feuilles CSS observées par la garde : chemin d'asset (motif fermé) et
+		 * ÉTAT énuméré (jamais le nombre de règles brut ni de texte libre).
+		 */
+		styles: v.array(v.object({
+			path: v.string(),
+			state: v.union(v.literal("missing"), v.literal("blocked"), v.literal("empty"), v.literal("loaded")),
+		})),
+		controller: v.boolean(),
+		caches: v.array(v.string()),
+		userAgent: v.string(),
+		action: v.union(v.literal("reload"), v.literal("repair"), v.literal("banner"), v.literal("deferred")),
+	}).index("by_user_date", ["userId", "createdAt"]).index("by_date", ["createdAt"]),
 	users: defineTable({
 		/** Email normalisé (minuscules, sans espaces) — identifiant de connexion. */
 		email: v.string(),
@@ -967,6 +985,15 @@ export default defineSchema({
 		endDate: v.string(),
 		/** Jours de semaine concernés : [1..7] = lundi..dimanche (tous par défaut). */
 		weekdays: v.optional(v.array(v.number())),
+		/**
+		 * Dates déjà MATÉRIALISÉES (copy-on-write) pour cette assignation —
+		 * ajout FACULTATIF, rétro-compatible (absent = aucune date encore résolue).
+		 * Une date présente ici ne se régénère plus jamais : le choix de la
+		 * cliente (aliment supprimé, quantité changée) survit au rechargement
+		 * même si elle a retiré TOUS les items du plan. Les jours suivants ne
+		 * sont pas concernés (chaque date a sa propre matérialisation).
+		 */
+		materializedDates: v.optional(v.array(v.string())),
 		/** Retrait par le coach (ms) — l'historique consommé reste intact. */
 		removedAt: v.optional(v.number()),
 		createdAt: v.number(),

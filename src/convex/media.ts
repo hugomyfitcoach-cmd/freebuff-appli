@@ -295,6 +295,10 @@ export const expire = mutation({
 			throw new ConvexError("Purge refusée.");
 		}
 		const now = Date.now();
+		// Maintenance horaire : purge bornée des incidents âgés de 30 jours.
+		const incidents = await ctx.db.query("appIncidents")
+			.withIndex("by_date", (q) => q.lt("createdAt", now - 30 * 86400000)).take(200);
+		for (const incident of incidents) await ctx.db.delete(incident._id);
 		// 1) Messages du coach du jour expirés (minuit local cliente) : retrait de
 		//    l'état actif ; les fichiers journalisés (Vision 360) sont conservés.
 		await expireStaleCoachMessages(ctx, now);

@@ -1,4 +1,5 @@
-import { action, query, internalMutation } from "./_generated/server";
+import { action, query, mutation, internalMutation } from "./_generated/server";
+import { getSessionUser } from "./helpers";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 
@@ -25,6 +26,61 @@ import { api, internal } from "./_generated/api";
 export const CURRENT_API_VERSION = 3;
 
 const META_KEY = "api";
+
+/** Plafond transactionnel par compte sur 24 h (aucun quota anonyme : sans session, rien n'est écrit). */
+export function incidentAllowed(count: number): boolean { return count < 20; }
+
+/** États fermés d'une feuille CSS (miroir de src/lib/server/incident.ts). */
+const SHEET_STATES = ["missing", "blocked", "empty", "loaded"] as const;
+const WITNESS_STATES = ["missing", "present"] as const;
+
+/**
+ * Rapport d'incident CSS. Public (sendBeacon → BFF) : la mutation exige donc
+ * une SESSION VALIDE et n'accepte que des champs en liste fermée — un appel
+ * direct contourne le BFF, il ne peut rien y glisser d'autre qu'une
+ * énumération, un motif ou une valeur bornée.
+ */
+export const recordIncident = mutation({
+	args: {
+		sessionToken: v.optional(v.string()),
+		build: v.string(),
+		witness: v.union(v.literal("missing"), v.literal("present")),
+		styles: v.array(v.object({
+			path: v.string(),
+			state: v.union(v.literal("missing"), v.literal("blocked"), v.literal("empty"), v.literal("loaded")),
+		})),
+		controller: v.boolean(), caches: v.array(v.string()), userAgent: v.string(),
+		action: v.union(v.literal("reload"), v.literal("repair"), v.literal("banner"), v.literal("deferred")),
+	},
+	handler: async (ctx, args) => {
+		// Session OBLIGATOIRE : un rapport anonyme n'est ni quoté ni stocké.
+		const user = await getSessionUser(ctx, args.sessionToken);
+		if (!user) return { recorded: false };
+		// Bornes revérifiées ici (défense en profondeur : les validateurs
+		// Convex ne s'appliquent pas à un handler appelé directement).
+		const userAgent = args.userAgent.slice(0, 300);
+		if (!/^[\w.-]{0,64}$/.test(args.build) ||
+			!(WITNESS_STATES as readonly string[]).includes(args.witness) ||
+			args.styles.length > 30 || args.caches.length > 10 ||
+			!/^[\w\s.()\/;:+-]*$/.test(userAgent) ||
+			args.caches.some((name) => !/^gflux-[a-z0-9-]+$/.test(name)) ||
+			args.styles.some((s) => !/^\/_app\/immutable\/[\w./-]{1,200}\.css$/.test(s.path) ||
+				!(SHEET_STATES as readonly string[]).includes(s.state))) {
+			throw new Error("Rapport invalide");
+		}
+		const now = Date.now();
+		const recent = await ctx.db.query("appIncidents")
+			.withIndex("by_user_date", (q) => q.eq("userId", user._id).gte("createdAt", now - 86400000))
+			.take(20);
+		if (!incidentAllowed(recent.length)) return { recorded: false };
+		await ctx.db.insert("appIncidents", {
+			build: args.build, witness: args.witness, styles: args.styles, controller: args.controller,
+			caches: args.caches, userAgent, action: args.action,
+			userId: user._id, createdAt: now,
+		});
+		return { recorded: true };
+	},
+});
 
 /** Lit la version courante (usage BFF/outils). */
 export const getApiVersion = query({
